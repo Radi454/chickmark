@@ -12,6 +12,7 @@ import '../models/vaccine_storage.dart';
 import '../models/egg_storage.dart';
 import '../models/hatchery_results.dart';
 import '../models/benchmark.dart';
+import '../models/user.dart';
 
 class DatabaseHelper {
   // ── Singleton ─────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ class DatabaseHelper {
     }
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -81,9 +82,13 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE chick_quality ADD COLUMN weights_hatch_json TEXT');
     }
+    if (oldVersion < 6) {
+      await _createUsersTable(db);
+    }
   }
 
   Future<void> _createAllTables(Database db) async {
+    await _createUsersTable(db);
     await db.execute('''
       CREATE TABLE customers (
         id TEXT PRIMARY KEY,
@@ -312,6 +317,61 @@ class DatabaseHelper {
       )
     ''');
     await _seedEggBreakoutInterpretations(db);
+  }
+
+  Future<void> _createUsersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        mobile TEXT,
+        email TEXT,
+        birthdate TEXT,
+        gender TEXT,
+        location TEXT,
+        role TEXT,
+        is_broiler INTEGER NOT NULL DEFAULT 0,
+        is_layer INTEGER NOT NULL DEFAULT 0,
+        is_breeder INTEGER NOT NULL DEFAULT 0,
+        password TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  // ── Users ─────────────────────────────────────────────────────────────────
+
+  Future<void> insertUser(UserModel user) async {
+    final db = await database;
+    await db.insert(
+      'users',
+      user.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<UserModel?> getUserLogin(String identifier, String password) async {
+    final db = await database;
+    final maps = await db.query(
+      'users',
+      where: '(username = ? OR email = ? OR mobile = ?) AND password = ?',
+      whereArgs: [identifier, identifier, identifier, password],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return UserModel.fromMap(maps.first);
+  }
+
+  Future<UserModel?> getUserByUsername(String username) async {
+    final db = await database;
+    final maps = await db.query(
+      'users',
+      where: 'username = ?',
+      whereArgs: [username],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return UserModel.fromMap(maps.first);
   }
 
   // ── Customers ─────────────────────────────────────────────────────────────

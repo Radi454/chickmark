@@ -71,7 +71,7 @@ class HatcheryResults {
   int? totalHatcherCapacity; // default 19200
 
   // ── Per-hatcher data ──────────────────────────────────────────────────────
-  /// JSON-encoded List<HatcherEntry>
+  /// JSON-encoded `List<HatcherEntry>`
   String hatchersJson;
 
   List<HatcherEntry> get hatchers {

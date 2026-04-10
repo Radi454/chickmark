@@ -55,7 +55,7 @@ class EggBreakout {
   int? sampleSize;
 
   // ── Per-tray data (legacy flat format) ───────────────────────────────────
-  /// JSON-encoded List<Map<String, dynamic>>.
+  /// JSON-encoded `List<Map<String, dynamic>>`.
   /// Each map: {"trayId": "1", "trayPosition": "Top", "infertile": 2, ...}
   String trayDataJson;
 

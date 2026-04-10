@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 
-/// ChickMark brand colors extracted from the logo:
-///   • Coral/terracotta  (#CB5B3E) — checkmark, beak, feet, underline
-///   • Golden yellow     (#F9C535) — chick body
-///   • Warm cream        (#FEF5EF) — logo background
+/// ChickMark brand colors updated to new Blue palette
+///   • Primary blue  (#1750AC)
+///   • Secondary blue (#3373C4)
+///   • Accent blue    (#5494DA)
 class AppTheme {
   // ── Brand palette ──────────────────────────────────────────────────────────
-  static const Color primary   = Color(0xFFCB5B3E); // coral / terracotta
-  static const Color secondary = Color(0xFFE8783A); // warm orange (gradient pair)
-  static const Color accent    = Color(0xFFF9C535); // golden yellow (chick)
+  static const Color primary   = Color(0xFF1750AC); // Blue
+  static const Color secondary = Color(0xFF3373C4); // Medium Blue
+  static const Color accent    = Color(0xFF5494DA); // Accent Blue
+
+  // Extended Blue Palette
+  static const Color blueLightest = Color(0xFF8BD2FA);
+  static const Color blueLight    = Color(0xFF73B9EE);
+  static const Color blueDarkest  = Color(0xFF003396);
 
   // ── Status colors ──────────────────────────────────────────────────────────
   static const Color green = Color(0xFF27AE60);
@@ -16,7 +21,7 @@ class AppTheme {
   static const Color red   = Color(0xFFE74C3C);
 
   // ── Surface / text ─────────────────────────────────────────────────────────
-  static const Color background   = Color(0xFFFEF5EF); // warm cream
+  static const Color background   = Color(0xFFF4F9FF); // cool white
   static const Color cardBg       = Colors.white;
   static const Color textPrimary  = Color(0xFF2B2B2B); // dark charcoal
   static const Color textSecondary = Color(0xFF8E8E8E); // medium gray
