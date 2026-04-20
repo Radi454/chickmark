@@ -1,0 +1,39 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
+
+void main() {
+  group('HatchDateUtils', () {
+    test('flockAgeWeeks returns correct weeks for known entry date', () {
+      // Example: entryDate = 2026-04-04, today = 2026-04-18
+      final entryDate = DateTime(2026, 4, 4);
+      final today = DateTime(2026, 4, 18);
+      expect(HatchDateUtils.flockAgeWeeks(entryDate, now: today), 2);
+    });
+    test('flockAgeDays returns correct days for known entry date', () {
+      final entryDate = DateTime(2026, 4, 4);
+      final today = DateTime(2026, 4, 18);
+      expect(HatchDateUtils.flockAgeDays(entryDate, now: today), 14);
+    });
+    test('bmkAgeWeeks formula = (flockAgeDays - 21) / 7', () {
+      final entryDate = DateTime(2026, 3, 24);
+      final today = DateTime(2026, 4, 21);
+      // flockAgeDays = 28, bmkAgeWeeks = 1
+      expect(HatchDateUtils.bmkAgeWeeks(entryDate, 0, now: today), 1);
+    });
+    test('bmkAgeWeeks with storageDays=5 reduces correctly', () {
+      final entryDate = DateTime(2026, 3, 24);
+      final today = DateTime(2026, 4, 28);
+      // flockAgeDays = 35, bmkAgeWeeks = (35-21-5)/7 = 1.2857
+      expect(
+        HatchDateUtils.bmkAgeWeeks(entryDate, 5, now: today),
+        closeTo(1.29, 0.01),
+      );
+    });
+    test('zero-day flock', () {
+      final entryDate = DateTime(2026, 4, 18);
+      final today = DateTime(2026, 4, 18);
+      expect(HatchDateUtils.flockAgeDays(entryDate, now: today), 0);
+      expect(HatchDateUtils.flockAgeWeeks(entryDate, now: today), 0);
+    });
+  });
+}

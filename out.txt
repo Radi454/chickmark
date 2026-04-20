@@ -1,6 +1,0 @@
-Analyzing ChickMark...                                          
-
-   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\screens\auth\register_screen.dart:197:25 - deprecated_member_use
-   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\screens\auth\register_screen.dart:223:25 - deprecated_member_use
-   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\screens\auth\register_screen.dart:395:33 - deprecated_member_use
-

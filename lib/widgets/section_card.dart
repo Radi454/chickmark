@@ -1,135 +1,85 @@
 import 'package:flutter/material.dart';
-import '../utils/app_theme.dart';
+import '../core/constants/app_colors.dart';
+import '../core/constants/app_sizes.dart';
 
-class SectionCard extends StatefulWidget {
-  final String title;
+class SectionCard extends StatelessWidget {
   final Widget child;
-  final IconData? icon;
-  final bool isCollapsible;
+  final String? title;
+  final EdgeInsets? padding;
+  final bool isSaved;
+  final VoidCallback? onEdit;
 
   const SectionCard({
     super.key,
-    required this.title,
     required this.child,
-    this.icon,
-    this.isCollapsible = false,
+    this.title,
+    this.padding,
+    this.isSaved = false,
+    this.onEdit,
   });
 
   @override
-  State<SectionCard> createState() => _SectionCardState();
-}
-
-class _SectionCardState extends State<SectionCard>
-    with SingleTickerProviderStateMixin {
-  bool _expanded = false;
-  late AnimationController _animationController;
-  late Animation<double> _expandAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 250),
-    );
-    _expandAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
-    // Non-collapsible cards start expanded; collapsible cards start collapsed.
-    if (!widget.isCollapsible) {
-      _expanded = true;
-      _animationController.value = 1.0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _toggle() {
-    setState(() {
-      _expanded = !_expanded;
-      if (_expanded) {
-        _animationController.forward();
-      } else {
-        _animationController.reverse();
-      }
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: AppTheme.cardBg,
+    final cardPadding = padding ?? EdgeInsets.all(AppSizes.cardPadding);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x0F000000),
+            blurRadius: AppSizes.cardShadowBlur,
+            offset: Offset(0, AppSizes.cardShadowOffsetY),
+          ),
+        ],
+        border: isSaved
+            ? const Border(
+                top: BorderSide(
+                  color: AppColors.completedText,
+                  width: 3,
+                ),
+              )
+            : null,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          InkWell(
-            onTap: widget.isCollapsible ? _toggle : null,
-            borderRadius: BorderRadius.vertical(
-              top: const Radius.circular(12),
-              bottom: _expanded ? Radius.zero : const Radius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          if (title != null || (isSaved && onEdit != null))
+            Padding(
+              padding: const EdgeInsets.all(16.0),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  if (widget.icon != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        widget.icon,
-                        size: 20,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  Expanded(
-                    child: Text(
-                      widget.title,
+                  if (title != null)
+                    Text(
+                      title!,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
                     ),
-                  ),
-                  if (widget.isCollapsible)
-                    AnimatedRotation(
-                      turns: _expanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 250),
-                      child: const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: AppTheme.textSecondary,
+                  if (isSaved && onEdit != null)
+                    TextButton.icon(
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.completedText,
                       ),
                     ),
                 ],
               ),
             ),
-          ),
-
-          // Divider when expanded
-          if (_expanded)
-            const Divider(height: 1, thickness: 1, color: Color(0xFFECF0F1)),
-
-          // Collapsible content
-          SizeTransition(
-            sizeFactor: _expandAnimation,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: widget.child,
+          Padding(
+            padding: cardPadding,
+            child: IgnorePointer(
+              ignoring: isSaved,
+              child: Opacity(
+                opacity: isSaved ? 0.6 : 1.0,
+                child: child,
+              ),
             ),
           ),
         ],

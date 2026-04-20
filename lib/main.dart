@@ -1,48 +1,27 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'providers/app_provider.dart';
-import 'screens/auth/login_screen.dart';
-import 'screens/home_screen.dart';
-import 'utils/app_theme.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/constants/supabase_config.dart';
+import 'data/database/database_helper.dart';
+import 'app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Use IndexedDB-backed sqflite on web
-  if (kIsWeb) {
-    databaseFactory = databaseFactoryFfiWeb;
-  }
-
-  final provider = AppProvider();
-  await provider.initialize();
-
-  final prefs = await SharedPreferences.getInstance();
-  final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
-
-  runApp(
-    ChangeNotifierProvider.value(
-      value: provider, 
-      child: HatchAuditApp(isLoggedIn: isLoggedIn)
-    ),
-  );
-}
-
-class HatchAuditApp extends StatelessWidget {
-  final bool isLoggedIn;
   
-  const HatchAuditApp({super.key, required this.isLoggedIn});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ChickMark',
-      theme: AppTheme.theme,
-      home: isLoggedIn ? const HomeScreen() : const LoginScreen(),
-      debugShowCheckedModeBanner: false,
-    );
+  // Initialize database
+  await DatabaseHelper().db;
+  
+  // Initialize Supabase
+  if (SupabaseConfig.isConfigured) {
+    try {
+      await Supabase.initialize(
+        url: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+      );
+    } catch (e) {
+      // Silent failure if offline or config not set
+      debugPrint('Supabase initialization failed: $e');
+    }
   }
+  
+  runApp(const HatchAuditApp());
 }
