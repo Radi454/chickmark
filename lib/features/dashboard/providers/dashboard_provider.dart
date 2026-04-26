@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
+import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
+import 'package:hatchaudit/data/repositories/temperature_rh_repository.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
@@ -10,16 +12,20 @@ import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart'
 import 'package:hatchaudit/features/dashboard/models/egg_breakout_models.dart';
 import 'package:hatchaudit/features/dashboard/models/chick_quality_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
+import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
 
 class DashboardProvider extends ChangeNotifier {
   final AuditRepository _auditRepo = AuditRepository();
+  final AuditSessionRepository _sessionRepo = AuditSessionRepository();
   final CustomerRepository _customerRepo = CustomerRepository();
   final FlockRepository _flockRepo = FlockRepository();
+  final TemperatureRhRepository _tempRepo = TemperatureRhRepository();
 
   String? _selectedCustomerId;
   String? _selectedFlockId;
   int? _selectedBmkAge;
   String _selectedBreakoutType = 'residue';
+  bool _isInitialized = false;
 
   List<CustomerModel> _customers = [];
   List<FlockModel> _flocks = [];
@@ -37,7 +43,7 @@ class DashboardProvider extends ChangeNotifier {
   List<EggBreakoutTrend> _eggBreakoutTrend = [];
   List<String> _eggBreakoutPhotos = [];
 
-  ChickWeightTrend? _chickWeightTrend;
+  List<ChickWeightTrend> _chickWeightTrend = [];
   PasgarAvg? _pasgarAvg;
   CvtAvg? _cvtAvg;
   List<YfbmTrend> _yfbmTrend = [];
@@ -46,7 +52,7 @@ class DashboardProvider extends ChangeNotifier {
   List<String> _yfbmPhotos = [];
   List<String> _chaPhotos = [];
 
-  EggStorageTrend? _eggStorageTrend;
+  List<EggStorageTrend> _eggStorageTrend = [];
   List<String> _shellTempPhotos = [];
   List<String> _uvPhotos = [];
 
@@ -56,10 +62,26 @@ class DashboardProvider extends ChangeNotifier {
   BmkReference? _bmkReference;
   UserModel? _currentUser;
 
+  // Visit-session aggregation state (US6)
+  List<VisitSessionSummary> _visitSessions = [];
+  VisitSessionSummary? _selectedVisitSession;
+
   String? get selectedCustomerId => _selectedCustomerId;
   String? get selectedFlockId => _selectedFlockId;
   int? get selectedBmkAge => _selectedBmkAge;
   String get selectedBreakoutType => _selectedBreakoutType;
+  bool get hasActiveFilters =>
+      (canUseAllCustomers && _selectedCustomerId != null) ||
+      _selectedFlockId != null ||
+      _selectedBmkAge != null;
+
+  int get activeFilterCount {
+    var count = 0;
+    if (canUseAllCustomers && _selectedCustomerId != null) count++;
+    if (_selectedFlockId != null) count++;
+    if (_selectedBmkAge != null) count++;
+    return count;
+  }
 
   List<CustomerModel> get customers => _customers;
   List<FlockModel> get flocks => _flocks;
@@ -77,7 +99,9 @@ class DashboardProvider extends ChangeNotifier {
   List<EggBreakoutTrend> get eggBreakoutTrend => _eggBreakoutTrend;
   List<String> get eggBreakoutPhotos => _eggBreakoutPhotos;
 
-  ChickWeightTrend? get chickWeightTrend => _chickWeightTrend;
+  List<ChickWeightTrend> get chickWeightTrend => _chickWeightTrend;
+  ChickWeightTrend? get chickWeightLatest =>
+      _chickWeightTrend.isNotEmpty ? _chickWeightTrend.last : null;
   PasgarAvg? get pasgarAvg => _pasgarAvg;
   CvtAvg? get cvtAvg => _cvtAvg;
   List<YfbmTrend> get yfbmTrend => _yfbmTrend;
@@ -86,7 +110,9 @@ class DashboardProvider extends ChangeNotifier {
   List<String> get yfbmPhotos => _yfbmPhotos;
   List<String> get chaPhotos => _chaPhotos;
 
-  EggStorageTrend? get eggStorageTrend => _eggStorageTrend;
+  List<EggStorageTrend> get eggStorageTrend => _eggStorageTrend;
+  EggStorageTrend? get eggStorageLatest =>
+      _eggStorageTrend.isNotEmpty ? _eggStorageTrend.last : null;
   List<String> get shellTempPhotos => _shellTempPhotos;
   List<String> get uvPhotos => _uvPhotos;
 
@@ -94,12 +120,23 @@ class DashboardProvider extends ChangeNotifier {
   List<HatcherComparison> get hatcherComparisons => _hatcherComparisons;
 
   BmkReference? get bmkReference => _bmkReference;
+
+  // Visit-session aggregation getters (US6)
+  List<VisitSessionSummary> get visitSessions => _visitSessions;
+  VisitSessionSummary? get selectedVisitSession => _selectedVisitSession;
   bool get canUseAllCustomers {
     final user = _currentUser;
     return user == null || !user.isCustomer;
   }
 
   Future<void> init({UserModel? currentUser}) async {
+    if (_isInitialized) {
+      if (currentUser != null && currentUser != _currentUser) {
+        _currentUser = currentUser;
+      }
+      return;
+    }
+    _isInitialized = true;
     _currentUser = currentUser;
     _isLoading = true;
     notifyListeners();
@@ -189,9 +226,25 @@ class DashboardProvider extends ChangeNotifier {
     reload();
   }
 
+  Future<void> clearFilters() async {
+    _selectedCustomerId = canUseAllCustomers ? null : _currentUser?.customerId;
+    _selectedFlockId = null;
+    _selectedBmkAge = null;
+    _selectedBreakoutType = 'residue';
+    _selectedSetterIds.clear();
+    _selectedHatcherIds.clear();
+    _flocks = [];
+    await _loadFlocks();
+  }
+
   void setBreakoutType(String type) {
     _selectedBreakoutType = type;
     reload();
+  }
+
+  void selectVisitSession(VisitSessionSummary session) {
+    _selectedVisitSession = session;
+    notifyListeners();
   }
 
   void toggleSetter(String setterId) {
@@ -230,6 +283,7 @@ class DashboardProvider extends ChangeNotifier {
         _loadEggStorage(filter),
         _loadSetterComparison(filter),
         _loadHatcherComparison(filter),
+        _loadVisitSessions(filter),
       ];
 
       await Future.wait(futures);
@@ -269,7 +323,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> _loadChickQuality(DashboardFilter filter) async {
-    _chickWeightTrend = await _auditRepo.getChickWeightTrend(filter);
+    _chickWeightTrend = await _auditRepo.getChickWeightTrend(filter) ?? [];
     _pasgarAvg = await _auditRepo.getPasgarAvg(filter);
     _cvtAvg = await _auditRepo.getCvtAvg(filter);
     _yfbmTrend = await _auditRepo.getYfbmTrend(filter) ?? [];
@@ -288,7 +342,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> _loadEggStorage(DashboardFilter filter) async {
-    _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter);
+    _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter) ?? [];
     _shellTempPhotos = await _auditRepo.getPhotoPaths(
       filter,
       'egg_storage',
@@ -325,6 +379,35 @@ class DashboardProvider extends ChangeNotifier {
           _selectedHatcherIds.toList(),
         ) ??
         [];
+  }
+
+  Future<void> _loadVisitSessions(DashboardFilter filter) async {
+    try {
+      final sessions = await _sessionRepo.getCompletedSessions(
+        customerId: filter.customerId,
+        limit: 20,
+      );
+      final summaries = <VisitSessionSummary>[];
+      for (final session in sessions) {
+        final audits = await _auditRepo.getAuditsBySessionId(session.id);
+        final temps = await _tempRepo.getCompletedSummariesByAuditSession(
+          session.id,
+        );
+        summaries.add(
+          VisitSessionSummary.fromSession(
+            session: session,
+            stationAudits: audits,
+            temperatureSummaries: temps,
+          ),
+        );
+      }
+      _visitSessions = summaries;
+      _selectedVisitSession = summaries.isNotEmpty ? summaries.first : null;
+    } catch (e) {
+      debugPrint('Error loading visit sessions: $e');
+      _visitSessions = [];
+      _selectedVisitSession = null;
+    }
   }
 
   List<CustomerModel> _scopeCustomers(List<CustomerModel> customers) {

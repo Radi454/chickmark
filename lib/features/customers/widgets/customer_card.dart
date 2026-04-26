@@ -6,22 +6,24 @@ import '../../../data/models/customer_model.dart';
 class CustomerCard extends StatelessWidget {
   final CustomerModel customer;
   final int flockCount;
+  final bool hasEstimatedFlockAge;
   final VoidCallback? onTap;
+  final VoidCallback? onEdit;
 
   const CustomerCard({
     super.key,
     required this.customer,
     required this.flockCount,
+    this.hasEstimatedFlockAge = false,
     this.onTap,
+    this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
@@ -34,15 +36,47 @@ class CustomerCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text(
-                      customer.name,
-                      style: AppTextStyles.body.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            customer.name,
+                            style: AppTextStyles.body.copyWith(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (hasEstimatedFlockAge) ...[
+                          const SizedBox(width: 6),
+                          Tooltip(
+                            message:
+                                'One or more flocks need entry date confirmation',
+                            child: Icon(
+                              Icons.warning_amber_outlined,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  _buildFlockBadge(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildFlockBadge(),
+                      if (onEdit != null) ...[
+                        const SizedBox(width: 6),
+                        IconButton.outlined(
+                          tooltip: 'Edit customer',
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               if (customer.location != null) ...[
@@ -52,13 +86,10 @@ class CustomerCard extends StatelessWidget {
                     const Icon(
                       Icons.location_on_outlined,
                       size: 16,
-                      color: Colors.grey,
+                      color: AppColors.inactiveTab,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      customer.location!,
-                      style: AppTextStyles.caption,
-                    ),
+                    Text(customer.location!, style: AppTextStyles.caption),
                   ],
                 ),
               ],
@@ -69,13 +100,10 @@ class CustomerCard extends StatelessWidget {
                     const Icon(
                       Icons.phone_outlined,
                       size: 16,
-                      color: Colors.grey,
+                      color: AppColors.inactiveTab,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      customer.phone!,
-                      style: AppTextStyles.caption,
-                    ),
+                    Text(customer.phone!, style: AppTextStyles.caption),
                   ],
                 ),
               ],

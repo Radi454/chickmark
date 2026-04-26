@@ -1,0 +1,485 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../core/theme/gradient_app_bar.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../audits/providers/audit_provider.dart';
+import '../../audits/providers/audit_session_provider.dart';
+import '../../audits/screens/audit_context_screen.dart';
+import '../../audits/screens/chick_quality_screen.dart';
+import '../../audits/screens/egg_storage_screen.dart';
+import '../../audits/screens/hatch_analysis_screen.dart';
+import '../../audits/screens/hatcher_optimizing_screen.dart';
+import '../../audits/screens/setter_optimizing_screen.dart';
+
+class AuditSessionScreen extends StatefulWidget {
+  const AuditSessionScreen({super.key});
+
+  @override
+  State<AuditSessionScreen> createState() => _AuditSessionScreenState();
+}
+
+class _AuditSessionScreenState extends State<AuditSessionScreen> {
+  final Map<String, AuditProvider> _stationAuditProviders = {};
+  bool _showSavedAnimation = false;
+
+  AuditProvider? get _currentStationProvider {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    if (sessionProvider.currentSession == null) return null;
+    final key = sessionProvider.stationKeys[sessionProvider.currentStationIndex];
+    return _stationAuditProviders[key];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _handleBackNavigation(context);
+      },
+      child: Consumer<AuditSessionProvider>(
+        builder: (context, sessionProvider, child) {
+          if (sessionProvider.currentSession == null) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final stationKeys = sessionProvider.stationKeys;
+
+          return Stack(
+            children: [
+              Scaffold(
+                appBar: _buildAppBar(sessionProvider),
+                body: Column(
+                  children: [
+                    _buildProgressIndicator(sessionProvider, stationKeys),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: Stack(
+                        children: List.generate(stationKeys.length, (i) =>
+                          Offstage(
+                            offstage: i != sessionProvider.currentStationIndex,
+                            child: _buildStationWidget(sessionProvider, stationKeys, i),
+                          ),
+                        ),
+                      ),
+                    ),
+                    _buildNavigationFooter(sessionProvider, stationKeys),
+                  ],
+                ),
+              ),
+              if (_showSavedAnimation) _buildSavedOverlay(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(AuditSessionProvider provider) {
+    final stationKey = provider.stationKeys.isNotEmpty
+        ? provider.stationKeys[provider.currentStationIndex]
+        : null;
+    final title = stationKey != null
+        ? (AuditSessionProvider.stationDisplayLabels[stationKey] ?? 'Visit')
+        : 'Visit';
+    return GradientAppBar(title: title);
+  }
+
+  Widget _buildSavedOverlay() {
+    return AnimatedOpacity(
+      opacity: _showSavedAnimation ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 400),
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.4),
+        child: Center(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.elasticOut,
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.completedText,
+                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 64),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressIndicator(AuditSessionProvider provider, List<String> stationKeys) {
+    final displayLabels = stationKeys
+        .map((k) => AuditSessionProvider.stationDisplayLabels[k] ?? k)
+        .toList();
+    final completed = provider.stationsCompleted;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      color: Colors.white,
+      child: Row(
+        children: List.generate(stationKeys.length, (index) {
+          final isCompleted = completed.contains(stationKeys[index]);
+          final isCurrent = index == provider.currentStationIndex;
+          final isPast = index < provider.currentStationIndex;
+
+          return Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                        child: GestureDetector(
+                    onTap: isPast || isCompleted || isCurrent
+                        ? () => _handleStationTap(provider, index, stationKeys)
+                        : null,
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isCompleted
+                                ? AppColors.completedText
+                                : isCurrent
+                                ? AppColors.primary
+                                : Colors.grey.shade300,
+                          ),
+                          child: Center(
+                            child: isCompleted
+                                ? const Icon(
+                                    Icons.check,
+                                    size: 16,
+                                    color: Colors.white,
+                                  )
+                                : Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: isCurrent
+                                          ? Colors.white
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _shortStationLabel(displayLabels[index]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: isCurrent
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: isCompleted
+                                ? AppColors.completedText
+                                : isCurrent
+                                ? AppColors.primary
+                                : Colors.grey.shade600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (index < stationKeys.length - 1)
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      color: isPast || isCompleted
+                          ? AppColors.completedText
+                          : Colors.grey.shade300,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildStationWidget(AuditSessionProvider provider, List<String> stationKeys, int index) {
+    final session = provider.currentSession!;
+    final stationKey = stationKeys[index];
+
+    final auditContext = AuditContextData(
+      auditType: AuditSessionProvider.stationKeyToAuditType[stationKey] ?? 'Egg Storage',
+      customerId: session.customerId,
+      flockId: session.flockId,
+      sessionId: session.id,
+      breed: session.breed,
+      setterId: null,
+      hatcherId: null,
+      flockEntryDate: null,
+      date: session.date.toIso8601String().split('T')[0],
+    );
+
+    final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
+      final p = AuditProvider();
+      return p;
+    });
+
+    return ChangeNotifierProvider.value(
+      key: ValueKey('${session.id}:$stationKey'),
+      value: stationProvider,
+      child: _StationFrame(
+        stationKey: stationKey,
+        context: auditContext,
+        sessionId: session.id,
+      ),
+    );
+  }
+
+  Widget _buildNavigationFooter(AuditSessionProvider provider, List<String> stationKeys) {
+    final index = provider.currentStationIndex;
+    final isLast = index == stationKeys.length - 1;
+    final isFirst = index == 0;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            if (!isFirst)
+              OutlinedButton.icon(
+                onPressed: provider.isMovingToStation
+                    ? null
+                    : () => _handlePreviousStation(provider),
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Back'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            if (!isFirst) const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: provider.isMovingToStation
+                    ? null
+                    : () {
+                        _handleNextOrSave(provider);
+                      },
+                icon: Icon(
+                  isLast ? Icons.save : Icons.arrow_forward,
+                  size: 18,
+                ),
+                label: Text(isLast ? 'Save' : 'Next Station'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleBackNavigation(BuildContext context) async {
+    final shouldLeave = await _confirmStationExit(
+      title: 'Leave visit?',
+      actionLabel: 'Save and leave',
+    );
+    if (!shouldLeave) return;
+    if (!mounted) return;
+
+    final sessionProvider = this.context.read<AuditSessionProvider>();
+    sessionProvider.clearCurrentSession();
+    Navigator.of(this.context).pop();
+  }
+
+  Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
+    final shouldContinue = await _confirmStationExit(
+      title: 'Leave station?',
+      actionLabel: 'Save and continue',
+    );
+    if (!shouldContinue) return;
+
+    await provider.markCurrentStationCompleted();
+
+    final isLast =
+        provider.currentStationIndex == provider.stationKeys.length - 1;
+
+    if (!isLast) {
+      provider.goToNextStation();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        provider.stationTransitionComplete();
+      });
+    } else {
+      await provider.completeSession();
+      if (!mounted) return;
+      setState(() => _showSavedAnimation = true);
+      await Future.delayed(const Duration(milliseconds: 2000));
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.settings.name == '/main');
+    }
+  }
+
+  Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
+    final shouldMove = await _confirmStationExit(
+      title: 'Go back to previous station?',
+      actionLabel: 'Save and go back',
+    );
+    if (!shouldMove) return;
+
+    provider.goToPreviousStation();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      provider.stationTransitionComplete();
+    });
+  }
+
+  Future<void> _handleStationTap(
+    AuditSessionProvider provider,
+    int stationIndex,
+    List<String> stationKeys,
+  ) async {
+    if (stationIndex == provider.currentStationIndex) return;
+
+    final shouldMove = await _confirmStationExit(
+      title: 'Switch stations?',
+      actionLabel: 'Save and switch',
+    );
+    if (!shouldMove) return;
+
+    provider.goToStation(stationIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      provider.stationTransitionComplete();
+    });
+  }
+
+  Future<bool> _confirmStationExit({
+    required String title,
+    required String actionLabel,
+  }) async {
+    final stationAuditProvider = _currentStationProvider;
+    if (stationAuditProvider == null) return true;
+    if (!stationAuditProvider.isDirty) {
+      await _saveCurrentStation();
+      return true;
+    }
+
+    if (!mounted) return false;
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: const Text(
+          'This station has unsaved changes. Save before leaving this screen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Stay'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSave != true) return false;
+    await _saveCurrentStation();
+    return true;
+  }
+
+  Future<void> _saveCurrentStation() async {
+    final stationAuditProvider = _currentStationProvider;
+    if (stationAuditProvider == null) return;
+
+    final stationKey =
+        context.read<AuditSessionProvider>().currentSession == null
+        ? null
+        : context
+              .read<AuditSessionProvider>()
+              .stationKeys[context
+              .read<AuditSessionProvider>()
+              .currentStationIndex];
+
+    if (stationKey == 'hatch_analysis') {
+      await stationAuditProvider.saveAllHatches();
+    } else {
+      await stationAuditProvider.saveTab(0);
+    }
+  }
+
+  String _shortStationLabel(String label) {
+    final parts = label.split(' ');
+    if (parts.length <= 2) return label;
+    return parts.take(2).join(' ');
+  }
+}
+
+class _StationFrame extends StatefulWidget {
+  final String stationKey;
+  final AuditContextData context;
+  final String sessionId;
+
+  const _StationFrame({
+    required this.stationKey,
+    required this.context,
+    required this.sessionId,
+  });
+
+  @override
+  State<_StationFrame> createState() => _StationFrameState();
+}
+
+class _StationFrameState extends State<_StationFrame> {
+  @override
+  Widget build(BuildContext context) {
+    final stationWidget = _buildStationWidget();
+    return stationWidget ?? const Center(child: Text('Station not available'));
+  }
+
+  Widget? _buildStationWidget() {
+    switch (widget.stationKey) {
+      case 'egg_storage':
+        return EggStorageScreen(context: widget.context);
+      case 'chick_quality':
+        return ChickQualityScreen(context: widget.context);
+      case 'hatch_analysis':
+        return HatchAnalysisScreen(context: widget.context);
+      case 'setter_optimizing':
+        return SetterOptimizingScreen(context: widget.context);
+      case 'hatcher_optimizing':
+        return HatcherOptimizingScreen(context: widget.context);
+      default:
+        return null;
+    }
+  }
+}

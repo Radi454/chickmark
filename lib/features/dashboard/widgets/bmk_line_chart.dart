@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 
 class BmkLineChart extends StatelessWidget {
   final List<FlSpot> dataPoints;
@@ -27,7 +28,7 @@ class BmkLineChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: _calculateInterval(),
           getDrawingHorizontalLine: (line) =>
-              FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+              const FlLine(color: AppColors.chartGridH, strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
@@ -36,7 +37,7 @@ class BmkLineChart extends StatelessWidget {
               reservedSize: 40,
               getTitlesWidget: (value, meta) => Text(
                 '${value.toInt()}',
-                style: const TextStyle(fontSize: 10),
+                style: AppTextStyles.caption,
               ),
             ),
           ),
@@ -68,13 +69,15 @@ class BmkLineChart extends StatelessWidget {
           horizontalLines: [
             HorizontalLine(
               y: bmkValue,
-              color: Colors.grey,
+              color: AppColors.statusNeutralText,
               strokeWidth: 2,
               dashArray: [5, 5],
             ),
           ],
         ),
       ),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
     );
   }
 

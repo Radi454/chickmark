@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 
 class BmkDonutChart extends StatelessWidget {
   final double actualPct;
@@ -14,7 +16,7 @@ class BmkDonutChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isGood = actualPct >= bmkPct;
-    final color = isGood ? const Color(0xFF3a9a5c) : const Color(0xFFE24B4A);
+    final color = isGood ? AppColors.statusGood : AppColors.statusError;
     final remaining = (100 - actualPct).clamp(0.0, 100.0);
 
     return PieChart(
@@ -27,21 +29,19 @@ class BmkDonutChart extends StatelessWidget {
             color: color,
             radius: 30,
             title: '${actualPct.toStringAsFixed(1)}%',
-            titleStyle: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
+            titleStyle: AppTextStyles.badge,
           ),
           if (remaining > 0)
             PieChartSectionData(
               value: remaining,
-              color: Colors.grey.shade200,
+              color: AppColors.chartEmptyBorder,
               radius: 25,
               title: '',
             ),
         ],
       ),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
     );
   }
 }

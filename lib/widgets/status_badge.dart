@@ -1,34 +1,33 @@
 import 'package:flutter/material.dart';
 import '../core/constants/app_colors.dart';
+import '../core/constants/app_sizes.dart';
+import '../core/theme/app_text_styles.dart';
 
 class StatusBadge extends StatelessWidget {
   final String status;
   final String? label;
 
-  const StatusBadge({
-    super.key,
-    required this.status,
-    this.label,
-  });
+  const StatusBadge({super.key, required this.status, this.label});
 
   @override
   Widget build(BuildContext context) {
     final displayLabel = label ?? _capitalize(status);
     final (bgColor, textColor) = _getColors(status);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceMd,
+        vertical: AppSizes.spaceXs,
+      ),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
       ),
       child: Text(
         displayLabel,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
+        style: AppTextStyles.badgeLabel.copyWith(color: textColor),
       ),
     );
   }
@@ -37,11 +36,17 @@ class StatusBadge extends StatelessWidget {
     final normalizedStatus = status.toLowerCase();
     switch (normalizedStatus) {
       case 'completed':
-        return (AppColors.completedBg, AppColors.completedText);
+      case 'synced':
+        return (AppColors.statusGoodBg, AppColors.statusGood);
       case 'active':
-        return (AppColors.activeBg, AppColors.activeText);
+      case 'syncing':
+        return (AppColors.statusActiveBg, AppColors.statusActive);
+      case 'syncfailed':
+      case 'failed':
+      case 'error':
+        return (AppColors.statusErrorBg, AppColors.statusError);
       default:
-        return (Colors.grey[300]!, Colors.grey[700]!);
+        return (AppColors.statusNeutralBg, AppColors.statusNeutralText);
     }
   }
 

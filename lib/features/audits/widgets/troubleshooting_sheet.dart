@@ -1,6 +1,4 @@
-
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -10,10 +8,7 @@ import '../../../../data/repositories/troubleshooting_repository.dart';
 class TroubleshootingSheet extends StatefulWidget {
   final String parameterId;
 
-  const TroubleshootingSheet({
-    super.key,
-    required this.parameterId,
-  });
+  const TroubleshootingSheet({super.key, required this.parameterId});
 
   @override
   State<TroubleshootingSheet> createState() => _TroubleshootingSheetState();
@@ -22,6 +17,8 @@ class TroubleshootingSheet extends StatefulWidget {
 class _TroubleshootingSheetState extends State<TroubleshootingSheet>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final TroubleshootingRepository _repository = TroubleshootingRepository();
+  final TextEditingController _searchController = TextEditingController();
   TroubleshootingModel? _troubleshooting;
   bool _isLoading = true;
 
@@ -33,8 +30,7 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
   }
 
   Future<void> _loadTroubleshooting() async {
-    final repository = context.read<TroubleshootingRepository>();
-    final data = await repository.getByParameter(widget.parameterId);
+    final data = await _repository.getByParameter(widget.parameterId);
     if (mounted) {
       setState(() {
         _troubleshooting = data;
@@ -46,6 +42,7 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -71,7 +68,9 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
           ),
           // Header
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSizes.cardPadding),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSizes.cardPadding,
+            ),
             child: Row(
               children: [
                 Icon(
@@ -83,9 +82,7 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
                 Expanded(
                   child: Text(
                     'Troubleshooting Guide',
-                    style: AppTextStyles.heading.copyWith(
-                      fontSize: 20,
-                    ),
+                    style: AppTextStyles.heading.copyWith(fontSize: 20),
                   ),
                 ),
                 IconButton(
@@ -96,6 +93,23 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
             ),
           ),
           const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSizes.cardPadding,
+              12,
+              AppSizes.cardPadding,
+              8,
+            ),
+            child: TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search troubleshooting causes',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
           // Tab bar
           TabBar(
             controller: _tabController,
@@ -112,18 +126,18 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _troubleshooting == null
-                    ? _buildEmptyState()
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildCausesTab(
-                            _troubleshooting!.hatcheryCausesBySection,
-                          ),
-                          _buildCausesTab(
-                            _troubleshooting!.farmFlockCausesBySection,
-                          ),
-                        ],
+                ? _buildEmptyState()
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildCausesTab(
+                        _troubleshooting!.hatcheryCausesBySection,
                       ),
+                      _buildCausesTab(
+                        _troubleshooting!.farmFlockCausesBySection,
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -131,21 +145,22 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
   }
 
   Widget _buildEmptyState() {
+    return _buildInfoState(
+      'No troubleshooting data available for this parameter.',
+    );
+  }
+
+  Widget _buildInfoState(String message) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.info_outline,
-            size: 64,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.info_outline, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
-            'No troubleshooting information available',
-            style: AppTextStyles.body.copyWith(
-              color: Colors.grey[600],
-            ),
+            message,
+            style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -157,12 +172,33 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
       return _buildEmptyState();
     }
 
+    final filtered = _filterCauses(causesBySection);
+    if (filtered.isEmpty) {
+      return _buildInfoState('No troubleshooting causes match your search.');
+    }
+
     return ListView(
       padding: const EdgeInsets.all(AppSizes.cardPadding),
-      children: causesBySection.entries.map((entry) {
+      children: filtered.entries.map((entry) {
         return _buildExpandableSection(entry.key, entry.value);
       }).toList(),
     );
+  }
+
+  Map<String, List<String>> _filterCauses(Map<String, List<String>> input) {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return input;
+
+    final filtered = <String, List<String>>{};
+    for (final entry in input.entries) {
+      final matches = entry.value
+          .where((cause) => cause.toLowerCase().contains(query))
+          .toList();
+      if (matches.isNotEmpty) {
+        filtered[entry.key] = matches;
+      }
+    }
+    return filtered;
   }
 
   Widget _buildExpandableSection(String title, List<String> causes) {
@@ -179,9 +215,7 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
         ),
         title: Text(
           title,
-          style: AppTextStyles.body.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
         ),
         children: [
           Padding(
@@ -189,26 +223,25 @@ class _TroubleshootingSheetState extends State<TroubleshootingSheet>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: causes
-                  .map((cause) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.arrow_right,
-                              size: 16,
-                              color: AppColors.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                cause,
-                                style: AppTextStyles.body,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ))
+                  .map(
+                    (cause) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.arrow_right,
+                            size: 16,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(cause, style: AppTextStyles.body),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
           ),

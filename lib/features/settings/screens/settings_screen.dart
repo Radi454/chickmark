@@ -9,6 +9,9 @@ import 'package:hatchaudit/widgets/status_badge.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
+import 'package:hatchaudit/features/settings/screens/activity_log_screen.dart';
+import 'package:hatchaudit/services/backup/backup_service.dart';
+import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -29,6 +32,10 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 16),
                 _buildSyncSection(context, settings),
                 const SizedBox(height: 16),
+                if ((auth.user ?? app.currentUser)?.isAdmin ?? false) ...[
+                  _buildAdminSection(context),
+                  const SizedBox(height: 16),
+                ],
                 _buildAppSection(),
               ],
             ),
@@ -246,6 +253,44 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildAdminSection(BuildContext context) {
+    return SectionCard(
+      title: 'Admin Tools',
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.history),
+            title: const Text('Activity Log'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ActivityLogScreen(),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.backup_outlined),
+            title: const Text('Backup database'),
+            onTap: () async {
+              await BackupService().exportBackup();
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.restore_outlined),
+            title: const Text('Restore from backup'),
+            subtitle: const Text('This will replace ALL current data'),
+            onTap: () => _confirmRestore(context),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _confirmLogout(BuildContext context, AuthProvider auth) {
     showDialog(
       context: context,
@@ -275,14 +320,39 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _syncNow(BuildContext context, SettingsProvider settings) async {
-    await context.read<CustomersProvider>().loadCustomers(
-      currentUser: context.read<AuthProvider>().user,
-    );
+    final customersProvider = context.read<CustomersProvider>();
+    final currentUser = context.read<AuthProvider>().user;
+    await StartupSyncService().run(userId: currentUser?.id);
+    await customersProvider.loadCustomers(currentUser: currentUser);
     await settings.updateLastSync(DateTime.now().toIso8601String());
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Sync complete')));
     }
+  }
+
+  Future<void> _confirmRestore(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore from backup'),
+        content: const Text(
+          'This will permanently replace all current data with the backup. This cannot be undone. Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Replace All Data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await BackupService().importBackup();
   }
 }

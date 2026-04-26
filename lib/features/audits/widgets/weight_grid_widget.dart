@@ -42,33 +42,34 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
     final cellNumber = index + 1;
 
     return Container(
+      height: 44,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(color: Colors.grey[300]!),
       ),
       child: Column(
         children: [
-          // Cell number label
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            height: 14,
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             decoration: BoxDecoration(
               color: Colors.grey[100],
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(7),
-                topRight: Radius.circular(7),
+                topLeft: Radius.circular(5),
+                topRight: Radius.circular(5),
               ),
             ),
+            alignment: Alignment.center,
             child: Text(
               '$cellNumber',
               style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
                 color: Colors.grey,
               ),
             ),
           ),
-          // Weight input field
           Expanded(
             child: TextField(
               controller: widget.controllers[index],
@@ -79,13 +80,13 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
               ),
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: widget.enabled ? Colors.black : Colors.grey[600],
               ),
               decoration: const InputDecoration(
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
+                contentPadding: EdgeInsets.only(bottom: 2),
                 isDense: true,
               ),
               inputFormatters: [

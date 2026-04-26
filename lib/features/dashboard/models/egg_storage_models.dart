@@ -5,6 +5,9 @@ class EggStorageTrend {
   final double cvPct;
   final double shellTempC;
   final double uvAffectedPct;
+  final double co2;
+  final double estAvgF;
+  final double estCvPct;
 
   EggStorageTrend({
     required this.date,
@@ -13,6 +16,9 @@ class EggStorageTrend {
     this.cvPct = 0.0,
     this.shellTempC = 0.0,
     this.uvAffectedPct = 0.0,
+    this.co2 = 0.0,
+    this.estAvgF = 0.0,
+    this.estCvPct = 0.0,
   });
 
   factory EggStorageTrend.fromMap(Map<String, dynamic> map) {
@@ -23,6 +29,9 @@ class EggStorageTrend {
       cvPct: map['cvPct']?.toDouble() ?? 0.0,
       shellTempC: map['shellTempC']?.toDouble() ?? 0.0,
       uvAffectedPct: map['uvAffectedPct']?.toDouble() ?? 0.0,
+      co2: map['co2']?.toDouble() ?? 0.0,
+      estAvgF: map['estAvgF']?.toDouble() ?? 0.0,
+      estCvPct: map['estCvPct']?.toDouble() ?? 0.0,
     );
   }
 }
@@ -40,6 +49,7 @@ class SetterComparison {
   final double bloodRingPct;
   final double estAvgF;
   final double estCvPct;
+  final double turningAngle;
   final Map<String, double> co2Trend;
 
   SetterComparison({
@@ -55,6 +65,7 @@ class SetterComparison {
     this.bloodRingPct = 0.0,
     this.estAvgF = 0.0,
     this.estCvPct = 0.0,
+    this.turningAngle = 0.0,
     Map<String, double>? co2Trend,
   }) : co2Trend = co2Trend ?? {};
 
@@ -72,6 +83,7 @@ class SetterComparison {
       bloodRingPct: map['bloodRingPct']?.toDouble() ?? 0.0,
       estAvgF: map['estAvgF']?.toDouble() ?? 0.0,
       estCvPct: map['estCvPct']?.toDouble() ?? 0.0,
+      turningAngle: map['turningAngle']?.toDouble() ?? 0.0,
     );
   }
 }
@@ -91,6 +103,8 @@ class HatcherComparison {
   final double crackedPct;
   final double cvtAvgF;
   final double cvtCvPct;
+  final String? meconium;
+  final int? transferDay;
   final Map<String, double> co2Trend;
   final Map<String, double> pantingTrend;
 
@@ -109,6 +123,8 @@ class HatcherComparison {
     this.crackedPct = 0.0,
     this.cvtAvgF = 0.0,
     this.cvtCvPct = 0.0,
+    this.meconium,
+    this.transferDay,
     Map<String, double>? co2Trend,
     Map<String, double>? pantingTrend,
   }) : co2Trend = co2Trend ?? {},
@@ -130,6 +146,8 @@ class HatcherComparison {
       crackedPct: map['crackedPct']?.toDouble() ?? 0.0,
       cvtAvgF: map['cvtAvgF']?.toDouble() ?? 0.0,
       cvtCvPct: map['cvtCvPct']?.toDouble() ?? 0.0,
+      meconium: map['meconium'] as String?,
+      transferDay: map['transferDay'] as int?,
     );
   }
 }

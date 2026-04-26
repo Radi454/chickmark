@@ -2,49 +2,79 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/constants/app_sizes.dart';
+import 'package:hatchaudit/core/constants/app_thresholds.dart';
+import 'package:hatchaudit/core/theme/app_page_route.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
-import 'package:hatchaudit/features/dashboard/widgets/bmk_donut_chart.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
 import 'package:hatchaudit/features/dashboard/screens/photo_fullscreen_screen.dart';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 Widget _sectionHeader(BuildContext context, String label) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(label, style: Theme.of(context).textTheme.titleSmall),
-    );
+  padding: const EdgeInsets.fromLTRB(
+    AppSizes.spaceLg,
+    AppSizes.spaceMd,
+    AppSizes.spaceLg,
+    AppSizes.spaceXs,
+  ),
+  child: Text(label, style: AppTextStyles.sectionTitle),
+);
 
 Widget _metricRow(String label, String value, {Color? color}) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-          if (color != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-          ],
-        ],
-      ),
-    );
+  padding: const EdgeInsets.symmetric(
+    vertical: AppSizes.spaceXs,
+    horizontal: AppSizes.spaceLg,
+  ),
+  child: Row(
+    children: [
+      Expanded(child: Text(label, style: AppTextStyles.body)),
+      Text(value, style: AppTextStyles.badgeLabel),
+      if (color != null) ...[
+        const SizedBox(width: AppSizes.spaceSm),
+        Container(
+          width: AppSizes.spaceMd,
+          height: AppSizes.spaceMd,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+      ],
+    ],
+  ),
+);
 
 Color _threshold(double value, double good, {bool lowerIsBetter = false}) {
-  if (good == 0) return Colors.grey;
+  if (good == 0) return AppColors.inactiveTab;
   return lowerIsBetter
-      ? (value <= good ? const Color(0xFF3a9a5c) : const Color(0xFFE24B4A))
-      : (value >= good ? const Color(0xFF3a9a5c) : const Color(0xFFE24B4A));
+      ? (value <= good ? AppColors.statusGood : AppColors.statusError)
+      : (value >= good ? AppColors.statusGood : AppColors.statusError);
 }
 
-Widget _photoSection(
-  BuildContext context,
-  List<String> photos,
-) {
+Color _thresholdRange(double value, double min, double max) {
+  return value >= min && value <= max
+      ? AppColors.statusGood
+      : AppColors.statusError;
+}
+
+Widget _emptySection(String label) => Padding(
+  padding: const EdgeInsets.all(AppSizes.spaceXl),
+  child: Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Icon(Icons.bar_chart_outlined, size: 48, color: AppColors.textDisabled),
+      const SizedBox(height: AppSizes.spaceSm),
+      Text(
+        'No $label data yet',
+        style: AppTextStyles.caption.copyWith(color: AppColors.textTertiary),
+        textAlign: TextAlign.center,
+      ),
+    ],
+  ),
+);
+
+Widget _photoSection(BuildContext context, List<String> photos) {
   if (photos.isEmpty) return const SizedBox.shrink();
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,7 +85,7 @@ Widget _photoSection(
         filePaths: photos,
         onTap: (path) => Navigator.push(
           context,
-          MaterialPageRoute(
+          AppPageRoute(
             builder: (_) => PhotoFullscreenScreen(filePath: path),
           ),
         ),
@@ -138,34 +168,45 @@ class _WeightsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trend = provider.chickWeightTrend;
-    final bmk = provider.bmkReference;
+    final latest = provider.chickWeightLatest;
     if (provider.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (trend == null) {
-      return const Center(child: Text('No data'));
+    if (latest == null) {
+      return _emptySection('weights');
     }
-    final bmkWeight = bmk?.chickWeightG ?? 0;
+    final spots = trend
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.avgWeightG))
+        .toList();
     return ListView(
       padding: EdgeInsets.zero,
       children: [
+        _metricRow('Avg Weight', '${latest.avgWeightG.toStringAsFixed(1)} g'),
         _metricRow(
-          'Avg Weight',
-          '${trend.avgWeightG.toStringAsFixed(1)} g',
-          color: _threshold(trend.avgWeightG, bmkWeight),
+          'Uniformity',
+          '${latest.uniformityPct.toStringAsFixed(1)}%',
         ),
-        if (bmkWeight > 0)
-          _metricRow('BMK Weight', '${bmkWeight.toStringAsFixed(1)} g'),
-        _metricRow('Uniformity', '${trend.uniformityPct.toStringAsFixed(1)}%'),
-        _metricRow('CV%', '${trend.cvPct.toStringAsFixed(1)}%'),
+        _metricRow(
+          'CV%',
+          '${latest.cvPct.toStringAsFixed(1)}%',
+          color: _threshold(
+            latest.cvPct,
+            AppThresholds.cvAlertPct,
+            lowerIsBetter: true,
+          ),
+        ),
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: SizedBox(
             height: 160,
             child: BmkLineChart(
-              dataPoints: [FlSpot(0, trend.avgWeightG)],
-              bmkValue: bmkWeight,
+              dataPoints: spots.isEmpty
+                  ? [FlSpot(0, latest.avgWeightG)]
+                  : spots,
+              bmkValue: provider.bmkReference?.chickWeightG ?? 0,
               yLabel: 'g',
             ),
           ),
@@ -182,63 +223,49 @@ class _PasgarTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final avg = provider.pasgarAvg;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (avg == null) return const Center(child: Text('No data'));
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (avg == null) return _emptySection('Pasgar');
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            height: 140,
-            child: Row(
-              children: [
-                Expanded(
-                  child: BmkDonutChart(actualPct: avg.score * 10, bmkPct: 90),
-                ),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        avg.score.toStringAsFixed(1),
-                        style: const TextStyle(
-                            fontSize: 36, fontWeight: FontWeight.bold),
-                      ),
-                      const Text('/ 10', style: TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+        _metricRow(
+          'Reflexes',
+          '${avg.reflexesPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.reflexesPct, AppThresholds.pasgarAlertPct),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 140,
-            child: BmkBarChart(
-              barGroups: [
-                BmkBarChart.createGroup(0, avg.reflexesPct),
-                BmkBarChart.createGroup(1, avg.beakPct),
-                BmkBarChart.createGroup(2, avg.navelPct),
-                BmkBarChart.createGroup(3, avg.bellyPct),
-                BmkBarChart.createGroup(4, avg.legPct),
-                BmkBarChart.createGroup(5, avg.featherDevPct),
-              ],
-              bmkValue: 90,
-              xLabel: '',
-              xLabels: const [
-                'Refl',
-                'Beak',
-                'Nav',
-                'Bell',
-                'Leg',
-                'Feath',
-              ],
-            ),
-          ),
+        _metricRow(
+          'Beak',
+          '${avg.beakPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.beakPct, AppThresholds.pasgarAlertPct),
+        ),
+        _metricRow(
+          'Navel',
+          '${avg.navelPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.navelPct, AppThresholds.pasgarAlertPct),
+        ),
+        _metricRow(
+          'Belly',
+          '${avg.bellyPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.bellyPct, AppThresholds.pasgarAlertPct),
+        ),
+        _metricRow(
+          'Leg',
+          '${avg.legPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.legPct, AppThresholds.pasgarAlertPct),
+        ),
+        _metricRow(
+          'Feather Development',
+          '${avg.featherDevPct.toStringAsFixed(1)}%',
+          color: _threshold(avg.featherDevPct, AppThresholds.pasgarAlertPct),
+        ),
+        const Divider(),
+        _metricRow(
+          'Final Score',
+          avg.score.toStringAsFixed(1),
+          color: _threshold(avg.score * 10, AppThresholds.pasgarAlertPct),
         ),
       ],
     );
@@ -252,27 +279,31 @@ class _CvtTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final avg = provider.cvtAvg;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (avg == null) return const Center(child: Text('No data'));
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (avg == null) return _emptySection('CVT');
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            height: 140,
-            child: BmkDonutChart(
-              actualPct: (100 - avg.cvPct).clamp(0, 100),
-              bmkPct: 95,
-            ),
+        _metricRow(
+          'Avg Temp (°F)',
+          avg.avgTempF.toStringAsFixed(1),
+          color: _thresholdRange(
+            avg.avgTempF,
+            AppThresholds.cvtMin,
+            AppThresholds.cvtMax,
           ),
         ),
-        _metricRow('Avg Temp (°F)', avg.avgTempF.toStringAsFixed(1)),
         _metricRow(
           'CV%',
           '${avg.cvPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.cvPct, 5, lowerIsBetter: true),
+          color: _threshold(
+            avg.cvPct,
+            AppThresholds.cvAlertPct,
+            lowerIsBetter: true,
+          ),
         ),
         _photoSection(context, provider.cvtPhotos),
       ],
@@ -287,37 +318,45 @@ class _YfbmTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trend = provider.yfbmTrend;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (trend.isEmpty) return const Center(child: Text('No data'));
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (trend.isEmpty) return _emptySection('YFBM');
 
     final spots = trend
         .asMap()
         .entries
         .map((e) => FlSpot(e.key.toDouble(), e.value.avgPct))
         .toList();
-    final cvSpots = trend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.cvPct))
-        .toList();
+    final latest = trend.last;
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
+        _metricRow(
+          'Latest Avg%',
+          '${latest.avgPct.toStringAsFixed(1)}%',
+          color: _thresholdRange(
+            latest.avgPct,
+            AppThresholds.yfbmMin,
+            AppThresholds.yfbmMax,
+          ),
+        ),
+        _metricRow(
+          'Target Band',
+          '${AppThresholds.yfbmMin.toStringAsFixed(0)}-${AppThresholds.yfbmMax.toStringAsFixed(0)}%',
+        ),
+        _metricRow('Latest CV%', '${latest.cvPct.toStringAsFixed(1)}%'),
         _sectionHeader(context, 'YFBM Avg%'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: SizedBox(
             height: 130,
-            child: BmkLineChart(dataPoints: spots, bmkValue: 0, yLabel: '%'),
-          ),
-        ),
-        _sectionHeader(context, 'CV%'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 100,
-            child: BmkLineChart(dataPoints: cvSpots, bmkValue: 5, yLabel: '%'),
+            child: BmkLineChart(
+              dataPoints: spots,
+              bmkValue: (AppThresholds.yfbmMin + AppThresholds.yfbmMax) / 2,
+              yLabel: '%',
+            ),
           ),
         ),
         _photoSection(context, provider.yfbmPhotos),
@@ -333,23 +372,16 @@ class _ChaTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trend = provider.chaTrend;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (trend.isEmpty) return const Center(child: Text('No data'));
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (trend.isEmpty) return _emptySection('CHA environmental');
 
+    final latest = trend.last;
     final co2Spots = trend
         .asMap()
         .entries
         .map((e) => FlSpot(e.key.toDouble(), e.value.co2))
-        .toList();
-    final pm10Spots = trend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.pm10))
-        .toList();
-    final velSpots = trend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.airVelocity))
         .toList();
 
     return ListView(
@@ -360,25 +392,18 @@ class _ChaTab extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: SizedBox(
             height: 100,
-            child: BmkLineChart(dataPoints: co2Spots, bmkValue: 3000, yLabel: 'ppm'),
+            child: BmkLineChart(
+              dataPoints: co2Spots,
+              bmkValue: 3000,
+              yLabel: 'ppm',
+            ),
           ),
         ),
-        _sectionHeader(context, 'PM10 (µg/m³)'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 100,
-            child: BmkLineChart(dataPoints: pm10Spots, bmkValue: 0, yLabel: 'µg'),
-          ),
-        ),
-        _sectionHeader(context, 'Air Velocity (m/s)'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 100,
-            child: BmkLineChart(dataPoints: velSpots, bmkValue: 0, yLabel: 'm/s'),
-          ),
-        ),
+        const Divider(),
+        _metricRow('Latest PM10', latest.pm10.toStringAsFixed(1)),
+        _metricRow('Latest PM2.5', latest.pm25.toStringAsFixed(1)),
+        _metricRow('Air Velocity Avg', latest.airVelocity.toStringAsFixed(2)),
+        _metricRow('Noise', latest.noiseLevel.toStringAsFixed(1)),
         _photoSection(context, provider.chaPhotos),
       ],
     );
@@ -401,7 +426,7 @@ class _EggStorageSectionState extends State<EggStorageSection>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -425,6 +450,7 @@ class _EggStorageSectionState extends State<EggStorageSection>
                   Tab(text: 'Uniformity'),
                   Tab(text: 'Shell Temp'),
                   Tab(text: 'UV'),
+                  Tab(text: 'CO₂'),
                 ],
               ),
               SizedBox(
@@ -435,6 +461,7 @@ class _EggStorageSectionState extends State<EggStorageSection>
                     _EggUniformityTab(provider: provider),
                     _ShellTempTab(provider: provider),
                     _UvTab(provider: provider),
+                    _Co2Tab(provider: provider),
                   ],
                 ),
               ),
@@ -453,24 +480,63 @@ class _EggUniformityTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trend = provider.eggStorageTrend;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (trend == null) return const Center(child: Text('No data'));
+    final latest = provider.eggStorageLatest;
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (latest == null) return _emptySection('egg storage');
+
+    final spots = trend
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.uniformityPct))
+        .toList();
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        _metricRow('Avg Weight', '${trend.avgWeightG.toStringAsFixed(1)} g'),
-        _metricRow('Uniformity', '${trend.uniformityPct.toStringAsFixed(1)}%'),
-        _metricRow('CV%', '${trend.cvPct.toStringAsFixed(1)}%'),
+        _metricRow('Avg Weight', '${latest.avgWeightG.toStringAsFixed(1)} g'),
+        _metricRow('Uniformity', '${latest.uniformityPct.toStringAsFixed(1)}%'),
+        _metricRow(
+          'CV%',
+          '${latest.cvPct.toStringAsFixed(1)}%',
+          color: _threshold(
+            latest.cvPct,
+            AppThresholds.cvAlertPct,
+            lowerIsBetter: true,
+          ),
+        ),
+        _metricRow(
+          'EST Avg (°F)',
+          latest.estAvgF.toStringAsFixed(1),
+          color: latest.estAvgF > 0
+              ? _thresholdRange(
+                  latest.estAvgF,
+                  AppThresholds.estMin,
+                  AppThresholds.estMax,
+                )
+              : null,
+        ),
+        _metricRow(
+          'EST CV%',
+          '${latest.estCvPct.toStringAsFixed(1)}%',
+          color: latest.estCvPct > 0
+              ? _threshold(
+                  latest.estCvPct,
+                  AppThresholds.cvAlertPct,
+                  lowerIsBetter: true,
+                )
+              : null,
+        ),
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: SizedBox(
             height: 160,
             child: BmkLineChart(
-              dataPoints: [
-                FlSpot(0, trend.uniformityPct),
-              ],
+              dataPoints: spots.isEmpty
+                  ? [FlSpot(0, latest.uniformityPct)]
+                  : spots,
               bmkValue: 0,
               yLabel: '%',
             ),
@@ -488,16 +554,33 @@ class _ShellTempTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trend = provider.eggStorageTrend;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (trend == null) return const Center(child: Text('No data'));
+    final latest = provider.eggStorageLatest;
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (latest == null) return _emptySection('shell temperature');
+
+    final spots = trend
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.shellTempC))
+        .toList();
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
         _metricRow(
           'Shell Temp (°C)',
-          trend.shellTempC.toStringAsFixed(1),
-          color: _threshold(trend.shellTempC, 18, lowerIsBetter: true),
+          latest.shellTempC.toStringAsFixed(1),
+          color: _thresholdRange(
+            latest.shellTempC,
+            AppThresholds.shellTempMin,
+            AppThresholds.shellTempMax,
+          ),
+        ),
+        _metricRow(
+          'Target Band',
+          '${AppThresholds.shellTempMin.toStringAsFixed(0)}-${AppThresholds.shellTempMax.toStringAsFixed(0)}°C',
         ),
         const SizedBox(height: 12),
         Padding(
@@ -505,8 +588,11 @@ class _ShellTempTab extends StatelessWidget {
           child: SizedBox(
             height: 150,
             child: BmkLineChart(
-              dataPoints: [FlSpot(0, trend.shellTempC)],
-              bmkValue: 18,
+              dataPoints: spots.isEmpty
+                  ? [FlSpot(0, latest.shellTempC)]
+                  : spots,
+              bmkValue:
+                  (AppThresholds.shellTempMin + AppThresholds.shellTempMax) / 2,
               yLabel: '°C',
             ),
           ),
@@ -523,17 +609,19 @@ class _UvTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trend = provider.eggStorageTrend;
-    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
-    if (trend == null) return const Center(child: Text('No data'));
+    final latest = provider.eggStorageLatest;
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (latest == null) return _emptySection('UV');
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
         _metricRow(
           'UV Affected',
-          '${trend.uvAffectedPct.toStringAsFixed(1)}%',
-          color: _threshold(trend.uvAffectedPct, 5, lowerIsBetter: true),
+          '${latest.uvAffectedPct.toStringAsFixed(1)}%',
+          color: _threshold(latest.uvAffectedPct, 5, lowerIsBetter: true),
         ),
         const SizedBox(height: 12),
         Padding(
@@ -541,7 +629,7 @@ class _UvTab extends StatelessWidget {
           child: SizedBox(
             height: 150,
             child: BmkBarChart(
-              barGroups: [BmkBarChart.createGroup(0, trend.uvAffectedPct)],
+              barGroups: [BmkBarChart.createGroup(0, latest.uvAffectedPct)],
               bmkValue: 5,
               xLabel: '',
               xLabels: const ['UV%'],
@@ -549,6 +637,56 @@ class _UvTab extends StatelessWidget {
           ),
         ),
         _photoSection(context, provider.uvPhotos),
+      ],
+    );
+  }
+}
+
+class _Co2Tab extends StatelessWidget {
+  final DashboardProvider provider;
+  const _Co2Tab({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final trend = provider.eggStorageTrend;
+    final latest = provider.eggStorageLatest;
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (latest == null) return _emptySection('CO₂');
+
+    final spots = trend
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.co2))
+        .toList();
+
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _metricRow(
+          'CO₂ (ppm)',
+          latest.co2.toStringAsFixed(0),
+          color: latest.co2 > 0
+              ? _threshold(latest.co2, AppThresholds.co2Max, lowerIsBetter: true)
+              : null,
+        ),
+        _metricRow(
+          'Target',
+          '< ${AppThresholds.co2Max.toStringAsFixed(0)} ppm',
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SizedBox(
+            height: 150,
+            child: BmkLineChart(
+              dataPoints: spots.isEmpty ? [FlSpot(0, latest.co2)] : spots,
+              bmkValue: AppThresholds.co2Max,
+              yLabel: 'ppm',
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -563,25 +701,25 @@ class SetterOptimizingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
+        final hasData = provider.setterComparisons.isNotEmpty;
         return Card(
           child: ExpansionTile(
             title: const Text('Setter Optimizing'),
             initiallyExpanded: true,
             children: [
               if (provider.availableSetterIds.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No setter data available'),
-                )
+                _emptySection('setter optimizing')
               else ...[
-                _buildCheckboxes(context, provider),
-                if (provider.setterComparisons.isNotEmpty) ...[
-                  _buildComparisonTable(context, provider),
-                  const Divider(),
-                  _buildEstChart(context, provider),
-                  const Divider(),
-                  _buildCo2Chart(context, provider),
-                ],
+                  _buildCheckboxes(context, provider),
+                  if (hasData) ...[
+                    _buildComparisonTable(context, provider),
+                    _buildTurningAngleRow(context, provider),
+                    const Divider(),
+                    _buildEstChart(context, provider),
+                    const Divider(),
+                    _buildCo2Chart(context, provider),
+                  ] else
+                    _emptySection('setter optimizing'),
               ],
             ],
           ),
@@ -608,8 +746,39 @@ class SetterOptimizingSection extends StatelessWidget {
     );
   }
 
+  Widget _buildTurningAngleRow(
+    BuildContext context,
+    DashboardProvider provider,
+  ) {
+    final comparisons = provider.setterComparisons;
+    final hasTurning = comparisons.any((c) => c.turningAngle > 0);
+    if (!hasTurning) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          Text(
+            'Turning Angle',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          ...comparisons
+              .where((c) => c.turningAngle > 0)
+              .map((c) => _metricRow(
+                    'Setter ${c.setterId}',
+                    '${c.turningAngle.toStringAsFixed(1)}°',
+                  )),
+        ],
+      ),
+    );
+  }
+
   Widget _buildComparisonTable(
-      BuildContext context, DashboardProvider provider) {
+    BuildContext context,
+    DashboardProvider provider,
+  ) {
     final comparisons = provider.setterComparisons;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -626,14 +795,16 @@ class SetterOptimizingSection extends StatelessWidget {
         ],
         rows: comparisons
             .map(
-              (c) => DataRow(cells: [
-                DataCell(Text(c.setterId)),
-                DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
-                DataCell(Text(c.fertilityPct.toStringAsFixed(1))),
-                DataCell(Text(c.hofPct.toStringAsFixed(1))),
-                DataCell(Text(c.estAvgF.toStringAsFixed(1))),
-                DataCell(Text(c.estCvPct.toStringAsFixed(1))),
-              ]),
+              (c) => DataRow(
+                cells: [
+                  DataCell(Text(c.setterId)),
+                  DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
+                  DataCell(Text(c.fertilityPct.toStringAsFixed(1))),
+                  DataCell(Text(c.hofPct.toStringAsFixed(1))),
+                  DataCell(Text(c.estAvgF.toStringAsFixed(1))),
+                  DataCell(Text(c.estCvPct.toStringAsFixed(1))),
+                ],
+              ),
             )
             .toList(),
       ),
@@ -646,8 +817,10 @@ class SetterOptimizingSection extends StatelessWidget {
 
     Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Text('EST Comparison',
-          style: Theme.of(context).textTheme.titleSmall),
+      child: Text(
+        'EST Comparison',
+        style: Theme.of(context).textTheme.titleSmall,
+      ),
     );
 
     final groups = comparisons
@@ -662,15 +835,19 @@ class SetterOptimizingSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('EST (°F)', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            'Target: ${AppThresholds.estMin.toStringAsFixed(0)}-${AppThresholds.estMax.toStringAsFixed(0)}°F',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 160,
             child: BmkBarChart(
               barGroups: groups,
-              bmkValue: 100,
+              bmkValue: (AppThresholds.estMin + AppThresholds.estMax) / 2,
               xLabel: '',
-              xLabels:
-                  comparisons.map((c) => 'S${c.setterId}').toList(),
+              xLabels: comparisons.map((c) => 'S${c.setterId}').toList(),
             ),
           ),
         ],
@@ -682,9 +859,9 @@ class SetterOptimizingSection extends StatelessWidget {
     final comparisons = provider.setterComparisons;
     final colors = [
       AppColors.primary,
-      const Color(0xFFE24B4A),
-      const Color(0xFF3a9a5c),
-      const Color(0xFFF65C00),
+      AppColors.statusError,
+      AppColors.statusGood,
+      AppColors.primaryLight,
     ];
 
     final lineBars = comparisons.asMap().entries.map((entry) {
@@ -710,8 +887,10 @@ class SetterOptimizingSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('CO₂ Trend (ppm)',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'CO₂ Trend (ppm)',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 160,
@@ -723,30 +902,45 @@ class SetterOptimizingSection extends StatelessWidget {
                         show: true,
                         drawVerticalLine: false,
                         getDrawingHorizontalLine: (v) =>
-                            FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                            const FlLine(
+                              color: AppColors.chartGridH,
+                              strokeWidth: 1,
+                            ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                                showTitles: true, reservedSize: 40)),
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                          ),
+                        ),
                         bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                       ),
                       borderData: FlBorderData(show: false),
                       lineBarsData: lineBars,
                     ),
                   ),
           ),
-          _buildLegend(comparisons
-              .asMap()
-              .entries
-              .map((e) => MapEntry('Setter ${e.value.setterId}',
-                  colors[e.key % colors.length]))
-              .toList()),
+          _buildLegend(
+            comparisons
+                .asMap()
+                .entries
+                .map(
+                  (e) => MapEntry(
+                    'Setter ${e.value.setterId}',
+                    colors[e.key % colors.length],
+                  ),
+                )
+                .toList(),
+          ),
         ],
       ),
     );
@@ -758,14 +952,16 @@ class SetterOptimizingSection extends StatelessWidget {
       child: Wrap(
         spacing: 12,
         children: items
-            .map((e) => Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(width: 12, height: 3, color: e.value),
-                    const SizedBox(width: 4),
-                    Text(e.key, style: const TextStyle(fontSize: 12)),
-                  ],
-                ))
+            .map(
+              (e) => Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 12, height: 3, color: e.value),
+                  const SizedBox(width: 4),
+                  Text(e.key, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            )
             .toList(),
       ),
     );
@@ -781,19 +977,17 @@ class HatcherOptimizingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
+        final hasData = provider.hatcherComparisons.isNotEmpty;
         return Card(
           child: ExpansionTile(
             title: const Text('Hatcher Optimizing'),
             initiallyExpanded: true,
             children: [
               if (provider.availableHatcherIds.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No hatcher data available'),
-                )
+                _emptySection('hatcher optimizing')
               else ...[
                 _buildCheckboxes(context, provider),
-                if (provider.hatcherComparisons.isNotEmpty) ...[
+                if (hasData) ...[
                   _buildComparisonTable(context, provider),
                   const Divider(),
                   _buildCvtChart(context, provider),
@@ -801,7 +995,8 @@ class HatcherOptimizingSection extends StatelessWidget {
                   _buildCo2Chart(context, provider),
                   const Divider(),
                   _buildPantingChart(context, provider),
-                ],
+                ] else
+                  _emptySection('hatcher optimizing'),
               ],
             ],
           ),
@@ -829,7 +1024,9 @@ class HatcherOptimizingSection extends StatelessWidget {
   }
 
   Widget _buildComparisonTable(
-      BuildContext context, DashboardProvider provider) {
+    BuildContext context,
+    DashboardProvider provider,
+  ) {
     final comparisons = provider.hatcherComparisons;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -843,17 +1040,23 @@ class HatcherOptimizingSection extends StatelessWidget {
           DataColumn(label: Text('Culled%')),
           DataColumn(label: Text('CVT°F')),
           DataColumn(label: Text('CVT CV%')),
+          DataColumn(label: Text('Meconium')),
+          DataColumn(label: Text('Trans. Day')),
         ],
         rows: comparisons
             .map(
-              (c) => DataRow(cells: [
-                DataCell(Text(c.hatcherId)),
-                DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
-                DataCell(Text(c.hofPct.toStringAsFixed(1))),
-                DataCell(Text(c.culledPct.toStringAsFixed(1))),
-                DataCell(Text(c.cvtAvgF.toStringAsFixed(1))),
-                DataCell(Text(c.cvtCvPct.toStringAsFixed(1))),
-              ]),
+              (c) => DataRow(
+                cells: [
+                  DataCell(Text(c.hatcherId)),
+                  DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
+                  DataCell(Text(c.hofPct.toStringAsFixed(1))),
+                  DataCell(Text(c.culledPct.toStringAsFixed(1))),
+                  DataCell(Text(c.cvtAvgF.toStringAsFixed(1))),
+                  DataCell(Text(c.cvtCvPct.toStringAsFixed(1))),
+                  DataCell(Text(c.meconium ?? '--')),
+                  DataCell(Text(c.transferDay?.toString() ?? '--')),
+                ],
+              ),
             )
             .toList(),
       ),
@@ -864,9 +1067,9 @@ class HatcherOptimizingSection extends StatelessWidget {
     final comparisons = provider.hatcherComparisons;
     final colors = [
       AppColors.primary,
-      const Color(0xFFE24B4A),
-      const Color(0xFF3a9a5c),
-      const Color(0xFFF65C00),
+      AppColors.statusError,
+      AppColors.statusGood,
+      AppColors.primaryLight,
     ];
 
     final groups = comparisons
@@ -881,35 +1084,45 @@ class HatcherOptimizingSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('CVT Avg (°F)', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            'Target: ${AppThresholds.cvtMin.toStringAsFixed(0)}-${AppThresholds.cvtMax.toStringAsFixed(0)}°F',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 160,
             child: BmkBarChart(
               barGroups: groups,
-              bmkValue: 100,
+              bmkValue: (AppThresholds.cvtMin + AppThresholds.cvtMax) / 2,
               xLabel: '',
               xLabels: comparisons.map((c) => 'H${c.hatcherId}').toList(),
             ),
           ),
-          _buildLegend(comparisons
-              .asMap()
-              .entries
-              .map((e) => MapEntry('Hatcher ${e.value.hatcherId}',
-                  colors[e.key % colors.length]))
-              .toList()),
+          _buildLegend(
+            comparisons
+                .asMap()
+                .entries
+                .map(
+                  (e) => MapEntry(
+                    'Hatcher ${e.value.hatcherId}',
+                    colors[e.key % colors.length],
+                  ),
+                )
+                .toList(),
+          ),
         ],
       ),
     );
   }
 
-
   Widget _buildCo2Chart(BuildContext context, DashboardProvider provider) {
     final comparisons = provider.hatcherComparisons;
     final colors = [
       AppColors.primary,
-      const Color(0xFFE24B4A),
-      const Color(0xFF3a9a5c),
-      const Color(0xFFF65C00),
+      AppColors.statusError,
+      AppColors.statusGood,
+      AppColors.primaryLight,
     ];
 
     final lineBars = comparisons.asMap().entries.map((entry) {
@@ -935,8 +1148,10 @@ class HatcherOptimizingSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('CO₂ Trend (ppm)',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'CO₂ Trend (ppm)',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 160,
@@ -948,30 +1163,45 @@ class HatcherOptimizingSection extends StatelessWidget {
                         show: true,
                         drawVerticalLine: false,
                         getDrawingHorizontalLine: (v) =>
-                            FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                            const FlLine(
+                              color: AppColors.chartGridH,
+                              strokeWidth: 1,
+                            ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                                showTitles: true, reservedSize: 40)),
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                          ),
+                        ),
                         bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                       ),
                       borderData: FlBorderData(show: false),
                       lineBarsData: lineBars,
                     ),
                   ),
           ),
-          _buildLegend(comparisons
-              .asMap()
-              .entries
-              .map((e) => MapEntry('Hatcher ${e.value.hatcherId}',
-                  colors[e.key % colors.length]))
-              .toList()),
+          _buildLegend(
+            comparisons
+                .asMap()
+                .entries
+                .map(
+                  (e) => MapEntry(
+                    'Hatcher ${e.value.hatcherId}',
+                    colors[e.key % colors.length],
+                  ),
+                )
+                .toList(),
+          ),
         ],
       ),
     );
@@ -981,9 +1211,9 @@ class HatcherOptimizingSection extends StatelessWidget {
     final comparisons = provider.hatcherComparisons;
     final colors = [
       AppColors.primary,
-      const Color(0xFFE24B4A),
-      const Color(0xFF3a9a5c),
-      const Color(0xFFF65C00),
+      AppColors.statusError,
+      AppColors.statusGood,
+      AppColors.primaryLight,
     ];
 
     final lineBars = comparisons.asMap().entries.map((entry) {
@@ -1009,8 +1239,10 @@ class HatcherOptimizingSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Chick Panting Trend',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Chick Panting Trend',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 160,
@@ -1022,18 +1254,27 @@ class HatcherOptimizingSection extends StatelessWidget {
                         show: true,
                         drawVerticalLine: false,
                         getDrawingHorizontalLine: (v) =>
-                            FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                            const FlLine(
+                              color: AppColors.chartGridH,
+                              strokeWidth: 1,
+                            ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                                showTitles: true, reservedSize: 40)),
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                          ),
+                        ),
                         bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                       ),
                       borderData: FlBorderData(show: false),
                       lineBarsData: lineBars,
@@ -1050,12 +1291,18 @@ class HatcherOptimizingSection extends StatelessWidget {
                     ),
                   ),
           ),
-          _buildLegend(comparisons
-              .asMap()
-              .entries
-              .map((e) => MapEntry('Hatcher ${e.value.hatcherId}',
-                  colors[e.key % colors.length]))
-              .toList()),
+          _buildLegend(
+            comparisons
+                .asMap()
+                .entries
+                .map(
+                  (e) => MapEntry(
+                    'Hatcher ${e.value.hatcherId}',
+                    colors[e.key % colors.length],
+                  ),
+                )
+                .toList(),
+          ),
         ],
       ),
     );
@@ -1067,14 +1314,16 @@ class HatcherOptimizingSection extends StatelessWidget {
       child: Wrap(
         spacing: 12,
         children: items
-            .map((e) => Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(width: 12, height: 3, color: e.value),
-                    const SizedBox(width: 4),
-                    Text(e.key, style: const TextStyle(fontSize: 12)),
-                  ],
-                ))
+            .map(
+              (e) => Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 12, height: 3, color: e.value),
+                  const SizedBox(width: 4),
+                  Text(e.key, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            )
             .toList(),
       ),
     );

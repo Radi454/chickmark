@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/constants/app_sizes.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/widgets/chart_toggle.dart';
+import 'package:hatchaudit/widgets/app_card.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_donut_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
@@ -24,31 +28,40 @@ class _HatchAnalysisSectionState extends State<HatchAnalysisSection> {
         final avg = provider.hatchAnalysisAvg;
         final bmk = provider.bmkReference;
 
-        return Card(
+        return AppCard(
+          margin: EdgeInsets.zero,
+          padding: EdgeInsets.zero,
           child: ExpansionTile(
-            title: const Text('Hatch Analysis'),
+            title: const Text(
+              'Hatch Analysis',
+              style: AppTextStyles.sectionTitle,
+            ),
             initiallyExpanded: true,
+            tilePadding: const EdgeInsets.symmetric(
+              horizontal: AppSizes.spaceLg,
+              vertical: AppSizes.spaceSm,
+            ),
             children: [
               if (provider.isLoading)
                 const Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: EdgeInsets.all(AppSizes.spaceLg),
                   child: Center(child: CircularProgressIndicator()),
                 )
               else if (avg == null)
                 const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No data'),
+                  padding: EdgeInsets.all(AppSizes.spaceLg),
+                  child: Text('No data', style: AppTextStyles.caption),
                 )
               else ...[
                 Padding(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(AppSizes.spaceSm),
                   child: ChartToggle(
                     selected: _chartType,
                     onChanged: (t) => setState(() => _chartType = t),
                   ),
                 ),
                 _buildMetrics(avg, bmk),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSizes.spaceLg),
                 SizedBox(
                   height: 200,
                   child: _buildChart(avg, bmk, provider.hatchAnalysisTrend),
@@ -80,21 +93,24 @@ class _HatchAnalysisSectionState extends State<HatchAnalysisSection> {
   Widget _metricRow(String label, double value, double bmk) {
     final isGood = value >= bmk;
     final color = bmk > 0
-        ? (isGood ? const Color(0xFF3a9a5c) : const Color(0xFFE24B4A))
-        : Colors.grey;
+        ? (isGood ? AppColors.statusGood : AppColors.statusError)
+        : AppColors.statusNeutralText;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+      padding: const EdgeInsets.symmetric(
+        vertical: AppSizes.spaceXs,
+        horizontal: AppSizes.spaceLg,
+      ),
       child: Row(
         children: [
-          Expanded(child: Text(label)),
+          Expanded(child: Text(label, style: AppTextStyles.body)),
           Text(
             '${value.toStringAsFixed(1)}%',
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            style: AppTextStyles.badgeLabel,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSizes.spaceSm),
           Container(
-            width: 12,
-            height: 12,
+            width: AppSizes.spaceMd,
+            height: AppSizes.spaceMd,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
         ],
@@ -126,7 +142,9 @@ class _HatchAnalysisSectionState extends State<HatchAnalysisSection> {
     final points = trend
         .asMap()
         .entries
-        .map((entry) => FlSpot(entry.key.toDouble(), entry.value.hatchabilityPct))
+        .map(
+          (entry) => FlSpot(entry.key.toDouble(), entry.value.hatchabilityPct),
+        )
         .toList();
     return BmkLineChart(
       dataPoints: points.isEmpty ? [FlSpot(0, avg.hatchabilityPct)] : points,

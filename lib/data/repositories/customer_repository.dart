@@ -43,6 +43,11 @@ class CustomerRepository {
     );
   }
 
+  Future<void> deleteCustomer(String id) async {
+    final db = await dbHelper.db;
+    await db.delete('customers', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> upsertCustomer(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'customers');

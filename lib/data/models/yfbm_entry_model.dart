@@ -1,12 +1,8 @@
-
 class YfbmEntry {
   final double? chickWeight;
   final double? yolkWeight;
 
-  YfbmEntry({
-    this.chickWeight,
-    this.yolkWeight,
-  });
+  YfbmEntry({this.chickWeight, this.yolkWeight});
 
   // Calculate yolk percentage
   double? get yolkPct {
@@ -24,9 +20,6 @@ class YfbmEntry {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'chickWeight': chickWeight,
-      'yolkWeight': yolkWeight,
-    };
+    return {'chickWeight': chickWeight, 'yolkWeight': yolkWeight};
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../../widgets/section_card.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../services/supabase/supabase_service.dart';
 import '../providers/auth_provider.dart';
@@ -51,6 +52,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: const GradientAppBar(title: 'Pending Approval'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -64,7 +66,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                   const Icon(
                     Icons.hourglass_empty,
                     size: 64,
-                    color: Colors.orange,
+                    color: AppColors.primary,
                   ),
                   const SizedBox(height: 16),
                   const Text(
@@ -156,7 +158,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            TextButton(
+            OutlinedButton(
               onPressed: () async {
                 await context.read<AuthProvider>().logout();
                 if (context.mounted) {
@@ -165,7 +167,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                   ).pushNamedAndRemoveUntil('/login', (_) => false);
                 }
               },
-              child: const Text('Back to Login'),
+              child: const Text('Use different account'),
             ),
           ],
         ),

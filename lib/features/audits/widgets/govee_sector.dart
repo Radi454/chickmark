@@ -79,6 +79,12 @@ class _GoveeSectorState extends State<GoveeSector> {
               color: Colors.grey[600],
             ),
           ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.search, size: 18),
+            label: const Text('Scan & Connect'),
+          ),
         ],
       ),
     );

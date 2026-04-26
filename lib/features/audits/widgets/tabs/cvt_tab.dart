@@ -15,14 +15,12 @@ class CvtTab extends StatefulWidget {
   final AuditModel audit;
   final bool isReadOnly;
   final Function(String key, dynamic value) onFieldChanged;
-  final VoidCallback onSave;
 
   const CvtTab({
     super.key,
     required this.audit,
     required this.isReadOnly,
     required this.onFieldChanged,
-    required this.onSave,
   });
 
   @override
@@ -206,7 +204,7 @@ class _CvtTabState extends State<CvtTab> {
                           _cell('Position', isHeader: true),
                           _cell('Basket', isHeader: true),
                           _cell('Temp', isHeader: true),
-                          _cell('', isHeader: true),
+                          _cell('Status', isHeader: true),
                           _cell('', isHeader: true),
                         ],
                       ),
@@ -241,12 +239,12 @@ class _CvtTabState extends State<CvtTab> {
                                 double.tryParse(v),
                               );
                               _updateCalculations();
-                            }),
+                            }, numeric: true),
                             _cell(
-                              '',
-                              textColor: isGood
-                                  ? AppColors.greenTab
-                                  : Colors.red,
+                              temp == null ? '--' : (isGood ? 'OK' : 'Alert'),
+                              textColor: temp == null
+                                  ? Colors.grey
+                                  : (isGood ? AppColors.greenTab : Colors.red),
                             ),
                             _photoCell(index),
                           ],
@@ -301,21 +299,24 @@ class _CvtTabState extends State<CvtTab> {
 
   Widget _textCell(
     TextEditingController controller,
-    Function(String) onChanged,
-  ) {
+    Function(String) onChanged, {
+    bool numeric = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.all(4),
       child: TextField(
         controller: controller,
         enabled: !widget.isReadOnly,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        keyboardType: numeric
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
         decoration: const InputDecoration(
           border: InputBorder.none,
           isDense: true,
         ),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-        ],
+        inputFormatters: numeric
+            ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}'))]
+            : null,
         onChanged: onChanged,
       ),
     );

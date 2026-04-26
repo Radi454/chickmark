@@ -26,9 +26,7 @@ class AuditHistoryCard extends StatelessWidget {
 
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
@@ -58,16 +56,10 @@ class AuditHistoryCard extends StatelessWidget {
                 style: AppTextStyles.caption,
               ),
               const SizedBox(height: 8),
-              Text(
-                _formatDate(audit.date),
-                style: AppTextStyles.caption,
-              ),
+              Text(_formatDate(audit.date), style: AppTextStyles.caption),
               if (audit.setterId != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  'Setter: ${audit.setterId}',
-                  style: AppTextStyles.caption,
-                ),
+                Text('Setter: ${audit.setterId}', style: AppTextStyles.caption),
               ],
               if (audit.hatcherId != null) ...[
                 const SizedBox(height: 4),
@@ -108,8 +100,18 @@ class AuditHistoryCard extends StatelessWidget {
 
   String _monthAbbreviation(int month) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return months[month - 1];
   }

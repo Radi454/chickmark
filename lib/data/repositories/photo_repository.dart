@@ -1,15 +1,97 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
+import '../models/photo_model.dart';
 
 class PhotoRepository {
   final dbHelper = DatabaseHelper();
+
+  Future<List<PhotoModel>> getAllPhotos() async {
+    final db = await dbHelper.db;
+    final rows = await db.query('photos', orderBy: 'createdAt DESC');
+    return rows.map(PhotoModel.fromMap).toList();
+  }
+
+  Future<List<PhotoModel>> getByAuditId(String auditId) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      'photos',
+      where: 'auditId = ?',
+      whereArgs: [auditId],
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(PhotoModel.fromMap).toList();
+  }
+
+  Future<PhotoModel?> getByFilePath(String filePath) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      'photos',
+      where: 'filePath = ?',
+      whereArgs: [filePath],
+      orderBy: 'createdAt DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return PhotoModel.fromMap(rows.first);
+  }
+
+  Future<List<PhotoModel>> getByStatus(String status) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      'photos',
+      where: 'uploadStatus = ?',
+      whereArgs: [status],
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(PhotoModel.fromMap).toList();
+  }
+
+  Future<void> updateStatus(String id, String status) async {
+    final db = await dbHelper.db;
+    await db.update(
+      'photos',
+      {'uploadStatus': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> saveLocalPhoto(PhotoModel photo) async {
+    final db = await dbHelper.db;
+    await db.insert(
+      'photos',
+      photo.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteByAuditId(String auditId) async {
+    final db = await dbHelper.db;
+    await db.delete('photos', where: 'auditId = ?', whereArgs: [auditId]);
+  }
 
   Future<void> upsertPhoto(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'photos');
     final normalized = _filterColumns(_normalizePhotoRow(row), columns);
     if (!normalized.containsKey('id')) return;
+    normalized['uploadStatus'] = normalized['uploadStatus'] ?? 'synced';
+
+    final existing = await db.query(
+      'photos',
+      where: 'id = ?',
+      whereArgs: [normalized['id']],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      final existingPath = existing.first['filePath'] as String?;
+      final incomingPath = normalized['filePath'] as String?;
+      if (_isLocalFilePath(existingPath) && _isRemotePath(incomingPath)) {
+        normalized['filePath'] = existingPath;
+      }
+    }
+
     await db.insert(
       'photos',
       normalized,
@@ -37,6 +119,16 @@ class PhotoRepository {
       normalized[_camelize(entry.key)] = entry.value;
     }
     return normalized;
+  }
+
+  bool _isLocalFilePath(String? path) {
+    if (path == null || path.isEmpty) return false;
+    return !_isRemotePath(path);
+  }
+
+  bool _isRemotePath(String? path) {
+    if (path == null || path.isEmpty) return false;
+    return path.startsWith('http://') || path.startsWith('https://');
   }
 
   String _camelize(String key) {

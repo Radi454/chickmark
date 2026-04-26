@@ -1,9 +1,78 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
+
 import '../../../widgets/status_badge.dart';
+import '../../../providers/customers_provider.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../audits/providers/audit_provider.dart';
+import '../../audits/screens/audit_context_screen.dart';
+import '../../audits/screens/chick_quality_screen.dart';
+import '../../audits/screens/egg_storage_screen.dart';
+import '../../audits/screens/hatch_analysis_screen.dart';
+import '../../audits/screens/hatcher_optimizing_screen.dart';
+import '../../audits/screens/setter_optimizing_screen.dart';
+
+Future<void> openAuditEditor(
+  BuildContext context,
+  AuditModel audit, {
+  int sectionIndex = 0,
+}) {
+  final flock = context.read<CustomersProvider>().flockById(audit.flockId);
+  final contextData = AuditContextData(
+    auditType: audit.auditType,
+    customerId: audit.customerId,
+    flockId: audit.flockId ?? '',
+    breed: audit.soBreed ?? audit.hoBreed,
+    setterId: audit.setterId ?? audit.soSetterId,
+    hatcherId: audit.hatcherId ?? audit.hoHatcherId,
+    flockEntryDate: flock?.entryDate,
+    date: audit.date.toIso8601String().split('T')[0],
+  );
+
+  final screen = switch (audit.auditType) {
+    'Chick Quality' => ChickQualityScreen(
+      context: contextData,
+      initialAudit: audit,
+      initialTabIndex: sectionIndex,
+    ),
+    'Hatch Analysis' => HatchAnalysisScreen(
+      context: contextData,
+      initialAudit: audit,
+      initialSectionIndex: sectionIndex,
+    ),
+    'Setter Optimizing' => SetterOptimizingScreen(
+      context: contextData,
+      initialAudit: audit,
+      initialSectionIndex: sectionIndex,
+    ),
+    'Hatcher Optimizing' => HatcherOptimizingScreen(
+      context: contextData,
+      initialAudit: audit,
+      initialSectionIndex: sectionIndex,
+    ),
+    'Egg Storage' => EggStorageScreen(
+      context: contextData,
+      initialAudit: audit,
+      initialSectionIndex: sectionIndex,
+    ),
+    _ => null,
+  };
+
+  if (screen == null) return Future<void>.value();
+  return Navigator.push<void>(
+    context,
+    MaterialPageRoute(
+      builder: (context) =>
+          ChangeNotifierProvider(create: (_) => AuditProvider(), child: screen),
+    ),
+  );
+}
 
 class AuditDetailScreen extends StatelessWidget {
   final AuditModel audit;
@@ -12,313 +81,439 @@ class AuditDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+    final sections = _sectionsForAudit();
+
     return Scaffold(
-      appBar: GradientAppBar(title: 'Audit Details'),
-      body: SingleChildScrollView(
+      appBar: GradientAppBar(
+        title: 'Audit Summary',
+        actions: [
+          if (canEdit)
+            IconButton(
+              tooltip: 'Edit audit',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () => _openAuditScreen(context),
+            ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildOverviewCard(context),
+          const SizedBox(height: 16),
+          Text(
+            'Audit Sections',
+            style: AppTextStyles.heading.copyWith(fontSize: 18),
+          ),
+          const SizedBox(height: 10),
+          if (sections.isEmpty)
+            _emptySection()
+          else
+            ...sections.map(
+              (section) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _SummarySectionCard(
+                  section: section,
+                  actionLabel: canEdit ? 'Edit' : null,
+                  onEdit: canEdit
+                      ? () => _openAuditScreen(
+                          context,
+                          sectionIndex: section.sectionIndex,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewCard(BuildContext context) {
+    final setterId = audit.setterId ?? audit.soSetterId;
+    final hatcherId = audit.hatcherId ?? audit.hoHatcherId;
+    final breed = audit.soBreed ?? audit.hoBreed;
+
+    return Card(
+      elevation: 0,
+      color: AppColors.background,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionHeader('Audit Information'),
-            _buildDetailTile('Audit Type', audit.auditType),
-            _buildDetailTile(
-              'Status',
-              '',
-              trailing: StatusBadge(status: audit.status),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        audit.auditType,
+                        style: AppTextStyles.heading.copyWith(fontSize: 22),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatDate(audit.date),
+                        style: AppTextStyles.caption,
+                      ),
+                    ],
+                  ),
+                ),
+                StatusBadge(status: audit.status),
+              ],
             ),
-            _buildDetailTile('Date', _formatDate(audit.date)),
-            if (audit.notes != null) _buildDetailTile('Notes', audit.notes!),
-
-            if (audit.setterId != null)
-              _buildDetailTile('Setter ID', audit.setterId!),
-            if (audit.hatcherId != null)
-              _buildDetailTile('Hatcher ID', audit.hatcherId!),
-
-            _buildSectionHeader('Chick Quality: CHA Environmental'),
-            if (audit.chaGoveeConnected != null)
-              _buildDetailTile(
-                'Govee Connected',
-                audit.chaGoveeConnected! ? 'Yes' : 'No',
-              ),
-            if (audit.chaCo2 != null)
-              _buildDetailTile('CO2', '${audit.chaCo2} ppm'),
-            if (audit.chaPm10 != null)
-              _buildDetailTile('PM10', '${audit.chaPm10} µg/m³'),
-            if (audit.chaPm25 != null)
-              _buildDetailTile('PM2.5', '${audit.chaPm25} µg/m³'),
-            if (audit.chaAirVelocitySpot1 != null)
-              _buildDetailTile(
-                'Air Velocity (Spot 1)',
-                '${audit.chaAirVelocitySpot1} m/s',
-              ),
-            if (audit.chaAirVelocitySpot2 != null)
-              _buildDetailTile(
-                'Air Velocity (Spot 2)',
-                '${audit.chaAirVelocitySpot2} m/s',
-              ),
-            if (audit.chaAirVelocitySpot3 != null)
-              _buildDetailTile(
-                'Air Velocity (Spot 3)',
-                '${audit.chaAirVelocitySpot3} m/s',
-              ),
-            if (audit.chaAirInlet != null)
-              _buildDetailTile('Air Inlet', '${audit.chaAirInlet} °C'),
-            if (audit.chaAirOutlet != null)
-              _buildDetailTile('Air Outlet', '${audit.chaAirOutlet} °C'),
-            if (audit.chaNoiseLevel != null)
-              _buildDetailTile('Noise Level', '${audit.chaNoiseLevel} dB'),
-
-            _buildSectionHeader('Chick Quality: Pasgar'),
-            if (audit.pasgarSampleSize != null)
-              _buildDetailTile('Sample Size', '${audit.pasgarSampleSize}'),
-            if (audit.pasgarReflexes != null)
-              _buildDetailTile('Reflexes', '${audit.pasgarReflexes}'),
-            if (audit.pasgarBeak != null)
-              _buildDetailTile('Beak', '${audit.pasgarBeak}'),
-            if (audit.pasgarNavel != null)
-              _buildDetailTile('Navel', '${audit.pasgarNavel}'),
-            if (audit.pasgarBelly != null)
-              _buildDetailTile('Belly', '${audit.pasgarBelly}'),
-            if (audit.pasgarLeg != null)
-              _buildDetailTile('Leg', '${audit.pasgarLeg}'),
-            if (audit.pasgarFeatherDev != null)
-              _buildDetailTile('Feather Dev', '${audit.pasgarFeatherDev}'),
-            if (audit.pasgarFinalScore != null)
-              _buildDetailTile('Final Score', '${audit.pasgarFinalScore}'),
-
-            _buildSectionHeader('Chick Quality: Weights'),
-            if (audit.chickStorageDays != null)
-              _buildDetailTile('Storage Days', '${audit.chickStorageDays}'),
-            if (audit.chickSampleSize != null)
-              _buildDetailTile('Sample Size', '${audit.chickSampleSize}'),
-            if (audit.chickAvgWeight != null)
-              _buildDetailTile('Avg Weight', '${audit.chickAvgWeight}g'),
-            if (audit.chickUniformityPct != null)
-              _buildDetailTile('Uniformity', '${audit.chickUniformityPct}%'),
-            if (audit.chickCvPct != null)
-              _buildDetailTile('CV', '${audit.chickCvPct}%'),
-            if (audit.chickBmkAge != null)
-              _buildDetailTile('BMK Age', '${audit.chickBmkAge} days'),
-            if (audit.chickBmkWeight != null)
-              _buildDetailTile('BMK Weight', '${audit.chickBmkWeight}g'),
-
-            _buildSectionHeader('Chick Quality: YFBM'),
-            if (audit.yfbmAvgPct != null)
-              _buildDetailTile('Avg %', '${audit.yfbmAvgPct}%'),
-            if (audit.yfbmCvPct != null)
-              _buildDetailTile('CV %', '${audit.yfbmCvPct}%'),
-
-            _buildSectionHeader('Chick Quality: CVT'),
-            if (audit.cvtSampleSize != null)
-              _buildDetailTile('Sample Size', '${audit.cvtSampleSize}'),
-            if (audit.cvtTopTemp != null)
-              _buildDetailTile('Top Temp', '${audit.cvtTopTemp}°C'),
-            if (audit.cvtMiddleTemp != null)
-              _buildDetailTile('Middle Temp', '${audit.cvtMiddleTemp}°C'),
-            if (audit.cvtBottomTemp != null)
-              _buildDetailTile('Bottom Temp', '${audit.cvtBottomTemp}°C'),
-            if (audit.cvtAvg != null)
-              _buildDetailTile('Average', '${audit.cvtAvg}°C'),
-            if (audit.cvtCvPct != null)
-              _buildDetailTile('CV %', '${audit.cvtCvPct}%'),
-
-            _buildSectionHeader('Hatch Analysis: Hatch Results'),
-            if (audit.haStorageDays != null)
-              _buildDetailTile('Storage Days', '${audit.haStorageDays}'),
-            if (audit.haTotalEggsSet != null)
-              _buildDetailTile('Total Eggs Set', '${audit.haTotalEggsSet}'),
-            if (audit.haHatched != null)
-              _buildDetailTile('Hatched', '${audit.haHatched}'),
-            if (audit.haCulled != null)
-              _buildDetailTile('Culled', '${audit.haCulled}'),
-            if (audit.haDead != null)
-              _buildDetailTile('Dead', '${audit.haDead}'),
-            if (audit.haHatchability != null)
-              _buildDetailTile('Hatchability', '${audit.haHatchability}%'),
-            if (audit.haFertility != null)
-              _buildDetailTile('Fertility', '${audit.haFertility}%'),
-            if (audit.haHof != null) _buildDetailTile('HOF', '${audit.haHof}%'),
-            if (audit.haBmkAge != null)
-              _buildDetailTile('BMK Age', '${audit.haBmkAge} days'),
-
-            _buildSectionHeader('Hatch Analysis: Egg Breakout'),
-            if (audit.ebTraySize != null)
-              _buildDetailTile('Tray Size', '${audit.ebTraySize}'),
-            if (audit.ebBreakoutType != null)
-              _buildDetailTile('Breakout Type', audit.ebBreakoutType!),
-            if (audit.ebBreakoutAgeDays != null)
-              _buildDetailTile(
-                'Breakout Age',
-                '${audit.ebBreakoutAgeDays} days',
-              ),
-            if (audit.ebStorageDays != null)
-              _buildDetailTile('Storage Days', '${audit.ebStorageDays}'),
-            if (audit.ebBmkAge != null)
-              _buildDetailTile('BMK Age', '${audit.ebBmkAge} days'),
-            if (audit.ebInfertileCount != null)
-              _buildDetailTile('Infertile Eggs', '${audit.ebInfertileCount}'),
-            if (audit.ebEarlyDeadCount != null)
-              _buildDetailTile('Early Dead Eggs', '${audit.ebEarlyDeadCount}'),
-            if (audit.ebMidDeadCount != null)
-              _buildDetailTile('Mid Black Eye Eggs', '${audit.ebMidDeadCount}'),
-            if (audit.ebLateDeadCount != null)
-              _buildDetailTile('Late Dead Eggs', '${audit.ebLateDeadCount}'),
-            if (audit.ebInternalPipCount != null)
-              _buildDetailTile(
-                'Internal Pip Eggs',
-                '${audit.ebInternalPipCount}',
-              ),
-            if (audit.ebExternalPipCount != null)
-              _buildDetailTile(
-                'External Pip Eggs',
-                '${audit.ebExternalPipCount}',
-              ),
-            if (audit.ebCrackedCount != null)
-              _buildDetailTile('Cracked Eggs', '${audit.ebCrackedCount}'),
-            if (audit.ebContaminatedCount != null)
-              _buildDetailTile(
-                'Contaminated Eggs',
-                '${audit.ebContaminatedCount}',
-              ),
-            if (audit.ebMalpositionCount != null)
-              _buildDetailTile(
-                'Malposition Eggs',
-                '${audit.ebMalpositionCount}',
-              ),
-            if (audit.ebExposedBrainCount != null)
-              _buildDetailTile(
-                'Exposed Brain Eggs',
-                '${audit.ebExposedBrainCount}',
-              ),
-            if (audit.ebCrossedBeakCount != null)
-              _buildDetailTile(
-                'Crossed Beak Eggs',
-                '${audit.ebCrossedBeakCount}',
-              ),
-            if (audit.ebCulledDeadCount != null)
-              _buildDetailTile(
-                'Culled / Dead Eggs',
-                '${audit.ebCulledDeadCount}',
-              ),
-
-            _buildSectionHeader('Setter Optimizing'),
-            if (audit.soBreed != null)
-              _buildDetailTile('Breed', audit.soBreed!),
-            if (audit.soSetterId != null)
-              _buildDetailTile('Setter ID', audit.soSetterId!),
-            if (audit.soIncubationAge != null)
-              _buildDetailTile(
-                'Incubation Age',
-                '${audit.soIncubationAge} days',
-              ),
-            if (audit.soGoveeConnected != null)
-              _buildDetailTile(
-                'Govee Connected',
-                audit.soGoveeConnected! ? 'Yes' : 'No',
-              ),
-            if (audit.soGoveeTemp != null)
-              _buildDetailTile('Govee Temp', '${audit.soGoveeTemp}°C'),
-            if (audit.soGoveeHumidity != null)
-              _buildDetailTile('Govee Humidity', '${audit.soGoveeHumidity}%'),
-            if (audit.soCo2 != null)
-              _buildDetailTile('CO2', '${audit.soCo2} ppm'),
-            if (audit.soEstAvg != null)
-              _buildDetailTile('EST Avg', '${audit.soEstAvg}°C'),
-            if (audit.soEstCv != null)
-              _buildDetailTile('EST CV', '${audit.soEstCv}%'),
-
-            _buildSectionHeader('Hatcher Optimizing'),
-            if (audit.hoBreed != null)
-              _buildDetailTile('Breed', audit.hoBreed!),
-            if (audit.hoHatcherId != null)
-              _buildDetailTile('Hatcher ID', audit.hoHatcherId!),
-            if (audit.hoIncubationAge != null)
-              _buildDetailTile(
-                'Incubation Age',
-                '${audit.hoIncubationAge} days',
-              ),
-            if (audit.hoGoveeConnected != null)
-              _buildDetailTile(
-                'Govee Connected',
-                audit.hoGoveeConnected! ? 'Yes' : 'No',
-              ),
-            if (audit.hoGoveeTemp != null)
-              _buildDetailTile('Govee Temp', '${audit.hoGoveeTemp}°C'),
-            if (audit.hoGoveeHumidity != null)
-              _buildDetailTile('Govee Humidity', '${audit.hoGoveeHumidity}%'),
-            if (audit.hoCo2 != null)
-              _buildDetailTile('CO2', '${audit.hoCo2} ppm'),
-            if (audit.hoCvtAvg != null)
-              _buildDetailTile('CVT Avg', '${audit.hoCvtAvg}°C'),
-            if (audit.hoCvtCv != null)
-              _buildDetailTile('CVT CV', '${audit.hoCvtCv}%'),
-            if (audit.hoChickPanting != null)
-              _buildDetailTile(
-                'Chick Panting',
-                audit.hoChickPanting! ? 'Yes' : 'No',
-              ),
-
-            _buildSectionHeader('Egg Storage'),
-            if (audit.esGoveeConnected != null)
-              _buildDetailTile(
-                'Govee Connected',
-                audit.esGoveeConnected! ? 'Yes' : 'No',
-              ),
-            if (audit.esGoveeTemp != null)
-              _buildDetailTile('Govee Temp', '${audit.esGoveeTemp}°C'),
-            if (audit.esGoveeHumidity != null)
-              _buildDetailTile('Govee Humidity', '${audit.esGoveeHumidity}%'),
-            if (audit.esCo2 != null)
-              _buildDetailTile('CO2', '${audit.esCo2} ppm'),
-            if (audit.esShellTemp != null)
-              _buildDetailTile('Shell Temp', '${audit.esShellTemp}°C'),
-            if (audit.esTurningTimes != null)
-              _buildDetailTile('Turning Times', '${audit.esTurningTimes}'),
-            if (audit.esEggStorageDays != null)
-              _buildDetailTile('Storage Days', '${audit.esEggStorageDays}'),
-            if (audit.esEggSampleSize != null)
-              _buildDetailTile('Sample Size', '${audit.esEggSampleSize}'),
-            if (audit.esEggAvgWeight != null)
-              _buildDetailTile('Avg Weight', '${audit.esEggAvgWeight}g'),
-            if (audit.esEggUniformityPct != null)
-              _buildDetailTile('Uniformity', '${audit.esEggUniformityPct}%'),
-            if (audit.esEggCvPct != null)
-              _buildDetailTile('CV', '${audit.esEggCvPct}%'),
-            if (audit.esEggBmkAge != null)
-              _buildDetailTile('BMK Age', '${audit.esEggBmkAge} days'),
-            if (audit.esEggBmkWeight != null)
-              _buildDetailTile('BMK Weight', '${audit.esEggBmkWeight}g'),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _InfoPill(label: 'Customer', value: audit.customerId),
+                _InfoPill(label: 'Flock', value: audit.flockId ?? '--'),
+                if (breed != null) _InfoPill(label: 'Breed', value: breed),
+                if (setterId != null)
+                  _InfoPill(label: 'Setter', value: setterId),
+                if (hatcherId != null)
+                  _InfoPill(label: 'Hatcher', value: hatcherId),
+                _InfoPill(label: 'Hatch', value: '${audit.hatchNumber}'),
+                if (audit.sessionId != null)
+                  _InfoPill(label: 'Visit', value: 'Session-linked'),
+              ],
+            ),
+            if (audit.notes != null && audit.notes!.trim().isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text('Notes', style: AppTextStyles.caption),
+              const SizedBox(height: 4),
+              Text(audit.notes!, style: AppTextStyles.body),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Text(
-        title,
-        style: AppTextStyles.heading.copyWith(
-          fontSize: 18,
-          color: AppColors.primary,
+  Widget _emptySection() {
+    return Card(
+      elevation: 0,
+      color: AppColors.background,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'No summary values have been recorded for this audit yet.',
+          style: AppTextStyles.body,
         ),
       ),
     );
   }
 
-  Widget _buildDetailTile(String label, String value, {Widget? trailing}) {
-    return Card(
-      elevation: 0,
-      color: AppColors.background,
-      child: ListTile(
-        title: Text(
-          label,
-          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w500),
-        ),
-        trailing: trailing ?? Text(value, style: AppTextStyles.body),
+  List<_AuditSummarySection> _sectionsForAudit() {
+    return switch (audit.auditType) {
+      'Chick Quality' => _chickQualitySections(),
+      'Hatch Analysis' => _hatchAnalysisSections(),
+      'Setter Optimizing' => _setterSections(),
+      'Hatcher Optimizing' => _hatcherSections(),
+      'Egg Storage' => _eggStorageSections(),
+      _ => [],
+    };
+  }
+
+  List<_AuditSummarySection> _chickQualitySections() {
+    return [
+      _section(
+        title: 'CHA Environmental',
+        icon: Icons.air,
+        sectionIndex: 0,
+        metrics: [
+          _metric('CO2', _ppm(audit.chaCo2)),
+          _metric('PM10', _unit(audit.chaPm10, 'ug/m3')),
+          _metric('PM2.5', _unit(audit.chaPm25, 'ug/m3')),
+          _metric('Air inlet', _celsius(audit.chaAirInlet)),
+          _metric('Air outlet', _celsius(audit.chaAirOutlet)),
+          _metric('Noise', _unit(audit.chaNoiseLevel, 'dB')),
+        ],
       ),
+      _section(
+        title: 'Pasgar',
+        icon: Icons.fact_check_outlined,
+        sectionIndex: 1,
+        metrics: [
+          _metric('Sample', audit.pasgarSampleSize?.toString()),
+          _metric('Final score', _fixed(audit.pasgarFinalScore)),
+          _metric('Reflexes', audit.pasgarReflexes?.toString()),
+          _metric('Navel', audit.pasgarNavel?.toString()),
+        ],
+      ),
+      _section(
+        title: 'Weights',
+        icon: Icons.monitor_weight_outlined,
+        sectionIndex: 2,
+        metrics: [
+          _metric('Avg weight', _grams(audit.chickAvgWeight)),
+          _metric('Uniformity', _percent(audit.chickUniformityPct)),
+          _metric('CV', _percent(audit.chickCvPct)),
+          _metric('Sample', audit.chickSampleSize?.toString()),
+        ],
+      ),
+      _section(
+        title: 'YFBM',
+        icon: Icons.percent,
+        sectionIndex: 3,
+        metrics: [
+          _metric('Average', _percent(audit.yfbmAvgPct)),
+          _metric('CV', _percent(audit.yfbmCvPct)),
+          _metric('Entries', _jsonListCount(audit.yfbmEntries)),
+        ],
+      ),
+      _section(
+        title: 'CVT',
+        icon: Icons.thermostat_outlined,
+        sectionIndex: 4,
+        metrics: [
+          _metric('Average', _celsius(audit.cvtAvg)),
+          _metric('CV', _percent(audit.cvtCvPct)),
+          _metric('Top', _celsius(audit.cvtTopTemp)),
+          _metric('Middle', _celsius(audit.cvtMiddleTemp)),
+          _metric('Bottom', _celsius(audit.cvtBottomTemp)),
+        ],
+      ),
+    ];
+  }
+
+  List<_AuditSummarySection> _hatchAnalysisSections() {
+    return [
+      _section(
+        title: 'Hatch Results',
+        icon: Icons.query_stats,
+        sectionIndex: 0,
+        metrics: [
+          _metric('Eggs set', audit.haTotalEggsSet?.toString()),
+          _metric('Hatched', audit.haHatched?.toString()),
+          _metric('Culled', audit.haCulled?.toString()),
+          _metric('Dead', audit.haDead?.toString()),
+          _metric('Hatchability', _percent(audit.haHatchability)),
+        ],
+      ),
+      _section(
+        title: 'Egg Breakout',
+        icon: Icons.egg_alt_outlined,
+        sectionIndex: 1,
+        metrics: [
+          _metric('Trays', _jsonListCount(audit.haTrays ?? audit.ebTrays)),
+          _metric('Breakout type', audit.ebBreakoutType),
+          _metric('Infertile', audit.ebInfertileCount?.toString()),
+          _metric('Fertility', _percent(audit.haFertility)),
+          _metric('HOF', _percent(audit.haHof)),
+        ],
+      ),
+    ];
+  }
+
+  List<_AuditSummarySection> _setterSections() {
+    return [
+      _section(
+        title: 'Setup',
+        icon: Icons.tune,
+        sectionIndex: 0,
+        metrics: [
+          _metric('Breed', audit.soBreed),
+          _metric('Setter', audit.soSetterId ?? audit.setterId),
+          _metric('Incubation age', _days(audit.soIncubationAge)),
+        ],
+      ),
+      _section(
+        title: 'Environment',
+        icon: Icons.sensors,
+        sectionIndex: 1,
+        metrics: [
+          _metric('Govee temp', _celsius(audit.soGoveeTemp)),
+          _metric('Humidity', _percent(audit.soGoveeHumidity)),
+          _metric('CO2', _ppm(audit.soCo2)),
+        ],
+      ),
+      _section(
+        title: 'Egg Shell Temperature',
+        icon: Icons.device_thermostat,
+        sectionIndex: 2,
+        metrics: [
+          _metric('Average', _celsius(audit.soEstAvg)),
+          _metric('CV', _percent(audit.soEstCv)),
+          _metric('Readings', _jsonMapValueCount(audit.soEstReadings)),
+        ],
+      ),
+    ];
+  }
+
+  List<_AuditSummarySection> _hatcherSections() {
+    return [
+      _section(
+        title: 'Setup',
+        icon: Icons.tune,
+        sectionIndex: 0,
+        metrics: [
+          _metric('Breed', audit.hoBreed),
+          _metric('Hatcher', audit.hoHatcherId ?? audit.hatcherId),
+          _metric('Incubation age', _days(audit.hoIncubationAge)),
+        ],
+      ),
+      _section(
+        title: 'Environment',
+        icon: Icons.sensors,
+        sectionIndex: 1,
+        metrics: [
+          _metric('Govee temp', _celsius(audit.hoGoveeTemp)),
+          _metric('Humidity', _percent(audit.hoGoveeHumidity)),
+          _metric('CO2', _ppm(audit.hoCo2)),
+        ],
+      ),
+      _section(
+        title: 'Chick Vent Temperature',
+        icon: Icons.device_thermostat,
+        sectionIndex: 2,
+        metrics: [
+          _metric('Average', _celsius(audit.hoCvtAvg)),
+          _metric('CV', _percent(audit.hoCvtCv)),
+          _metric('Readings', _jsonMapValueCount(audit.hoCvtReadings)),
+        ],
+      ),
+      _section(
+        title: 'Chick Panting',
+        icon: Icons.air_outlined,
+        sectionIndex: 3,
+        metrics: [_metric('Observed', _yesNo(audit.hoChickPanting))],
+      ),
+    ];
+  }
+
+  List<_AuditSummarySection> _eggStorageSections() {
+    return [
+      _section(
+        title: 'Shell Temperature',
+        icon: Icons.thermostat_outlined,
+        sectionIndex: 0,
+        metrics: [_metric('Shell temp', _celsius(audit.esShellTemp))],
+      ),
+      _section(
+        title: 'Egg Turning',
+        icon: Icons.rotate_right,
+        sectionIndex: 1,
+        metrics: [_metric('Turning times', audit.esTurningTimes?.toString())],
+      ),
+      _section(
+        title: 'UV Tray Inspection',
+        icon: Icons.grid_on,
+        sectionIndex: 2,
+        metrics: [_metric('Trays', _jsonListCount(audit.esUvTrays))],
+      ),
+      _section(
+        title: 'Egg Uniformity',
+        icon: Icons.monitor_weight_outlined,
+        sectionIndex: 3,
+        metrics: [
+          _metric('Avg weight', _grams(audit.esEggAvgWeight)),
+          _metric('Min range', _grams(_eggUniformityMinRange())),
+          _metric('Max range', _grams(_eggUniformityMaxRange())),
+          _metric('Uniformity', _percent(audit.esEggUniformityPct)),
+          _metric('CV', _percent(audit.esEggCvPct)),
+          _metric('Sample', audit.esEggSampleSize?.toString()),
+        ],
+      ),
+    ];
+  }
+
+  _AuditSummarySection _section({
+    required String title,
+    required IconData icon,
+    required int sectionIndex,
+    required List<_SummaryMetric> metrics,
+  }) {
+    return _AuditSummarySection(
+      title: title,
+      icon: icon,
+      sectionIndex: sectionIndex,
+      metrics: metrics.where((metric) => metric.value != null).toList(),
     );
+  }
+
+  _SummaryMetric _metric(String label, String? value) {
+    final trimmed = value?.trim();
+    return _SummaryMetric(
+      label: label,
+      value: trimmed == null || trimmed.isEmpty ? null : trimmed,
+    );
+  }
+
+  String? _fixed(double? value, {int decimals = 1}) {
+    if (value == null) return null;
+    return value.toStringAsFixed(decimals);
+  }
+
+  String? _percent(double? value) {
+    final formatted = _fixed(value);
+    return formatted == null ? null : '$formatted%';
+  }
+
+  String? _celsius(double? value) {
+    final formatted = _fixed(value);
+    return formatted == null ? null : '$formatted C';
+  }
+
+  String? _grams(double? value) {
+    final formatted = _fixed(value);
+    return formatted == null ? null : '${formatted}g';
+  }
+
+  double? _eggUniformityMinRange() {
+    final avg = audit.esEggAvgWeight;
+    return avg == null ? null : avg * 0.9;
+  }
+
+  double? _eggUniformityMaxRange() {
+    final avg = audit.esEggAvgWeight;
+    return avg == null ? null : avg * 1.1;
+  }
+
+  String? _ppm(double? value) {
+    final formatted = _fixed(value, decimals: 0);
+    return formatted == null ? null : '$formatted ppm';
+  }
+
+  String? _unit(double? value, String unit) {
+    final formatted = _fixed(value);
+    return formatted == null ? null : '$formatted $unit';
+  }
+
+  String? _days(int? value) => value == null ? null : '$value days';
+
+  String? _yesNo(bool? value) {
+    if (value == null) return null;
+    return value ? 'Yes' : 'No';
+  }
+
+  String? _jsonListCount(String? jsonText) {
+    if (jsonText == null || jsonText.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is List) return decoded.length.toString();
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  String? _jsonMapValueCount(String? jsonText) {
+    if (jsonText == null || jsonText.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is Map) {
+        final count = decoded.values.where((value) => value != null).length;
+        return count == 0 ? null : count.toString();
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   String _formatDate(DateTime date) {
@@ -344,4 +539,164 @@ class AuditDetailScreen extends StatelessWidget {
     ];
     return months[month - 1];
   }
+
+  Future<void> _openAuditScreen(BuildContext context, {int sectionIndex = 0}) =>
+      openAuditEditor(context, audit, sectionIndex: sectionIndex);
+}
+
+class _SummarySectionCard extends StatelessWidget {
+  final _AuditSummarySection section;
+  final String? actionLabel;
+  final VoidCallback? onEdit;
+
+  const _SummarySectionCard({
+    required this.section,
+    this.actionLabel,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(section.icon, color: AppColors.primary, size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    section.title,
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (actionLabel != null && onEdit != null)
+                  TextButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: Text(actionLabel!),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (section.metrics.isEmpty)
+              Text('No values recorded yet', style: AppTextStyles.caption)
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: section.metrics
+                    .map(
+                      (metric) => _MetricChip(
+                        label: metric.label,
+                        value: metric.value!,
+                      ),
+                    )
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MetricChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTextStyles.caption),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _InfoPill({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: AppTextStyles.caption.copyWith(color: Colors.black87),
+          children: [
+            TextSpan(text: '$label: '),
+            TextSpan(
+              text: value,
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuditSummarySection {
+  final String title;
+  final IconData icon;
+  final int sectionIndex;
+  final List<_SummaryMetric> metrics;
+
+  const _AuditSummarySection({
+    required this.title,
+    required this.icon,
+    required this.sectionIndex,
+    required this.metrics,
+  });
+}
+
+class _SummaryMetric {
+  final String label;
+  final String? value;
+
+  const _SummaryMetric({required this.label, required this.value});
 }

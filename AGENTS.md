@@ -1,38 +1,62 @@
-# hatchaudit Development Guidelines
+# ChickMark Agent Guide
 
-Auto-generated from all feature plans. Last updated: 2026-04-18
+This file is the lightweight repo-level guidance for coding agents working in
+this repository.
 
-## Active Technologies
-- Dart 3 / Flutter SDK ^3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, supabase_flutter, uuid (for ID generation) (003-customers-flocks-screen)
-- SQLite via `sqflite` (source of truth) + Supabase background sync (003-customers-flocks-screen)
-- Dart 3 / Flutter SDK ^3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, supabase_flutter ^2.5.0, flutter_blue_plus ^1.35.3, image_picker ^1.1.2, path_provider ^2.1.4, uuid ^4.4.2 (004-audit-entry-screens)
-- Dart 3 / Flutter SDK ≥ 3.10.7 + `provider ^6.1.2`, `sqflite ^2.3.3+1`, `shared_preferences ^2.3.2`, `connectivity_plus ^6.1.0` — all already in `pubspec.yaml`; no new packages required (005-bmk-settings-home-logo)
-- SQLite (source of truth) via `DatabaseHelper` + SharedPreferences for user preferences (005-bmk-settings-home-logo)
-- Dart 3 / Flutter SDK ≥ 3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, fl_chart ^0.70.0, path_provider ^2.1.4 (006-dashboard)
-- SQLite via `sqflite` — single `audits` table plus `photos` table; offline-firs (006-dashboard)
+## Primary Sources
 
-- Dart 3 / Flutter SDK ^3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, supabase_flutter (to be (002-foundation-architecture-design)
+When implementing the current upgrade work, treat these files as the source of
+truth in this order:
 
-## Project Structure
+1. `.specify/memory/constitution.md`
+2. `specs/007-chickmark-upgrade/spec.md`
+3. `specs/007-chickmark-upgrade/plan.md`
+4. `specs/007-chickmark-upgrade/research.md`
+5. `specs/007-chickmark-upgrade/data-model.md`
+6. `specs/007-chickmark-upgrade/contracts/ui-session-contracts.md`
+7. `specs/007-chickmark-upgrade/tasks.md`
+8. `specs/007-chickmark-upgrade/implementation-handoff.md`
 
-```text
-src/
-tests/
-```
+If older generated docs or historical notes disagree with the files above,
+follow the files above.
 
-## Commands
+## Current Workflow
 
-# Add commands for Dart 3 / Flutter SDK ^3.10.7
+- Work on exactly one task at a time from `specs/007-chickmark-upgrade/tasks.md`.
+- Do not mark tasks complete unless the human reviewer explicitly approves it.
+- Prefer additive, migration-safe changes.
+- Preserve existing working behavior unless the task explicitly changes it.
+- Run the narrowest relevant validation for the task you are implementing.
+- End each task with a short handoff that lists:
+  - task id
+  - summary of changes
+  - files changed
+  - tests or commands run
+  - risks or assumptions
 
-## Code Style
+## Approved Exceptions
 
-Dart 3 / Flutter SDK ^3.10.7: Follow standard conventions
+The current upgrade spec includes two explicitly approved exceptions that agents
+must preserve while implementing `007-chickmark-upgrade`:
 
-## Recent Changes
-- 006-dashboard: Added Dart 3 / Flutter SDK ≥ 3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, fl_chart ^0.70.0, path_provider ^2.1.4
-- 005-bmk-settings-home-logo: Added Dart 3 / Flutter SDK ≥ 3.10.7 + `provider ^6.1.2`, `sqflite ^2.3.3+1`, `shared_preferences ^2.3.2`, `connectivity_plus ^6.1.0` — all already in `pubspec.yaml`; no new packages required
-- 004-audit-entry-screens: Added Dart 3 / Flutter SDK ^3.10.7 + provider ^6.1.2, sqflite ^2.3.3+1, supabase_flutter ^2.5.0, flutter_blue_plus ^1.35.3, image_picker ^1.1.2, path_provider ^2.1.4, uuid ^4.4.2
+1. Visit-level `audit_sessions` metadata is allowed as a companion workflow
+   layer alongside station-level `audits`.
+2. The dedicated Temperature tab may remain temporarily during the upgrade
+   rollout and must not be removed unless a later approved task explicitly does
+   so.
 
+These are intentional, time-bounded exceptions for the upgrade rollout and
+should not be treated as architecture violations.
 
-<!-- MANUAL ADDITIONS START -->
-<!-- MANUAL ADDITIONS END -->
+## Practical Notes
+
+- The repo may contain unrelated local changes; do not revert them unless the
+  user explicitly asks.
+- Be especially careful in files tied to persistence, sync, and migrations,
+  including:
+  - `lib/data/database/database_helper.dart`
+  - `lib/data/models/`
+  - `lib/data/repositories/`
+  - `lib/services/supabase/`
+- If there is a conflict between this file and the Constitution, follow the
+  Constitution.

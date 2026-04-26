@@ -54,6 +54,11 @@ class FlockRepository {
     await db.delete('flocks', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<void> deleteFlocksByCustomer(String customerId) async {
+    final db = await dbHelper.db;
+    await db.delete('flocks', where: 'customerId = ?', whereArgs: [customerId]);
+  }
+
   Future<void> upsertFlock(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'flocks');

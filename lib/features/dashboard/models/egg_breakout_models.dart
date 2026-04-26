@@ -85,6 +85,52 @@ class EggBreakoutAvg {
       cullPct: map['cullPct']?.toDouble() ?? 0.0,
     );
   }
+
+  factory EggBreakoutAvg.fromHatchBudget(
+    Map<String, dynamic> map,
+    String type,
+  ) {
+    final total = (map['haTotalEggsSet'] as int? ?? 0).toDouble();
+    if (total <= 0) return EggBreakoutAvg(breakoutType: type);
+
+    final pipped = (map['haPipped'] as int? ?? 0).toDouble();
+    final infertile = (map['haInfertileClear'] as int? ?? 0).toDouble();
+    final earlyDead = (map['haEarlyDead'] as int? ?? 0).toDouble();
+    final midDead = (map['haMidDead'] as int? ?? 0).toDouble();
+    final lateDead = (map['haLateDead'] as int? ?? 0).toDouble();
+    final contaminated =
+        (map['haContaminatedExploders'] as int? ?? 0).toDouble();
+    final culled = (map['haCulled'] as int? ?? 0).toDouble();
+
+    return EggBreakoutAvg(
+      breakoutType: type,
+      traySize: total,
+      infertileCount: infertile,
+      earlyDeadCount: earlyDead,
+      midDeadCount: midDead,
+      lateDeadCount: lateDead,
+      internalPipCount: pipped / 2,
+      externalPipCount: pipped / 2,
+      crackedCount: 0.0,
+      contaminatedCount: contaminated,
+      malpositionCount: 0.0,
+      exposedBrainCount: 0.0,
+      crossedBeakCount: 0.0,
+      culledDeadCount: culled,
+      infertilePct: (infertile / total) * 100,
+      earlyDeadPct: (earlyDead / total) * 100,
+      midDeadPct: (midDead / total) * 100,
+      lateDeadPct: (lateDead / total) * 100,
+      internalPipPct: (pipped / 2 / total) * 100,
+      externalPipPct: (pipped / 2 / total) * 100,
+      crackedPct: 0.0,
+      contamPct: (contaminated / total) * 100,
+      malpositionPct: 0.0,
+      exposedBrainPct: 0.0,
+      crossedBeakPct: 0.0,
+      cullPct: (culled / total) * 100,
+    );
+  }
 }
 
 class EggBreakoutTrend {
@@ -115,6 +161,44 @@ class EggBreakoutTrend {
         'exposed_brain': map['exposedBrainPct']?.toDouble() ?? 0.0,
         'crossed_beak': map['crossedBeakPct']?.toDouble() ?? 0.0,
         'cull': map['cullPct']?.toDouble() ?? 0.0,
+      },
+    );
+  }
+
+  factory EggBreakoutTrend.fromHatchBudget(
+    Map<String, dynamic> map,
+    String type,
+  ) {
+    final total = (map['haTotalEggsSet'] as int? ?? 0).toDouble();
+    if (total <= 0) {
+      return EggBreakoutTrend(date: map['date'] ?? '', breakoutType: type, percentages: {});
+    }
+
+    final pipped = (map['haPipped'] as int? ?? 0).toDouble();
+    final infertile = (map['haInfertileClear'] as int? ?? 0).toDouble();
+    final earlyDead = (map['haEarlyDead'] as int? ?? 0).toDouble();
+    final midDead = (map['haMidDead'] as int? ?? 0).toDouble();
+    final lateDead = (map['haLateDead'] as int? ?? 0).toDouble();
+    final contaminated =
+        (map['haContaminatedExploders'] as int? ?? 0).toDouble();
+    final culled = (map['haCulled'] as int? ?? 0).toDouble();
+
+    return EggBreakoutTrend(
+      date: map['date'] ?? '',
+      breakoutType: type,
+      percentages: {
+        'infertile': (infertile / total) * 100,
+        'early_dead': (earlyDead / total) * 100,
+        'mid_dead': (midDead / total) * 100,
+        'late_dead': (lateDead / total) * 100,
+        'internal_pip': (pipped / 2 / total) * 100,
+        'external_pip': (pipped / 2 / total) * 100,
+        'cracked': 0.0,
+        'contam': (contaminated / total) * 100,
+        'malposition': 0.0,
+        'exposed_brain': 0.0,
+        'crossed_beak': 0.0,
+        'cull': (culled / total) * 100,
       },
     );
   }

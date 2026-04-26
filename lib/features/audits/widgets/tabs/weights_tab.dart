@@ -13,14 +13,12 @@ class WeightsTab extends StatefulWidget {
   final AuditModel audit;
   final bool isReadOnly;
   final Function(String key, dynamic value) onFieldChanged;
-  final VoidCallback onSave;
 
   const WeightsTab({
     super.key,
     required this.audit,
     required this.isReadOnly,
     required this.onFieldChanged,
-    required this.onSave,
   });
 
   @override
@@ -76,10 +74,15 @@ class _WeightsTabState extends State<WeightsTab> {
       maxRange,
     );
 
-    widget.onFieldChanged('chickWeights', jsonEncode(weights));
+    final allWeights = _controllers
+        .map((controller) => double.tryParse(controller.text))
+        .toList();
+
+    widget.onFieldChanged('chickWeights', jsonEncode(allWeights));
     widget.onFieldChanged('chickAvgWeight', avg);
     widget.onFieldChanged('chickUniformityPct', uniformity);
     widget.onFieldChanged('chickCvPct', cv);
+    setState(() {});
   }
 
   @override
@@ -144,6 +147,26 @@ class _WeightsTabState extends State<WeightsTab> {
                       );
                     },
                   ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoLine(
+                          'BMK Age',
+                          widget.audit.chickBmkAge?.toString() ?? 'N/A',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildInfoLine(
+                          'BMK Chick Weight',
+                          widget.audit.chickBmkWeight == null
+                              ? 'N/A'
+                              : '${widget.audit.chickBmkWeight!.toStringAsFixed(1)}g',
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -182,11 +205,29 @@ class _WeightsTabState extends State<WeightsTab> {
             children: [
               Expanded(
                 child: _buildSummaryCard(
-                  'Uniformity',
+                  'Low Margin',
+                  '${minRange.toStringAsFixed(1)}g',
+                  Colors.blueGrey,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSummaryCard(
+                  'High Margin',
+                  '${maxRange.toStringAsFixed(1)}g',
+                  Colors.blueGrey,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildSummaryCard(
+                  'In Zone',
                   '${uniformity.toStringAsFixed(1)}%',
-                  uniformity >= AppThresholds.uniformityGood
-                      ? AppColors.greenTab
-                      : Colors.red,
+                  _uniformityColor(uniformity),
                 ),
               ),
             ],
@@ -194,6 +235,30 @@ class _WeightsTabState extends State<WeightsTab> {
         ],
       ),
     );
+  }
+
+  Widget _buildInfoLine(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTextStyles.caption),
+          const SizedBox(height: 4),
+          Text(value, style: AppTextStyles.body),
+        ],
+      ),
+    );
+  }
+
+  Color _uniformityColor(double uniformity) {
+    if (uniformity < AppThresholds.uniformityPoor) return Colors.red;
+    if (uniformity <= AppThresholds.uniformityGood) return Colors.orange;
+    return AppColors.greenTab;
   }
 
   Widget _buildSummaryCard(String label, String value, Color color) {

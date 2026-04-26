@@ -11,22 +11,19 @@ class TroubleshootingModel {
     this.farmFlockCausesJson,
   });
 
-  List<String> get hatcheryCauses => hatcheryCausesJson != null
-      ? List<String>.from(jsonDecode(hatcheryCausesJson!))
-      : [];
-  List<String> get farmFlockCauses => farmFlockCausesJson != null
-      ? List<String>.from(jsonDecode(farmFlockCausesJson!))
-      : [];
+  List<String> get hatcheryCauses =>
+      hatcheryCausesBySection.values.expand((items) => items).toList();
+  List<String> get farmFlockCauses =>
+      farmFlockCausesBySection.values.expand((items) => items).toList();
 
   // Section-keyed getters for troubleshooting sheet
   Map<String, List<String>> get hatcheryCausesBySection {
     if (hatcheryCausesJson == null) return {};
     try {
       final Map<String, dynamic> decoded = jsonDecode(hatcheryCausesJson!);
-      return decoded.map((key, value) => MapEntry(
-            key,
-            List<String>.from(value as List),
-          ));
+      return decoded.map(
+        (key, value) => MapEntry(key, List<String>.from(value as List)),
+      );
     } catch (e) {
       return {};
     }
@@ -36,10 +33,9 @@ class TroubleshootingModel {
     if (farmFlockCausesJson == null) return {};
     try {
       final Map<String, dynamic> decoded = jsonDecode(farmFlockCausesJson!);
-      return decoded.map((key, value) => MapEntry(
-            key,
-            List<String>.from(value as List),
-          ));
+      return decoded.map(
+        (key, value) => MapEntry(key, List<String>.from(value as List)),
+      );
     } catch (e) {
       return {};
     }

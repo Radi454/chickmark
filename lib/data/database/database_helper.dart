@@ -1,7 +1,11 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'seeds/bmk_seeds.dart';
+import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
 import 'seeds/dummy_data_seeds.dart';
+import 'seeds/troubleshooting_seeds.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -14,11 +18,17 @@ class DatabaseHelper {
     if (_db != null) return _db!;
     _db = await openDatabase(
       join(await getDatabasesPath(), 'hatchaudit.db'),
-      version: 8,
+      version: 15,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
     return _db!;
+  }
+
+  Future<void> close() async {
+    if (_db == null) return;
+    await _db!.close();
+    _db = null;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -48,7 +58,11 @@ class DatabaseHelper {
       customerId TEXT,
       flockId TEXT,
       breed TEXT,
-      entryDate TEXT
+      entryDate TEXT,
+      isAgeEstimated INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
+      soldAt TEXT
     )''');
     await db.execute('''CREATE TABLE audits (
       id TEXT PRIMARY KEY,
@@ -64,6 +78,7 @@ class DatabaseHelper {
       createdAt TEXT,
       updatedAt TEXT,
       notes TEXT,
+      sessionId TEXT,
       -- Chick Quality: CHA Environmental
       chaGoveeConnected INTEGER,
       chaCo2 REAL,
@@ -137,6 +152,14 @@ class DatabaseHelper {
       haHof REAL,
       haTrays TEXT,
       haBmkAge INTEGER,
+      haPipped INTEGER,
+      haInfertileClear INTEGER,
+      haEarlyDead INTEGER,
+      haMidDead INTEGER,
+      haMidLateDead INTEGER,
+      haLateDead INTEGER,
+      haContaminatedExploders INTEGER,
+      haBenchmarkStatusesJson TEXT,
       -- Hatch Analysis: Egg Breakout
       ebTraySize INTEGER,
       ebBreakoutType TEXT,
@@ -184,6 +207,8 @@ class DatabaseHelper {
       hoCvtCv REAL,
       hoChickPanting INTEGER,
       hoChickPantingPhoto TEXT,
+      ho_meconium TEXT,
+      ho_transferDay INTEGER,
       -- Egg Storage
       esGoveeConnected INTEGER,
       esGoveeTemp REAL,
@@ -201,7 +226,76 @@ class DatabaseHelper {
       esEggUniformityPct REAL,
       esEggCvPct REAL,
       esEggBmkAge INTEGER,
-      esEggBmkWeight REAL
+      esEggBmkWeight REAL,
+      es_estReadingsJson TEXT,
+      es_estAvg REAL,
+      es_estCv REAL,
+      es_uvSampleSize INTEGER,
+      es_uvCuticleDamageCount INTEGER,
+      es_uvWashingEvidenceCount INTEGER,
+      es_uvFecalCount INTEGER,
+      es_uvMottledCount INTEGER,
+      es_uvOtherCount INTEGER,
+      es_uvPhotosJson TEXT,
+      es_crackPct REAL,
+      es_brokenPct REAL,
+      es_misshapedPct REAL,
+      es_paleShellPct REAL,
+      es_roughTexturePct REAL,
+      es_floorEggPct REAL,
+      es_eggColorDistJson TEXT,
+      es_eggOrientation TEXT,
+      es_traySpacing TEXT,
+      es_coolerProximity TEXT,
+      es_wallProximity TEXT,
+      es_condensation INTEGER,
+      pm_sampleSize INTEGER,
+      pm_collectionPoint TEXT,
+      pm_omphalitisCount INTEGER,
+      pm_omphalitisSeverity TEXT,
+      pm_gaseousCecaCount INTEGER,
+      pm_gaseousCecaSeverity TEXT,
+      pm_unabsorbedYolkCount INTEGER,
+      pm_unabsorbedYolkSeverity TEXT,
+      pm_perihepatitisCount INTEGER,
+      pm_perihepatitisSeverity TEXT,
+      pm_pericarditisCount INTEGER,
+      pm_pericarditisSeverity TEXT,
+      pm_airsacAcuteCount INTEGER,
+      pm_airsacAcuteSeverity TEXT,
+      pm_airsacChronicCount INTEGER,
+      pm_airsacChronicSeverity TEXT,
+      pm_pulmonaryGranulomaCount INTEGER,
+      pm_pulmonaryGranulomaSeverity TEXT,
+      pm_swollenJointsCount INTEGER,
+      pm_swollenJointsSeverity TEXT,
+      pm_stuntedOrgansCount INTEGER,
+      pm_stuntedOrgansSeverity TEXT,
+      pm_pulmonaryHemorrhageCount INTEGER,
+      pm_pulmonaryHemorrhageSeverity TEXT,
+      pm_gaspingPresent INTEGER,
+      pm_gaspingType TEXT,
+      pm_exposedBrainCount INTEGER,
+      pm_ectopicVisceraCount INTEGER,
+      pm_extraLegsCount INTEGER,
+      pm_crossedBeakCount INTEGER,
+      pm_absentEyeBothCount INTEGER,
+      pm_absentEyeOneCount INTEGER,
+      pm_smallEyeCount INTEGER,
+      pm_hydrocephalyCount INTEGER,
+      pm_starGazerCount INTEGER,
+      pm_curledToesCount INTEGER,
+      pm_shortLegsCount INTEGER,
+      pm_spinalDeformityCount INTEGER,
+      pm_cardiacAnomalyCount INTEGER,
+      pm_conjoinedCount INTEGER,
+      pm_otherDeformityCount INTEGER,
+      pm_otherDeformityText TEXT,
+      pm_suspectedCauseAuto TEXT,
+      pm_suspectedCauseManual TEXT,
+      pm_photosJson TEXT,
+      so_machineType TEXT,
+      so_turningAngle REAL
     )''');
     await db.execute('''CREATE TABLE bmk_breeds (
       id TEXT PRIMARY KEY,
@@ -252,20 +346,37 @@ class DatabaseHelper {
       filePath TEXT,
       description TEXT,
       createdAt TEXT,
-      auditId TEXT
+      auditId TEXT,
+      uploadStatus TEXT NOT NULL DEFAULT 'local'
     )''');
+    await db.execute('''CREATE TABLE activity_log (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entityType TEXT,
+      entityId TEXT,
+      details TEXT,
+      timestamp TEXT NOT NULL
+    )''');
+    await _createHatcheryTables(db);
+    await _createAuditSessionTables(db);
+    await _createTemperatureRhTables(db);
+    await _createOperationalIndexes(db);
+    await _createActivityLogIndexes(db);
     // Seed data
-    for (final seed in kBmkBreedSeeds) {
-      await db.insert('bmk_breeds', seed);
-    }
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final seed in kBmkBreedSeeds) {
+        batch.insert('bmk_breeds', seed, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final seed in kBmkEggBreakoutSeeds) {
+        batch.insert('bmk_egg_breakout', seed, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
     await _ensureCompleteBmkBreedSeedData(db);
-    for (final seed in kBmkEggBreakoutSeeds) {
-      await db.insert('bmk_egg_breakout', seed);
-    }
     await _backfillEggBreakoutAliases(db);
-    for (final seed in kTroubleshootingSeeds) {
-      await db.insert('troubleshooting', seed);
-    }
+    await _seedTroubleshooting(db);
     await _ensureDummyTestData(db);
     // Add UNIQUE constraint on audits
     await db.execute(
@@ -403,9 +514,398 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       await _ensureDummyTestData(db);
     }
+    if (oldVersion < 9) {
+      await _addColumnIfMissing(
+        db,
+        'flocks',
+        'isAgeEstimated',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 10) {
+      await _createHatcheryTables(db);
+      await _createTemperatureRhTables(db);
+    }
+    if (oldVersion < 11) {
+      await _addColumnIfMissing(
+        db,
+        'flocks',
+        'status',
+        "TEXT NOT NULL DEFAULT 'active'",
+      );
+      await _addColumnIfMissing(
+        db,
+        'flocks',
+        'depletionAgeWeeks',
+        'INTEGER NOT NULL DEFAULT 65',
+      );
+      await _addColumnIfMissing(db, 'flocks', 'soldAt', 'TEXT');
+    }
+    if (oldVersion < 12) {
+      await _addColumnIfMissing(
+        db,
+        'photos',
+        'uploadStatus',
+        "TEXT NOT NULL DEFAULT 'local'",
+      );
+      await db.execute("UPDATE photos SET uploadStatus = 'synced'");
+      await _seedTroubleshooting(db);
+    }
+    if (oldVersion < 13) {
+      await _createOperationalIndexes(db);
+    }
+    if (oldVersion < 14) {
+      await db.execute('''CREATE TABLE IF NOT EXISTS activity_log (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entityType TEXT,
+        entityId TEXT,
+        details TEXT,
+        timestamp TEXT NOT NULL
+      )''');
+      await _createActivityLogIndexes(db);
+    }
+    if (oldVersion < 15) {
+      await _applyV15Upgrade(db);
+    }
+  }
+
+  Future<void> _createHatcheryTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS hatcheries (
+      id TEXT PRIMARY KEY,
+      customerId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      location TEXT,
+      notes TEXT,
+      createdAt TEXT,
+      createdBy TEXT
+    )''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_hatcheries_customer ON hatcheries (customerId)',
+    );
+  }
+
+  Future<void> _createAuditSessionTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS audit_sessions (
+      id TEXT PRIMARY KEY,
+      customerId TEXT NOT NULL,
+      flockId TEXT NOT NULL,
+      hatcheryId TEXT NOT NULL,
+      date TEXT NOT NULL,
+      breed TEXT,
+      flockAgeWeeks INTEGER,
+      status TEXT DEFAULT 'in_progress',
+      stationsCompleted TEXT,
+      findingsJson TEXT,
+      scorecardJson TEXT,
+      notes TEXT,
+      createdBy TEXT,
+      createdAt TEXT,
+      updatedAt TEXT,
+      completedAt TEXT
+    )''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audit_sessions_customer_date ON audit_sessions (customerId, date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audit_sessions_flock_date ON audit_sessions (flockId, date DESC)',
+    );
+  }
+
+  Future<void> _createTemperatureRhTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS temperature_sessions (
+      id TEXT PRIMARY KEY,
+      customerId TEXT NOT NULL,
+      hatcheryId TEXT NOT NULL,
+      deviceId TEXT,
+      deviceName TEXT,
+      startedAt TEXT NOT NULL,
+      endedAt TEXT,
+      activePlace TEXT NOT NULL,
+      status TEXT NOT NULL,
+      tempAvg REAL,
+      tempMin REAL,
+      tempMax REAL,
+      tempCvPct REAL,
+      rhAvg REAL,
+      rhMin REAL,
+      rhMax REAL,
+      rhCvPct REAL,
+      readingCount INTEGER,
+      alertCount INTEGER,
+      tempChartPointsJson TEXT,
+      rhChartPointsJson TEXT,
+      warmupSeconds INTEGER DEFAULT 120,
+      auditSessionId TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS temperature_readings (
+      id TEXT PRIMARY KEY,
+      sessionId TEXT NOT NULL,
+      customerId TEXT NOT NULL,
+      hatcheryId TEXT NOT NULL,
+      place TEXT NOT NULL,
+      temperatureFahrenheit REAL NOT NULL,
+      humidity REAL NOT NULL,
+      rssi INTEGER,
+      deviceName TEXT,
+      recordedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    )''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_hatchery ON temperature_sessions (hatcheryId, startedAt)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_audit_session ON temperature_sessions (auditSessionId, startedAt)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_temperature_readings_session_time ON temperature_readings (sessionId, recordedAt)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_temperature_readings_hatchery_time ON temperature_readings (hatcheryId, recordedAt)',
+    );
+  }
+
+  Future<void> _createOperationalIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_customer ON audits (customerId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_flock ON audits (flockId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_date ON audits (date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_type ON audits (auditType)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_customer_type ON audits (customerId, auditType)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_customer_date ON audits (customerId, date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_session ON audits (sessionId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_photos_audit ON photos (auditId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_flocks_customer ON flocks (customerId, status)',
+    );
+  }
+
+  Future<void> _createActivityLogIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log (userId, timestamp DESC)',
+    );
+  }
+
+  Future<void> _applyV15Upgrade(Database db) async {
+    await _createAuditSessionTables(db);
+
+    await _addColumnIfMissing(db, 'audits', 'sessionId', 'TEXT');
+
+    await _addColumnIfMissing(db, 'audits', 'pm_sampleSize', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_collectionPoint', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_omphalitisCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_omphalitisSeverity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_gaseousCecaCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_gaseousCecaSeverity', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_unabsorbedYolkCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_unabsorbedYolkSeverity',
+      'TEXT',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_perihepatitisCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_perihepatitisSeverity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_pericarditisCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_pericarditisSeverity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_airsacAcuteCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_airsacAcuteSeverity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_airsacChronicCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_airsacChronicSeverity', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_pulmonaryGranulomaCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_pulmonaryGranulomaSeverity',
+      'TEXT',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_swollenJointsCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_swollenJointsSeverity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_stuntedOrgansCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_stuntedOrgansSeverity', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_pulmonaryHemorrhageCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_pulmonaryHemorrhageSeverity',
+      'TEXT',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_gaspingPresent', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_gaspingType', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_exposedBrainCount', 'INTEGER');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_ectopicVisceraCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_extraLegsCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_crossedBeakCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_absentEyeBothCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_absentEyeOneCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_smallEyeCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_hydrocephalyCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_starGazerCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_curledToesCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'pm_shortLegsCount', 'INTEGER');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_spinalDeformityCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_cardiacAnomalyCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_conjoinedCount', 'INTEGER');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'pm_otherDeformityCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(db, 'audits', 'pm_otherDeformityText', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_suspectedCauseAuto', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_suspectedCauseManual', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'pm_photosJson', 'TEXT');
+
+    await _addColumnIfMissing(db, 'audits', 'es_estReadingsJson', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_estAvg', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_estCv', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_uvSampleSize', 'INTEGER');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'es_uvCuticleDamageCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'es_uvWashingEvidenceCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(db, 'audits', 'es_uvFecalCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'es_uvMottledCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'es_uvOtherCount', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'es_uvPhotosJson', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_crackPct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_brokenPct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_misshapedPct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_paleShellPct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_roughTexturePct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_floorEggPct', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'es_eggColorDistJson', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_eggOrientation', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_traySpacing', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_coolerProximity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_wallProximity', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'es_condensation', 'INTEGER');
+
+    await _addColumnIfMissing(db, 'audits', 'so_machineType', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'so_turningAngle', 'REAL');
+    await _addColumnIfMissing(db, 'audits', 'ho_meconium', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'ho_transferDay', 'INTEGER');
+
+    await _addColumnIfMissing(db, 'audits', 'haPipped', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haInfertileClear', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haEarlyDead', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haMidDead', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haMidLateDead', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haLateDead', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haContaminatedExploders', 'INTEGER');
+    await _addColumnIfMissing(db, 'audits', 'haBenchmarkStatusesJson', 'TEXT');
+
+    await _addColumnIfMissing(db, 'temperature_sessions', 'tempAvg', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'tempMin', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'tempMax', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'tempCvPct', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'rhAvg', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'rhMin', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'rhMax', 'REAL');
+    await _addColumnIfMissing(db, 'temperature_sessions', 'rhCvPct', 'REAL');
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'readingCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'alertCount',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'tempChartPointsJson',
+      'TEXT',
+    );
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'rhChartPointsJson',
+      'TEXT',
+    );
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'warmupSeconds',
+      'INTEGER DEFAULT 120',
+    );
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'auditSessionId',
+      'TEXT',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_audit_session ON temperature_sessions (auditSessionId, startedAt)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audits_session ON audits (sessionId)',
+    );
   }
 
   Future<void> _ensureDummyTestData(Database db) async {
+    if (kReleaseMode) return;
     for (final seed in kDummyCustomerSeeds) {
       await db.insert(
         'customers',
@@ -426,6 +926,16 @@ class DatabaseHelper {
         seed,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+    }
+  }
+
+  Future<void> _seedTroubleshooting(Database db) async {
+    for (final entry in kTroubleshootingSeeds.entries) {
+      await db.insert('troubleshooting', {
+        'id': entry.key,
+        'hatcheryCauses': jsonEncode(entry.value['hatcheryCauses']),
+        'farmFlockCauses': jsonEncode(entry.value['farmFlockCauses']),
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
   }
 
@@ -527,5 +1037,66 @@ class DatabaseHelper {
       limit: 1,
     );
     return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<bool> customerExists(String customerId) async {
+    final db = await this.db;
+    final result = await db.query(
+      'customers',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [customerId],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  Future<bool> flockExists(String flockId) async {
+    final db = await this.db;
+    final result = await db.query(
+      'flocks',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [flockId],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  Future<bool> hatcheryExists(String hatcheryId) async {
+    final db = await this.db;
+    final result = await db.query(
+      'hatcheries',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [hatcheryId],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  Future<void> assertForeignKeys({
+    String? customerId,
+    String? flockId,
+    String? hatcheryId,
+  }) async {
+    if (customerId != null && customerId.isNotEmpty) {
+      final exists = await customerExists(customerId);
+      if (!exists) {
+        throw Exception('Customer $customerId does not exist');
+      }
+    }
+    if (flockId != null && flockId.isNotEmpty) {
+      final exists = await flockExists(flockId);
+      if (!exists) {
+        throw Exception('Flock $flockId does not exist');
+      }
+    }
+    if (hatcheryId != null && hatcheryId.isNotEmpty) {
+      final exists = await hatcheryExists(hatcheryId);
+      if (!exists) {
+        throw Exception('Hatchery $hatcheryId does not exist');
+      }
+    }
   }
 }

@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 
 class HatchResultsTray {
@@ -68,11 +67,7 @@ class EggBreakoutTray {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'trayId': trayId,
-      'position': position,
-      'parameters': parameters,
-    };
+    return {'trayId': trayId, 'position': position, 'parameters': parameters};
   }
 
   factory EggBreakoutTray.fromJson(String source) =>

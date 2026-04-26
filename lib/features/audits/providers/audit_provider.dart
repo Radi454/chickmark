@@ -1,30 +1,40 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../../../core/constants/app_thresholds.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/user_model.dart';
+import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
   final String auditType;
   final String customerId;
-  final String? flockId;
+  final String flockId;
   final String? breed;
+  final String? setterId;
+  final String? hatcherId;
+  final DateTime? flockEntryDate;
   final String date;
 
   AuditContext({
     required this.auditType,
     required this.customerId,
-    this.flockId,
+    required this.flockId,
     this.breed,
+    this.setterId,
+    this.hatcherId,
+    this.flockEntryDate,
     required this.date,
   });
 }
 
 class AuditProvider extends ChangeNotifier {
   final AuditRepository _repository = AuditRepository();
+  final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
   final SupabaseService _supabaseService = SupabaseService();
   final Uuid _uuid = const Uuid();
 
@@ -36,18 +46,22 @@ class AuditProvider extends ChangeNotifier {
   TempUnit _tempUnit = TempUnit.fahrenheit;
   bool _isReadOnly = false;
   bool _isLoading = false;
+  bool _isDirty = false;
   UserModel? _currentUser;
+  String? _activeSessionId;
 
   // Getters
   AuditContext? get context => _context;
   List<AuditModel> get drafts => List.unmodifiable(_drafts);
   int get activeHatchIndex => _activeHatchIndex;
   AuditModel get activeDraft => _drafts[_activeHatchIndex];
+  String? get activeSessionId => _activeSessionId;
   bool isTabSaved(int tabIndex) =>
       _savedTabs[_activeHatchIndex]?.contains(tabIndex) ?? false;
   TempUnit get tempUnit => _tempUnit;
   bool get isReadOnly => _isReadOnly;
   bool get isLoading => _isLoading;
+  bool get isDirty => _isDirty;
   int get hatchCount => _drafts.length;
 
   // Initialize new audit session
@@ -56,15 +70,17 @@ class AuditProvider extends ChangeNotifier {
     AuditModel? existingAudit,
     bool notify = true,
     UserModel? currentUser,
+    String? sessionId,
   }) {
     _context = context;
     _currentUser = currentUser;
     _tempUnit = TempUnit.fahrenheit;
+    _activeSessionId = sessionId ?? existingAudit?.sessionId;
 
     if (existingAudit != null) {
       _drafts = [existingAudit];
       _activeHatchIndex = 0;
-      _isReadOnly = true;
+      _isReadOnly = !(currentUser?.canEditAudits ?? false);
     } else {
       _drafts = [_createNewDraft(hatchNumber: 1)];
       _activeHatchIndex = 0;
@@ -72,6 +88,7 @@ class AuditProvider extends ChangeNotifier {
     }
 
     _savedTabs.clear();
+    _isDirty = false;
     if (notify) notifyListeners();
   }
 
@@ -89,12 +106,22 @@ class AuditProvider extends ChangeNotifier {
       createdBy: _currentUser?.id ?? '',
       createdAt: now,
       updatedAt: now,
+      setterId: _context!.setterId,
+      hatcherId: _context!.hatcherId,
+      sessionId: _activeSessionId,
+      haTotalEggsSet: _context!.auditType == 'Hatch Analysis' ? 19200 : null,
       soBreed: _context!.auditType == 'Setter Optimizing'
           ? _context!.breed
+          : null,
+      soSetterId: _context!.auditType == 'Setter Optimizing'
+          ? _context!.setterId
           : null,
       soIncubationAge: _context!.auditType == 'Setter Optimizing' ? 1 : null,
       hoBreed: _context!.auditType == 'Hatcher Optimizing'
           ? _context!.breed
+          : null,
+      hoHatcherId: _context!.auditType == 'Hatcher Optimizing'
+          ? _context!.hatcherId
           : null,
       hoIncubationAge: _context!.auditType == 'Hatcher Optimizing' ? 18 : null,
     );
@@ -104,9 +131,16 @@ class AuditProvider extends ChangeNotifier {
   void updateField(String key, dynamic value) {
     if (_isReadOnly) return;
 
-    // Update the draft
-    final updatedDraft = _updateAuditField(activeDraft, key, value);
-    _drafts[_activeHatchIndex] = updatedDraft;
+    updateHatchField(_activeHatchIndex, key, value);
+  }
+
+  void updateHatchField(int hatchIndex, String key, dynamic value) {
+    if (_isReadOnly) return;
+    if (hatchIndex < 0 || hatchIndex >= _drafts.length) return;
+
+    final updatedDraft = _updateAuditField(_drafts[hatchIndex], key, value);
+    _drafts[hatchIndex] = updatedDraft;
+    _isDirty = true;
 
     notifyListeners();
   }
@@ -129,6 +163,7 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final existing = await _repository.getAuditById(activeDraft.id);
       // Save to SQLite
       await _repository.insertAudit(activeDraft);
 
@@ -137,6 +172,12 @@ class AuditProvider extends ChangeNotifier {
         _savedTabs[_activeHatchIndex] = {};
       }
       _savedTabs[_activeHatchIndex]!.add(tabIndex);
+      _isDirty = false;
+      await _logAuditChange(
+        activeDraft,
+        existing == null ? 'create' : 'update',
+      );
+      await _checkThresholdsAndAlert(activeDraft);
 
       unawaited(_supabaseService.syncAudit(activeDraft.toMap()));
     } catch (e) {
@@ -148,6 +189,121 @@ class AuditProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> saveAllHatches() async {
+    if (_isReadOnly) return;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      for (var i = 0; i < _drafts.length; i++) {
+        final existing = await _repository.getAuditById(_drafts[i].id);
+        await _repository.insertAudit(_drafts[i]);
+        _savedTabs[i] = {0, 1};
+        await _logAuditChange(
+          _drafts[i],
+          existing == null ? 'create' : 'update',
+        );
+        await _checkThresholdsAndAlert(_drafts[i]);
+        unawaited(_supabaseService.syncAudit(_drafts[i].toMap()));
+      }
+      _isDirty = false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving hatch analysis: $e');
+      }
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // PM Necropsy conditional field validation
+  List<String> validatePmConditionalFields() {
+    final errors = <String>[];
+    final a = activeDraft;
+
+    final lesionPairs = <Map<String, dynamic>>[
+      {
+        'label': 'Omphalitis',
+        'count': a.pmOmphalitisCount,
+        'severity': a.pmOmphalitisSeverity,
+      },
+      {
+        'label': 'Gaseous Ceca',
+        'count': a.pmGaseousCecaCount,
+        'severity': a.pmGaseousCecaSeverity,
+      },
+      {
+        'label': 'Unabsorbed Yolk',
+        'count': a.pmUnabsorbedYolkCount,
+        'severity': a.pmUnabsorbedYolkSeverity,
+      },
+      {
+        'label': 'Perihepatitis',
+        'count': a.pmPerihepatitisCount,
+        'severity': a.pmPerihepatitisSeverity,
+      },
+      {
+        'label': 'Pericarditis',
+        'count': a.pmPericarditisCount,
+        'severity': a.pmPericarditisSeverity,
+      },
+      {
+        'label': 'Airsac Acute',
+        'count': a.pmAirsacAcuteCount,
+        'severity': a.pmAirsacAcuteSeverity,
+      },
+      {
+        'label': 'Airsac Chronic',
+        'count': a.pmAirsacChronicCount,
+        'severity': a.pmAirsacChronicSeverity,
+      },
+      {
+        'label': 'Pulmonary Granuloma',
+        'count': a.pmPulmonaryGranulomaCount,
+        'severity': a.pmPulmonaryGranulomaSeverity,
+      },
+      {
+        'label': 'Swollen Joints',
+        'count': a.pmSwollenJointsCount,
+        'severity': a.pmSwollenJointsSeverity,
+      },
+      {
+        'label': 'Stunted Organs',
+        'count': a.pmStuntedOrgansCount,
+        'severity': a.pmStuntedOrgansSeverity,
+      },
+      {
+        'label': 'Pulmonary Hemorrhage',
+        'count': a.pmPulmonaryHemorrhageCount,
+        'severity': a.pmPulmonaryHemorrhageSeverity,
+      },
+    ];
+
+    for (final pair in lesionPairs) {
+      final label = pair['label'] as String;
+      final count = pair['count'] as int?;
+      final severity = pair['severity'] as String?;
+      if ((count ?? 0) > 0 && (severity == null || severity.isEmpty)) {
+        errors.add('$label requires severity when count > 0');
+      }
+    }
+
+    if (a.pmGaspingPresent == true &&
+        (a.pmGaspingType == null || a.pmGaspingType!.isEmpty)) {
+      errors.add('Gasping subtype is required when gasping is present');
+    }
+
+    if ((a.pmOtherDeformityCount ?? 0) > 0 &&
+        (a.pmOtherDeformityText == null ||
+            a.pmOtherDeformityText!.isEmpty)) {
+      errors.add('Other deformity description is required when count > 0');
+    }
+
+    return errors;
   }
 
   // Add a new hatch to the session
@@ -168,6 +324,84 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- 100% Budget Validation ---
+
+  int hatchBudgetSum(int hatchIndex) {
+    if (hatchIndex < 0 || hatchIndex >= _drafts.length) return 0;
+    final a = _drafts[hatchIndex];
+    return (a.haHatched ?? 0) +
+        (a.haCulled ?? 0) +
+        (a.haDead ?? 0) +
+        (a.haPipped ?? 0) +
+        (a.haInfertileClear ?? 0) +
+        (a.haEarlyDead ?? 0) +
+        (a.haMidDead ?? 0) +
+        (a.haMidLateDead ?? 0) +
+        (a.haLateDead ?? 0) +
+        (a.haContaminatedExploders ?? 0);
+  }
+
+  bool isHatchBudgetReconciled(int hatchIndex) {
+    if (hatchIndex < 0 || hatchIndex >= _drafts.length) return false;
+    final a = _drafts[hatchIndex];
+    final total = a.haTotalEggsSet ?? 0;
+    return total > 0 && hatchBudgetSum(hatchIndex) == total;
+  }
+
+  String? validateHatchBudget(int hatchIndex) {
+    if (hatchIndex < 0 || hatchIndex >= _drafts.length) {
+      return 'Invalid hatch index';
+    }
+    final a = _drafts[hatchIndex];
+
+    if (a.haTotalEggsSet == null || a.haTotalEggsSet! <= 0) {
+      return 'Total Eggs Set must be positive';
+    }
+
+    final sum = hatchBudgetSum(hatchIndex);
+    final total = a.haTotalEggsSet!;
+
+    if (sum != total) {
+      final diff = total - sum;
+      if (diff > 0) {
+        return 'Unallocated eggs: $diff eggs still need a category assignment';
+      } else {
+        return 'Over budget: ${-diff} eggs exceed the total $total. Reduce category counts.';
+      }
+    }
+    return null;
+  }
+
+  void recalculateHatchMetrics(int hatchIndex) {
+    if (hatchIndex < 0 || hatchIndex >= _drafts.length) return;
+    final a = _drafts[hatchIndex];
+    final total = a.haTotalEggsSet ?? 0;
+    if (total <= 0) return;
+
+    final hatched = a.haHatched ?? 0;
+    final hatchability = total > 0 ? (hatched / total) * 100 : 0.0;
+    updateHatchField(
+      hatchIndex,
+      'haHatchability',
+      double.parse(hatchability.toStringAsFixed(1)),
+    );
+
+    final infertile = a.haInfertileClear ?? 0;
+    final fertile = total - infertile;
+    final fertility = total > 0 ? (fertile / total) * 100 : 0.0;
+    final fertilityRounded = double.parse(fertility.toStringAsFixed(1));
+    updateHatchField(hatchIndex, 'haFertility', fertilityRounded);
+
+    final hof = fertility > 0
+        ? (hatchability / fertility) * 100
+        : 0.0;
+    updateHatchField(
+      hatchIndex,
+      'haHof',
+      double.parse(hof.toStringAsFixed(1)),
+    );
+  }
+
   // Load an existing audit for editing
   Future<void> loadForEdit(String auditId) async {
     _isLoading = true;
@@ -176,6 +410,17 @@ class AuditProvider extends ChangeNotifier {
     try {
       final audit = await _repository.getAuditById(auditId);
       if (audit != null) {
+        _activeSessionId = audit.sessionId;
+        _context ??= AuditContext(
+          auditType: audit.auditType,
+          customerId: audit.customerId,
+          flockId: audit.flockId ?? '',
+          breed: audit.soBreed ?? audit.hoBreed,
+          setterId: audit.setterId ?? audit.soSetterId,
+          hatcherId: audit.hatcherId ?? audit.hoHatcherId,
+          flockEntryDate: _context?.flockEntryDate,
+          date: audit.date.toIso8601String().split('T')[0],
+        );
         // Load all hatches for this session
         final sessionAudits = await _repository.getAuditsBySession(
           audit.customerId,
@@ -185,12 +430,17 @@ class AuditProvider extends ChangeNotifier {
         );
 
         _drafts = sessionAudits;
-        _activeHatchIndex = audit.hatchNumber - 1;
+        if (_drafts.isEmpty) {
+          _drafts = [audit];
+        }
+        _activeHatchIndex = (audit.hatchNumber - 1)
+            .clamp(0, _drafts.length - 1)
+            .toInt();
         _isReadOnly = true;
 
         // Mark all tabs as saved
         for (var i = 0; i < _drafts.length; i++) {
-          _savedTabs[i] = {0, 1, 2, 3, 4}; // Assume all 5 tabs are saved
+          _savedTabs[i] = {0, 1, 2, 3, 4, 5}; // Assume all 6 tabs are saved
         }
       }
     } catch (e) {
@@ -205,13 +455,73 @@ class AuditProvider extends ChangeNotifier {
 
   // Toggle edit mode
   void setEditMode(bool editable) {
+    if (editable && !(_currentUser?.canEditAudits ?? false)) return;
     _isReadOnly = !editable;
     notifyListeners();
+  }
+
+  // Link active drafts to a visit session
+  void setActiveSessionId(String? sessionId) {
+    _activeSessionId = sessionId;
+    if (sessionId != null) {
+      for (var i = 0; i < _drafts.length; i++) {
+        final map = _drafts[i].toMap();
+        map['sessionId'] = sessionId;
+        map['updatedAt'] = DateTime.now().toIso8601String();
+        _drafts[i] = AuditModel.fromMap(map);
+      }
+      notifyListeners();
+    }
   }
 
   // Set temperature unit
   void setTempUnit(TempUnit unit) {
     _tempUnit = unit;
     notifyListeners();
+  }
+
+  Future<void> _logAuditChange(AuditModel audit, String action) async {
+    final userId = _currentUser?.id;
+    if (userId == null || userId.isEmpty) return;
+    await _activityLogRepository.log(
+      userId,
+      action,
+      entityType: 'audit',
+      entityId: audit.id,
+      details: audit.auditType,
+    );
+  }
+
+  Future<void> _checkThresholdsAndAlert(AuditModel audit) async {
+    if (audit.pasgarFinalScore != null &&
+        audit.pasgarFinalScore! < AppThresholds.pasgarAlertPct) {
+      await NotificationService.showAlert(
+        title: 'Low Pasgar Score',
+        body:
+            'Score ${audit.pasgarFinalScore!.toStringAsFixed(1)}% is below threshold.',
+        payload: audit.id,
+      );
+    }
+
+    final cvt = audit.cvtAvg ?? audit.hoCvtAvg;
+    if (cvt != null &&
+        (cvt < AppThresholds.cvtMin || cvt > AppThresholds.cvtMax)) {
+      await NotificationService.showAlert(
+        title: 'CVT Out of Range',
+        body: 'CVT ${cvt.toStringAsFixed(1)} is outside the target range.',
+        payload: audit.id,
+      );
+    }
+
+    if (audit.esShellTemp != null &&
+        (audit.esShellTemp! < AppThresholds.shellTempMin ||
+            audit.esShellTemp! > AppThresholds.shellTempMax)) {
+      await NotificationService.showAlert(
+        title: 'Shell Temperature Alert',
+        body:
+            'Shell temp ${audit.esShellTemp!.toStringAsFixed(1)} is outside the target range.',
+        payload: audit.id,
+      );
+    }
   }
 }

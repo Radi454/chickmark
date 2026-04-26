@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 
 class BmkBarChart extends StatelessWidget {
   final List<BarChartGroupData> barGroups;
@@ -30,7 +31,10 @@ class BmkBarChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: 10,
           getDrawingHorizontalLine: (line) =>
-              FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+              const FlLine(
+                color: AppColors.chartGridH,
+                strokeWidth: 1,
+              ),
         ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
@@ -39,7 +43,7 @@ class BmkBarChart extends StatelessWidget {
               reservedSize: 40,
               getTitlesWidget: (value, meta) => Text(
                 '${value.toInt()}',
-                style: const TextStyle(fontSize: 10),
+                style: AppTextStyles.caption,
               ),
             ),
           ),
@@ -51,7 +55,7 @@ class BmkBarChart extends StatelessWidget {
                 if (idx >= 0 && idx < xLabels.length) {
                   return Text(
                     xLabels[idx],
-                    style: const TextStyle(fontSize: 10),
+                    style: AppTextStyles.caption,
                   );
                 }
                 return const Text('');
@@ -71,13 +75,15 @@ class BmkBarChart extends StatelessWidget {
           horizontalLines: [
             HorizontalLine(
               y: bmkValue,
-              color: Colors.grey,
+              color: AppColors.statusNeutralText,
               strokeWidth: 2,
               dashArray: [5, 5],
             ),
           ],
         ),
       ),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
     );
   }
 

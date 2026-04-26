@@ -6,10 +6,11 @@ import '../../../core/constants/app_colors.dart';
 import '../../../providers/customers_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../data/models/customer_model.dart';
-import 'add_flock_sheet.dart';
 
 class AddCustomerSheet extends StatefulWidget {
-  const AddCustomerSheet({super.key});
+  final CustomerModel? initialCustomer;
+
+  const AddCustomerSheet({super.key, this.initialCustomer});
 
   @override
   State<AddCustomerSheet> createState() => _AddCustomerSheetState();
@@ -17,10 +18,22 @@ class AddCustomerSheet extends StatefulWidget {
 
 class _AddCustomerSheetState extends State<AddCustomerSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
+  late final TextEditingController _nameController;
+  late final TextEditingController _locationController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _emailController;
+
+  bool get _isEditing => widget.initialCustomer != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final customer = widget.initialCustomer;
+    _nameController = TextEditingController(text: customer?.name ?? '');
+    _locationController = TextEditingController(text: customer?.location ?? '');
+    _phoneController = TextEditingController(text: customer?.phone ?? '');
+    _emailController = TextEditingController(text: customer?.email ?? '');
+  }
 
   @override
   void dispose() {
@@ -36,8 +49,9 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
       final authProvider = context.read<AuthProvider>();
       final customersProvider = context.read<CustomersProvider>();
 
+      final existing = widget.initialCustomer;
       final customer = CustomerModel(
-        id: const Uuid().v4(),
+        id: existing?.id ?? const Uuid().v4(),
         name: _nameController.text.trim(),
         location: _locationController.text.trim().isEmpty
             ? null
@@ -48,49 +62,20 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
         email: _emailController.text.trim().isEmpty
             ? null
             : _emailController.text.trim(),
-        createdAt: DateTime.now(),
-        createdBy: authProvider.user?.id ?? '',
+        createdAt: existing?.createdAt ?? DateTime.now(),
+        createdBy: existing?.createdBy ?? authProvider.user?.id ?? '',
       );
 
-      await customersProvider.addCustomer(customer);
+      if (_isEditing) {
+        await customersProvider.updateCustomer(customer);
+      } else {
+        await customersProvider.addCustomer(customer);
+      }
       await customersProvider.selectCustomer(customer);
 
       if (!mounted) return;
-      Navigator.pop(context);
-      _showAddFlockDialog(context, customer.name);
+      Navigator.pop(context, customer);
     }
-  }
-
-  void _showAddFlockDialog(BuildContext context, String customerName) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Flocks?'),
-        content: Text('Would you like to add flocks for $customerName?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Skip'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => const AddFlockSheet(),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Add Flock'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -112,7 +97,7 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Add New Customer',
+                _isEditing ? 'Edit Customer' : 'Add New Customer',
                 style: AppTextStyles.heading.copyWith(fontSize: 20),
               ),
               const SizedBox(height: 20),
@@ -196,9 +181,12 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
-                    'Save',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  child: Text(
+                    _isEditing ? 'Update' : 'Save',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

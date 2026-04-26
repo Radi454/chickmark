@@ -14,4 +14,5 @@ class AppThresholds {
   static const double egBreakoutHighThreshold = 3.0;
   static const double culledBmkPct = 1.0;
   static const double deadBmkPct = 0.2;
+  static const double co2Max = 3000.0;
 }

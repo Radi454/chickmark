@@ -4,6 +4,7 @@ import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
+import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/features/customers/widgets/customer_card.dart';
 import 'package:hatchaudit/features/customers/widgets/add_customer_sheet.dart';
 import 'package:hatchaudit/features/customers/screens/customer_detail_screen.dart';
@@ -20,18 +21,32 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   void initState() {
     super.initState();
-    // Load customers when screen initializes
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CustomersProvider>().loadCustomers(
-        currentUser: context.read<AuthProvider>().user,
-      );
+      final provider = context.read<CustomersProvider>();
+      if (provider.allCustomers.isEmpty && !provider.isLoading) {
+        provider.loadCustomers(
+          currentUser: context.read<AuthProvider>().user,
+        );
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+
     return Scaffold(
       appBar: const GradientAppBar(title: 'Customers'),
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+              heroTag: 'customers-add-customer-fab',
+              onPressed: () => _showAddCustomerSheet(context),
+              icon: const Icon(Icons.add_business_outlined),
+              label: const Text('Customer'),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            )
+          : null,
       body: Consumer<CustomersProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading) {
@@ -61,23 +76,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   onChanged: provider.setSearchQuery,
                 ),
               ),
-              if (context.watch<AuthProvider>().user?.canEditAudits ?? false)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showAddCustomerSheet(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Customer'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      side: const BorderSide(color: AppColors.primary),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
               // Customer List
               Expanded(
                 child: provider.filteredCustomers.isEmpty
@@ -103,6 +101,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             child: CustomerCard(
                               customer: customer,
                               flockCount: flockCount,
+                              hasEstimatedFlockAge: provider
+                                  .customerHasEstimatedFlockAge(customer.id),
+                              onEdit: canEdit
+                                  ? () => _showEditCustomerSheet(
+                                      context,
+                                      customer,
+                                    )
+                                  : null,
                               onTap: () {
                                 Navigator.push(
                                   context,
@@ -125,12 +131,35 @@ class _CustomersScreenState extends State<CustomersScreen> {
     );
   }
 
-  void _showAddCustomerSheet(BuildContext context) {
-    showModalBottomSheet(
+  Future<void> _showAddCustomerSheet(BuildContext context) async {
+    final customer = await showModalBottomSheet<CustomerModel>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const AddCustomerSheet(),
+    );
+    if (!context.mounted || customer == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CustomerDetailScreen(customer: customer),
+      ),
+    );
+  }
+
+  Future<void> _showEditCustomerSheet(
+    BuildContext context,
+    CustomerModel customer,
+  ) async {
+    final updatedCustomer = await showModalBottomSheet<CustomerModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AddCustomerSheet(initialCustomer: customer),
+    );
+    if (!context.mounted || updatedCustomer == null) return;
+    await context.read<CustomersProvider>().loadCustomers(
+      currentUser: context.read<AuthProvider>().user,
     );
   }
 }

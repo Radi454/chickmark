@@ -80,9 +80,13 @@ class BmkEggBreakoutModel {
       crossedBeakPct: map['crossedBeakPct']?.toDouble() ?? 0.0,
       crackedPct: map['crackedPct']?.toDouble() ?? 0.0,
       earlyDeadPct:
-          map['earlyDeadPct']?.toDouble() ?? map['midDeadPct']?.toDouble() ?? 0.0,
+          map['earlyDeadPct']?.toDouble() ??
+          map['midDeadPct']?.toDouble() ??
+          0.0,
       midBlackEyePct:
-          map['midBlackEyePct']?.toDouble() ?? map['blackEyePct']?.toDouble() ?? 0.0,
+          map['midBlackEyePct']?.toDouble() ??
+          map['blackEyePct']?.toDouble() ??
+          0.0,
       internalPipPct:
           map['internalPipPct']?.toDouble() ??
           map['pippedInternalPct']?.toDouble() ??

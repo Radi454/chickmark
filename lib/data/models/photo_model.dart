@@ -4,6 +4,7 @@ class PhotoModel {
   final String? description;
   final DateTime createdAt;
   final String auditId;
+  final String uploadStatus;
 
   PhotoModel({
     required this.id,
@@ -11,6 +12,7 @@ class PhotoModel {
     this.description,
     required this.createdAt,
     required this.auditId,
+    this.uploadStatus = 'local',
   });
 
   factory PhotoModel.fromMap(Map<String, dynamic> map) {
@@ -20,6 +22,7 @@ class PhotoModel {
       description: map['description'],
       createdAt: DateTime.parse(map['createdAt']),
       auditId: map['auditId'],
+      uploadStatus: map['uploadStatus'] ?? 'synced',
     );
   }
 
@@ -30,6 +33,7 @@ class PhotoModel {
       'description': description,
       'createdAt': createdAt.toIso8601String(),
       'auditId': auditId,
+      'uploadStatus': uploadStatus,
     };
   }
 }

@@ -6,8 +6,22 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
 
-class BmkScreen extends StatelessWidget {
+class BmkScreen extends StatefulWidget {
   const BmkScreen({super.key});
+
+  @override
+  State<BmkScreen> createState() => _BmkScreenState();
+}
+
+class _BmkScreenState extends State<BmkScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<BmkProvider>().ensureInitialized();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_breakout_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
@@ -191,7 +192,7 @@ class _BreakoutMetricRow extends StatelessWidget {
     final isHigh = hasBmk && metric.actualPct > metric.bmkPct;
     final statusColor = hasBmk
         ? (isHigh ? const Color(0xFFE24B4A) : const Color(0xFF3A9A5C))
-        : Colors.grey;
+        : AppColors.inactiveTab;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../core/constants/app_colors.dart';
+import '../core/constants/app_sizes.dart';
+import '../core/theme/app_text_styles.dart';
 
 class TempToggle extends StatelessWidget {
   const TempToggle({super.key});
@@ -9,26 +12,61 @@ class TempToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final appProvider = context.watch<AppProvider>();
+    final isFahrenheit = appProvider.tempUnit == TempUnit.fahrenheit;
 
     return Container(
+      width: 108,
+      height: 40,
       decoration: BoxDecoration(
-        color: Colors.grey[200],
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.infoBg,
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          _buildSegment(
-            context,
-            label: '°F',
-            isSelected: appProvider.tempUnit == TempUnit.fahrenheit,
-            onTap: () => appProvider.setTempUnit(TempUnit.fahrenheit),
+          AnimatedAlign(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            alignment: isFahrenheit
+                ? Alignment.centerLeft
+                : Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.all(AppSizes.spaceXs),
+              child: Container(
+                width: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+                ),
+              ),
+            ),
           ),
-          _buildSegment(
-            context,
-            label: '°C',
-            isSelected: appProvider.tempUnit == TempUnit.celsius,
-            onTap: () => appProvider.setTempUnit(TempUnit.celsius),
+          Row(
+            children: [
+              Expanded(
+                child: _buildSegment(
+                  label: '°F',
+                  isSelected: isFahrenheit,
+                  onTap: () {
+                    if (!isFahrenheit) {
+                      HapticFeedback.selectionClick();
+                      appProvider.setTempUnit(TempUnit.fahrenheit);
+                    }
+                  },
+                ),
+              ),
+              Expanded(
+                child: _buildSegment(
+                  label: '°C',
+                  isSelected: !isFahrenheit,
+                  onTap: () {
+                    if (isFahrenheit) {
+                      HapticFeedback.selectionClick();
+                      appProvider.setTempUnit(TempUnit.celsius);
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -36,25 +74,23 @@ class TempToggle extends StatelessWidget {
   }
 
   Widget _buildSegment(
-    BuildContext context, {
+    {
     required String label,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
         child: Text(
           label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[700],
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
+          textAlign: TextAlign.center,
+          style: AppTextStyles.subtitle.copyWith(
+            color: isSelected
+                ? AppColors.textOnPrimary
+                : AppColors.textSecondary,
           ),
         ),
       ),

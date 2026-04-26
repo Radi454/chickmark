@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../../widgets/section_card.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../services/supabase/supabase_service.dart';
@@ -19,6 +20,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _emailFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
   bool _obscurePassword = true;
   bool _rememberMe = false;
 
@@ -33,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadSavedEmail() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_kRememberMeKey);
-    if (saved != null && saved.isNotEmpty) {
+    if (mounted && saved != null && saved.isNotEmpty) {
       setState(() {
         _emailController.text = saved;
         _rememberMe = true;
@@ -43,6 +46,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -50,17 +55,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
+      final signedIn = await context.read<AuthProvider>().login(
+        _emailController.text.trim(),
+        _passwordController.text,
+        rememberSession: _rememberMe,
+      );
+      if (!mounted || !signedIn) return;
+
       final prefs = await SharedPreferences.getInstance();
       if (_rememberMe) {
         await prefs.setString(_kRememberMeKey, _emailController.text.trim());
       } else {
         await prefs.remove(_kRememberMeKey);
-      }
-      if (mounted) {
-        context.read<AuthProvider>().login(
-          _emailController.text.trim(),
-          _passwordController.text,
-        );
       }
     }
   }
@@ -148,12 +154,13 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: const GradientAppBar(title: AppStrings.signIn),
       body: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
           if (authProvider.state == AuthState.authenticated) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              Navigator.of(context).pushReplacementNamed('/main');
+              Navigator.of(context).pushReplacementNamed('/startup-sync');
             });
           } else if (authProvider.state == AuthState.pendingApproval) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -175,11 +182,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         TextFormField(
                           controller: _emailController,
-                          decoration: const InputDecoration(
+                          focusNode: _emailFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Email',
-                            prefixIcon: Icon(Icons.email),
+                            icon: Icons.alternate_email_rounded,
                           ),
                           keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) =>
+                              _passwordFocusNode.requestFocus(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your email';
@@ -193,9 +204,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _passwordController,
-                          decoration: InputDecoration(
+                          focusNode: _passwordFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock),
+                            icon: Icons.lock_outline_rounded,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
@@ -210,6 +222,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _handleLogin(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your password';
@@ -247,6 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ? null
                               : _handleLogin,
                           style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                           child: authProvider.state == AuthState.loading
@@ -268,31 +283,42 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  OutlinedButton(
-                    onPressed: () {
-                      Navigator.of(context).pushNamed('/register');
-                    },
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.of(context).pushNamed('/register');
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(AppStrings.createAccount),
                     ),
-                    child: const Text(AppStrings.createAccount),
                   ),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
+                      color: AppColors.infoBg,
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.blue[700]),
+                        const Icon(
+                          Icons.info_outline,
+                          color: AppColors.infoText,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             AppStrings.offlineBanner,
-                            style: TextStyle(
-                              color: Colors.blue[700],
+                            style: const TextStyle(
+                              color: AppColors.infoText,
                               fontSize: 12,
                             ),
                           ),
@@ -306,6 +332,19 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         },
       ),
+    );
+  }
+
+  InputDecoration _fieldDecoration({
+    required String labelText,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: labelText,
+      prefixIcon: Icon(icon, size: 22, color: Colors.black54),
+      prefixIconConstraints: const BoxConstraints(minWidth: 44),
+      suffixIcon: suffixIcon,
     );
   }
 }

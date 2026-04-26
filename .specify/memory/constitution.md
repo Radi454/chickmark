@@ -1,28 +1,26 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 2.0.0 → 2.1.0
-Bump rationale: MINOR — new principles added (Auth & Roles, Calculations & Thresholds,
-  Troubleshooting Rules); material expansions to Navigation (corrected audit type count
-  from 7 to 5; clarified Egg Breakout as sector inside Hatch Analysis), Design System
-  (temperature toggle, green tab, card/button radii, background color, header gradient),
-  and Database Design (Setter/Hatcher Optimizing composite key clarified).
+Version change: 2.1.0 → 2.2.0
+Bump rationale: MINOR — added an Exceptions section documenting two approved
+  governance exceptions for visit-level `audit_sessions` metadata and temporary
+  retention of the dedicated Temperature tab during the upgrade rollout.
 Modified principles:
-  - VI. Navigation and Screen Structure → corrected audit type count (7 → 5), clarified
-    Egg Breakout sector placement
-  - V. Database Design Rules → added Setter/Hatcher Optimizing key rule (no flock)
-  - X. Design System → expanded with temp toggle, green tab, card/button radius,
-    background color, header gradient, font spec
+  - V. Database Design Rules → now has an explicit approved exception path for
+    visit-level `audit_sessions` metadata
+  - VI. Navigation and Screen Structure → now has an explicit temporary approved
+    exception for retaining the dedicated Temperature tab
 Added sections:
-  - XI. Authentication and Authorization Rules
-  - XII. Calculations, Thresholds, and Alerts
-  - XIII. Troubleshooting Rules
+  - Exceptions
 Removed sections: none
 Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ (Constitution Check section covers updated principles)
+  - .specify/templates/plan-template.md ✅ (Constitution Check and Complexity Tracking
+    already support documented exceptions)
   - .specify/templates/spec-template.md ✅ (no structural changes required)
   - .specify/templates/tasks-template.md ✅ (no structural changes required)
-Follow-up TODOs: none — all fields resolved.
+Follow-up TODOs:
+  - Revisit the Temperature tab exception when the session-based navigation rollout
+    is complete so the constitution and live navigation can be re-aligned.
 -->
 
 # HatchAudit Constitution
@@ -286,6 +284,29 @@ All feature branches MUST satisfy the following gates before merge:
 6. UI changes MUST be manually tested on at least one physical or simulated iOS
    device (iOS Simulator minimum) before the PR is opened.
 
+## Exceptions
+
+The following exceptions are approved for the ChickMark upgrade program and MUST be
+treated as narrow, explicit carve-outs rather than new defaults:
+
+1. **Visit-level session metadata exception**
+   - A dedicated `audit_sessions` layer MAY exist alongside the denormalized
+     `audits` table to coordinate a multi-station hatchery visit.
+   - `audit_sessions` is limited to orchestration metadata such as session identity,
+     progress, shared findings, completion state, and cross-station context.
+   - Station-level audit data remains authoritative in `audits`; this exception MUST
+     NOT duplicate or replace the existing row identity, edit-in-place behavior, or
+     offline-first save path defined by this constitution.
+
+2. **Temporary Temperature tab exception**
+   - The dedicated Temperature tab MAY remain in the main navigation during the
+     upgrade rollout to avoid regressions in the current field workflow.
+   - This is a temporary exception to the six-tab navigation rule, not a permanent
+     redesign approval.
+   - New navigation work MUST avoid deepening the dependency on the extra tab, and
+     the exception MUST be revisited once the session-based workflow is stable enough
+     to consolidate navigation safely.
+
 ## Governance
 
 This constitution supersedes all informal conventions. Amendments require:
@@ -303,4 +324,4 @@ All feature specifications and implementation plans MUST include a "Constitution
 Check" section verifying compliance with the principles above. Violations MUST be
 explicitly justified in the Complexity Tracking table of the plan.
 
-**Version**: 2.1.0 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-18
+**Version**: 2.2.0 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-24

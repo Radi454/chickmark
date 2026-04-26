@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../../widgets/section_card.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../features/auth/widgets/password_strength_indicator.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/gradient_app_bar.dart';
@@ -20,11 +22,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _fullNameFocusNode = FocusNode();
+  final _emailFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _confirmPasswordFocusNode = FocusNode();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  static const _kRememberMeKey = 'remember_me_email';
+
   @override
   void dispose() {
+    _fullNameFocusNode.dispose();
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmPasswordFocusNode.dispose();
     _fullNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -32,19 +44,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _handleRegister() {
+  Future<void> _handleRegister() async {
     if (_formKey.currentState!.validate()) {
-      context.read<AuthProvider>().register(
-            _fullNameController.text.trim(),
-            _emailController.text.trim(),
-            _passwordController.text,
-          );
+      final email = _emailController.text.trim();
+      final authProvider = context.read<AuthProvider>();
+      final registered = await authProvider.register(
+        _fullNameController.text.trim(),
+        email,
+        _passwordController.text,
+      );
+      var completed = registered;
+      final remoteError = authProvider.errorMessage;
+      if (!completed) {
+        completed = await authProvider.registerLocalFallback(
+          _fullNameController.text.trim(),
+          email,
+          password: _passwordController.text,
+          remoteError: remoteError,
+        );
+      }
+      if (!mounted || !completed) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kRememberMeKey, email);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            registered
+                ? 'Account created. Sign in to continue.'
+                : 'Account created locally. Sign in with this email.',
+          ),
+        ),
+      );
+      Navigator.of(context).pushReplacementNamed('/login');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: const GradientAppBar(title: AppStrings.createAccount),
       body: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
@@ -68,10 +109,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       children: [
                         TextFormField(
                           controller: _fullNameController,
-                          decoration: const InputDecoration(
+                          focusNode: _fullNameFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Full Name',
-                            prefixIcon: Icon(Icons.person),
+                            icon: Icons.person_outline_rounded,
                           ),
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) =>
+                              _emailFocusNode.requestFocus(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your full name';
@@ -82,11 +127,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _emailController,
-                          decoration: const InputDecoration(
+                          focusNode: _emailFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Email',
-                            prefixIcon: Icon(Icons.email),
+                            icon: Icons.alternate_email_rounded,
                           ),
                           keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) =>
+                              _passwordFocusNode.requestFocus(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your email';
@@ -100,9 +149,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _passwordController,
-                          decoration: InputDecoration(
+                          focusNode: _passwordFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock),
+                            icon: Icons.lock_outline_rounded,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
@@ -117,6 +167,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ),
                           obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) =>
+                              _confirmPasswordFocusNode.requestFocus(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter a password';
@@ -140,9 +193,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _confirmPasswordController,
-                          decoration: InputDecoration(
+                          focusNode: _confirmPasswordFocusNode,
+                          decoration: _fieldDecoration(
                             labelText: 'Confirm Password',
-                            prefixIcon: const Icon(Icons.lock_outline),
+                            icon: Icons.lock_outline_rounded,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscureConfirmPassword
@@ -151,12 +205,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                               onPressed: () {
                                 setState(() {
-                                  _obscureConfirmPassword = !_obscureConfirmPassword;
+                                  _obscureConfirmPassword =
+                                      !_obscureConfirmPassword;
                                 });
                               },
                             ),
                           ),
                           obscureText: _obscureConfirmPassword,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _handleRegister(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Please confirm your password';
@@ -171,19 +228,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.amber[50],
+                            color: Colors.green[50],
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.amber[200]!),
+                            border: Border.all(color: Colors.green[200]!),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.info_outline, color: Colors.amber[700]),
+                              Icon(
+                                Icons.check_circle_outline,
+                                color: Colors.green[700],
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Your account will require admin approval before you can log in.',
+                                  'Your account will be ready to use after it is created.',
                                   style: TextStyle(
-                                    color: Colors.amber[700],
+                                    color: Colors.green[700],
                                     fontSize: 12,
                                   ),
                                 ),
@@ -206,6 +266,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ? null
                               : _handleRegister,
                           style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                           child: authProvider.state == AuthState.loading
@@ -220,6 +281,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onPressed: () {
                       Navigator.of(context).pop();
                     },
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                    ),
                     child: const Text('Back to Login'),
                   ),
                 ],
@@ -228,6 +292,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
         },
       ),
+    );
+  }
+
+  InputDecoration _fieldDecoration({
+    required String labelText,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: labelText,
+      prefixIcon: Icon(icon, size: 22, color: Colors.black54),
+      prefixIconConstraints: const BoxConstraints(minWidth: 44),
+      suffixIcon: suffixIcon,
     );
   }
 }

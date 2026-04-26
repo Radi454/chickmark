@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/constants/app_colors.dart';
 import '../features/audits/widgets/troubleshooting_sheet.dart';
 
 class TroubleshootingIcon extends StatelessWidget {
@@ -19,16 +20,14 @@ class TroubleshootingIcon extends StatelessWidget {
 
     return IconButton(
       icon: const Icon(Icons.lightbulb_outline),
-      color: Colors.amber,
+      color: AppColors.primary,
       tooltip: 'View Troubleshooting Guide',
       onPressed: () {
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
-          builder: (context) => TroubleshootingSheet(
-            parameterId: parameterId,
-          ),
+          builder: (context) => TroubleshootingSheet(parameterId: parameterId),
         );
       },
     );

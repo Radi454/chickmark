@@ -13,14 +13,12 @@ class YfbmTab extends StatefulWidget {
   final AuditModel audit;
   final bool isReadOnly;
   final Function(String key, dynamic value) onFieldChanged;
-  final VoidCallback onSave;
 
   const YfbmTab({
     super.key,
     required this.audit,
     required this.isReadOnly,
     required this.onFieldChanged,
-    required this.onSave,
   });
 
   @override
@@ -60,7 +58,9 @@ class _YfbmTabState extends State<YfbmTab> {
     _photoPath = widget.audit.yfbmPhoto;
 
     if (_entries.isEmpty) {
-      _addEntry();
+      for (var i = 0; i < 10; i++) {
+        _entries.add(_EntryData());
+      }
     }
     _updateCalculations();
   }

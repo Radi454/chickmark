@@ -35,10 +35,16 @@ class BmkProvider extends ChangeNotifier {
     'IR',
   ];
 
-  BmkProvider() {
-    loadBreedBenchmarks();
-    loadEbAges();
-    loadEggBreakout();
+  bool _isInitialized = false;
+
+  BmkProvider();
+
+  Future<void> ensureInitialized() async {
+    if (_isInitialized) return;
+    _isInitialized = true;
+    await loadBreedBenchmarks();
+    await loadEbAges();
+    await loadEggBreakout();
   }
 
   Future<void> loadBreedBenchmarks() async {
