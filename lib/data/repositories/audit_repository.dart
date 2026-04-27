@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../models/audit_model.dart';
 import '../database/database_helper.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,7 +11,45 @@ import '../../features/dashboard/models/egg_storage_models.dart';
 import '../../features/audits/models/audit_filter.dart';
 
 class AuditRepository {
-  final dbHelper = DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  AuditRepository({DatabaseHelper? dbHelper})
+    : dbHelper = dbHelper ?? DatabaseHelper();
+
+  static List<String> extractEstPhotoPathsFromRows(
+    List<Map<String, Object?>> rows, {
+    Iterable<String> existing = const [],
+  }) {
+    final seen = <String>{};
+    final paths = <String>[];
+
+    void addPath(Object? value) {
+      final path = value?.toString().trim();
+      if (path == null || path.isEmpty || !seen.add(path)) return;
+      paths.add(path);
+    }
+
+    for (final path in existing) {
+      addPath(path);
+    }
+
+    for (final row in rows) {
+      final raw = row['es_estPhotosJson']?.toString();
+      if (raw == null || raw.trim().isEmpty) continue;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final value in decoded.values) {
+            addPath(value);
+          }
+        }
+      } catch (_) {
+        // Ignore malformed legacy rows.
+      }
+    }
+
+    return paths;
+  }
 
   Future<void> insertAudit(AuditModel audit) async {
     await dbHelper.assertForeignKeys(
@@ -221,10 +261,7 @@ class AuditRepository {
     return (result.first['cnt'] as int? ?? 0);
   }
 
-  Future<void> linkAuditToSession(
-    String auditId,
-    String sessionId,
-  ) async {
+  Future<void> linkAuditToSession(String auditId, String sessionId) async {
     final db = await dbHelper.db;
     await db.update(
       'audits',
@@ -405,7 +442,8 @@ class AuditRepository {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
     final typeFilter = _eggBreakoutTypeArg(breakoutType);
-    final result = await db.rawQuery('''
+    final result = await db.rawQuery(
+      '''
       SELECT
         COUNT(ebInfertileCount) as rowCount,
         AVG(ebTraySize) as traySize,
@@ -437,7 +475,9 @@ class AuditRepository {
       $clause
         AND ebTraySize IS NOT NULL
         ${typeFilter.clause}
-      ''', [...args, typeFilter.arg]);
+      ''',
+      [...args, typeFilter.arg],
+    );
     if (result.isEmpty) return null;
     if ((result.first['rowCount'] as int? ?? 0) == 0) return null;
     return EggBreakoutAvg.fromMap(result.first, breakoutType);
@@ -450,7 +490,8 @@ class AuditRepository {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
     final typeFilter = _eggBreakoutTypeArg(breakoutType);
-    final result = await db.rawQuery('''
+    final result = await db.rawQuery(
+      '''
       SELECT
         date,
         AVG(CASE WHEN ebTraySize > 0 THEN ebInfertileCount * 100.0 / ebTraySize END) as infertilePct,
@@ -471,7 +512,9 @@ class AuditRepository {
         ${typeFilter.clause}
       GROUP BY date
       ORDER BY date ASC
-      ''', [...args, typeFilter.arg]);
+      ''',
+      [...args, typeFilter.arg],
+    );
     if (result.isEmpty) return null;
     return result
         .map((r) => EggBreakoutTrend.fromMap(r, breakoutType))
@@ -496,7 +539,22 @@ class AuditRepository {
     return result.map((r) => r['filePath'] as String).toList();
   }
 
-  Future<List<ChickWeightTrend>?> getChickWeightTrend(DashboardFilter filter) async {
+  Future<List<String>> getEggStorageEstPhotoPaths(
+    DashboardFilter filter,
+  ) async {
+    final existing = await getPhotoPaths(filter, 'egg_storage', 'shell_temp');
+    final db = await dbHelper.db;
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
+    final rows = await db.rawQuery(
+      'SELECT es_estPhotosJson FROM audits $clause ORDER BY date DESC, createdAt DESC',
+      args,
+    );
+    return extractEstPhotoPathsFromRows(rows, existing: existing);
+  }
+
+  Future<List<ChickWeightTrend>?> getChickWeightTrend(
+    DashboardFilter filter,
+  ) async {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
     final result = await db.rawQuery(
@@ -510,10 +568,18 @@ class AuditRepository {
   Future<PasgarAvg?> getPasgarAvg(DashboardFilter filter) async {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
-    final result = await db.rawQuery(
-      'SELECT AVG(pasgarFinalScore) as score, AVG(pasgarReflexes) as reflexesPct, AVG(pasgarBeak) as beakPct, AVG(pasgarNavel) as navelPct, AVG(pasgarBelly) as bellyPct, AVG(pasgarLeg) as legPct, AVG(pasgarFeatherDev) as featherDevPct FROM audits $clause',
-      args,
-    );
+    final result = await db.rawQuery('''
+      SELECT
+        AVG(pasgarFinalScore) as score,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarReflexes * 100.0 / pasgarSampleSize END) as reflexesPct,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarBeak * 100.0 / pasgarSampleSize END) as beakPct,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarNavel * 100.0 / pasgarSampleSize END) as navelPct,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarBelly * 100.0 / pasgarSampleSize END) as bellyPct,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarLeg * 100.0 / pasgarSampleSize END) as legPct,
+        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarFeatherDev * 100.0 / pasgarSampleSize END) as featherDevPct
+      FROM audits
+      $clause
+      ''', args);
     if (result.isEmpty) return null;
     return PasgarAvg.fromMap(result.first);
   }
@@ -553,7 +619,9 @@ class AuditRepository {
     return result.map((r) => ChaEnvironmentalTrend.fromMap(r)).toList();
   }
 
-  Future<List<EggStorageTrend>?> getEggStorageTrend(DashboardFilter filter) async {
+  Future<List<EggStorageTrend>?> getEggStorageTrend(
+    DashboardFilter filter,
+  ) async {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
     final result = await db.rawQuery(
@@ -677,39 +745,74 @@ class AuditRepository {
   void _applyUnderscoreAliases(Map<String, dynamic> row) {
     final prefixMappings = {
       'pm_': [
-        'sampleSize', 'collectionPoint',
-        'omphalitisCount', 'omphalitisSeverity',
-        'gaseousCecaCount', 'gaseousCecaSeverity',
-        'unabsorbedYolkCount', 'unabsorbedYolkSeverity',
-        'perihepatitisCount', 'perihepatitisSeverity',
-        'pericarditisCount', 'pericarditisSeverity',
-        'airsacAcuteCount', 'airsacAcuteSeverity',
-        'airsacChronicCount', 'airsacChronicSeverity',
-        'pulmonaryGranulomaCount', 'pulmonaryGranulomaSeverity',
-        'swollenJointsCount', 'swollenJointsSeverity',
-        'stuntedOrgansCount', 'stuntedOrgansSeverity',
-        'pulmonaryHemorrhageCount', 'pulmonaryHemorrhageSeverity',
-        'gaspingPresent', 'gaspingType',
-        'exposedBrainCount', 'ectopicVisceraCount',
-        'extraLegsCount', 'crossedBeakCount',
-        'absentEyeBothCount', 'absentEyeOneCount',
-        'smallEyeCount', 'hydrocephalyCount',
-        'starGazerCount', 'curledToesCount',
-        'shortLegsCount', 'spinalDeformityCount',
-        'cardiacAnomalyCount', 'conjoinedCount',
-        'otherDeformityCount', 'otherDeformityText',
-        'suspectedCauseAuto', 'suspectedCauseManual',
+        'sampleSize',
+        'collectionPoint',
+        'omphalitisCount',
+        'omphalitisSeverity',
+        'gaseousCecaCount',
+        'gaseousCecaSeverity',
+        'unabsorbedYolkCount',
+        'unabsorbedYolkSeverity',
+        'perihepatitisCount',
+        'perihepatitisSeverity',
+        'pericarditisCount',
+        'pericarditisSeverity',
+        'airsacAcuteCount',
+        'airsacAcuteSeverity',
+        'airsacChronicCount',
+        'airsacChronicSeverity',
+        'pulmonaryGranulomaCount',
+        'pulmonaryGranulomaSeverity',
+        'swollenJointsCount',
+        'swollenJointsSeverity',
+        'stuntedOrgansCount',
+        'stuntedOrgansSeverity',
+        'pulmonaryHemorrhageCount',
+        'pulmonaryHemorrhageSeverity',
+        'gaspingPresent',
+        'gaspingType',
+        'exposedBrainCount',
+        'ectopicVisceraCount',
+        'extraLegsCount',
+        'crossedBeakCount',
+        'absentEyeBothCount',
+        'absentEyeOneCount',
+        'smallEyeCount',
+        'hydrocephalyCount',
+        'starGazerCount',
+        'curledToesCount',
+        'shortLegsCount',
+        'spinalDeformityCount',
+        'cardiacAnomalyCount',
+        'conjoinedCount',
+        'otherDeformityCount',
+        'otherDeformityText',
+        'suspectedCauseAuto',
+        'suspectedCauseManual',
         'photosJson',
       ],
       'es_': [
-        'estReadingsJson', 'estAvg', 'estCv',
-        'uvSampleSize', 'uvCuticleDamageCount',
-        'uvWashingEvidenceCount', 'uvFecalCount',
-        'uvMottledCount', 'uvOtherCount', 'uvPhotosJson',
-        'crackPct', 'brokenPct', 'misshapedPct',
-        'paleShellPct', 'roughTexturePct', 'floorEggPct',
-        'eggColorDistJson', 'eggOrientation',
-        'traySpacing', 'coolerProximity', 'wallProximity',
+        'estReadingsJson',
+        'estAvg',
+        'estCv',
+        'uvSampleSize',
+        'uvCuticleDamageCount',
+        'uvWashingEvidenceCount',
+        'uvFecalCount',
+        'uvMottledCount',
+        'uvOtherCount',
+        'uvPhotosJson',
+        'crackPct',
+        'brokenPct',
+        'misshapedPct',
+        'paleShellPct',
+        'roughTexturePct',
+        'floorEggPct',
+        'eggColorDistJson',
+        'eggOrientation',
+        'traySpacing',
+        'coolerProximity',
+        'wallProximity',
         'condensation',
       ],
       'so_': ['machineType', 'turningAngle'],
@@ -719,7 +822,8 @@ class AuditRepository {
     for (final entry in prefixMappings.entries) {
       final prefix = entry.key;
       for (final field in entry.value) {
-        final camelKey = '${prefix.substring(0, 2)}${field[0].toUpperCase()}${field.substring(1)}';
+        final camelKey =
+            '${prefix.substring(0, 2)}${field[0].toUpperCase()}${field.substring(1)}';
         final dbKey = '$prefix$field';
         if (row.containsKey(camelKey) && !row.containsKey(dbKey)) {
           row[dbKey] = row[camelKey];

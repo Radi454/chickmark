@@ -8,6 +8,45 @@ const supportedStationKeys = [
   'hatcher_optimizing',
 ];
 
+List<String> normalizeStationKeys(List<String>? stationKeys) {
+  if (stationKeys == null || stationKeys.isEmpty) {
+    return List.unmodifiable(supportedStationKeys);
+  }
+
+  final normalized = <String>[];
+  for (final key in stationKeys) {
+    if (!supportedStationKeys.contains(key) || normalized.contains(key)) {
+      continue;
+    }
+    normalized.add(key);
+  }
+
+  if (normalized.isEmpty) {
+    return List.unmodifiable(supportedStationKeys);
+  }
+  return List.unmodifiable(normalized);
+}
+
+List<String> parseStationKeysJson(Object? raw, {required bool defaultToAll}) {
+  if (raw == null || raw == '') {
+    return defaultToAll ? normalizeStationKeys(null) : const [];
+  }
+  try {
+    final decoded = raw is String ? jsonDecode(raw) : raw;
+    if (decoded is List) {
+      final normalized = <String>[];
+      for (final key in decoded.map((e) => e.toString())) {
+        if (!supportedStationKeys.contains(key) || normalized.contains(key)) {
+          continue;
+        }
+        normalized.add(key);
+      }
+      if (normalized.isNotEmpty) return List.unmodifiable(normalized);
+    }
+  } catch (_) {}
+  return defaultToAll ? normalizeStationKeys(null) : const [];
+}
+
 class AuditSessionModel {
   final String id;
   final String customerId;
@@ -17,6 +56,7 @@ class AuditSessionModel {
   final String? breed;
   final int? flockAgeWeeks;
   final String status;
+  final List<String> selectedStationKeys;
   final List<String> stationsCompleted;
   final String? findingsJson;
   final String? scorecardJson;
@@ -35,6 +75,7 @@ class AuditSessionModel {
     this.breed,
     this.flockAgeWeeks,
     this.status = 'in_progress',
+    this.selectedStationKeys = supportedStationKeys,
     this.stationsCompleted = const [],
     this.findingsJson,
     this.scorecardJson,
@@ -46,28 +87,26 @@ class AuditSessionModel {
   });
 
   factory AuditSessionModel.fromMap(Map<String, dynamic> map) {
-    List<String> parseStationsCompleted(String? raw) {
-      if (raw == null || raw.isEmpty) return [];
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          return decoded.map((e) => e.toString()).toList();
-        }
-      } catch (_) {}
-      return [];
-    }
+    final selectedStationKeys = parseStationKeysJson(
+      map['selectedStationKeys'],
+      defaultToAll: true,
+    );
+    final completed = parseStationKeysJson(
+      map['stationsCompleted'],
+      defaultToAll: false,
+    ).where(selectedStationKeys.contains).toList();
 
     return AuditSessionModel(
       id: map['id'] as String,
       customerId: map['customerId'] as String,
       flockId: map['flockId'] as String,
       hatcheryId: map['hatcheryId'] as String,
-      date:
-          DateTime.tryParse(map['date'] as String? ?? '') ?? DateTime.now(),
+      date: DateTime.tryParse(map['date'] as String? ?? '') ?? DateTime.now(),
       breed: map['breed'] as String?,
       flockAgeWeeks: map['flockAgeWeeks'] as int?,
       status: map['status'] as String? ?? 'in_progress',
-      stationsCompleted: parseStationsCompleted(map['stationsCompleted'] as String?),
+      selectedStationKeys: selectedStationKeys,
+      stationsCompleted: completed,
       findingsJson: map['findingsJson'] as String?,
       scorecardJson: map['scorecardJson'] as String?,
       notes: map['notes'] as String?,
@@ -85,6 +124,10 @@ class AuditSessionModel {
   }
 
   Map<String, dynamic> toMap() {
+    final selected = normalizeStationKeys(selectedStationKeys);
+    final completed = stationsCompleted
+        .where((key) => selected.contains(key))
+        .toList(growable: false);
     return {
       'id': id,
       'customerId': customerId,
@@ -94,9 +137,8 @@ class AuditSessionModel {
       'breed': breed,
       'flockAgeWeeks': flockAgeWeeks,
       'status': status,
-      'stationsCompleted': stationsCompleted.isEmpty
-          ? null
-          : jsonEncode(stationsCompleted),
+      'selectedStationKeys': jsonEncode(selected),
+      'stationsCompleted': completed.isEmpty ? null : jsonEncode(completed),
       'findingsJson': findingsJson,
       'scorecardJson': scorecardJson,
       'notes': notes,
@@ -114,6 +156,7 @@ class AuditSessionModel {
     String? breed,
     int? flockAgeWeeks,
     String? status,
+    List<String>? selectedStationKeys,
     List<String>? stationsCompleted,
     String? findingsJson,
     String? scorecardJson,
@@ -131,6 +174,7 @@ class AuditSessionModel {
       breed: breed ?? this.breed,
       flockAgeWeeks: flockAgeWeeks ?? this.flockAgeWeeks,
       status: status ?? this.status,
+      selectedStationKeys: selectedStationKeys ?? this.selectedStationKeys,
       stationsCompleted: stationsCompleted ?? this.stationsCompleted,
       findingsJson: findingsJson ?? this.findingsJson,
       scorecardJson: scorecardJson ?? this.scorecardJson,

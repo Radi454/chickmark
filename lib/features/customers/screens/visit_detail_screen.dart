@@ -35,9 +35,7 @@ class VisitDetailScreen extends StatelessWidget {
         session.flockId;
 
     return Scaffold(
-      appBar: GradientAppBar(
-        title: 'Visit Summary',
-      ),
+      appBar: GradientAppBar(title: 'Visit Summary'),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -76,7 +74,7 @@ class VisitDetailScreen extends StatelessWidget {
     String flockLabel,
   ) {
     final completed = session.stationsCompleted.length;
-    final total = supportedStationKeys.length;
+    final total = session.selectedStationKeys.length;
 
     return Card(
       elevation: 0,
@@ -139,9 +137,7 @@ class VisitDetailScreen extends StatelessWidget {
 
   Widget _buildStatusChip(String status) {
     final isComplete = status == 'completed';
-    final color = isComplete
-        ? const Color(0xFF3a9a5c)
-        : AppColors.primary;
+    final color = isComplete ? const Color(0xFF3a9a5c) : AppColors.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -184,10 +180,7 @@ class VisitDetailScreen extends StatelessWidget {
               children: visit.scorecards.map((sc) {
                 final color = ScorecardFormatter.statusColor(sc.status);
                 return Chip(
-                  avatar: CircleAvatar(
-                    backgroundColor: color,
-                    radius: 8,
-                  ),
+                  avatar: CircleAvatar(backgroundColor: color, radius: 8),
                   label: Text(
                     '${sc.stationLabel}: ${ScorecardFormatter.statusLabel(sc.status)}',
                   ),
@@ -225,11 +218,23 @@ class VisitDetailScreen extends StatelessWidget {
               runSpacing: 4,
               children: [
                 if (findings.greenCount > 0)
-                  _findingChip('Good', findings.greenCount, const Color(0xFF3a9a5c)),
+                  _findingChip(
+                    'Good',
+                    findings.greenCount,
+                    const Color(0xFF3a9a5c),
+                  ),
                 if (findings.amberCount > 0)
-                  _findingChip('Caution', findings.amberCount, const Color(0xFFE6A23C)),
+                  _findingChip(
+                    'Caution',
+                    findings.amberCount,
+                    const Color(0xFFE6A23C),
+                  ),
                 if (findings.redCount > 0)
-                  _findingChip('Critical', findings.redCount, const Color(0xFFE24B4A)),
+                  _findingChip(
+                    'Critical',
+                    findings.redCount,
+                    const Color(0xFFE24B4A),
+                  ),
               ],
             ),
             if (findings.findings.isNotEmpty) ...[
@@ -281,7 +286,10 @@ class VisitDetailScreen extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _MetricChip(label: 'Lesions', value: '${pm.totalLesions}'),
-                _MetricChip(label: 'Deformities', value: '${pm.totalDeformities}'),
+                _MetricChip(
+                  label: 'Deformities',
+                  value: '${pm.totalDeformities}',
+                ),
                 if (pm.gaspingPresent)
                   _MetricChip(label: 'Gasping', value: pm.gaspingType ?? 'Yes'),
                 if (pm.overallSeverity != null)
@@ -321,11 +329,20 @@ class VisitDetailScreen extends StatelessWidget {
                 _MetricChip(label: 'Culled', value: '${hb.culled}'),
                 _MetricChip(label: 'Dead', value: '${hb.deadAtHatch}'),
                 if (hb.hatchabilityPct != null)
-                  _MetricChip(label: 'Hatch%', value: '${hb.hatchabilityPct!.toStringAsFixed(1)}%'),
+                  _MetricChip(
+                    label: 'Hatch%',
+                    value: '${hb.hatchabilityPct!.toStringAsFixed(1)}%',
+                  ),
                 if (hb.fertilityPct != null)
-                  _MetricChip(label: 'Fertility%', value: '${hb.fertilityPct!.toStringAsFixed(1)}%'),
+                  _MetricChip(
+                    label: 'Fertility%',
+                    value: '${hb.fertilityPct!.toStringAsFixed(1)}%',
+                  ),
                 if (hb.hofPct != null)
-                  _MetricChip(label: 'HOF%', value: '${hb.hofPct!.toStringAsFixed(1)}%'),
+                  _MetricChip(
+                    label: 'HOF%',
+                    value: '${hb.hofPct!.toStringAsFixed(1)}%',
+                  ),
               ],
             ),
           ],
@@ -393,8 +410,7 @@ class VisitDetailScreen extends StatelessWidget {
       ],
     );
   }
-
-  }
+}
 
 class _StationAuditReadOnlyCard extends StatelessWidget {
   final AuditModel audit;
@@ -428,9 +444,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: metrics
-                    .map(
-                      (m) => _MetricChip(label: m.label, value: m.value),
-                    )
+                    .map((m) => _MetricChip(label: m.label, value: m.value))
                     .toList(),
               ),
           ],
@@ -444,23 +458,41 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
     switch (audit.auditType) {
       case 'Chick Quality':
         if (audit.pasgarFinalScore != null) {
-          metrics.add(_Metric('Pasgar', audit.pasgarFinalScore!.toStringAsFixed(1)));
+          metrics.add(
+            _Metric('Pasgar', audit.pasgarFinalScore!.toStringAsFixed(1)),
+          );
         }
         if (audit.chickAvgWeight != null) {
-          metrics.add(_Metric('Avg weight', '${audit.chickAvgWeight!.toStringAsFixed(1)}g'));
+          metrics.add(
+            _Metric(
+              'Avg weight',
+              '${audit.chickAvgWeight!.toStringAsFixed(1)}g',
+            ),
+          );
         }
         if (audit.chickCvPct != null) {
-          metrics.add(_Metric('CV%', '${audit.chickCvPct!.toStringAsFixed(1)}%'));
+          metrics.add(
+            _Metric('CV%', '${audit.chickCvPct!.toStringAsFixed(1)}%'),
+          );
         }
         if (audit.cvtAvg != null) {
-          metrics.add(_Metric('CVT avg', '${audit.cvtAvg!.toStringAsFixed(1)}°F'));
+          metrics.add(
+            _Metric('CVT avg', '${audit.cvtAvg!.toStringAsFixed(1)}°F'),
+          );
         }
       case 'Hatch Analysis':
         if (audit.haHatchability != null) {
-          metrics.add(_Metric('Hatchability', '${audit.haHatchability!.toStringAsFixed(1)}%'));
+          metrics.add(
+            _Metric(
+              'Hatchability',
+              '${audit.haHatchability!.toStringAsFixed(1)}%',
+            ),
+          );
         }
         if (audit.haFertility != null) {
-          metrics.add(_Metric('Fertility', '${audit.haFertility!.toStringAsFixed(1)}%'));
+          metrics.add(
+            _Metric('Fertility', '${audit.haFertility!.toStringAsFixed(1)}%'),
+          );
         }
         if (audit.haHof != null) {
           metrics.add(_Metric('HOF', '${audit.haHof!.toStringAsFixed(1)}%'));
@@ -473,7 +505,9 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
           metrics.add(_Metric('Setter', audit.soSetterId!));
         }
         if (audit.soEstAvg != null) {
-          metrics.add(_Metric('EST avg', '${audit.soEstAvg!.toStringAsFixed(1)}°F'));
+          metrics.add(
+            _Metric('EST avg', '${audit.soEstAvg!.toStringAsFixed(1)}°F'),
+          );
         }
         if (audit.soCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.soCo2!.toStringAsFixed(0)} ppm'));
@@ -483,20 +517,29 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
           metrics.add(_Metric('Hatcher', audit.hoHatcherId!));
         }
         if (audit.hoCvtAvg != null) {
-          metrics.add(_Metric('CVT avg', '${audit.hoCvtAvg!.toStringAsFixed(1)}°F'));
+          metrics.add(
+            _Metric('CVT avg', '${audit.hoCvtAvg!.toStringAsFixed(1)}°F'),
+          );
         }
         if (audit.hoCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.hoCo2!.toStringAsFixed(0)} ppm'));
         }
       case 'Egg Storage':
         if (audit.esShellTemp != null) {
-          metrics.add(_Metric('Shell temp', '${audit.esShellTemp!.toStringAsFixed(1)}°F'));
+          metrics.add(
+            _Metric('Shell temp', '${audit.esShellTemp!.toStringAsFixed(1)}°F'),
+          );
         }
         if (audit.esTurningTimes != null) {
           metrics.add(_Metric('Turning', '${audit.esTurningTimes}'));
         }
         if (audit.esEggAvgWeight != null) {
-          metrics.add(_Metric('Avg weight', '${audit.esEggAvgWeight!.toStringAsFixed(1)}g'));
+          metrics.add(
+            _Metric(
+              'Avg weight',
+              '${audit.esEggAvgWeight!.toStringAsFixed(1)}g',
+            ),
+          );
         }
     }
     return metrics;

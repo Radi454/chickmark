@@ -28,10 +28,12 @@ class VisitSessionSummary {
   bool get isCompleted => session.status == 'completed';
 
   int get completedStationCount => session.stationsCompleted.length;
+  List<String> get selectedStationKeys => session.selectedStationKeys;
+  int get selectedStationCount => selectedStationKeys.length;
 
   double get completionFraction {
-    if (supportedStationKeys.isEmpty) return 0.0;
-    return completedStationCount / supportedStationKeys.length;
+    if (selectedStationCount == 0) return 0.0;
+    return completedStationCount / selectedStationCount;
   }
 
   /// Builds a summary from raw data.  Safe to call with empty lists.
@@ -62,13 +64,16 @@ class VisitSessionSummary {
   ) {
     // Prefer persisted scorecard JSON when available.
     final persisted = _parseScorecards(session.scorecardJson);
+    final selected = session.selectedStationKeys;
     if (persisted.isNotEmpty) {
-      return persisted;
+      return persisted
+          .where((scorecard) => selected.contains(scorecard.stationKey))
+          .toList();
     }
 
     // Fallback: derive from station completion and simple heuristics.
     final completed = session.stationsCompleted.toSet();
-    return supportedStationKeys.map((key) {
+    return selected.map((key) {
       final audit = audits.firstWhere(
         (a) => _auditTypeToStationKey(a.auditType) == key,
         orElse: () => AuditModel(
@@ -393,7 +398,9 @@ class PmScoreSummary {
     deformities += audit.pmOtherDeformityCount ?? 0;
 
     String? severity;
-    if (lesions == 0 && deformities == 0 && !(audit.pmGaspingPresent ?? false)) {
+    if (lesions == 0 &&
+        deformities == 0 &&
+        !(audit.pmGaspingPresent ?? false)) {
       severity = 'green';
     } else if (lesions > 5 || deformities > 3) {
       severity = 'red';

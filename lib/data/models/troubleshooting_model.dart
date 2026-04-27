@@ -4,11 +4,17 @@ class TroubleshootingModel {
   final String id;
   final String? hatcheryCausesJson;
   final String? farmFlockCausesJson;
+  final String? benchmarkJson;
+  final String? interpretationJson;
+  final String? sourceRefsJson;
 
   TroubleshootingModel({
     required this.id,
     this.hatcheryCausesJson,
     this.farmFlockCausesJson,
+    this.benchmarkJson,
+    this.interpretationJson,
+    this.sourceRefsJson,
   });
 
   List<String> get hatcheryCauses =>
@@ -41,11 +47,45 @@ class TroubleshootingModel {
     }
   }
 
+  Map<String, dynamic> get benchmark => _decodeObject(benchmarkJson);
+  Map<String, dynamic> get interpretation => _decodeObject(interpretationJson);
+
+  List<Map<String, String>> get sourceRefs {
+    if (sourceRefsJson == null) return [];
+    try {
+      final decoded = jsonDecode(sourceRefsJson!);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map(
+            (item) => item.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Map<String, dynamic> _decodeObject(String? source) {
+    if (source == null) return {};
+    try {
+      final decoded = jsonDecode(source);
+      return decoded is Map<String, dynamic> ? decoded : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   factory TroubleshootingModel.fromMap(Map<String, dynamic> map) {
     return TroubleshootingModel(
       id: map['id'],
       hatcheryCausesJson: map['hatcheryCauses'],
       farmFlockCausesJson: map['farmFlockCauses'],
+      benchmarkJson: map['benchmarkJson'],
+      interpretationJson: map['interpretationJson'],
+      sourceRefsJson: map['sourceRefsJson'],
     );
   }
 
@@ -54,6 +94,9 @@ class TroubleshootingModel {
       'id': id,
       'hatcheryCauses': hatcheryCausesJson,
       'farmFlockCauses': farmFlockCausesJson,
+      'benchmarkJson': benchmarkJson,
+      'interpretationJson': interpretationJson,
+      'sourceRefsJson': sourceRefsJson,
     };
   }
 }

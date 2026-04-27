@@ -18,7 +18,7 @@ class DatabaseHelper {
     if (_db != null) return _db!;
     _db = await openDatabase(
       join(await getDatabasesPath(), 'hatchaudit.db'),
-      version: 15,
+      version: 18,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -79,6 +79,8 @@ class DatabaseHelper {
       updatedAt TEXT,
       notes TEXT,
       sessionId TEXT,
+      sampleMode TEXT NOT NULL DEFAULT 'pool',
+      compareGroupKey TEXT,
       -- Chick Quality: CHA Environmental
       chaGoveeConnected INTEGER,
       chaCo2 REAL,
@@ -166,6 +168,7 @@ class DatabaseHelper {
       ebBreakoutAgeDays INTEGER,
       ebStorageDays INTEGER,
       ebTrays TEXT,
+      ebTrayBreakoutJson TEXT,
       ebBmkAge INTEGER,
       ebInfertileCount INTEGER,
       ebEarlyDeadCount INTEGER,
@@ -228,6 +231,7 @@ class DatabaseHelper {
       esEggBmkAge INTEGER,
       esEggBmkWeight REAL,
       es_estReadingsJson TEXT,
+      es_estPhotosJson TEXT,
       es_estAvg REAL,
       es_estCv REAL,
       es_uvSampleSize INTEGER,
@@ -339,7 +343,10 @@ class DatabaseHelper {
     await db.execute('''CREATE TABLE troubleshooting (
       id TEXT PRIMARY KEY,
       hatcheryCauses TEXT,
-      farmFlockCauses TEXT
+      farmFlockCauses TEXT,
+      benchmarkJson TEXT,
+      interpretationJson TEXT,
+      sourceRefsJson TEXT
     )''');
     await db.execute('''CREATE TABLE photos (
       id TEXT PRIMARY KEY,
@@ -367,10 +374,18 @@ class DatabaseHelper {
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final seed in kBmkBreedSeeds) {
-        batch.insert('bmk_breeds', seed, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'bmk_breeds',
+          seed,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
       for (final seed in kBmkEggBreakoutSeeds) {
-        batch.insert('bmk_egg_breakout', seed, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'bmk_egg_breakout',
+          seed,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
       await batch.commit(noResult: true);
     });
@@ -569,6 +584,15 @@ class DatabaseHelper {
     if (oldVersion < 15) {
       await _applyV15Upgrade(db);
     }
+    if (oldVersion < 16) {
+      await _applyV16Upgrade(db);
+    }
+    if (oldVersion < 17) {
+      await _applyV17Upgrade(db);
+    }
+    if (oldVersion < 18) {
+      await _applyV18Upgrade(db);
+    }
   }
 
   Future<void> _createHatcheryTables(Database db) async {
@@ -596,6 +620,7 @@ class DatabaseHelper {
       breed TEXT,
       flockAgeWeeks INTEGER,
       status TEXT DEFAULT 'in_progress',
+      selectedStationKeys TEXT,
       stationsCompleted TEXT,
       findingsJson TEXT,
       scorecardJson TEXT,
@@ -849,7 +874,12 @@ class DatabaseHelper {
     await _addColumnIfMissing(db, 'audits', 'haMidDead', 'INTEGER');
     await _addColumnIfMissing(db, 'audits', 'haMidLateDead', 'INTEGER');
     await _addColumnIfMissing(db, 'audits', 'haLateDead', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haContaminatedExploders', 'INTEGER');
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'haContaminatedExploders',
+      'INTEGER',
+    );
     await _addColumnIfMissing(db, 'audits', 'haBenchmarkStatusesJson', 'TEXT');
 
     await _addColumnIfMissing(db, 'temperature_sessions', 'tempAvg', 'REAL');
@@ -904,6 +934,69 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> _applyV16Upgrade(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'audit_sessions',
+      'selectedStationKeys',
+      'TEXT',
+    );
+  }
+
+  Future<void> _applyV17Upgrade(Database db) async {
+    await _addColumnIfMissing(db, 'audits', 'es_estPhotosJson', 'TEXT');
+  }
+
+  Future<void> _applyV18Upgrade(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'audits',
+      'sampleMode',
+      "TEXT NOT NULL DEFAULT 'pool'",
+    );
+    await _addColumnIfMissing(db, 'audits', 'compareGroupKey', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'ebTrayBreakoutJson', 'TEXT');
+    await _addColumnIfMissing(db, 'troubleshooting', 'benchmarkJson', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'troubleshooting',
+      'interpretationJson',
+      'TEXT',
+    );
+    await _addColumnIfMissing(db, 'troubleshooting', 'sourceRefsJson', 'TEXT');
+    await db.execute("""
+      UPDATE audits
+      SET sampleMode = 'pool'
+      WHERE sampleMode IS NULL OR sampleMode NOT IN ('pool', 'compare')
+    """);
+    await db.execute("""
+      UPDATE audits
+      SET sampleMode = 'compare',
+          compareGroupKey = COALESCE(
+            compareGroupKey,
+            customerId || '|' || COALESCE(flockId, '') || '|' || date || '|' || auditType
+          )
+      WHERE hatchNumber > 1
+         OR id IN (
+           SELECT a1.id
+           FROM audits a1
+           WHERE EXISTS (
+             SELECT 1
+             FROM audits a2
+             WHERE a2.customerId = a1.customerId
+               AND COALESCE(a2.flockId, '') = COALESCE(a1.flockId, '')
+               AND a2.date = a1.date
+               AND a2.auditType = a1.auditType
+               AND a2.hatchNumber > 1
+           )
+         )
+    """);
+    await _seedTroubleshooting(db);
+  }
+
+  @visibleForTesting
+  Future<void> applyV18UpgradeForTest(Database db) => _applyV18Upgrade(db);
+
   Future<void> _ensureDummyTestData(Database db) async {
     if (kReleaseMode) return;
     for (final seed in kDummyCustomerSeeds) {
@@ -930,12 +1023,39 @@ class DatabaseHelper {
   }
 
   Future<void> _seedTroubleshooting(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(troubleshooting)');
+    final columnNames = columns.map((row) => row['name'] as String).toSet();
+
     for (final entry in kTroubleshootingSeeds.entries) {
-      await db.insert('troubleshooting', {
+      final row = <String, Object?>{
         'id': entry.key,
         'hatcheryCauses': jsonEncode(entry.value['hatcheryCauses']),
         'farmFlockCauses': jsonEncode(entry.value['farmFlockCauses']),
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      };
+
+      if (columnNames.contains('benchmarkJson')) {
+        row['benchmarkJson'] = entry.value['benchmark'] == null
+            ? null
+            : jsonEncode(entry.value['benchmark']);
+      }
+      if (columnNames.contains('interpretationJson')) {
+        row['interpretationJson'] = entry.value['interpretation'] == null
+            ? null
+            : jsonEncode(entry.value['interpretation']);
+      }
+      if (columnNames.contains('sourceRefsJson')) {
+        row['sourceRefsJson'] = entry.value['sourceRefs'] == null
+            ? null
+            : jsonEncode(entry.value['sourceRefs']);
+      }
+
+      await db.insert(
+        'troubleshooting',
+        row,
+        conflictAlgorithm: entry.value.containsKey('sourceRefs')
+            ? ConflictAlgorithm.replace
+            : ConflictAlgorithm.ignore,
+      );
     }
   }
 

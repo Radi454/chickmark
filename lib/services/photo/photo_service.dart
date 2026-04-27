@@ -17,12 +17,21 @@ class PhotoService {
 
       if (image == null) return null;
 
-      // Copy to app documents directory
+      return saveCapturedPhotoPath(image.path);
+    } catch (e) {
+      // Silent failure - degrade gracefully
+      return null;
+    }
+  }
+
+  /// Copy a captured image into the app documents directory.
+  Future<String?> saveCapturedPhotoPath(String sourcePath) async {
+    try {
       final Directory appDir = await getApplicationDocumentsDirectory();
       final String fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
       final String savedPath = path.join(appDir.path, fileName);
 
-      await File(image.path).copy(savedPath);
+      await File(sourcePath).copy(savedPath);
       return savedPath;
     } catch (e) {
       // Silent failure - degrade gracefully

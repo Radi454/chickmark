@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/utils/scorecard_formatter.dart';
@@ -56,9 +55,47 @@ void main() {
       );
     });
 
+    test('uses selected station subset for progress and scorecards', () {
+      final session = _makeSession(
+        selectedStationKeys: const ['egg_storage', 'hatch_analysis'],
+        stationsCompleted: const ['egg_storage'],
+      );
+      final summary = VisitSessionSummary.fromSession(
+        session: session,
+        stationAudits: [_makeAudit(auditType: 'Egg Storage')],
+        temperatureSummaries: [],
+      );
+
+      expect(summary.selectedStationCount, 2);
+      expect(summary.completedStationCount, 1);
+      expect(summary.completionFraction, 0.5);
+      expect(summary.scorecards.map((scorecard) => scorecard.stationKey), [
+        'egg_storage',
+        'hatch_analysis',
+      ]);
+    });
+
+    test('filters persisted scorecards to selected stations', () {
+      final session = _makeSession(
+        selectedStationKeys: const ['hatch_analysis'],
+        scorecardJson:
+            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"green"},{"stationKey":"hatch_analysis","stationLabel":"Hatch Analysis","status":"amber"}]',
+      );
+      final summary = VisitSessionSummary.fromSession(
+        session: session,
+        stationAudits: [],
+        temperatureSummaries: [],
+      );
+
+      expect(summary.scorecards.length, 1);
+      expect(summary.scorecards.first.stationKey, 'hatch_analysis');
+      expect(summary.scorecards.first.status, 'amber');
+    });
+
     test('scorecard falls back to persisted JSON when available', () {
       final session = _makeSession(
-        scorecardJson: '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"amber","detail":"Review"}]',
+        scorecardJson:
+            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"amber","detail":"Review"}]',
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
@@ -74,7 +111,8 @@ void main() {
     });
 
     test('findings JSON parses into summary counts', () {
-      final findingsJson = '[{"scope":"session","severity":"green","title":"OK"},{"scope":"session","severity":"red","title":"Hot"}]';
+      final findingsJson =
+          '[{"scope":"session","severity":"green","title":"OK"},{"scope":"session","severity":"red","title":"Hot"}]';
       final session = _makeSession(findingsJson: findingsJson);
       final summary = VisitSessionSummary.fromSession(
         session: session,
@@ -302,6 +340,7 @@ void main() {
 AuditSessionModel _makeSession({
   String id = 's1',
   String status = 'in_progress',
+  List<String> selectedStationKeys = supportedStationKeys,
   List<String> stationsCompleted = const [],
   String? findingsJson,
   String? scorecardJson,
@@ -313,6 +352,7 @@ AuditSessionModel _makeSession({
     hatcheryId: 'h1',
     date: DateTime(2026, 4, 20),
     status: status,
+    selectedStationKeys: selectedStationKeys,
     stationsCompleted: stationsCompleted,
     findingsJson: findingsJson,
     scorecardJson: scorecardJson,

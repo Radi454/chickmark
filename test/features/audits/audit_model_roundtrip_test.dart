@@ -9,7 +9,7 @@ void main() {
       fixedDate = DateTime(2026, 4, 24, 8, 0, 0);
     });
 
-    AuditModel _baseEggStorage() {
+    AuditModel baseEggStorage() {
       return AuditModel(
         id: 'test-id',
         auditType: 'Egg Storage',
@@ -23,7 +23,7 @@ void main() {
       );
     }
 
-    AuditModel _baseSetter() {
+    AuditModel baseSetter() {
       return AuditModel(
         id: 'test-setter',
         auditType: 'Setter Optimizing',
@@ -37,7 +37,7 @@ void main() {
       );
     }
 
-    AuditModel _baseHatcher() {
+    AuditModel baseHatcher() {
       return AuditModel(
         id: 'test-hatcher',
         auditType: 'Hatcher Optimizing',
@@ -51,7 +51,7 @@ void main() {
       );
     }
 
-    AuditModel _baseChickQuality() {
+    AuditModel baseChickQuality() {
       return AuditModel(
         id: 'test-pm',
         auditType: 'Chick Quality',
@@ -65,7 +65,7 @@ void main() {
       );
     }
 
-    AuditModel _fromMapWith(AuditModel base, Map<String, dynamic> overrides) {
+    AuditModel fromMapWith(AuditModel base, Map<String, dynamic> overrides) {
       final map = base.toMap();
       map.addAll(overrides);
       map['updatedAt'] = DateTime.now().toIso8601String();
@@ -73,8 +73,10 @@ void main() {
     }
 
     test('Egg Storage expanded EST grid fields round-trip', () {
-      final original = _fromMapWith(_baseEggStorage(), {
-        'es_estReadingsJson': '{"door_top":19.5,"door_middle":20.1,"door_bottom":20.3,"middle_top":19.8,"middle_middle":20.0,"middle_bottom":20.2,"back_top":19.7,"back_middle":19.9,"back_bottom":20.4}',
+      final original = fromMapWith(baseEggStorage(), {
+        'es_estReadingsJson':
+            '{"door_top":19.5,"door_middle":20.1,"door_bottom":20.3,"middle_top":19.8,"middle_middle":20.0,"middle_bottom":20.2,"back_top":19.7,"back_middle":19.9,"back_bottom":20.4}',
+        'es_estPhotosJson': '{"front_top":"/photos/front-top.jpg"}',
         'es_estAvg': 19.9,
         'es_estCv': 1.2,
       });
@@ -82,12 +84,13 @@ void main() {
       final restored = AuditModel.fromMap(map);
 
       expect(restored.esEstReadingsJson, original.esEstReadingsJson);
+      expect(restored.esEstPhotosJson, original.esEstPhotosJson);
       expect(restored.esEstAvg, original.esEstAvg);
       expect(restored.esEstCv, original.esEstCv);
     });
 
     test('Egg Storage expanded UV inspection fields round-trip', () {
-      final original = _fromMapWith(_baseEggStorage(), {
+      final original = fromMapWith(baseEggStorage(), {
         'es_uvSampleSize': 50,
         'es_uvCuticleDamageCount': 3,
         'es_uvWashingEvidenceCount': 2,
@@ -101,7 +104,10 @@ void main() {
 
       expect(restored.esUvSampleSize, original.esUvSampleSize);
       expect(restored.esUvCuticleDamageCount, original.esUvCuticleDamageCount);
-      expect(restored.esUvWashingEvidenceCount, original.esUvWashingEvidenceCount);
+      expect(
+        restored.esUvWashingEvidenceCount,
+        original.esUvWashingEvidenceCount,
+      );
       expect(restored.esUvFecalCount, original.esUvFecalCount);
       expect(restored.esUvMottledCount, original.esUvMottledCount);
       expect(restored.esUvOtherCount, original.esUvOtherCount);
@@ -109,7 +115,7 @@ void main() {
     });
 
     test('Egg Storage expanded egg quality fields round-trip', () {
-      final original = _fromMapWith(_baseEggStorage(), {
+      final original = fromMapWith(baseEggStorage(), {
         'es_crackPct': 2.5,
         'es_brokenPct': 1.0,
         'es_misshapedPct': 3.2,
@@ -131,7 +137,7 @@ void main() {
     });
 
     test('Egg Storage expanded storage checklist fields round-trip', () {
-      final original = _fromMapWith(_baseEggStorage(), {
+      final original = fromMapWith(baseEggStorage(), {
         'es_eggOrientation': 'Point Down',
         'es_traySpacing': 'Adequate',
         'es_coolerProximity': 'Near',
@@ -149,49 +155,53 @@ void main() {
     });
 
     test('Egg Storage condensation false round-trip', () {
-      final original = _fromMapWith(_baseEggStorage(), {
-        'es_condensation': 0,
-      });
+      final original = fromMapWith(baseEggStorage(), {'es_condensation': 0});
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
       expect(restored.esCondensation, false);
     });
 
-    test('Setter Optimizing expanded machine type and turning angle round-trip', () {
-      final original = _fromMapWith(_baseSetter(), {
-        'so_machineType': 'Single Stage',
-        'so_turningAngle': 45.0,
-        'soEstAvg': 100.5,
-        'soEstCv': 0.3,
-      });
-      final map = original.toMap();
-      final restored = AuditModel.fromMap(map);
+    test(
+      'Setter Optimizing expanded machine type and turning angle round-trip',
+      () {
+        final original = fromMapWith(baseSetter(), {
+          'so_machineType': 'Single Stage',
+          'so_turningAngle': 45.0,
+          'soEstAvg': 100.5,
+          'soEstCv': 0.3,
+        });
+        final map = original.toMap();
+        final restored = AuditModel.fromMap(map);
 
-      expect(restored.soMachineType, 'Single Stage');
-      expect(restored.soTurningAngle, 45.0);
-      expect(restored.soEstAvg, 100.5);
-      expect(restored.soEstCv, 0.3);
-    });
+        expect(restored.soMachineType, 'Single Stage');
+        expect(restored.soTurningAngle, 45.0);
+        expect(restored.soEstAvg, 100.5);
+        expect(restored.soEstCv, 0.3);
+      },
+    );
 
-    test('Hatcher Optimizing expanded meconium and transfer day round-trip', () {
-      final original = _fromMapWith(_baseHatcher(), {
-        'ho_meconium': 'Normal',
-        'ho_transferDay': 18,
-        'hoCvtAvg': 104.2,
-        'hoCvtCv': 0.5,
-      });
-      final map = original.toMap();
-      final restored = AuditModel.fromMap(map);
+    test(
+      'Hatcher Optimizing expanded meconium and transfer day round-trip',
+      () {
+        final original = fromMapWith(baseHatcher(), {
+          'ho_meconium': 'Normal',
+          'ho_transferDay': 18,
+          'hoCvtAvg': 104.2,
+          'hoCvtCv': 0.5,
+        });
+        final map = original.toMap();
+        final restored = AuditModel.fromMap(map);
 
-      expect(restored.hoMeconium, 'Normal');
-      expect(restored.hoTransferDay, 18);
-      expect(restored.hoCvtAvg, 104.2);
-      expect(restored.hoCvtCv, 0.5);
-    });
+        expect(restored.hoMeconium, 'Normal');
+        expect(restored.hoTransferDay, 18);
+        expect(restored.hoCvtAvg, 104.2);
+        expect(restored.hoCvtCv, 0.5);
+      },
+    );
 
     test('PM Necropsy lesion and severity fields round-trip', () {
-      final original = _fromMapWith(_baseChickQuality(), {
+      final original = fromMapWith(baseChickQuality(), {
         'pm_sampleSize': 40,
         'pm_collectionPoint': 'Hatchery',
         'pm_omphalitisCount': 3,
@@ -228,7 +238,7 @@ void main() {
     });
 
     test('PM Necropsy gasping and deformity fields round-trip', () {
-      final original = _fromMapWith(_baseChickQuality(), {
+      final original = fromMapWith(baseChickQuality(), {
         'pm_gaspingPresent': 1,
         'pm_gaspingType': 'Abdominal',
         'pm_exposedBrainCount': 1,
@@ -263,7 +273,7 @@ void main() {
     });
 
     test('PM Necropsy cause and photo fields round-trip', () {
-      final original = _fromMapWith(_baseChickQuality(), {
+      final original = fromMapWith(baseChickQuality(), {
         'pm_suspectedCauseAuto': 'Omphalitis + Unabsorbed Yolk',
         'pm_suspectedCauseManual': 'Poor sanitation',
         'pm_photosJson': '["pm_photo1.jpg","pm_photo2.jpg"]',
@@ -277,7 +287,7 @@ void main() {
     });
 
     test('null new fields do not break round-trip', () {
-      final original = _baseEggStorage();
+      final original = baseEggStorage();
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
@@ -313,7 +323,7 @@ void main() {
     });
 
     test('sessionId round-trip for session-linked audits', () {
-      final original = _fromMapWith(_baseEggStorage(), {
+      final original = fromMapWith(baseEggStorage(), {
         'sessionId': 'session-abc-123',
       });
       final map = original.toMap();
@@ -323,11 +333,34 @@ void main() {
     });
 
     test('sessionId null for historical audits', () {
-      final original = _baseEggStorage();
+      final original = baseEggStorage();
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
       expect(restored.sessionId, isNull);
+    });
+
+    test('sample mode and breakout tray JSON fields round-trip', () {
+      final original = fromMapWith(baseChickQuality(), {
+        'sampleMode': 'compare',
+        'compareGroupKey': 'compare-visit-1',
+        'ebTrayBreakoutJson':
+            '[{"id":"tray-1","label":"Tray 1","position":"Top","traySize":150,"breakoutType":"Hatch Residue","counts":{"infertile":3}}]',
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
+
+      expect(restored.sampleMode, 'compare');
+      expect(restored.compareGroupKey, 'compare-visit-1');
+      expect(restored.ebTrayBreakoutJson, original.ebTrayBreakoutJson);
+    });
+
+    test('unknown sample mode normalizes to pool', () {
+      final restored = fromMapWith(baseChickQuality(), {
+        'sampleMode': 'unexpected',
+      });
+
+      expect(restored.sampleMode, 'pool');
     });
   });
 }

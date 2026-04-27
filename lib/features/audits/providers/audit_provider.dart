@@ -2,12 +2,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_thresholds.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/sample_mode.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
+import '../models/egg_breakout_tray_rollup.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -63,6 +65,8 @@ class AuditProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isDirty => _isDirty;
   int get hatchCount => _drafts.length;
+  String get sampleMode => activeDraft.sampleMode;
+  bool get isCompareMode => SampleMode.isCompare(sampleMode);
 
   // Initialize new audit session
   void initialize(
@@ -109,6 +113,7 @@ class AuditProvider extends ChangeNotifier {
       setterId: _context!.setterId,
       hatcherId: _context!.hatcherId,
       sessionId: _activeSessionId,
+      sampleMode: SampleMode.pool,
       haTotalEggsSet: _context!.auditType == 'Hatch Analysis' ? 19200 : null,
       soBreed: _context!.auditType == 'Setter Optimizing'
           ? _context!.breed
@@ -151,8 +156,45 @@ class AuditProvider extends ChangeNotifier {
     // For now, we'll create a new AuditModel with the updated field
     final map = audit.toMap();
     map[key] = value;
+    if (key == 'ebTrayBreakoutJson') {
+      map.addAll(
+        EggBreakoutTrayRollup.fromJson(value as String?).toAuditFields(),
+      );
+    }
     map['updatedAt'] = DateTime.now().toIso8601String();
     return AuditModel.fromMap(map);
+  }
+
+  void setSampleMode(String mode) {
+    if (_isReadOnly) return;
+    final normalized = SampleMode.normalize(mode);
+    final compareGroupKey = normalized == SampleMode.compare
+        ? _activeCompareGroupKey()
+        : null;
+
+    if (normalized == SampleMode.pool && _drafts.length > 1) {
+      _drafts = [_drafts.first];
+      _activeHatchIndex = 0;
+    }
+
+    for (var i = 0; i < _drafts.length; i++) {
+      final map = _drafts[i].toMap();
+      map['sampleMode'] = normalized;
+      map['compareGroupKey'] = compareGroupKey;
+      map['hatchNumber'] = normalized == SampleMode.pool ? 1 : i + 1;
+      map['updatedAt'] = DateTime.now().toIso8601String();
+      _drafts[i] = AuditModel.fromMap(map);
+    }
+    _isDirty = true;
+    notifyListeners();
+  }
+
+  String _activeCompareGroupKey() {
+    for (final draft in _drafts) {
+      final key = draft.compareGroupKey;
+      if (key != null && key.isNotEmpty) return key;
+    }
+    return _uuid.v4();
   }
 
   // Save the current tab
@@ -163,23 +205,22 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final existing = await _repository.getAuditById(activeDraft.id);
-      // Save to SQLite
-      await _repository.insertAudit(activeDraft);
+      final draftsToSave = isCompareMode ? _drafts : [activeDraft];
+      for (var i = 0; i < draftsToSave.length; i++) {
+        final existing = await _repository.getAuditById(draftsToSave[i].id);
+        await _repository.insertAudit(draftsToSave[i]);
 
-      // Mark tab as saved
-      if (!_savedTabs.containsKey(_activeHatchIndex)) {
-        _savedTabs[_activeHatchIndex] = {};
+        final savedIndex = isCompareMode ? i : _activeHatchIndex;
+        _savedTabs.putIfAbsent(savedIndex, () => {}).add(tabIndex);
+        await _logAuditChange(
+          draftsToSave[i],
+          existing == null ? 'create' : 'update',
+        );
+        await _checkThresholdsAndAlert(draftsToSave[i]);
+
+        unawaited(_supabaseService.syncAudit(draftsToSave[i].toMap()));
       }
-      _savedTabs[_activeHatchIndex]!.add(tabIndex);
       _isDirty = false;
-      await _logAuditChange(
-        activeDraft,
-        existing == null ? 'create' : 'update',
-      );
-      await _checkThresholdsAndAlert(activeDraft);
-
-      unawaited(_supabaseService.syncAudit(activeDraft.toMap()));
     } catch (e) {
       // Silent error - data is still in memory
       if (kDebugMode) {
@@ -198,16 +239,17 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      for (var i = 0; i < _drafts.length; i++) {
-        final existing = await _repository.getAuditById(_drafts[i].id);
-        await _repository.insertAudit(_drafts[i]);
+      final draftsToSave = isCompareMode ? _drafts : [_drafts.first];
+      for (var i = 0; i < draftsToSave.length; i++) {
+        final existing = await _repository.getAuditById(draftsToSave[i].id);
+        await _repository.insertAudit(draftsToSave[i]);
         _savedTabs[i] = {0, 1};
         await _logAuditChange(
-          _drafts[i],
+          draftsToSave[i],
           existing == null ? 'create' : 'update',
         );
-        await _checkThresholdsAndAlert(_drafts[i]);
-        unawaited(_supabaseService.syncAudit(_drafts[i].toMap()));
+        await _checkThresholdsAndAlert(draftsToSave[i]);
+        unawaited(_supabaseService.syncAudit(draftsToSave[i].toMap()));
       }
       _isDirty = false;
     } catch (e) {
@@ -298,8 +340,7 @@ class AuditProvider extends ChangeNotifier {
     }
 
     if ((a.pmOtherDeformityCount ?? 0) > 0 &&
-        (a.pmOtherDeformityText == null ||
-            a.pmOtherDeformityText!.isEmpty)) {
+        (a.pmOtherDeformityText == null || a.pmOtherDeformityText!.isEmpty)) {
       errors.add('Other deformity description is required when count > 0');
     }
 
@@ -309,11 +350,50 @@ class AuditProvider extends ChangeNotifier {
   // Add a new hatch to the session
   void addHatch() {
     if (_isReadOnly) return;
+    if (!isCompareMode) {
+      setSampleMode(SampleMode.compare);
+    }
 
     final newHatchNumber = _drafts.length + 1;
-    _drafts.add(_createNewDraft(hatchNumber: newHatchNumber));
+    final draft = _createNewDraft(hatchNumber: newHatchNumber);
+    final map = draft.toMap();
+    map['sampleMode'] = SampleMode.compare;
+    map['compareGroupKey'] = _activeCompareGroupKey();
+    _drafts.add(AuditModel.fromMap(map));
     _activeHatchIndex = _drafts.length - 1;
+    _isDirty = true;
 
+    notifyListeners();
+  }
+
+  void removeActiveHatch() {
+    if (_isReadOnly) return;
+    if (!isCompareMode || _drafts.length <= 1) return;
+
+    final removedIndex = _activeHatchIndex;
+    _drafts.removeAt(removedIndex);
+    _activeHatchIndex = _activeHatchIndex.clamp(0, _drafts.length - 1).toInt();
+    final compareGroupKey = _activeCompareGroupKey();
+
+    for (var i = 0; i < _drafts.length; i++) {
+      final map = _drafts[i].toMap();
+      map['sampleMode'] = SampleMode.compare;
+      map['compareGroupKey'] = compareGroupKey;
+      map['hatchNumber'] = i + 1;
+      map['updatedAt'] = DateTime.now().toIso8601String();
+      _drafts[i] = AuditModel.fromMap(map);
+    }
+
+    final nextSavedTabs = <int, Set<int>>{};
+    for (final entry in _savedTabs.entries) {
+      if (entry.key == removedIndex) continue;
+      final nextIndex = entry.key > removedIndex ? entry.key - 1 : entry.key;
+      nextSavedTabs[nextIndex] = entry.value;
+    }
+    _savedTabs
+      ..clear()
+      ..addAll(nextSavedTabs);
+    _isDirty = true;
     notifyListeners();
   }
 
@@ -392,14 +472,8 @@ class AuditProvider extends ChangeNotifier {
     final fertilityRounded = double.parse(fertility.toStringAsFixed(1));
     updateHatchField(hatchIndex, 'haFertility', fertilityRounded);
 
-    final hof = fertility > 0
-        ? (hatchability / fertility) * 100
-        : 0.0;
-    updateHatchField(
-      hatchIndex,
-      'haHof',
-      double.parse(hof.toStringAsFixed(1)),
-    );
+    final hof = fertility > 0 ? (hatchability / fertility) * 100 : 0.0;
+    updateHatchField(hatchIndex, 'haHof', double.parse(hof.toStringAsFixed(1)));
   }
 
   // Load an existing audit for editing
@@ -433,6 +507,18 @@ class AuditProvider extends ChangeNotifier {
         if (_drafts.isEmpty) {
           _drafts = [audit];
         }
+        final loadedMode = _drafts.length > 1
+            ? SampleMode.compare
+            : _drafts.first.sampleMode;
+        final compareGroupKey = loadedMode == SampleMode.compare
+            ? _activeCompareGroupKey()
+            : null;
+        for (var i = 0; i < _drafts.length; i++) {
+          final map = _drafts[i].toMap();
+          map['sampleMode'] = loadedMode;
+          map['compareGroupKey'] = compareGroupKey;
+          _drafts[i] = AuditModel.fromMap(map);
+        }
         _activeHatchIndex = (audit.hatchNumber - 1)
             .clamp(0, _drafts.length - 1)
             .toInt();
@@ -440,7 +526,7 @@ class AuditProvider extends ChangeNotifier {
 
         // Mark all tabs as saved
         for (var i = 0; i < _drafts.length; i++) {
-          _savedTabs[i] = {0, 1, 2, 3, 4, 5}; // Assume all 6 tabs are saved
+          _savedTabs[i] = {0, 1, 2, 3, 4};
         }
       }
     } catch (e) {

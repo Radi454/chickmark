@@ -14,6 +14,7 @@ import 'package:hatchaudit/features/customers/screens/audit_detail_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/audits/models/audit_filter.dart';
 import 'package:hatchaudit/features/audits/widgets/audit_filter_sheet.dart';
+import 'package:hatchaudit/features/audits/widgets/audit_keyboard_dismiss.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
 
@@ -81,11 +82,13 @@ class _AuditsScreenState extends State<AuditsScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          return Column(
-            children: [
-              _buildSearchBar(),
-              Expanded(child: _buildAuditList(provider, canEdit: canEdit)),
-            ],
+          return AuditKeyboardDismiss(
+            child: Column(
+              children: [
+                _buildSearchBar(),
+                Expanded(child: _buildAuditList(provider, canEdit: canEdit)),
+              ],
+            ),
           );
         },
       ),
@@ -261,6 +264,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
     final customerName = _customerNameForSession(session);
     final isCompleted = session.status == 'completed';
     final completedCount = session.stationsCompleted.length;
+    final totalCount = session.selectedStationKeys.length;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -308,7 +312,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
                     ),
                   ),
                   Text(
-                    '$completedCount/5 stations',
+                    '$completedCount/$totalCount stations',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ],
@@ -824,13 +828,7 @@ class _SessionDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stationLabels = const [
-      'Egg Storage',
-      'Chick Quality',
-      'Hatch Analysis',
-      'Setter Optimizing',
-      'Hatcher Optimizing',
-    ];
+    final stationKeys = session.selectedStationKeys;
 
     return Scaffold(
       appBar: const GradientAppBar(title: 'Visit Details'),
@@ -848,15 +846,16 @@ class _SessionDetailScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          ...List.generate(stationLabels.length, (index) {
-            final isCompleted = session.stationsCompleted.contains(
-              supportedStationKeys[index],
-            );
+          ...List.generate(stationKeys.length, (index) {
+            final stationKey = stationKeys[index];
+            final isCompleted = session.stationsCompleted.contains(stationKey);
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: _StationProgressTile(
                 number: index + 1,
-                label: stationLabels[index],
+                label:
+                    AuditSessionProvider.stationDisplayLabels[stationKey] ??
+                    stationKey,
                 isCompleted: isCompleted,
               ),
             );
@@ -932,7 +931,8 @@ class _SessionDetailScreen extends StatelessWidget {
                   _InfoPill(label: 'Breed', value: session.breed!),
                 _InfoPill(
                   label: 'Stations',
-                  value: '${session.stationsCompleted.length}/5',
+                  value:
+                      '${session.stationsCompleted.length}/${session.selectedStationKeys.length}',
                 ),
               ],
             ),

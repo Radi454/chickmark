@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/audit_session_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_session_repository.dart';
@@ -70,19 +69,15 @@ class AuditSessionProvider extends ChangeNotifier {
   List<String> get stationsCompleted =>
       _currentSession?.stationsCompleted ?? [];
   List<String> get stationKeys =>
-      _selectedStationKeys ?? supportedStationKeys;
+      _currentSession?.selectedStationKeys ??
+      (_selectedStationKeys == null
+          ? supportedStationKeys
+          : normalizeStationKeys(_selectedStationKeys));
   int get stationCount => stationKeys.length;
   bool get isStationCompleted =>
       _currentStationIndex < stationCount &&
       stationsCompleted.contains(stationKeys[_currentStationIndex]);
   String? get error => _error;
-
-  static const Map<String, TemperaturePlace> _stationGoveeMapping = {
-    'egg_storage': TemperaturePlace.eggStorageRoom,
-    'chick_quality': TemperaturePlace.chickHoldingArea,
-    'setter_optimizing': TemperaturePlace.insideIncubator,
-    'hatcher_optimizing': TemperaturePlace.insideHatcher,
-  };
 
   static const Map<String, String> stationDisplayLabels = {
     'egg_storage': 'Egg Storage & Handling',
@@ -100,28 +95,22 @@ class AuditSessionProvider extends ChangeNotifier {
     'hatcher_optimizing': 'Hatcher Optimizing',
   };
 
-  TemperaturePlace? get currentStationGoveePlace {
-    if (_currentSession == null || _currentStationIndex >= stationCount) {
-      return null;
-    }
-    return _stationGoveeMapping[stationKeys[_currentStationIndex]];
-  }
-
-  bool get currentStationNeedsGovee => currentStationGoveePlace != null;
-
   /// Start a new audit session.
   Future<void> startSession({
     required AuditSessionContext context,
     UserModel? currentUser,
   }) async {
     _currentUser = currentUser;
-    _selectedStationKeys = context.selectedStationKeys;
+    _selectedStationKeys = normalizeStationKeys(context.selectedStationKeys);
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
       final now = DateTime.now();
+      final selectedStationKeys = normalizeStationKeys(
+        context.selectedStationKeys,
+      );
       final session = AuditSessionModel(
         id: _uuid.v4(),
         customerId: context.customerId,
@@ -131,6 +120,7 @@ class AuditSessionProvider extends ChangeNotifier {
         breed: context.breed,
         flockAgeWeeks: context.flockAgeWeeks,
         status: 'in_progress',
+        selectedStationKeys: selectedStationKeys,
         stationsCompleted: const [],
         createdBy: currentUser?.id,
         createdAt: now,

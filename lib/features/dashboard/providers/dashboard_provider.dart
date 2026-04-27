@@ -4,8 +4,10 @@ import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/temperature_rh_repository.dart';
+import 'package:hatchaudit/data/repositories/troubleshooting_repository.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/troubleshooting_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
 import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart';
@@ -20,6 +22,8 @@ class DashboardProvider extends ChangeNotifier {
   final CustomerRepository _customerRepo = CustomerRepository();
   final FlockRepository _flockRepo = FlockRepository();
   final TemperatureRhRepository _tempRepo = TemperatureRhRepository();
+  final TroubleshootingRepository _troubleshootingRepo =
+      TroubleshootingRepository();
 
   String? _selectedCustomerId;
   String? _selectedFlockId;
@@ -45,6 +49,7 @@ class DashboardProvider extends ChangeNotifier {
 
   List<ChickWeightTrend> _chickWeightTrend = [];
   PasgarAvg? _pasgarAvg;
+  Map<String, TroubleshootingModel> _pasgarReferences = {};
   CvtAvg? _cvtAvg;
   List<YfbmTrend> _yfbmTrend = [];
   List<ChaEnvironmentalTrend> _chaTrend = [];
@@ -103,6 +108,7 @@ class DashboardProvider extends ChangeNotifier {
   ChickWeightTrend? get chickWeightLatest =>
       _chickWeightTrend.isNotEmpty ? _chickWeightTrend.last : null;
   PasgarAvg? get pasgarAvg => _pasgarAvg;
+  Map<String, TroubleshootingModel> get pasgarReferences => _pasgarReferences;
   CvtAvg? get cvtAvg => _cvtAvg;
   List<YfbmTrend> get yfbmTrend => _yfbmTrend;
   List<ChaEnvironmentalTrend> get chaTrend => _chaTrend;
@@ -325,6 +331,15 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> _loadChickQuality(DashboardFilter filter) async {
     _chickWeightTrend = await _auditRepo.getChickWeightTrend(filter) ?? [];
     _pasgarAvg = await _auditRepo.getPasgarAvg(filter);
+    _pasgarReferences = await _troubleshootingRepo.getByParameters([
+      'pasgar_final_score',
+      'pasgar_reflexes',
+      'pasgar_beak',
+      'pasgar_navel',
+      'pasgar_belly',
+      'pasgar_leg',
+      'pasgar_feather_dev',
+    ]);
     _cvtAvg = await _auditRepo.getCvtAvg(filter);
     _yfbmTrend = await _auditRepo.getYfbmTrend(filter) ?? [];
     _chaTrend = await _auditRepo.getChaEnvironmentalTrend(filter) ?? [];
@@ -343,11 +358,7 @@ class DashboardProvider extends ChangeNotifier {
 
   Future<void> _loadEggStorage(DashboardFilter filter) async {
     _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter) ?? [];
-    _shellTempPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'egg_storage',
-      'shell_temp',
-    );
+    _shellTempPhotos = await _auditRepo.getEggStorageEstPhotoPaths(filter);
     _uvPhotos = await _auditRepo.getPhotoPaths(
       filter,
       'egg_storage',

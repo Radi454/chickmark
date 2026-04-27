@@ -3,8 +3,6 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/field_validators.dart';
 import '../../../../data/models/audit_model.dart';
-import '../../../../data/models/temperature_rh_model.dart';
-import '../govee_recording_card.dart';
 import '../photo_button.dart';
 
 class ChaEnvTab extends StatefulWidget {
@@ -73,12 +71,6 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GoveeRecordingCard(
-            place: TemperaturePlace.chickHoldingArea,
-            auditSessionId: widget.auditSessionId,
-            label: 'Chick Holding Environment',
-          ),
-          const SizedBox(height: 16),
           Card(
             elevation: 2,
             shape: RoundedRectangleBorder(
@@ -96,17 +88,9 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _buildValidatedField(
-                    'CO2 (ppm)',
-                    'chaCo2',
-                    'chaCo2Photo',
-                  ),
+                  _buildValidatedField('CO2 (ppm)', 'chaCo2', 'chaCo2Photo'),
                   const SizedBox(height: 12),
-                  _buildNumericField(
-                    'PM10 (µg/m³)',
-                    'chaPm10',
-                    'chaPm10Photo',
-                  ),
+                  _buildNumericField('PM10 (µg/m³)', 'chaPm10', 'chaPm10Photo'),
                   const SizedBox(height: 12),
                   _buildNumericField(
                     'PM2.5 (µg/m³)',
@@ -195,11 +179,7 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
     );
   }
 
-  Widget _buildNumericField(
-    String label,
-    String fieldKey,
-    String photoField,
-  ) {
+  Widget _buildNumericField(String label, String fieldKey, String photoField) {
     final controller = _controllers[fieldKey]!;
     return Row(
       children: [

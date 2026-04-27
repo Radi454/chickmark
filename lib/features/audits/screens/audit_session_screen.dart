@@ -11,6 +11,7 @@ import '../../audits/screens/egg_storage_screen.dart';
 import '../../audits/screens/hatch_analysis_screen.dart';
 import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
+import '../../audits/widgets/audit_keyboard_dismiss.dart';
 
 class AuditSessionScreen extends StatefulWidget {
   const AuditSessionScreen({super.key});
@@ -26,7 +27,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   AuditProvider? get _currentStationProvider {
     final sessionProvider = context.read<AuditSessionProvider>();
     if (sessionProvider.currentSession == null) return null;
-    final key = sessionProvider.stationKeys[sessionProvider.currentStationIndex];
+    final key =
+        sessionProvider.stationKeys[sessionProvider.currentStationIndex];
     return _stationAuditProviders[key];
   }
 
@@ -52,22 +54,30 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             children: [
               Scaffold(
                 appBar: _buildAppBar(sessionProvider),
-                body: Column(
-                  children: [
-                    _buildProgressIndicator(sessionProvider, stationKeys),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: Stack(
-                        children: List.generate(stationKeys.length, (i) =>
-                          Offstage(
-                            offstage: i != sessionProvider.currentStationIndex,
-                            child: _buildStationWidget(sessionProvider, stationKeys, i),
+                body: AuditKeyboardDismiss(
+                  child: Column(
+                    children: [
+                      _buildProgressIndicator(sessionProvider, stationKeys),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: Stack(
+                          children: List.generate(
+                            stationKeys.length,
+                            (i) => Offstage(
+                              offstage:
+                                  i != sessionProvider.currentStationIndex,
+                              child: _buildStationWidget(
+                                sessionProvider,
+                                stationKeys,
+                                i,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    _buildNavigationFooter(sessionProvider, stationKeys),
-                  ],
+                      _buildNavigationFooter(sessionProvider, stationKeys),
+                    ],
+                  ),
                 ),
               ),
               if (_showSavedAnimation) _buildSavedOverlay(),
@@ -119,7 +129,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
   }
 
-  Widget _buildProgressIndicator(AuditSessionProvider provider, List<String> stationKeys) {
+  Widget _buildProgressIndicator(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
     final displayLabels = stationKeys
         .map((k) => AuditSessionProvider.stationDisplayLabels[k] ?? k)
         .toList();
@@ -138,7 +151,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             child: Row(
               children: [
                 Expanded(
-                        child: GestureDetector(
+                  child: GestureDetector(
                     onTap: isPast || isCompleted || isCurrent
                         ? () => _handleStationTap(provider, index, stationKeys)
                         : null,
@@ -214,12 +227,18 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
   }
 
-  Widget _buildStationWidget(AuditSessionProvider provider, List<String> stationKeys, int index) {
+  Widget _buildStationWidget(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+    int index,
+  ) {
     final session = provider.currentSession!;
     final stationKey = stationKeys[index];
 
     final auditContext = AuditContextData(
-      auditType: AuditSessionProvider.stationKeyToAuditType[stationKey] ?? 'Egg Storage',
+      auditType:
+          AuditSessionProvider.stationKeyToAuditType[stationKey] ??
+          'Egg Storage',
       customerId: session.customerId,
       flockId: session.flockId,
       sessionId: session.id,
@@ -246,7 +265,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
   }
 
-  Widget _buildNavigationFooter(AuditSessionProvider provider, List<String> stationKeys) {
+  Widget _buildNavigationFooter(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
     final index = provider.currentStationIndex;
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
@@ -290,10 +312,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     : () {
                         _handleNextOrSave(provider);
                       },
-                icon: Icon(
-                  isLast ? Icons.save : Icons.arrow_forward,
-                  size: 18,
-                ),
+                icon: Icon(isLast ? Icons.save : Icons.arrow_forward, size: 18),
                 label: Text(isLast ? 'Save' : 'Next Station'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
@@ -317,8 +336,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     if (!mounted) return;
 
     final sessionProvider = this.context.read<AuditSessionProvider>();
-    sessionProvider.clearCurrentSession();
+    final sessionId = sessionProvider.currentSession?.id;
     Navigator.of(this.context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (sessionProvider.currentSession?.id == sessionId) {
+        sessionProvider.clearCurrentSession();
+      }
+    });
   }
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
@@ -424,9 +448,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final stationKey =
         context.read<AuditSessionProvider>().currentSession == null
         ? null
-        : context
-              .read<AuditSessionProvider>()
-              .stationKeys[context
+        : context.read<AuditSessionProvider>().stationKeys[context
               .read<AuditSessionProvider>()
               .currentStationIndex];
 

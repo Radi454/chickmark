@@ -6,7 +6,9 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/constants/app_thresholds.dart';
 import 'package:hatchaudit/core/theme/app_page_route.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
+import 'package:hatchaudit/data/models/troubleshooting_model.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
+import 'package:hatchaudit/features/dashboard/utils/pasgar_interpretation.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
@@ -63,7 +65,11 @@ Widget _emptySection(String label) => Padding(
   child: Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      const Icon(Icons.bar_chart_outlined, size: 48, color: AppColors.textDisabled),
+      const Icon(
+        Icons.bar_chart_outlined,
+        size: 48,
+        color: AppColors.textDisabled,
+      ),
       const SizedBox(height: AppSizes.spaceSm),
       Text(
         'No $label data yet',
@@ -85,9 +91,7 @@ Widget _photoSection(BuildContext context, List<String> photos) {
         filePaths: photos,
         onTap: (path) => Navigator.push(
           context,
-          AppPageRoute(
-            builder: (_) => PhotoFullscreenScreen(filePath: path),
-          ),
+          AppPageRoute(builder: (_) => PhotoFullscreenScreen(filePath: path)),
         ),
       ),
     ],
@@ -184,10 +188,7 @@ class _WeightsTab extends StatelessWidget {
       padding: EdgeInsets.zero,
       children: [
         _metricRow('Avg Weight', '${latest.avgWeightG.toStringAsFixed(1)} g'),
-        _metricRow(
-          'Uniformity',
-          '${latest.uniformityPct.toStringAsFixed(1)}%',
-        ),
+        _metricRow('Uniformity', '${latest.uniformityPct.toStringAsFixed(1)}%'),
         _metricRow(
           'CV%',
           '${latest.cvPct.toStringAsFixed(1)}%',
@@ -227,49 +228,191 @@ class _PasgarTab extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
     if (avg == null) return _emptySection('Pasgar');
+    final refs = provider.pasgarReferences;
+    final scoreRef = refs['pasgar_final_score'];
+    final scoreColor = _pasgarScoreColor(avg.score);
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        _metricRow(
-          'Reflexes',
-          '${avg.reflexesPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.reflexesPct, AppThresholds.pasgarAlertPct),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: _PasgarInterpretationCard(
+            score: avg.score,
+            reference: scoreRef,
+          ),
         ),
-        _metricRow(
-          'Beak',
-          '${avg.beakPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.beakPct, AppThresholds.pasgarAlertPct),
-        ),
-        _metricRow(
-          'Navel',
-          '${avg.navelPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.navelPct, AppThresholds.pasgarAlertPct),
-        ),
-        _metricRow(
-          'Belly',
-          '${avg.bellyPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.bellyPct, AppThresholds.pasgarAlertPct),
-        ),
-        _metricRow(
-          'Leg',
-          '${avg.legPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.legPct, AppThresholds.pasgarAlertPct),
-        ),
-        _metricRow(
-          'Feather Development',
-          '${avg.featherDevPct.toStringAsFixed(1)}%',
-          color: _threshold(avg.featherDevPct, AppThresholds.pasgarAlertPct),
-        ),
-        const Divider(),
         _metricRow(
           'Final Score',
           avg.score.toStringAsFixed(1),
-          color: _threshold(avg.score * 10, AppThresholds.pasgarAlertPct),
+          color: scoreColor,
+        ),
+        const Divider(),
+        _PasgarDefectRow(
+          label: 'Reflexes',
+          value: avg.reflexesPct,
+          reference: refs['pasgar_reflexes'],
+        ),
+        _PasgarDefectRow(
+          label: 'Beak',
+          value: avg.beakPct,
+          reference: refs['pasgar_beak'],
+        ),
+        _PasgarDefectRow(
+          label: 'Navel',
+          value: avg.navelPct,
+          reference: refs['pasgar_navel'],
+        ),
+        _PasgarDefectRow(
+          label: 'Belly',
+          value: avg.bellyPct,
+          reference: refs['pasgar_belly'],
+        ),
+        _PasgarDefectRow(
+          label: 'Leg',
+          value: avg.legPct,
+          reference: refs['pasgar_leg'],
+        ),
+        _PasgarDefectRow(
+          label: 'Feather Development',
+          value: avg.featherDevPct,
+          reference: refs['pasgar_feather_dev'],
         ),
       ],
     );
   }
+}
+
+Color _pasgarScoreColor(double score) {
+  final interpretation = PasgarScoreInterpretation.fromScore(score);
+  return switch (interpretation.band) {
+    PasgarInterpretationBand.excellent => AppColors.statusGood,
+    PasgarInterpretationBand.acceptable => AppColors.statusWarning,
+    PasgarInterpretationBand.investigate => AppColors.statusError,
+  };
+}
+
+class _PasgarInterpretationCard extends StatelessWidget {
+  final double score;
+  final TroubleshootingModel? reference;
+
+  const _PasgarInterpretationCard({required this.score, this.reference});
+
+  @override
+  Widget build(BuildContext context) {
+    final interpretation = PasgarScoreInterpretation.fromScore(score);
+    final color = _pasgarScoreColor(score);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            interpretation.label,
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(interpretation.message, style: AppTextStyles.caption),
+          if (reference != null && reference!.sourceRefs.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              _sourceLabels(reference!),
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PasgarDefectRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final TroubleshootingModel? reference;
+
+  const _PasgarDefectRow({
+    required this.label,
+    required this.value,
+    this.reference,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isAlert = value > AppThresholds.pasgarAlertPct;
+    final color = isAlert ? AppColors.statusError : AppColors.statusGood;
+    final causes = reference?.hatcheryCauses.take(2).toList() ?? [];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(label, style: AppTextStyles.body)),
+                Text(
+                  '${value.toStringAsFixed(1)}%',
+                  style: AppTextStyles.badgeLabel,
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ),
+            if (isAlert && causes.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              ...causes.map((cause) {
+                return Text('- $cause', style: AppTextStyles.caption);
+              }),
+            ],
+            if (reference != null && reference!.sourceRefs.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                _sourceLabels(reference!),
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textTertiary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _sourceLabels(TroubleshootingModel reference) {
+  final labels = reference.sourceRefs
+      .map((source) => source['label'] ?? source['publisher'] ?? '')
+      .where((label) => label.isNotEmpty)
+      .toList();
+  if (labels.isEmpty) return '';
+  return 'Ref: ${labels.join(', ')}';
 }
 
 class _CvtTab extends StatelessWidget {
@@ -668,7 +811,11 @@ class _Co2Tab extends StatelessWidget {
           'CO₂ (ppm)',
           latest.co2.toStringAsFixed(0),
           color: latest.co2 > 0
-              ? _threshold(latest.co2, AppThresholds.co2Max, lowerIsBetter: true)
+              ? _threshold(
+                  latest.co2,
+                  AppThresholds.co2Max,
+                  lowerIsBetter: true,
+                )
               : null,
         ),
         _metricRow(
@@ -710,16 +857,16 @@ class SetterOptimizingSection extends StatelessWidget {
               if (provider.availableSetterIds.isEmpty)
                 _emptySection('setter optimizing')
               else ...[
-                  _buildCheckboxes(context, provider),
-                  if (hasData) ...[
-                    _buildComparisonTable(context, provider),
-                    _buildTurningAngleRow(context, provider),
-                    const Divider(),
-                    _buildEstChart(context, provider),
-                    const Divider(),
-                    _buildCo2Chart(context, provider),
-                  ] else
-                    _emptySection('setter optimizing'),
+                _buildCheckboxes(context, provider),
+                if (hasData) ...[
+                  _buildComparisonTable(context, provider),
+                  _buildTurningAngleRow(context, provider),
+                  const Divider(),
+                  _buildEstChart(context, provider),
+                  const Divider(),
+                  _buildCo2Chart(context, provider),
+                ] else
+                  _emptySection('setter optimizing'),
               ],
             ],
           ),
@@ -759,17 +906,16 @@ class SetterOptimizingSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          Text(
-            'Turning Angle',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
+          Text('Turning Angle', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 4),
           ...comparisons
               .where((c) => c.turningAngle > 0)
-              .map((c) => _metricRow(
-                    'Setter ${c.setterId}',
-                    '${c.turningAngle.toStringAsFixed(1)}°',
-                  )),
+              .map(
+                (c) => _metricRow(
+                  'Setter ${c.setterId}',
+                  '${c.turningAngle.toStringAsFixed(1)}°',
+                ),
+              ),
         ],
       ),
     );
@@ -901,11 +1047,10 @@ class SetterOptimizingSection extends StatelessWidget {
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
-                        getDrawingHorizontalLine: (v) =>
-                            const FlLine(
-                              color: AppColors.chartGridH,
-                              strokeWidth: 1,
-                            ),
+                        getDrawingHorizontalLine: (v) => const FlLine(
+                          color: AppColors.chartGridH,
+                          strokeWidth: 1,
+                        ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(
@@ -1162,11 +1307,10 @@ class HatcherOptimizingSection extends StatelessWidget {
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
-                        getDrawingHorizontalLine: (v) =>
-                            const FlLine(
-                              color: AppColors.chartGridH,
-                              strokeWidth: 1,
-                            ),
+                        getDrawingHorizontalLine: (v) => const FlLine(
+                          color: AppColors.chartGridH,
+                          strokeWidth: 1,
+                        ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(
@@ -1253,11 +1397,10 @@ class HatcherOptimizingSection extends StatelessWidget {
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
-                        getDrawingHorizontalLine: (v) =>
-                            const FlLine(
-                              color: AppColors.chartGridH,
-                              strokeWidth: 1,
-                            ),
+                        getDrawingHorizontalLine: (v) => const FlLine(
+                          color: AppColors.chartGridH,
+                          strokeWidth: 1,
+                        ),
                       ),
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(

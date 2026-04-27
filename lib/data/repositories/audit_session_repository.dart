@@ -9,7 +9,7 @@ class AuditSessionRepository {
   final DatabaseHelper _dbHelper;
 
   AuditSessionRepository({DatabaseHelper? dbHelper})
-      : _dbHelper = dbHelper ?? DatabaseHelper();
+    : _dbHelper = dbHelper ?? DatabaseHelper();
 
   Future<void> insertSession(AuditSessionModel session) async {
     await _dbHelper.assertForeignKeys(
@@ -140,16 +140,20 @@ class AuditSessionRepository {
     final db = await _dbHelper.db;
     final current = await getSessionById(sessionId);
     if (current == null) return;
+    final selectedStations = normalizeStationKeys(current.selectedStationKeys);
     final updated = List<String>.from(current.stationsCompleted);
     if (!updated.contains(stationKey) &&
-        supportedStationKeys.contains(stationKey)) {
+        selectedStations.contains(stationKey)) {
       updated.add(stationKey);
     }
-    final isComplete = updated.length == supportedStationKeys.length;
+    final validCompleted = _validCompletedStations(updated, selectedStations);
+    final isComplete = _isComplete(validCompleted, selectedStations);
     await db.update(
       'audit_sessions',
       {
-        'stationsCompleted': updated.isEmpty ? null : jsonEncode(updated),
+        'stationsCompleted': validCompleted.isEmpty
+            ? null
+            : jsonEncode(validCompleted),
         'updatedAt': DateTime.now().toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
         'completedAt': isComplete ? DateTime.now().toIso8601String() : null,
@@ -164,10 +168,13 @@ class AuditSessionRepository {
     List<String> stationsCompleted,
   ) async {
     final db = await _dbHelper.db;
-    final validStations = stationsCompleted
-        .where((s) => supportedStationKeys.contains(s))
-        .toList();
-    final isComplete = validStations.length == supportedStationKeys.length;
+    final current = await getSessionById(sessionId);
+    final selectedStations = normalizeStationKeys(current?.selectedStationKeys);
+    final validStations = _validCompletedStations(
+      stationsCompleted,
+      selectedStations,
+    );
+    final isComplete = _isComplete(validStations, selectedStations);
     await db.update(
       'audit_sessions',
       {
@@ -228,6 +235,24 @@ class AuditSessionRepository {
       normalized,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  List<String> _validCompletedStations(
+    List<String> completed,
+    List<String> selectedStations,
+  ) {
+    final valid = <String>[];
+    for (final station in completed) {
+      if (!selectedStations.contains(station) || valid.contains(station)) {
+        continue;
+      }
+      valid.add(station);
+    }
+    return valid;
+  }
+
+  bool _isComplete(List<String> completed, List<String> selectedStations) {
+    return selectedStations.every(completed.contains);
   }
 
   Map<String, dynamic> _normalize(Map<String, dynamic> row) {

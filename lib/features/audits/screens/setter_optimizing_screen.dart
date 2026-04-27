@@ -9,9 +9,8 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
 import '../providers/audit_provider.dart';
-import '../widgets/govee_recording_card.dart';
+import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/photo_button.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -187,247 +186,245 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
     return UnsavedChangesGuard(
+      enabled: widget.context.sessionId == null,
       child: Scaffold(
-        appBar: widget.context.sessionId != null ? null : GradientAppBar(
-          title: 'Setter Optimizing',
-          actions: [
-            if (auditProvider.isReadOnly)
-              IconButton(
-                icon: const Icon(Icons.edit),
-                onPressed: () => auditProvider.setEditMode(true),
-              ),
-          ],
-        ),
-        body: SingleChildScrollView(
-          controller: _scrollController,
-          padding: const EdgeInsets.all(AppSizes.cardPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Card(
-                key: _sectionKeys[0],
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSizes.cardPadding),
-                  child: Column(
-                    children: [
-                      InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Breed from flock',
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text(
-                          audit.soBreed ?? widget.context.breed ?? 'Unknown',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _setterIdController,
-                        enabled: !auditProvider.isReadOnly,
-                        decoration: const InputDecoration(
-                          labelText: 'Setter ID',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (v) {
-                          auditProvider.updateField('setterId', v);
-                          auditProvider.updateField('soSetterId', v);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSizes.cardPadding),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Incubation Age: ${_incubationAgeController.text} days',
-                        style: AppTextStyles.body,
-                      ),
-                      Slider(
-                        value:
-                            double.tryParse(_incubationAgeController.text) ?? 1,
-                        min: 1,
-                        max: 18,
-                        divisions: 17,
-                        onChanged: auditProvider.isReadOnly
-                            ? null
-                            : (v) {
-                                final age = v.toInt();
-                                setState(() {
-                                  _incubationAgeController.text = age
-                                      .toString();
-                                });
-                                auditProvider.updateField(
-                                  'soIncubationAge',
-                                  age,
-                                );
-                              },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                key: _sectionKeys[1],
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSizes.cardPadding),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Machine Type',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          'Single Stage',
-                          'Multi Stage',
-                        ].map((type) {
-                          final selected = _machineType == type;
-                          return ChoiceChip(
-                            label: Text(type),
-                            selected: selected,
-                            onSelected: auditProvider.isReadOnly
-                                ? null
-                                : (_) {
-                                    setState(() => _machineType = type);
-                                    auditProvider.updateField(
-                                      'so_machineType',
-                                      type,
-                                    );
-                                  },
-                            selectedColor: AppColors.primary.withAlpha(30),
-                            checkmarkColor: AppColors.primary,
-                            labelStyle: AppTextStyles.body.copyWith(
-                              color: selected
-                                  ? AppColors.primary
-                                  : Colors.black87,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side: BorderSide(
-                                color: selected
-                                    ? AppColors.primary
-                                    : Colors.grey[300]!,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _turningAngleController,
-                        enabled: !auditProvider.isReadOnly,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Turning Angle (°)',
-                          border: OutlineInputBorder(),
-                        ),
-                        inputFormatters: _decimalInputFormatters,
-                        onChanged: (v) => auditProvider.updateField(
-                          'so_turningAngle',
-                          double.tryParse(v),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              GoveeRecordingCard(
-                place: TemperaturePlace.incubatorRoom,
-                auditSessionId: widget.context.sessionId ??
-                    '${widget.context.customerId}_${widget.context.flockId}',
-                label: 'Setter Room Environment',
-              ),
-              const SizedBox(height: 16),
-              Card(
-                key: _sectionKeys[2],
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSizes.cardPadding),
-                  child: Column(
-                    children: [
-                      TextField(
-                        enabled: !auditProvider.isReadOnly,
-                        decoration: const InputDecoration(
-                          labelText: 'CO2 Level (ppm)',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (v) => auditProvider.updateField(
-                          'soCo2',
-                          double.tryParse(v),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      PhotoButton(
-                        photoPath: audit.soCo2Photo,
-                        enabled: !auditProvider.isReadOnly,
-                        onPhotoCaptured: (p) =>
-                            auditProvider.updateField('soCo2Photo', p),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _statCard('AVG', _avgController.text, null)),
-                  const SizedBox(width: 8),
-                  Expanded(child: _statCard('CV%', _cvController.text, null)),
+        appBar: widget.context.sessionId != null
+            ? null
+            : GradientAppBar(
+                title: 'Setter Optimizing',
+                actions: [
+                  if (auditProvider.isReadOnly)
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () => auditProvider.setEditMode(true),
+                    ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Card(
-                key: _sectionKeys[3],
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSizes.cardPadding),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Egg Shell Temperature (EST) - Optimum: 100-101°F',
-                        style: AppTextStyles.body,
-                      ),
-                      _buildEstGrid(auditProvider),
-                    ],
+        body: AuditKeyboardDismiss(
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            padding: const EdgeInsets.all(AppSizes.cardPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Card(
+                  key: _sectionKeys[0],
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSizes.cardPadding),
+                    child: Column(
+                      children: [
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Breed from flock',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(
+                            audit.soBreed ?? widget.context.breed ?? 'Unknown',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _setterIdController,
+                          enabled: !auditProvider.isReadOnly,
+                          decoration: const InputDecoration(
+                            labelText: 'Setter ID',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            auditProvider.updateField('setterId', v);
+                            auditProvider.updateField('soSetterId', v);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSizes.cardPadding),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Incubation Age: ${_incubationAgeController.text} days',
+                          style: AppTextStyles.body,
+                        ),
+                        Slider(
+                          value:
+                              double.tryParse(_incubationAgeController.text) ??
+                              1,
+                          min: 1,
+                          max: 18,
+                          divisions: 17,
+                          onChanged: auditProvider.isReadOnly
+                              ? null
+                              : (v) {
+                                  final age = v.toInt();
+                                  setState(() {
+                                    _incubationAgeController.text = age
+                                        .toString();
+                                  });
+                                  auditProvider.updateField(
+                                    'soIncubationAge',
+                                    age,
+                                  );
+                                },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  key: _sectionKeys[1],
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSizes.cardPadding),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Machine Type',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: ['Single Stage', 'Multi Stage'].map((type) {
+                            final selected = _machineType == type;
+                            return ChoiceChip(
+                              label: Text(type),
+                              selected: selected,
+                              onSelected: auditProvider.isReadOnly
+                                  ? null
+                                  : (_) {
+                                      setState(() => _machineType = type);
+                                      auditProvider.updateField(
+                                        'so_machineType',
+                                        type,
+                                      );
+                                    },
+                              selectedColor: AppColors.primary.withAlpha(30),
+                              checkmarkColor: AppColors.primary,
+                              labelStyle: AppTextStyles.body.copyWith(
+                                color: selected
+                                    ? AppColors.primary
+                                    : Colors.black87,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: selected
+                                      ? AppColors.primary
+                                      : Colors.grey[300]!,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _turningAngleController,
+                          enabled: !auditProvider.isReadOnly,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Turning Angle (°)',
+                            border: OutlineInputBorder(),
+                          ),
+                          inputFormatters: _decimalInputFormatters,
+                          onChanged: (v) => auditProvider.updateField(
+                            'so_turningAngle',
+                            double.tryParse(v),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  key: _sectionKeys[2],
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSizes.cardPadding),
+                    child: Column(
+                      children: [
+                        TextField(
+                          enabled: !auditProvider.isReadOnly,
+                          decoration: const InputDecoration(
+                            labelText: 'CO2 Level (ppm)',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) => auditProvider.updateField(
+                            'soCo2',
+                            double.tryParse(v),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        PhotoButton(
+                          photoPath: audit.soCo2Photo,
+                          enabled: !auditProvider.isReadOnly,
+                          onPhotoCaptured: (p) =>
+                              auditProvider.updateField('soCo2Photo', p),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _statCard('AVG', _avgController.text, null),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: _statCard('CV%', _cvController.text, null)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  key: _sectionKeys[3],
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSizes.cardPadding),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Egg Shell Temperature (EST) - Optimum: 100-101°F',
+                          style: AppTextStyles.body,
+                        ),
+                        _buildEstGrid(auditProvider),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

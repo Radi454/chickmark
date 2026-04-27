@@ -1,3 +1,5 @@
+import 'sample_mode.dart';
+
 class AuditModel {
   // --- Common ---
   final String id;
@@ -14,6 +16,8 @@ class AuditModel {
   final DateTime updatedAt;
   final String? notes;
   final String? sessionId;
+  final String sampleMode;
+  final String? compareGroupKey;
 
   // --- Chick Quality: CHA Environmental ---
   final bool? chaGoveeConnected;
@@ -155,6 +159,7 @@ class AuditModel {
   final int? ebBreakoutAgeDays;
   final int? ebStorageDays;
   final String? ebTrays;
+  final String? ebTrayBreakoutJson;
   final int? ebBmkAge;
   final int? ebInfertileCount;
   final int? ebEarlyDeadCount;
@@ -222,6 +227,7 @@ class AuditModel {
   final int? esEggBmkAge;
   final double? esEggBmkWeight;
   final String? esEstReadingsJson;
+  final String? esEstPhotosJson;
   final double? esEstAvg;
   final double? esEstCv;
   final int? esUvSampleSize;
@@ -259,6 +265,8 @@ class AuditModel {
     this.hatchNumber = 1,
     this.notes,
     this.sessionId,
+    String? sampleMode,
+    this.compareGroupKey,
     // --- Chick Quality: CHA Environmental ---
     this.chaGoveeConnected,
     this.chaCo2,
@@ -392,6 +400,7 @@ class AuditModel {
     this.ebBreakoutAgeDays,
     this.ebStorageDays,
     this.ebTrays,
+    this.ebTrayBreakoutJson,
     this.ebBmkAge,
     this.ebInfertileCount,
     this.ebEarlyDeadCount,
@@ -456,6 +465,7 @@ class AuditModel {
     this.esEggBmkAge,
     this.esEggBmkWeight,
     this.esEstReadingsJson,
+    this.esEstPhotosJson,
     this.esEstAvg,
     this.esEstCv,
     this.esUvSampleSize,
@@ -477,7 +487,7 @@ class AuditModel {
     this.esCoolerProximity,
     this.esWallProximity,
     this.esCondensation,
-  });
+  }) : sampleMode = SampleMode.normalize(sampleMode);
 
   factory AuditModel.fromMap(Map<String, dynamic> map) {
     return AuditModel(
@@ -495,6 +505,8 @@ class AuditModel {
       hatcherId: map['hatcherId'],
       notes: map['notes'],
       sessionId: map['sessionId'],
+      sampleMode: map['sampleMode'],
+      compareGroupKey: map['compareGroupKey'],
       // --- Chick Quality: CHA Environmental ---
       chaGoveeConnected: map['chaGoveeConnected'] == 1,
       chaCo2: map['chaCo2']?.toDouble(),
@@ -628,6 +640,7 @@ class AuditModel {
       ebBreakoutAgeDays: map['ebBreakoutAgeDays'],
       ebStorageDays: map['ebStorageDays'],
       ebTrays: map['ebTrays'],
+      ebTrayBreakoutJson: map['ebTrayBreakoutJson'],
       ebBmkAge: map['ebBmkAge'],
       ebInfertileCount: map['ebInfertileCount'],
       ebEarlyDeadCount: map['ebEarlyDeadCount'],
@@ -692,6 +705,7 @@ class AuditModel {
       esEggBmkAge: map['esEggBmkAge'],
       esEggBmkWeight: map['esEggBmkWeight']?.toDouble(),
       esEstReadingsJson: map['es_estReadingsJson'],
+      esEstPhotosJson: map['es_estPhotosJson'],
       esEstAvg: map['es_estAvg']?.toDouble(),
       esEstCv: map['es_estCv']?.toDouble(),
       esUvSampleSize: map['es_uvSampleSize'],
@@ -732,6 +746,8 @@ class AuditModel {
       'hatcherId': hatcherId,
       'notes': notes,
       'sessionId': sessionId,
+      'sampleMode': sampleMode,
+      'compareGroupKey': compareGroupKey,
       // --- Chick Quality: CHA Environmental ---
       'chaGoveeConnected': chaGoveeConnected == null
           ? null
@@ -869,6 +885,7 @@ class AuditModel {
       'ebBreakoutAgeDays': ebBreakoutAgeDays,
       'ebStorageDays': ebStorageDays,
       'ebTrays': ebTrays,
+      'ebTrayBreakoutJson': ebTrayBreakoutJson,
       'ebBmkAge': ebBmkAge,
       'ebInfertileCount': ebInfertileCount,
       'ebEarlyDeadCount': ebEarlyDeadCount,
@@ -941,6 +958,7 @@ class AuditModel {
       'esEggBmkAge': esEggBmkAge,
       'esEggBmkWeight': esEggBmkWeight,
       'es_estReadingsJson': esEstReadingsJson,
+      'es_estPhotosJson': esEstPhotosJson,
       'es_estAvg': esEstAvg,
       'es_estCv': esEstCv,
       'es_uvSampleSize': esUvSampleSize,

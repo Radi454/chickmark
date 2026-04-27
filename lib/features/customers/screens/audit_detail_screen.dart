@@ -389,20 +389,25 @@ class AuditDetailScreen extends StatelessWidget {
   List<_AuditSummarySection> _eggStorageSections() {
     return [
       _section(
-        title: 'Shell Temperature',
+        title: 'Egg Shell Temperature (EST)',
         icon: Icons.thermostat_outlined,
         sectionIndex: 0,
-        metrics: [_metric('Shell temp', _celsius(audit.esShellTemp))],
-      ),
-      _section(
-        title: 'Egg Turning',
-        icon: Icons.rotate_right,
-        sectionIndex: 1,
-        metrics: [_metric('Turning times', audit.esTurningTimes?.toString())],
+        metrics: [
+          _metric('Storage days', audit.esEggStorageDays?.toString()),
+          _metric('Average', _celsius(audit.esEstAvg ?? audit.esShellTemp)),
+          _metric('CV', _percent(audit.esEstCv)),
+          _metric('Readings', _jsonMapValueCount(audit.esEstReadingsJson)),
+        ],
       ),
       _section(
         title: 'UV Tray Inspection',
         icon: Icons.grid_on,
+        sectionIndex: 1,
+        metrics: [_metric('Trays', _jsonListCount(audit.esUvTrays))],
+      ),
+      _section(
+        title: 'Upside Down Score',
+        icon: Icons.flip_to_back,
         sectionIndex: 2,
         metrics: [_metric('Trays', _jsonListCount(audit.esUvTrays))],
       ),
@@ -417,6 +422,17 @@ class AuditDetailScreen extends StatelessWidget {
           _metric('Uniformity', _percent(audit.esEggUniformityPct)),
           _metric('CV', _percent(audit.esEggCvPct)),
           _metric('Sample', audit.esEggSampleSize?.toString()),
+        ],
+      ),
+      _section(
+        title: 'Storage Checklist',
+        icon: Icons.checklist,
+        sectionIndex: 4,
+        metrics: [
+          _metric('Turning times', audit.esTurningTimes?.toString()),
+          _metric('Tray spacing', audit.esTraySpacing),
+          _metric('Cooler proximity', audit.esCoolerProximity),
+          _metric('Condensation', _yesNo(audit.esCondensation)),
         ],
       ),
     ];

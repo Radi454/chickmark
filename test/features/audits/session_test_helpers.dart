@@ -47,6 +47,7 @@ Map<String, dynamic> makeAuditSessionRow({
   String breed = SessionTestFixtures.testBreed,
   int flockAgeWeeks = 42,
   String status = 'in_progress',
+  List<String>? selectedStationKeys,
   List<String>? stationsCompleted,
   String? findingsJson,
   String? scorecardJson,
@@ -66,6 +67,9 @@ Map<String, dynamic> makeAuditSessionRow({
     'breed': breed,
     'flockAgeWeeks': flockAgeWeeks,
     'status': status,
+    'selectedStationKeys': selectedStationKeys == null
+        ? null
+        : jsonEncode(selectedStationKeys),
     'stationsCompleted': stationsCompleted == null
         ? null
         : jsonEncode(stationsCompleted),
@@ -95,6 +99,8 @@ AuditModel makeStationAudit({
   String? setterId,
   String? hatcherId,
   String? notes,
+  String? sampleMode,
+  String? compareGroupKey,
   bool? esGoveeConnected,
   double? esGoveeTemp,
   double? esGoveeHumidity,
@@ -131,6 +137,7 @@ AuditModel makeStationAudit({
   double? haHatchability,
   double? haFertility,
   double? haHof,
+  String? ebTrayBreakoutJson,
   String? soBreed,
   String? soSetterId,
   int? soIncubationAge,
@@ -165,6 +172,8 @@ AuditModel makeStationAudit({
     createdAt: createdAt ?? SessionTestFixtures.testCreatedAt,
     updatedAt: updatedAt ?? SessionTestFixtures.testUpdatedAt,
     notes: notes,
+    sampleMode: sampleMode,
+    compareGroupKey: compareGroupKey,
     esGoveeConnected: esGoveeConnected,
     esGoveeTemp: esGoveeTemp,
     esGoveeHumidity: esGoveeHumidity,
@@ -201,6 +210,7 @@ AuditModel makeStationAudit({
     haHatchability: haHatchability,
     haFertility: haFertility,
     haHof: haHof,
+    ebTrayBreakoutJson: ebTrayBreakoutJson,
     soBreed: soBreed,
     soSetterId: soSetterId,
     soIncubationAge: soIncubationAge,

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:sqflite/sqflite.dart';
@@ -13,15 +15,17 @@ class MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
 void main() {
   setUpAll(() {
-    registerFallbackValue(AuditSessionModel(
-      id: 'fallback',
-      customerId: 'fallback',
-      flockId: 'fallback',
-      hatcheryId: 'fallback',
-      date: DateTime(2026),
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-    ));
+    registerFallbackValue(
+      AuditSessionModel(
+        id: 'fallback',
+        customerId: 'fallback',
+        flockId: 'fallback',
+        hatcheryId: 'fallback',
+        date: DateTime(2026),
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      ),
+    );
   });
 
   late MockDatabaseHelper mockDbHelper;
@@ -95,6 +99,7 @@ void main() {
       expect(model.breed, SessionTestFixtures.testBreed);
       expect(model.flockAgeWeeks, 42);
       expect(model.status, 'in_progress');
+      expect(model.selectedStationKeys, supportedStationKeys);
       expect(model.stationsCompleted, isEmpty);
     });
 
@@ -107,6 +112,24 @@ void main() {
       expect(map['hatcheryId'], testSession.hatcheryId);
       expect(map['status'], testSession.status);
       expect(map['flockAgeWeeks'], testSession.flockAgeWeeks);
+      expect(map['selectedStationKeys'], isNotNull);
+    });
+
+    test('fromMap handles selectedStationKeys JSON', () {
+      final row = makeAuditSessionRow(
+        selectedStationKeys: ['chick_quality', 'egg_storage'],
+      );
+      final model = AuditSessionModel.fromMap(row);
+
+      expect(model.selectedStationKeys, ['chick_quality', 'egg_storage']);
+    });
+
+    test('fromMap defaults missing selectedStationKeys to all stations', () {
+      final row = makeAuditSessionRow();
+      row.remove('selectedStationKeys');
+      final model = AuditSessionModel.fromMap(row);
+
+      expect(model.selectedStationKeys, supportedStationKeys);
     });
 
     test('fromMap handles completedAt', () {
@@ -277,10 +300,7 @@ void main() {
         ),
       ).thenAnswer((_) async => 1);
 
-      await repository.markStationCompleted(
-        testSession.id,
-        'egg_storage',
-      );
+      await repository.markStationCompleted(testSession.id, 'egg_storage');
 
       verify(
         () => mockDb.update(
@@ -293,50 +313,94 @@ void main() {
     });
 
     test(
-        'markStationCompleted handles invalid station key without adding',
-        () async {
-      when(
-        () => mockDb.query(
-          'audit_sessions',
-          where: 'id = ?',
-          whereArgs: [testSession.id],
-        ),
-      ).thenAnswer((_) async => [testSessionRow]);
+      'markStationCompleted handles invalid station key without adding',
+      () async {
+        when(
+          () => mockDb.query(
+            'audit_sessions',
+            where: 'id = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).thenAnswer((_) async => [testSessionRow]);
 
-      final capturedUpdates = <Map<String, dynamic>>[];
-      when(
-        () => mockDb.update(
-          'audit_sessions',
-          captureAny(),
-          where: 'id = ?',
-          whereArgs: [testSession.id],
-        ),
-      ).thenAnswer((invocation) async {
-        capturedUpdates
-            .add(invocation.positionalArguments[1] as Map<String, dynamic>);
-        return 1;
-      });
+        final capturedUpdates = <Map<String, dynamic>>[];
+        when(
+          () => mockDb.update(
+            'audit_sessions',
+            captureAny(),
+            where: 'id = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).thenAnswer((invocation) async {
+          capturedUpdates.add(
+            invocation.positionalArguments[1] as Map<String, dynamic>,
+          );
+          return 1;
+        });
 
-      await repository.markStationCompleted(
-        testSession.id,
-        'invalid_station',
-      );
+        await repository.markStationCompleted(
+          testSession.id,
+          'invalid_station',
+        );
 
-      expect(capturedUpdates.isNotEmpty, isTrue);
-      final update = capturedUpdates.first;
-      expect(update['stationsCompleted'], isNull);
-      expect(update['status'], 'in_progress');
-    });
+        expect(capturedUpdates.isNotEmpty, isTrue);
+        final update = capturedUpdates.first;
+        expect(update['stationsCompleted'], isNull);
+        expect(update['status'], 'in_progress');
+      },
+    );
 
-    test('markStationCompleted auto-completes when all stations done',
-        () async {
+    test(
+      'markStationCompleted auto-completes when all stations done',
+      () async {
+        final row = makeAuditSessionRow(
+          stationsCompleted: [
+            'egg_storage',
+            'chick_quality',
+            'hatch_analysis',
+            'setter_optimizing',
+          ],
+        );
+
+        when(
+          () => mockDb.query(
+            'audit_sessions',
+            where: 'id = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).thenAnswer((_) async => [row]);
+
+        final capturedUpdates = <Map<String, dynamic>>[];
+        when(
+          () => mockDb.update(
+            'audit_sessions',
+            captureAny(),
+            where: 'id = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).thenAnswer((invocation) async {
+          capturedUpdates.add(
+            invocation.positionalArguments[1] as Map<String, dynamic>,
+          );
+          return 1;
+        });
+
+        await repository.markStationCompleted(
+          testSession.id,
+          'hatcher_optimizing',
+        );
+
+        expect(capturedUpdates.isNotEmpty, isTrue);
+        final update = capturedUpdates.first;
+        expect(update['status'], 'completed');
+        expect(update['completedAt'], isNotNull);
+      },
+    );
+
+    test('markStationCompleted completes selected station subset', () async {
       final row = makeAuditSessionRow(
-        stationsCompleted: [
-          'egg_storage',
-          'chick_quality',
-          'hatch_analysis',
-          'setter_optimizing',
-        ],
+        selectedStationKeys: ['egg_storage', 'chick_quality'],
+        stationsCompleted: ['egg_storage'],
       );
 
       when(
@@ -356,20 +420,54 @@ void main() {
           whereArgs: [testSession.id],
         ),
       ).thenAnswer((invocation) async {
-        capturedUpdates
-            .add(invocation.positionalArguments[1] as Map<String, dynamic>);
+        capturedUpdates.add(
+          invocation.positionalArguments[1] as Map<String, dynamic>,
+        );
         return 1;
       });
 
-      await repository.markStationCompleted(
-        testSession.id,
-        'hatcher_optimizing',
-      );
+      await repository.markStationCompleted(testSession.id, 'chick_quality');
 
-      expect(capturedUpdates.isNotEmpty, isTrue);
       final update = capturedUpdates.first;
       expect(update['status'], 'completed');
       expect(update['completedAt'], isNotNull);
+      expect(update['stationsCompleted'], contains('chick_quality'));
+    });
+
+    test('updateSessionProgress filters to selected station subset', () async {
+      final row = makeAuditSessionRow(selectedStationKeys: ['hatch_analysis']);
+
+      when(
+        () => mockDb.query(
+          'audit_sessions',
+          where: 'id = ?',
+          whereArgs: [testSession.id],
+        ),
+      ).thenAnswer((_) async => [row]);
+
+      final capturedUpdates = <Map<String, dynamic>>[];
+      when(
+        () => mockDb.update(
+          'audit_sessions',
+          captureAny(),
+          where: 'id = ?',
+          whereArgs: [testSession.id],
+        ),
+      ).thenAnswer((invocation) async {
+        capturedUpdates.add(
+          invocation.positionalArguments[1] as Map<String, dynamic>,
+        );
+        return 1;
+      });
+
+      await repository.updateSessionProgress(testSession.id, [
+        'egg_storage',
+        'hatch_analysis',
+      ]);
+
+      final update = capturedUpdates.first;
+      expect(update['stationsCompleted'], jsonEncode(['hatch_analysis']));
+      expect(update['status'], 'completed');
     });
   });
 
@@ -390,25 +488,27 @@ void main() {
       expect(result.first.status, 'in_progress');
     });
 
-    test('getCompletedSessions queries with optional customer filter',
-        () async {
-      when(
-        () => mockDb.query(
-          'audit_sessions',
-          where: 'status = ? AND customerId = ?',
-          whereArgs: ['completed', 'customer-1'],
-          orderBy: 'completedAt DESC, date DESC',
-          limit: 50,
-          offset: 0,
-        ),
-      ).thenAnswer((_) async => []);
+    test(
+      'getCompletedSessions queries with optional customer filter',
+      () async {
+        when(
+          () => mockDb.query(
+            'audit_sessions',
+            where: 'status = ? AND customerId = ?',
+            whereArgs: ['completed', 'customer-1'],
+            orderBy: 'completedAt DESC, date DESC',
+            limit: 50,
+            offset: 0,
+          ),
+        ).thenAnswer((_) async => []);
 
-      final result = await repository.getCompletedSessions(
-        customerId: 'customer-1',
-      );
+        final result = await repository.getCompletedSessions(
+          customerId: 'customer-1',
+        );
 
-      expect(result, isEmpty);
-    });
+        expect(result, isEmpty);
+      },
+    );
 
     test('getSessionsByDateRange queries with date bounds', () async {
       when(

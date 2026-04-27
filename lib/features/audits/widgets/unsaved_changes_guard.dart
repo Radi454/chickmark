@@ -5,15 +5,25 @@ import '../providers/audit_provider.dart';
 
 class UnsavedChangesGuard extends StatelessWidget {
   final Widget child;
+  final bool enabled;
+  final VoidCallback? onBackAttempt;
 
-  const UnsavedChangesGuard({super.key, required this.child});
+  const UnsavedChangesGuard({
+    super.key,
+    required this.child,
+    this.enabled = true,
+    this.onBackAttempt,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (!enabled) return child;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        onBackAttempt?.call();
 
         final provider = context.read<AuditProvider>();
         if (!provider.isDirty) {

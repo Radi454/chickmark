@@ -1,5 +1,86 @@
+const List<Map<String, String>> _pasgarCoreSources = [
+  {
+    'label': 'Pas Reform Pasgar',
+    'publisher': 'Pas Reform',
+    'title': 'Pasgar score: an easy chick quality assessment method',
+    'url':
+        'https://www.pasreform.com/us/knowledge/173/pasgar-score-an-easy-chick-quality-assessment-method-1',
+  },
+  {
+    'label': 'Pas Reform quality',
+    'publisher': 'Pas Reform',
+    'title': 'Evaluating chick quality',
+    'url':
+        'https://www.pasreform.com/us/knowledge/149/evaluating-chick-quality-1',
+  },
+  {
+    'label': 'Cobb grading',
+    'publisher': 'Cobb / The Poultry Site',
+    'title': 'Chick quality and grading',
+    'url': 'https://www.thepoultrysite.com/articles/chick-quality-and-grading',
+  },
+];
+
+const List<Map<String, String>> _pasgarNavelSources = [
+  ..._pasgarCoreSources,
+  {
+    'label': 'Pas Reform navels',
+    'publisher': 'Pas Reform',
+    'title': 'Navel practicalities',
+    'url': 'https://www.pasreform.com/us/knowledge/131/navel-practicalities-1',
+  },
+  {
+    'label': 'UF/IFAS navels',
+    'publisher': 'University of Florida IFAS Extension',
+    'title': 'Chick quality evaluation',
+    'url': 'https://edis.ifas.ufl.edu/publication/VM267',
+  },
+];
+
+const List<Map<String, String>> _pasgarHockSources = [
+  ..._pasgarCoreSources,
+  {
+    'label': 'Pas Reform red hocks',
+    'publisher': 'Pas Reform',
+    'title': 'Red hocks in day-old chicks or poults',
+    'url':
+        'https://www.pasreform.com/en/knowledge/49/red-hocks-in-day-old-chicks-or-poults',
+  },
+];
+
+const List<Map<String, String>> _pasgarFeatherSources = [
+  ..._pasgarCoreSources,
+  {
+    'label': 'Petersime feather/pull',
+    'publisher': 'Petersime',
+    'title':
+        'Chick quality control: assessing the quality of day-old chicks at the hatchery',
+    'url':
+        'https://www.petersime.com/expertise/chick-quality-control-assessing-the-quality-of-day-old-chicks-at-the-hatchery/',
+  },
+];
+
+const Map<String, dynamic> _pasgarDefectBenchmark = {
+  'alertPct': 20.0,
+  'unit': 'percentOfSample',
+  'interpretation': 'Counts above 20% of sampled chicks require review.',
+};
+
 const Map<String, Map<String, dynamic>> kTroubleshootingSeeds = {
   'pasgar_final_score': {
+    'benchmark': {
+      'excellentMin': 9.5,
+      'acceptableMin': 9.0,
+      'unit': 'scoreOutOf10',
+    },
+    'interpretation': {
+      'excellent':
+          'Excellent chick quality. Maintain current hatchery process.',
+      'acceptable': 'Acceptable chick quality. Monitor trends and defect mix.',
+      'investigate':
+          'Below 9.0. Review incubation, hatch window, holding, and handling.',
+    },
+    'sourceRefs': _pasgarCoreSources,
     'hatcheryCauses': {
       'Equipment': [
         'Incorrect chick box ventilation during holding.',
@@ -18,6 +99,148 @@ const Map<String, Map<String, dynamic>> kTroubleshootingSeeds = {
       'Nutrition': [
         'Breeder vitamin or trace mineral imbalance.',
         'Poor shell-quality support in the breeder ration.',
+      ],
+    },
+  },
+  'pasgar_reflexes': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal': 'Low weak-reflex percentage supports good chick vitality.',
+      'alert':
+          'High weak-reflex percentage points to reduced vitality and hatchery process stress.',
+    },
+    'sourceRefs': _pasgarCoreSources,
+    'hatcheryCauses': {
+      'Incubation': [
+        'Uneven setter or hatcher temperature reducing chick vigor.',
+        'Wide hatch window causing chicks to wait too long before pull.',
+      ],
+      'Holding': [
+        'Excessive holding time before placement or dispatch.',
+        'Poor chick-room ventilation causing listless chicks.',
+      ],
+    },
+    'farmFlockCauses': {
+      'Flock Health': [
+        'Breeder health or contamination pressure reducing embryo vitality.',
+      ],
+      'Egg Quality': [
+        'Poor egg quality or storage variation reducing chick robustness.',
+      ],
+    },
+  },
+  'pasgar_beak': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal':
+          'Low beak abnormality percentage supports good hatch conditions.',
+      'alert':
+          'High beak abnormality percentage commonly flags overheating or hatch-window stress.',
+    },
+    'sourceRefs': _pasgarCoreSources,
+    'hatcheryCauses': {
+      'Temperature': [
+        'High incubation or hatcher temperature near hatch.',
+        'Delayed pull increasing heat stress after hatch.',
+      ],
+      'Ventilation': ['Poor ventilation during late hatch or chick holding.'],
+    },
+    'farmFlockCauses': {
+      'Egg Quality': [
+        'Shell quality or storage problems reducing normal hatch progress.',
+      ],
+    },
+  },
+  'pasgar_navel': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal': 'Low poor-navel percentage supports correct hatch conditions.',
+      'alert':
+          'High poor-navel percentage commonly points to humidity or hatcher temperature problems.',
+    },
+    'sourceRefs': _pasgarNavelSources,
+    'hatcheryCauses': {
+      'Humidity': [
+        'High hatcher humidity associated with navel strings or poor closure.',
+        'Insufficient egg weight loss before transfer.',
+      ],
+      'Temperature': [
+        'Elevated hatcher temperature associated with scabbed navels.',
+        'Wide hatch window causing uneven navel closure at pull.',
+      ],
+    },
+    'farmFlockCauses': {
+      'Egg Quality': [
+        'Shell conductance variation affecting moisture loss.',
+        'Egg size variation increasing hatch timing spread.',
+      ],
+    },
+  },
+  'pasgar_belly': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal': 'Low belly issue percentage supports good yolk absorption.',
+      'alert':
+          'High belly issue percentage suggests late incubation, humidity, or pull-timing review.',
+    },
+    'sourceRefs': _pasgarCoreSources,
+    'hatcheryCauses': {
+      'Humidity': [
+        'Insufficient weight loss resulting in chicks with large bellies.',
+        'High humidity around hatch affecting yolk absorption and navel closure.',
+      ],
+      'Timing': [
+        'Pulling chicks before full readiness.',
+        'Uneven hatch window producing mixed chick maturity.',
+      ],
+    },
+    'farmFlockCauses': {
+      'Egg Quality': ['Large egg-size spread or shell-quality variation.'],
+      'Breeder Factors': [
+        'Flock age or nutrition affecting embryo and yolk utilization.',
+      ],
+    },
+  },
+  'pasgar_leg': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal':
+          'Low leg/red-hock percentage supports correct moisture loss and hatch conditions.',
+      'alert':
+          'High leg/red-hock percentage commonly flags high humidity, insufficient weight loss, or overheating.',
+    },
+    'sourceRefs': _pasgarHockSources,
+    'hatcheryCauses': {
+      'Humidity': [
+        'High humidity or insufficient egg weight loss linked with red hocks.',
+        'Big bellies increasing struggle during hatch.',
+      ],
+      'Temperature': ['High hatcher temperature increasing hatch stress.'],
+    },
+    'farmFlockCauses': {
+      'Egg Quality': ['Shell conductance variation changing moisture loss.'],
+    },
+  },
+  'pasgar_feather_dev': {
+    'benchmark': _pasgarDefectBenchmark,
+    'interpretation': {
+      'normal':
+          'Feather development is supplemental here and is not part of the final Pasgar score.',
+      'alert':
+          'High feather-development concerns should be reviewed with hatch timing, temperature fluctuation, and chick drying.',
+    },
+    'sourceRefs': _pasgarFeatherSources,
+    'hatcheryCauses': {
+      'Temperature': [
+        'Temperature fluctuation affecting feather appearance and chick dryness.',
+      ],
+      'Pull Timing': [
+        'Early or late pull timing affecting dryness and chick appearance.',
+      ],
+    },
+    'farmFlockCauses': {
+      'Egg Quality': [
+        'Egg-size or shell-quality variation contributing to uneven hatch timing.',
       ],
     },
   },

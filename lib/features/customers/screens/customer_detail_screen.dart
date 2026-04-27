@@ -8,7 +8,6 @@ import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
 import '../../../features/customers/widgets/add_flock_sheet.dart';
@@ -223,8 +222,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   Widget _buildVisitCard(VisitSessionSummary visit) {
     final completed = visit.completedStationCount;
-    final total = supportedStationKeys.length;
-    final progress = completed / total;
+    final total = visit.selectedStationCount;
+    final progress = visit.completionFraction;
 
     return Card(
       elevation: 2,
@@ -264,9 +263,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 value: progress,
                 backgroundColor: Colors.grey.shade200,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  progress >= 1.0
-                      ? const Color(0xFF3a9a5c)
-                      : AppColors.primary,
+                  progress >= 1.0 ? const Color(0xFF3a9a5c) : AppColors.primary,
                 ),
                 borderRadius: BorderRadius.circular(4),
               ),
@@ -295,9 +292,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   Widget _buildVisitStatusChip(VisitSessionSummary visit) {
     final isComplete = visit.isCompleted;
-    final color = isComplete
-        ? const Color(0xFF3a9a5c)
-        : AppColors.primary;
+    final color = isComplete ? const Color(0xFF3a9a5c) : AppColors.primary;
     final label = isComplete ? 'Complete' : 'In progress';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -321,7 +316,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: supportedStationKeys.map((key) {
+      children: visit.selectedStationKeys.map((key) {
         final isDone = completed.contains(key);
         final label = _stationLabel(key);
         return Row(
@@ -331,9 +326,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               width: 10,
               height: 10,
               decoration: BoxDecoration(
-                color: isDone
-                    ? const Color(0xFF3a9a5c)
-                    : Colors.grey.shade300,
+                color: isDone ? const Color(0xFF3a9a5c) : Colors.grey.shade300,
                 shape: BoxShape.circle,
               ),
             ),

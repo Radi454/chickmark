@@ -11,12 +11,14 @@ class PhotoButton extends StatefulWidget {
   final String? photoPath;
   final Function(String path) onPhotoCaptured;
   final bool enabled;
+  final double size;
 
   const PhotoButton({
     super.key,
     this.photoPath,
     required this.onPhotoCaptured,
     this.enabled = true,
+    this.size = 40,
   });
 
   @override
@@ -53,8 +55,8 @@ class _PhotoButtonState extends State<PhotoButton> {
 
   Widget _buildDisabledButton() {
     return Container(
-      width: 40,
-      height: 40,
+      width: widget.size,
+      height: widget.size,
       decoration: BoxDecoration(
         color: Colors.grey[200],
         borderRadius: BorderRadius.circular(8),
@@ -72,14 +74,18 @@ class _PhotoButtonState extends State<PhotoButton> {
       onTap: _pickPhoto,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: 40,
-        height: 40,
+        width: widget.size,
+        height: widget.size,
         decoration: BoxDecoration(
           color: Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey[300]!),
         ),
-        child: const Icon(Icons.camera_alt, color: Colors.grey, size: 20),
+        child: Icon(
+          Icons.camera_alt,
+          color: Colors.grey,
+          size: widget.size * 0.5,
+        ),
       ),
     );
   }
@@ -89,8 +95,8 @@ class _PhotoButtonState extends State<PhotoButton> {
       onTap: _viewPhoto,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: 40,
-        height: 40,
+        width: widget.size,
+        height: widget.size,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey[300]!),
@@ -102,13 +108,13 @@ class _PhotoButtonState extends State<PhotoButton> {
               borderRadius: BorderRadius.circular(7),
               child: Image.file(
                 File(widget.photoPath!),
-                width: 38,
-                height: 38,
+                width: widget.size - 2,
+                height: widget.size - 2,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    width: 38,
-                    height: 38,
+                    width: widget.size - 2,
+                    height: widget.size - 2,
                     color: Colors.grey[200],
                     child: const Icon(Icons.broken_image, color: Colors.grey),
                   );
@@ -357,7 +363,11 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
                   width: 54,
                   height: 54,
                   color: Colors.grey[200],
-                  child: const Icon(Icons.broken_image, color: Colors.grey, size: 20),
+                  child: const Icon(
+                    Icons.broken_image,
+                    color: Colors.grey,
+                    size: 20,
+                  ),
                 );
               },
             ),
@@ -375,11 +385,7 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
                   color: Colors.red[700],
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.close,
-                  color: Colors.white,
-                  size: 14,
-                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 14),
               ),
             ),
           ),

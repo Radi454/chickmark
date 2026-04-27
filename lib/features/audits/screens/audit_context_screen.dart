@@ -11,6 +11,7 @@ import '../../customers/widgets/flock_management_sheet.dart';
 import '../../customers/widgets/hatchery_management_sheet.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
+import '../widgets/audit_keyboard_dismiss.dart';
 import 'chick_quality_screen.dart';
 import 'hatch_analysis_screen.dart';
 import 'setter_optimizing_screen.dart';
@@ -66,8 +67,8 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
         : <FlockModel>[];
     final hatcheries =
         customersProvider.selectedCustomer?.id == _selectedCustomerId
-            ? customersProvider.hatcheries
-            : <HatcheryModel>[];
+        ? customersProvider.hatcheries
+        : <HatcheryModel>[];
 
     if (_selectedHatcheryId != null &&
         !hatcheries.any((h) => h.id == _selectedHatcheryId)) {
@@ -77,11 +78,13 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
       _selectedHatcheryId = hatcheries.first.id;
     }
 
-    final selectedCustomer =
-        customers.where((c) => c.id == _selectedCustomerId).firstOrNull;
+    final selectedCustomer = customers
+        .where((c) => c.id == _selectedCustomerId)
+        .firstOrNull;
     final selectedFlock = _findSelectedFlock(flocks);
-    final selectedHatchery =
-        hatcheries.where((h) => h.id == _selectedHatcheryId).firstOrNull;
+    final selectedHatchery = hatcheries
+        .where((h) => h.id == _selectedHatcheryId)
+        .firstOrNull;
 
     final showSetterField = widget.auditType == 'Setter Optimizing';
     final showHatcherField = widget.auditType == 'Hatcher Optimizing';
@@ -89,108 +92,118 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
     return Scaffold(
       appBar: GradientAppBar(title: title),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Customer
-            _buildSummaryCard(
-              icon: Icons.business_outlined,
-              label: 'Customer',
-              displayValue: selectedCustomer?.name,
-              placeholder: 'Select customer',
-              onTap: () => _showCustomerSheet(context, customers
-                  .map((c) => _CustomerOption(id: c.id, name: c.name))
-                  .toList(), customersProvider),
-            ),
-            const SizedBox(height: 12),
-
-            // Hatchery
-            _buildSummaryCard(
-              icon: Icons.factory_outlined,
-              label: 'Hatchery',
-              displayValue: selectedHatchery == null
-                  ? null
-                  : (selectedHatchery.location?.isNotEmpty == true
-                      ? '${selectedHatchery.name} · ${selectedHatchery.location}'
-                      : selectedHatchery.name),
-              placeholder: _selectedCustomerId == null
-                  ? 'Select customer first'
-                  : 'Select hatchery',
-              onTap: _selectedCustomerId != null
-                  ? () => _showHatcheryManagementSheet(context)
-                  : null,
-            ),
-            const SizedBox(height: 12),
-
-            // Flock
-            _buildSummaryCard(
-              icon: Icons.pets,
-              label: 'Flock',
-              displayValue: selectedFlock == null
-                  ? null
-                  : '${selectedFlock.flockId} · ${selectedFlock.breed} · ${selectedFlock.currentAgeWeeks.toInt()}w',
-              placeholder: _selectedCustomerId == null
-                  ? 'Select customer first'
-                  : 'Select flock',
-              onTap: _selectedCustomerId != null
-                  ? () => _showFlockManagementSheet(context)
-                  : null,
-            ),
-
-            // Flock detail card
-            if (selectedFlock != null) ...[
-              const SizedBox(height: 12),
-              _buildFlockDetailCard(selectedFlock),
-            ],
-
-            // Legacy setter/hatcher fields
-            if (showSetterField) ...[
-              const SizedBox(height: 12),
-              _buildTextFieldCard(
-                icon: Icons.precision_manufacturing,
-                title: 'Setter ID',
-                controller: _setterIdController,
-                onChanged: (_) => setState(() {}),
+      body: AuditKeyboardDismiss(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSizes.cardPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Customer
+              _buildSummaryCard(
+                icon: Icons.business_outlined,
+                label: 'Customer',
+                displayValue: selectedCustomer?.name,
+                placeholder: 'Select customer',
+                onTap: () => _showCustomerSheet(
+                  context,
+                  customers
+                      .map((c) => _CustomerOption(id: c.id, name: c.name))
+                      .toList(),
+                  customersProvider,
+                ),
               ),
-            ],
-            if (showHatcherField) ...[
               const SizedBox(height: 12),
-              _buildTextFieldCard(
-                icon: Icons.precision_manufacturing,
-                title: 'Hatcher ID',
-                controller: _hatcherIdController,
-                onChanged: (_) => setState(() {}),
-              ),
-            ],
 
-            const SizedBox(height: 24),
-
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _canContinue(selectedFlock)
-                    ? () => _handleContinue(selectedFlock!)
+              // Hatchery
+              _buildSummaryCard(
+                icon: Icons.factory_outlined,
+                label: 'Hatchery',
+                displayValue: selectedHatchery == null
+                    ? null
+                    : (selectedHatchery.location?.isNotEmpty == true
+                          ? '${selectedHatchery.name} · ${selectedHatchery.location}'
+                          : selectedHatchery.name),
+                placeholder: _selectedCustomerId == null
+                    ? 'Select customer first'
+                    : 'Select hatchery',
+                onTap: _selectedCustomerId != null
+                    ? () => _showHatcheryManagementSheet(context)
                     : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.primary.withAlpha(77),
-                  disabledForegroundColor: Colors.white70,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+              ),
+              const SizedBox(height: 12),
+
+              // Flock
+              _buildSummaryCard(
+                icon: Icons.pets,
+                label: 'Flock',
+                displayValue: selectedFlock == null
+                    ? null
+                    : '${selectedFlock.flockId} · ${selectedFlock.breed} · ${selectedFlock.currentAgeWeeks.toInt()}w',
+                placeholder: _selectedCustomerId == null
+                    ? 'Select customer first'
+                    : 'Select flock',
+                onTap: _selectedCustomerId != null
+                    ? () => _showFlockManagementSheet(context)
+                    : null,
+              ),
+
+              // Flock detail card
+              if (selectedFlock != null) ...[
+                const SizedBox(height: 12),
+                _buildFlockDetailCard(selectedFlock),
+              ],
+
+              // Legacy setter/hatcher fields
+              if (showSetterField) ...[
+                const SizedBox(height: 12),
+                _buildTextFieldCard(
+                  icon: Icons.precision_manufacturing,
+                  title: 'Setter ID',
+                  controller: _setterIdController,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+              if (showHatcherField) ...[
+                const SizedBox(height: 12),
+                _buildTextFieldCard(
+                  icon: Icons.precision_manufacturing,
+                  title: 'Hatcher ID',
+                  controller: _hatcherIdController,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _canContinue(selectedFlock)
+                      ? () => _handleContinue(selectedFlock!)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppColors.primary.withAlpha(77),
+                    disabledForegroundColor: Colors.white70,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppSizes.buttonRadius,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    _isSessionFlow ? 'Next: Select Stations' : 'Continue',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                child: Text(
-                  _isSessionFlow ? 'Next: Select Stations' : 'Continue',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -238,9 +251,12 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(label,
-                        style: AppTextStyles.caption
-                            .copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      label,
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       displayValue ?? placeholder,
@@ -285,8 +301,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
             Expanded(
               child: Text(
                 '${flock.breed}  ·  ${flock.currentAgeWeeks.toStringAsFixed(1)}w  ·  Entry ${flock.entryDate.toIso8601String().split('T')[0]}',
-                style: AppTextStyles.caption
-                    .copyWith(color: AppColors.primary, fontWeight: FontWeight.w500),
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
@@ -315,9 +333,12 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
               children: [
                 Icon(icon, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
-                Text(title,
-                    style:
-                        AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -327,8 +348,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
               ),
               onChanged: onChanged,
             ),
@@ -369,9 +392,13 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('Select Customer',
-                    style: AppTextStyles.body
-                        .copyWith(fontWeight: FontWeight.w700, fontSize: 16)),
+                child: Text(
+                  'Select Customer',
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               Expanded(
@@ -379,8 +406,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                   controller: scrollController,
                   itemCount: options.length,
                   itemBuilder: (_, i) => ListTile(
-                    leading:
-                        const Icon(Icons.business_outlined, color: AppColors.primary),
+                    leading: const Icon(
+                      Icons.business_outlined,
+                      color: AppColors.primary,
+                    ),
                     title: Text(options[i].name, style: AppTextStyles.body),
                     onTap: () => Navigator.pop(ctx, options[i]),
                   ),
@@ -429,8 +458,9 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
       setState(() => _selectedHatcheryId = picked.id);
       return;
     }
-    final stillAvailable =
-        provider.hatcheries.any((h) => h.id == _selectedHatcheryId);
+    final stillAvailable = provider.hatcheries.any(
+      (h) => h.id == _selectedHatcheryId,
+    );
     if (!stillAvailable) setState(() => _selectedHatcheryId = null);
   }
 
@@ -452,8 +482,9 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
     if (!mounted) return;
     final availableFlocks = provider.availableFlocks;
-    final currentSelectionStillAvailable =
-        availableFlocks.any((flock) => flock.id == _selectedFlockId);
+    final currentSelectionStillAvailable = availableFlocks.any(
+      (flock) => flock.id == _selectedFlockId,
+    );
     if (selectedFlock != null && selectedFlock.isAvailableForAudit) {
       setState(() => _selectedFlockId = selectedFlock.id);
       return;
