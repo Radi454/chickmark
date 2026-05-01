@@ -41,6 +41,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   final Map<int, Future<Map<String, Object?>?>> _breakoutBenchmarkFutures = {};
   final Map<int, int> _activeBreakoutSampleIndexes = {};
   final Map<String, GlobalKey> _sampleCardKeys = {};
+  final Map<String, FocusNode> _breakoutCountFocusNodes = {};
   late final List<GlobalKey> _sectionKeys = List.generate(
     2,
     (_) => GlobalKey(),
@@ -77,6 +78,9 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 
   @override
   void dispose() {
+    for (final node in _breakoutCountFocusNodes.values) {
+      node.dispose();
+    }
     _scrollController.dispose();
     super.dispose();
   }
@@ -963,13 +967,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         percent != null &&
         bmkPercent != null &&
         percent > bmkPercent;
+    final focusNode = _breakoutCountFocusNode(sample, field);
 
     return Container(
-      key: ValueKey(
-        exceedsBmk
-            ? 'breakout-alert-${field.key}'
-            : 'breakout-row-${field.key}',
-      ),
+      key: ValueKey('breakout-row-${field.key}'),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: exceedsBmk ? const Color(0xFFFFF1F2) : const Color(0xFFF8FAFC),
@@ -978,56 +979,123 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           color: exceedsBmk ? const Color(0xFFF43F5E) : const Color(0xFFE5E7EB),
         ),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Expanded(
-            flex: 3,
-            child: KeyedSubtree(
-              key: ValueKey('breakout-count-${field.key}'),
-              child: TextFormField(
-                key: ValueKey(
-                  'breakout-count-${sample.id}-${field.key}-${sample.counts[field.key] ?? ''}',
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: KeyedSubtree(
+                  key: ValueKey('breakout-count-${field.key}'),
+                  child: TextFormField(
+                    key: ValueKey('breakout-count-${sample.id}-${field.key}'),
+                    initialValue: sample.counts[field.key]?.toString() ?? '',
+                    enabled: !provider.isReadOnly,
+                    focusNode: focusNode,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: _inputDecoration(field.label),
+                    onChanged: (text) {
+                      final counts = Map<String, int>.from(sample.counts);
+                      counts[field.key] = int.tryParse(text) ?? 0;
+                      _replaceBreakoutSample(
+                        provider,
+                        hatchIndex,
+                        breakoutType,
+                        samples,
+                        sampleIndex,
+                        sample.copyWith(counts: counts),
+                      );
+                    },
+                    onEditingComplete: () => _focusNextBreakoutCount(
+                      samples: samples,
+                      sampleIndex: sampleIndex,
+                      breakoutType: breakoutType,
+                      field: field,
+                    ),
+                  ),
                 ),
-                initialValue: sample.counts[field.key]?.toString() ?? '',
-                enabled: !provider.isReadOnly,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: _inputDecoration(field.label),
-                onChanged: (text) {
-                  final counts = Map<String, int>.from(sample.counts);
-                  counts[field.key] = int.tryParse(text) ?? 0;
-                  _replaceBreakoutSample(
-                    provider,
-                    hatchIndex,
-                    breakoutType,
-                    samples,
-                    sampleIndex,
-                    sample.copyWith(counts: counts),
-                  );
-                },
               ),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _breakoutMetricTile(
+                  key: ValueKey('breakout-percent-${field.key}'),
+                  value: _formatPercent(percent),
+                  alert: exceedsBmk,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _breakoutMetricTile(
+                  key: ValueKey('breakout-bmk-${field.key}'),
+                  value: 'BMK ${_formatPercent(bmkPercent)}',
+                  emphasized: bmkPercent != null,
+                  alert: exceedsBmk,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _breakoutMetricTile(
-              key: ValueKey('breakout-percent-${field.key}'),
-              value: _formatPercent(percent),
-              alert: exceedsBmk,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _breakoutMetricTile(
-              key: ValueKey('breakout-bmk-${field.key}'),
-              value: 'BMK ${_formatPercent(bmkPercent)}',
-              emphasized: bmkPercent != null,
-              alert: exceedsBmk,
-            ),
-          ),
+          if (exceedsBmk)
+            SizedBox.shrink(key: ValueKey('breakout-alert-${field.key}')),
         ],
       ),
     );
+  }
+
+  String _breakoutCountFocusKey(
+    EggBreakoutSampleEntry sample,
+    EggBreakoutCountField field,
+  ) {
+    return '${sample.id}:${field.key}';
+  }
+
+  FocusNode _breakoutCountFocusNode(
+    EggBreakoutSampleEntry sample,
+    EggBreakoutCountField field,
+  ) {
+    return _breakoutCountFocusNodes.putIfAbsent(
+      _breakoutCountFocusKey(sample, field),
+      () => FocusNode(debugLabel: 'breakout-count-${field.key}'),
+    );
+  }
+
+  void _focusNextBreakoutCount({
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutType breakoutType,
+    required EggBreakoutCountField field,
+  }) {
+    final fields = breakoutType.countFields;
+    final fieldIndex = fields.indexWhere((candidate) {
+      return candidate.key == field.key;
+    });
+    if (fieldIndex == -1) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+
+    var nextSampleIndex = sampleIndex;
+    var nextFieldIndex = fieldIndex + 1;
+    if (nextFieldIndex >= fields.length) {
+      nextSampleIndex += 1;
+      nextFieldIndex = 0;
+    }
+
+    if (nextSampleIndex >= samples.length) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+
+    final nextSample = samples[nextSampleIndex];
+    final nextField = fields[nextFieldIndex];
+    final nextNode =
+        _breakoutCountFocusNodes[_breakoutCountFocusKey(nextSample, nextField)];
+    if (nextNode == null) {
+      FocusScope.of(context).nextFocus();
+      return;
+    }
+    nextNode.requestFocus();
   }
 
   Widget _breakoutMetricTile({

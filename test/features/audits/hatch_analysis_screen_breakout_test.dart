@@ -146,6 +146,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Finder numericEditableFinder(Key key) {
+    return find.descendant(
+      of: find.byKey(key),
+      matching: find.byType(EditableText),
+    );
+  }
+
+  bool numericFieldHasFocus(WidgetTester tester, Key key) {
+    final editable = tester.widget<EditableText>(numericEditableFinder(key));
+    return editable.focusNode.hasFocus;
+  }
+
   String numericFieldText(WidgetTester tester, Key key) {
     final textField = find.descendant(
       of: find.byKey(key),
@@ -444,5 +456,44 @@ void main() {
       findsOneWidget,
     );
     expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+  });
+
+  testWidgets('breakout count fields keep focus and advance on next action', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.freshEggBreakout,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+    await addVisibleSample(tester);
+
+    const infertileKey = ValueKey('breakout-count-infertile');
+    const early24hKey = ValueKey('breakout-count-early24h');
+    await tester.ensureVisible(find.byKey(infertileKey));
+    await tester.pumpAndSettle();
+    await tester.tap(numericEditableFinder(infertileKey));
+    await tester.pumpAndSettle();
+
+    tester.testTextInput.enterText('2');
+    await tester.pumpAndSettle();
+
+    expect(numericFieldHasFocus(tester, infertileKey), isTrue);
+
+    tester.testTextInput.enterText('21');
+    await tester.pumpAndSettle();
+
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.drafts.single.ebTrayBreakoutJson,
+      ).single.counts['infertile'],
+      21,
+    );
+    expect(numericFieldHasFocus(tester, infertileKey), isTrue);
+
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pumpAndSettle();
+
+    expect(numericFieldHasFocus(tester, early24hKey), isTrue);
   });
 }

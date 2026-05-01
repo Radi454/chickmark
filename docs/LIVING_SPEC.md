@@ -223,9 +223,11 @@ restores its previous tray values. Each tray card has label, position, tray
 size, and one-column breakout item rows. Each breakout item row contains a count
 input, a calculated percentage from the tray size, and a read-only BMK target
 percentage loaded from the nearest `bmk_egg_breakout` row for the calculated BMK
-age. Rows turn into a warning state when the calculated percentage is higher
-than the BMK target after a positive count has been entered; the warning is
-shown through row and BMK tile styling rather than an icon.
+age. Count inputs keep focus while values are typed and the keyboard next action
+moves to the following breakout item count. Rows turn into a warning state when
+the calculated percentage is higher than the BMK target after a positive count
+has been entered; the warning is shown through row and BMK tile styling rather
+than an icon.
 
 Setter Optimizing captures:
 
