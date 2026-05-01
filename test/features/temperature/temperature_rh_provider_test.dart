@@ -85,6 +85,7 @@ void main() {
     when(() => mockGovee.lastSeenAt).thenReturn(null);
     when(() => mockGovee.latestReading).thenReturn(null);
     when(() => mockGovee.diagnostics).thenReturn([]);
+    when(() => mockGovee.initializeBle()).thenAnswer((_) async {});
     when(
       () => mockGovee.readings,
     ).thenAnswer((_) => readingStreamController.stream);
@@ -120,6 +121,25 @@ void main() {
     ).captured;
     return captured.first as TemperatureSessionModel;
   }
+
+  group('web bluetooth scan safety', () {
+    test('initialization prepares BLE without starting a scan', () async {
+      when(() => mockGovee.isScanning).thenReturn(false);
+
+      final provider = TemperatureRhProvider(
+        goveeService: mockGovee,
+        repository: mockRepo,
+      );
+
+      await provider.ensureInitialized();
+
+      verify(() => mockGovee.initializeBle()).called(1);
+      verify(() => mockGovee.addListener(any())).called(1);
+      verify(() => mockGovee.readings).called(1);
+      verify(() => mockGovee.setAutoReconnectEnabled(true)).called(1);
+      verifyNever(() => mockGovee.startScan());
+    });
+  });
 
   group('warm-up exclusion', () {
     test(

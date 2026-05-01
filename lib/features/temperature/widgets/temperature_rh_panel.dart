@@ -21,14 +21,6 @@ class TemperatureRhPanel extends StatefulWidget {
 
 class _TemperatureRhPanelState extends State<TemperatureRhPanel> {
   static const List<int> _recordingIntervalOptions = [5, 10, 15, 30, 60];
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(context.read<TemperatureRhProvider>().startAutoScan());
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -715,4 +707,3 @@ class _TemperatureRhPanelState extends State<TemperatureRhPanel> {
     );
   }
 }
-

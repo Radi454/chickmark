@@ -34,7 +34,6 @@ class TemperatureRhProvider extends ChangeNotifier {
   Timer? _captureTimer;
   DateTime? _lastCapturedSensorAt;
   DateTime? _lastSavedAt;
-  bool _lastBleAvailable = false;
   int _sampleIntervalSeconds = 5;
   int _warmupSeconds = 120;
   bool _isStarting = false;
@@ -150,11 +149,6 @@ class TemperatureRhProvider extends ChangeNotifier {
   }
 
   void _handleGoveeServiceChanged() {
-    final becameAvailable = !_lastBleAvailable && _goveeService.isAvailable;
-    _lastBleAvailable = _goveeService.isAvailable;
-    if (becameAvailable && !_goveeService.isScanning && _isInitialized) {
-      unawaited(startAutoScan());
-    }
     final deviceId = _goveeService.deviceId;
     if (_isInitialized &&
         _goveeService.isConnected &&
@@ -188,7 +182,6 @@ class TemperatureRhProvider extends ChangeNotifier {
     _readingSubscription = _goveeService.readings.listen((reading) {
       unawaited(_handleSensorReading(reading));
     });
-    _lastBleAvailable = _goveeService.isAvailable;
   }
 
   Future<void> ensureInitialized() async {
@@ -205,8 +198,6 @@ class TemperatureRhProvider extends ChangeNotifier {
         _goveeService.setPreferredDeviceId(savedDeviceId);
       }
     } catch (_) {}
-
-    unawaited(startAutoScan());
   }
 
   void setSampleIntervalSeconds(int seconds) {

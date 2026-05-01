@@ -191,7 +191,9 @@ Hatcher Optimizing captures:
 
 Measures is a standalone temperature/RH log screen. It lists saved measure
 sessions, supports search, shows session details, and opens `TemperatureRhPanel`
-from a floating action button.
+from a floating action button. Opening the panel initializes BLE state but does
+not automatically start a Web Bluetooth scan; browser-backed scans must be
+started from an explicit user action such as the panel scan button.
 
 Audit station Govee cards use live readings only as on-screen guidance while
 the auditor is at a room or spot. Official audit evidence is saved only after
