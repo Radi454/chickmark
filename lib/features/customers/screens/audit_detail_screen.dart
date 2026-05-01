@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../data/models/audit_model.dart';
 
 import '../../../widgets/status_badge.dart';
@@ -32,6 +33,7 @@ Future<void> openAuditEditor(
     setterId: audit.setterId ?? audit.soSetterId,
     hatcherId: audit.hatcherId ?? audit.hoHatcherId,
     flockEntryDate: flock?.entryDate,
+    flockAgeWeeks: flock?.currentAgeWeeks.toInt(),
     date: audit.date.toIso8601String().split('T')[0],
   );
 
@@ -151,7 +153,7 @@ class AuditDetailScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        audit.auditType,
+                        AuditTypeLabels.forAuditType(audit.auditType),
                         style: AppTextStyles.heading.copyWith(fontSize: 22),
                       ),
                       const SizedBox(height: 4),

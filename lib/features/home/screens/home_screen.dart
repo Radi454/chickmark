@@ -6,6 +6,7 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/navigation/shell_navigation_scope.dart';
+import 'package:hatchaudit/core/utils/audit_type_labels.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
@@ -167,8 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _QuickActionButton(
               label: 'Dashboard',
               icon: Icons.dashboard_outlined,
-              onTap: () =>
-                  ShellNavigationScope.maybeOf(context)?.switchTab(1),
+              onTap: () => ShellNavigationScope.maybeOf(context)?.switchTab(1),
             ),
           ),
         ],
@@ -192,13 +192,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   _RecentAuditTile(
                     audit: home.recentAudits[i],
                     customerName:
-                        customers.customerById(home.recentAudits[i].customerId)?.name ??
+                        customers
+                            .customerById(home.recentAudits[i].customerId)
+                            ?.name ??
                         home.recentAudits[i].customerId,
                     flockLabel:
-                        customers.flockById(home.recentAudits[i].flockId)?.flockId ??
+                        customers
+                            .flockById(home.recentAudits[i].flockId)
+                            ?.flockId ??
                         home.recentAudits[i].flockId ??
                         '--',
-                    breed: customers.flockById(home.recentAudits[i].flockId)?.breed,
+                    breed: customers
+                        .flockById(home.recentAudits[i].flockId)
+                        ?.breed,
                     onTap: () => _openAuditDetail(home.recentAudits[i]),
                   ),
                   if (i < home.recentAudits.length - 1)
@@ -221,12 +227,15 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : Column(
               children: provider.auditsByType.entries.map((entry) {
-                final total = provider.auditsByType.values.fold<int>(0, (sum, value) => sum + value);
+                final total = provider.auditsByType.values.fold<int>(
+                  0,
+                  (sum, value) => sum + value,
+                );
                 final ratio = total == 0 ? 0.0 : entry.value / total;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
                   child: _BreakdownBar(
-                    label: entry.key,
+                    label: AuditTypeLabels.forAuditType(entry.key),
                     count: entry.value,
                     ratio: ratio,
                   ),
@@ -252,7 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-Widget _buildStatCard(String label, int value) {
+  Widget _buildStatCard(String label, int value) {
     return AppCard(
       padding: const EdgeInsets.all(AppSizes.spaceMd),
       child: Column(
@@ -307,9 +316,7 @@ Widget _buildStatCard(String label, int value) {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  vertical: AppSizes.spaceMd,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceMd),
               ),
             ),
           ),
@@ -347,7 +354,7 @@ Widget _buildStatCard(String label, int value) {
               label: 'Attention',
               value: '$attentionCount',
               helper: attentionCount == 1 ? 'item to check' : 'items to check',
-color: AppColors.statusWarning,
+              color: AppColors.statusWarning,
             ),
             _FocusMetricCard(
               icon: Icons.fact_check_outlined,
@@ -454,7 +461,8 @@ color: AppColors.statusWarning,
               children: [
                 for (var i = 0; i < items.length; i++) ...[
                   _AttentionTile(item: items[i]),
-                  if (i < items.length - 1) const SizedBox(height: AppSizes.spaceMd),
+                  if (i < items.length - 1)
+                    const SizedBox(height: AppSizes.spaceMd),
                 ],
               ],
             ),
@@ -569,7 +577,11 @@ color: AppColors.statusWarning,
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [statusContent, const SizedBox(height: AppSizes.spaceLg), syncButton],
+              children: [
+                statusContent,
+                const SizedBox(height: AppSizes.spaceLg),
+                syncButton,
+              ],
             );
           },
         ),
@@ -918,8 +930,14 @@ class _RecentAuditTile extends StatelessWidget {
       onTap: onTap,
       child: ListTile(
         onTap: onTap,
-        leading: const Icon(Icons.assignment_outlined, color: AppColors.primary),
-        title: Text(audit.auditType, style: AppTextStyles.title),
+        leading: const Icon(
+          Icons.assignment_outlined,
+          color: AppColors.primary,
+        ),
+        title: Text(
+          AuditTypeLabels.forAuditType(audit.auditType),
+          style: AppTextStyles.title,
+        ),
         subtitle: Text(
           '$customerName · $flockLabel$breedPart · ${audit.date.toIso8601String().split('T').first}',
           style: AppTextStyles.caption,
@@ -1039,7 +1057,9 @@ class _FocusMetricCard extends StatelessWidget {
                     const SizedBox(width: AppSizes.spaceSm),
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.only(bottom: AppSizes.spaceXs),
+                        padding: const EdgeInsets.only(
+                          bottom: AppSizes.spaceXs,
+                        ),
                         child: Text(
                           helper,
                           maxLines: 1,
@@ -1129,7 +1149,7 @@ class _ActiveAuditCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${audit.auditType}${setterId != null ? ' · $setterId' : ''}${hatcherId != null ? ' · $hatcherId' : ''}',
+                  '${AuditTypeLabels.forAuditType(audit.auditType)}${setterId != null ? ' · $setterId' : ''}${hatcherId != null ? ' · $hatcherId' : ''}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.caption,

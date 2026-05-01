@@ -5,6 +5,7 @@ import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_session_repository.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../services/supabase/supabase_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -80,7 +81,7 @@ class AuditSessionProvider extends ChangeNotifier {
   String? get error => _error;
 
   static const Map<String, String> stationDisplayLabels = {
-    'egg_storage': 'Egg Storage & Handling',
+    'egg_storage': AuditTypeLabels.eggStationLabel,
     'chick_quality': 'Chick Quality',
     'hatch_analysis': 'Hatch Analysis',
     'setter_optimizing': 'Setter Optimizing',

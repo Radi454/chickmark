@@ -13,6 +13,10 @@ import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
 
+bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
+  return route.settings.name == '/main' || route.isFirst;
+}
+
 class AuditSessionScreen extends StatefulWidget {
   const AuditSessionScreen({super.key});
 
@@ -22,7 +26,9 @@ class AuditSessionScreen extends StatefulWidget {
 
 class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
+  final Map<String, EggStorageStationController> _eggStorageControllers = {};
   bool _showSavedAnimation = false;
+  bool _isSavingStation = false;
 
   AuditProvider? get _currentStationProvider {
     final sessionProvider = context.read<AuditSessionProvider>();
@@ -241,11 +247,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           'Egg Storage',
       customerId: session.customerId,
       flockId: session.flockId,
+      hatcheryId: session.hatcheryId,
       sessionId: session.id,
       breed: session.breed,
       setterId: null,
       hatcherId: null,
       flockEntryDate: null,
+      flockAgeWeeks: session.flockAgeWeeks,
       date: session.date.toIso8601String().split('T')[0],
     );
 
@@ -261,6 +269,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
+        eggStorageController: stationKey == 'egg_storage'
+            ? _eggStorageControllers.putIfAbsent(
+                stationKey,
+                EggStorageStationController.new,
+              )
+            : null,
       ),
     );
   }
@@ -290,7 +304,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           children: [
             if (!isFirst)
               OutlinedButton.icon(
-                onPressed: provider.isMovingToStation
+                onPressed: provider.isMovingToStation || _isSavingStation
                     ? null
                     : () => _handlePreviousStation(provider),
                 icon: const Icon(Icons.arrow_back, size: 18),
@@ -307,13 +321,25 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             if (!isFirst) const SizedBox(width: 12),
             Expanded(
               child: ElevatedButton.icon(
-                onPressed: provider.isMovingToStation
+                onPressed: provider.isMovingToStation || _isSavingStation
                     ? null
                     : () {
                         _handleNextOrSave(provider);
                       },
-                icon: Icon(isLast ? Icons.save : Icons.arrow_forward, size: 18),
-                label: Text(isLast ? 'Save' : 'Next Station'),
+                icon: _isSavingStation
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(isLast ? Icons.save : Icons.arrow_forward, size: 18),
+                label: Text(
+                  _isSavingStation
+                      ? 'Saving...'
+                      : (isLast ? 'Save' : 'Next Station'),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -346,6 +372,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
+    if (_isSavingStation) return;
     final shouldContinue = await _confirmStationExit(
       title: 'Leave station?',
       actionLabel: 'Save and continue',
@@ -368,7 +395,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       setState(() => _showSavedAnimation = true);
       await Future.delayed(const Duration(milliseconds: 2000));
       if (!mounted) return;
-      Navigator.of(context).popUntil((route) => route.settings.name == '/main');
+      Navigator.of(context).popUntil(auditSessionCompletionRoutePredicate);
     }
   }
 
@@ -410,40 +437,79 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }) async {
     final stationAuditProvider = _currentStationProvider;
     if (stationAuditProvider == null) return true;
-    if (!stationAuditProvider.isDirty) {
-      await _saveCurrentStation();
-      return true;
-    }
 
     if (!mounted) return false;
-    final shouldSave = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: const Text(
-          'This station has unsaved changes. Save before leaving this screen.',
+    if (stationAuditProvider.isDirty) {
+      final shouldSave = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: const Text(
+            'This station has unsaved changes. Save before leaving this screen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Stay'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(actionLabel),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Stay'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(actionLabel),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (shouldSave != true) return false;
-    await _saveCurrentStation();
-    return true;
+      if (shouldSave != true) return false;
+    }
+
+    setState(() => _isSavingStation = true);
+    var saved = false;
+    try {
+      final prepared = await _prepareCurrentStationForExit();
+      saved = prepared ? await _saveCurrentStation() : false;
+      if (!mounted) return false;
+      if (saved) {
+        await _showStationSavedPulse();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save station. Try again.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save station. Try again.')),
+        );
+      }
+      saved = false;
+    } finally {
+      if (mounted) setState(() => _isSavingStation = false);
+    }
+    return saved;
   }
 
-  Future<void> _saveCurrentStation() async {
+  Future<bool> _prepareCurrentStationForExit() async {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    if (sessionProvider.currentSession == null) return true;
+    final stationKey =
+        sessionProvider.stationKeys[sessionProvider.currentStationIndex];
+    if (stationKey != 'egg_storage') return true;
+    return _eggStorageControllers[stationKey]?.prepareForStationExit() ??
+        Future.value(true);
+  }
+
+  Future<void> _showStationSavedPulse() async {
+    if (!mounted) return;
+    setState(() => _showSavedAnimation = true);
+    await Future.delayed(const Duration(milliseconds: 520));
+    if (!mounted) return;
+    setState(() => _showSavedAnimation = false);
+  }
+
+  Future<bool> _saveCurrentStation() async {
     final stationAuditProvider = _currentStationProvider;
-    if (stationAuditProvider == null) return;
+    if (stationAuditProvider == null) return true;
 
     final stationKey =
         context.read<AuditSessionProvider>().currentSession == null
@@ -453,10 +519,9 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               .currentStationIndex];
 
     if (stationKey == 'hatch_analysis') {
-      await stationAuditProvider.saveAllHatches();
-    } else {
-      await stationAuditProvider.saveTab(0);
+      return stationAuditProvider.saveSamplesWithResult(markAllTabsSaved: true);
     }
+    return stationAuditProvider.saveSamplesWithResult(tabIndex: 0);
   }
 
   String _shortStationLabel(String label) {
@@ -470,11 +535,13 @@ class _StationFrame extends StatefulWidget {
   final String stationKey;
   final AuditContextData context;
   final String sessionId;
+  final EggStorageStationController? eggStorageController;
 
   const _StationFrame({
     required this.stationKey,
     required this.context,
     required this.sessionId,
+    this.eggStorageController,
   });
 
   @override
@@ -491,7 +558,10 @@ class _StationFrameState extends State<_StationFrame> {
   Widget? _buildStationWidget() {
     switch (widget.stationKey) {
       case 'egg_storage':
-        return EggStorageScreen(context: widget.context);
+        return EggStorageScreen(
+          context: widget.context,
+          stationController: widget.eggStorageController,
+        );
       case 'chick_quality':
         return ChickQualityScreen(context: widget.context);
       case 'hatch_analysis':

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -9,10 +10,14 @@ class NotificationService {
     if (_initialized) return;
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings();
+    const darwin = DarwinInitializationSettings();
 
     await _plugin.initialize(
-      const InitializationSettings(android: android, iOS: ios),
+      const InitializationSettings(
+        android: android,
+        iOS: darwin,
+        macOS: darwin,
+      ),
     );
 
     await _plugin
@@ -23,6 +28,11 @@ class NotificationService {
     await _plugin
         .resolvePlatformSpecificImplementation<
           IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          MacOSFlutterLocalNotificationsPlugin
         >()
         ?.requestPermissions(alert: true, badge: true, sound: true);
 
@@ -46,8 +56,14 @@ class NotificationService {
           priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
       ),
       payload: payload,
     );
+  }
+
+  @visibleForTesting
+  static void resetForTest() {
+    _initialized = false;
   }
 }

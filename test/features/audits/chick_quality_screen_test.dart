@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
+import 'package:hatchaudit/features/audits/widgets/audit_numeric_keyboard.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -56,58 +57,61 @@ void main() {
   });
 
   testWidgets(
-    'pool mode hides machine fields; compare mode shows hatch tabs and +/- controls',
+    'pool mode hides machine fields; comparison mode shows sample tabs and +/- controls',
     (tester) async {
       await pumpScreen(tester);
 
-      expect(find.text('Pooled sample'), findsOneWidget);
+      expect(find.text('Single Sample'), findsOneWidget);
       expect(find.text('Setter ID'), findsNothing);
       expect(find.text('Hatcher ID'), findsNothing);
 
-      await tester.tap(find.text('Compare hatches'));
+      await tester.tap(find.text('Compare Samples'));
       await tester.pumpAndSettle();
 
       expect(find.text('Setter ID'), findsOneWidget);
       expect(find.text('Hatcher ID'), findsOneWidget);
-      expect(find.text('Hatch 1'), findsOneWidget);
-      expect(find.byTooltip('Add hatch'), findsOneWidget);
-      expect(find.byTooltip('Remove active hatch'), findsOneWidget);
+      expect(find.text('Sample 1'), findsOneWidget);
+      expect(find.byTooltip('Add sample'), findsOneWidget);
+      expect(find.byTooltip('Remove active sample'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Add hatch'));
+      await tester.tap(find.byTooltip('Add sample'));
       await tester.pumpAndSettle();
-      expect(find.text('Hatch 2'), findsOneWidget);
+      expect(find.text('Sample 2'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Remove active hatch'));
+      await tester.tap(find.byTooltip('Remove active sample'));
       await tester.pumpAndSettle();
-      expect(find.text('Hatch 2'), findsNothing);
-      expect(find.text('Hatch 1'), findsOneWidget);
+      expect(find.text('Sample 2'), findsNothing);
+      expect(find.text('Sample 1'), findsOneWidget);
     },
   );
 
-  testWidgets('compare mode setter and hatcher IDs use numeric entry fields', (
+  testWidgets('compare mode setter and hatcher IDs use audit numeric fields', (
     tester,
   ) async {
     await pumpScreen(tester);
 
-    await tester.tap(find.text('Compare hatches'));
+    await tester.tap(find.text('Compare Samples'));
     await tester.pumpAndSettle();
 
     final setterField = tester.widget<EditableText>(
       find.descendant(
-        of: find.widgetWithText(TextFormField, 'Setter ID'),
+        of: find.widgetWithText(AuditNumericFormField, 'Setter ID'),
         matching: find.byType(EditableText),
       ),
     );
     final hatcherField = tester.widget<EditableText>(
       find.descendant(
-        of: find.widgetWithText(TextFormField, 'Hatcher ID'),
+        of: find.widgetWithText(AuditNumericFormField, 'Hatcher ID'),
         matching: find.byType(EditableText),
       ),
     );
 
-    expect(setterField.keyboardType, TextInputType.number);
-    expect(hatcherField.keyboardType, TextInputType.number);
-    expect(setterField.inputFormatters, isNotEmpty);
-    expect(hatcherField.inputFormatters, isNotEmpty);
+    expect(setterField.keyboardType, TextInputType.none);
+    expect(hatcherField.keyboardType, TextInputType.none);
+
+    await tester.tap(find.widgetWithText(AuditNumericFormField, 'Setter ID'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AuditNumericKeyboard), findsOneWidget);
   });
 }

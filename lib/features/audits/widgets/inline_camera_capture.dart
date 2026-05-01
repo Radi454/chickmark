@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../services/ocr/ocr_service.dart';
 
 class InlineCameraCapture extends StatefulWidget {
   const InlineCameraCapture({
@@ -35,6 +37,9 @@ class InlineCameraCapture extends StatefulWidget {
     if (normalized.contains('no camera')) {
       return 'No camera found. Use the camera app fallback.';
     }
+    if (normalized.contains('timed out')) {
+      return 'Camera took too long to start. Resume camera or use the camera app.';
+    }
     if (normalized.contains('capture failed')) {
       return 'Camera capture failed. Try again or use the camera app.';
     }
@@ -47,40 +52,77 @@ class InlineCameraCapture extends StatefulWidget {
 
 class InlineCameraCaptureState extends State<InlineCameraCapture>
     with WidgetsBindingObserver {
+  static const Duration _cameraInitTimeout = Duration(seconds: 5);
+  static const Duration _focusSettleDelay = Duration(milliseconds: 120);
+  static const Duration _captureCooldown = Duration(milliseconds: 400);
+
   CameraController? _controller;
   Future<void>? _initializeFuture;
+  Timer? _initializationTimeoutTimer;
   String? _errorMessage;
+  Size? _previewLayoutSize;
+  DateTime? _lastCaptureAt;
   bool? _lastReadyNotification;
+  bool _isInitializing = true;
+  bool _cameraPaused = false;
+  int _cameraGeneration = 0;
 
   bool get hasCameraError => _errorMessage != null;
+  bool get isCameraPaused => _cameraPaused;
   bool get isCameraReady =>
-      _controller?.value.isInitialized == true && _errorMessage == null;
+      !_cameraPaused &&
+      !_isInitializing &&
+      _controller?.value.isInitialized == true &&
+      _errorMessage == null;
+  bool get isPreviewActive => isCameraReady && _previewLayoutSize != null;
+
+  ThermoScanCropFrame? get ocrCropFrame {
+    final previewSize = _previewLayoutSize;
+    if (previewSize == null) return null;
+    return ThermoScanCropFrame(
+      previewWidth: previewSize.width,
+      previewHeight: previewSize.height,
+      devicePixelRatio: View.of(context).devicePixelRatio,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeCamera();
+    unawaited(_initializeCamera(notifyState: false));
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _controller;
-    if (controller == null) return;
-
-    if (state == AppLifecycleState.inactive) {
-      _disposeController();
-    } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(_pauseCamera());
     }
   }
 
   Future<String?> takePicture() async {
     try {
+      if (_cameraPaused || _isInitializing || _errorMessage != null) {
+        return null;
+      }
       await _initializeFuture;
       final controller = _controller;
-      if (controller == null || !controller.value.isInitialized) return null;
+      if (!mounted ||
+          _cameraPaused ||
+          _errorMessage != null ||
+          controller == null ||
+          !controller.value.isInitialized) {
+        return null;
+      }
+      await _waitForCaptureCooldown();
+      if (!mounted || _cameraPaused || _errorMessage != null) return null;
+      await _prepareCameraForCapture(controller);
+      if (!mounted || _cameraPaused || _errorMessage != null) return null;
       final file = await controller.takePicture();
+      _lastCaptureAt = DateTime.now();
       return file.path;
     } on CameraException catch (error) {
       _setError(error.description ?? error.code);
@@ -93,14 +135,87 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
 
   Future<String?> takePictureForAutoScan() => takePicture();
 
-  Future<void> _initializeCamera() async {
-    _initializeFuture = _doInitializeCamera();
+  Future<void> closeCameraForStationExit() async {
+    _cameraGeneration++;
+    _cancelInitializationTimeout();
+    _initializeFuture = null;
+    _notifyCameraReady(false);
+    final controller = _controller;
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _cameraPaused = true;
+        _isInitializing = false;
+        _errorMessage = null;
+      });
+    }
+    await controller?.dispose();
+  }
+
+  Future<void> pauseCameraForIdle() => _pauseCamera();
+
+  Future<void> _waitForCaptureCooldown() async {
+    final lastCaptureAt = _lastCaptureAt;
+    if (lastCaptureAt == null) return;
+    final elapsed = DateTime.now().difference(lastCaptureAt);
+    if (elapsed >= _captureCooldown) return;
+    await Future.delayed(_captureCooldown - elapsed);
+  }
+
+  Future<void> _prepareCameraForCapture(CameraController controller) async {
+    try {
+      await controller.setFocusMode(FocusMode.auto);
+    } catch (_) {
+      // Focus APIs are device-dependent; capture should still continue.
+    }
+    try {
+      await controller.setExposureMode(ExposureMode.auto);
+    } catch (_) {
+      // Exposure APIs are device-dependent; capture should still continue.
+    }
+    try {
+      await controller.setFocusPoint(const Offset(0.5, 0.5));
+    } catch (_) {
+      // Focus point APIs are device-dependent; capture should still continue.
+    }
+    try {
+      await controller.setExposurePoint(const Offset(0.5, 0.5));
+    } catch (_) {
+      // Exposure point APIs are device-dependent; capture should still continue.
+    }
+    await Future.delayed(_focusSettleDelay);
+  }
+
+  Future<void> _initializeCamera({bool notifyState = true}) async {
+    final generation = ++_cameraGeneration;
+    _notifyCameraReady(false);
+    if (notifyState && mounted) {
+      setState(() {
+        _cameraPaused = false;
+        _isInitializing = true;
+        _errorMessage = null;
+      });
+    } else {
+      _cameraPaused = false;
+      _isInitializing = true;
+      _errorMessage = null;
+    }
+
+    _cancelInitializationTimeout();
+    _initializationTimeoutTimer = Timer(_cameraInitTimeout, () {
+      if (!_isActiveGeneration(generation)) return;
+      _cameraGeneration++;
+      unawaited(_disposeController(notifyReady: false));
+      _setError('Camera initialization timed out.');
+    });
+    _initializeFuture = _doInitializeCamera(generation);
     await _initializeFuture;
   }
 
-  Future<void> _doInitializeCamera() async {
+  Future<void> _doInitializeCamera(int generation) async {
     try {
       final cameras = await availableCameras();
+      if (!_isActiveGeneration(generation)) return;
       if (cameras.isEmpty) {
         _setError('No camera found. Use the camera app fallback.');
         return;
@@ -113,28 +228,47 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
 
       final controller = CameraController(
         backCamera,
-        ResolutionPreset.veryHigh,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
 
-      if (!mounted) {
+      if (!_isActiveGeneration(generation)) {
         await controller.dispose();
         return;
       }
 
       await _disposeController(notifyReady: false);
+      if (!_isActiveGeneration(generation)) {
+        await controller.dispose();
+        return;
+      }
       setState(() {
         _controller = controller;
         _errorMessage = null;
+        _isInitializing = false;
+        _cameraPaused = false;
       });
       _notifyCameraReady(true);
     } on CameraException catch (error) {
+      if (!_isActiveGeneration(generation)) return;
       _setError(error.description ?? error.code);
     } catch (error) {
+      if (!_isActiveGeneration(generation)) return;
       _setError(error.toString());
+    } finally {
+      _cancelInitializationTimeout(generation);
     }
+  }
+
+  bool _isActiveGeneration(int generation) =>
+      mounted && generation == _cameraGeneration && !_cameraPaused;
+
+  void _cancelInitializationTimeout([int? generation]) {
+    if (generation != null && generation != _cameraGeneration) return;
+    _initializationTimeoutTimer?.cancel();
+    _initializationTimeoutTimer = null;
   }
 
   Future<void> _disposeController({bool notifyReady = true}) async {
@@ -146,10 +280,32 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
 
   void _setError(String message) {
     if (!mounted) return;
+    _cancelInitializationTimeout();
     final friendlyMessage = InlineCameraCapture.cameraErrorMessage(message);
-    setState(() => _errorMessage = friendlyMessage);
+    setState(() {
+      _errorMessage = friendlyMessage;
+      _isInitializing = false;
+      _cameraPaused = false;
+    });
     _notifyCameraReady(false);
     widget.onCameraError?.call(friendlyMessage);
+  }
+
+  Future<void> _pauseCamera() async {
+    _cameraGeneration++;
+    _cancelInitializationTimeout();
+    _initializeFuture = null;
+    _notifyCameraReady(false);
+    final controller = _controller;
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _cameraPaused = true;
+        _isInitializing = false;
+        _errorMessage = null;
+      });
+    }
+    await controller?.dispose();
   }
 
   void _notifyCameraReady(bool isReady) {
@@ -178,9 +334,12 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
 
   Widget _buildLivePreview() {
     final controller = _controller;
+    if (_cameraPaused) return _buildPausedState();
     if (_errorMessage != null) return _buildErrorState(_errorMessage!);
 
-    if (controller == null || !controller.value.isInitialized) {
+    if (_isInitializing ||
+        controller == null ||
+        !controller.value.isInitialized) {
       return Container(
         color: Colors.black,
         alignment: Alignment.center,
@@ -190,6 +349,7 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        _previewLayoutSize = Size(constraints.maxWidth, constraints.maxHeight);
         final previewSize = controller.value.previewSize;
         if (previewSize == null) return CameraPreview(controller);
 
@@ -234,6 +394,48 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
             textAlign: TextAlign.center,
             style: AppTextStyles.caption.copyWith(color: Colors.white),
           ),
+          const SizedBox(height: 10),
+          OutlinedButton(
+            onPressed: () => unawaited(_initializeCamera()),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withAlpha(150)),
+            ),
+            child: const Text('Resume camera'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPausedState() {
+    return Container(
+      color: const Color(0xFF111827),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.pause_circle_outline, color: Colors.white, size: 38),
+          const SizedBox(height: 8),
+          Text(
+            'Camera paused',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Resume when you are ready.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.caption.copyWith(color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: () => unawaited(_initializeCamera()),
+            child: const Text('Resume camera'),
+          ),
         ],
       ),
     );
@@ -252,6 +454,8 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cameraGeneration++;
+    _cancelInitializationTimeout();
     _disposeController(notifyReady: false);
     super.dispose();
   }
@@ -305,8 +509,8 @@ class _StaticScanFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 220,
-      height: 128,
+      width: kThermoScanFrameWidth,
+      height: kThermoScanFrameHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.greenTab, width: 2.4),

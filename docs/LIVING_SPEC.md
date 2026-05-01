@@ -1,0 +1,359 @@
+# Living Spec — Current Implemented Behavior
+
+This file documents behavior mapped from the current Flutter codebase. The
+current Flutter codebase remains the primary source of truth. If this document
+and code conflict, inspect the code and report the mismatch.
+
+This file must be updated after every meaningful code change.
+
+## 1. Last Updated
+
+2026-05-01
+
+Mapped from the current working tree under `lib/`, especially app bootstrap,
+navigation, audit screens, providers, models, repositories, services, and the
+SQLite database helper. This update intentionally does not use deleted or old
+feature specs as source material.
+
+## 2. Navigation
+
+App bootstrap starts in `main.dart`, initializes SQLite before `runApp`, then
+starts token migration, notifications, and Supabase initialization in the
+background.
+
+`HatchAuditApp` registers these root providers: `AppProvider`, `AuthProvider`,
+`CustomersProvider`, `AuditProvider`, `AuditSessionProvider`,
+`TemperatureRhProvider`, `BmkProvider`, `SettingsProvider`, and
+`DashboardProvider`.
+
+Initial route selection is auth-state driven:
+
+- Authenticated users go to `/main`.
+- Pending approval users go to `/pending-approval`.
+- Loading, error, and unauthenticated users go to `/login`.
+- `/register` and `/startup-sync` are also registered routes.
+
+The main shell has seven destinations:
+
+- Home
+- Dashboard
+- Customers
+- Audits
+- Measures
+- BMK
+- Settings
+
+The shell uses a drawer on narrow layouts and a navigation rail at widths of
+900px or greater. It lazily builds tabs, keeps a tab history stack for shell
+back navigation, and triggers background sync after the first Home build.
+
+A draggable Measures launcher appears as an authenticated overlay outside the
+login route. It can dock to the left or right edge and opens the temperature/RH
+panel.
+
+## 3. Audit Workflow
+
+Only approved admins and auditors can create or edit audits. Customer-role users
+are read-only and scoped to their assigned `customerId`.
+
+The current New Audit button on Home opens `AuditContextScreen` without an
+`auditType`, which means it starts the visit/session flow:
+
+- Select customer.
+- Select hatchery for that customer.
+- Select an audit-available flock. Flocks are unavailable when sold or past
+  their depletion age.
+- Continue to station selection.
+- Select one or more stations from the five supported station keys and arrange
+  their visit order.
+- Start Visit creates an `audit_sessions` row with status `in_progress`.
+
+Supported station keys are:
+
+- `egg_storage`
+- `chick_quality`
+- `hatch_analysis`
+- `setter_optimizing`
+- `hatcher_optimizing`
+
+`AuditSessionScreen` renders the selected stations in one visit workflow. It
+shows a progress indicator, keeps one `AuditProvider` per station, and shows one
+station at a time. Moving forward, moving back, switching to an earlier or
+completed station, leaving the visit, or saving the final station all go through
+a station-exit confirmation path that attempts to save the current station.
+
+Station save behavior:
+
+- Hatch Analysis saves all samples and marks all tab indices saved.
+- Other stations save through `AuditProvider.saveSamplesWithResult(tabIndex: 0)`.
+- Saving persists legacy audit rows in `audits`.
+- When a visit session id exists, saving also upserts linked rows in
+  `station_samples`.
+- Completing a station updates `audit_sessions.stationsCompleted`.
+- Completing the final selected station updates the session to `completed` and
+  returns to the main shell.
+
+The legacy single-station flow still exists in code when `AuditContextScreen` is
+constructed with an explicit `auditType`. It collects customer/flock context and,
+for Setter or Hatcher Optimizing, requires the relevant machine id before
+opening a single station screen with a fresh `AuditProvider`.
+
+The Audits tab lists recent visit sessions and legacy audit rows. In-progress
+sessions resume in `AuditSessionScreen`; completed sessions open a session
+detail screen. Legacy audit rows open audit detail/edit flows.
+
+Home shows recent audits, monthly audit counts, active local audit rows, setup
+attention items, quick shortcuts, and sync status. The active-audit count comes
+from rows in `audits` whose status is `active`; visit completion is tracked
+separately in `audit_sessions`.
+
+## 4. Station Screens
+
+All station screens initialize an `AuditProvider` with `AuditContext`, hide
+their own app bar when embedded in `AuditSessionScreen`, and use read-only mode
+for existing audits unless edit mode is enabled by an allowed user.
+
+Audit numeric fields use a platform-adaptive input surface. Android and iOS
+targets open the large in-app audit keypad with decimal, negative, backspace,
+next, and grid-down actions. Desktop targets, including web browsers whose
+platform string reports macOS, Windows, or Linux, use the normal editable text
+field so physical keyboard entry works without opening the custom keypad. Both
+paths enforce the same numeric rules for decimal, negative, and
+max-decimal-place limits.
+
+Egg is the station name shown across the app. The station is divided into
+storage and handling controls plus Egg Quality Assessment. It starts with a
+gradient Audit Station card showing the selected hatchery, then uses a split
+workbench layout. The left column contains EST, upside-down scoring, and the
+storage checklist. The right column contains egg quality context/sample
+controls, UV inspection, and station notes.
+
+- Egg Shell Temperature (EST): storage days, target shell-temperature class,
+  inline guided OCR capture, EST grid, per-point evidence photos, average, and
+  CV%. Shell targets are 19.0-21.0°C for short storage, 18.0-20.0°C for medium
+  storage, and 16.0-18.0°C for long storage.
+- UV Tray Inspection: up to 10 UV tray entries and overall affected average.
+- Upside Down Score: tray entries and overall upside-down average.
+- Egg Quality Assessment: shows flock, breed, BMK age, single-sample versus
+  multi-house sample mode, house sample chips, and the 100-egg weight sheet.
+  BMK age is derived from the flock entry date when available and falls back to
+  the saved flock age from the visit/session record. The panel uses its embedded
+  blue context header without a duplicate workbench header or descriptive
+  subtitle. Multi-house mode keeps the add/remove house controls together at the
+  right edge and persists each house as a comparison sample with sequential
+  `H1`, `H2`, etc. house metadata in `station_samples`. The 100-egg sheet uses
+  a compact, responsive numeric grid with single rounded number-only input
+  fields.
+- Storage Checklist: egg turning, tray spacing, cooler proximity,
+  condensation, and related storage fields.
+- Notes: optional free-text station comments persisted on the audit row.
+
+Chick Quality uses five tabs:
+
+- Pasgar: sample size, defect counts/photos, and final score.
+- Weights: storage days, chick weights, average weight, uniformity, CV%, BMK
+  age, and BMK chick weight.
+- YFBM: photo, multiple row entries, average percentage, and CV%.
+- CVT: basket/sample inputs, top/middle/bottom temperatures/photos, average,
+  and CV%.
+- PM Necropsy: sample size, collection point, lesion counts with required
+  severity when count is positive, gasping fields, deformity counts, suspected
+  cause, and PM photos.
+
+Hatch Analysis is a batch/hatch-group screen rather than a tabbed screen. It
+supports pooled or comparison sample modes, multiple batch/hatch groups, and an
+average card when multiple hatchability-capable groups are present. Each group
+captures hatchability accounting and egg breakout samples. Breakout types are
+Fresh Egg, Candled Egg, and Residue / Hatch Day. Sample mode can be tray sample
+or pool sample. Hatchability, fertility, and HOF are recalculated from entered
+counts.
+
+Setter Optimizing captures:
+
+- Breed from flock.
+- Setter ID.
+- Incubation age slider from 1 to 18 days.
+- Machine type: Single Stage or Multi Stage.
+- Turning angle.
+- CO2 level and photo.
+- EST average/CV summary and EST grid/photos.
+
+Hatcher Optimizing captures:
+
+- Breed from flock.
+- Hatcher ID.
+- Incubation age slider from 18 to 21 days.
+- CO2 level and photo.
+- CVT average/CV summary and CVT grid/photos.
+- Chick panting yes/no with photo.
+- Meconium assessment: Normal, Greenish, Watery, or Excessive.
+- Transfer day.
+
+Measures is a standalone temperature/RH log screen. It lists saved measure
+sessions, supports search, shows session details, and opens `TemperatureRhPanel`
+from a floating action button.
+
+Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
+session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
+Setter Optimizing, and Hatcher Optimizing sections from repository queries.
+
+## 5. Data Hierarchy
+
+The implemented hierarchy is:
+
+- `users`: authenticated identities, roles, approval status, optional customer
+  assignment, cached token metadata, and local password fallback data.
+- `customers`: top-level customer records.
+- `hatcheries`: customer-owned hatchery/location records.
+- `flocks`: customer-owned flocks with breed, entry date, estimated-age flag,
+  active/sold status, depletion age, and sold date.
+- `audit_sessions`: visit-level orchestration for a selected customer,
+  hatchery, flock, date, station order, station completion, optional findings,
+  optional scorecards, notes, creator, and completion timestamp.
+- `audits`: legacy and station audit data rows. Each row stores the station
+  audit type plus station-specific fields, sample mode, compare group, hatch
+  number, optional `sessionId`, photos embedded as field paths/JSON, and status.
+- `station_samples`: companion sample rows linked to `audit_sessions` and
+  optionally to a legacy `audits` row. These normalize sample mode, comparison
+  type, station type, sample index, hatch/batch labels, production/setting/hatch
+  dates, house labels for Egg multi-house samples, storage/incubation
+  metadata, machine ids, BMK age days, benchmark snapshots, and result
+  summaries.
+- `temperature_sessions` and `temperature_readings`: place-based Measures logs,
+  optionally linked to an audit session.
+- `photos`: local photo records tied to audit ids, with upload status.
+- `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
+- `troubleshooting`: seeded troubleshooting/reference content.
+- `activity_log`: user actions for logins, syncs, session starts/resumes,
+  station completion, audit changes, and related events.
+
+Visit session summaries combine one `audit_sessions` row, its station audits,
+and linked temperature summaries. Scorecards are parsed from persisted JSON when
+present; otherwise they are derived from completion state and simple threshold
+heuristics.
+
+## 6. Models and Provider State
+
+`AuthProvider` manages auth state, Supabase sign-in/sign-up, offline/local login
+fallback, cached token checks, pending approval state, and logout. Local fallback
+users are stored with ids prefixed by `local-` and v2 salted SHA-256 password
+hashes.
+
+`CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
+and selected-customer state. It scopes data for customer-role users, supports
+customer/flock/hatchery CRUD, and loads visit summaries for customer detail
+views.
+
+`AuditSessionProvider` owns the active visit session, station order, current
+station index, movement state, resume state, selected station keys, and session
+errors. It starts, resumes, progresses, completes, deletes, and clears visit
+sessions.
+
+`AuditProvider` owns station draft rows and station samples. It supports pooled
+and comparison sample modes, creates/removes/switches samples, tracks dirty
+state, saved tabs, active session id, temperature unit, read-only/edit mode, PM
+conditional validation, hatch budget validation, hatch metric recalculation, and
+save coalescing through an in-flight save future.
+
+`DashboardProvider` owns cascade filters, available BMK ages, setter/hatcher
+filter sets, dashboard aggregate models, photo lists, BMK references, scoped
+customer/flock data, visit summaries, and the selected visit summary.
+
+`TemperatureRhProvider` owns BLE/Govee initialization, scan/connect state,
+preferred device persistence, active place/session, live and saved readings,
+recording pause/resume, warmup filtering, summary calculation, chart
+downsampling, and the measure log.
+
+`BmkProvider` reads seeded breed and egg-breakout benchmark rows from SQLite and
+tracks selected breed, selected ages, and selected egg-breakout type.
+
+`HomeProvider` derives Home KPIs from audit and flock repositories: audits this
+month, active flocks, last audit date, recent audits, and audit type breakdown.
+
+## 7. Persistence Summary
+
+The app uses SQLite through `sqflite` at database version 20. The database file
+is `hatchaudit.db`. Foreign keys are enabled on configure. Web startup
+initializes the default sqflite factory with `sqflite_common_ffi_web` before the
+database opens and uses the browser-safe `hatchaudit.db` name directly instead
+of a native database directory. Browser persistence relies on the checked-in
+`web/sqlite3.wasm` asset and runs without the shared-worker factory during app
+startup.
+
+Tables created by the current database helper include:
+
+- `users`
+- `customers`
+- `flocks`
+- `audits`
+- `bmk_breeds`
+- `bmk_egg_breakout`
+- `troubleshooting`
+- `photos`
+- `activity_log`
+- `hatcheries`
+- `audit_sessions`
+- `station_samples`
+- `temperature_sessions`
+- `temperature_readings`
+
+The current `audits` unique index is on `customerId`, `flockId`, `date`,
+`auditType`, `hatchNumber`, `setterId`, and `hatcherId`. Repository writes use
+id-based upsert behavior for audits and audit sessions.
+
+The database helper includes upgrade paths through v20. Recent schema areas in
+the current code include audit sessions, station samples, hatcheries,
+temperature sessions/readings, operational indexes, PM necropsy fields, Egg
+Storage fields, Setter/Hatcher extra fields, station sample house fields, and a
+v20 station sample rebuild.
+
+Seed data is inserted for BMK breed rows, BMK egg breakout rows,
+troubleshooting rows, and dummy test data during database creation/upgrade.
+
+Photos are copied into the app documents directory and referenced by local file
+path. The `photos` table tracks `uploadStatus` as `local`, `synced`, or
+`failed`. Photo sync uploads local photos when Supabase is available, skips
+missing files, and fails files larger than 5 MB.
+
+Supabase sync is best effort. `StartupSyncService` pushes local customers,
+flocks, hatcheries, audits, audit sessions, photos, and temperature logs, then
+pulls shared data back into local repositories. It keeps newer local audit rows
+when a pulled remote row is older by `updatedAt`. `BgSyncService` runs this
+sync after the shell starts and reports failure as offline data available.
+
+Temperature/RH sessions are persisted first as active/syncing rows and then as
+completed summaries. Summary readings exclude warmup data, out-of-range values,
+and missing temperature/RH values. Summary fields include min, max, average,
+CV%, reading count, and downsampled chart JSON.
+
+OCR uses Google ML Kit text recognition when available, with preprocessing,
+quality checks, timeouts, and temporary-file cleanup for thermometer scan
+capture.
+
+## 8. Known Technical Debt
+
+- The app currently keeps both legacy station data in the wide `audits` table
+  and normalized companion rows in `station_samples`.
+- Saved station audit rows are initialized with status `active`; visit
+  completion lives on `audit_sessions`, so Home's active audit count can differ
+  from completed visit state.
+- `DiagnosticEngine.evaluate` is a placeholder that returns no findings.
+- Visit-session scorecards use persisted JSON only when present; otherwise they
+  use fallback threshold heuristics in `VisitSessionSummary`.
+- The legacy single-station flow is still present in code alongside the newer
+  visit/session flow.
+- The database includes dummy test data seeding in the database helper.
+- `audits` remains a very wide table with station-specific columns for all
+  station types.
+- Supabase sync is best effort and failures are logged/debugged rather than
+  surfaced as blocking workflow errors.
+- Some services and widgets carry transitional naming from Temperature to
+  Measures.
+
+## 9. Change Log
+
+- 2026-04-28: Replaced placeholders with a code-derived map of current
+  navigation, audit workflow, station screens, data hierarchy, provider state,
+  persistence, sync, measures, OCR, and known technical debt.
+- 2026-04-28: Created living spec placeholder and reset documentation source of
+  truth to the implemented Flutter codebase.

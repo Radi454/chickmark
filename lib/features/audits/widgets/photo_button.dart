@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,12 +7,14 @@ import '../../../data/models/photo_model.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/photo/photo_service.dart';
 import '../providers/audit_provider.dart';
+import 'inline_camera_capture.dart';
 
 class PhotoButton extends StatefulWidget {
   final String? photoPath;
   final Function(String path) onPhotoCaptured;
   final bool enabled;
   final double size;
+  final bool cameraFirst;
 
   const PhotoButton({
     super.key,
@@ -19,6 +22,7 @@ class PhotoButton extends StatefulWidget {
     required this.onPhotoCaptured,
     this.enabled = true,
     this.size = 40,
+    this.cameraFirst = false,
   });
 
   @override
@@ -169,6 +173,22 @@ class _PhotoButtonState extends State<PhotoButton> {
   Future<void> _pickPhoto() async {
     if (!widget.enabled) return;
 
+    final path = widget.cameraFirst
+        ? await _openCameraFirstPicker()
+        : await _openSourcePicker();
+
+    if (path != null) {
+      widget.onPhotoCaptured(path);
+      await _saveLocalPhotoRecord(path);
+      if (mounted) {
+        setState(() {
+          _uploadStatus = 'local';
+        });
+      }
+    }
+  }
+
+  Future<String?> _openSourcePicker() async {
     final fromCamera = await showModalBottomSheet<bool>(
       context: context,
       builder: (context) => SafeArea(
@@ -190,18 +210,20 @@ class _PhotoButtonState extends State<PhotoButton> {
       ),
     );
 
-    if (fromCamera == null) return;
+    if (fromCamera == null) return null;
 
-    final path = await _photoService.pickPhoto(fromCamera: fromCamera);
-    if (path != null) {
-      widget.onPhotoCaptured(path);
-      await _saveLocalPhotoRecord(path);
-      if (mounted) {
-        setState(() {
-          _uploadStatus = 'local';
-        });
-      }
-    }
+    return _photoService.pickPhoto(fromCamera: fromCamera);
+  }
+
+  Future<String?> _openCameraFirstPicker() {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.black,
+      builder: (context) =>
+          _CameraFirstPhotoPicker(photoService: _photoService),
+    );
   }
 
   void _viewPhoto() {
@@ -296,6 +318,146 @@ class _PhotoButtonState extends State<PhotoButton> {
       default:
         return Colors.greenAccent;
     }
+  }
+}
+
+class _CameraFirstPhotoPicker extends StatefulWidget {
+  const _CameraFirstPhotoPicker({required this.photoService});
+
+  final PhotoService photoService;
+
+  @override
+  State<_CameraFirstPhotoPicker> createState() =>
+      _CameraFirstPhotoPickerState();
+}
+
+class _CameraFirstPhotoPickerState extends State<_CameraFirstPhotoPicker> {
+  final GlobalKey<InlineCameraCaptureState> _cameraKey = GlobalKey();
+  bool _cameraReady = false;
+  bool _isCapturing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height * 0.88;
+
+    return SizedBox(
+      height: height,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: InlineCameraCapture(
+              key: _cameraKey,
+              isScanning: false,
+              onCameraReadyChanged: _handleCameraReadyChanged,
+            ),
+          ),
+          Positioned(
+            top: 10,
+            right: 10,
+            child: IconButton.filled(
+              tooltip: 'Close',
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withAlpha(0),
+                      Colors.black.withAlpha(210),
+                    ],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    IconButton.filledTonal(
+                      tooltip: 'Gallery',
+                      onPressed: _isCapturing ? null : _pickFromGallery,
+                      icon: const Icon(Icons.photo_library_outlined),
+                    ),
+                    const Spacer(),
+                    SizedBox.square(
+                      dimension: 68,
+                      child: FilledButton(
+                        onPressed: _isCapturing ? null : _capturePhoto,
+                        style: FilledButton.styleFrom(
+                          shape: const CircleBorder(),
+                          padding: EdgeInsets.zero,
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          disabledBackgroundColor: Colors.white70,
+                          disabledForegroundColor: Colors.black45,
+                        ),
+                        child: _isCapturing
+                            ? const SizedBox.square(
+                                dimension: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : const Icon(Icons.photo_camera, size: 30),
+                      ),
+                    ),
+                    const Spacer(),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _capturePhoto() async {
+    if (_isCapturing) return;
+    setState(() => _isCapturing = true);
+
+    String? savedPath;
+    final sourcePath = _cameraReady
+        ? await _cameraKey.currentState?.takePicture()
+        : null;
+
+    if (sourcePath != null) {
+      savedPath = await widget.photoService.saveCapturedPhotoPath(sourcePath);
+      unawaited(widget.photoService.deletePhoto(sourcePath));
+    } else {
+      savedPath = await widget.photoService.pickPhoto(fromCamera: true);
+    }
+
+    if (!mounted) return;
+    setState(() => _isCapturing = false);
+    if (savedPath != null) Navigator.pop(context, savedPath);
+  }
+
+  Future<void> _pickFromGallery() async {
+    if (_isCapturing) return;
+    setState(() => _isCapturing = true);
+
+    final path = await widget.photoService.pickPhoto(fromCamera: false);
+
+    if (!mounted) return;
+    setState(() => _isCapturing = false);
+    if (path != null) Navigator.pop(context, path);
+  }
+
+  void _handleCameraReadyChanged(bool ready) {
+    if (!mounted || _cameraReady == ready) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _cameraReady == ready) return;
+      setState(() => _cameraReady = ready);
+    });
   }
 }
 

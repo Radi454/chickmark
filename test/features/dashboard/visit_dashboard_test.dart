@@ -106,6 +106,7 @@ void main() {
       final eggSc = summary.scorecards.firstWhere(
         (sc) => sc.stationKey == 'egg_storage',
       );
+      expect(eggSc.stationLabel, 'Egg');
       expect(eggSc.status, 'amber');
       expect(eggSc.detail, 'Review');
     });

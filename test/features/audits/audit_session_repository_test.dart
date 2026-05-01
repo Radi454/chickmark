@@ -209,12 +209,12 @@ void main() {
   });
 
   group('AuditSessionRepository - insert and retrieve', () {
-    test('insertSession calls database insert', () async {
+    test('insertSession inserts without replacing linked child rows', () async {
       when(
         () => mockDb.insert(
           'audit_sessions',
           any(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
+          conflictAlgorithm: ConflictAlgorithm.ignore,
         ),
       ).thenAnswer((_) async => 1);
 
@@ -224,10 +224,42 @@ void main() {
         () => mockDb.insert(
           'audit_sessions',
           any(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
+          conflictAlgorithm: ConflictAlgorithm.ignore,
         ),
       ).called(1);
+      verifyNever(
+        () => mockDb.update(
+          'audit_sessions',
+          any(),
+          where: any(named: 'where'),
+          whereArgs: any(named: 'whereArgs'),
+        ),
+      );
     });
+
+    test(
+      'insertSession updates in place when the session already exists',
+      () async {
+        when(
+          () => mockDb.insert(
+            'audit_sessions',
+            any(),
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          ),
+        ).thenAnswer((_) async => 0);
+
+        await repository.insertSession(testSession);
+
+        verify(
+          () => mockDb.update(
+            'audit_sessions',
+            any(),
+            where: 'id = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).called(1);
+      },
+    );
 
     test('getSessionById returns model when found', () async {
       when(

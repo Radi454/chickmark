@@ -21,6 +21,30 @@ void main() {
       expect(state.currentKey, 'front_middle');
     });
 
+    test(
+      'initial treats reading without photo as complete for auto capture',
+      () {
+        final state = EstGuidedCaptureState.initial(
+          readings: {'front_top': 23.4},
+          photos: const {},
+        );
+
+        expect(state.currentKey, 'front_middle');
+      },
+    );
+
+    test('initial starts at front top when all readings are complete', () {
+      final state = EstGuidedCaptureState.initial(
+        readings: {for (final key in EstGridData.scanKeys) key: 23.4},
+        photos: {for (final key in EstGridData.scanKeys) key: '/tmp/$key.jpg'},
+      );
+
+      expect(state.currentKey, 'front_top');
+      expect(state.isAutoScanning, isFalse);
+      expect(state.capturedImagePath, isNull);
+      expect(state.ocrValue, isNull);
+    });
+
     test('confirm saves current point and advances to next scan key', () {
       final state = EstGuidedCaptureState.initial()
           .captureResolved(photoPath: '/tmp/front_top.jpg', ocrValue: 23.4)
@@ -83,7 +107,7 @@ void main() {
         photos: filledPhotos,
       ).startAutoScan();
 
-      expect(blocked.currentKey, 'back_bottom');
+      expect(blocked.currentKey, 'front_top');
       expect(blocked.isAutoScanning, isFalse);
       expect(blocked.errorMessage, contains('already saved'));
 
@@ -135,7 +159,7 @@ void main() {
       expect(state.isAutoScanReview, isTrue);
       expect(state.capturedImagePath, '/tmp/front_top_tmp.jpg');
       expect(state.ocrValue, 23.4);
-      expect(state.errorMessage, contains('Right'));
+      expect(state.errorMessage, contains('Confirm'));
     });
 
     test('wrong auto scan reading clears value and resumes scanning', () {

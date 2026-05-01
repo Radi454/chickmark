@@ -1,18 +1,30 @@
 
 
-## Speckit Workflow
+## Project Guidance
 
-This repository already includes Speckit project scaffolding for spec-driven work.
+The current Flutter codebase is the primary source of truth for implemented
+behavior. `docs/LIVING_SPEC.md` is the living documentation of that behavior.
+If documentation and code conflict, inspect the code and report the mismatch.
+
+Old generated specs are not active source material for implementation decisions
+unless the user explicitly provides them again.
+
+## Speckit Scaffolding
+
+This repository still includes Speckit project scaffolding for optional future
+spec-driven work.
 
 - Core templates and workflow files live in `.specify/`
 - Codex/Claude skills live in `.agents/skills/speckit-*` and `.claude/skills/speckit-*`
-- Project constitution and workflow rules live in `.specify/memory/constitution.md`
-- Generated feature artifacts are stored under `specs/<feature-id>/`
+- Generated future feature artifacts may be stored under `specs/<feature-id>/`
 
-The normal feature flow is:
+When using Speckit for new work, start a fresh feature flow from the current
+codebase and living spec instead of relying on deleted historical artifacts.
 
-1. `/speckit-specify` to create or update the feature spec
-2. `/speckit-plan` to produce the implementation plan
+The normal optional feature flow is:
+
+1. `/speckit-specify` to create or update a feature spec
+2. `/speckit-plan` to produce an implementation plan
 3. `/speckit-tasks` to generate dependency-ordered tasks
 4. `/speckit-implement` to execute the plan
 
@@ -25,12 +37,19 @@ git automation:
 - `/speckit-git-feature`
 - `/speckit-git-commit`
 
-If you use AI agents in this repo, start new product work through the Speckit flow
-instead of jumping straight into code so the spec, plan, and tasks stay in sync.
+If you use AI agents in this repo, have them inspect the current code before
+planning or modifying product behavior.
 
 ## Getting Started
 
 This project is a starting point for a Flutter application.
+
+## Dev Shortcuts
+
+- `make run-web` starts Flutter web on `http://127.0.0.1:57861`.
+- `scripts/run_flutter_web.command` can be double-clicked on macOS to start the
+  same web server. If it says ChickMark is already running, open or reload that
+  URL in the Codex side browser.
 
 A few resources to get you started if this is your first Flutter project:
 

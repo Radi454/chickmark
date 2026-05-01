@@ -12,17 +12,28 @@ class DatabaseHelper {
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
+  static const String _stationSamplesRebuildTable =
+      'station_samples__v20_rebuild';
+
   static Database? _db;
 
   Future<Database> get db async {
     if (_db != null) return _db!;
     _db = await openDatabase(
-      join(await getDatabasesPath(), 'hatchaudit.db'),
-      version: 18,
+      await _databasePath(),
+      version: 20,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
     return _db!;
+  }
+
+  Future<String> _databasePath() async {
+    if (kIsWeb) return 'hatchaudit.db';
+    return join(await getDatabasesPath(), 'hatchaudit.db');
   }
 
   Future<void> close() async {
@@ -367,6 +378,7 @@ class DatabaseHelper {
     )''');
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
+    await _createStationSamplesTable(db);
     await _createTemperatureRhTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
@@ -593,6 +605,12 @@ class DatabaseHelper {
     if (oldVersion < 18) {
       await _applyV18Upgrade(db);
     }
+    if (oldVersion < 19) {
+      await _applyV19Upgrade(db);
+    }
+    if (oldVersion < 20) {
+      await _applyV20Upgrade(db);
+    }
   }
 
   Future<void> _createHatcheryTables(Database db) async {
@@ -635,6 +653,61 @@ class DatabaseHelper {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_audit_sessions_flock_date ON audit_sessions (flockId, date DESC)',
+    );
+  }
+
+  Future<void> _createStationSamplesTable(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS station_samples (
+      id TEXT PRIMARY KEY,
+      auditSessionId TEXT NOT NULL,
+      legacyAuditId TEXT,
+      stationType TEXT NOT NULL,
+      sampleMode TEXT NOT NULL DEFAULT 'pooled',
+      comparisonType TEXT,
+      sampleIndex INTEGER NOT NULL DEFAULT 1,
+      sampleLabel TEXT,
+      sampleType TEXT,
+      breakoutType TEXT,
+      groupKey TEXT,
+      groupLabel TEXT,
+      batchNo TEXT,
+      houseNo TEXT,
+      houseLabel TEXT,
+      hatchNo TEXT,
+      eggProductionDate TEXT,
+      settingDate TEXT,
+      hatchDate TEXT,
+      storageDays INTEGER,
+      incubationDay INTEGER,
+      setterNo TEXT,
+      hatcherNo TEXT,
+      calculatedBmkAgeDays INTEGER,
+      benchmarkBreed TEXT,
+      benchmarkAgeDays INTEGER,
+      benchmarkSource TEXT,
+      benchmarkSnapshotJson TEXT,
+      resultSummaryJson TEXT,
+      notes TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (auditSessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (legacyAuditId) REFERENCES audits(id) ON DELETE CASCADE
+    )''');
+    await _createStationSamplesIndexes(db);
+  }
+
+  Future<void> _createStationSamplesIndexes(DatabaseExecutor db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_station_samples_session_station ON station_samples (auditSessionId, stationType)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_station_samples_group ON station_samples (auditSessionId, groupKey)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_station_samples_legacy_audit ON station_samples (legacyAuditId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_station_samples_bmk_age ON station_samples (calculatedBmkAgeDays)',
     );
   }
 
@@ -996,6 +1069,154 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV18UpgradeForTest(Database db) => _applyV18Upgrade(db);
+
+  Future<void> _applyV19Upgrade(Database db) async {
+    await _createStationSamplesTable(db);
+  }
+
+  @visibleForTesting
+  Future<void> applyV19UpgradeForTest(Database db) => _applyV19Upgrade(db);
+
+  Future<void> _applyV20Upgrade(Database db) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info(station_samples)');
+    if (tableInfo.isEmpty) {
+      await _createStationSamplesTable(db);
+      return;
+    }
+
+    final foreignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list(station_samples)',
+    );
+    if (_hasStationSamplesForeignKeys(foreignKeys)) {
+      await _addStationSampleHouseColumns(db, _columnNames(tableInfo));
+      await _createStationSamplesIndexes(db);
+      return;
+    }
+
+    final columnNames = _columnNames(tableInfo);
+    if (!columnNames.contains('auditSessionId') ||
+        !columnNames.contains('legacyAuditId')) {
+      throw StateError(
+        'station_samples must contain auditSessionId and legacyAuditId '
+        'before the v20 corrective rebuild can add foreign keys.',
+      );
+    }
+
+    await db.transaction<void>((txn) async {
+      await _rebuildStationSamplesTableForV20(txn, tableInfo);
+    });
+  }
+
+  @visibleForTesting
+  Future<void> applyV20UpgradeForTest(Database db) => _applyV20Upgrade(db);
+
+  Future<void> _addStationSampleHouseColumns(
+    DatabaseExecutor db,
+    Set<String> columnNames,
+  ) async {
+    if (!columnNames.contains('houseNo')) {
+      await db.execute('ALTER TABLE station_samples ADD COLUMN houseNo TEXT');
+    }
+    if (!columnNames.contains('houseLabel')) {
+      await db.execute(
+        'ALTER TABLE station_samples ADD COLUMN houseLabel TEXT',
+      );
+    }
+  }
+
+  Future<void> _rebuildStationSamplesTableForV20(
+    DatabaseExecutor db,
+    List<Map<String, Object?>> existingColumns,
+  ) async {
+    final existingNames = _columnNames(existingColumns);
+    final columnDefinitions = <String>[];
+    final insertColumns = <String>[];
+    final selectExpressions = <String>[];
+
+    for (final column in existingColumns) {
+      final name = column['name']?.toString();
+      if (name == null || name.isEmpty) continue;
+      final quotedName = _quoteSqlIdentifier(name);
+      columnDefinitions.add(_columnDefinitionForRebuild(column));
+      insertColumns.add(quotedName);
+      selectExpressions.add(quotedName);
+    }
+
+    for (final name in const ['houseNo', 'houseLabel']) {
+      if (existingNames.contains(name)) continue;
+      columnDefinitions.add('$name TEXT');
+      insertColumns.add(_quoteSqlIdentifier(name));
+      selectExpressions.add('NULL');
+    }
+
+    final createSql =
+        '''
+CREATE TABLE "$_stationSamplesRebuildTable" (
+  ${columnDefinitions.join(',\n  ')},
+  FOREIGN KEY ("auditSessionId") REFERENCES audit_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY ("legacyAuditId") REFERENCES audits(id) ON DELETE CASCADE
+)''';
+
+    await db.execute('DROP TABLE IF EXISTS "$_stationSamplesRebuildTable"');
+    await db.execute(createSql);
+    await db.execute(
+      'INSERT INTO "$_stationSamplesRebuildTable" '
+      '(${insertColumns.join(', ')}) '
+      'SELECT ${selectExpressions.join(', ')} FROM station_samples',
+    );
+    await db.execute('DROP TABLE station_samples');
+    await db.execute(
+      'ALTER TABLE "$_stationSamplesRebuildTable" RENAME TO station_samples',
+    );
+    await _createStationSamplesIndexes(db);
+  }
+
+  bool _hasStationSamplesForeignKeys(List<Map<String, Object?>> foreignKeys) {
+    final hasAuditSessionFk = foreignKeys.any(
+      (row) =>
+          row['from'] == 'auditSessionId' &&
+          row['table'] == 'audit_sessions' &&
+          row['to'] == 'id',
+    );
+    final hasAuditFk = foreignKeys.any(
+      (row) =>
+          row['from'] == 'legacyAuditId' &&
+          row['table'] == 'audits' &&
+          row['to'] == 'id',
+    );
+    return hasAuditSessionFk && hasAuditFk;
+  }
+
+  Set<String> _columnNames(List<Map<String, Object?>> tableInfo) {
+    return {
+      for (final row in tableInfo)
+        if (row['name'] != null) row['name'].toString(),
+    };
+  }
+
+  String _columnDefinitionForRebuild(Map<String, Object?> column) {
+    final name = column['name']?.toString() ?? '';
+    final type = column['type']?.toString().trim() ?? '';
+    final defaultValue = column['dflt_value'];
+    final isNotNull = _pragmaInt(column['notnull']) == 1;
+    final isPrimaryKey = _pragmaInt(column['pk']) > 0;
+    final parts = <String>[_quoteSqlIdentifier(name)];
+    if (type.isNotEmpty) parts.add(type);
+    if (isPrimaryKey) parts.add('PRIMARY KEY');
+    if (isNotNull) parts.add('NOT NULL');
+    if (defaultValue != null) parts.add('DEFAULT $defaultValue');
+    return parts.join(' ');
+  }
+
+  int _pragmaInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _quoteSqlIdentifier(String value) {
+    return '"${value.replaceAll('"', '""')}"';
+  }
 
   Future<void> _ensureDummyTestData(Database db) async {
     if (kReleaseMode) return;

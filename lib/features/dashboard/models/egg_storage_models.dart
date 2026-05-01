@@ -1,3 +1,85 @@
+import 'dart:convert';
+
+import '../../audits/models/est_grid_data.dart';
+
+class EggStorageEstEvidencePoint {
+  final String key;
+  final String positionLabel;
+  final String levelLabel;
+  final double? readingC;
+  final String? photoPath;
+
+  const EggStorageEstEvidencePoint({
+    required this.key,
+    required this.positionLabel,
+    required this.levelLabel,
+    this.readingC,
+    this.photoPath,
+  });
+
+  bool get hasPhoto => photoPath != null && photoPath!.trim().isNotEmpty;
+  bool get isComplete => readingC != null && hasPhoto;
+}
+
+class EggStorageEstEvidence {
+  final List<EggStorageEstEvidencePoint> points;
+
+  const EggStorageEstEvidence({required this.points});
+
+  factory EggStorageEstEvidence.fromJsonStrings({
+    String? readingsJson,
+    String? photosJson,
+  }) {
+    final readings = EstGridData.normalizeReadings(
+      _decodeMap(readingsJson) ?? const {},
+    );
+    final photos = _normalizePhotos(_decodeMap(photosJson) ?? const {});
+
+    return EggStorageEstEvidence(
+      points: [
+        for (final key in EstGridData.scanKeys)
+          EggStorageEstEvidencePoint(
+            key: key,
+            positionLabel: EstGridData.label(key.split('_').first),
+            levelLabel: EstGridData.label(key.split('_').last),
+            readingC: readings[key],
+            photoPath: photos[key],
+          ),
+      ],
+    );
+  }
+
+  bool get isComplete => points.every((point) => point.isComplete);
+
+  static Map<dynamic, dynamic>? _decodeMap(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return decoded;
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  static Map<String, String> _normalizePhotos(Map<dynamic, dynamic> photos) {
+    final normalized = <String, String>{};
+    final canonicalKeys = EstGridData.scanKeys.toSet();
+    for (final entry in photos.entries) {
+      final rawKey = entry.key?.toString();
+      final rawPath = entry.value?.toString().trim();
+      if (rawKey == null || rawPath == null || rawPath.isEmpty) continue;
+      final key = rawKey.startsWith('door_')
+          ? rawKey.replaceFirst('door_', 'front_')
+          : rawKey;
+      if (canonicalKeys.contains(key)) {
+        normalized[key] = rawPath;
+      }
+    }
+    return normalized;
+  }
+}
+
 class EggStorageTrend {
   final String date;
   final double avgWeightG;

@@ -1,8 +1,7 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -10,19 +9,24 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_thresholds.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../core/utils/calculation_utils.dart';
-import '../../../core/utils/date_utils.dart' as hatch_dates;
 import '../../../data/database/database_helper.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
+import '../../../data/models/station_sample_model.dart';
+import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
+import '../../../providers/customers_provider.dart';
 import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
+import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
 import '../models/est_guided_capture_state.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
+import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/est_guided_capture_panel.dart';
 import '../widgets/inline_camera_capture.dart';
@@ -35,16 +39,33 @@ class EggStorageScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
   final int initialSectionIndex;
+  final EggStorageStationController? stationController;
 
   const EggStorageScreen({
     super.key,
     required this.context,
     this.initialAudit,
     this.initialSectionIndex = 0,
+    this.stationController,
   });
 
   @override
   State<EggStorageScreen> createState() => _EggStorageScreenState();
+}
+
+class EggStorageStationController {
+  _EggStorageScreenState? _state;
+
+  Future<bool> prepareForStationExit() =>
+      _state?._prepareForStationExit() ?? Future.value(true);
+
+  void _attach(_EggStorageScreenState state) {
+    _state = state;
+  }
+
+  void _detach(_EggStorageScreenState state) {
+    if (identical(_state, state)) _state = null;
+  }
 }
 
 class _EggStorageScreenState extends State<EggStorageScreen>
@@ -61,6 +82,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   final Map<String, String?> _estPhotos = {};
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
+  final AuditRepository _auditRepository = AuditRepository();
   final PhotoRepository _photoRepository = PhotoRepository();
   final GlobalKey<InlineCameraCaptureState> _estCameraKey = GlobalKey();
   final TextEditingController _estGuidedValueController =
@@ -68,6 +90,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   final TextEditingController _storageDaysController = TextEditingController();
   final TextEditingController _estAvgController = TextEditingController();
   final TextEditingController _estCvController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
   final List<_UvTray> _uvTrays = [];
   final List<TextEditingController> _eggWeightControllers = List.generate(
     100,
@@ -88,15 +111,13 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   bool _estInlineCameraReady = false;
   bool _isConfirmingEstCapture = false;
   int _estCaptureGeneration = 0;
+  String? _activeAuditId;
   Timer? _estAutoScanTimer;
-
-  List<TextInputFormatter> get _integerInputFormatters => [
-    FilteringTextInputFormatter.digitsOnly,
-  ];
 
   @override
   void initState() {
     super.initState();
+    widget.stationController?._attach(this);
     WidgetsBinding.instance.addObserver(this);
     for (final level in EstGridData.levels) {
       for (final location in EstGridData.locations) {
@@ -113,6 +134,8 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       breed: widget.context.breed,
       setterId: widget.context.setterId,
       hatcherId: widget.context.hatcherId,
+      flockEntryDate: widget.context.flockEntryDate,
+      flockAgeWeeks: widget.context.flockAgeWeeks,
       date: widget.context.date,
     );
     auditProvider.initialize(
@@ -123,6 +146,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       sessionId: widget.context.sessionId,
     );
     _initializeFormState(auditProvider.activeDraft);
+    _activeAuditId = auditProvider.activeDraft.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToInitialSection();
     });
@@ -131,6 +155,10 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   @override
   void didUpdateWidget(covariant EggStorageScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.stationController, widget.stationController)) {
+      oldWidget.stationController?._detach(this);
+      widget.stationController?._attach(this);
+    }
     if (_isDifferentAuditContext(oldWidget.context, widget.context)) {
       _nextEstCaptureGeneration();
       _stopEstAutoScan(message: 'Auto scan stopped.');
@@ -148,6 +176,21 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   }
 
   void _initializeFormState(AuditModel audit) {
+    _storageDaysController.clear();
+    for (final controller in _estControllers.values) {
+      controller.clear();
+    }
+    _estPhotos.clear();
+    _estAvgController.clear();
+    _estCvController.clear();
+    _notesController.clear();
+    for (final controller in _eggWeightControllers) {
+      controller.clear();
+    }
+    _traySpacing = null;
+    _coolerProximity = null;
+    _condensation = null;
+    _bmkEggWeight = null;
     _storageDaysController.text = _formatNumber(audit.esEggStorageDays);
     _loadEstGrid(audit.esEstReadingsJson);
     _loadEstPhotos(audit.esEstPhotosJson);
@@ -163,6 +206,18 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     _coolerProximity = audit.esCoolerProximity;
     _condensation = audit.esCondensation;
     _bmkEggWeight = audit.esEggBmkWeight;
+    _notesController.text = audit.notes ?? '';
+  }
+
+  void _syncActiveSampleForm(AuditModel audit) {
+    if (_activeAuditId == audit.id) return;
+    _activeAuditId = audit.id;
+    _nextEstCaptureGeneration();
+    _cancelEstAutoScanTimer();
+    _estCaptureState = _estCaptureState?.stopAutoScan(
+      message: 'Auto scan stopped.',
+    );
+    _initializeFormState(audit);
   }
 
   void _loadEstGrid(String? readingsJson) {
@@ -239,6 +294,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
   @override
   void dispose() {
+    widget.stationController?._detach(this);
     _nextEstCaptureGeneration();
     _cancelEstAutoScanTimer();
     _discardUnconfirmedEstPhoto(_estCaptureState);
@@ -254,6 +310,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     }
     _estAvgController.dispose();
     _estCvController.dispose();
+    _notesController.dispose();
     for (final tray in _uvTrays) {
       tray.dispose();
     }
@@ -275,6 +332,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
+    _syncActiveSampleForm(audit);
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
@@ -283,7 +341,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Egg Storage & Handling',
+                title: AuditTypeLabels.eggStationLabel,
                 actions: [
                   if (auditProvider.isReadOnly)
                     IconButton(
@@ -292,51 +350,332 @@ class _EggStorageScreenState extends State<EggStorageScreen>
                     ),
                 ],
               ),
-        body: AuditKeyboardDismiss(
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
+        body: AuditNumericKeyboardScope(
+          child: AuditKeyboardDismiss(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(AppSizes.cardPadding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildEggStorageHeader(),
+                  const SizedBox(height: 16),
+                  _buildEggStorageWorkbench(audit, auditProvider),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEggStorageHeader() {
+    final hatcheryName = context.select<CustomersProvider, String?>((provider) {
+      final hatcheryId = widget.context.hatcheryId?.trim();
+      if (hatcheryId == null || hatcheryId.isEmpty) return null;
+      return provider.hatcheryById(hatcheryId)?.name;
+    });
+    final hatcheryId = widget.context.hatcheryId?.trim();
+    final hatcheryLabel = hatcheryName?.trim().isNotEmpty == true
+        ? hatcheryName!.trim()
+        : (hatcheryId?.isNotEmpty == true ? hatcheryId! : 'Main Hatchery');
+
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 220),
+      padding: const EdgeInsets.all(AppSizes.spaceXxl),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF089FE0), Color(0xFF1C48C9)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.cardShadowElevated,
+            blurRadius: 22,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'AUDIT STATION',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.badge.copyWith(
+                  fontSize: 22,
+                  letterSpacing: 0,
+                  color: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              Text(
+                AuditTypeLabels.eggStationLabel,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.heading.copyWith(
+                  fontSize: 34,
+                  height: 1.05,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceXxl),
+          Container(
+            padding: const EdgeInsets.all(AppSizes.spaceLg),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.24),
+                width: 1.5,
+              ),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSectionCard(
-                  title: 'Egg Shell Temperature (EST)',
-                  icon: Icons.thermostat_outlined,
-                  cardKey: _sectionKeys[0],
-                  child: _buildEstGridSection(auditProvider),
+                Text(
+                  'HATCHERY',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.badge.copyWith(
+                    fontSize: 20,
+                    letterSpacing: 0,
+                    color: Colors.white.withValues(alpha: 0.82),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  title: 'UV Tray Inspection',
-                  icon: Icons.grid_on,
-                  cardKey: _sectionKeys[1],
-                  child: _buildUvTraySection(auditProvider),
+                const SizedBox(height: AppSizes.spaceSm),
+                Text(
+                  hatcheryLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.title.copyWith(
+                    fontSize: 24,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  title: 'Upside Down Score',
-                  icon: Icons.flip_to_back,
-                  cardKey: _sectionKeys[2],
-                  child: _buildUpsideDownSection(auditProvider),
-                ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  title: 'Egg Uniformity',
-                  icon: Icons.monitor_weight_outlined,
-                  cardKey: _sectionKeys[3],
-                  child: _buildEggUniformitySection(auditProvider),
-                ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  title: 'Storage Checklist',
-                  icon: Icons.checklist,
-                  cardKey: _sectionKeys[4],
-                  child: _buildStorageChecklistSection(audit, auditProvider),
-                ),
-                const SizedBox(height: 16),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEggStorageWorkbench(
+    AuditModel audit,
+    AuditProvider auditProvider,
+  ) {
+    final leftPanels = <Widget>[
+      _buildWorkbenchPanel(
+        cardKey: _sectionKeys[0],
+        mark: 'EST',
+        icon: Icons.thermostat_outlined,
+        title: 'Egg Shell Temperature',
+        meta: 'Storage class and shell readings',
+        statusLabel: _estStatusLabel(),
+        statusColor: _estStatusColor(),
+        child: _buildEstGridSection(auditProvider),
+      ),
+      _buildWorkbenchPanel(
+        cardKey: _sectionKeys[2],
+        mark: 'UD',
+        icon: Icons.flip_to_back,
+        title: 'Upside Down Score',
+        meta: 'Count incorrectly oriented eggs per tray',
+        statusLabel: 'Avg ${_upsideDownAveragePct().toStringAsFixed(1)}%',
+        statusColor: _getAffectedColor(_upsideDownAveragePct()),
+        child: _buildUpsideDownSection(auditProvider),
+      ),
+      _buildWorkbenchPanel(
+        cardKey: _sectionKeys[4],
+        mark: 'CHK',
+        icon: Icons.checklist,
+        title: 'Storage Checklist',
+        meta: 'Handling observations before set',
+        statusLabel: '${_completedChecklistCount(audit)} of 4 set',
+        statusColor: _completedChecklistCount(audit) >= 3
+            ? AppColors.statusGood
+            : AppColors.statusWarning,
+        child: _buildStorageChecklistSection(audit, auditProvider),
+      ),
+    ];
+    final rightPanels = <Widget>[
+      _buildEggQualityPanel(auditProvider),
+      _buildWorkbenchPanel(
+        cardKey: _sectionKeys[1],
+        mark: 'UV',
+        icon: Icons.grid_on,
+        title: 'Egg Shell Quality',
+        meta: 'UV torch inspection by tray',
+        statusLabel:
+            'Avg affected ${_uvAffectedAveragePct().toStringAsFixed(1)}%',
+        statusColor: _getAffectedColor(_uvAffectedAveragePct()),
+        child: _buildUvTraySection(auditProvider),
+      ),
+      _buildWorkbenchPanel(
+        mark: 'NT',
+        icon: Icons.notes_outlined,
+        title: 'Notes',
+        meta: 'Optional station comments',
+        child: _buildNotesSection(auditProvider),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 900) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 96, child: _buildPanelColumn(leftPanels)),
+              const SizedBox(width: 16),
+              Expanded(flex: 104, child: _buildPanelColumn(rightPanels)),
+            ],
+          );
+        }
+        return _buildPanelColumn([...leftPanels, ...rightPanels]);
+      },
+    );
+  }
+
+  Widget _buildPanelColumn(List<Widget> panels) {
+    return Column(
+      children: [
+        for (var i = 0; i < panels.length; i++) ...[
+          if (i > 0) const SizedBox(height: 16),
+          panels[i],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildWorkbenchPanel({
+    required String mark,
+    required IconData icon,
+    required String title,
+    required String meta,
+    required Widget child,
+    Key? cardKey,
+    String? statusLabel,
+    Color? statusColor,
+    bool showHeader = true,
+  }) {
+    return Container(
+      key: cardKey,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderDefault),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(12),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showHeader) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.infoBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.primary.withAlpha(45),
+                        ),
+                      ),
+                      child: Text(
+                        mark,
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(icon, size: 18, color: AppColors.primary),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: AppTextStyles.title.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(meta, style: AppTextStyles.caption),
+                        ],
+                      ),
+                    ),
+                    if (statusLabel != null && statusColor != null) ...[
+                      const SizedBox(width: 8),
+                      _buildStatusPill(statusLabel, statusColor),
+                    ],
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+            ],
+            Padding(
+              padding: const EdgeInsets.all(AppSizes.cardPadding),
+              child: child,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPill(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withAlpha(90)),
+      ),
+      child: Text(
+        label,
+        style: AppTextStyles.caption.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -395,11 +734,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
+        AuditNumericField(
           controller: _storageDaysController,
           enabled: !auditProvider.isReadOnly,
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
           decoration: InputDecoration(
             labelText: 'Storage Days',
             suffixText: 'days',
@@ -408,7 +745,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             fillColor: Colors.grey[50],
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           ),
-          inputFormatters: _integerInputFormatters,
           onChanged: (value) {
             final days = int.tryParse(value);
             auditProvider.updateField('esEggStorageDays', days);
@@ -461,6 +797,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           onPhotoCaptured: (key, path) {
             unawaited(_handleEstPhotoCaptured(auditProvider, key, path));
           },
+          onMissingPhotoRequested: (key) {
+            unawaited(_attachMissingEstPhoto(auditProvider, key));
+          },
+          onClearRequested: (key) {
+            unawaited(_clearEstPoint(auditProvider, key));
+          },
         ),
         const SizedBox(height: 8),
         Row(
@@ -494,21 +836,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_uvTrays.isNotEmpty) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Overall Avg UV Affected: ${_calculateOverallAvgAffected().toStringAsFixed(1)}%',
-              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
         ..._uvTrays.asMap().entries.map(
           (entry) => _buildUvTrayCard(entry.key, entry.value, auditProvider),
         ),
@@ -529,21 +856,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_uvTrays.isNotEmpty) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Overall Avg Upside Down: ${_calculateOverallAvgUpsideDown().toStringAsFixed(1)}%',
-              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
         ..._uvTrays.asMap().entries.map(
           (entry) =>
               _buildUpsideDownTrayCard(entry.key, entry.value, auditProvider),
@@ -559,6 +871,357 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           ),
       ],
     );
+  }
+
+  Widget _buildEggQualityPanel(AuditProvider auditProvider) {
+    final stats = _eggWeightStats();
+    final qualityStatus = _qualityStatus(stats);
+
+    return _buildWorkbenchPanel(
+      cardKey: _sectionKeys[3],
+      mark: 'EQ',
+      icon: Icons.monitor_weight_outlined,
+      title: 'Egg Quality Assessment',
+      meta: '',
+      statusLabel: qualityStatus.label,
+      statusColor: qualityStatus.color,
+      showHeader: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildEggQualityContext(qualityStatus, auditProvider),
+          const SizedBox(height: 12),
+          _buildEggSampleControls(auditProvider),
+          const SizedBox(height: 12),
+          _buildEggUniformitySection(auditProvider),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEggQualityContext(
+    _PanelStatus status,
+    AuditProvider auditProvider,
+  ) {
+    final storageDays = int.tryParse(_storageDaysController.text);
+    final activeDraft = auditProvider.activeDraft;
+    final bmkAge =
+        activeDraft.esEggBmkAge ?? _calculateEggStorageBmkAge(storageDays);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: AppColors.brandGradient,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Egg Quality Assessment',
+                      style: AppTextStyles.title.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildStatusPill(status.label, Colors.white),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildQualityContextTile('Flock', widget.context.flockId),
+              _buildQualityContextTile('Breed', widget.context.breed ?? '--'),
+              _buildQualityContextTile(
+                'BMK Age',
+                bmkAge == null ? '--' : '$bmkAge wks',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQualityContextTile(String label, String value) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 110, maxWidth: 170),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withAlpha(35),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withAlpha(45)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white.withAlpha(190),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEggSampleControls(AuditProvider auditProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSampleControlCard(
+          title: 'Egg Sample Mode',
+          note: 'Choose one sample or compare houses',
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildModeChip(
+                label: 'Single Sample',
+                selected: !auditProvider.isCompareMode,
+                enabled: !auditProvider.isReadOnly,
+                onSelected: () => _setEggSampleMode(auditProvider, false),
+              ),
+              _buildModeChip(
+                label: 'Multi House Samples',
+                selected: auditProvider.isCompareMode,
+                enabled: !auditProvider.isReadOnly,
+                onSelected: () => _setEggSampleMode(auditProvider, true),
+              ),
+            ],
+          ),
+        ),
+        if (auditProvider.isCompareMode) ...[
+          const SizedBox(height: 10),
+          _buildSampleControlCard(
+            title: 'House Samples',
+            note: 'Same flock, compare egg quality by house',
+            child: _buildHouseSampleChips(auditProvider),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSampleControlCard({
+    required String title,
+    required String note,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  note,
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.caption,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: enabled ? (_) => onSelected() : null,
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: FontWeight.w700,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHouseSampleChips(AuditProvider auditProvider) {
+    final chips = [
+      for (final entry in auditProvider.stationSamples.asMap().entries)
+        ChoiceChip(
+          label: Text(entry.value.houseNo ?? entry.value.sampleLabel),
+          selected: entry.key == auditProvider.activeSampleIndex,
+          onSelected: auditProvider.isReadOnly
+              ? null
+              : (_) => _switchEggHouseSample(auditProvider, entry.key),
+          selectedColor: AppColors.primary.withAlpha(30),
+          checkmarkColor: AppColors.primary,
+          labelStyle: AppTextStyles.body.copyWith(
+            color: entry.key == auditProvider.activeSampleIndex
+                ? AppColors.primary
+                : AppColors.textBody,
+            fontWeight: FontWeight.w800,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: entry.key == auditProvider.activeSampleIndex
+                  ? AppColors.primary
+                  : AppColors.borderDefault,
+            ),
+          ),
+        ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHouseSampleActionButton(
+          tooltip: 'Add house sample',
+          icon: Icons.add,
+          onPressed: auditProvider.isReadOnly
+              ? null
+              : () => _addEggHouseSample(auditProvider),
+        ),
+        if (auditProvider.sampleCount > 1) ...[
+          const SizedBox(width: 8),
+          _buildHouseSampleActionButton(
+            tooltip: 'Remove active house sample',
+            icon: Icons.remove,
+            onPressed: auditProvider.isReadOnly
+                ? null
+                : () => _removeActiveEggHouseSample(auditProvider),
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
+            ),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHouseSampleActionButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton.filledTonal(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
+      ),
+    );
+  }
+
+  void _setEggSampleMode(AuditProvider provider, bool compare) {
+    provider.setStationSampleMode(
+      compare
+          ? StationSampleModel.sampleModeComparison
+          : StationSampleModel.sampleModePooled,
+    );
+    _syncActiveSampleForm(provider.activeDraft);
+    if (mounted) setState(() {});
+  }
+
+  void _addEggHouseSample(AuditProvider provider) {
+    provider.addSample();
+    _syncActiveSampleForm(provider.activeDraft);
+    if (mounted) setState(() {});
+  }
+
+  void _switchEggHouseSample(AuditProvider provider, int index) {
+    provider.switchSample(index);
+    _syncActiveSampleForm(provider.activeDraft);
+    if (mounted) setState(() {});
+  }
+
+  void _removeActiveEggHouseSample(AuditProvider provider) {
+    provider.removeActiveSample();
+    _syncActiveSampleForm(provider.activeDraft);
+    if (mounted) setState(() {});
   }
 
   Widget _buildEggUniformitySection(AuditProvider auditProvider) {
@@ -577,8 +1240,8 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             icon: const Icon(Icons.grid_on),
             label: Text(
               auditProvider.isReadOnly
-                  ? 'View Egg Weight Sheet ($enteredCount/100)'
-                  : 'Open Egg Weight Sheet ($enteredCount/100)',
+                  ? 'View Weights ($enteredCount/100)'
+                  : 'Enter Weights ($enteredCount/100)',
             ),
           ),
         ),
@@ -657,6 +1320,23 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
+  Widget _buildNotesSection(AuditProvider auditProvider) {
+    return TextField(
+      controller: _notesController,
+      enabled: !auditProvider.isReadOnly,
+      minLines: 4,
+      maxLines: 7,
+      decoration: InputDecoration(
+        labelText: 'Assessment Notes',
+        alignLabelWithHint: true,
+        filled: true,
+        fillColor: AppColors.surfaceVariant,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      onChanged: (value) => auditProvider.updateField('notes', value),
+    );
+  }
+
   Widget _buildChoiceRow({
     required String label,
     required List<String> options,
@@ -700,6 +1380,63 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
+  String _estStatusLabel() {
+    final avg = double.tryParse(_estAvgController.text);
+    if (avg == null) return 'Pending';
+    final storageDays = int.tryParse(_storageDaysController.text);
+    final target = _shellStorageTarget(storageDays);
+    return target.status(avg) == TemperatureStatus.optimal
+        ? 'On target'
+        : target.zone(avg);
+  }
+
+  Color _estStatusColor() {
+    final avg = double.tryParse(_estAvgController.text);
+    if (avg == null) return AppColors.statusWarning;
+    final storageDays = int.tryParse(_storageDaysController.text);
+    final target = _shellStorageTarget(storageDays);
+    return target.status(avg) == TemperatureStatus.optimal
+        ? AppColors.statusGood
+        : AppColors.statusError;
+  }
+
+  double _upsideDownAveragePct() {
+    return _averageTrayPct((tray) => tray.upsideDownPct);
+  }
+
+  double _uvAffectedAveragePct() {
+    return _averageTrayPct((tray) => tray.affectedPct);
+  }
+
+  double _averageTrayPct(double Function(_UvTray tray) selector) {
+    if (_uvTrays.isEmpty) return 0.0;
+    final values = _uvTrays.map(selector).toList();
+    return values.reduce((sum, value) => sum + value) / values.length;
+  }
+
+  int _completedChecklistCount(AuditModel audit) {
+    return [
+      audit.esTurningTimes != null,
+      _traySpacing != null,
+      _coolerProximity != null,
+      _condensation != null,
+    ].where((isComplete) => isComplete).length;
+  }
+
+  _PanelStatus _qualityStatus(_EggWeightStats? stats) {
+    if (stats == null) {
+      return const _PanelStatus('Pending', AppColors.statusWarning);
+    }
+    if (stats.cv <= AppThresholds.cvAlertPct &&
+        stats.uniformity > AppThresholds.uniformityGood) {
+      return const _PanelStatus('Healthy spread', AppColors.statusGood);
+    }
+    if (stats.uniformity < AppThresholds.uniformityPoor) {
+      return const _PanelStatus('Review spread', AppColors.statusError);
+    }
+    return const _PanelStatus('Watch spread', AppColors.statusWarning);
+  }
+
   void _scrollToInitialSection() {
     final index = widget.initialSectionIndex
         .clamp(0, _sectionKeys.length - 1)
@@ -711,45 +1448,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeOutCubic,
       alignment: 0.05,
-    );
-  }
-
-  Widget _buildSectionCard({
-    required String title,
-    required IconData icon,
-    required Widget child,
-    Key? cardKey,
-  }) {
-    return Card(
-      key: cardKey,
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: AppColors.primary, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            child,
-          ],
-        ),
-      ),
     );
   }
 
@@ -790,16 +1488,13 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           const SizedBox(height: 8),
           SizedBox(
             width: 120,
-            child: TextField(
+            child: AuditNumericField(
               controller: tray.totalEggsController,
               enabled: !provider.isReadOnly,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Total Eggs',
                 border: OutlineInputBorder(),
               ),
-              inputFormatters: _integerInputFormatters,
               onChanged: (value) => setState(() {
                 tray.totalEggs = int.tryParse(value);
                 _updateUvTrays(provider);
@@ -863,6 +1558,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
               PhotoButton(
                 photoPath: tray.photoPath,
                 enabled: !provider.isReadOnly,
+                cameraFirst: true,
                 onPhotoCaptured: (path) => setState(() {
                   tray.photoPath = path;
                   _updateUvTrays(provider);
@@ -956,16 +1652,13 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           const SizedBox(height: 8),
           SizedBox(
             width: 120,
-            child: TextField(
+            child: AuditNumericField(
               controller: tray.totalEggsController,
               enabled: !provider.isReadOnly,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Total Eggs',
                 border: OutlineInputBorder(),
               ),
-              inputFormatters: _integerInputFormatters,
               onChanged: (value) => setState(() {
                 tray.totalEggs = int.tryParse(value);
                 _updateUvTrays(provider);
@@ -1009,9 +1702,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     final cards = [
       _SummaryMetric(
-        'Samples',
-        '${stats?.sampleSize ?? 0}/100',
-        Colors.blueGrey,
+        'Avg Weight',
+        stats == null ? '--' : '${stats.avg.toStringAsFixed(1)}g',
+        AppColors.primary,
       ),
       _SummaryMetric(
         'BMK Age',
@@ -1019,32 +1712,27 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         Colors.blueGrey,
       ),
       _SummaryMetric(
-        'BMK Egg Wt.',
-        bmkWeight == null ? '--' : '${bmkWeight.toStringAsFixed(1)}g',
+        'Sample Size',
+        '${stats?.sampleSize ?? 0}/100',
         Colors.blueGrey,
       ),
       _SummaryMetric(
-        'AVG Weight',
-        stats == null ? '--' : '${stats.avg.toStringAsFixed(1)}g',
-        Colors.blue,
-      ),
-      _SummaryMetric(
-        'Min Range',
+        'Min',
         stats == null ? '--' : '${stats.minRange.toStringAsFixed(1)}g',
         Colors.blueGrey,
       ),
       _SummaryMetric(
-        'Max Range',
+        'Max',
         stats == null ? '--' : '${stats.maxRange.toStringAsFixed(1)}g',
         Colors.blueGrey,
       ),
       _SummaryMetric(
-        'Uniformity 10%',
+        'Uniformity',
         stats == null ? '--' : '${stats.uniformity.toStringAsFixed(1)}%',
         stats == null ? Colors.blueGrey : _uniformityColor(stats.uniformity),
       ),
       _SummaryMetric(
-        'CV%',
+        'C.V',
         stats == null ? '--' : '${stats.cv.toStringAsFixed(1)}%',
         stats == null
             ? Colors.blueGrey
@@ -1052,11 +1740,16 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             ? AppColors.greenTab
             : Colors.red,
       ),
+      _SummaryMetric(
+        'BMK Egg Weight',
+        bmkWeight == null ? '--' : '${bmkWeight.toStringAsFixed(1)}g',
+        Colors.blueGrey,
+      ),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 760 ? 4 : 2;
+        final columns = constraints.maxWidth >= 560 ? 4 : 2;
         final spacing = 8.0;
         final itemWidth =
             (constraints.maxWidth - (spacing * (columns - 1))) / columns;
@@ -1107,7 +1800,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Egg Uniformity Entry',
+                                  _eggWeightSheetTitle(provider),
                                   style: AppTextStyles.heading.copyWith(
                                     fontSize: 18,
                                   ),
@@ -1142,8 +1835,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
                                     setSheetState(() {});
                                   },
                                 ),
-                                const SizedBox(height: 16),
-                                _buildUniformitySummary(),
                               ],
                             ),
                           ),
@@ -1158,6 +1849,13 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         );
       },
     );
+  }
+
+  String _eggWeightSheetTitle(AuditProvider provider) {
+    if (!provider.isCompareMode) return 'Egg Weight Sheet';
+    final sample = provider.activeStationSample;
+    final label = sample.houseNo ?? sample.sampleLabel;
+    return '$label Egg Weight Sheet';
   }
 
   Widget _summCard(String label, String value, Color color) => Container(
@@ -1186,16 +1884,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       ],
     ),
   );
-
-  double _calculateOverallAvgAffected() => _uvTrays.isEmpty
-      ? 0.0
-      : _uvTrays.map((t) => t.affectedPct).reduce((a, b) => a + b) /
-            _uvTrays.length;
-
-  double _calculateOverallAvgUpsideDown() => _uvTrays.isEmpty
-      ? 0.0
-      : _uvTrays.map((t) => t.upsideDownPct).reduce((a, b) => a + b) /
-            _uvTrays.length;
 
   Color _uniformityColor(double uniformity) {
     if (uniformity < AppThresholds.uniformityPoor) return Colors.red;
@@ -1649,12 +2337,185 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
+  Future<bool> _prepareForStationExit() async {
+    final current = _estCaptureState;
+    if (current == null) return true;
+
+    _nextEstCaptureGeneration();
+    _cancelEstAutoScanTimer();
+    _discardUnconfirmedEstPhoto(current);
+
+    final inlineCamera = _estCameraKey.currentState;
+    final shouldWaitForCamera =
+        inlineCamera?.isCameraReady == true ||
+        inlineCamera?.isPreviewActive == true;
+    if (shouldWaitForCamera) {
+      await inlineCamera!.closeCameraForStationExit().timeout(
+        const Duration(milliseconds: 1500),
+        onTimeout: () {},
+      );
+    } else {
+      unawaited(inlineCamera?.closeCameraForStationExit());
+    }
+
+    if (!mounted) return true;
+    setState(() {
+      _estCaptureState = null;
+      _estGuidedValueController.clear();
+      _estHighlightedKey = null;
+      _isConfirmingEstCapture = false;
+      _estInlineCameraReady = false;
+    });
+    return true;
+  }
+
   Future<void> _handleEstPhotoCaptured(
     AuditProvider provider,
     String key,
     String path,
   ) async {
+    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
+    final existingPhoto = _estPhotos[key];
+    if (existingValue != null &&
+        (existingPhoto == null || existingPhoto.trim().isEmpty)) {
+      await _attachEstPhotoPathToExistingReading(provider, key, path);
+      return;
+    }
+
     await _confirmSingleEstReading(provider, key, path);
+  }
+
+  Future<void> _attachMissingEstPhoto(
+    AuditProvider provider,
+    String key,
+  ) async {
+    if (provider.isReadOnly) return;
+    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
+    final existingPhoto = _estPhotos[key];
+    if (existingValue == null ||
+        (existingPhoto != null && existingPhoto.trim().isNotEmpty)) {
+      return;
+    }
+
+    final path = await _photoService.pickPhoto(fromCamera: true);
+    if (!mounted || path == null || path.trim().isEmpty) return;
+
+    await _attachEstPhotoPathToExistingReading(provider, key, path);
+  }
+
+  Future<void> _attachEstPhotoPathToExistingReading(
+    AuditProvider provider,
+    String key,
+    String path,
+  ) async {
+    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
+    if (existingValue == null || path.trim().isEmpty) return;
+
+    setState(() {
+      _estPhotos[key] = path;
+      _estHighlightedKey = key;
+    });
+    _updateEstPhotos(provider);
+    await _saveEstEvidencePhotoRecord(provider.activeDraft.id, key, path);
+    await _persistActiveAuditRow(provider);
+  }
+
+  Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
+    try {
+      await _auditRepository.updateAudit(provider.activeDraft);
+      return true;
+    } catch (_) {
+      // Keep the active draft updated; normal tab save can persist if row is new.
+      return false;
+    }
+  }
+
+  Future<void> _clearEstPoint(AuditProvider provider, String key) async {
+    if (provider.isReadOnly) return;
+    final controller = _estControllers[key];
+    if (controller == null) return;
+    final previousValue = controller.text;
+    final previousPhoto = _estPhotos[key];
+    if (previousValue.trim().isEmpty &&
+        (previousPhoto == null || previousPhoto.trim().isEmpty)) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear this reading and photo?'),
+        content: Text(_estTargetLabel(key)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final previousReadingsJson = provider.activeDraft.esEstReadingsJson;
+    final previousPhotosJson = provider.activeDraft.esEstPhotosJson;
+    final previousAvg = provider.activeDraft.esEstAvg;
+    final previousCv = provider.activeDraft.esEstCv;
+    final previousShellTemp = provider.activeDraft.esShellTemp;
+    final previousAvgText = _estAvgController.text;
+    final previousCvText = _estCvController.text;
+
+    _nextEstCaptureGeneration();
+    _cancelEstAutoScanTimer();
+    _discardUnconfirmedEstPhoto(_estCaptureState);
+
+    setState(() {
+      controller.clear();
+      _estPhotos[key] = null;
+      _estHighlightedKey = null;
+      if (_estCaptureState != null) {
+        _estGuidedValueController.clear();
+        _isConfirmingEstCapture = false;
+        _estCaptureState = EstGuidedCaptureState.initial(
+          readings: _currentEstReadings(),
+          photos: _currentEstPhotoPaths(),
+        );
+      }
+    });
+    _updateEstPhotos(provider);
+    _updateEstCalculations(provider);
+
+    final persisted = await _persistActiveAuditRow(provider);
+    if (!mounted) return;
+    if (persisted) {
+      setState(() => _estSuccessPulse++);
+      return;
+    }
+
+    setState(() {
+      controller.text = previousValue;
+      _estPhotos[key] = previousPhoto;
+      _estAvgController.text = previousAvgText;
+      _estCvController.text = previousCvText;
+      if (_estCaptureState != null) {
+        _estCaptureState = EstGuidedCaptureState.initial(
+          readings: _currentEstReadings(),
+          photos: _currentEstPhotoPaths(),
+        );
+      }
+    });
+    provider.updateField('es_estReadingsJson', previousReadingsJson);
+    provider.updateField('es_estPhotosJson', previousPhotosJson);
+    provider.updateField('es_estAvg', previousAvg);
+    provider.updateField('es_estCv', previousCv);
+    provider.updateField('esShellTemp', previousShellTemp);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not clear EST point. Try again.')),
+    );
   }
 
   Future<void> _confirmSingleEstReading(
@@ -1674,47 +2535,44 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             final parsedValue = double.tryParse(valueController.text);
-            return AlertDialog(
-              title: Text(_estTargetLabel(key)),
-              content: TextField(
-                controller: valueController,
-                autofocus: true,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+            return AuditNumericKeyboardScope(
+              child: AlertDialog(
+                title: Text(_estTargetLabel(key)),
+                content: AuditNumericField(
+                  controller: valueController,
+                  allowDecimal: true,
+                  maxDecimalPlaces: 1,
+                  decoration: InputDecoration(
+                    labelText: 'Temperature',
+                    suffixText: '°C',
+                    helperText: reading == null
+                        ? 'No reading found. Enter it manually or retake.'
+                        : 'Confirm or edit the detected reading.',
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
                 ),
-                decoration: InputDecoration(
-                  labelText: 'Temperature',
-                  suffixText: '°C',
-                  helperText: reading == null
-                      ? 'No reading found. Enter it manually or retake.'
-                      : 'Confirm or edit the detected reading.',
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        Navigator.pop(dialogContext, _EstScanAction.skip),
+                    child: const Text('Skip'),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        Navigator.pop(dialogContext, _EstScanAction.retake),
+                    child: const Text('Retake'),
+                  ),
+                  FilledButton(
+                    onPressed: parsedValue == null
+                        ? null
+                        : () => Navigator.pop(
+                            dialogContext,
+                            _EstScanAction.confirm,
+                          ),
+                    child: const Text('Confirm'),
+                  ),
                 ],
-                onChanged: (_) => setDialogState(() {}),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, _EstScanAction.skip),
-                  child: const Text('Skip'),
-                ),
-                TextButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, _EstScanAction.retake),
-                  child: const Text('Retake'),
-                ),
-                FilledButton(
-                  onPressed: parsedValue == null
-                      ? null
-                      : () => Navigator.pop(
-                          dialogContext,
-                          _EstScanAction.confirm,
-                        ),
-                  child: const Text('Confirm'),
-                ),
-              ],
             );
           },
         );
@@ -1892,31 +2750,30 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     if (days <= 4) {
       return const _ShellStorageTarget(
         label: 'Short storage',
-        minC: 18,
+        minC: 19,
         maxC: 21,
       );
     }
     if (days <= 7) {
       return const _ShellStorageTarget(
         label: 'Medium storage',
-        minC: 15,
-        maxC: 18,
+        minC: 18,
+        maxC: 20,
       );
     }
-    return const _ShellStorageTarget(label: 'Long storage', minC: 10, maxC: 15);
+    return const _ShellStorageTarget(label: 'Long storage', minC: 16, maxC: 18);
   }
 
   int? _calculateEggStorageBmkAge(int? storageDays) {
     final entryDate = widget.context.flockEntryDate;
-    if (entryDate == null) return null;
 
     final auditDate = DateTime.tryParse(widget.context.date) ?? DateTime.now();
-    final bmkAgeDays =
-        hatch_dates.HatchDateUtils.flockAgeDays(entryDate, now: auditDate) -
-        21 -
-        (storageDays ?? 0);
-    if (bmkAgeDays <= 0) return 0;
-    return (bmkAgeDays / 7).ceil();
+    return EggStorageBmkAge.calculateWeeks(
+      flockEntryDate: entryDate,
+      flockAgeWeeks: widget.context.flockAgeWeeks,
+      auditDate: auditDate,
+      storageDays: storageDays,
+    );
   }
 
   Future<void> _syncEggStorageBmk(
@@ -2085,7 +2942,6 @@ class _ShellStorageTarget {
   }
 
   static String _formatTemp(double temp) {
-    if (temp == temp.roundToDouble()) return temp.toStringAsFixed(0);
     return temp.toStringAsFixed(1);
   }
 }
@@ -2114,6 +2970,13 @@ class _SummaryMetric {
   final Color color;
 
   const _SummaryMetric(this.label, this.value, this.color);
+}
+
+class _PanelStatus {
+  final String label;
+  final Color color;
+
+  const _PanelStatus(this.label, this.color);
 }
 
 enum _EstScanAction { confirm, retake, skip }

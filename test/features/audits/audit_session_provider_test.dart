@@ -80,6 +80,14 @@ void main() {
   });
 
   group('AuditSessionProvider - startSession', () {
+    test('uses Egg as the visible label while preserving audit type', () {
+      expect(AuditSessionProvider.stationDisplayLabels['egg_storage'], 'Egg');
+      expect(
+        AuditSessionProvider.stationKeyToAuditType['egg_storage'],
+        'Egg Storage',
+      );
+    });
+
     test('creates new session with in_progress status', () async {
       when(() => mockRepo.insertSession(any())).thenAnswer((_) async {});
 

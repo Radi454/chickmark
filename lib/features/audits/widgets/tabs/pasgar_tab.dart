@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/calculation_utils.dart';
 import '../../../../core/utils/field_validators.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
 class PasgarTab extends StatefulWidget {
@@ -85,146 +85,146 @@ class _PasgarTabState extends State<PasgarTab> {
       defectCounts.take(5).toList(),
     );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.numbers, color: AppColors.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Sample Size',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.numbers, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Sample Size',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _sampleSizeController,
-                    enabled: !widget.isReadOnly,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      border: const OutlineInputBorder(),
-                      labelText: 'Number of chicks sampled',
-                      errorText: _sampleSizeError,
+                      ],
                     ),
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    onChanged: (value) {
-                      setState(() {
-                        _validateSampleSize();
-                      });
-                      widget.onFieldChanged(
-                        'pasgarSampleSize',
-                        int.tryParse(value) ?? 0,
-                      );
-                      _persistScore();
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    AuditNumericField(
+                      controller: _sampleSizeController,
+                      enabled: !widget.isReadOnly,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        labelText: 'Number of chicks sampled',
+                        errorText: _sampleSizeError,
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _validateSampleSize();
+                        });
+                        widget.onFieldChanged(
+                          'pasgarSampleSize',
+                          int.tryParse(value) ?? 0,
+                        );
+                        _persistScore();
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.warning, color: AppColors.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Defect Counts',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.warning, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Defect Counts',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDefectInput(0, 'Reflexes', Icons.accessibility_new),
-                  const SizedBox(height: 12),
-                  _buildDefectInput(1, 'Beak', Icons.pets),
-                  const SizedBox(height: 12),
-                  _buildDefectInput(2, 'Navel', Icons.healing),
-                  const SizedBox(height: 12),
-                  _buildDefectInput(3, 'Belly', Icons.circle_outlined),
-                  const SizedBox(height: 12),
-                  _buildDefectInput(4, 'Leg', Icons.directions_walk),
-                  const SizedBox(height: 12),
-                  _buildDefectInput(5, 'Feather Dev', Icons.air),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildDefectInput(0, 'Reflexes', Icons.accessibility_new),
+                    const SizedBox(height: 12),
+                    _buildDefectInput(1, 'Beak', Icons.pets),
+                    const SizedBox(height: 12),
+                    _buildDefectInput(2, 'Navel', Icons.healing),
+                    const SizedBox(height: 12),
+                    _buildDefectInput(3, 'Belly', Icons.circle_outlined),
+                    const SizedBox(height: 12),
+                    _buildDefectInput(4, 'Leg', Icons.directions_walk),
+                    const SizedBox(height: 12),
+                    _buildDefectInput(5, 'Feather Dev', Icons.air),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'PASGAR Score',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'PASGAR Score',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${pasgarScore.toStringAsFixed(1)}/10',
-                        style: AppTextStyles.heading.copyWith(
-                          fontSize: 32,
-                          color: pasgarScore >= 9.5
-                              ? AppColors.greenTab
-                              : pasgarScore >= 9.0
-                              ? Colors.orange
-                              : Colors.red,
+                        const SizedBox(height: 4),
+                        Text(
+                          '${pasgarScore.toStringAsFixed(1)}/10',
+                          style: AppTextStyles.heading.copyWith(
+                            fontSize: 32,
+                            color: pasgarScore >= 9.5
+                                ? AppColors.greenTab
+                                : pasgarScore >= 9.0
+                                ? Colors.orange
+                                : Colors.red,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  Icon(
-                    Icons.assessment,
-                    size: 48,
-                    color: pasgarScore >= 9.5
-                        ? AppColors.greenTab
-                        : pasgarScore >= 9.0
-                        ? Colors.orange
-                        : Colors.red,
-                  ),
-                ],
+                      ],
+                    ),
+                    Icon(
+                      Icons.assessment,
+                      size: 48,
+                      color: pasgarScore >= 9.5
+                          ? AppColors.greenTab
+                          : pasgarScore >= 9.0
+                          ? Colors.orange
+                          : Colors.red,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -278,17 +278,15 @@ class _PasgarTabState extends State<PasgarTab> {
         const SizedBox(width: 16),
         SizedBox(
           width: 80,
-          child: TextField(
+          child: AuditNumericField(
             controller: _controllers[index],
             enabled: !widget.isReadOnly,
-            keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               isDense: true,
               errorText: _defectErrors[index],
             ),
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             onChanged: (value) {
               _updateDefectCount(index, value);
             },

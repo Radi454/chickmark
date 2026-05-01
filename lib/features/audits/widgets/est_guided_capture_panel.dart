@@ -5,8 +5,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../models/est_guided_capture_state.dart';
 import '../models/est_grid_data.dart';
+import 'audit_numeric_keyboard.dart';
 
-class EstGuidedCapturePanel extends StatelessWidget {
+class EstGuidedCapturePanel extends StatefulWidget {
   const EstGuidedCapturePanel({
     super.key,
     required this.state,
@@ -45,9 +46,28 @@ class EstGuidedCapturePanel extends StatelessWidget {
   final bool isConfirming;
 
   @override
+  State<EstGuidedCapturePanel> createState() => _EstGuidedCapturePanelState();
+}
+
+class _EstGuidedCapturePanelState extends State<EstGuidedCapturePanel> {
+  bool _isEditingReading = false;
+  String? _editError;
+
+  @override
+  void didUpdateWidget(covariant EstGuidedCapturePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.state.currentKey != widget.state.currentKey ||
+        oldWidget.state.capturedImagePath != widget.state.capturedImagePath) {
+      _isEditingReading = false;
+      _editError = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isReview = state.capturedImagePath != null && state.ocrValue != null;
-    final isBusy = state.isProcessing || state.isOcrProcessing;
+    final isReview =
+        widget.state.capturedImagePath != null && widget.state.ocrValue != null;
+    final isBusy = widget.state.isProcessing || widget.state.isOcrProcessing;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -61,27 +81,27 @@ class EstGuidedCapturePanel extends StatelessWidget {
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
-              final previewHeight = constraints.maxWidth >= 640 ? 240.0 : 188.0;
+              final previewHeight = constraints.maxWidth >= 640 ? 232.0 : 196.0;
               return ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: SizedBox(
                   width: double.infinity,
                   height: previewHeight,
-                  child: preview,
+                  child: widget.preview,
                 ),
               );
             },
           ),
           const SizedBox(height: 12),
           _TargetHeader(
-            targetLabel: _targetLabel(state.currentKey),
-            currentStep: state.currentStep,
-            totalSteps: state.totalSteps,
-            onFinish: isBusy ? null : onFinish,
+            targetLabel: _targetLabel(widget.state.currentKey),
+            currentStep: widget.state.currentStep,
+            totalSteps: widget.state.totalSteps,
+            onFinish: isBusy ? null : widget.onFinish,
           ),
           const SizedBox(height: 8),
           LinearProgressIndicator(
-            value: state.currentStep / state.totalSteps,
+            value: widget.state.currentStep / widget.state.totalSteps,
             minHeight: 5,
             borderRadius: BorderRadius.circular(999),
           ),
@@ -100,10 +120,15 @@ class EstGuidedCapturePanel extends StatelessWidget {
   }
 
   Widget _buildScanningState(bool isBusy) {
-    final showAutoScan = canAutoScan && !useCameraAppForCapture;
+    final showAutoScan = widget.canAutoScan && !widget.useCameraAppForCapture;
+    final isAutoScanning = widget.state.isAutoScanning;
+    final canToggleScan =
+        showAutoScan && !isBusy && !widget.state.isCurrentPointConfirmed;
 
     return Column(
-      key: ValueKey('scanning-${state.currentKey}-${state.isAutoScanning}'),
+      key: ValueKey(
+        'scanning-${widget.state.currentKey}-${widget.state.isAutoScanning}',
+      ),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -113,10 +138,16 @@ class EstGuidedCapturePanel extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        if (state.errorMessage != null) ...[
+        if (widget.state.errorMessage != null) ...[
           const SizedBox(height: 4),
           Text(
-            state.errorMessage!,
+            widget.state.errorMessage!,
+            style: AppTextStyles.caption.copyWith(color: Colors.grey[600]),
+          ),
+        ] else ...[
+          const SizedBox(height: 4),
+          Text(
+            'Hold steady · keep display sharp',
             style: AppTextStyles.caption.copyWith(color: Colors.grey[600]),
           ),
         ],
@@ -127,22 +158,26 @@ class EstGuidedCapturePanel extends StatelessWidget {
           children: [
             if (showAutoScan)
               FilledButton.icon(
-                onPressed: isBusy || state.isAutoScanning ? null : onAutoScan,
-                icon: isBusy || state.isAutoScanning
+                onPressed: canToggleScan
+                    ? (isAutoScanning
+                          ? widget.onStopAutoScan
+                          : widget.onAutoScan)
+                    : null,
+                icon: isBusy
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.center_focus_strong),
-                label: const Text('Auto scan'),
+                    : Icon(isAutoScanning ? Icons.pause : Icons.play_arrow),
+                label: Text(isAutoScanning ? 'Pause' : 'Resume'),
               ),
-            FilledButton.icon(
-              onPressed: isBusy ? null : onCapture,
-              icon: const Icon(Icons.photo_camera),
-              label: const Text('Capture'),
+            TextButton.icon(
+              onPressed: isBusy ? null : widget.onCapture,
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Capture once'),
             ),
             TextButton.icon(
-              onPressed: isBusy ? null : onUseNativeCamera,
+              onPressed: isBusy ? null : widget.onUseNativeCamera,
               icon: const Icon(Icons.open_in_new),
               label: const Text('Camera app'),
             ),
@@ -152,7 +187,7 @@ class EstGuidedCapturePanel extends StatelessWidget {
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
-            onPressed: isBusy ? null : onSkip,
+            onPressed: isBusy ? null : widget.onSkip,
             icon: const Icon(Icons.skip_next, size: 18),
             label: const Text('Skip'),
             style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
@@ -163,15 +198,28 @@ class EstGuidedCapturePanel extends StatelessWidget {
   }
 
   Widget _buildReviewState(BuildContext context, bool isBusy) {
-    final canConfirm = state.canConfirm && !isBusy && !isConfirming;
+    final parsedEditedValue = double.tryParse(
+      widget.valueController.text.trim(),
+    );
+    final hasInvalidEdit = _isEditingReading && parsedEditedValue == null;
+    final effectiveEditError = hasInvalidEdit
+        ? (_editError ?? 'Enter a valid temperature')
+        : _editError;
+    final canConfirm =
+        widget.state.canConfirm &&
+        !hasInvalidEdit &&
+        !isBusy &&
+        !widget.isConfirming;
 
     return Column(
-      key: ValueKey('review-${state.currentKey}-${state.capturedImagePath}'),
+      key: ValueKey(
+        'review-${widget.state.currentKey}-${widget.state.capturedImagePath}',
+      ),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Center(
           child: Text(
-            'Confirm reading',
+            'Is this reading correct?',
             style: AppTextStyles.body.copyWith(
               color: Colors.grey[700],
               fontWeight: FontWeight.w700,
@@ -186,32 +234,18 @@ class EstGuidedCapturePanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.greenTab.withAlpha(80)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                state.ocrValue!.toStringAsFixed(1),
-                style: AppTextStyles.heading.copyWith(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF111827),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 5),
-                child: Text(
-                  '°C',
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF111827),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          child: _isEditingReading
+              ? _buildEditableReading()
+              : _buildReadOnlyReading(),
         ),
+        if (_isEditingReading && effectiveEditError != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            effectiveEditError,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.caption.copyWith(color: Colors.red[700]),
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
@@ -220,26 +254,26 @@ class EstGuidedCapturePanel extends StatelessWidget {
                 onPressed: canConfirm
                     ? () {
                         HapticFeedback.lightImpact();
-                        onConfirm();
+                        widget.onConfirm();
                       }
                     : null,
-                icon: isConfirming
+                icon: widget.isConfirming
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check),
-                label: const Text('Right'),
+                label: const Text('Confirm'),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isBusy || isConfirming
+                onPressed: isBusy || widget.isConfirming
                     ? null
-                    : onRejectAutoScanReading,
+                    : widget.onRejectAutoScanReading,
                 icon: const Icon(Icons.close),
-                label: const Text('Wrong'),
+                label: const Text('Try again'),
               ),
             ),
           ],
@@ -247,13 +281,104 @@ class EstGuidedCapturePanel extends StatelessWidget {
         const SizedBox(height: 4),
         Center(
           child: TextButton.icon(
-            onPressed: isBusy || isConfirming ? null : onRetake,
+            onPressed: isBusy || widget.isConfirming ? null : widget.onRetake,
             icon: const Icon(Icons.refresh, size: 18),
             label: const Text('Retake'),
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildReadOnlyReading() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          widget.state.ocrValue!.toStringAsFixed(1),
+          style: AppTextStyles.heading.copyWith(
+            fontSize: 36,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 5),
+          child: Text(
+            '°C',
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF111827),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Tooltip(
+            message: 'Edit reading',
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              iconSize: 18,
+              onPressed: () {
+                widget.valueController.selection = TextSelection(
+                  baseOffset: 0,
+                  extentOffset: widget.valueController.text.length,
+                );
+                setState(() {
+                  _isEditingReading = true;
+                  _editError = _validateEditedReading();
+                });
+              },
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEditableReading() {
+    return AuditNumericKeyboardScope(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: AuditNumericField(
+          controller: widget.valueController,
+          allowDecimal: true,
+          maxDecimalPlaces: 1,
+          textAlign: TextAlign.center,
+          style: AppTextStyles.heading.copyWith(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF111827),
+          ),
+          decoration: InputDecoration(
+            suffixText: '°C',
+            isDense: true,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+          ),
+          onChanged: (_) {
+            final parsed = double.tryParse(widget.valueController.text.trim());
+            setState(() {
+              _editError = parsed == null ? 'Enter a valid temperature' : null;
+            });
+            if (parsed != null) widget.onValueChanged(parsed);
+          },
+        ),
+      ),
+    );
+  }
+
+  String? _validateEditedReading() {
+    return double.tryParse(widget.valueController.text.trim()) == null
+        ? 'Enter a valid temperature'
+        : null;
   }
 
   String _targetLabel(String key) {

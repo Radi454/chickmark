@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../core/utils/scorecard_formatter.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/audit_model.dart';
@@ -433,7 +434,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              audit.auditType,
+              AuditTypeLabels.forAuditType(audit.auditType),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),

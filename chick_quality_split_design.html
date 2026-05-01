@@ -1,0 +1,1460 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChickMark - Chick Quality Split Design</title>
+  <style>
+    :root {
+      --primary: #1769d8;
+      --primary-light: #079fe0;
+      --primary-dark: #193fc2;
+      --bg: #f5f8fc;
+      --surface: #ffffff;
+      --surface-raised: #f7fafd;
+      --surface-soft: #f9fafb;
+      --text: #111827;
+      --body: #1f2937;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --line-strong: #d7e0ec;
+      --good: #388e3c;
+      --good-bg: #e8f5e9;
+      --warn: #e67e22;
+      --warn-bg: #fff3e0;
+      --bad: #dc2626;
+      --info-bg: #eaf4ff;
+      --shadow: 0 18px 46px rgba(17, 24, 39, 0.08);
+      --shadow-soft: 0 10px 24px rgba(17, 24, 39, 0.06);
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, rgba(23, 105, 216, 0.12), transparent 36rem),
+        linear-gradient(180deg, #fbfdff 0%, var(--bg) 18rem);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    .app-shell {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .primary-button,
+    .secondary-button,
+    .icon-button {
+      min-height: 40px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .primary-button {
+      padding: 0 16px;
+      color: white;
+      background: var(--primary);
+      box-shadow: 0 10px 18px rgba(23, 105, 216, 0.2);
+    }
+
+    .secondary-button {
+      padding: 0 14px;
+      color: var(--primary);
+      background: var(--surface);
+      border-color: rgba(23, 105, 216, 0.35);
+    }
+
+    .icon-button {
+      width: 42px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      background: var(--surface);
+      border-color: var(--line);
+      font-size: 20px;
+    }
+
+    .header-card,
+    .flock-card {
+      background: linear-gradient(135deg, var(--primary-light), var(--primary-dark));
+      color: white;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .header-card {
+      margin-bottom: 16px;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 850;
+    }
+
+    .context-grid,
+    .flock-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .context-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .flock-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .context-item,
+    .flock-item {
+      min-width: 0;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .label,
+    label,
+    .metric-label,
+    .helper-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .context-item .label,
+    .flock-item .label {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .context-value,
+    .flock-value {
+      margin-top: 5px;
+      overflow: hidden;
+      color: white;
+      font-size: 15px;
+      font-weight: 800;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .column {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .panel {
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid rgba(229, 231, 235, 0.96);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface-soft) 100%);
+    }
+
+    .panel-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .section-mark {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--info-bg);
+      border: 1px solid rgba(23, 105, 216, 0.16);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 850;
+    }
+
+    .panel-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .panel-body {
+      padding: 16px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .status-pill.good {
+      color: var(--good);
+      background: var(--good-bg);
+    }
+
+    .status-pill.warn {
+      color: var(--warn);
+      background: var(--warn-bg);
+    }
+
+    .flock-card {
+      margin-bottom: 14px;
+    }
+
+    .flock-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .flock-title {
+      margin: 0;
+      color: white;
+      font-size: 22px;
+      font-weight: 850;
+    }
+
+    .flock-subtitle {
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .flock-card .status-pill.good {
+      background: rgba(232, 245, 233, 0.86);
+    }
+
+    .sample-control {
+      padding: 12px;
+      margin-bottom: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      border: 1px solid var(--line);
+    }
+
+    .sample-control.hidden {
+      display: none;
+    }
+
+    .sample-control-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .sample-control-title {
+      margin: 0;
+      color: var(--body);
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .sample-control-note {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .mode-row,
+    .sample-row,
+    .choice-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .sample-row {
+      align-items: center;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .mode-button,
+    .sample-chip,
+    .choice,
+    .house-select,
+    .house-remove {
+      border: 1px solid var(--line);
+      cursor: pointer;
+      font-weight: 850;
+    }
+
+    .mode-button,
+    .sample-chip,
+    .choice {
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--surface);
+    }
+
+    .sample-chip {
+      flex: 0 0 auto;
+      border-radius: 999px;
+    }
+
+    .mode-button.active,
+    .choice.active {
+      color: white;
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .house-chip {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+    }
+
+    .house-chip.active {
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .house-select,
+    .house-remove {
+      min-height: 36px;
+      border: 0;
+      background: transparent;
+    }
+
+    .house-select {
+      padding: 0 10px 0 14px;
+      color: var(--primary);
+      font-size: 16px;
+    }
+
+    .house-remove {
+      width: 32px;
+      color: var(--bad);
+      border-left: 1px solid var(--line);
+      font-size: 18px;
+    }
+
+    .house-chip.active .house-select,
+    .house-chip.active .house-remove {
+      color: white;
+      border-left-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      background: var(--surface-raised);
+    }
+
+    .metric.empty {
+      visibility: hidden;
+    }
+
+    .metric-value {
+      margin-top: 5px;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 19px;
+      line-height: 1.1;
+      font-weight: 900;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .metric.info .metric-value {
+      color: var(--primary);
+    }
+
+    .metric.good .metric-value {
+      color: var(--good);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      color: var(--body);
+      background: var(--surface);
+      outline: none;
+    }
+
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .counter-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .counter-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .counter-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .counter-name {
+      color: var(--body);
+      font-weight: 850;
+    }
+
+    .counter-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .counter-button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .counter-value {
+      min-width: 28px;
+      color: var(--text);
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .counter-input {
+      width: 56px;
+      min-height: 34px;
+      padding: 6px 8px;
+      text-align: center;
+      font-weight: 850;
+    }
+
+    .counter-meta {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .photo-button {
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid rgba(23, 105, 216, 0.28);
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--info-bg);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .subsection-title {
+      margin: 16px 0 10px;
+      color: var(--body);
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+    }
+
+    .data-table {
+      width: 100%;
+      min-width: 520px;
+      border-collapse: collapse;
+      background: var(--surface);
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      color: var(--body);
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .data-table th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--surface-raised);
+    }
+
+    .data-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .data-table input,
+    .data-table select {
+      min-height: 36px;
+      padding: 7px 9px;
+    }
+
+    .score-card {
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid rgba(56, 142, 60, 0.18);
+      border-radius: var(--radius-sm);
+      background: var(--good-bg);
+    }
+
+    .score-card .metric-value {
+      color: var(--good);
+      font-size: 24px;
+    }
+
+    .cvt-grid {
+      display: grid;
+      grid-template-columns: minmax(76px, 1fr) minmax(64px, 0.8fr) minmax(80px, 0.9fr) minmax(92px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      overflow-x: auto;
+    }
+
+    .cvt-head,
+    .cvt-cell {
+      min-height: 44px;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      background: var(--surface-raised);
+    }
+
+    .cvt-head {
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .cvt-cell.position {
+      color: var(--body);
+      font-weight: 850;
+    }
+
+    .cvt-cell.status {
+      display: grid;
+      place-items: center;
+      color: var(--good);
+      font-weight: 850;
+      background: var(--good-bg);
+    }
+
+    .toggle-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+    }
+
+    .weight-entry-card {
+      margin-top: 14px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: end;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(17, 24, 39, 0.38);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .weight-sheet {
+      width: min(760px, 100%);
+      max-height: min(86vh, 920px);
+      overflow: hidden;
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: 0 26px 70px rgba(17, 24, 39, 0.24);
+      border: 1px solid var(--line);
+    }
+
+    .weight-sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface-soft) 100%);
+    }
+
+    .weight-sheet-title {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 850;
+    }
+
+    .weight-sheet-body {
+      max-height: calc(min(86vh, 920px) - 76px);
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .weight-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .weight-input {
+      position: relative;
+    }
+
+    .weight-input span {
+      position: absolute;
+      left: 8px;
+      top: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .weight-input input {
+      min-height: 52px;
+      padding-top: 22px;
+      text-align: center;
+      font-weight: 850;
+    }
+
+    .footer-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      margin-top: 18px;
+      padding: 12px;
+      border: 1px solid rgba(229, 231, 235, 0.9);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 -10px 34px rgba(17, 24, 39, 0.08);
+      backdrop-filter: blur(14px);
+    }
+
+    .footer-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .footer-status {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .footer-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 980px) {
+      .workbench {
+        grid-template-columns: 1fr;
+      }
+
+      .flock-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .app-shell {
+        padding: 14px;
+      }
+
+      .field-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .footer-content {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .footer-actions {
+        justify-content: stretch;
+      }
+
+      .primary-button,
+      .secondary-button {
+        flex: 1 1 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="header-card">
+      <p class="eyebrow">Audit station</p>
+      <h1 class="page-title">Chick Quality</h1>
+      <div class="context-grid">
+        <div class="context-item">
+          <span class="label">Hatchery</span>
+          <div class="context-value">Main Hatchery</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workbench">
+      <div class="column">
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">PG</span>
+              <div>
+                <h3 class="panel-title">Pasgar Score</h3>
+                <div class="panel-meta">Sample defects and final score</div>
+              </div>
+            </div>
+            <span class="status-pill good">9.7/10</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div>
+                <label for="pasgarSample">Sample Size</label>
+                <input id="pasgarSample" type="number" value="40">
+              </div>
+              <div>
+                <label for="pasgarScore">Calculated Score</label>
+                <input id="pasgarScore" type="text" value="9.7 / 10">
+              </div>
+            </div>
+            <h4 class="subsection-title">Defect Counts</h4>
+            <div class="counter-list" style="margin-top: 12px;">
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Reflexes</div>
+                  <div class="counter-meta">1 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">1</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Beak</div>
+                  <div class="counter-meta">0 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">0</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Navel</div>
+                  <div class="counter-meta">1 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">1</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Belly</div>
+                  <div class="counter-meta">0 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">0</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Leg</div>
+                  <div class="counter-meta">0 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">0</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+              <div class="counter-row">
+                <div>
+                  <div class="counter-name">Feather Dev</div>
+                  <div class="counter-meta">0 / 40 affected</div>
+                </div>
+                <div class="counter-controls"><button class="counter-button">-</button><span class="counter-value">0</span><button class="counter-button">+</button><button class="photo-button">Photo</button></div>
+              </div>
+            </div>
+            <div class="score-card">
+              <span class="metric-label">PASGAR Score</span>
+              <div class="metric-value">9.7 / 10</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">YF</span>
+              <div>
+                <h3 class="panel-title">YFBM</h3>
+                <div class="panel-meta">Yolk-free body mass check</div>
+              </div>
+            </div>
+            <span class="status-pill good">Stable</span>
+          </div>
+          <div class="panel-body">
+            <div class="metric-grid">
+              <div class="metric good">
+                <span class="metric-label">AVG %</span>
+                <div class="metric-value">11.6%</div>
+              </div>
+              <div class="metric good">
+                <span class="metric-label">C.V</span>
+                <div class="metric-value">4.3%</div>
+              </div>
+            </div>
+            <div class="sample-control" style="margin-top: 12px;">
+              <div class="sample-control-header">
+                <h4 class="sample-control-title">YFBM Photos</h4>
+                <button class="photo-button" type="button">Add Photo</button>
+              </div>
+            </div>
+            <h4 class="subsection-title">YFBM Entries</h4>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Chick (g)</th>
+                    <th>Yolk (g)</th>
+                    <th>%</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>1</td>
+                    <td><input type="number" value="43.2"></td>
+                    <td><input type="number" value="5.1"></td>
+                    <td>11.8%</td>
+                    <td><button class="icon-button" type="button" aria-label="Delete YFBM row">x</button></td>
+                  </tr>
+                  <tr>
+                    <td>2</td>
+                    <td><input type="number" value="42.8"></td>
+                    <td><input type="number" value="4.8"></td>
+                    <td>11.2%</td>
+                    <td><button class="icon-button" type="button" aria-label="Delete YFBM row">x</button></td>
+                  </tr>
+                  <tr>
+                    <td>3</td>
+                    <td><input type="number" value="43.7"></td>
+                    <td><input type="number" value="5.2"></td>
+                    <td>11.9%</td>
+                    <td><button class="icon-button" type="button" aria-label="Delete YFBM row">x</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="secondary-button" style="margin-top: 12px;" type="button">Add Row</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">CVT</span>
+              <div>
+                <h3 class="panel-title">Chick Vent Temperature</h3>
+                <div class="panel-meta">Basket position measurements</div>
+              </div>
+            </div>
+            <span class="status-pill good">104.0F</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div>
+                <label>Target Range</label>
+                <input type="text" value="103.0-105.0F">
+              </div>
+              <div>
+                <label>Sample Size</label>
+                <input type="number" value="3">
+              </div>
+            </div>
+            <h4 class="subsection-title">Basket Position Measurements</h4>
+            <div class="cvt-grid">
+              <div class="cvt-head">Position</div>
+              <div class="cvt-head">Basket</div>
+              <div class="cvt-head">Temp</div>
+              <div class="cvt-head">Status</div>
+              <div class="cvt-head">Photo</div>
+
+              <div class="cvt-cell position">Top</div>
+              <div class="cvt-cell"><input type="number" value="1"></div>
+              <div class="cvt-cell"><input type="number" value="104.2"></div>
+              <div class="cvt-cell status">On target</div>
+              <div><button class="photo-button" type="button">Photo</button></div>
+
+              <div class="cvt-cell position">Middle</div>
+              <div class="cvt-cell"><input type="number" value="2"></div>
+              <div class="cvt-cell"><input type="number" value="103.9"></div>
+              <div class="cvt-cell status">On target</div>
+              <div><button class="photo-button" type="button">Photo</button></div>
+
+              <div class="cvt-cell position">Bottom</div>
+              <div class="cvt-cell"><input type="number" value="3"></div>
+              <div class="cvt-cell"><input type="number" value="104.0"></div>
+              <div class="cvt-cell status">On target</div>
+              <div><button class="photo-button" type="button">Photo</button></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">PM</span>
+              <div>
+                <h3 class="panel-title">PM Necropsy</h3>
+                <div class="panel-meta">Hatchery-side pathology sample</div>
+              </div>
+            </div>
+            <span class="status-pill warn">Review</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div>
+                <label>Sample Size</label>
+                <input type="number" value="20">
+              </div>
+              <div>
+                <label>Collection Point</label>
+                <input type="text" value="Hatcher pull">
+              </div>
+            </div>
+            <h4 class="subsection-title">Lesion Observations</h4>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Finding</th>
+                    <th>Count</th>
+                    <th>Severity</th>
+                    <th>Photo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Omphalitis</td><td><input class="counter-input" type="number" value="1"></td><td><select><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Gaseous Ceca</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Unabsorbed Yolk</td><td><input class="counter-input" type="number" value="2"></td><td><select><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Perihepatitis</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Pericarditis</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Airsac Acute</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Airsac Chronic</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Pulmonary Granuloma</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Swollen Joints</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Stunted Organs</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Pulmonary Hemorrhage</td><td><input class="counter-input" type="number" value="0"></td><td><select><option>None</option><option>Mild</option><option>Moderate</option><option>Severe</option></select></td><td><button class="photo-button">Photo</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 class="subsection-title">Gasping</h4>
+            <div class="toggle-line">
+              <div>
+                <div class="counter-name">Gasping Present</div>
+                <div class="counter-meta">Original PM necropsy toggle</div>
+              </div>
+              <div class="choice-group">
+                <button class="choice active" type="button">No</button>
+                <button class="choice" type="button">Yes</button>
+              </div>
+            </div>
+            <div style="margin-top: 10px;">
+              <label>Gasping Type</label>
+              <select>
+                <option>Abdominal</option>
+                <option>Thoracic</option>
+                <option>Obstructive</option>
+                <option>Mixed</option>
+              </select>
+            </div>
+
+            <h4 class="subsection-title">Deformities</h4>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Deformity</th>
+                    <th>Count</th>
+                    <th>Photo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Exposed Brain</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Ectopic Viscera</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Extra Legs</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Crossed Beak</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Absent Eye (Both)</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Absent Eye (One)</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Small Eye</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Hydrocephaly</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Star Gazer</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Curled Toes</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Short Legs</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Spinal Deformity</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Cardiac Anomaly</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                  <tr><td>Conjoined</td><td><input class="counter-input" type="number" value="0"></td><td><button class="photo-button">Photo</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="field-grid" style="margin-top: 12px;">
+              <div>
+                <label>Other Deformity Count</label>
+                <input type="number" value="0">
+              </div>
+              <div>
+                <label>Other Deformity Description</label>
+                <input type="text" value="">
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="column">
+        <article class="panel">
+          <div class="panel-body">
+            <div class="flock-card">
+              <div class="flock-header">
+                <div>
+                  <h2 class="flock-title">Chick Weights & Uniformity</h2>
+                  <div class="flock-subtitle">Flock-linked sample results</div>
+                </div>
+                <span class="status-pill good">Uniform</span>
+              </div>
+              <div class="flock-grid">
+                <div class="flock-item">
+                  <span class="label">Flock</span>
+                  <div class="flock-value">F-24A</div>
+                </div>
+                <div class="flock-item">
+                  <span class="label">Breed</span>
+                  <div class="flock-value">Ross 308</div>
+                </div>
+                <div class="flock-item">
+                  <span class="label">BMK Age</span>
+                  <div class="flock-value">42 wks</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sample-control">
+              <div class="sample-control-header">
+                <h3 class="sample-control-title">Chick Sample Mode</h3>
+                <div class="sample-control-note">Single flock sample or house comparison</div>
+              </div>
+              <div class="mode-row" aria-label="Chick sample mode">
+                <button class="mode-button" type="button" data-sample-mode="single">Single Sample</button>
+                <button class="mode-button active" type="button" data-sample-mode="multi">Multi House Samples</button>
+              </div>
+            </div>
+
+            <div class="sample-control" id="houseControl">
+              <div class="sample-control-header">
+                <h3 class="sample-control-title">House Samples</h3>
+                <div class="sample-control-note">Compare chick weight by house</div>
+              </div>
+              <nav class="sample-row" id="sampleRow" aria-label="Chick weight house samples">
+                <button class="sample-chip" id="addSample" type="button">+ House</button>
+              </nav>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric info">
+                <span class="metric-label">Avg Weight</span>
+                <div class="metric-value" id="weightAvg">43.1g</div>
+              </div>
+              <div class="metric">
+                <span class="metric-label">BMK Chick Weight</span>
+                <div class="metric-value">43.5g</div>
+              </div>
+              <div class="metric info">
+                <span class="metric-label">Sample Size</span>
+                <div class="metric-value" id="weightCount">10/100</div>
+              </div>
+              <div class="metric empty" aria-hidden="true"></div>
+              <div class="metric">
+                <span class="metric-label">Low Margin</span>
+                <div class="metric-value" id="weightMin">38.8g</div>
+              </div>
+              <div class="metric">
+                <span class="metric-label">High Margin</span>
+                <div class="metric-value" id="weightMax">47.4g</div>
+              </div>
+              <div class="metric good">
+                <span class="metric-label">C.V</span>
+                <div class="metric-value" id="weightCv">2.1%</div>
+              </div>
+              <div class="metric good">
+                <span class="metric-label">Uniformity</span>
+                <div class="metric-value" id="uniformity">100.0%</div>
+              </div>
+            </div>
+
+            <div class="weight-entry-card">
+              <button class="secondary-button" id="openWeightSheet" type="button">Enter Weights</button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div class="modal-backdrop" id="weightSheetModal" role="dialog" aria-modal="true" aria-labelledby="weightSheetTitle">
+      <div class="weight-sheet">
+        <div class="weight-sheet-header">
+          <h3 class="weight-sheet-title" id="weightSheetTitle">H1 Chick Weight Sheet</h3>
+          <button class="icon-button" id="closeWeightSheet" type="button" aria-label="Close weight sheet">x</button>
+        </div>
+        <div class="weight-sheet-body">
+          <div class="weight-grid" id="weightGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <section class="footer-bar">
+      <div class="footer-content">
+        <div class="footer-status">Draft saved locally. Chick quality segmentation ready for review.</div>
+        <div class="footer-actions">
+          <button class="secondary-button">Save Draft</button>
+          <button class="primary-button">Complete Station</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const formatOne = (value) => Number.isFinite(value) ? value.toFixed(1) : "--";
+    const houseSamples = [
+      { id: "h1", name: "H1", weights: [43.1, 42.8, 43.4, 42.9, 43.5, 43.2, 42.7, 43.6, 43.0, 43.3] },
+      { id: "h2", name: "H2", weights: [41.9, 42.1, 42.6, 41.7, 42.3, 42.4, 41.8, 42.0, 42.5, 42.2] },
+      { id: "h3", name: "H3", weights: [44.0, 43.8, 44.5, 44.2, 43.9, 44.6, 44.1, 44.3, 43.7, 44.4] }
+    ];
+    let activeHouseId = "h1";
+    let chickSampleMode = "multi";
+
+    function valuesFrom(selector) {
+      return Array.from(document.querySelectorAll(selector))
+        .map((input) => Number.parseFloat(input.value))
+        .filter((value) => Number.isFinite(value));
+    }
+
+    function standardDeviation(values, avg) {
+      if (!values.length) return 0;
+      const variance = values.reduce((sum, value) => sum + ((value - avg) ** 2), 0) / values.length;
+      return Math.sqrt(variance);
+    }
+
+    function activeHouse() {
+      return houseSamples.find((house) => house.id === activeHouseId) || houseSamples[0];
+    }
+
+    function renumberHouseSamples() {
+      houseSamples.forEach((house, index) => {
+        house.name = `H${index + 1}`;
+      });
+    }
+
+    function saveActiveHouseWeights() {
+      const house = activeHouse();
+      if (!house) return;
+      house.weights = Array.from(document.querySelectorAll("#weightGrid input"))
+        .map((input) => input.value === "" ? "" : Number.parseFloat(input.value));
+    }
+
+    function updateWeightStats() {
+      const values = valuesFrom("#weightGrid input");
+      const avgTarget = document.getElementById("weightAvg");
+      const cvTarget = document.getElementById("weightCv");
+      const countTarget = document.getElementById("weightCount");
+      const minTarget = document.getElementById("weightMin");
+      const maxTarget = document.getElementById("weightMax");
+      const uniformityTarget = document.getElementById("uniformity");
+      if (!values.length) {
+        avgTarget.textContent = "--";
+        cvTarget.textContent = "--";
+        countTarget.textContent = "0/100";
+        minTarget.textContent = "--";
+        maxTarget.textContent = "--";
+        uniformityTarget.textContent = "--";
+        return;
+      }
+      const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const cv = avg === 0 ? 0 : (standardDeviation(values, avg) / avg) * 100;
+      const min = avg * 0.9;
+      const max = avg * 1.1;
+      const inside = values.filter((value) => value >= min && value <= max).length;
+      const uniformity = (inside / values.length) * 100;
+      avgTarget.textContent = `${formatOne(avg)}g`;
+      cvTarget.textContent = `${formatOne(cv)}%`;
+      countTarget.textContent = `${values.length}/100`;
+      minTarget.textContent = `${formatOne(min)}g`;
+      maxTarget.textContent = `${formatOne(max)}g`;
+      uniformityTarget.textContent = `${formatOne(uniformity)}%`;
+    }
+
+    function buildWeightGrid() {
+      const grid = document.getElementById("weightGrid");
+      const seedValues = activeHouse()?.weights ?? [];
+      document.getElementById("weightSheetTitle").textContent =
+        chickSampleMode === "multi"
+          ? `${activeHouse()?.name ?? "House"} Chick Weight Sheet`
+          : "Chick Weight Sheet";
+      grid.innerHTML = "";
+      const fragment = document.createDocumentFragment();
+      for (let index = 1; index <= 100; index += 1) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "weight-input";
+        const label = document.createElement("span");
+        label.textContent = String(index);
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "0.1";
+        input.value = seedValues[index - 1] ?? "";
+        input.setAttribute("aria-label", `Chick weight ${index}`);
+        input.addEventListener("input", updateWeightStats);
+        wrapper.append(label, input);
+        fragment.append(wrapper);
+      }
+      grid.append(fragment);
+    }
+
+    function renderHouseSamples() {
+      const sampleRow = document.getElementById("sampleRow");
+      const addButton = document.getElementById("addSample");
+      renumberHouseSamples();
+      sampleRow.querySelectorAll(".house-chip").forEach((chip) => chip.remove());
+
+      houseSamples.forEach((house) => {
+        const chip = document.createElement("span");
+        chip.className = `house-chip${house.id === activeHouseId ? " active" : ""}`;
+
+        const select = document.createElement("button");
+        select.type = "button";
+        select.className = "house-select";
+        select.textContent = house.name;
+        select.addEventListener("click", () => {
+          saveActiveHouseWeights();
+          activeHouseId = house.id;
+          renderHouseSamples();
+          buildWeightGrid();
+          updateWeightStats();
+        });
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "house-remove";
+        remove.textContent = "-";
+        remove.setAttribute("aria-label", `Remove ${house.name}`);
+        remove.disabled = houseSamples.length <= 1;
+        remove.addEventListener("click", () => {
+          const index = houseSamples.findIndex((item) => item.id === house.id);
+          if (index === -1 || houseSamples.length <= 1) return;
+          houseSamples.splice(index, 1);
+          if (activeHouseId === house.id) {
+            activeHouseId = houseSamples[Math.max(0, index - 1)].id;
+          }
+          renderHouseSamples();
+          buildWeightGrid();
+          updateWeightStats();
+        });
+
+        chip.append(select, remove);
+        sampleRow.insertBefore(chip, addButton);
+      });
+    }
+
+    function addHouseSample() {
+      saveActiveHouseWeights();
+      const number = houseSamples.length + 1;
+      const baseWeight = 41 + number * 0.8;
+      const weights = Array.from({ length: 10 }, (_, index) =>
+        Number((baseWeight + ((index % 5) - 2) * 0.28 + (index % 2) * 0.12).toFixed(1))
+      );
+      const house = {
+        id: `h${Date.now()}`,
+        name: `H${number}`,
+        weights,
+      };
+      houseSamples.push(house);
+      activeHouseId = house.id;
+      renderHouseSamples();
+      buildWeightGrid();
+      updateWeightStats();
+    }
+
+    function setChickSampleMode(mode) {
+      chickSampleMode = mode;
+      document.querySelectorAll(".mode-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.sampleMode === mode);
+      });
+      document.getElementById("houseControl").classList.toggle("hidden", mode !== "multi");
+      if (mode === "multi") renderHouseSamples();
+      buildWeightGrid();
+      updateWeightStats();
+    }
+
+    function openWeightSheet() {
+      document.getElementById("weightSheetModal").classList.add("open");
+    }
+
+    function closeWeightSheet() {
+      document.getElementById("weightSheetModal").classList.remove("open");
+    }
+
+    document.querySelectorAll(".choice").forEach((button) => {
+      button.addEventListener("click", () => {
+        const group = button.closest(".choice-group");
+        group.querySelectorAll(".choice").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+      });
+    });
+
+    document.querySelectorAll(".counter-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const valueNode = button.parentElement.querySelector(".counter-value");
+        const current = Number.parseInt(valueNode.textContent, 10) || 0;
+        valueNode.textContent = button.textContent === "+" ? String(current + 1) : String(Math.max(0, current - 1));
+      });
+    });
+
+    document.querySelectorAll(".mode-button").forEach((button) => {
+      button.addEventListener("click", () => setChickSampleMode(button.dataset.sampleMode));
+    });
+    document.getElementById("addSample").addEventListener("click", addHouseSample);
+    document.getElementById("openWeightSheet").addEventListener("click", openWeightSheet);
+    document.getElementById("closeWeightSheet").addEventListener("click", closeWeightSheet);
+    document.getElementById("weightSheetModal").addEventListener("click", (event) => {
+      if (event.target.id === "weightSheetModal") closeWeightSheet();
+    });
+
+    renderHouseSamples();
+    setChickSampleMode(chickSampleMode);
+    updateWeightStats();
+  </script>
+</body>
+</html>

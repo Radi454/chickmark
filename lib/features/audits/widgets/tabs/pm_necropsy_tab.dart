@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
 class PmNecropsyTab extends StatefulWidget {
@@ -92,23 +92,25 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSampleMetadataCard(),
-          const SizedBox(height: 16),
-          _buildLesionCard(),
-          const SizedBox(height: 16),
-          _buildGaspingCard(),
-          const SizedBox(height: 16),
-          _buildDeformityCard(),
-          const SizedBox(height: 16),
-          _buildPhotosCard(),
-          const SizedBox(height: 16),
-          _buildSummaryCard(),
-        ],
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSampleMetadataCard(),
+            const SizedBox(height: 16),
+            _buildLesionCard(),
+            const SizedBox(height: 16),
+            _buildGaspingCard(),
+            const SizedBox(height: 16),
+            _buildDeformityCard(),
+            const SizedBox(height: 16),
+            _buildPhotosCard(),
+            const SizedBox(height: 16),
+            _buildSummaryCard(),
+          ],
+        ),
       ),
     );
   }
@@ -137,15 +139,13 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
               ],
             ),
             const SizedBox(height: 12),
-            TextField(
+            AuditNumericField(
               controller: _sampleSizeController,
               enabled: !widget.isReadOnly,
-              keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Sample Size',
               ),
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               onChanged: (value) {
                 widget.onFieldChanged(
                   'pm_sampleSize',
@@ -253,7 +253,11 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
           children: [
             Row(
               children: [
-                Icon(Icons.medical_services, color: AppColors.primary, size: 20),
+                Icon(
+                  Icons.medical_services,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Lesion Observations',
@@ -280,15 +284,12 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                   children: [
                     Row(
                       children: [
-                        Expanded(
-                          child: Text(label, style: AppTextStyles.body),
-                        ),
+                        Expanded(child: Text(label, style: AppTextStyles.body)),
                         SizedBox(
                           width: 80,
-                          child: TextField(
+                          child: AuditNumericField(
                             controller: controller,
                             enabled: !widget.isReadOnly,
-                            keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
                             decoration: InputDecoration(
                               border: const OutlineInputBorder(),
@@ -299,9 +300,6 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                               ),
                               isDense: true,
                             ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
                             onChanged: (value) {
                               widget.onFieldChanged(
                                 countKey,
@@ -336,7 +334,10 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                               items: _severityOptions.map((s) {
                                 return DropdownMenuItem(
                                   value: s,
-                                  child: Text(s, style: const TextStyle(fontSize: 12)),
+                                  child: Text(
+                                    s,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 );
                               }).toList(),
                               onChanged: (value) {
@@ -385,10 +386,7 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
             ),
             const SizedBox(height: 12),
             SwitchListTile(
-              title: Text(
-                'Gasping Present',
-                style: AppTextStyles.body,
-              ),
+              title: Text('Gasping Present', style: AppTextStyles.body),
               value: gaspingPresent,
               contentPadding: EdgeInsets.zero,
               activeTrackColor: AppColors.primary,
@@ -531,15 +529,12 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
-                    Expanded(
-                      child: Text(label, style: AppTextStyles.body),
-                    ),
+                    Expanded(child: Text(label, style: AppTextStyles.body)),
                     SizedBox(
                       width: 80,
-                      child: TextField(
+                      child: AuditNumericField(
                         controller: controller,
                         enabled: !widget.isReadOnly,
-                        keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         decoration: InputDecoration(
                           border: const OutlineInputBorder(),
@@ -550,9 +545,6 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                           ),
                           isDense: true,
                         ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
                         onChanged: (value) {
                           widget.onFieldChanged(
                             fieldKey,
@@ -570,20 +562,16 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Other Deformity',
-                    style: AppTextStyles.body,
-                  ),
+                  child: Text('Other Deformity', style: AppTextStyles.body),
                 ),
                 SizedBox(
                   width: 80,
-                  child: TextField(
+                  child: AuditNumericField(
                     controller: _deformityController(
                       'pm_otherDeformityCount',
                       widget.audit.pmOtherDeformityCount,
                     ),
                     enabled: !widget.isReadOnly,
-                    keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
                     decoration: InputDecoration(
                       border: const OutlineInputBorder(),
@@ -594,9 +582,6 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                       ),
                       isDense: true,
                     ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
                     onChanged: (value) {
                       widget.onFieldChanged(
                         'pm_otherDeformityCount',
@@ -728,10 +713,7 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Auto-Suggested Cause',
-                      style: AppTextStyles.caption,
-                    ),
+                    Text('Auto-Suggested Cause', style: AppTextStyles.caption),
                     const SizedBox(height: 4),
                     Text(
                       widget.audit.pmSuspectedCauseAuto!,

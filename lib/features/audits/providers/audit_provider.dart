@@ -1,15 +1,20 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_thresholds.dart';
+import '../../../core/utils/bmk_age_calculator.dart';
+import '../../../data/mappers/station_sample_mapper.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/sample_mode.dart';
+import '../../../data/models/station_sample_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
 import '../models/egg_breakout_tray_rollup.dart';
+import '../models/egg_breakout_sample.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -20,6 +25,7 @@ class AuditContext {
   final String? setterId;
   final String? hatcherId;
   final DateTime? flockEntryDate;
+  final int? flockAgeWeeks;
   final String date;
 
   AuditContext({
@@ -30,19 +36,36 @@ class AuditContext {
     this.setterId,
     this.hatcherId,
     this.flockEntryDate,
+    this.flockAgeWeeks,
     required this.date,
   });
 }
 
 class AuditProvider extends ChangeNotifier {
-  final AuditRepository _repository = AuditRepository();
-  final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
-  final SupabaseService _supabaseService = SupabaseService();
+  AuditProvider({
+    AuditRepository? repository,
+    StationSampleRepository? stationSampleRepository,
+    ActivityLogRepository? activityLogRepository,
+    SupabaseService? supabaseService,
+  }) : _repository = repository ?? AuditRepository(),
+       _stationSampleRepository =
+           stationSampleRepository ?? StationSampleRepository(),
+       _activityLogRepository =
+           activityLogRepository ?? ActivityLogRepository(),
+       _supabaseService = supabaseService ?? SupabaseService();
+
+  final AuditRepository _repository;
+  final StationSampleRepository _stationSampleRepository;
+  final ActivityLogRepository _activityLogRepository;
+  final SupabaseService _supabaseService;
   final Uuid _uuid = const Uuid();
 
   // State
   AuditContext? _context;
   List<AuditModel> _drafts = [];
+  List<StationSampleModel> _stationSamples = [];
+  final Set<String> _removedStationSampleIds = {};
+  final Set<String> _removedLegacyAuditIds = {};
   int _activeHatchIndex = 0;
   final Map<int, Set<int>> _savedTabs = {}; // hatchIndex -> saved tab indices
   TempUnit _tempUnit = TempUnit.fahrenheit;
@@ -51,6 +74,7 @@ class AuditProvider extends ChangeNotifier {
   bool _isDirty = false;
   UserModel? _currentUser;
   String? _activeSessionId;
+  Future<bool>? _saveFuture;
 
   // Getters
   AuditContext? get context => _context;
@@ -67,6 +91,14 @@ class AuditProvider extends ChangeNotifier {
   int get hatchCount => _drafts.length;
   String get sampleMode => activeDraft.sampleMode;
   bool get isCompareMode => SampleMode.isCompare(sampleMode);
+  int get sampleCount => _drafts.length;
+  int get activeSampleIndex => _activeHatchIndex;
+  List<StationSampleModel> get stationSamples =>
+      List.unmodifiable(_stationSamples);
+  StationSampleModel get activeStationSample =>
+      _stationSamples[_activeHatchIndex];
+  String get stationSampleMode => activeStationSample.sampleMode;
+  String? get comparisonType => activeStationSample.comparisonType;
 
   // Initialize new audit session
   void initialize(
@@ -90,8 +122,11 @@ class AuditProvider extends ChangeNotifier {
       _activeHatchIndex = 0;
       _isReadOnly = false;
     }
+    _stationSamples = _buildSamplesForDrafts();
 
     _savedTabs.clear();
+    _removedStationSampleIds.clear();
+    _removedLegacyAuditIds.clear();
     _isDirty = false;
     if (notify) notifyListeners();
   }
@@ -145,6 +180,7 @@ class AuditProvider extends ChangeNotifier {
 
     final updatedDraft = _updateAuditField(_drafts[hatchIndex], key, value);
     _drafts[hatchIndex] = updatedDraft;
+    _syncStationSampleFromDraft(hatchIndex);
     _isDirty = true;
 
     notifyListeners();
@@ -166,25 +202,96 @@ class AuditProvider extends ChangeNotifier {
   }
 
   void setSampleMode(String mode) {
+    setStationSampleMode(
+      SampleMode.isCompare(mode)
+          ? StationSampleModel.sampleModeComparison
+          : StationSampleModel.sampleModePooled,
+    );
+  }
+
+  void setStationSampleMode(String mode) {
     if (_isReadOnly) return;
-    final normalized = SampleMode.normalize(mode);
-    final compareGroupKey = normalized == SampleMode.compare
+    final normalized = StationSampleModel.normalizeSampleMode(mode);
+    final legacyMode = normalized == StationSampleModel.sampleModeComparison
+        ? SampleMode.compare
+        : SampleMode.pool;
+    final compareGroupKey = legacyMode == SampleMode.compare
         ? _activeCompareGroupKey()
         : null;
 
-    if (normalized == SampleMode.pool && _drafts.length > 1) {
+    if (legacyMode == SampleMode.pool && _drafts.length > 1) {
+      _removedStationSampleIds.addAll(
+        _stationSamples.skip(1).map((sample) => sample.id),
+      );
+      _removedLegacyAuditIds.addAll(_drafts.skip(1).map((draft) => draft.id));
       _drafts = [_drafts.first];
+      _stationSamples = [_stationSamples.first];
       _activeHatchIndex = 0;
     }
 
     for (var i = 0; i < _drafts.length; i++) {
       final map = _drafts[i].toMap();
-      map['sampleMode'] = normalized;
+      map['sampleMode'] = legacyMode;
       map['compareGroupKey'] = compareGroupKey;
-      map['hatchNumber'] = normalized == SampleMode.pool ? 1 : i + 1;
+      map['hatchNumber'] = legacyMode == SampleMode.pool ? 1 : i + 1;
       map['updatedAt'] = DateTime.now().toIso8601String();
       _drafts[i] = AuditModel.fromMap(map);
+      _syncStationSampleFromDraft(i);
     }
+    _isDirty = true;
+    notifyListeners();
+  }
+
+  void setComparisonType(String? value) {
+    if (_isReadOnly || _stationSamples.isEmpty) return;
+    final sample = activeStationSample;
+    _stationSamples[_activeHatchIndex] = sample.copyWith(
+      comparisonType: value,
+      updatedAt: DateTime.now(),
+    );
+    _isDirty = true;
+    notifyListeners();
+  }
+
+  void updateSampleMetadata(Map<String, dynamic> fields) {
+    if (_isReadOnly || _stationSamples.isEmpty) return;
+    final now = DateTime.now();
+    final draft = activeDraft;
+    var sample = activeStationSample;
+    final eggProductionDate =
+        fields['eggProductionDate'] as DateTime? ?? sample.eggProductionDate;
+    final storageDays = fields['storageDays'] as int? ?? sample.storageDays;
+    final calculatedBmkAgeDays =
+        fields['calculatedBmkAgeDays'] as int? ??
+        BmkAgeCalculator.calculateDays(
+          currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
+            _context?.flockAgeWeeks,
+          ),
+          auditDate: draft.date,
+          eggProductionDate: eggProductionDate,
+          legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+          storageDays: storageDays,
+          flockEntryDate: _context?.flockEntryDate,
+        );
+    sample = sample.copyWith(
+      sampleLabel: fields['sampleLabel'] as String? ?? sample.sampleLabel,
+      batchNo: fields['batchNo'] as String? ?? sample.batchNo,
+      houseNo: fields['houseNo'] as String? ?? sample.houseNo,
+      houseLabel: fields['houseLabel'] as String? ?? sample.houseLabel,
+      hatchNo: fields['hatchNo'] as String? ?? sample.hatchNo,
+      eggProductionDate: eggProductionDate,
+      settingDate: fields['settingDate'] as DateTime? ?? sample.settingDate,
+      hatchDate: fields['hatchDate'] as DateTime? ?? sample.hatchDate,
+      storageDays: storageDays,
+      incubationDay: fields['incubationDay'] as int? ?? sample.incubationDay,
+      setterNo: fields['setterNo'] as String? ?? sample.setterNo,
+      hatcherNo: fields['hatcherNo'] as String? ?? sample.hatcherNo,
+      notes: fields['notes'] as String? ?? sample.notes,
+      calculatedBmkAgeDays: calculatedBmkAgeDays,
+      updatedAt: now,
+    );
+    _stationSamples[_activeHatchIndex] = sample;
+    _applySamplePatchToDraft(_activeHatchIndex);
     _isDirty = true;
     notifyListeners();
   }
@@ -199,42 +306,45 @@ class AuditProvider extends ChangeNotifier {
 
   // Save the current tab
   Future<void> saveTab(int tabIndex) async {
-    if (_isReadOnly) return;
+    await saveTabWithResult(tabIndex);
+  }
 
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final draftsToSave = isCompareMode ? _drafts : [activeDraft];
-      for (var i = 0; i < draftsToSave.length; i++) {
-        final existing = await _repository.getAuditById(draftsToSave[i].id);
-        await _repository.insertAudit(draftsToSave[i]);
-
-        final savedIndex = isCompareMode ? i : _activeHatchIndex;
-        _savedTabs.putIfAbsent(savedIndex, () => {}).add(tabIndex);
-        await _logAuditChange(
-          draftsToSave[i],
-          existing == null ? 'create' : 'update',
-        );
-        await _checkThresholdsAndAlert(draftsToSave[i]);
-
-        unawaited(_supabaseService.syncAudit(draftsToSave[i].toMap()));
-      }
-      _isDirty = false;
-    } catch (e) {
-      // Silent error - data is still in memory
-      if (kDebugMode) {
-        print('Error saving audit: $e');
-      }
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+  Future<bool> saveTabWithResult(int tabIndex) async {
+    return saveSamplesWithResult(tabIndex: tabIndex);
   }
 
   Future<void> saveAllHatches() async {
-    if (_isReadOnly) return;
+    await saveAllHatchesWithResult();
+  }
 
+  Future<bool> saveAllHatchesWithResult() async {
+    return saveSamplesWithResult(markAllTabsSaved: true);
+  }
+
+  Future<bool> saveSamplesWithResult({
+    int? tabIndex,
+    bool markAllTabsSaved = false,
+  }) async {
+    if (_isReadOnly) return true;
+    final inFlight = _saveFuture;
+    if (inFlight != null) return inFlight;
+
+    final future = _saveSamplesInternal(
+      tabIndex: tabIndex,
+      markAllTabsSaved: markAllTabsSaved,
+    );
+    _saveFuture = future;
+    try {
+      return await future;
+    } finally {
+      _saveFuture = null;
+    }
+  }
+
+  Future<bool> _saveSamplesInternal({
+    int? tabIndex,
+    bool markAllTabsSaved = false,
+  }) async {
     _isLoading = true;
     notifyListeners();
 
@@ -243,19 +353,39 @@ class AuditProvider extends ChangeNotifier {
       for (var i = 0; i < draftsToSave.length; i++) {
         final existing = await _repository.getAuditById(draftsToSave[i].id);
         await _repository.insertAudit(draftsToSave[i]);
-        _savedTabs[i] = {0, 1};
+        if (markAllTabsSaved) {
+          _savedTabs[i] = {0, 1, 2, 3, 4};
+        } else if (tabIndex != null) {
+          _savedTabs.putIfAbsent(i, () => {}).add(tabIndex);
+        }
         await _logAuditChange(
           draftsToSave[i],
           existing == null ? 'create' : 'update',
         );
         await _checkThresholdsAndAlert(draftsToSave[i]);
         unawaited(_supabaseService.syncAudit(draftsToSave[i].toMap()));
+
+        final sample = _sampleForSave(i, draftsToSave[i]);
+        if (sample != null) {
+          await _stationSampleRepository.upsertSample(sample);
+          _stationSamples[i] = sample;
+        }
       }
+      for (final id in _removedStationSampleIds) {
+        await _stationSampleRepository.deleteSample(id);
+      }
+      for (final id in _removedLegacyAuditIds) {
+        await _repository.deleteAudit(id);
+      }
+      _removedStationSampleIds.clear();
+      _removedLegacyAuditIds.clear();
       _isDirty = false;
+      return true;
     } catch (e) {
       if (kDebugMode) {
         print('Error saving hatch analysis: $e');
       }
+      return false;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -349,9 +479,13 @@ class AuditProvider extends ChangeNotifier {
 
   // Add a new hatch to the session
   void addHatch() {
+    addSample();
+  }
+
+  void addSample() {
     if (_isReadOnly) return;
     if (!isCompareMode) {
-      setSampleMode(SampleMode.compare);
+      setStationSampleMode(StationSampleModel.sampleModeComparison);
     }
 
     final newHatchNumber = _drafts.length + 1;
@@ -359,7 +493,9 @@ class AuditProvider extends ChangeNotifier {
     final map = draft.toMap();
     map['sampleMode'] = SampleMode.compare;
     map['compareGroupKey'] = _activeCompareGroupKey();
-    _drafts.add(AuditModel.fromMap(map));
+    final nextDraft = AuditModel.fromMap(map);
+    _drafts.add(nextDraft);
+    _stationSamples.add(_createSampleForDraft(nextDraft, _drafts.length - 1));
     _activeHatchIndex = _drafts.length - 1;
     _isDirty = true;
 
@@ -367,11 +503,18 @@ class AuditProvider extends ChangeNotifier {
   }
 
   void removeActiveHatch() {
+    removeActiveSample();
+  }
+
+  void removeActiveSample() {
     if (_isReadOnly) return;
     if (!isCompareMode || _drafts.length <= 1) return;
 
     final removedIndex = _activeHatchIndex;
+    _removedStationSampleIds.add(_stationSamples[removedIndex].id);
+    _removedLegacyAuditIds.add(_drafts[removedIndex].id);
     _drafts.removeAt(removedIndex);
+    _stationSamples.removeAt(removedIndex);
     _activeHatchIndex = _activeHatchIndex.clamp(0, _drafts.length - 1).toInt();
     final compareGroupKey = _activeCompareGroupKey();
 
@@ -382,6 +525,7 @@ class AuditProvider extends ChangeNotifier {
       map['hatchNumber'] = i + 1;
       map['updatedAt'] = DateTime.now().toIso8601String();
       _drafts[i] = AuditModel.fromMap(map);
+      _syncStationSampleFromDraft(i);
     }
 
     final nextSavedTabs = <int, Set<int>>{};
@@ -399,6 +543,10 @@ class AuditProvider extends ChangeNotifier {
 
   // Switch to a different hatch
   void switchHatch(int index) {
+    switchSample(index);
+  }
+
+  void switchSample(int index) {
     if (index < 0 || index >= _drafts.length) return;
     _activeHatchIndex = index;
     notifyListeners();
@@ -433,6 +581,9 @@ class AuditProvider extends ChangeNotifier {
       return 'Invalid hatch index';
     }
     final a = _drafts[hatchIndex];
+    if (!EggBreakoutType.fromStorageValue(a.ebBreakoutType).showsHatchability) {
+      return null;
+    }
 
     if (a.haTotalEggsSet == null || a.haTotalEggsSet! <= 0) {
       return 'Total Eggs Set must be positive';
@@ -493,6 +644,7 @@ class AuditProvider extends ChangeNotifier {
           setterId: audit.setterId ?? audit.soSetterId,
           hatcherId: audit.hatcherId ?? audit.hoHatcherId,
           flockEntryDate: _context?.flockEntryDate,
+          flockAgeWeeks: _context?.flockAgeWeeks,
           date: audit.date.toIso8601String().split('T')[0],
         );
         // Load all hatches for this session
@@ -519,6 +671,7 @@ class AuditProvider extends ChangeNotifier {
           map['compareGroupKey'] = compareGroupKey;
           _drafts[i] = AuditModel.fromMap(map);
         }
+        _stationSamples = _buildSamplesForDrafts();
         _activeHatchIndex = (audit.hatchNumber - 1)
             .clamp(0, _drafts.length - 1)
             .toInt();
@@ -555,9 +708,201 @@ class AuditProvider extends ChangeNotifier {
         map['sessionId'] = sessionId;
         map['updatedAt'] = DateTime.now().toIso8601String();
         _drafts[i] = AuditModel.fromMap(map);
+        _syncStationSampleFromDraft(i);
       }
       notifyListeners();
     }
+  }
+
+  List<StationSampleModel> _buildSamplesForDrafts() {
+    return List.generate(
+      _drafts.length,
+      (index) => _createSampleForDraft(_drafts[index], index),
+    );
+  }
+
+  StationSampleModel _createSampleForDraft(AuditModel draft, int index) {
+    final now = DateTime.now();
+    return StationSampleModel(
+      id: _uuid.v4(),
+      auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
+      legacyAuditId: draft.id,
+      stationType: StationSampleMapper.stationTypeForAuditType(draft.auditType),
+      sampleMode: SampleMode.isCompare(draft.sampleMode)
+          ? StationSampleModel.sampleModeComparison
+          : StationSampleModel.sampleModePooled,
+      comparisonType: _defaultComparisonType(draft.auditType, draft.sampleMode),
+      sampleIndex: index + 1,
+      sampleLabel: _sampleLabelForDraft(draft, index),
+      sampleType: _defaultSampleType(draft.auditType, draft.ebBreakoutType),
+      breakoutType: _defaultBreakoutType(draft.ebBreakoutType),
+      groupKey: draft.compareGroupKey,
+      groupLabel: _groupLabelForDraft(draft),
+      batchNo: draft.hatchNumber.toString(),
+      houseNo: _houseNoForDraft(draft, index),
+      houseLabel: _houseLabelForDraft(draft, index),
+      hatchNo: draft.hatchNumber.toString(),
+      storageDays: _storageDaysForDraft(draft),
+      incubationDay: draft.soIncubationAge ?? draft.hoIncubationAge,
+      setterNo: draft.setterId ?? draft.soSetterId,
+      hatcherNo: draft.hatcherId ?? draft.hoHatcherId,
+      calculatedBmkAgeDays: BmkAgeCalculator.calculateDays(
+        currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
+          _context?.flockAgeWeeks,
+        ),
+        auditDate: draft.date,
+        legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+        storageDays: _storageDaysForDraft(draft),
+        flockEntryDate: _context?.flockEntryDate,
+      ),
+      benchmarkBreed: _context?.breed ?? draft.soBreed ?? draft.hoBreed,
+      resultSummaryJson: StationSampleMapper.resultSummaryJsonForAudit(draft),
+      createdAt: draft.createdAt,
+      updatedAt: now,
+    );
+  }
+
+  void _syncStationSampleFromDraft(int index) {
+    if (index < 0 || index >= _drafts.length) return;
+    if (_stationSamples.length != _drafts.length) {
+      _stationSamples = _buildSamplesForDrafts();
+      return;
+    }
+    final existing = _stationSamples[index];
+    final fresh = _createSampleForDraft(_drafts[index], index);
+    final keepGeneratedHouseMetadata =
+        _drafts[index].auditType == 'Egg Storage' &&
+        SampleMode.isCompare(_drafts[index].sampleMode);
+    final next = fresh.copyWith(
+      id: existing.id,
+      auditSessionId: _activeSessionId ?? existing.auditSessionId,
+      legacyAuditId: _drafts[index].id,
+      comparisonType:
+          existing.comparisonType ??
+          _defaultComparisonType(
+            _drafts[index].auditType,
+            _drafts[index].sampleMode,
+          ),
+      sampleType: existing.sampleType,
+      breakoutType: existing.breakoutType,
+      groupKey: _drafts[index].compareGroupKey ?? existing.groupKey,
+      groupLabel: existing.groupLabel,
+      batchNo: existing.batchNo,
+      houseNo: keepGeneratedHouseMetadata ? fresh.houseNo : existing.houseNo,
+      houseLabel: keepGeneratedHouseMetadata
+          ? fresh.houseLabel
+          : existing.houseLabel,
+      hatchNo: existing.hatchNo,
+      eggProductionDate: existing.eggProductionDate,
+      settingDate: existing.settingDate,
+      hatchDate: existing.hatchDate,
+      notes: existing.notes,
+      createdAt: existing.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _stationSamples[index] = next;
+  }
+
+  StationSampleModel? _sampleForSave(int index, AuditModel draft) {
+    final sessionId = _activeSessionId ?? draft.sessionId;
+    if (sessionId == null || sessionId.isEmpty) return null;
+    _syncStationSampleFromDraft(index);
+    return _stationSamples[index].copyWith(
+      auditSessionId: sessionId,
+      legacyAuditId: draft.id,
+      resultSummaryJson: StationSampleMapper.resultSummaryJsonForAudit(draft),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  void _applySamplePatchToDraft(int index) {
+    if (index < 0 || index >= _drafts.length) return;
+    final patch = StationSampleMapper.legacyAuditPatchForSample(
+      _stationSamples[index],
+    );
+    final map = _drafts[index].toMap()..addAll(patch);
+    _drafts[index] = AuditModel.fromMap(map);
+  }
+
+  String? _defaultComparisonType(String auditType, String sampleMode) {
+    if (!SampleMode.isCompare(sampleMode)) return null;
+    switch (auditType) {
+      case 'Egg Storage':
+        return StationSampleModel.comparisonTypeHouse;
+      case 'Chick Quality':
+      case 'Hatch Analysis':
+        return StationSampleModel.comparisonTypeBatch;
+      case 'Setter Optimizing':
+      case 'Hatcher Optimizing':
+        return StationSampleModel.comparisonTypeMachine;
+      default:
+        return null;
+    }
+  }
+
+  String _sampleLabelForDraft(AuditModel draft, int index) {
+    if (draft.auditType == 'Egg Storage' &&
+        SampleMode.isCompare(draft.sampleMode)) {
+      return 'H${index + 1}';
+    }
+    return 'Sample ${index + 1}';
+  }
+
+  String? _groupLabelForDraft(AuditModel draft) {
+    if (draft.compareGroupKey == null) return null;
+    if (draft.auditType == 'Egg Storage') return 'House comparison';
+    return 'Comparison';
+  }
+
+  String? _houseNoForDraft(AuditModel draft, int index) {
+    if (draft.auditType != 'Egg Storage' ||
+        !SampleMode.isCompare(draft.sampleMode)) {
+      return null;
+    }
+    return 'H${index + 1}';
+  }
+
+  String? _houseLabelForDraft(AuditModel draft, int index) {
+    if (draft.auditType != 'Egg Storage' ||
+        !SampleMode.isCompare(draft.sampleMode)) {
+      return null;
+    }
+    return 'House ${index + 1}';
+  }
+
+  String _defaultSampleType(String auditType, String? breakoutType) {
+    if (auditType == 'Chick Quality') {
+      return StationSampleModel.sampleTypeChickQualityHatchedBatch;
+    }
+    if (auditType == 'Hatch Analysis') {
+      return switch (EggBreakoutType.fromStorageValue(breakoutType)) {
+        EggBreakoutType.freshEggBreakout =>
+          StationSampleModel.sampleTypeBreakoutFresh,
+        EggBreakoutType.candledEggBreakout =>
+          StationSampleModel.sampleTypeBreakoutCandled10d,
+        EggBreakoutType.residueHatchDay =>
+          StationSampleModel.sampleTypeBreakoutResidue21d,
+      };
+    }
+    return StationSampleModel.sampleTypeDefault;
+  }
+
+  String? _defaultBreakoutType(String? breakoutType) {
+    return EggBreakoutType.fromStorageValue(breakoutType).storageValue;
+  }
+
+  int? _storageDaysForDraft(AuditModel draft) {
+    return draft.esEggStorageDays ??
+        draft.chickStorageDays ??
+        draft.haStorageDays ??
+        draft.ebStorageDays;
+  }
+
+  int? _legacyBmkWeeksForDraft(AuditModel draft) {
+    return draft.esEggBmkAge ??
+        draft.chickBmkAge ??
+        draft.haBmkAge ??
+        draft.ebBmkAge;
   }
 
   // Set temperature unit

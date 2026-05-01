@@ -5,6 +5,7 @@ import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../data/models/flock_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_session_provider.dart';
@@ -35,11 +36,31 @@ class _AuditStationSelectionScreenState
   bool _isStarting = false;
 
   static const _allStations = [
-    {'key': 'egg_storage', 'name': 'Egg Storage', 'icon': Icons.egg},
-    {'key': 'chick_quality', 'name': 'Chick Quality', 'icon': Icons.cruelty_free},
-    {'key': 'hatch_analysis', 'name': 'Hatch Analysis', 'icon': Icons.bar_chart},
-    {'key': 'setter_optimizing', 'name': 'Setter Optimizing', 'icon': Icons.thermostat},
-    {'key': 'hatcher_optimizing', 'name': 'Hatcher Optimizing', 'icon': Icons.device_thermostat},
+    {
+      'key': 'egg_storage',
+      'name': AuditTypeLabels.eggStationLabel,
+      'icon': Icons.egg,
+    },
+    {
+      'key': 'chick_quality',
+      'name': 'Chick Quality',
+      'icon': Icons.cruelty_free,
+    },
+    {
+      'key': 'hatch_analysis',
+      'name': 'Hatch Analysis',
+      'icon': Icons.bar_chart,
+    },
+    {
+      'key': 'setter_optimizing',
+      'name': 'Setter Optimizing',
+      'icon': Icons.thermostat,
+    },
+    {
+      'key': 'hatcher_optimizing',
+      'name': 'Hatcher Optimizing',
+      'icon': Icons.device_thermostat,
+    },
   ];
 
   List<Map<String, dynamic>> get _availableStations => _allStations
@@ -76,7 +97,6 @@ class _AuditStationSelectionScreenState
     );
   }
 
-
   Widget _buildSelectedStationsSection() {
     return Card(
       elevation: 2,
@@ -89,12 +109,12 @@ class _AuditStationSelectionScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
                 'Visit order',
-                style: AppTextStyles.caption
-                    .copyWith(fontWeight: FontWeight.w700),
+                style: AppTextStyles.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             ReorderableListView.builder(
@@ -138,8 +158,7 @@ class _AuditStationSelectionScreenState
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
             child: Row(
               children: [
                 Container(
@@ -163,9 +182,7 @@ class _AuditStationSelectionScreenState
                 const SizedBox(width: 12),
                 Icon(icon, color: AppColors.primary, size: 20),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: Text(name, style: AppTextStyles.body),
-                ),
+                Expanded(child: Text(name, style: AppTextStyles.body)),
                 IconButton(
                   onPressed: () {
                     setState(() => _orderedSelectedKeys.removeAt(index));
@@ -179,8 +196,11 @@ class _AuditStationSelectionScreenState
                 const SizedBox(width: 4),
                 ReorderableDragStartListener(
                   index: index,
-                  child: const Icon(Icons.drag_handle,
-                      color: Colors.grey, size: 22),
+                  child: const Icon(
+                    Icons.drag_handle,
+                    color: Colors.grey,
+                    size: 22,
+                  ),
                 ),
               ],
             ),
@@ -202,12 +222,12 @@ class _AuditStationSelectionScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
                 'Tap to add',
-                style: AppTextStyles.caption
-                    .copyWith(fontWeight: FontWeight.w700),
+                style: AppTextStyles.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             ..._availableStations.map(_buildAvailableTile),
@@ -241,10 +261,7 @@ class _AuditStationSelectionScreenState
             const SizedBox(width: 12),
             Icon(icon, color: Colors.grey, size: 20),
             const SizedBox(width: 10),
-            Text(
-              name,
-              style: AppTextStyles.body.copyWith(color: Colors.grey),
-            ),
+            Text(name, style: AppTextStyles.body.copyWith(color: Colors.grey)),
           ],
         ),
       ),
@@ -269,18 +286,16 @@ class _AuditStationSelectionScreenState
           width: double.infinity,
           height: 50,
           child: ElevatedButton(
-            onPressed:
-                _orderedSelectedKeys.isNotEmpty && !_isStarting
-                    ? _handleStartVisit
-                    : null,
+            onPressed: _orderedSelectedKeys.isNotEmpty && !_isStarting
+                ? _handleStartVisit
+                : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               disabledBackgroundColor: AppColors.primary.withAlpha(77),
               disabledForegroundColor: Colors.white70,
               shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(AppSizes.buttonRadius),
+                borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
               ),
             ),
             child: _isStarting
@@ -289,14 +304,12 @@ class _AuditStationSelectionScreenState
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
                 : const Text(
                     'Start Visit',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
           ),
         ),
@@ -329,9 +342,9 @@ class _AuditStationSelectionScreenState
 
     if (sessionProvider.error != null) {
       setState(() => _isStarting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(sessionProvider.error!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
       return;
     }
 

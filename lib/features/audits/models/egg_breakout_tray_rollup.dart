@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'egg_breakout_sample.dart';
+
 class EggBreakoutTrayRollup {
   final int traySize;
   final int infertile;
@@ -40,24 +42,33 @@ class EggBreakoutTrayRollup {
       if (decoded is! List) return const EggBreakoutTrayRollup();
 
       var rollup = const EggBreakoutTrayRollup();
-      for (final item in decoded) {
+      for (final entry in decoded.asMap().entries) {
+        final item = entry.value;
         if (item is! Map) continue;
-        final counts = item['counts'];
-        if (counts is! Map) continue;
+        final sample = EggBreakoutSampleEntry.fromJson(
+          Map<String, dynamic>.from(item),
+          index: entry.key + 1,
+        );
+        final counts = sample.counts;
         rollup = rollup._add(
-          traySize: _readInt(item['traySize']),
-          infertile: _readInt(counts['infertile']),
-          earlyDead: _readInt(counts['earlyDead']),
-          midDead: _readInt(counts['midDead']),
-          lateDead: _readInt(counts['lateDead']),
-          internalPip: _readInt(counts['internalPip']),
-          externalPip: _readInt(counts['externalPip']),
-          cracked: _readInt(counts['cracked']),
-          contaminated: _readInt(counts['contaminated']),
-          malposition: _readInt(counts['malposition']),
-          exposedBrain: _readInt(counts['exposedBrain']),
-          crossedBeak: _readInt(counts['crossedBeak']),
-          culledDead: _readInt(counts['culledDead']),
+          traySize: sample.totalSample ?? 0,
+          infertile: _readCount(counts, 'infertile'),
+          earlyDead:
+              _readCount(counts, 'earlyDead') +
+              _readCount(counts, 'early24h') +
+              _readCount(counts, 'early48h') +
+              _readCount(counts, 'early72hBloodRing'),
+          midDead:
+              _readCount(counts, 'midDead') + _readCount(counts, 'blackEye'),
+          lateDead: _readCount(counts, 'lateDead'),
+          internalPip: _readCount(counts, 'internalPip'),
+          externalPip: _readCount(counts, 'externalPip'),
+          cracked: _readCount(counts, 'cracked'),
+          contaminated: _readCount(counts, 'contaminated'),
+          malposition: _readCount(counts, 'malposition'),
+          exposedBrain: _readCount(counts, 'exposedBrain'),
+          crossedBeak: _readCount(counts, 'crossedBeak'),
+          culledDead: _readCount(counts, 'culledDead'),
         );
       }
       return rollup;
@@ -116,10 +127,6 @@ class EggBreakoutTrayRollup {
     };
   }
 
-  static int _readInt(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? 0;
-    return 0;
-  }
+  static int _readCount(Map<String, int> counts, String key) =>
+      counts[key] ?? 0;
 }

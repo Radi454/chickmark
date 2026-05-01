@@ -547,6 +547,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
           ? null
           : _hatcherIdController.text.trim(),
       flockEntryDate: selectedFlock.entryDate,
+      flockAgeWeeks: selectedFlock.currentAgeWeeks.toInt(),
       date: DateTime.now().toIso8601String().split('T')[0],
     );
 
@@ -593,22 +594,26 @@ class AuditContextData {
   final String auditType;
   final String customerId;
   final String flockId;
+  final String? hatcheryId;
   final String? sessionId;
   final String? breed;
   final String? setterId;
   final String? hatcherId;
   final DateTime? flockEntryDate;
+  final int? flockAgeWeeks;
   final String date;
 
   AuditContextData({
     required this.auditType,
     required this.customerId,
     required this.flockId,
+    this.hatcheryId,
     this.sessionId,
     this.breed,
     this.setterId,
     this.hatcherId,
     this.flockEntryDate,
+    this.flockAgeWeeks,
     required this.date,
   });
 }

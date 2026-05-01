@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_thresholds.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/calculation_utils.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
 class YfbmTab extends StatefulWidget {
@@ -26,6 +26,8 @@ class YfbmTab extends StatefulWidget {
 }
 
 class _YfbmTabState extends State<YfbmTab> {
+  static const String _tableNavigationGroup = 'yfbm-table';
+
   final List<_EntryData> _entries = [];
   final TextEditingController _avgPercentController = TextEditingController();
   final TextEditingController _cvPercentController = TextEditingController();
@@ -125,151 +127,162 @@ class _YfbmTabState extends State<YfbmTab> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: _buildStatCard('AVG %', _avgPercentController)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildStatCard('CV %', _cvPercentController)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: _buildStatCard('AVG %', _avgPercentController)),
+                const SizedBox(width: 8),
+                Expanded(child: _buildStatCard('CV %', _cvPercentController)),
+              ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.photo_camera,
-                        color: AppColors.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Photo',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  PhotoButton(
-                    photoPath: _photoPath,
-                    enabled: !widget.isReadOnly,
-                    onPhotoCaptured: (path) {
-                      setState(() => _photoPath = path);
-                      widget.onFieldChanged('yfbmPhoto', path);
-                    },
-                  ),
-                ],
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
               ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'YFBM Entries',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.photo_camera,
+                          color: AppColors.primary,
+                          size: 20,
                         ),
-                      ),
-                      if (!widget.isReadOnly)
-                        ElevatedButton.icon(
-                          onPressed: _addEntry,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('Add Row'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
+                        const SizedBox(width: 8),
+                        Text(
+                          'Photo',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Table(
-                    border: TableBorder.all(color: Colors.grey[300]!, width: 1),
-                    columnWidths: const {
-                      0: FixedColumnWidth(40),
-                      1: FlexColumnWidth(),
-                      2: FlexColumnWidth(),
-                      3: FixedColumnWidth(80),
-                      4: FixedColumnWidth(50),
-                    },
-                    children: [
-                      TableRow(
-                        decoration: BoxDecoration(color: Colors.grey[100]),
-                        children: [
-                          _cell('#', isHeader: true),
-                          _cell('Chick (g)', isHeader: true),
-                          _cell('Yolk (g)', isHeader: true),
-                          _cell('%', isHeader: true),
-                          _cell('', isHeader: true),
-                        ],
-                      ),
-                      ...List.generate(_entries.length, (index) {
-                        final entry = _entries[index];
-                        final pct =
-                            entry.chickWeight != null &&
-                                entry.yolkWeight != null &&
-                                entry.chickWeight! > 0
-                            ? (entry.yolkWeight! / entry.chickWeight!) * 100
-                            : null;
-                        final isGood =
-                            pct != null &&
-                            pct >= AppThresholds.yfbmMin &&
-                            pct <= AppThresholds.yfbmMax;
-                        return TableRow(
-                          children: [
-                            _cell('${index + 1}'),
-                            _weightCell(
-                              entry.chickWeight,
-                              (v) => _updateEntry(index, 'chickWeight', v),
-                            ),
-                            _weightCell(
-                              entry.yolkWeight,
-                              (v) => _updateEntry(index, 'yolkWeight', v),
-                            ),
-                            _cell(
-                              pct?.toStringAsFixed(1) ?? '--',
-                              textColor: isGood
-                                  ? AppColors.greenTab
-                                  : Colors.red,
-                            ),
-                            widget.isReadOnly ? _cell('') : _deleteCell(index),
-                          ],
-                        );
-                      }),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    PhotoButton(
+                      photoPath: _photoPath,
+                      enabled: !widget.isReadOnly,
+                      onPhotoCaptured: (path) {
+                        setState(() => _photoPath = path);
+                        widget.onFieldChanged('yfbmPhoto', path);
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'YFBM Entries',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (!widget.isReadOnly)
+                          ElevatedButton.icon(
+                            onPressed: _addEntry,
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Row'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Table(
+                      border: TableBorder.all(
+                        color: Colors.grey[300]!,
+                        width: 1,
+                      ),
+                      columnWidths: const {
+                        0: FixedColumnWidth(40),
+                        1: FlexColumnWidth(),
+                        2: FlexColumnWidth(),
+                        3: FixedColumnWidth(80),
+                        4: FixedColumnWidth(50),
+                      },
+                      children: [
+                        TableRow(
+                          decoration: BoxDecoration(color: Colors.grey[100]),
+                          children: [
+                            _cell('#', isHeader: true),
+                            _cell('Chick (g)', isHeader: true),
+                            _cell('Yolk (g)', isHeader: true),
+                            _cell('%', isHeader: true),
+                            _cell('', isHeader: true),
+                          ],
+                        ),
+                        ...List.generate(_entries.length, (index) {
+                          final entry = _entries[index];
+                          final pct =
+                              entry.chickWeight != null &&
+                                  entry.yolkWeight != null &&
+                                  entry.chickWeight! > 0
+                              ? (entry.yolkWeight! / entry.chickWeight!) * 100
+                              : null;
+                          final isGood =
+                              pct != null &&
+                              pct >= AppThresholds.yfbmMin &&
+                              pct <= AppThresholds.yfbmMax;
+                          return TableRow(
+                            children: [
+                              _cell('${index + 1}'),
+                              _weightCell(
+                                entry.chickWeight,
+                                (v) => _updateEntry(index, 'chickWeight', v),
+                                row: index,
+                                column: 0,
+                              ),
+                              _weightCell(
+                                entry.yolkWeight,
+                                (v) => _updateEntry(index, 'yolkWeight', v),
+                                row: index,
+                                column: 1,
+                              ),
+                              _cell(
+                                pct?.toStringAsFixed(1) ?? '--',
+                                textColor: isGood
+                                    ? AppColors.greenTab
+                                    : Colors.red,
+                              ),
+                              widget.isReadOnly
+                                  ? _cell('')
+                                  : _deleteCell(index),
+                            ],
+                          );
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -316,21 +329,27 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _weightCell(double? value, Function(double?) onChanged) {
+  Widget _weightCell(
+    double? value,
+    Function(double?) onChanged, {
+    required int row,
+    required int column,
+  }) {
     return Padding(
       padding: const EdgeInsets.all(4),
-      child: TextField(
+      child: AuditNumericField(
         enabled: !widget.isReadOnly,
         controller: TextEditingController(text: value?.toString() ?? ''),
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        allowDecimal: true,
+        maxDecimalPlaces: 1,
+        navigationGroup: _tableNavigationGroup,
+        navigationRow: row,
+        navigationColumn: column,
         textAlign: TextAlign.center,
         decoration: const InputDecoration(
           border: InputBorder.none,
           isDense: true,
         ),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-        ],
         onChanged: (v) => onChanged(double.tryParse(v)),
       ),
     );

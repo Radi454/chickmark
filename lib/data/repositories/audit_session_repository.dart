@@ -18,11 +18,7 @@ class AuditSessionRepository {
       hatcheryId: session.hatcheryId,
     );
     final db = await _dbHelper.db;
-    await db.insert(
-      'audit_sessions',
-      session.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _upsertById(db, 'audit_sessions', session.toMap());
   }
 
   Future<void> updateSession(AuditSessionModel session) async {
@@ -230,11 +226,21 @@ class AuditSessionRepository {
   Future<void> upsertSessionRow(Map<String, dynamic> row) async {
     final db = await _dbHelper.db;
     final normalized = _normalize(row);
-    await db.insert(
-      'audit_sessions',
-      normalized,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await _upsertById(db, 'audit_sessions', normalized);
+  }
+
+  Future<void> _upsertById(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final inserted = await db.insert(
+      table,
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    if (inserted != 0) return;
+    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
   List<String> _validCompletedStations(

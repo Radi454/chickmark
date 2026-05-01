@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/flock_model.dart';
+import '../../../core/utils/audit_type_labels.dart';
 import '../../../providers/customers_provider.dart';
 import '../models/audit_filter.dart';
 
@@ -15,13 +16,13 @@ class AuditFilterSheet extends StatefulWidget {
 }
 
 class _AuditFilterSheetState extends State<AuditFilterSheet> {
-  static const List<String> _auditTypes = [
-    'Chick Quality',
-    'Hatch Analysis',
-    'Egg Storage',
-    'Setter Optimizing',
-    'Hatcher Optimizing',
-  ];
+  static const Map<String, String> _auditTypeLabels = {
+    'Chick Quality': 'Chick Quality',
+    'Hatch Analysis': 'Hatch Analysis',
+    AuditTypeLabels.eggAuditType: AuditTypeLabels.eggStationLabel,
+    'Setter Optimizing': 'Setter Optimizing',
+    'Hatcher Optimizing': 'Hatcher Optimizing',
+  };
 
   AuditFilter _filter = AuditFilter.empty;
 
@@ -83,10 +84,11 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _auditTypes.map((type) {
+                children: _auditTypeLabels.entries.map((entry) {
+                  final type = entry.key;
                   final selected = _filter.auditTypes.contains(type);
                   return FilterChip(
-                    label: Text(type),
+                    label: Text(entry.value),
                     selected: selected,
                     onSelected: (value) {
                       final next = [..._filter.auditTypes];
@@ -95,7 +97,9 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
                       } else {
                         next.remove(type);
                       }
-                      setState(() => _filter = _filter.copyWith(auditTypes: next));
+                      setState(
+                        () => _filter = _filter.copyWith(auditTypes: next),
+                      );
                     },
                   );
                 }).toList(),
@@ -198,7 +202,8 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
   List<FlockModel> _availableFlocks(CustomersProvider provider) {
     final seen = <String, FlockModel>{};
     for (final audit in provider.allAudits) {
-      if (_filter.customerId != null && audit.customerId != _filter.customerId) {
+      if (_filter.customerId != null &&
+          audit.customerId != _filter.customerId) {
         continue;
       }
       final flock = provider.flockById(audit.flockId);
@@ -222,10 +227,7 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
     );
     if (picked == null) return;
     setState(() {
-      _filter = _filter.copyWith(
-        dateFrom: picked.start,
-        dateTo: picked.end,
-      );
+      _filter = _filter.copyWith(dateFrom: picked.start, dateTo: picked.end);
     });
   }
 

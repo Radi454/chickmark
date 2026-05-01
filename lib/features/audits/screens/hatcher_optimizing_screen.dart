@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
@@ -11,7 +10,9 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
+import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sample_mode_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'audit_context_screen.dart';
@@ -33,6 +34,10 @@ class HatcherOptimizingScreen extends StatefulWidget {
 }
 
 class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
+  static const List<String> _gridRows = ['Door', 'Middle', 'Back'];
+  static const List<String> _gridColumns = ['Top', 'Middle', 'Bottom'];
+  static const String _gridNavigationGroup = 'hatcher-cvt-grid';
+
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
     6,
@@ -49,10 +54,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   bool _chickPanting = false;
   String? _meconium;
   final TextEditingController _transferDayController = TextEditingController();
-
-  List<TextInputFormatter> get _integerInputFormatters => [
-    FilteringTextInputFormatter.digitsOnly,
-  ];
+  String? _activeAuditId;
 
   @override
   void initState() {
@@ -70,10 +72,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _meconium = widget.initialAudit?.hoMeconium;
     _transferDayController.text =
         widget.initialAudit?.hoTransferDay?.toString() ?? '';
-    final rows = ['Door', 'Middle', 'Back'];
-    final cols = ['Top', 'Middle', 'Bottom'];
-    for (var r in rows) {
-      for (var c in cols) {
+    for (var r in _gridRows) {
+      for (var c in _gridColumns) {
         _controllers['${r}_$c'] = TextEditingController();
       }
     }
@@ -94,6 +94,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         breed: widget.context.breed,
         setterId: widget.context.setterId,
         hatcherId: widget.context.hatcherId,
+        flockEntryDate: widget.context.flockEntryDate,
+        flockAgeWeeks: widget.context.flockAgeWeeks,
         date: widget.context.date,
       ),
       existingAudit: widget.initialAudit,
@@ -101,9 +103,32 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
     );
+    _activeAuditId = auditProvider.activeDraft.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToInitialSection();
     });
+  }
+
+  void _syncActiveSampleForm(AuditModel audit) {
+    if (_activeAuditId == audit.id) return;
+    _activeAuditId = audit.id;
+    _hatcherIdController.text = audit.hatcherId ?? audit.hoHatcherId ?? '';
+    _incubationAgeController.text = (audit.hoIncubationAge ?? 18).toString();
+    _chickPanting = audit.hoChickPanting ?? false;
+    _meconium = audit.hoMeconium;
+    _transferDayController.text = audit.hoTransferDay?.toString() ?? '';
+    for (final controller in _controllers.values) {
+      controller.clear();
+    }
+    _photos.clear();
+    _avgController.text = audit.hoCvtAvg != null
+        ? audit.hoCvtAvg!.toStringAsFixed(1)
+        : '';
+    _cvController.text = audit.hoCvtCv != null
+        ? audit.hoCvtCv!.toStringAsFixed(1)
+        : '';
+    _loadCvtReadings(audit.hoCvtReadings);
+    _loadCvtPhotos(audit.hoCvtPhotos);
   }
 
   void _loadCvtReadings(String? readingsJson) {
@@ -182,6 +207,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
+    _syncActiveSampleForm(audit);
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
       child: Scaffold(
@@ -197,230 +223,246 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                     ),
                 ],
               ),
-        body: AuditKeyboardDismiss(
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Card(
-                  key: _sectionKeys[0],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        body: AuditNumericKeyboardScope(
+          child: AuditKeyboardDismiss(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(AppSizes.cardPadding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  StationSampleModeControls(
+                    provider: auditProvider,
+                    padding: EdgeInsets.zero,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Breed from flock',
-                            border: OutlineInputBorder(),
-                          ),
-                          child: Text(
-                            audit.hoBreed ?? widget.context.breed ?? 'Unknown',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _hatcherIdController,
-                          enabled: !auditProvider.isReadOnly,
-                          decoration: const InputDecoration(
-                            labelText: 'Hatcher ID',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (v) {
-                            auditProvider.updateField('hatcherId', v);
-                            auditProvider.updateField('hoHatcherId', v);
-                          },
-                        ),
-                      ],
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[0],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Incubation Age: ${_incubationAgeController.text} days',
-                          style: AppTextStyles.body,
-                        ),
-                        Slider(
-                          value:
-                              double.tryParse(_incubationAgeController.text) ??
-                              18,
-                          min: 18,
-                          max: 21,
-                          divisions: 3,
-                          onChanged: auditProvider.isReadOnly
-                              ? null
-                              : (v) {
-                                  final age = v.toInt();
-                                  setState(() {
-                                    _incubationAgeController.text = age
-                                        .toString();
-                                  });
-                                  auditProvider.updateField(
-                                    'hoIncubationAge',
-                                    age,
-                                  );
-                                },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[1],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        TextField(
-                          enabled: !auditProvider.isReadOnly,
-                          decoration: const InputDecoration(
-                            labelText: 'CO2 Level (ppm)',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (v) => auditProvider.updateField(
-                            'hoCo2',
-                            double.tryParse(v),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        PhotoButton(
-                          photoPath: audit.hoCo2Photo,
-                          enabled: !auditProvider.isReadOnly,
-                          onPhotoCaptured: (p) =>
-                              auditProvider.updateField('hoCo2Photo', p),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _statCard('AVG', _avgController.text, null),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(child: _statCard('CV%', _cvController.text, null)),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[2],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Chick Vent Temperature (CVT) - Optimum: 103-105°F',
-                          style: AppTextStyles.body,
-                        ),
-                        _buildCvtGrid(auditProvider),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[3],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        Text('Chick Panting', style: AppTextStyles.body),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SegmentedButton<bool>(
-                                segments: const [
-                                  ButtonSegment(
-                                    value: false,
-                                    label: Text('No'),
-                                  ),
-                                  ButtonSegment(
-                                    value: true,
-                                    label: Text('Yes'),
-                                  ),
-                                ],
-                                selected: {_chickPanting},
-                                onSelectionChanged: auditProvider.isReadOnly
-                                    ? null
-                                    : (s) {
-                                        setState(() => _chickPanting = s.first);
-                                        auditProvider.updateField(
-                                          'hoChickPanting',
-                                          s.first ? 1 : 0,
-                                        );
-                                      },
-                              ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Breed from flock',
+                              border: OutlineInputBorder(),
                             ),
-                            const SizedBox(width: 8),
-                            PhotoButton(
-                              photoPath: audit.hoChickPantingPhoto,
-                              enabled: !auditProvider.isReadOnly,
-                              onPhotoCaptured: (p) => auditProvider.updateField(
-                                'hoChickPantingPhoto',
-                                p,
-                              ),
+                            child: Text(
+                              audit.hoBreed ??
+                                  widget.context.breed ??
+                                  'Unknown',
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _hatcherIdController,
+                            enabled: !auditProvider.isReadOnly,
+                            decoration: const InputDecoration(
+                              labelText: 'Hatcher ID',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) {
+                              auditProvider.updateField('hatcherId', v);
+                              auditProvider.updateField('hoHatcherId', v);
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[4],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Meconium Assessment',
-                          style: AppTextStyles.body.copyWith(
-                            fontWeight: FontWeight.w600,
+                  const SizedBox(height: 16),
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Incubation Age: ${_incubationAgeController.text} days',
+                            style: AppTextStyles.body,
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children:
-                              ['Normal', 'Greenish', 'Watery', 'Excessive'].map(
-                                (option) {
+                          Slider(
+                            value:
+                                double.tryParse(
+                                  _incubationAgeController.text,
+                                ) ??
+                                18,
+                            min: 18,
+                            max: 21,
+                            divisions: 3,
+                            onChanged: auditProvider.isReadOnly
+                                ? null
+                                : (v) {
+                                    final age = v.toInt();
+                                    setState(() {
+                                      _incubationAgeController.text = age
+                                          .toString();
+                                    });
+                                    auditProvider.updateField(
+                                      'hoIncubationAge',
+                                      age,
+                                    );
+                                  },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[1],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          TextField(
+                            enabled: !auditProvider.isReadOnly,
+                            decoration: const InputDecoration(
+                              labelText: 'CO2 Level (ppm)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) => auditProvider.updateField(
+                              'hoCo2',
+                              double.tryParse(v),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          PhotoButton(
+                            photoPath: audit.hoCo2Photo,
+                            enabled: !auditProvider.isReadOnly,
+                            onPhotoCaptured: (p) =>
+                                auditProvider.updateField('hoCo2Photo', p),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _statCard('AVG', _avgController.text, null),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _statCard('CV%', _cvController.text, null),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[2],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Chick Vent Temperature (CVT) - Optimum: 103-105°F',
+                            style: AppTextStyles.body,
+                          ),
+                          _buildCvtGrid(auditProvider),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[3],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          Text('Chick Panting', style: AppTextStyles.body),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SegmentedButton<bool>(
+                                  segments: const [
+                                    ButtonSegment(
+                                      value: false,
+                                      label: Text('No'),
+                                    ),
+                                    ButtonSegment(
+                                      value: true,
+                                      label: Text('Yes'),
+                                    ),
+                                  ],
+                                  selected: {_chickPanting},
+                                  onSelectionChanged: auditProvider.isReadOnly
+                                      ? null
+                                      : (s) {
+                                          setState(
+                                            () => _chickPanting = s.first,
+                                          );
+                                          auditProvider.updateField(
+                                            'hoChickPanting',
+                                            s.first ? 1 : 0,
+                                          );
+                                        },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              PhotoButton(
+                                photoPath: audit.hoChickPantingPhoto,
+                                enabled: !auditProvider.isReadOnly,
+                                onPhotoCaptured: (p) => auditProvider
+                                    .updateField('hoChickPantingPhoto', p),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[4],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Meconium Assessment',
+                            style: AppTextStyles.body.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children:
+                                [
+                                  'Normal',
+                                  'Greenish',
+                                  'Watery',
+                                  'Excessive',
+                                ].map((option) {
                                   final selected = _meconium == option;
                                   return ChoiceChip(
                                     label: Text(option),
@@ -455,52 +497,50 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                                       ),
                                     ),
                                   );
-                                },
-                              ).toList(),
-                        ),
-                      ],
+                                }).toList(),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[5],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Transfer Day',
-                          style: AppTextStyles.body.copyWith(
-                            fontWeight: FontWeight.w600,
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[5],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Transfer Day',
+                            style: AppTextStyles.body.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _transferDayController,
-                          enabled: !auditProvider.isReadOnly,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Transfer Day (day of incubation)',
-                            border: OutlineInputBorder(),
-                            suffixText: 'days',
+                          const SizedBox(height: 12),
+                          AuditNumericField(
+                            controller: _transferDayController,
+                            enabled: !auditProvider.isReadOnly,
+                            decoration: const InputDecoration(
+                              labelText: 'Transfer Day (day of incubation)',
+                              border: OutlineInputBorder(),
+                              suffixText: 'days',
+                            ),
+                            onChanged: (v) => auditProvider.updateField(
+                              'ho_transferDay',
+                              int.tryParse(v),
+                            ),
                           ),
-                          inputFormatters: _integerInputFormatters,
-                          onChanged: (v) => auditProvider.updateField(
-                            'ho_transferDay',
-                            int.tryParse(v),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -537,15 +577,13 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   }
 
   Widget _buildCvtGrid(AuditProvider provider) {
-    final rows = ['Door', 'Middle', 'Back'];
-    final cols = ['Top', 'Middle', 'Bottom'];
     return Column(
       children: [
-        for (var r in rows)
+        for (var r in _gridRows)
           Row(
             children: [
               SizedBox(width: 60, child: Text(r, style: AppTextStyles.body)),
-              for (var c in cols)
+              for (var c in _gridColumns)
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(4),
@@ -573,10 +611,14 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       ),
       child: Column(
         children: [
-          TextField(
-            controller: _controllers[key],
+          AuditNumericField(
+            controller: _controllers[key]!,
             enabled: !provider.isReadOnly,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            allowDecimal: true,
+            maxDecimalPlaces: 1,
+            navigationGroup: _gridNavigationGroup,
+            navigationRow: _gridRows.indexOf(key.split('_').first),
+            navigationColumn: _gridColumns.indexOf(key.split('_').last),
             textAlign: TextAlign.center,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),

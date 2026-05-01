@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_thresholds.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/calculation_utils.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_numeric_keyboard.dart';
 import '../weight_grid_widget.dart';
 
 class WeightsTab extends StatefulWidget {
@@ -101,138 +101,138 @@ class _WeightsTabState extends State<WeightsTab> {
         ? 0.0
         : CalculationUtils.uniformityPercent(weights, minRange, maxRange);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.scale, color: AppColors.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Chick Weights',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.scale, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Chick Weights',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: TextEditingController(
-                      text: widget.audit.chickStorageDays?.toString() ?? '',
+                      ],
                     ),
-                    enabled: !widget.isReadOnly,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Storage Days',
+                    const SizedBox(height: 12),
+                    AuditNumericField(
+                      controller: TextEditingController(
+                        text: widget.audit.chickStorageDays?.toString() ?? '',
+                      ),
+                      enabled: !widget.isReadOnly,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Storage Days',
+                      ),
+                      onChanged: (value) {
+                        widget.onFieldChanged(
+                          'chickStorageDays',
+                          int.tryParse(value) ?? 0,
+                        );
+                      },
                     ),
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    onChanged: (value) {
-                      widget.onFieldChanged(
-                        'chickStorageDays',
-                        int.tryParse(value) ?? 0,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInfoLine(
-                          'BMK Age',
-                          widget.audit.chickBmkAge?.toString() ?? 'N/A',
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildInfoLine(
+                            'BMK Age',
+                            widget.audit.chickBmkAge?.toString() ?? 'N/A',
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildInfoLine(
-                          'BMK Chick Weight',
-                          widget.audit.chickBmkWeight == null
-                              ? 'N/A'
-                              : '${widget.audit.chickBmkWeight!.toStringAsFixed(1)}g',
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildInfoLine(
+                            'BMK Chick Weight',
+                            widget.audit.chickBmkWeight == null
+                                ? 'N/A'
+                                : '${widget.audit.chickBmkWeight!.toStringAsFixed(1)}g',
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          WeightGridWidget(
-            controllers: _controllers,
-            focusNodes: _focusNodes,
-            enabled: !widget.isReadOnly,
-            onChanged: _updateCalculations,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  'AVG',
-                  '${avg.toStringAsFixed(1)}g',
-                  Colors.blue,
+            const SizedBox(height: 16),
+            WeightGridWidget(
+              controllers: _controllers,
+              focusNodes: _focusNodes,
+              enabled: !widget.isReadOnly,
+              onChanged: _updateCalculations,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryCard(
+                    'AVG',
+                    '${avg.toStringAsFixed(1)}g',
+                    Colors.blue,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildSummaryCard(
-                  'CV%',
-                  '${cv.toStringAsFixed(1)}%',
-                  cv <= AppThresholds.cvAlertPct
-                      ? AppColors.greenTab
-                      : Colors.red,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryCard(
+                    'CV%',
+                    '${cv.toStringAsFixed(1)}%',
+                    cv <= AppThresholds.cvAlertPct
+                        ? AppColors.greenTab
+                        : Colors.red,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  'Low Margin',
-                  '${minRange.toStringAsFixed(1)}g',
-                  Colors.blueGrey,
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryCard(
+                    'Low Margin',
+                    '${minRange.toStringAsFixed(1)}g',
+                    Colors.blueGrey,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildSummaryCard(
-                  'High Margin',
-                  '${maxRange.toStringAsFixed(1)}g',
-                  Colors.blueGrey,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryCard(
+                    'High Margin',
+                    '${maxRange.toStringAsFixed(1)}g',
+                    Colors.blueGrey,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  'In Zone',
-                  '${uniformity.toStringAsFixed(1)}%',
-                  _uniformityColor(uniformity),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryCard(
+                    'In Zone',
+                    '${uniformity.toStringAsFixed(1)}%',
+                    _uniformityColor(uniformity),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -11,6 +11,7 @@ import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart'
 import 'package:hatchaudit/features/dashboard/utils/pasgar_interpretation.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
+import 'package:hatchaudit/features/dashboard/widgets/est_evidence_photos_card.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
 import 'package:hatchaudit/features/dashboard/screens/photo_fullscreen_screen.dart';
 
@@ -584,7 +585,7 @@ class _EggStorageSectionState extends State<EggStorageSection>
       builder: (context, provider, _) {
         return Card(
           child: ExpansionTile(
-            title: const Text('Egg Storage'),
+            title: const Text('Egg'),
             initiallyExpanded: true,
             children: [
               TabBar(
@@ -698,6 +699,7 @@ class _ShellTempTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final trend = provider.eggStorageTrend;
     final latest = provider.eggStorageLatest;
+    final evidence = provider.eggStorageEstEvidence;
     if (provider.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -709,8 +711,8 @@ class _ShellTempTab extends StatelessWidget {
         .map((e) => FlSpot(e.key.toDouble(), e.value.shellTempC))
         .toList();
 
-    return ListView(
-      padding: EdgeInsets.zero,
+    final metrics = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _metricRow(
           'Shell Temp (°C)',
@@ -740,7 +742,61 @@ class _ShellTempTab extends StatelessWidget {
             ),
           ),
         ),
-        _photoSection(context, provider.shellTempPhotos),
+      ],
+    );
+
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        if (evidence == null) ...[
+          metrics,
+          _photoSection(context, provider.shellTempPhotos),
+        ] else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth >= 720) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: metrics),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 340,
+                        child: EstEvidencePhotosCard(
+                          evidence: evidence,
+                          onPhotoTap: (path) => Navigator.push(
+                            context,
+                            AppPageRoute(
+                              builder: (_) =>
+                                  PhotoFullscreenScreen(filePath: path),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
+                return Column(
+                  children: [
+                    metrics,
+                    const SizedBox(height: 12),
+                    EstEvidencePhotosCard(
+                      evidence: evidence,
+                      onPhotoTap: (path) => Navigator.push(
+                        context,
+                        AppPageRoute(
+                          builder: (_) => PhotoFullscreenScreen(filePath: path),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
       ],
     );
   }

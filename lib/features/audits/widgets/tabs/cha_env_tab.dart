@@ -3,6 +3,7 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/field_validators.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
 class ChaEnvTab extends StatefulWidget {
@@ -66,78 +67,84 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Environmental Readings',
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w600,
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Environmental Readings',
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildValidatedField('CO2 (ppm)', 'chaCo2', 'chaCo2Photo'),
-                  const SizedBox(height: 12),
-                  _buildNumericField('PM10 (µg/m³)', 'chaPm10', 'chaPm10Photo'),
-                  const SizedBox(height: 12),
-                  _buildNumericField(
-                    'PM2.5 (µg/m³)',
-                    'chaPm25',
-                    'chaPm25Photo',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildValidatedField(
-                    'Air Velocity Spot 1 (m/s)',
-                    'chaAirVelocitySpot1',
-                    'chaAirVelocitySpot1Photo',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildValidatedField(
-                    'Air Velocity Spot 2 (m/s)',
-                    'chaAirVelocitySpot2',
-                    'chaAirVelocitySpot2Photo',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildValidatedField(
-                    'Air Velocity Spot 3 (m/s)',
-                    'chaAirVelocitySpot3',
-                    'chaAirVelocitySpot3Photo',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildValidatedField(
-                    'Air Inlet (°F)',
-                    'chaAirInlet',
-                    'chaAirInletPhoto',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildValidatedField(
-                    'Air Outlet (°F)',
-                    'chaAirOutlet',
-                    'chaAirOutletPhoto',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildNumericField(
-                    'Noise Level (dB)',
-                    'chaNoiseLevel',
-                    'chaNoiseLevelPhoto',
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    _buildValidatedField('CO2 (ppm)', 'chaCo2', 'chaCo2Photo'),
+                    const SizedBox(height: 12),
+                    _buildNumericField(
+                      'PM10 (µg/m³)',
+                      'chaPm10',
+                      'chaPm10Photo',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildNumericField(
+                      'PM2.5 (µg/m³)',
+                      'chaPm25',
+                      'chaPm25Photo',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildValidatedField(
+                      'Air Velocity Spot 1 (m/s)',
+                      'chaAirVelocitySpot1',
+                      'chaAirVelocitySpot1Photo',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildValidatedField(
+                      'Air Velocity Spot 2 (m/s)',
+                      'chaAirVelocitySpot2',
+                      'chaAirVelocitySpot2Photo',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildValidatedField(
+                      'Air Velocity Spot 3 (m/s)',
+                      'chaAirVelocitySpot3',
+                      'chaAirVelocitySpot3Photo',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildValidatedField(
+                      'Air Inlet (°F)',
+                      'chaAirInlet',
+                      'chaAirInletPhoto',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildValidatedField(
+                      'Air Outlet (°F)',
+                      'chaAirOutlet',
+                      'chaAirOutletPhoto',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildNumericField(
+                      'Noise Level (dB)',
+                      'chaNoiseLevel',
+                      'chaNoiseLevelPhoto',
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -152,10 +159,10 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
     return Row(
       children: [
         Expanded(
-          child: TextField(
+          child: AuditNumericField(
             controller: controller,
             enabled: !widget.isReadOnly,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            allowDecimal: true,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               labelText: label,
@@ -184,10 +191,10 @@ class _ChaEnvTabState extends State<ChaEnvTab> {
     return Row(
       children: [
         Expanded(
-          child: TextField(
+          child: AuditNumericField(
             controller: controller,
             enabled: !widget.isReadOnly,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            allowDecimal: true,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               labelText: label,

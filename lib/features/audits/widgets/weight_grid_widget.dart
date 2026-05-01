@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
+import 'audit_numeric_keyboard.dart';
 
 enum WeightsMode { chick, egg }
 
@@ -24,19 +25,23 @@ class WeightGridWidget extends StatefulWidget {
 }
 
 class _WeightGridWidgetState extends State<WeightGridWidget> {
-  static const int _eggColumns = 25;
-  static const double _eggCellWidth = 48;
-  static const double _eggSpacing = 4;
+  static const int _eggColumns = 4;
+  static const double _eggSpacing = 8;
+  static const String _navigationGroup = 'weight-grid';
 
   bool _changeScheduled = false;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, _) {
+      builder: (context, constraints) {
         final isEggMode = widget.mode == WeightsMode.egg;
-        final crossAxisCount = isEggMode ? _eggColumns : 4;
-        final childAspectRatio = isEggMode ? 1.15 : 1.0;
+        final crossAxisCount = isEggMode
+            ? _eggColumnCountForWidth(constraints.maxWidth)
+            : 4;
+        final childAspectRatio = isEggMode
+            ? _eggAspectRatioForWidth(constraints.maxWidth)
+            : 1.0;
 
         final grid = GridView.builder(
           itemCount: widget.controllers.length,
@@ -49,29 +54,21 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
             crossAxisSpacing: isEggMode ? _eggSpacing : 8,
             childAspectRatio: childAspectRatio,
           ),
-          itemBuilder: (context, index) => _buildWeightCell(index),
+          itemBuilder: (context, index) =>
+              _buildWeightCell(index, crossAxisCount),
         );
 
-        if (!isEggMode) return grid;
-
-        final gridWidth =
-            (_eggColumns * _eggCellWidth) + ((_eggColumns - 1) * _eggSpacing);
-
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          child: SizedBox(width: gridWidth, child: grid),
-        );
+        return AuditNumericKeyboardScope(child: grid);
       },
     );
   }
 
-  Widget _buildWeightCell(int index) {
+  Widget _buildWeightCell(int index, int crossAxisCount) {
     final cellNumber = index + 1;
     final hasValue = widget.controllers[index].text.trim().isNotEmpty;
 
     if (widget.mode == WeightsMode.egg) {
-      return _buildEggWeightCell(index, cellNumber, hasValue);
+      return _buildEggWeightCell(index, cellNumber, hasValue, crossAxisCount);
     }
 
     return Container(
@@ -107,13 +104,15 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
             ),
           ),
           Expanded(
-            child: TextField(
+            child: AuditNumericField(
               controller: widget.controllers[index],
               focusNode: widget.focusNodes[index],
               enabled: widget.enabled,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
+              allowDecimal: true,
+              maxDecimalPlaces: 1,
+              navigationGroup: _navigationGroup,
+              navigationRow: index ~/ crossAxisCount,
+              navigationColumn: index % crossAxisCount,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -125,22 +124,6 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
                 contentPadding: EdgeInsets.fromLTRB(4, 3, 4, 2),
                 isDense: true,
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-              ],
-              textInputAction: index < widget.focusNodes.length - 1
-                  ? TextInputAction.next
-                  : TextInputAction.done,
-              onTapOutside: (_) => FocusScope.of(context).unfocus(),
-              onSubmitted: (_) {
-                if (index < widget.focusNodes.length - 1) {
-                  FocusScope.of(
-                    context,
-                  ).requestFocus(widget.focusNodes[index + 1]);
-                } else {
-                  FocusScope.of(context).unfocus();
-                }
-              },
               onChanged: (_) {
                 _scheduleChanged();
               },
@@ -151,61 +134,76 @@ class _WeightGridWidgetState extends State<WeightGridWidget> {
     );
   }
 
-  Widget _buildEggWeightCell(int index, int cellNumber, bool hasValue) {
-    final activeColor = const Color(0xFFF65C00);
+  Widget _buildEggWeightCell(
+    int index,
+    int cellNumber,
+    bool hasValue,
+    int crossAxisCount,
+  ) {
+    const borderColor = Color(0xFFE2E8F0);
+    const focusedBorderColor = Color(0xFFCBD5E1);
+    const radius = BorderRadius.all(Radius.circular(14));
+    const border = OutlineInputBorder(
+      borderRadius: radius,
+      borderSide: BorderSide(color: borderColor, width: 1.2),
+    );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: hasValue ? const Color(0xFFFFF8F2) : Colors.white,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: hasValue ? activeColor : const Color(0xFFE5E7EB),
-          width: hasValue ? 1.3 : 1,
-        ),
-      ),
-      child: TextField(
+    return SizedBox.expand(
+      child: AuditNumericField(
         controller: widget.controllers[index],
         focusNode: widget.focusNodes[index],
         enabled: widget.enabled,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        allowDecimal: true,
+        maxDecimalPlaces: 1,
+        navigationGroup: _navigationGroup,
+        navigationRow: index ~/ crossAxisCount,
+        navigationColumn: index % crossAxisCount,
         textAlign: TextAlign.center,
         style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w800,
-          color: widget.enabled ? Colors.black87 : Colors.grey[600],
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: widget.enabled
+              ? const Color(0xFF111827)
+              : const Color(0xFF9AA3B2),
         ),
         decoration: InputDecoration(
           hintText: '$cellNumber',
           hintStyle: TextStyle(
-            color: Colors.grey[400],
-            fontSize: 12,
+            color: hasValue ? Colors.transparent : const Color(0xFF9AA3B2),
+            fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 4,
-            vertical: 10,
+          filled: true,
+          fillColor: Colors.white,
+          border: border,
+          enabledBorder: border,
+          disabledBorder: border,
+          focusedBorder: const OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: BorderSide(color: focusedBorderColor, width: 1.4),
           ),
+          contentPadding: EdgeInsets.zero,
           isDense: true,
           counterText: '',
         ),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-        ],
-        textInputAction: index < widget.focusNodes.length - 1
-            ? TextInputAction.next
-            : TextInputAction.done,
-        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-        onSubmitted: (_) {
-          if (index < widget.focusNodes.length - 1) {
-            FocusScope.of(context).requestFocus(widget.focusNodes[index + 1]);
-          } else {
-            FocusScope.of(context).unfocus();
-          }
-        },
         onChanged: (_) => _scheduleChanged(),
       ),
     );
+  }
+
+  int _eggColumnCountForWidth(double width) {
+    if (!width.isFinite) return _eggColumns;
+    if (width >= 980) return 8;
+    if (width >= 700) return 6;
+    if (width >= 520) return 5;
+    return _eggColumns;
+  }
+
+  double _eggAspectRatioForWidth(double width) {
+    if (!width.isFinite) return 2.9;
+    if (width >= 700) return 3.25;
+    if (width >= 520) return 3.0;
+    return 2.65;
   }
 
   void _scheduleChanged() {

@@ -26,9 +26,7 @@ class EstGuidedCaptureState {
     );
 
     return EstGuidedCaptureState(
-      stepIndex: firstOpenIndex == -1
-          ? EstGridData.scanKeys.length - 1
-          : firstOpenIndex,
+      stepIndex: firstOpenIndex == -1 ? 0 : firstOpenIndex,
       readings: safeReadings,
       photos: Map.unmodifiable(photos ?? const {}),
     );
@@ -77,6 +75,7 @@ class EstGuidedCaptureState {
   EstGuidedCaptureState captureResolved({
     required String photoPath,
     required double? ocrValue,
+    String? hint,
   }) {
     if (ocrValue == null) {
       return _copyWith(
@@ -86,7 +85,7 @@ class EstGuidedCaptureState {
         isAutoScanning: false,
         isOcrProcessing: false,
         isAutoScanReview: false,
-        errorMessage: 'No reading found. Camera refreshed. Try again.',
+        errorMessage: hint ?? 'No reading found. Camera refreshed. Try again.',
       );
     }
 
@@ -97,7 +96,7 @@ class EstGuidedCaptureState {
       isAutoScanning: false,
       isOcrProcessing: false,
       isAutoScanReview: false,
-      errorMessage: 'Confirm or edit the detected reading.',
+      errorMessage: 'Confirm the detected reading.',
     );
   }
 
@@ -199,6 +198,7 @@ class EstGuidedCaptureState {
   EstGuidedCaptureState autoScanAttemptResolved({
     required String photoPath,
     required double? ocrValue,
+    String? hint,
   }) {
     if (ocrValue == null) {
       return _copyWith(
@@ -207,7 +207,7 @@ class EstGuidedCaptureState {
         isAutoScanning: true,
         isOcrProcessing: false,
         isAutoScanReview: false,
-        errorMessage: 'Looking for reading...',
+        errorMessage: hint ?? 'Looking for reading...',
       );
     }
 
@@ -217,7 +217,7 @@ class EstGuidedCaptureState {
       isAutoScanning: false,
       isOcrProcessing: false,
       isAutoScanReview: true,
-      errorMessage: 'Reading detected. Right or wrong?',
+      errorMessage: 'Reading detected. Confirm or try again.',
     );
   }
 

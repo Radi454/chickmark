@@ -8,6 +8,7 @@ import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/core/utils/audit_type_labels.dart';
 
 import 'package:hatchaudit/widgets/status_badge.dart';
 import 'package:hatchaudit/features/customers/screens/audit_detail_screen.dart';
@@ -476,7 +477,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Remove audit?'),
         content: Text(
-          'This removes the ${audit.auditType} audit'
+          'This removes the ${AuditTypeLabels.forAuditType(audit.auditType)} audit'
           '${customerName == null ? '' : ' for $customerName'} and its linked photos.',
         ),
         actions: [
@@ -717,7 +718,7 @@ class _AuditCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      audit.auditType,
+                      AuditTypeLabels.forAuditType(audit.auditType),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,

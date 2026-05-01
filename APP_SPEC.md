@@ -1,6 +1,6 @@
 # ChickMark — Application Specification
 
-**Status**: Living document | **Branch at generation**: `006-dashboard` | **DB version**: 15 | **Constitution**: 2.2.0 | **Generated**: 2026-04-25
+**Status**: Living document | **DB version**: 15 | **Source**: implemented code snapshot | **Generated**: 2026-04-25
 
 ---
 
@@ -59,7 +59,7 @@ A `_RouteNameObserver` (NavigatorObserver) tracks the current route name so the 
 | 4 | BMK | `BmkScreen` |
 | 5 | Settings | `SettingsScreen` |
 
-**Constitution exception**: a 7th tab for Temperature exists as a temporary carve-out during the session-based workflow rollout. It does not appear in the core 6-tab spec.
+**Implemented behavior**: a 7th tab for Temperature exists in the current navigation shell. Confirm intended behavior from code and user direction before changing it.
 
 ### State Management
 
@@ -299,7 +299,7 @@ UI → Provider → Repository → DatabaseHelper (sqflite)
 **Online flow**: Supabase auth → JWT stored in `flutter_secure_storage` (not SQLite).
 **Offline flow**: Local account (`id` prefix `local-`) with v2 password hash (`v2:<salt>:<sha256(salt:password)>`).
 **Legacy migration**: v1 tokens (`local:base64...`) upgraded to v2 on next login.
-**Roles**: admin, auditor, customer (see Constitution §XI).
+**Roles**: admin, auditor, customer.
 **Token expiry**: 30 days.
 
 **Status**: Implemented. Secure storage migration path included.
@@ -715,7 +715,9 @@ If BLE is unavailable or device is not found, all temperature/humidity fields re
 
 ## 9. New Features Added in DB v15 Upgrade
 
-This section documents everything added in the v15 schema upgrade (branch `006-dashboard` era, corresponding to the "007-chickmark-upgrade" spec directory).
+This section documents behavior added in the v15 schema upgrade as implemented
+in the current codebase. Historical generated specs for this work have been
+removed and are not a source of truth for current implementation decisions.
 
 ### 9.1 Audit Sessions (`audit_sessions` table)
 
@@ -812,19 +814,19 @@ Audit trail for all user actions. Entities logged: customers, flocks, hatcheries
 
 | # | Issue |
 |---|-------|
-| D.1 | Constitution §V says "no repository layer" but repositories exist — this is an approved divergence in practice |
+| D.1 | Repository layers exist in the current codebase; treat the implemented repository pattern as source of truth unless a future task changes it |
 | D.2 | `audits` table has 200+ columns; any new audit field requires migration + model update + repository update |
-| D.3 | Temperature tab is a permanent 7th tab despite constitution specifying 6 tabs — temporary exception (constitution §Exceptions) |
+| D.3 | Temperature tab is a 7th tab in the current navigation shell; confirm intended behavior before changing it |
 | D.4 | `troubleshooting` table uses the parameter key as `id` — adding new parameters requires new seed rows, not UI-driven creation |
 | D.5 | `dummy_data_seeds.dart` inserts test data on every DB upgrade — should be dev-only |
-| D.6 | No unit tests for calculation utilities (`calculation_utils.dart`) despite constitution §III requiring test-first |
+| D.6 | No unit tests for calculation utilities (`calculation_utils.dart`) |
 
 ### Design System Gaps
 
 | # | Issue |
 |---|-------|
-| S.1 | Constitution §X specifies primary brand color `#F65C00` (Zoetis orange); current `AppColors.primary` is `#1769D8` (blue) — brand color not applied |
-| S.2 | Constitution §X specifies gradient header `#F65C00 → #ff8c42`; current gradient is `primaryLight → primaryDark` (blue tones) |
+| S.1 | Current `AppColors.primary` is `#1769D8` (blue); confirm desired brand color before changing it |
+| S.2 | Current gradient uses `primaryLight → primaryDark` (blue tones); confirm desired header treatment before changing it |
 | S.3 | Post-save green tab + read-only pattern not consistently applied across all 5 audit screens |
 | S.4 | `°C / °F` toggle missing from several audit screens |
 

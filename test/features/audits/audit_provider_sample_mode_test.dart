@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
+import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 
 void main() {
@@ -21,6 +22,14 @@ void main() {
     auditType: 'Chick Quality',
     customerId: 'customer-1',
     flockId: 'flock-1',
+    flockAgeWeeks: 42,
+    date: '2026-04-27',
+  );
+
+  AuditContext stationContext(String auditType) => AuditContext(
+    auditType: auditType,
+    customerId: 'customer-1',
+    flockId: 'flock-1',
     date: '2026-04-27',
   );
 
@@ -34,6 +43,26 @@ void main() {
     expect(provider.hatchCount, 1);
     expect(provider.activeDraft.hatchNumber, 1);
     expect(provider.activeDraft.compareGroupKey, isNull);
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(provider.sampleCount, 1);
+    expect(provider.activeStationSample.sampleLabel, 'Sample 1');
+  });
+
+  test('all station contexts default to one pooled sample', () {
+    for (final auditType in [
+      'Egg Storage',
+      'Chick Quality',
+      'Hatch Analysis',
+      'Setter Optimizing',
+      'Hatcher Optimizing',
+    ]) {
+      final provider = AuditProvider();
+      provider.initialize(stationContext(auditType), notify: false);
+
+      expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+      expect(provider.sampleCount, 1);
+      expect(provider.activeStationSample.stationType, isNotEmpty);
+    }
   });
 
   test('compare mode gives all hatch drafts the same compare group key', () {
@@ -54,6 +83,10 @@ void main() {
       groupKey,
     });
     expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'Sample 1',
+      'Sample 2',
+    ]);
   });
 
   test('switching back to pool keeps one pooled sample only', () {
@@ -69,7 +102,25 @@ void main() {
     expect(provider.hatchCount, 1);
     expect(provider.activeDraft.hatchNumber, 1);
     expect(provider.activeDraft.compareGroupKey, isNull);
+    expect(
+      provider.activeStationSample.sampleMode,
+      StationSampleModel.sampleModePooled,
+    );
   });
+
+  test(
+    'sample metadata recalculates BMK age from flock weeks and egg date',
+    () {
+      final provider = AuditProvider();
+      provider.initialize(context(), notify: false);
+
+      provider.updateSampleMetadata({
+        'eggProductionDate': DateTime(2026, 4, 20),
+      });
+
+      expect(provider.activeStationSample.calculatedBmkAgeDays, 287);
+    },
+  );
 
   test('removeActiveHatch keeps compare hatch numbers sequential', () {
     final provider = AuditProvider();
@@ -88,5 +139,79 @@ void main() {
     expect(provider.drafts.map((draft) => draft.compareGroupKey).toSet(), {
       provider.drafts.first.compareGroupKey,
     });
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'Sample 1',
+      'Sample 2',
+    ]);
+  });
+
+  test('sample drafts keep independent values when switching samples', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg Storage'), notify: false);
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.updateField('esEggStorageDays', 3);
+    provider.addSample();
+    provider.updateField('esEggStorageDays', 7);
+    provider.switchSample(0);
+
+    expect(provider.activeDraft.esEggStorageDays, 3);
+    expect(provider.activeStationSample.storageDays, 3);
+
+    provider.switchSample(1);
+
+    expect(provider.activeDraft.esEggStorageDays, 7);
+    expect(provider.activeStationSample.storageDays, 7);
+  });
+
+  test('egg storage comparison samples are labeled as house samples', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg Storage'), notify: false);
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.addSample();
+    provider.addSample();
+
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeHouse,
+      StationSampleModel.comparisonTypeHouse,
+      StationSampleModel.comparisonTypeHouse,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'H1',
+      'H2',
+      'H3',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), [
+      'H1',
+      'H2',
+      'H3',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.houseLabel), [
+      'House 1',
+      'House 2',
+      'House 3',
+    ]);
+  });
+
+  test('removing egg storage house samples keeps house labels sequential', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg Storage'), notify: false);
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.addSample();
+    provider.addSample();
+    provider.switchSample(1);
+    provider.removeActiveSample();
+
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'H1',
+      'H2',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), [
+      'H1',
+      'H2',
+    ]);
+    expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
   });
 }

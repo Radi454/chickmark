@@ -58,6 +58,7 @@ class DashboardProvider extends ChangeNotifier {
   List<String> _chaPhotos = [];
 
   List<EggStorageTrend> _eggStorageTrend = [];
+  EggStorageEstEvidence? _eggStorageEstEvidence;
   List<String> _shellTempPhotos = [];
   List<String> _uvPhotos = [];
 
@@ -119,6 +120,7 @@ class DashboardProvider extends ChangeNotifier {
   List<EggStorageTrend> get eggStorageTrend => _eggStorageTrend;
   EggStorageTrend? get eggStorageLatest =>
       _eggStorageTrend.isNotEmpty ? _eggStorageTrend.last : null;
+  EggStorageEstEvidence? get eggStorageEstEvidence => _eggStorageEstEvidence;
   List<String> get shellTempPhotos => _shellTempPhotos;
   List<String> get uvPhotos => _uvPhotos;
 
@@ -358,6 +360,9 @@ class DashboardProvider extends ChangeNotifier {
 
   Future<void> _loadEggStorage(DashboardFilter filter) async {
     _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter) ?? [];
+    _eggStorageEstEvidence = await _auditRepo.getLatestEggStorageEstEvidence(
+      filter,
+    );
     _shellTempPhotos = await _auditRepo.getEggStorageEstPhotoPaths(filter);
     _uvPhotos = await _auditRepo.getPhotoPaths(
       filter,

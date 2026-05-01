@@ -19,7 +19,7 @@ class AppStrings {
   static const String allFiveStations = 'All 5 stations in one session';
   static const String visitIntroHelper =
       'Select a customer and flock to begin. You will move through '
-      'Egg Storage & Handling, Chick Quality, Hatch Analysis, Setter Optimizing, '
+      'Egg, Chick Quality, Hatch Analysis, Setter Optimizing, '
       'and Hatcher Optimizing stations with progress saved between each.';
   static const String startVisit = 'Start Visit';
   static const String completeVisit = 'Complete Visit';

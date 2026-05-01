@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
+import '../../../core/utils/audit_type_labels.dart';
 
 /// Aggregates one audit session with its station audits and temperature
 /// summaries for dashboard and customer-detail display.
@@ -171,9 +172,14 @@ class StationScorecard {
   });
 
   factory StationScorecard.fromMap(Map<String, dynamic> map) {
+    final stationKey = map['stationKey'] as String? ?? '';
+    final storedLabel = map['stationLabel'] as String? ?? '';
+    final normalizedLabel = _stationLabel(stationKey);
     return StationScorecard(
-      stationKey: map['stationKey'] as String? ?? '',
-      stationLabel: map['stationLabel'] as String? ?? '',
+      stationKey: stationKey,
+      stationLabel: normalizedLabel == stationKey && storedLabel.isNotEmpty
+          ? storedLabel
+          : normalizedLabel,
       status: map['status'] as String? ?? 'unknown',
       detail: map['detail'] as String?,
     );
@@ -216,7 +222,7 @@ class StationScorecard {
   static String _stationLabel(String key) {
     switch (key) {
       case 'egg_storage':
-        return 'Egg Storage';
+        return AuditTypeLabels.eggStationLabel;
       case 'chick_quality':
         return 'Chick Quality';
       case 'hatch_analysis':

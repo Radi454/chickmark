@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
@@ -9,6 +8,7 @@ import '../../../../core/utils/calculation_utils.dart';
 import '../../../../core/utils/temp_converter.dart';
 import '../../../../data/models/audit_model.dart';
 import '../../../../providers/app_provider.dart';
+import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
 class CvtTab extends StatefulWidget {
@@ -28,6 +28,8 @@ class CvtTab extends StatefulWidget {
 }
 
 class _CvtTabState extends State<CvtTab> {
+  static const String _tableNavigationGroup = 'cvt-temperature-table';
+
   final List<TextEditingController> _tempControllers = [];
   final List<TextEditingController> _basketControllers = [];
   final List<String?> _photoPaths = [];
@@ -91,172 +93,182 @@ class _CvtTabState extends State<CvtTab> {
     final avg = temps.isEmpty ? 0.0 : CalculationUtils.average(temps);
     final cv = temps.length > 1 ? CalculationUtils.cvPercent(temps) : 0.0;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  'AVG Temp',
-                  showCelsius
-                      ? TempConverter.display(avg, showCelsius: true)
-                      : '${avg.toStringAsFixed(1)}°F',
-                  avg >= AppThresholds.cvtMin && avg <= AppThresholds.cvtMax,
+    return AuditNumericKeyboardScope(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'AVG Temp',
+                    showCelsius
+                        ? TempConverter.display(avg, showCelsius: true)
+                        : '${avg.toStringAsFixed(1)}°F',
+                    avg >= AppThresholds.cvtMin && avg <= AppThresholds.cvtMax,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildStatCard(
+                    'CV %',
+                    '${cv.toStringAsFixed(1)}%',
+                    cv <= AppThresholds.cvAlertPct,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.numbers, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Sample Size',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    AuditNumericField(
+                      controller: _sampleSizeController,
+                      enabled: !widget.isReadOnly,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Number of baskets',
+                      ),
+                      onChanged: (v) => widget.onFieldChanged(
+                        'cvtSampleSize',
+                        int.tryParse(v) ?? 3,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildStatCard(
-                  'CV %',
-                  '${cv.toStringAsFixed(1)}%',
-                  cv <= AppThresholds.cvAlertPct,
-                ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.numbers, color: AppColors.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Sample Size',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'CVT Measurements',
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _sampleSizeController,
-                    enabled: !widget.isReadOnly,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Number of baskets',
+                        Text(
+                          'Optimum: 103-105°F',
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppColors.greenTab,
+                          ),
+                        ),
+                      ],
                     ),
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    onChanged: (v) => widget.onFieldChanged(
-                      'cvtSampleSize',
-                      int.tryParse(v) ?? 3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'CVT Measurements',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    const SizedBox(height: 16),
+                    Table(
+                      border: TableBorder.all(
+                        color: Colors.grey[300]!,
+                        width: 1,
                       ),
-                      Text(
-                        'Optimum: 103-105°F',
-                        style: AppTextStyles.caption.copyWith(
-                          color: AppColors.greenTab,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Table(
-                    border: TableBorder.all(color: Colors.grey[300]!, width: 1),
-                    columnWidths: const {
-                      0: FixedColumnWidth(80),
-                      1: FlexColumnWidth(),
-                      2: FlexColumnWidth(),
-                      3: FixedColumnWidth(60),
-                      4: FixedColumnWidth(50),
-                    },
-                    children: [
-                      TableRow(
-                        decoration: BoxDecoration(color: Colors.grey[100]),
-                        children: [
-                          _cell('Position', isHeader: true),
-                          _cell('Basket', isHeader: true),
-                          _cell('Temp', isHeader: true),
-                          _cell('Status', isHeader: true),
-                          _cell('', isHeader: true),
-                        ],
-                      ),
-                      ...List.generate(3, (index) {
-                        final positions = ['Top', 'Middle', 'Bottom'];
-                        final temp = double.tryParse(
-                          _tempControllers[index].text,
-                        );
-                        final isGood =
-                            temp != null &&
-                            temp >= AppThresholds.cvtMin &&
-                            temp <= AppThresholds.cvtMax;
-                        return TableRow(
+                      columnWidths: const {
+                        0: FixedColumnWidth(80),
+                        1: FlexColumnWidth(),
+                        2: FlexColumnWidth(),
+                        3: FixedColumnWidth(60),
+                        4: FixedColumnWidth(50),
+                      },
+                      children: [
+                        TableRow(
+                          decoration: BoxDecoration(color: Colors.grey[100]),
                           children: [
-                            _cell(positions[index]),
-                            _textCell(_basketControllers[index], (v) {
-                              final baskets = [
-                                'cvtTopBasket',
-                                'cvtMiddleBasket',
-                                'cvtBottomBasket',
-                              ];
-                              widget.onFieldChanged(baskets[index], v);
-                            }),
-                            _textCell(_tempControllers[index], (v) {
-                              final temps = [
-                                'cvtTopTemp',
-                                'cvtMiddleTemp',
-                                'cvtBottomTemp',
-                              ];
-                              widget.onFieldChanged(
-                                temps[index],
-                                double.tryParse(v),
-                              );
-                              _updateCalculations();
-                            }, numeric: true),
-                            _cell(
-                              temp == null ? '--' : (isGood ? 'OK' : 'Alert'),
-                              textColor: temp == null
-                                  ? Colors.grey
-                                  : (isGood ? AppColors.greenTab : Colors.red),
-                            ),
-                            _photoCell(index),
+                            _cell('Position', isHeader: true),
+                            _cell('Basket', isHeader: true),
+                            _cell('Temp', isHeader: true),
+                            _cell('Status', isHeader: true),
+                            _cell('', isHeader: true),
                           ],
-                        );
-                      }),
-                    ],
-                  ),
-                ],
+                        ),
+                        ...List.generate(3, (index) {
+                          final positions = ['Top', 'Middle', 'Bottom'];
+                          final temp = double.tryParse(
+                            _tempControllers[index].text,
+                          );
+                          final isGood =
+                              temp != null &&
+                              temp >= AppThresholds.cvtMin &&
+                              temp <= AppThresholds.cvtMax;
+                          return TableRow(
+                            children: [
+                              _cell(positions[index]),
+                              _textCell(_basketControllers[index], (v) {
+                                final baskets = [
+                                  'cvtTopBasket',
+                                  'cvtMiddleBasket',
+                                  'cvtBottomBasket',
+                                ];
+                                widget.onFieldChanged(baskets[index], v);
+                              }),
+                              _textCell(
+                                _tempControllers[index],
+                                (v) {
+                                  final temps = [
+                                    'cvtTopTemp',
+                                    'cvtMiddleTemp',
+                                    'cvtBottomTemp',
+                                  ];
+                                  widget.onFieldChanged(
+                                    temps[index],
+                                    double.tryParse(v),
+                                  );
+                                  _updateCalculations();
+                                },
+                                numeric: true,
+                                navigationRow: index,
+                              ),
+                              _cell(
+                                temp == null ? '--' : (isGood ? 'OK' : 'Alert'),
+                                textColor: temp == null
+                                    ? Colors.grey
+                                    : (isGood
+                                          ? AppColors.greenTab
+                                          : Colors.red),
+                              ),
+                              _photoCell(index),
+                            ],
+                          );
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -301,24 +313,36 @@ class _CvtTabState extends State<CvtTab> {
     TextEditingController controller,
     Function(String) onChanged, {
     bool numeric = false,
+    int? navigationRow,
   }) {
     return Padding(
       padding: const EdgeInsets.all(4),
-      child: TextField(
-        controller: controller,
-        enabled: !widget.isReadOnly,
-        keyboardType: numeric
-            ? const TextInputType.numberWithOptions(decimal: true)
-            : TextInputType.text,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
-        ),
-        inputFormatters: numeric
-            ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}'))]
-            : null,
-        onChanged: onChanged,
-      ),
+      child: numeric
+          ? AuditNumericField(
+              controller: controller,
+              enabled: !widget.isReadOnly,
+              allowDecimal: true,
+              maxDecimalPlaces: 1,
+              navigationGroup: navigationRow == null
+                  ? null
+                  : _tableNavigationGroup,
+              navigationRow: navigationRow,
+              navigationColumn: navigationRow == null ? null : 0,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+              ),
+              onChanged: onChanged,
+            )
+          : TextField(
+              controller: controller,
+              enabled: !widget.isReadOnly,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+              ),
+              onChanged: onChanged,
+            ),
     );
   }
 

@@ -1,15 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../models/est_grid_data.dart';
+import 'audit_numeric_keyboard.dart';
 import 'photo_button.dart';
 
 class EstGridWidget extends StatelessWidget {
+  static const String _navigationGroup = 'est-grid';
+
   final Map<String, TextEditingController> controllers;
   final Map<String, FocusNode> focusNodes;
   final Map<String, String?> photos;
@@ -18,6 +20,8 @@ class EstGridWidget extends StatelessWidget {
   final bool showPhotoCapture;
   final Function(String key, String value) onValueChanged;
   final Function(String key, String path) onPhotoCaptured;
+  final ValueChanged<String>? onMissingPhotoRequested;
+  final ValueChanged<String>? onClearRequested;
 
   /// Display label shown above the grid, e.g. 'Shell Temperature (°C) - Optimum: 19-21 °C'
   final String? title;
@@ -43,6 +47,8 @@ class EstGridWidget extends StatelessWidget {
     this.showPhotoCapture = true,
     required this.onValueChanged,
     required this.onPhotoCaptured,
+    this.onMissingPhotoRequested,
+    this.onClearRequested,
     this.title,
     this.tempStatusFn,
     this.tempZoneFn,
@@ -51,38 +57,40 @@ class EstGridWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (title != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Text(
-              title!,
-              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+    return AuditNumericKeyboardScope(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                title!,
+                style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Column(
+              children: [
+                _buildHeaderRow(),
+                const SizedBox(height: 8),
+                ...EstGridData.levels.map(
+                  (level) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildLevelRow(context, level),
+                  ),
+                ),
+              ],
             ),
           ),
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[200]!),
-          ),
-          child: Column(
-            children: [
-              _buildHeaderRow(),
-              const SizedBox(height: 8),
-              ...EstGridData.levels.map(
-                (level) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _buildLevelRow(context, level),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -108,6 +116,7 @@ class EstGridWidget extends StatelessWidget {
   }
 
   Widget _buildLevelRow(BuildContext context, String level) {
+    final rowIndex = EstGridData.levels.indexOf(level);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -121,12 +130,13 @@ class EstGridWidget extends StatelessWidget {
             ),
           ),
         ),
-        ...EstGridData.locations.map((location) {
+        ...EstGridData.locations.asMap().entries.map((entry) {
+          final location = entry.value;
           final key = EstGridData.key(location, level);
           return Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: _buildGridCell(context, key),
+              child: _buildGridCell(context, key, rowIndex, entry.key),
             ),
           );
         }),
@@ -134,13 +144,22 @@ class EstGridWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildGridCell(BuildContext context, String key) {
+  Widget _buildGridCell(
+    BuildContext context,
+    String key,
+    int rowIndex,
+    int columnIndex,
+  ) {
     final controller = controllers[key];
     final focusNode = focusNodes[key];
     final photo = photos[key];
-    final hasValue = controller?.text.trim().isNotEmpty ?? false;
+    if (controller == null || focusNode == null) {
+      return const SizedBox.shrink();
+    }
+    final hasValue = controller.text.trim().isNotEmpty;
+    final hasPhoto = photo != null && photo.trim().isNotEmpty;
 
-    final value = double.tryParse(controller?.text ?? '');
+    final value = double.tryParse(controller.text);
     final statusFn = tempStatusFn ?? CalculationUtils.estStatus;
     final zoneFn = tempZoneFn ?? CalculationUtils.estZone;
     TemperatureStatus? status;
@@ -162,11 +181,15 @@ class EstGridWidget extends StatelessWidget {
         : (status == TemperatureStatus.high ? Icons.error : Icons.warning);
 
     final isHighlighted = highlightedKey == key;
-    final numberField = TextField(
+    final numberField = AuditNumericField(
       controller: controller,
       focusNode: focusNode,
       enabled: enabled,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      allowDecimal: true,
+      maxDecimalPlaces: 1,
+      navigationGroup: _navigationGroup,
+      navigationRow: rowIndex,
+      navigationColumn: columnIndex,
       textAlign: TextAlign.center,
       style: AppTextStyles.body.copyWith(
         fontSize: 17,
@@ -179,16 +202,11 @@ class EstGridWidget extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(vertical: 8),
         border: InputBorder.none,
       ),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-      ],
-      textInputAction: _isLastKey(key)
-          ? TextInputAction.done
-          : TextInputAction.next,
-      onSubmitted: (_) => _focusNext(context, key),
-      onTapOutside: (_) => FocusScope.of(context).unfocus(),
       onChanged: (value) => onValueChanged(key, value),
     );
+
+    final canClear =
+        enabled && onClearRequested != null && (hasValue || hasPhoto);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
@@ -206,63 +224,148 @@ class EstGridWidget extends StatelessWidget {
           width: isHighlighted ? 2.2 : (hasValue ? 1.5 : 1),
         ),
       ),
-      child: showPhotoCapture
-          ? Row(
-              children: [
-                Expanded(child: numberField),
-                const SizedBox(width: 2),
-                Tooltip(
-                  message: hasValue && zoneLabel != null
-                      ? zoneLabel
-                      : 'Capture',
-                  child: Stack(
-                    alignment: Alignment.center,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(top: canClear ? 8 : 0),
+            child: showPhotoCapture
+                ? Row(
                     children: [
-                      PhotoButton(
-                        photoPath: photo,
-                        enabled: enabled,
-                        size: 32,
-                        onPhotoCaptured: (path) => onPhotoCaptured(key, path),
-                      ),
-                      if (hasValue)
-                        Positioned(
-                          right: 1,
-                          bottom: 1,
-                          child: Icon(statusIcon, color: borderColor, size: 12),
+                      Expanded(child: numberField),
+                      const SizedBox(width: 2),
+                      Tooltip(
+                        message: hasValue && zoneLabel != null
+                            ? zoneLabel
+                            : 'Capture',
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            PhotoButton(
+                              photoPath: photo,
+                              enabled: enabled,
+                              size: 32,
+                              onPhotoCaptured: (path) =>
+                                  onPhotoCaptured(key, path),
+                            ),
+                            if (hasValue)
+                              Positioned(
+                                right: 1,
+                                bottom: 1,
+                                child: Icon(
+                                  statusIcon,
+                                  color: borderColor,
+                                  size: 12,
+                                ),
+                              ),
+                          ],
                         ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      numberField,
+                      if (hasPhoto) ...[
+                        const SizedBox(height: 4),
+                        _EvidenceThumbnail(path: photo),
+                      ] else if (hasValue &&
+                          onMissingPhotoRequested != null) ...[
+                        const SizedBox(height: 4),
+                        _AddEvidencePhotoButton(
+                          enabled: enabled,
+                          onPressed: () => onMissingPhotoRequested!(key),
+                        ),
+                      ],
                     ],
                   ),
-                ),
-              ],
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                numberField,
-                if (photo != null && photo.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  _EvidenceThumbnail(path: photo),
-                ],
-              ],
+          ),
+          if (canClear)
+            Positioned(
+              top: -5,
+              right: -5,
+              child: _ClearEvidenceButton(
+                onPressed: () => onClearRequested!(key),
+              ),
             ),
+        ],
+      ),
     );
-  }
-
-  List<String> get _fieldOrder => EstGridData.scanKeys;
-
-  bool _isLastKey(String key) => _fieldOrder.last == key;
-
-  void _focusNext(BuildContext context, String key) {
-    final index = _fieldOrder.indexOf(key);
-    if (index == -1 || index == _fieldOrder.length - 1) {
-      FocusScope.of(context).unfocus();
-      return;
-    }
-    FocusScope.of(context).requestFocus(focusNodes[_fieldOrder[index + 1]]);
   }
 
   String _title(String value) =>
       value.isEmpty ? value : '${value[0].toUpperCase()}${value.substring(1)}';
+}
+
+class _ClearEvidenceButton extends StatelessWidget {
+  const _ClearEvidenceButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Clear reading and photo',
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.red.withAlpha(90)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(18),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: const Icon(Icons.close, size: 14, color: Colors.red),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddEvidencePhotoButton extends StatelessWidget {
+  const _AddEvidencePhotoButton({
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Add evidence photo',
+      child: InkWell(
+        onTap: enabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 54,
+          height: 30,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Icons.add_photo_alternate_outlined,
+            size: 16,
+            color: enabled ? Colors.grey[700] : Colors.grey,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _EvidenceThumbnail extends StatelessWidget {
@@ -288,6 +391,9 @@ class _EvidenceThumbnail extends StatelessWidget {
             Image.file(
               File(path),
               fit: BoxFit.cover,
+              cacheWidth: 120,
+              cacheHeight: 80,
+              filterQuality: FilterQuality.low,
               errorBuilder: (context, error, stackTrace) => Container(
                 color: Colors.grey[200],
                 alignment: Alignment.center,

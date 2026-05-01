@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
@@ -11,7 +10,9 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
+import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sample_mode_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'audit_context_screen.dart';
@@ -32,6 +33,10 @@ class SetterOptimizingScreen extends StatefulWidget {
 }
 
 class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
+  static const List<String> _gridRows = ['Door', 'Middle', 'Back'];
+  static const List<String> _gridColumns = ['Top', 'Middle', 'Bottom'];
+  static const String _gridNavigationGroup = 'setter-est-grid';
+
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
     5,
@@ -47,10 +52,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   late final TextEditingController _setterIdController;
   String? _machineType;
   final TextEditingController _turningAngleController = TextEditingController();
-
-  List<TextInputFormatter> get _decimalInputFormatters => [
-    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}')),
-  ];
+  final TextEditingController _co2Controller = TextEditingController();
+  String? _activeAuditId;
 
   @override
   void initState() {
@@ -68,10 +71,11 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     _turningAngleController.text = widget.initialAudit?.soTurningAngle != null
         ? widget.initialAudit!.soTurningAngle!.toStringAsFixed(1)
         : '';
-    final rows = ['Door', 'Middle', 'Back'];
-    final cols = ['Top', 'Middle', 'Bottom'];
-    for (var r in rows) {
-      for (var c in cols) {
+    _co2Controller.text = widget.initialAudit?.soCo2 != null
+        ? widget.initialAudit!.soCo2!.toStringAsFixed(1)
+        : '';
+    for (var r in _gridRows) {
+      for (var c in _gridColumns) {
         _controllers['${r}_$c'] = TextEditingController();
       }
     }
@@ -92,6 +96,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
         breed: widget.context.breed,
         setterId: widget.context.setterId,
         hatcherId: widget.context.hatcherId,
+        flockEntryDate: widget.context.flockEntryDate,
+        flockAgeWeeks: widget.context.flockAgeWeeks,
         date: widget.context.date,
       ),
       existingAudit: widget.initialAudit,
@@ -99,9 +105,36 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
     );
+    _activeAuditId = auditProvider.activeDraft.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToInitialSection();
     });
+  }
+
+  void _syncActiveSampleForm(AuditModel audit) {
+    if (_activeAuditId == audit.id) return;
+    _activeAuditId = audit.id;
+    _setterIdController.text = audit.setterId ?? audit.soSetterId ?? '';
+    _incubationAgeController.text = (audit.soIncubationAge ?? 1).toString();
+    _machineType = audit.soMachineType;
+    _turningAngleController.text = audit.soTurningAngle != null
+        ? audit.soTurningAngle!.toStringAsFixed(1)
+        : '';
+    _co2Controller.text = audit.soCo2 != null
+        ? audit.soCo2!.toStringAsFixed(1)
+        : '';
+    for (final controller in _controllers.values) {
+      controller.clear();
+    }
+    _photos.clear();
+    _avgController.text = audit.soEstAvg != null
+        ? audit.soEstAvg!.toStringAsFixed(1)
+        : '';
+    _cvController.text = audit.soEstCv != null
+        ? audit.soEstCv!.toStringAsFixed(1)
+        : '';
+    _loadEstReadings(audit.soEstReadings);
+    _loadEstPhotos(audit.soEstPhotos);
   }
 
   void _loadEstReadings(String? readingsJson) {
@@ -149,6 +182,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     _incubationAgeController.dispose();
     _setterIdController.dispose();
     _turningAngleController.dispose();
+    _co2Controller.dispose();
     super.dispose();
   }
 
@@ -185,6 +219,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
+    _syncActiveSampleForm(audit);
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
       child: Scaffold(
@@ -200,230 +235,245 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                     ),
                 ],
               ),
-        body: AuditKeyboardDismiss(
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Card(
-                  key: _sectionKeys[0],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        body: AuditNumericKeyboardScope(
+          child: AuditKeyboardDismiss(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(AppSizes.cardPadding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  StationSampleModeControls(
+                    provider: auditProvider,
+                    padding: EdgeInsets.zero,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Breed from flock',
-                            border: OutlineInputBorder(),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[0],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Breed from flock',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              audit.soBreed ??
+                                  widget.context.breed ??
+                                  'Unknown',
+                            ),
                           ),
-                          child: Text(
-                            audit.soBreed ?? widget.context.breed ?? 'Unknown',
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _setterIdController,
+                            enabled: !auditProvider.isReadOnly,
+                            decoration: const InputDecoration(
+                              labelText: 'Setter ID',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) {
+                              auditProvider.updateField('setterId', v);
+                              auditProvider.updateField('soSetterId', v);
+                            },
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _setterIdController,
-                          enabled: !auditProvider.isReadOnly,
-                          decoration: const InputDecoration(
-                            labelText: 'Setter ID',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (v) {
-                            auditProvider.updateField('setterId', v);
-                            auditProvider.updateField('soSetterId', v);
-                          },
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Incubation Age: ${_incubationAgeController.text} days',
-                          style: AppTextStyles.body,
-                        ),
-                        Slider(
-                          value:
-                              double.tryParse(_incubationAgeController.text) ??
-                              1,
-                          min: 1,
-                          max: 18,
-                          divisions: 17,
-                          onChanged: auditProvider.isReadOnly
-                              ? null
-                              : (v) {
-                                  final age = v.toInt();
-                                  setState(() {
-                                    _incubationAgeController.text = age
-                                        .toString();
-                                  });
-                                  auditProvider.updateField(
-                                    'soIncubationAge',
-                                    age,
-                                  );
-                                },
-                        ),
-                      ],
+                  const SizedBox(height: 16),
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Incubation Age: ${_incubationAgeController.text} days',
+                            style: AppTextStyles.body,
+                          ),
+                          Slider(
+                            value:
+                                double.tryParse(
+                                  _incubationAgeController.text,
+                                ) ??
+                                1,
+                            min: 1,
+                            max: 18,
+                            divisions: 17,
+                            onChanged: auditProvider.isReadOnly
+                                ? null
+                                : (v) {
+                                    final age = v.toInt();
+                                    setState(() {
+                                      _incubationAgeController.text = age
+                                          .toString();
+                                    });
+                                    auditProvider.updateField(
+                                      'soIncubationAge',
+                                      age,
+                                    );
+                                  },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[1],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Machine Type',
-                          style: AppTextStyles.body.copyWith(
-                            fontWeight: FontWeight.w600,
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[1],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Machine Type',
+                            style: AppTextStyles.body.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: ['Single Stage', 'Multi Stage'].map((type) {
-                            final selected = _machineType == type;
-                            return ChoiceChip(
-                              label: Text(type),
-                              selected: selected,
-                              onSelected: auditProvider.isReadOnly
-                                  ? null
-                                  : (_) {
-                                      setState(() => _machineType = type);
-                                      auditProvider.updateField(
-                                        'so_machineType',
-                                        type,
-                                      );
-                                    },
-                              selectedColor: AppColors.primary.withAlpha(30),
-                              checkmarkColor: AppColors.primary,
-                              labelStyle: AppTextStyles.body.copyWith(
-                                color: selected
-                                    ? AppColors.primary
-                                    : Colors.black87,
-                                fontWeight: selected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: ['Single Stage', 'Multi Stage'].map((
+                              type,
+                            ) {
+                              final selected = _machineType == type;
+                              return ChoiceChip(
+                                label: Text(type),
+                                selected: selected,
+                                onSelected: auditProvider.isReadOnly
+                                    ? null
+                                    : (_) {
+                                        setState(() => _machineType = type);
+                                        auditProvider.updateField(
+                                          'so_machineType',
+                                          type,
+                                        );
+                                      },
+                                selectedColor: AppColors.primary.withAlpha(30),
+                                checkmarkColor: AppColors.primary,
+                                labelStyle: AppTextStyles.body.copyWith(
                                   color: selected
                                       ? AppColors.primary
-                                      : Colors.grey[300]!,
+                                      : Colors.black87,
+                                  fontWeight: selected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
                                 ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _turningAngleController,
-                          enabled: !auditProvider.isReadOnly,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: selected
+                                        ? AppColors.primary
+                                        : Colors.grey[300]!,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
                           ),
-                          decoration: const InputDecoration(
-                            labelText: 'Turning Angle (°)',
-                            border: OutlineInputBorder(),
+                          const SizedBox(height: 12),
+                          AuditNumericField(
+                            controller: _turningAngleController,
+                            enabled: !auditProvider.isReadOnly,
+                            allowDecimal: true,
+                            maxDecimalPlaces: 1,
+                            decoration: const InputDecoration(
+                              labelText: 'Turning Angle (°)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) => auditProvider.updateField(
+                              'so_turningAngle',
+                              double.tryParse(v),
+                            ),
                           ),
-                          inputFormatters: _decimalInputFormatters,
-                          onChanged: (v) => auditProvider.updateField(
-                            'so_turningAngle',
-                            double.tryParse(v),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[2],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        TextField(
-                          enabled: !auditProvider.isReadOnly,
-                          decoration: const InputDecoration(
-                            labelText: 'CO2 Level (ppm)',
-                            border: OutlineInputBorder(),
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[2],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          AuditNumericField(
+                            controller: _co2Controller,
+                            enabled: !auditProvider.isReadOnly,
+                            allowDecimal: true,
+                            decoration: const InputDecoration(
+                              labelText: 'CO2 Level (ppm)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) => auditProvider.updateField(
+                              'soCo2',
+                              double.tryParse(v),
+                            ),
                           ),
-                          onChanged: (v) => auditProvider.updateField(
-                            'soCo2',
-                            double.tryParse(v),
+                          const SizedBox(height: 8),
+                          PhotoButton(
+                            photoPath: audit.soCo2Photo,
+                            enabled: !auditProvider.isReadOnly,
+                            onPhotoCaptured: (p) =>
+                                auditProvider.updateField('soCo2Photo', p),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        PhotoButton(
-                          photoPath: audit.soCo2Photo,
-                          enabled: !auditProvider.isReadOnly,
-                          onPhotoCaptured: (p) =>
-                              auditProvider.updateField('soCo2Photo', p),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _statCard('AVG', _avgController.text, null),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(child: _statCard('CV%', _cvController.text, null)),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  key: _sectionKeys[3],
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _statCard('AVG', _avgController.text, null),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _statCard('CV%', _cvController.text, null),
+                      ),
+                    ],
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSizes.cardPadding),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Egg Shell Temperature (EST) - Optimum: 100-101°F',
-                          style: AppTextStyles.body,
-                        ),
-                        _buildEstGrid(auditProvider),
-                      ],
+                  const SizedBox(height: 16),
+                  Card(
+                    key: _sectionKeys[3],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSizes.cardPadding),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Egg Shell Temperature (EST) - Optimum: 100-101°F',
+                            style: AppTextStyles.body,
+                          ),
+                          _buildEstGrid(auditProvider),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -460,15 +510,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   }
 
   Widget _buildEstGrid(AuditProvider provider) {
-    final rows = ['Door', 'Middle', 'Back'];
-    final cols = ['Top', 'Middle', 'Bottom'];
     return Column(
       children: [
-        for (var r in rows)
+        for (var r in _gridRows)
           Row(
             children: [
               SizedBox(width: 60, child: Text(r, style: AppTextStyles.body)),
-              for (var c in cols)
+              for (var c in _gridColumns)
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(4),
@@ -496,10 +544,14 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       ),
       child: Column(
         children: [
-          TextField(
-            controller: _controllers[key],
+          AuditNumericField(
+            controller: _controllers[key]!,
             enabled: !provider.isReadOnly,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            allowDecimal: true,
+            maxDecimalPlaces: 1,
+            navigationGroup: _gridNavigationGroup,
+            navigationRow: _gridRows.indexOf(key.split('_').first),
+            navigationColumn: _gridColumns.indexOf(key.split('_').last),
             textAlign: TextAlign.center,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),

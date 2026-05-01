@@ -135,4 +135,138 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
     expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
   });
+
+  testWidgets(
+    'manual entry cell with value and no photo shows add photo icon',
+    (tester) async {
+      final controllers = {
+        for (final key in EstGridData.scanKeys) key: TextEditingController(),
+      };
+      final focusNodes = {
+        for (final key in EstGridData.scanKeys) key: FocusNode(),
+      };
+      String? requestedKey;
+
+      controllers['front_top']!.text = '23.5';
+
+      addTearDown(() {
+        for (final controller in controllers.values) {
+          controller.dispose();
+        }
+        for (final focusNode in focusNodes.values) {
+          focusNode.dispose();
+        }
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EstGridWidget(
+              controllers: controllers,
+              focusNodes: focusNodes,
+              photos: const {},
+              enabled: true,
+              showPhotoCapture: false,
+              onValueChanged: (_, _) {},
+              onPhotoCaptured: (_, _) {},
+              onMissingPhotoRequested: (key) => requestedKey = key,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.add_photo_alternate_outlined), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.add_photo_alternate_outlined));
+      expect(requestedKey, 'front_top');
+    },
+  );
+
+  testWidgets('manual entry cell with value shows clear icon for that point', (
+    tester,
+  ) async {
+    final controllers = {
+      for (final key in EstGridData.scanKeys) key: TextEditingController(),
+    };
+    final focusNodes = {
+      for (final key in EstGridData.scanKeys) key: FocusNode(),
+    };
+    String? clearedKey;
+
+    controllers['front_top']!.text = '23.5';
+
+    addTearDown(() {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+      for (final focusNode in focusNodes.values) {
+        focusNode.dispose();
+      }
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EstGridWidget(
+            controllers: controllers,
+            focusNodes: focusNodes,
+            photos: const {},
+            enabled: true,
+            showPhotoCapture: false,
+            onValueChanged: (_, _) {},
+            onPhotoCaptured: (_, _) {},
+            onClearRequested: (key) => clearedKey = key,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Clear reading and photo'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Clear reading and photo'));
+    expect(clearedKey, 'front_top');
+  });
+
+  testWidgets('manual entry cell with only photo shows clear icon', (
+    tester,
+  ) async {
+    final controllers = {
+      for (final key in EstGridData.scanKeys) key: TextEditingController(),
+    };
+    final focusNodes = {
+      for (final key in EstGridData.scanKeys) key: FocusNode(),
+    };
+    final photoFile = File(
+      '${Directory.systemTemp.path}/est-grid-clear-photo-${DateTime.now().microsecondsSinceEpoch}.png',
+    )..writeAsBytesSync(base64Decode(onePixelPng));
+
+    addTearDown(() {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+      for (final focusNode in focusNodes.values) {
+        focusNode.dispose();
+      }
+      if (photoFile.existsSync()) photoFile.deleteSync();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EstGridWidget(
+            controllers: controllers,
+            focusNodes: focusNodes,
+            photos: {'front_top': photoFile.path},
+            enabled: true,
+            showPhotoCapture: false,
+            onValueChanged: (_, _) {},
+            onPhotoCaptured: (_, _) {},
+            onClearRequested: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Clear reading and photo'), findsOneWidget);
+  });
 }

@@ -57,11 +57,7 @@ class AuditRepository {
       flockId: audit.flockId,
     );
     final db = await dbHelper.db;
-    await db.insert(
-      'audits',
-      audit.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _upsertById(db, 'audits', audit.toMap());
   }
 
   Future<void> updateAudit(AuditModel audit) async {
@@ -476,7 +472,7 @@ class AuditRepository {
         AND ebTraySize IS NOT NULL
         ${typeFilter.clause}
       ''',
-      [...args, typeFilter.arg],
+      [...args, ...typeFilter.args],
     );
     if (result.isEmpty) return null;
     if ((result.first['rowCount'] as int? ?? 0) == 0) return null;
@@ -513,7 +509,7 @@ class AuditRepository {
       GROUP BY date
       ORDER BY date ASC
       ''',
-      [...args, typeFilter.arg],
+      [...args, ...typeFilter.args],
     );
     if (result.isEmpty) return null;
     return result
@@ -550,6 +546,23 @@ class AuditRepository {
       args,
     );
     return extractEstPhotoPathsFromRows(rows, existing: existing);
+  }
+
+  Future<EggStorageEstEvidence?> getLatestEggStorageEstEvidence(
+    DashboardFilter filter,
+  ) async {
+    final db = await dbHelper.db;
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
+    final rows = await db.rawQuery(
+      'SELECT es_estReadingsJson, es_estPhotosJson FROM audits $clause ORDER BY date DESC, createdAt DESC LIMIT 1',
+      args,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return EggStorageEstEvidence.fromJsonStrings(
+      readingsJson: row['es_estReadingsJson']?.toString(),
+      photosJson: row['es_estPhotosJson']?.toString(),
+    );
   }
 
   Future<List<ChickWeightTrend>?> getChickWeightTrend(
@@ -694,11 +707,21 @@ class AuditRepository {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'audits');
     final normalized = _filterColumns(_normalizeAuditRow(row), columns);
-    await db.insert(
-      'audits',
-      normalized,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await _upsertById(db, 'audits', normalized);
+  }
+
+  Future<void> _upsertById(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final inserted = await db.insert(
+      table,
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    if (inserted != 0) return;
+    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
   // SECURITY: never interpolate user data into SQL. Use ? placeholders only.
@@ -833,14 +856,25 @@ class AuditRepository {
     }
   }
 
-  ({String clause, Object? arg}) _eggBreakoutTypeArg(String breakoutType) {
-    final type = switch (breakoutType) {
-      'residue' => 'Hatch Residue',
-      'fresh' => 'Fresh Egg',
-      'candled' => 'Candled Egg',
-      _ => breakoutType,
+  ({String clause, List<Object?> args}) _eggBreakoutTypeArg(
+    String breakoutType,
+  ) {
+    final types = switch (breakoutType) {
+      'residue' => ['Hatch Residue', 'residue_21d', 'residueHatchDay'],
+      'fresh' => ['Fresh Egg', 'fresh', 'freshEggBreakout'],
+      'candled' => [
+        'Candled Egg',
+        'Candled 10d',
+        'candled_10d',
+        'candledEggBreakout',
+      ],
+      _ => [breakoutType],
     };
-    return (clause: 'AND ebBreakoutType = ?', arg: type);
+    return (
+      clause:
+          'AND ebBreakoutType IN (${List.filled(types.length, '?').join(', ')})',
+      args: types,
+    );
   }
 
   void _copyAlias(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/constants/supabase_config.dart';
 import 'core/debug/startup_timer.dart';
+import 'data/database/database_factory_initializer.dart';
 import 'data/database/database_helper.dart';
 import 'data/repositories/user_repository.dart';
 import 'services/notifications/notification_service.dart';
@@ -15,6 +16,7 @@ void main() async {
 
   // Database initialization is required before runApp
   // Auth check and other operations depend on local DB
+  await initializeDatabaseFactory();
   await DatabaseHelper().db;
   StartupTimer.lap('db_init_complete');
 

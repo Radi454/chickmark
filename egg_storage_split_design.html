@@ -1,0 +1,1537 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChickMark - Egg Storage Split Design</title>
+  <style>
+    :root {
+      --primary: #1769d8;
+      --primary-light: #079fe0;
+      --primary-dark: #193fc2;
+      --accent: #e65100;
+      --accent-bg: #fff3e0;
+      --bg: #f5f8fc;
+      --surface: #ffffff;
+      --surface-raised: #f7fafd;
+      --surface-soft: #f9fafb;
+      --text: #111827;
+      --body: #1f2937;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --line-strong: #d7e0ec;
+      --good: #388e3c;
+      --good-bg: #e8f5e9;
+      --warn: #e67e22;
+      --warn-bg: #fff3e0;
+      --bad: #dc2626;
+      --bad-bg: #fef2f2;
+      --info-bg: #eaf4ff;
+      --shadow: 0 18px 46px rgba(17, 24, 39, 0.08);
+      --shadow-soft: 0 10px 24px rgba(17, 24, 39, 0.06);
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, rgba(23, 105, 216, 0.12), transparent 36rem),
+        linear-gradient(180deg, #fbfdff 0%, var(--bg) 18rem);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    .app-shell {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .icon-button,
+    .primary-button,
+    .secondary-button {
+      min-height: 40px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .icon-button {
+      width: 42px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      background: var(--surface);
+      border-color: var(--line);
+    }
+
+    .secondary-button {
+      padding: 0 14px;
+      color: var(--primary);
+      background: var(--surface);
+      border-color: rgba(23, 105, 216, 0.35);
+    }
+
+    .primary-button {
+      padding: 0 16px;
+      color: white;
+      background: var(--primary);
+      box-shadow: 0 10px 18px rgba(23, 105, 216, 0.2);
+    }
+
+    .header-card {
+      background: linear-gradient(135deg, var(--primary-light), var(--primary-dark));
+      color: white;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    .header-main {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 850;
+    }
+
+    .context-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .context-grid.hatchery-only {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .context-item {
+      padding: 10px;
+      min-width: 0;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .context-label,
+    label,
+    .metric-label,
+    .helper-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .context-item .context-label {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .context-value {
+      margin-top: 5px;
+      overflow: hidden;
+      color: white;
+      font-size: 15px;
+      font-weight: 800;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .quality-context {
+      padding: 20px;
+      margin-bottom: 14px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, var(--primary-light), var(--primary-dark));
+      border: 0;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .quality-context-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .quality-context-title {
+      margin: 0;
+      color: white;
+      font-size: 22px;
+      font-weight: 850;
+    }
+
+    .quality-context-subtitle {
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .quality-context-note {
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .quality-context .status-pill.good {
+      background: rgba(232, 245, 233, 0.86);
+    }
+
+    .quality-context-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .quality-context-item {
+      min-width: 0;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .quality-context-item .helper-label {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .quality-context-value {
+      margin-top: 5px;
+      overflow: hidden;
+      color: white;
+      font-size: 15px;
+      font-weight: 800;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .sample-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .sample-control {
+      padding: 12px;
+      margin-bottom: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      border: 1px solid var(--line);
+    }
+
+    .sample-control.hidden {
+      display: none;
+    }
+
+    .sample-control-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .sample-control-title {
+      margin: 0;
+      color: var(--body);
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .sample-control-note {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .sample-chip {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      min-height: 36px;
+      padding: 0 14px;
+      color: var(--primary);
+      background: var(--surface);
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .sample-chip.active {
+      color: white;
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .mode-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .mode-button {
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--surface);
+      cursor: pointer;
+      font-weight: 850;
+    }
+
+    .mode-button.active {
+      color: white;
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .house-chip {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+    }
+
+    .house-chip.active {
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .house-select,
+    .house-remove {
+      min-height: 36px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      font-weight: 850;
+    }
+
+    .house-select {
+      padding: 0 10px 0 14px;
+      color: var(--primary);
+      font-size: 16px;
+    }
+
+    .house-remove {
+      width: 32px;
+      color: var(--bad);
+      border-left: 1px solid var(--line);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .house-chip.active .house-select,
+    .house-chip.active .house-remove {
+      color: white;
+      border-left-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .column {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid rgba(229, 231, 235, 0.96);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface-soft) 100%);
+    }
+
+    .panel-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .section-mark {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--info-bg);
+      border: 1px solid rgba(23, 105, 216, 0.16);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 850;
+    }
+
+    .panel-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .panel-body {
+      padding: 16px;
+    }
+
+    .status-pill,
+    .target-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .status-pill.good {
+      color: var(--good);
+      background: var(--good-bg);
+    }
+
+    .status-pill.warn {
+      color: var(--warn);
+      background: var(--warn-bg);
+    }
+
+    .target-pill {
+      color: var(--primary);
+      background: var(--info-bg);
+      border: 1px solid rgba(23, 105, 216, 0.18);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field-grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .field,
+    .readonly-field {
+      min-width: 0;
+    }
+
+    label,
+    .helper-label {
+      margin-bottom: 6px;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      color: var(--body);
+      background: var(--surface);
+      outline: none;
+    }
+
+    input:focus,
+    textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(23, 105, 216, 0.12);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 82px;
+    }
+
+    .readonly-box {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      background: var(--surface-raised);
+      border: 1px dashed var(--line-strong);
+      font-weight: 800;
+    }
+
+    .target-strip,
+    .summary-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .est-map {
+      display: grid;
+      grid-template-columns: 92px repeat(3, minmax(70px, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+      align-items: stretch;
+    }
+
+    .map-heading,
+    .map-label {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      background: var(--surface-raised);
+      font-size: 12px;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .map-label {
+      justify-content: flex-start;
+      color: var(--body);
+    }
+
+    .est-map input {
+      min-height: 38px;
+      text-align: center;
+      padding: 8px;
+      font-weight: 800;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      background: var(--surface-raised);
+    }
+
+    .metric-value {
+      margin-top: 5px;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 19px;
+      line-height: 1.1;
+      font-weight: 900;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .metric.good .metric-value {
+      color: var(--good);
+    }
+
+    .metric.empty {
+      visibility: hidden;
+    }
+
+    .metric.warn .metric-value {
+      color: var(--warn);
+    }
+
+    .metric.info .metric-value {
+      color: var(--primary);
+    }
+
+    .tray-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .tray-row {
+      display: grid;
+      grid-template-columns: minmax(92px, 0.8fr) minmax(80px, 0.7fr) minmax(0, 1fr);
+      gap: 10px;
+      align-items: end;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tray-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .tray-name {
+      margin-bottom: 9px;
+      color: var(--body);
+      font-weight: 850;
+    }
+
+    .counter-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-height: 44px;
+    }
+
+    .counter-button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .counter-value {
+      min-width: 28px;
+      color: var(--text);
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .choice-row {
+      display: grid;
+      gap: 10px;
+    }
+
+    .choice-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .choice {
+      min-height: 36px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      color: var(--primary);
+      background: var(--surface);
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .choice.active {
+      color: white;
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+
+    .weight-entry-card {
+      margin-top: 14px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: end;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(17, 24, 39, 0.38);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .weight-sheet {
+      width: min(760px, 100%);
+      max-height: min(86vh, 920px);
+      overflow: hidden;
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: 0 26px 70px rgba(17, 24, 39, 0.24);
+      border: 1px solid var(--line);
+    }
+
+    .weight-sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface-soft) 100%);
+    }
+
+    .weight-sheet-title {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 850;
+    }
+
+    .weight-sheet-body {
+      max-height: calc(min(86vh, 920px) - 76px);
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .weight-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .weight-input {
+      position: relative;
+    }
+
+    .weight-input span {
+      position: absolute;
+      left: 8px;
+      top: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .weight-input input {
+      min-height: 52px;
+      padding-top: 22px;
+      text-align: center;
+      font-weight: 850;
+    }
+
+    .quality-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .quality-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .quality-row:last-child {
+      border-bottom: 0;
+    }
+
+    .quality-name {
+      color: var(--body);
+      font-weight: 800;
+    }
+
+    .footer-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      margin-top: 18px;
+      padding: 12px;
+      border: 1px solid rgba(229, 231, 235, 0.9);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 -10px 34px rgba(17, 24, 39, 0.08);
+      backdrop-filter: blur(14px);
+    }
+
+    .footer-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .footer-status {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .footer-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 980px) {
+      .workbench {
+        grid-template-columns: 1fr;
+      }
+
+      .context-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      .app-shell {
+        padding: 14px;
+      }
+
+      .footer-content {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .footer-actions {
+        justify-content: stretch;
+      }
+
+      .secondary-button,
+      .primary-button {
+        flex: 1 1 auto;
+      }
+
+      .page-title {
+        font-size: 24px;
+      }
+
+      .context-grid,
+      .field-grid,
+      .field-grid.three,
+      .quality-context-grid,
+      .quality-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .est-map {
+        grid-template-columns: 76px repeat(3, minmax(58px, 1fr));
+        gap: 6px;
+      }
+
+      .tray-row {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .counter-row {
+        justify-content: flex-start;
+      }
+
+      .weight-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="header-card">
+      <div class="header-main">
+        <div>
+          <p class="eyebrow">Audit station</p>
+          <h2 class="page-title">Egg Storage &amp; Handling</h2>
+        </div>
+      </div>
+      <div class="context-grid hatchery-only">
+        <div class="context-item">
+          <span class="context-label">Hatchery</span>
+          <div class="context-value">Main Hatchery</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workbench">
+      <div class="column">
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">EST</span>
+              <div>
+                <h3 class="panel-title">Egg Shell Temperature</h3>
+                <div class="panel-meta">Storage class and shell readings</div>
+              </div>
+            </div>
+            <span class="status-pill good">On target</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="storageDays">Storage Days</label>
+                <input id="storageDays" type="number" min="0" value="4">
+              </div>
+              <div class="readonly-field">
+                <span class="helper-label">Shell Target</span>
+                <div class="readonly-box" id="shellTarget">19.0-21.0&deg;C</div>
+              </div>
+            </div>
+            <div class="target-strip">
+              <span class="target-pill" id="storageClass">Short storage</span>
+              <span class="target-pill">Auto capture available</span>
+            </div>
+
+            <div class="est-map" aria-label="Egg shell temperature readings">
+              <div></div>
+              <div class="map-heading">Front</div>
+              <div class="map-heading">Middle</div>
+              <div class="map-heading">Back</div>
+              <div class="map-label">Top</div>
+              <input class="est-value" type="number" step="0.1" value="20.2" aria-label="Top front temperature">
+              <input class="est-value" type="number" step="0.1" value="20.0" aria-label="Top middle temperature">
+              <input class="est-value" type="number" step="0.1" value="20.3" aria-label="Top back temperature">
+              <div class="map-label">Center</div>
+              <input class="est-value" type="number" step="0.1" value="19.9" aria-label="Center front temperature">
+              <input class="est-value" type="number" step="0.1" value="20.1" aria-label="Center middle temperature">
+              <input class="est-value" type="number" step="0.1" value="20.2" aria-label="Center back temperature">
+              <div class="map-label">Bottom</div>
+              <input class="est-value" type="number" step="0.1" value="19.8" aria-label="Bottom front temperature">
+              <input class="est-value" type="number" step="0.1" value="20.0" aria-label="Bottom middle temperature">
+              <input class="est-value" type="number" step="0.1" value="19.9" aria-label="Bottom back temperature">
+            </div>
+
+            <div class="summary-strip">
+              <div class="metric info">
+                <span class="metric-label">AVG</span>
+                <div class="metric-value" id="estAvg">20.0&deg;C</div>
+              </div>
+              <div class="metric info">
+                <span class="metric-label">CV%</span>
+                <div class="metric-value" id="estCv">0.8%</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">UD</span>
+              <div>
+                <h3 class="panel-title">Upside Down Score</h3>
+                <div class="panel-meta">Count incorrectly oriented eggs per tray</div>
+              </div>
+            </div>
+            <span class="status-pill warn" id="upsideAvg">Avg 2.1%</span>
+          </div>
+          <div class="panel-body">
+            <div class="tray-list" id="upsideList">
+              <div class="tray-row">
+                <div class="tray-name">Tray 1</div>
+                <div class="field">
+                  <label>Total Eggs</label>
+                  <input class="tray-total" type="number" value="150">
+                </div>
+                <div>
+                  <span class="helper-label">Upside Down</span>
+                  <div class="counter-row">
+                    <button class="counter-button" data-action="minus">-</button>
+                    <span class="counter-value">3</span>
+                    <button class="counter-button" data-action="plus">+</button>
+                  </div>
+                </div>
+              </div>
+              <div class="tray-row">
+                <div class="tray-name">Tray 2</div>
+                <div class="field">
+                  <label>Total Eggs</label>
+                  <input class="tray-total" type="number" value="150">
+                </div>
+                <div>
+                  <span class="helper-label">Upside Down</span>
+                  <div class="counter-row">
+                    <button class="counter-button" data-action="minus">-</button>
+                    <span class="counter-value">4</span>
+                    <button class="counter-button" data-action="plus">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">CHK</span>
+              <div>
+                <h3 class="panel-title">Storage Checklist</h3>
+                <div class="panel-meta">Handling observations before set</div>
+              </div>
+            </div>
+            <span class="status-pill good">3 of 4 set</span>
+          </div>
+          <div class="panel-body choice-row">
+            <div>
+              <span class="helper-label">Egg Turning</span>
+              <div class="choice-group">
+                <button class="choice">No Turning</button>
+                <button class="choice">1 time</button>
+                <button class="choice active">2 times</button>
+                <button class="choice">3 times</button>
+                <button class="choice">4 times</button>
+              </div>
+            </div>
+            <div>
+              <span class="helper-label">Tray Spacing</span>
+              <div class="choice-group">
+                <button class="choice active">Adequate</button>
+                <button class="choice">Tight</button>
+                <button class="choice">Loose</button>
+              </div>
+            </div>
+            <div>
+              <span class="helper-label">Cooler Proximity</span>
+              <div class="choice-group">
+                <button class="choice">Near</button>
+                <button class="choice active">Far</button>
+                <button class="choice">Adjacent</button>
+                <button class="choice">Separate</button>
+              </div>
+            </div>
+            <div>
+              <span class="helper-label">Condensation Present</span>
+              <div class="choice-group">
+                <button class="choice active">No</button>
+                <button class="choice">Yes</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="column">
+        <article class="panel">
+          <div class="panel-body">
+            <div class="quality-context" aria-label="Egg quality flock context">
+              <div class="quality-context-header">
+                <div>
+                  <h3 class="quality-context-title">Egg Quality Assessment</h3>
+                  <div class="quality-context-subtitle">Weight uniformity and benchmark context</div>
+                </div>
+                <span class="status-pill good">Healthy spread</span>
+              </div>
+              <div class="quality-context-grid">
+                <div class="quality-context-item">
+                  <span class="helper-label">Flock</span>
+                  <div class="quality-context-value">F-24A</div>
+                </div>
+                <div class="quality-context-item">
+                  <span class="helper-label">Breed</span>
+                  <div class="quality-context-value">Ross 308</div>
+                </div>
+                <div class="quality-context-item">
+                  <span class="helper-label">BMK Age</span>
+                  <div class="quality-context-value">42 wks</div>
+                </div>
+              </div>
+            </div>
+            <div class="sample-control">
+              <div class="sample-control-header">
+                <h4 class="sample-control-title">Egg Sample Mode</h4>
+                <div class="sample-control-note">Choose one sample or compare houses</div>
+              </div>
+              <div class="mode-row" aria-label="Egg sample mode">
+                <button class="mode-button" type="button" data-sample-mode="single">Single Sample</button>
+                <button class="mode-button active" type="button" data-sample-mode="multi">Multi House Samples</button>
+              </div>
+            </div>
+            <div class="sample-control">
+              <div class="sample-control-header">
+                <h4 class="sample-control-title">House Samples</h4>
+                <div class="sample-control-note">Same flock, compare egg quality by house</div>
+              </div>
+              <nav class="sample-row" id="sampleRow" aria-label="Egg quality house samples">
+                <button class="sample-chip" id="addSample" type="button">+ House</button>
+              </nav>
+            </div>
+            <div class="metric-grid">
+              <div class="metric info">
+                <span class="metric-label">Avg Weight</span>
+                <div class="metric-value" id="weightAvg">61.1g</div>
+              </div>
+              <div class="metric">
+                <span class="metric-label">BMK Egg Weight</span>
+                <div class="metric-value">61.5g</div>
+              </div>
+              <div class="metric info">
+                <span class="metric-label">Sample Size</span>
+                <div class="metric-value" id="weightCount">10/100</div>
+              </div>
+              <div class="metric empty" aria-hidden="true"></div>
+              <div class="metric">
+                <span class="metric-label">Min</span>
+                <div class="metric-value" id="weightMin">55.0g</div>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Max</span>
+                <div class="metric-value" id="weightMax">67.2g</div>
+              </div>
+              <div class="metric good">
+                <span class="metric-label">C.V</span>
+                <div class="metric-value" id="weightCv">2.8%</div>
+              </div>
+              <div class="metric good">
+                <span class="metric-label">Uniformity</span>
+                <div class="metric-value" id="uniformity">90.0%</div>
+              </div>
+            </div>
+
+            <div class="weight-entry-card">
+              <button class="secondary-button" id="openWeightSheet" type="button">Enter Weights</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">UV</span>
+              <div>
+                <h3 class="panel-title">Egg Shell Quality</h3>
+                <div class="panel-meta">UV torch inspection by tray</div>
+              </div>
+            </div>
+            <span class="status-pill warn" id="uvAvg">Avg affected 6.0%</span>
+          </div>
+          <div class="panel-body">
+            <div class="tray-list" id="uvList">
+              <div class="tray-row">
+                <div class="tray-name">Tray 1</div>
+                <div class="field">
+                  <label>Total Eggs</label>
+                  <input class="tray-total" type="number" value="150">
+                </div>
+                <div class="quality-grid">
+                  <div>
+                    <span class="helper-label">Cuticle Damage</span>
+                    <div class="counter-row">
+                      <button class="counter-button" data-action="minus">-</button>
+                      <span class="counter-value">4</span>
+                      <button class="counter-button" data-action="plus">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="helper-label">Dirty</span>
+                    <div class="counter-row">
+                      <button class="counter-button" data-action="minus">-</button>
+                      <span class="counter-value">2</span>
+                      <button class="counter-button" data-action="plus">+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="tray-row">
+                <div class="tray-name">Tray 2</div>
+                <div class="field">
+                  <label>Total Eggs</label>
+                  <input class="tray-total" type="number" value="150">
+                </div>
+                <div class="quality-grid">
+                  <div>
+                    <span class="helper-label">Cuticle Damage</span>
+                    <div class="counter-row">
+                      <button class="counter-button" data-action="minus">-</button>
+                      <span class="counter-value">7</span>
+                      <button class="counter-button" data-action="plus">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="helper-label">Dirty</span>
+                    <div class="counter-row">
+                      <button class="counter-button" data-action="minus">-</button>
+                      <span class="counter-value">5</span>
+                      <button class="counter-button" data-action="plus">+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <span class="section-mark">NT</span>
+              <div>
+                <h3 class="panel-title">Notes</h3>
+                <div class="panel-meta">Optional station comments</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <label for="notes">Assessment Notes</label>
+            <textarea id="notes">Cool room stable. Minor dirty shell increase on tray 2; review handling before transfer.</textarea>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div class="modal-backdrop" id="weightSheetModal" role="dialog" aria-modal="true" aria-labelledby="weightSheetTitle">
+      <div class="weight-sheet">
+        <div class="weight-sheet-header">
+          <div>
+            <h3 class="weight-sheet-title" id="weightSheetTitle">H1 Egg Weight Sheet</h3>
+          </div>
+          <button class="icon-button" id="closeWeightSheet" type="button" aria-label="Close weight sheet">×</button>
+        </div>
+        <div class="weight-sheet-body">
+          <div class="weight-grid" id="weightGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <section class="footer-bar">
+      <div class="footer-content">
+        <div class="footer-status">Draft saved locally. 5 sections ready for review.</div>
+        <div class="footer-actions">
+          <button class="secondary-button">Save Draft</button>
+          <button class="primary-button">Complete Station</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const formatOne = (value) => Number.isFinite(value) ? value.toFixed(1) : "--";
+    const houseSamples = [
+      { id: "h1", name: "H1", weights: [61.2, 60.8, 62.0, 59.9, 61.5, 62.2, 60.5, 61.8, 60.6, 61.0] },
+      { id: "h2", name: "H2", weights: [59.4, 59.8, 60.1, 58.9, 60.5, 59.7, 61.0, 60.2, 59.5, 60.0, 58.8, 60.7] },
+      { id: "h3", name: "H3", weights: [62.6, 62.1, 63.0, 61.7, 62.8, 63.3, 61.9, 62.4, 63.1, 62.0, 61.5] }
+    ];
+    let activeHouseId = "h1";
+    let eggSampleMode = "multi";
+
+    function valuesFrom(selector) {
+      return Array.from(document.querySelectorAll(selector))
+        .map((input) => Number.parseFloat(input.value))
+        .filter((value) => Number.isFinite(value));
+    }
+
+    function standardDeviation(values, avg) {
+      if (!values.length) return 0;
+      const variance = values.reduce((sum, value) => sum + ((value - avg) ** 2), 0) / values.length;
+      return Math.sqrt(variance);
+    }
+
+    function updateEstStats() {
+      const values = valuesFrom(".est-value");
+      if (!values.length) return;
+      const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const cv = avg === 0 ? 0 : (standardDeviation(values, avg) / avg) * 100;
+      document.getElementById("estAvg").innerHTML = `${formatOne(avg)}&deg;C`;
+      document.getElementById("estCv").textContent = `${formatOne(cv)}%`;
+    }
+
+    function updateWeightStats() {
+      const values = valuesFrom("#weightGrid input");
+      const avgTarget = document.getElementById("weightAvg");
+      const cvTarget = document.getElementById("weightCv");
+      const countTarget = document.getElementById("weightCount");
+      const minTarget = document.getElementById("weightMin");
+      const maxTarget = document.getElementById("weightMax");
+      const uniformityTarget = document.getElementById("uniformity");
+      if (!values.length) {
+        avgTarget.textContent = "--";
+        cvTarget.textContent = "--";
+        countTarget.textContent = "0/100";
+        minTarget.textContent = "--";
+        maxTarget.textContent = "--";
+        uniformityTarget.textContent = "--";
+        return;
+      }
+      const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const cv = avg === 0 ? 0 : (standardDeviation(values, avg) / avg) * 100;
+      const min = avg * 0.9;
+      const max = avg * 1.1;
+      const inside = values.filter((value) => value >= min && value <= max).length;
+      const uniformity = (inside / values.length) * 100;
+      avgTarget.textContent = `${formatOne(avg)}g`;
+      cvTarget.textContent = `${formatOne(cv)}%`;
+      countTarget.textContent = `${values.length}/100`;
+      minTarget.textContent = `${formatOne(min)}g`;
+      maxTarget.textContent = `${formatOne(max)}g`;
+      uniformityTarget.textContent = `${formatOne(uniformity)}%`;
+    }
+
+    function updateStorageTarget() {
+      const days = Number.parseInt(document.getElementById("storageDays").value, 10);
+      const target = document.getElementById("shellTarget");
+      const storageClass = document.getElementById("storageClass");
+      if (!Number.isFinite(days)) {
+        target.innerHTML = "--";
+        storageClass.textContent = "Storage class pending";
+      } else if (days <= 4) {
+        target.innerHTML = "19.0-21.0&deg;C";
+        storageClass.textContent = "Short storage";
+      } else if (days <= 7) {
+        target.innerHTML = "18.0-20.0&deg;C";
+        storageClass.textContent = "Medium storage";
+      } else {
+        target.innerHTML = "16.0-18.0&deg;C";
+        storageClass.textContent = "Long storage";
+      }
+    }
+
+    function updateTrayAverage(listId, targetId, label) {
+      const rows = Array.from(document.querySelectorAll(`#${listId} .tray-row`));
+      const percentages = rows.map((row) => {
+        const total = Number.parseFloat(row.querySelector(".tray-total")?.value || "0");
+        const count = Array.from(row.querySelectorAll(".counter-value"))
+          .map((node) => Number.parseFloat(node.textContent || "0"))
+          .filter((value) => Number.isFinite(value))
+          .reduce((sum, value) => sum + value, 0);
+        return total > 0 ? (count / total) * 100 : 0;
+      });
+      const avg = percentages.length
+        ? percentages.reduce((sum, value) => sum + value, 0) / percentages.length
+        : 0;
+      document.getElementById(targetId).textContent = `${label} ${formatOne(avg)}%`;
+    }
+
+    function activeHouse() {
+      return houseSamples.find((house) => house.id === activeHouseId) || houseSamples[0];
+    }
+
+    function renumberHouseSamples() {
+      houseSamples.forEach((house, index) => {
+        house.name = `H${index + 1}`;
+      });
+    }
+
+    function saveActiveHouseWeights() {
+      const house = activeHouse();
+      if (!house) return;
+      house.weights = Array.from(document.querySelectorAll("#weightGrid input"))
+        .map((input) => input.value === "" ? "" : Number.parseFloat(input.value));
+    }
+
+    function buildWeightGrid() {
+      const grid = document.getElementById("weightGrid");
+      const seedValues = activeHouse()?.weights ?? [];
+      document.getElementById("weightSheetTitle").textContent =
+        eggSampleMode === "multi"
+          ? `${activeHouse()?.name ?? "House"} Egg Weight Sheet`
+          : "Egg Weight Sheet";
+      grid.innerHTML = "";
+      const fragment = document.createDocumentFragment();
+      for (let index = 1; index <= 100; index += 1) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "weight-input";
+        const label = document.createElement("span");
+        label.textContent = String(index);
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "0.1";
+        input.value = seedValues[index - 1] ?? "";
+        input.setAttribute("aria-label", `Egg weight ${index}`);
+        input.addEventListener("input", updateWeightStats);
+        wrapper.append(label, input);
+        fragment.append(wrapper);
+      }
+      grid.append(fragment);
+    }
+
+    function renderHouseSamples() {
+      const sampleRow = document.getElementById("sampleRow");
+      const addButton = document.getElementById("addSample");
+      renumberHouseSamples();
+      sampleRow.querySelectorAll(".house-chip").forEach((chip) => chip.remove());
+
+      houseSamples.forEach((house) => {
+        const chip = document.createElement("span");
+        chip.className = `house-chip${house.id === activeHouseId ? " active" : ""}`;
+
+        const select = document.createElement("button");
+        select.type = "button";
+        select.className = "house-select";
+        select.textContent = house.name;
+        select.addEventListener("click", () => {
+          saveActiveHouseWeights();
+          activeHouseId = house.id;
+          renderHouseSamples();
+          buildWeightGrid();
+          updateWeightStats();
+        });
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "house-remove";
+        remove.textContent = "-";
+        remove.setAttribute("aria-label", `Remove ${house.name}`);
+        remove.disabled = houseSamples.length <= 1;
+        remove.addEventListener("click", () => {
+          const index = houseSamples.findIndex((item) => item.id === house.id);
+          if (index === -1 || houseSamples.length <= 1) return;
+          houseSamples.splice(index, 1);
+          if (activeHouseId === house.id) {
+            activeHouseId = houseSamples[Math.max(0, index - 1)].id;
+          }
+          renderHouseSamples();
+          buildWeightGrid();
+          updateWeightStats();
+        });
+
+        chip.append(select, remove);
+        sampleRow.insertBefore(chip, addButton);
+      });
+    }
+
+    function addHouseSample() {
+      saveActiveHouseWeights();
+      const number = houseSamples.length + 1;
+      const baseWeight = 60 + number * 0.7;
+      const weights = Array.from({ length: 10 }, (_, index) =>
+        Number((baseWeight + ((index % 5) - 2) * 0.35 + (index % 2) * 0.15).toFixed(1))
+      );
+      const house = {
+        id: `h${Date.now()}`,
+        name: `H${number}`,
+        weights,
+      };
+      houseSamples.push(house);
+      activeHouseId = house.id;
+      renderHouseSamples();
+      buildWeightGrid();
+      updateWeightStats();
+    }
+
+    function setEggSampleMode(mode) {
+      eggSampleMode = mode;
+      document.querySelectorAll(".mode-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.sampleMode === mode);
+      });
+      document.getElementById("sampleRow").closest(".sample-control").classList.toggle("hidden", mode !== "multi");
+      if (mode === "multi") {
+        renderHouseSamples();
+      }
+      buildWeightGrid();
+      updateWeightStats();
+    }
+
+    function openWeightSheet() {
+      document.getElementById("weightSheetModal").classList.add("open");
+    }
+
+    function closeWeightSheet() {
+      document.getElementById("weightSheetModal").classList.remove("open");
+    }
+
+    document.querySelectorAll(".choice").forEach((button) => {
+      button.addEventListener("click", () => {
+        const group = button.closest(".choice-group");
+        group.querySelectorAll(".choice").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+      });
+    });
+
+    document.querySelectorAll(".counter-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const valueNode = button.parentElement.querySelector(".counter-value");
+        const current = Number.parseInt(valueNode.textContent, 10) || 0;
+        valueNode.textContent = button.dataset.action === "plus"
+          ? String(current + 1)
+          : String(Math.max(0, current - 1));
+        updateTrayAverage("upsideList", "upsideAvg", "Avg");
+        updateTrayAverage("uvList", "uvAvg", "Avg affected");
+      });
+    });
+
+    document.querySelectorAll(".tray-total").forEach((input) => {
+      input.addEventListener("input", () => {
+        updateTrayAverage("upsideList", "upsideAvg", "Avg");
+        updateTrayAverage("uvList", "uvAvg", "Avg affected");
+      });
+    });
+
+    document.querySelectorAll(".est-value").forEach((input) => input.addEventListener("input", updateEstStats));
+    document.getElementById("addSample").addEventListener("click", addHouseSample);
+    document.querySelectorAll(".mode-button").forEach((button) => {
+      button.addEventListener("click", () => setEggSampleMode(button.dataset.sampleMode));
+    });
+    renderHouseSamples();
+    setEggSampleMode(eggSampleMode);
+    buildWeightGrid();
+    document.getElementById("openWeightSheet").addEventListener("click", openWeightSheet);
+    document.getElementById("closeWeightSheet").addEventListener("click", closeWeightSheet);
+    document.getElementById("weightSheetModal").addEventListener("click", (event) => {
+      if (event.target.id === "weightSheetModal") closeWeightSheet();
+    });
+    document.getElementById("storageDays").addEventListener("input", updateStorageTarget);
+
+    updateEstStats();
+    updateWeightStats();
+    updateStorageTarget();
+    updateTrayAverage("upsideList", "upsideAvg", "Avg");
+    updateTrayAverage("uvList", "uvAvg", "Avg affected");
+  </script>
+</body>
+</html>
