@@ -897,5 +897,49 @@ void main() {
         expect(provider.auditSyncError, isNotNull);
       },
     );
+
+    test(
+      'stale station stop does not clear a newer audit spot session',
+      () async {
+        final syncCompleter = Completer<List<GoveeSensorReading>>();
+        when(
+          () => mockGovee.syncHistory(
+            startedAt: any(named: 'startedAt'),
+            endedAt: any(named: 'endedAt'),
+          ),
+        ).thenAnswer((_) => syncCompleter.future);
+
+        final provider = TemperatureRhProvider(
+          goveeService: mockGovee,
+          repository: mockRepo,
+        );
+
+        final firstTempSessionId = provider.startAuditSession(
+          TemperaturePlace.eggStorageRoom,
+          'audit-session-42',
+          spotLabel: 'Egg storage room',
+        );
+        final firstStop = provider.stopAndSaveAuditSession(
+          expectedTempSessionId: firstTempSessionId,
+        );
+
+        final secondTempSessionId = provider.startAuditSession(
+          TemperaturePlace.hatcherRoom,
+          'audit-session-42',
+          spotLabel: 'Hatcher room',
+        );
+
+        syncCompleter.complete([]);
+        await firstStop;
+
+        expect(provider.isAuditRecording, isTrue);
+        expect(provider.isAuditSyncing, isFalse);
+        expect(provider.auditSyncError, isNull);
+
+        await provider.stopAndSaveAuditSession(
+          expectedTempSessionId: secondTempSessionId,
+        );
+      },
+    );
   });
 }

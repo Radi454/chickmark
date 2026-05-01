@@ -202,7 +202,9 @@ start/end window. Synced spot sessions save summary values, chart JSON capped at
 60 points, and up to 60 compressed reading rows with `spotLabel` and
 `captureSource = govee_history_sync`. If no synced history is available, the
 audit card exposes a sync error and does not save live-preview readings as
-evidence.
+evidence. The walk-through visit screen mounts a Govee card for room-level
+stations with a clear temperature/RH spot: Egg storage room, Chick holding area,
+Incubator room, and Hatcher room.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
 session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,

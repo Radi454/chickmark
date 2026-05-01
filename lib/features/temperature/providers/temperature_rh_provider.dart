@@ -853,16 +853,18 @@ class TemperatureRhProvider extends ChangeNotifier {
     );
   }
 
-  void startAuditSession(
+  String startAuditSession(
     TemperaturePlace place,
     String auditSessionId, {
     String? spotLabel,
   }) {
+    final tempSessionId = _uuid.v4();
     _auditPlace = place;
     _auditSessionId = auditSessionId;
-    _auditTempSessionId = _uuid.v4();
+    _auditTempSessionId = tempSessionId;
     _auditSpotLabel = spotLabel;
     _auditStartedAt = DateTime.now();
+    _isAuditSyncing = false;
     _auditSyncError = null;
     _rawReadings.clear();
     _compressedReadings = [];
@@ -874,6 +876,7 @@ class TemperatureRhProvider extends ChangeNotifier {
       _compress();
       notifyListeners();
     });
+    return tempSessionId;
   }
 
   TemperatureReadingModel? _buildReadingFromCurrentGoveeData() {
@@ -899,7 +902,12 @@ class TemperatureRhProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> stopAndSaveAuditSession() async {
+  Future<void> stopAndSaveAuditSession({String? expectedTempSessionId}) async {
+    if (expectedTempSessionId != null &&
+        _auditTempSessionId != expectedTempSessionId) {
+      return;
+    }
+
     _auditTimer?.cancel();
     _auditTimer = null;
     final place = _auditPlace;
@@ -923,8 +931,10 @@ class TemperatureRhProvider extends ChangeNotifier {
       return;
     }
 
-    _isAuditSyncing = true;
-    _auditSyncError = null;
+    if (_auditTempSessionId == tempSessionId) {
+      _isAuditSyncing = true;
+      _auditSyncError = null;
+    }
     notifyListeners();
 
     try {
@@ -939,7 +949,9 @@ class TemperatureRhProvider extends ChangeNotifier {
       );
 
       if (validReadings.isEmpty) {
-        _auditSyncError = 'No synced Govee history found for this spot';
+        if (_auditTempSessionId == tempSessionId) {
+          _auditSyncError = 'No synced Govee history found for this spot';
+        }
         return;
       }
 
@@ -972,14 +984,16 @@ class TemperatureRhProvider extends ChangeNotifier {
       await _repository.upsertSession(summary);
       await _repository.insertReadings(compressedReadings);
     } finally {
-      _isAuditSyncing = false;
-      _auditPlace = null;
-      _auditSessionId = null;
-      _auditTempSessionId = null;
-      _auditSpotLabel = null;
-      _auditStartedAt = null;
-      _rawReadings.clear();
-      _compressedReadings = [];
+      if (_auditTempSessionId == tempSessionId) {
+        _isAuditSyncing = false;
+        _auditPlace = null;
+        _auditSessionId = null;
+        _auditTempSessionId = null;
+        _auditSpotLabel = null;
+        _auditStartedAt = null;
+        _rawReadings.clear();
+        _compressedReadings = [];
+      }
       notifyListeners();
     }
   }

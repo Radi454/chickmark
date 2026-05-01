@@ -30,13 +30,21 @@ class GoveeRecordingCard extends StatefulWidget {
 
 class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
   bool _celsius = true;
+  TemperatureRhProvider? _temperatureProvider;
+  String? _tempSessionId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _temperatureProvider = context.read<TemperatureRhProvider>();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<TemperatureRhProvider>().startAuditSession(
+      _tempSessionId = _temperatureProvider?.startAuditSession(
         widget.place,
         widget.auditSessionId,
         spotLabel: widget.label,
@@ -46,11 +54,11 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
 
   @override
   void dispose() {
-    if (mounted) {
-      unawaited(
-        context.read<TemperatureRhProvider>().stopAndSaveAuditSession(),
-      );
-    }
+    unawaited(
+      _temperatureProvider?.stopAndSaveAuditSession(
+        expectedTempSessionId: _tempSessionId,
+      ),
+    );
     super.dispose();
   }
 
