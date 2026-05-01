@@ -1,5 +1,5 @@
 name: hatchaudit
-description: "HatchAudit - Offline-first hatchery audit app"
+description: "ChickMark - Offline-first hatchery audit app"
 publish_to: 'none'
 
 version: 1.0.0+1

@@ -259,4 +259,38 @@ void main() {
       expect(joinedSql, contains('idx_station_samples_bmk_age'));
     },
   );
+
+  test('v21 migration adds Chick Quality CVT grid JSON columns', () async {
+    final db = MockDatabase();
+
+    when(() => db.rawQuery('PRAGMA table_info(audits)')).thenAnswer(
+      (_) async => [
+        {
+          'cid': 0,
+          'name': 'id',
+          'type': 'TEXT',
+          'notnull': 1,
+          'dflt_value': null,
+          'pk': 1,
+        },
+      ],
+    );
+    when(() => db.execute(any())).thenAnswer((_) async {});
+
+    await DatabaseHelper().applyV21UpgradeForTest(db);
+
+    final executedSql = verify(
+      () => db.execute(captureAny()),
+    ).captured.cast<String>().toList();
+
+    expect(
+      executedSql,
+      contains('ALTER TABLE audits ADD COLUMN cvtReadingsJson TEXT'),
+    );
+    expect(
+      executedSql,
+      contains('ALTER TABLE audits ADD COLUMN cvtPhotosJson TEXT'),
+    );
+    expect(executedSql.any((sql) => sql.contains('DROP TABLE')), isFalse);
+  });
 }

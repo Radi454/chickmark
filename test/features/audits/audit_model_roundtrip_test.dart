@@ -286,6 +286,23 @@ void main() {
       expect(restored.pmPhotosJson, '["pm_photo1.jpg","pm_photo2.jpg"]');
     });
 
+    test('Chick Quality CVT grid fields round-trip', () {
+      final original = fromMapWith(baseChickQuality(), {
+        'cvtReadingsJson':
+            '{"front_top":104.0,"front_middle":103.8,"front_bottom":103.6}',
+        'cvtPhotosJson': '{"front_top":"/photos/cvt-front-top.jpg"}',
+        'cvtAvg': 103.8,
+        'cvtCvPct': 0.2,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
+
+      expect(restored.cvtReadingsJson, original.cvtReadingsJson);
+      expect(restored.cvtPhotosJson, original.cvtPhotosJson);
+      expect(restored.cvtAvg, original.cvtAvg);
+      expect(restored.cvtCvPct, original.cvtCvPct);
+    });
+
     test('null new fields do not break round-trip', () {
       final original = baseEggStorage();
       final map = original.toMap();
@@ -317,6 +334,8 @@ void main() {
       expect(restored.soTurningAngle, isNull);
       expect(restored.hoMeconium, isNull);
       expect(restored.hoTransferDay, isNull);
+      expect(restored.cvtReadingsJson, isNull);
+      expect(restored.cvtPhotosJson, isNull);
       expect(restored.pmSampleSize, isNull);
       expect(restored.pmGaspingPresent, isFalse);
       expect(restored.pmPhotosJson, isNull);

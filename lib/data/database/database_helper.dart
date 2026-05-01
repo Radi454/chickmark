@@ -21,7 +21,7 @@ class DatabaseHelper {
     if (_db != null) return _db!;
     _db = await openDatabase(
       await _databasePath(),
-      version: 20,
+      version: 21,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -154,6 +154,8 @@ class DatabaseHelper {
       cvtBottomPhoto TEXT,
       cvtAvg REAL,
       cvtCvPct REAL,
+      cvtReadingsJson TEXT,
+      cvtPhotosJson TEXT,
       -- Hatch Analysis: Hatch Results
       haStorageDays INTEGER,
       haTotalEggsSet INTEGER,
@@ -610,6 +612,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 20) {
       await _applyV20Upgrade(db);
+    }
+    if (oldVersion < 21) {
+      await _applyV21Upgrade(db);
     }
   }
 
@@ -1109,6 +1114,14 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV20UpgradeForTest(Database db) => _applyV20Upgrade(db);
+
+  Future<void> _applyV21Upgrade(Database db) async {
+    await _addColumnIfMissing(db, 'audits', 'cvtReadingsJson', 'TEXT');
+    await _addColumnIfMissing(db, 'audits', 'cvtPhotosJson', 'TEXT');
+  }
+
+  @visibleForTesting
+  Future<void> applyV21UpgradeForTest(Database db) => _applyV21Upgrade(db);
 
   Future<void> _addStationSampleHouseColumns(
     DatabaseExecutor db,

@@ -13,12 +13,14 @@ class YfbmTab extends StatefulWidget {
   final AuditModel audit;
   final bool isReadOnly;
   final Function(String key, dynamic value) onFieldChanged;
+  final bool embedded;
 
   const YfbmTab({
     super.key,
     required this.audit,
     required this.isReadOnly,
     required this.onFieldChanged,
+    this.embedded = false,
   });
 
   @override
@@ -109,7 +111,7 @@ class _YfbmTabState extends State<YfbmTab> {
 
   void _removeEntry(int index) {
     setState(() {
-      _entries.removeAt(index);
+      _entries.removeAt(index).dispose();
       _updateCalculations();
     });
   }
@@ -125,164 +127,263 @@ class _YfbmTabState extends State<YfbmTab> {
     });
   }
 
+  Future<void> _openEntriesSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            void refreshSheet() => setSheetState(() {});
+
+            return AuditNumericKeyboardScope(
+              child: Padding(
+                key: const ValueKey('yfbm-entries-sheet'),
+                padding: EdgeInsets.only(
+                  left: AppSizes.cardPadding,
+                  right: AppSizes.cardPadding,
+                  top: AppSizes.cardPadding,
+                  bottom:
+                      MediaQuery.viewInsetsOf(sheetContext).bottom +
+                      AppSizes.cardPadding,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(sheetContext).height * 0.86,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'YFBM Entries',
+                              style: AppTextStyles.heading.copyWith(
+                                fontSize: 24,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(child: _buildEntriesTable(refreshSheet)),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildStatCard('AVG %', _avgPercentController)),
+            const SizedBox(width: 8),
+            Expanded(child: _buildStatCard('CV %', _cvPercentController)),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSizes.cardPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.photo_camera,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Photo',
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                PhotoButton(
+                  photoPath: _photoPath,
+                  enabled: !widget.isReadOnly,
+                  onPhotoCaptured: (path) {
+                    setState(() => _photoPath = path);
+                    widget.onFieldChanged('yfbmPhoto', path);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildEntriesLauncher(),
+      ],
+    );
+
+    if (widget.embedded) return AuditNumericKeyboardScope(child: content);
+
     return AuditNumericKeyboardScope(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: content,
+      ),
+    );
+  }
+
+  Widget _buildEntriesLauncher() {
+    final completedRows = _entries
+        .where((e) => e.chickWeight != null && e.yolkWeight != null)
+        .length;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(child: _buildStatCard('AVG %', _avgPercentController)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildStatCard('CV %', _cvPercentController)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSizes.cardPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.photo_camera,
-                          color: AppColors.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Photo',
-                          style: AppTextStyles.body.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    PhotoButton(
-                      photoPath: _photoPath,
-                      enabled: !widget.isReadOnly,
-                      onPhotoCaptured: (path) {
-                        setState(() => _photoPath = path);
-                        widget.onFieldChanged('yfbmPhoto', path);
-                      },
-                    ),
-                  ],
+            Expanded(
+              child: Text(
+                completedRows == 0
+                    ? 'No YFBM rows entered yet'
+                    : '$completedRows YFBM rows entered',
+                style: AppTextStyles.body.copyWith(
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSizes.cardPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'YFBM Entries',
-                          style: AppTextStyles.body.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (!widget.isReadOnly)
-                          ElevatedButton.icon(
-                            onPressed: _addEntry,
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add Row'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Table(
-                      border: TableBorder.all(
-                        color: Colors.grey[300]!,
-                        width: 1,
-                      ),
-                      columnWidths: const {
-                        0: FixedColumnWidth(40),
-                        1: FlexColumnWidth(),
-                        2: FlexColumnWidth(),
-                        3: FixedColumnWidth(80),
-                        4: FixedColumnWidth(50),
-                      },
-                      children: [
-                        TableRow(
-                          decoration: BoxDecoration(color: Colors.grey[100]),
-                          children: [
-                            _cell('#', isHeader: true),
-                            _cell('Chick (g)', isHeader: true),
-                            _cell('Yolk (g)', isHeader: true),
-                            _cell('%', isHeader: true),
-                            _cell('', isHeader: true),
-                          ],
-                        ),
-                        ...List.generate(_entries.length, (index) {
-                          final entry = _entries[index];
-                          final pct =
-                              entry.chickWeight != null &&
-                                  entry.yolkWeight != null &&
-                                  entry.chickWeight! > 0
-                              ? (entry.yolkWeight! / entry.chickWeight!) * 100
-                              : null;
-                          final isGood =
-                              pct != null &&
-                              pct >= AppThresholds.yfbmMin &&
-                              pct <= AppThresholds.yfbmMax;
-                          return TableRow(
-                            children: [
-                              _cell('${index + 1}'),
-                              _weightCell(
-                                entry.chickWeight,
-                                (v) => _updateEntry(index, 'chickWeight', v),
-                                row: index,
-                                column: 0,
-                              ),
-                              _weightCell(
-                                entry.yolkWeight,
-                                (v) => _updateEntry(index, 'yolkWeight', v),
-                                row: index,
-                                column: 1,
-                              ),
-                              _cell(
-                                pct?.toStringAsFixed(1) ?? '--',
-                                textColor: isGood
-                                    ? AppColors.greenTab
-                                    : Colors.red,
-                              ),
-                              widget.isReadOnly
-                                  ? _cell('')
-                                  : _deleteCell(index),
-                            ],
-                          );
-                        }),
-                      ],
-                    ),
-                  ],
-                ),
+            ElevatedButton.icon(
+              onPressed: _openEntriesSheet,
+              icon: const Icon(Icons.table_rows, size: 18),
+              label: const Text('Enter YFBM Entries'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEntriesTable(VoidCallback refreshSheet) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (!widget.isReadOnly)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    _addEntry();
+                    refreshSheet();
+                  },
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Row'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Table(
+            border: TableBorder.all(color: Colors.grey[300]!, width: 1),
+            columnWidths: const {
+              0: FixedColumnWidth(40),
+              1: FlexColumnWidth(),
+              2: FlexColumnWidth(),
+              3: FixedColumnWidth(80),
+              4: FixedColumnWidth(50),
+            },
+            children: [
+              TableRow(
+                decoration: BoxDecoration(color: Colors.grey[100]),
+                children: [
+                  _cell('#', isHeader: true),
+                  _cell('Chick (g)', isHeader: true),
+                  _cell('Yolk (g)', isHeader: true),
+                  _cell('%', isHeader: true),
+                  _cell('', isHeader: true),
+                ],
+              ),
+              ...List.generate(_entries.length, (index) {
+                final entry = _entries[index];
+                final pct =
+                    entry.chickWeight != null &&
+                        entry.yolkWeight != null &&
+                        entry.chickWeight! > 0
+                    ? (entry.yolkWeight! / entry.chickWeight!) * 100
+                    : null;
+                final isGood =
+                    pct != null &&
+                    pct >= AppThresholds.yfbmMin &&
+                    pct <= AppThresholds.yfbmMax;
+                return TableRow(
+                  children: [
+                    _cell('${index + 1}'),
+                    _weightCell(
+                      entry.chickController,
+                      (v) {
+                        _updateEntry(index, 'chickWeight', v);
+                        refreshSheet();
+                      },
+                      row: index,
+                      column: 0,
+                    ),
+                    _weightCell(
+                      entry.yolkController,
+                      (v) {
+                        _updateEntry(index, 'yolkWeight', v);
+                        refreshSheet();
+                      },
+                      row: index,
+                      column: 1,
+                    ),
+                    _cell(
+                      pct?.toStringAsFixed(1) ?? '--',
+                      textColor: isGood ? AppColors.greenTab : Colors.red,
+                    ),
+                    widget.isReadOnly
+                        ? _cell('')
+                        : _deleteCell(index, refreshSheet),
+                  ],
+                );
+              }),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -330,7 +431,7 @@ class _YfbmTabState extends State<YfbmTab> {
   }
 
   Widget _weightCell(
-    double? value,
+    TextEditingController controller,
     Function(double?) onChanged, {
     required int row,
     required int column,
@@ -338,8 +439,11 @@ class _YfbmTabState extends State<YfbmTab> {
     return Padding(
       padding: const EdgeInsets.all(4),
       child: AuditNumericField(
+        key: ValueKey(
+          column == 0 ? 'yfbm-entry-chick-$row' : 'yfbm-entry-yolk-$row',
+        ),
         enabled: !widget.isReadOnly,
-        controller: TextEditingController(text: value?.toString() ?? ''),
+        controller: controller,
         allowDecimal: true,
         maxDecimalPlaces: 1,
         navigationGroup: _tableNavigationGroup,
@@ -355,10 +459,13 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _deleteCell(int index) {
+  Widget _deleteCell(int index, VoidCallback refreshSheet) {
     return IconButton(
       icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-      onPressed: () => _removeEntry(index),
+      onPressed: () {
+        _removeEntry(index);
+        refreshSheet();
+      },
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(),
     );
@@ -366,6 +473,9 @@ class _YfbmTabState extends State<YfbmTab> {
 
   @override
   void dispose() {
+    for (final entry in _entries) {
+      entry.dispose();
+    }
     _avgPercentController.dispose();
     _cvPercentController.dispose();
     super.dispose();
@@ -375,9 +485,26 @@ class _YfbmTabState extends State<YfbmTab> {
 class _EntryData {
   double? chickWeight;
   double? yolkWeight;
-  _EntryData({this.chickWeight, this.yolkWeight});
+  late final TextEditingController chickController;
+  late final TextEditingController yolkController;
+
+  _EntryData({this.chickWeight, this.yolkWeight}) {
+    chickController = TextEditingController(text: _formatWeight(chickWeight));
+    yolkController = TextEditingController(text: _formatWeight(yolkWeight));
+  }
+
+  static String _formatWeight(double? value) {
+    if (value == null) return '';
+    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toString();
+  }
+
   Map<String, dynamic> toMap() => {
     'chickWeight': chickWeight,
     'yolkWeight': yolkWeight,
   };
+
+  void dispose() {
+    chickController.dispose();
+    yolkController.dispose();
+  }
 }

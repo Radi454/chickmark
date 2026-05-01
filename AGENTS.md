@@ -34,6 +34,11 @@ modifying product behavior.
 
 - The repo may contain unrelated local changes; do not revert them unless the
   user explicitly asks.
+- Use `http://127.0.0.1:57863` as the stable Flutter web preview origin. This
+  preserves the browser's IndexedDB-backed local app data between runs. Restart
+  current code on that same origin with `make restart-web` or
+  `RESTART=1 make run-web`; do not switch ports unless the user asks for a
+  clean browser-storage environment.
 - Be especially careful in files tied to persistence, sync, and migrations,
   including:
   - `lib/data/database/database_helper.dart`

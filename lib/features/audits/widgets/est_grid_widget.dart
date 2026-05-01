@@ -182,6 +182,7 @@ class EstGridWidget extends StatelessWidget {
 
     final isHighlighted = highlightedKey == key;
     final numberField = AuditNumericField(
+      key: ValueKey('est-grid-input-$key'),
       controller: controller,
       focusNode: focusNode,
       enabled: enabled,

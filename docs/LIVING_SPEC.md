@@ -21,6 +21,18 @@ App bootstrap starts in `main.dart`, initializes SQLite before `runApp`, then
 starts token migration, notifications, and Supabase initialization in the
 background.
 
+The user-facing app name is ChickMark. `MaterialApp.title`, web document
+metadata, and PWA manifest metadata use `ChickMark`; the Dart package name and
+local database filename remain `hatchaudit` for import and storage
+compatibility.
+
+The supported local web development origin is `http://127.0.0.1:57863`. Web
+accounts and entered data are scoped to the browser origin, so using this stable
+host and port preserves the local IndexedDB-backed database across runs. Local
+web previews should be restarted on the same origin with `make restart-web` or
+`RESTART=1 make run-web` when current code needs to replace a stale running
+server.
+
 `HatchAuditApp` registers these root providers: `AppProvider`, `AuthProvider`,
 `CustomersProvider`, `AuditProvider`, `AuditSessionProvider`,
 `TemperatureRhProvider`, `BmkProvider`, `SettingsProvider`, and
@@ -81,6 +93,8 @@ shows a progress indicator, keeps one `AuditProvider` per station, and shows one
 station at a time. Moving forward, moving back, switching to an earlier or
 completed station, leaving the visit, or saving the final station all go through
 a station-exit confirmation path that attempts to save the current station.
+Hatch Analysis and Chick Quality suppress the large current-station progress
+strip so their own workbench headers are the first station content.
 
 Station save behavior:
 
@@ -111,7 +125,11 @@ separately in `audit_sessions`.
 
 All station screens initialize an `AuditProvider` with `AuditContext`, hide
 their own app bar when embedded in `AuditSessionScreen`, and use read-only mode
-for existing audits unless edit mode is enabled by an allowed user.
+for existing audits unless edit mode is enabled by an allowed user. Visit
+sessions use the gradient station app bar and a raised bottom navigation bar
+with the primary Next Station/Save action. Most stations also show the white
+stepper strip with large station circles/labels; Hatch Analysis hides that strip
+so its Hatching & Breakout card is the first content on the screen.
 
 Audit numeric fields use a platform-adaptive input surface. Android and iOS
 targets open the large in-app audit keypad with decimal, negative, backspace,
@@ -148,25 +166,64 @@ controls, UV inspection, and station notes.
   condensation, and related storage fields.
 - Notes: optional free-text station comments persisted on the audit row.
 
-Chick Quality uses five tabs:
+Chick Quality uses a split workbench structure instead of tabs. The screen
+starts with a blue gradient Audit Station card showing Chick Quality and the
+selected hatchery context. The workbench uses two columns on wide screens and
+collapses into one scrollable column on smaller screens. A sticky footer shows
+the local draft status and provides Save Draft and Complete Station actions;
+both actions save all Chick Quality samples through the existing station sample
+save flow.
 
-- Pasgar: sample size, defect counts/photos, and final score.
-- Weights: storage days, chick weights, average weight, uniformity, CV%, BMK
-  age, and BMK chick weight.
-- YFBM: photo, multiple row entries, average percentage, and CV%.
-- CVT: basket/sample inputs, top/middle/bottom temperatures/photos, average,
-  and CV%.
-- PM Necropsy: sample size, collection point, lesion counts with required
-  severity when count is positive, gasping fields, deformity counts, suspected
-  cause, and PM photos.
+The left workbench column contains Pasgar Score, YFBM, Chick Vent Temperature,
+and PM Necropsy panels. Pasgar captures sample size, defect counts/photos, and
+the final score. YFBM keeps the YFBM photo plus average percentage and CV%
+visible in the panel; the add/delete row table opens from an Enter YFBM Entries
+bottom sheet and writes the existing YFBM entries and calculated fields. Chick
+Vent Temperature reuses the EST-style guided grid workflow with Front/Middle/
+Back by Top/Middle/Bottom points, Guided CVT capture, inline camera/native
+camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
+missing-photo attach, and saved-photo highlighting. CVT uses a 103-105°F /
+39.4-40.6°C target, has an inline °F/°C entry toggle, persists grid readings
+and photos locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the
+legacy CVT average/CV/top/middle/bottom summary fields for dashboards and old
+detail views. PM Necropsy captures sample size, collection point, lesion counts
+with required severity when count is positive, gasping fields, deformity
+counts, suspected cause, and PM photos.
 
-Hatch Analysis is a batch/hatch-group screen rather than a tabbed screen. It
-supports pooled or comparison sample modes, multiple batch/hatch groups, and an
-average card when multiple hatchability-capable groups are present. Each group
-captures hatchability accounting and egg breakout samples. Breakout types are
-Fresh Egg, Candled Egg, and Residue / Hatch Day. Sample mode can be tray sample
-or pool sample. Hatchability, fertility, and HOF are recalculated from entered
-counts.
+The right workbench column contains Chick Weights & Uniformity. Its embedded
+blue flock card shows flock, breed, and BMK age. Chick Sample Mode lives inside
+this panel and offers Single Sample or Multi House Samples while reusing the
+existing station sample provider and persistence behavior. Multi-house mode
+shows comparison sample chips plus add/remove controls. The panel shows average
+weight, BMK chick weight, sample count, low/high margins, CV%, and uniformity.
+The 100-chick weight entry grid opens from an Enter Weights modal sheet and
+persists to the existing `chickWeights`, `chickAvgWeight`,
+`chickUniformityPct`, and `chickCvPct` audit fields.
+
+Hatch Analysis is an egg breakout entry screen rather than a tabbed screen. It
+starts with a large blue gradient Hatching & Breakout card that makes Breakout
+Type the primary control. Breakout types are Fresh Egg, Candled Egg, and
+Residue / Hatch Day. The card also shows the auto-filled flock and breed,
+editable storage days, editable candled age when Candled Egg is selected, and a
+read-only BMK age displayed in weeks. The BMK age is calculated from current
+flock age minus storage days and the breakout-specific incubation offset: 0 days
+for Fresh Egg, the entered candled age for Candled Egg, and 21 days for Residue
+/ Hatch Day. Benchmark lookup still uses the calculated day value, then stores
+the legacy week value in the existing BMK age fields.
+
+Breakout Samples sits below the main card. It uses tray chips plus circular add
+and remove controls to manage tray samples while keeping the tray cards visible
+in the scroll view. The tray/pool toggle is not shown in the current UI; legacy
+pool samples remain decodable and are converted to tray-style display while
+preserving their sampled-egg denominator. Breakout samples are scoped by
+breakout type in the shared JSON field: switching Fresh Egg, Candled Egg, and
+Residue / Hatch Day hides the other type's entered rows, and returning to a type
+restores its previous tray values. Each tray card has label, position, tray
+size, and one-column breakout item rows. Each breakout item row contains a count
+input, a calculated percentage from the tray size, and a read-only BMK target
+percentage loaded from the nearest `bmk_egg_breakout` row for the calculated BMK
+age. Rows turn into a warning state when the calculated percentage is higher
+than the BMK target.
 
 Setter Optimizing captures:
 

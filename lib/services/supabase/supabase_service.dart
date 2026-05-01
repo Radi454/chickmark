@@ -55,6 +55,11 @@ class SupabasePullSummary {
 }
 
 class SupabaseService {
+  static const Set<String> _localOnlyAuditColumns = {
+    'cvtReadingsJson',
+    'cvtPhotosJson',
+  };
+
   final _userRepo = UserRepository();
 
   SupabaseClient get _client => Supabase.instance.client;
@@ -341,14 +346,16 @@ class SupabaseService {
     final extension = _fileExtension(photo.filePath);
     final storagePath = '${photo.auditId}/${photo.id}.$extension';
 
-    await _client.storage.from('photos').uploadBinary(
-      storagePath,
-      bytes,
-      fileOptions: FileOptions(
-        upsert: true,
-        contentType: _contentTypeForExtension(extension),
-      ),
-    );
+    await _client.storage
+        .from('photos')
+        .uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            upsert: true,
+            contentType: _contentTypeForExtension(extension),
+          ),
+        );
 
     final publicUrl = _client.storage.from('photos').getPublicUrl(storagePath);
     await _upsertWithFallback('photos', {
@@ -600,10 +607,11 @@ class SupabaseService {
     String table,
     Map<String, dynamic> row,
   ) async {
+    final safeRow = _stripLocalOnlyColumns(table, row);
     try {
-      await _client.from(table).upsert(_snakeCaseKeys(row));
+      await _client.from(table).upsert(_snakeCaseKeys(safeRow));
     } catch (_) {
-      await _client.from(table).upsert(row);
+      await _client.from(table).upsert(safeRow);
     }
   }
 
@@ -611,11 +619,24 @@ class SupabaseService {
     String table,
     List<Map<String, dynamic>> rows,
   ) async {
+    final safeRows = rows.map((row) => _stripLocalOnlyColumns(table, row));
     try {
-      await _client.from(table).upsert(rows.map(_snakeCaseKeys).toList());
+      await _client.from(table).upsert(safeRows.map(_snakeCaseKeys).toList());
     } catch (_) {
-      await _client.from(table).upsert(rows);
+      await _client.from(table).upsert(safeRows.toList());
     }
+  }
+
+  Map<String, dynamic> _stripLocalOnlyColumns(
+    String table,
+    Map<String, dynamic> row,
+  ) {
+    if (table != 'audits') return row;
+    final sanitized = Map<String, dynamic>.from(row);
+    for (final column in _localOnlyAuditColumns) {
+      sanitized.remove(column);
+    }
+    return sanitized;
   }
 
   Map<String, dynamic> _snakeCaseKeys(Map<String, dynamic> row) {

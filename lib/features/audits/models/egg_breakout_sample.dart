@@ -187,9 +187,10 @@ class EggBreakoutSampleEntry {
     final mode = EggBreakoutSampleMode.fromStorageValue(
       json['sampleMode'] as String?,
     );
-    final type = EggBreakoutType.fromStorageValue(
-      json['breakoutType'] as String?,
-    );
+    final rawBreakoutType = json['breakoutType'] as String?;
+    final type = rawBreakoutType == null
+        ? fallbackBreakoutType ?? EggBreakoutType.fromStorageValue(null)
+        : EggBreakoutType.fromStorageValue(rawBreakoutType);
     final label = (json['label'] as String?)?.trim();
     return EggBreakoutSampleEntry(
       id: (json['id'] as String?) ?? 'sample-$index',
@@ -202,7 +203,7 @@ class EggBreakoutSampleEntry {
       position: json['position'] as String?,
       traySize: _readNullableInt(json['traySize']) ?? 150,
       numberOfTrays: _readNullableInt(json['numberOfTrays']) ?? 1,
-      breakoutType: fallbackBreakoutType ?? type,
+      breakoutType: type,
       counts: _readCounts(json['counts']),
     );
   }

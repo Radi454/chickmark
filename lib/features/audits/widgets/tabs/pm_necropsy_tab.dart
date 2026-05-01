@@ -11,12 +11,14 @@ class PmNecropsyTab extends StatefulWidget {
   final AuditModel audit;
   final bool isReadOnly;
   final Function(String key, dynamic value) onFieldChanged;
+  final bool embedded;
 
   const PmNecropsyTab({
     super.key,
     required this.audit,
     required this.isReadOnly,
     required this.onFieldChanged,
+    this.embedded = false,
   });
 
   @override
@@ -92,25 +94,29 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
 
   @override
   Widget build(BuildContext context) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSampleMetadataCard(),
+        const SizedBox(height: 16),
+        _buildLesionCard(),
+        const SizedBox(height: 16),
+        _buildGaspingCard(),
+        const SizedBox(height: 16),
+        _buildDeformityCard(),
+        const SizedBox(height: 16),
+        _buildPhotosCard(),
+        const SizedBox(height: 16),
+        _buildSummaryCard(),
+      ],
+    );
+
+    if (widget.embedded) return AuditNumericKeyboardScope(child: content);
+
     return AuditNumericKeyboardScope(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSampleMetadataCard(),
-            const SizedBox(height: 16),
-            _buildLesionCard(),
-            const SizedBox(height: 16),
-            _buildGaspingCard(),
-            const SizedBox(height: 16),
-            _buildDeformityCard(),
-            const SizedBox(height: 16),
-            _buildPhotosCard(),
-            const SizedBox(height: 16),
-            _buildSummaryCard(),
-          ],
-        ),
+        child: content,
       ),
     );
   }

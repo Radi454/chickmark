@@ -1,15 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/utils/calculation_utils.dart';
 import '../../../core/utils/date_utils.dart' as hatch_dates;
 import '../../../data/models/audit_model.dart';
+import '../../../data/repositories/benchmark_lookup.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
-import '../widgets/sample_mode_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/egg_breakout_sample.dart';
@@ -19,12 +21,14 @@ class HatchAnalysisScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
   final int initialSectionIndex;
+  final BenchmarkLookup? benchmarkLookup;
 
   const HatchAnalysisScreen({
     super.key,
     required this.context,
     this.initialAudit,
     this.initialSectionIndex = 0,
+    this.benchmarkLookup,
   });
 
   @override
@@ -33,6 +37,10 @@ class HatchAnalysisScreen extends StatefulWidget {
 
 class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   final ScrollController _scrollController = ScrollController();
+  late final BenchmarkLookup _benchmarkLookup;
+  final Map<int, Future<Map<String, Object?>?>> _breakoutBenchmarkFutures = {};
+  final Map<int, int> _activeBreakoutSampleIndexes = {};
+  final Map<String, GlobalKey> _sampleCardKeys = {};
   late final List<GlobalKey> _sectionKeys = List.generate(
     2,
     (_) => GlobalKey(),
@@ -41,6 +49,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   @override
   void initState() {
     super.initState();
+    _benchmarkLookup = widget.benchmarkLookup ?? BenchmarkLookup();
     final auditProvider = Provider.of<AuditProvider>(context, listen: false);
     final auditContext = AuditContext(
       auditType: widget.context.auditType,
@@ -98,19 +107,14 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             child: SafeArea(
               child: Column(
                 children: [
-                  _buildTopBar(auditProvider),
                   Expanded(
                     child: ListView(
                       controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                       children: [
-                        if (_shouldShowAverageCard(drafts)) ...[
-                          _buildAverageCard(drafts),
-                          const SizedBox(height: 10),
-                        ],
                         ...drafts.asMap().entries.map(
                           (entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.only(bottom: 16),
                             child: _buildHatchSector(
                               provider: auditProvider,
                               hatchIndex: entry.key,
@@ -130,286 +134,164 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildTopBar(AuditProvider provider) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  provider.isCompareMode
-                      ? '${provider.hatchCount} batch / hatch groups'
-                      : 'Batch / hatch group',
-                  style: AppTextStyles.heading.copyWith(fontSize: 20),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  provider.isCompareMode
-                      ? 'Enter each hatch group with its own breakout samples'
-                      : 'Enter hatchability accounting and breakout samples',
-                  style: AppTextStyles.caption,
-                ),
-              ],
-            ),
-          ),
-          Flexible(
-            child: StationSampleModeControls(
-              provider: provider,
-              padding: EdgeInsets.zero,
-              afterAddSample: () =>
-                  _persistBmkAges(provider, provider.activeHatchIndex),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _shouldShowAverageCard(List<AuditModel> drafts) {
-    return drafts.length > 1 &&
-        drafts.every(
-          (draft) => EggBreakoutType.fromStorageValue(
-            draft.ebBreakoutType,
-          ).showsHatchability,
-        );
-  }
-
-  Widget _buildAverageCard(List<AuditModel> audits) {
-    final hatchabilities = audits.map(_hatchability).toList();
-    final culledPcts = audits.map(_culledPct).toList();
-    final deadPcts = audits.map(_deadPct).toList();
-    final fertilities = audits.map(_fertilityFromBudget).toList();
-    final hofs = audits.map(_hofFromBudget).toList();
-
-    return _surface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.analytics_outlined, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Text(
-                'Average Across Hatches',
-                style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _metricPill(
-                'Hatchability',
-                CalculationUtils.average(hatchabilities),
-              ),
-              _metricPill('Culled', CalculationUtils.average(culledPcts)),
-              _metricPill('Dead', CalculationUtils.average(deadPcts)),
-              _metricPill('Fertility', CalculationUtils.average(fertilities)),
-              _metricPill('HOF', CalculationUtils.average(hofs)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildHatchSector({
     required AuditProvider provider,
     required int hatchIndex,
     required AuditModel audit,
   }) {
     final breakoutType = EggBreakoutType.fromStorageValue(audit.ebBreakoutType);
-    final showHatchability = breakoutType.showsHatchability;
-    final storageDays = audit.haStorageDays ?? audit.ebStorageDays;
+
+    return Column(
+      key: hatchIndex == provider.activeHatchIndex ? _sectionKeys[0] : null,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBreakoutTypeCard(provider, hatchIndex, audit, breakoutType),
+        const SizedBox(height: 16),
+        _surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionTitle('Breakout Samples'),
+              const SizedBox(height: 8),
+              _buildBreakoutSampleSection(
+                provider,
+                hatchIndex,
+                audit,
+                breakoutType,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBreakoutTypeCard(
+    AuditProvider provider,
+    int hatchIndex,
+    AuditModel audit,
+    EggBreakoutType breakoutType,
+  ) {
+    final storageDays = audit.ebStorageDays ?? audit.haStorageDays;
     final bmkAgeDays = _calculateBmkAgeDays(
       provider,
       audit,
       breakoutType,
       storageDays: storageDays,
     );
-    final reconciled = showHatchability
-        ? provider.isHatchBudgetReconciled(hatchIndex)
-        : false;
-    final budgetSum = showHatchability
-        ? provider.hatchBudgetSum(hatchIndex)
-        : 0;
-    final totalEggsSet = audit.haTotalEggsSet ?? 0;
-    final diff = totalEggsSet - budgetSum;
 
-    return _surface(
-      containerKey: hatchIndex == provider.activeHatchIndex
-          ? _sectionKeys[0]
-          : null,
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 300),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF089FE0), Color(0xFF1C48C9)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.cardShadowElevated,
+            blurRadius: 22,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  'Batch / Hatch Group ${hatchIndex + 1}',
-                  style: AppTextStyles.heading.copyWith(fontSize: 20),
+              Text(
+                'HATCHING & BREAKOUT',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.badge.copyWith(
+                  fontSize: 22,
+                  letterSpacing: 0,
+                  color: Colors.white.withValues(alpha: 0.82),
                 ),
               ),
-              _smallBadge(audit.setterId, 'Setter'),
-              const SizedBox(width: 8),
-              _smallBadge(audit.hatcherId, 'Hatcher'),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _sectionTitle('Breakout Type'),
-          const SizedBox(height: 8),
-          _buildBreakoutTypeSelector(provider, hatchIndex, audit, breakoutType),
-          const SizedBox(height: 14),
-          _sectionTitle('Batch Info'),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 680;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _sizedField(
-                        wide,
-                        maxWidth: constraints.maxWidth,
-                        child: _textField(
-                          audit: audit,
-                          hatchIndex: hatchIndex,
-                          provider: provider,
-                          field: 'setterId',
-                          label: 'Setter ID',
-                          value: audit.setterId,
-                        ),
-                      ),
-                      SizedBox(
-                        width: wide
-                            ? 220.0
-                            : _compactFieldWidth(constraints.maxWidth),
-                        child: _bmkAgeChip(bmkAgeDays),
-                      ),
-                      _sizedField(
-                        wide,
-                        maxWidth: constraints.maxWidth,
-                        child: _textField(
-                          audit: audit,
-                          hatchIndex: hatchIndex,
-                          provider: provider,
-                          field: 'hatcherId',
-                          label: 'Hatcher ID',
-                          value: audit.hatcherId,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _sizedField(
-                        wide,
-                        maxWidth: constraints.maxWidth,
-                        child: _numberField(
-                          audit: audit,
-                          hatchIndex: hatchIndex,
-                          provider: provider,
-                          field: 'haStorageDays',
-                          label: 'Storage Days',
-                          value: storageDays,
-                          afterChanged: () =>
-                              _syncStorageDays(provider, hatchIndex),
-                        ),
-                      ),
-                      _sizedField(
-                        wide,
-                        maxWidth: constraints.maxWidth,
-                        child: _numberField(
-                          audit: audit,
-                          hatchIndex: hatchIndex,
-                          provider: provider,
-                          field: 'haTotalEggsSet',
-                          label: 'Total Eggs Set',
-                          value: audit.haTotalEggsSet,
-                          afterChanged: () => _persistHatchCalculations(
-                            provider,
-                            hatchIndex,
-                            audit,
-                          ),
-                        ),
-                      ),
-                      if (breakoutType == EggBreakoutType.candledEggBreakout)
-                        _sizedField(
-                          wide,
-                          maxWidth: constraints.maxWidth,
-                          child: _numberField(
-                            audit: audit,
-                            hatchIndex: hatchIndex,
-                            provider: provider,
-                            field: 'ebBreakoutAgeDays',
-                            label: 'Candling Day',
-                            value: audit.ebBreakoutAgeDays ?? 10,
-                            afterChanged: () =>
-                                _persistBmkAges(provider, hatchIndex),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
-          if (showHatchability) ...[
-            const SizedBox(height: 14),
-            _sectionTitle('Hatchability Results'),
-            const SizedBox(height: 8),
-            _buildReconciliationBar(totalEggsSet, budgetSum, diff, reconciled),
-            const SizedBox(height: 14),
-            _sectionTitle('100% Budget Categories'),
-            const SizedBox(height: 8),
-            _buildBudgetCategoryGrid(provider, hatchIndex, audit),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _metricPill(
-                  'Hatchability',
-                  _hatchability(audit),
-                  highlight: true,
+              const SizedBox(height: 12),
+              Text(
+                'Breakout Type',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.heading.copyWith(
+                  fontSize: 34,
+                  height: 1.05,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
                 ),
-                _metricPill('Fertility', _fertilityFromBudget(audit)),
-                _metricPill('HOF', _hofFromBudget(audit)),
-                _metricPill('Dead', _deadPct(audit)),
-                _metricPill('Culled', _culledPct(audit)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (reconciled && totalEggsSet > 0) ...[
-              const SizedBox(height: 4),
-              _buildPercentageSummary(audit, totalEggsSet),
+              ),
             ],
-          ],
-          const SizedBox(height: 14),
-          _sectionTitle('Breakout Samples'),
-          const SizedBox(height: 8),
-          _buildBreakoutSampleSection(
-            provider,
-            hatchIndex,
-            audit,
-            breakoutType,
+          ),
+          const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.24),
+                width: 1.5,
+              ),
+            ),
+            child: _buildBreakoutTypeSelector(
+              provider,
+              hatchIndex,
+              audit,
+              breakoutType,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _buildGradientInfoTile('Flock', widget.context.flockId),
+              _buildGradientInfoTile('Breed', widget.context.breed ?? '--'),
+              _buildGradientNumberTile(
+                key: const ValueKey('breakout-storage-days'),
+                label: 'Storage days',
+                value: storageDays,
+                enabled: !provider.isReadOnly,
+                onChanged: (value) {
+                  final parsed = int.tryParse(value);
+                  provider.updateHatchField(
+                    hatchIndex,
+                    'haStorageDays',
+                    parsed,
+                  );
+                  provider.updateHatchField(
+                    hatchIndex,
+                    'ebStorageDays',
+                    parsed,
+                  );
+                  _persistBmkAges(provider, hatchIndex);
+                },
+              ),
+              if (breakoutType == EggBreakoutType.candledEggBreakout)
+                _buildGradientNumberTile(
+                  key: const ValueKey('breakout-candled-age'),
+                  label: 'Candled age',
+                  value: audit.ebBreakoutAgeDays ?? 10,
+                  enabled: !provider.isReadOnly,
+                  onChanged: (value) {
+                    provider.updateHatchField(
+                      hatchIndex,
+                      'ebBreakoutAgeDays',
+                      int.tryParse(value),
+                    );
+                    _persistBmkAges(provider, hatchIndex);
+                  },
+                ),
+              _buildGradientInfoTile('BMK Age', _formatBmkWeeks(bmkAgeDays)),
+            ],
           ),
         ],
       ),
@@ -422,65 +304,206 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     AuditModel audit,
     EggBreakoutType selectedType,
   ) {
-    return SegmentedButton<EggBreakoutType>(
-      segments: const [
-        ButtonSegment(
-          value: EggBreakoutType.freshEggBreakout,
-          label: Text('Fresh Egg'),
+    final enabled = !provider.isReadOnly && !provider.isLoading;
+    final options = EggBreakoutType.values;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final pills = options.map((type) {
+          return _buildBreakoutTypePill(
+            type: type,
+            selected: type == selectedType,
+            enabled: enabled,
+            onTap: () => _setBreakoutType(provider, hatchIndex, audit, type),
+          );
+        }).toList();
+
+        if (constraints.maxWidth < 560) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final pill in pills) ...[
+                pill,
+                if (pill != pills.last) const SizedBox(height: 8),
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            for (final pill in pills) ...[
+              Expanded(child: pill),
+              if (pill != pills.last) const SizedBox(width: 8),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildGradientInfoTile(String label, String value) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
         ),
-        ButtonSegment(
-          value: EggBreakoutType.candledEggBreakout,
-          label: Text('Candled Egg'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white.withValues(alpha: 0.78),
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
         ),
-        ButtonSegment(
-          value: EggBreakoutType.residueHatchDay,
-          label: Text('Residue / Hatch Day'),
-        ),
-      ],
-      selected: {selectedType},
-      onSelectionChanged: provider.isReadOnly || provider.isLoading
-          ? null
-          : (selection) {
-              final nextType = selection.first;
-              final existingSamples = EggBreakoutSampleEntry.decodeList(
-                audit.ebTrayBreakoutJson,
-                fallbackBreakoutType: nextType,
-              );
-              if (existingSamples.isEmpty) {
-                provider.updateHatchField(
-                  hatchIndex,
-                  'ebBreakoutType',
-                  nextType.storageValue,
-                );
-              } else {
-                _persistBreakoutSamples(
-                  provider,
-                  hatchIndex,
-                  nextType,
-                  existingSamples,
-                );
-              }
-              if (nextType == EggBreakoutType.candledEggBreakout &&
-                  audit.ebBreakoutAgeDays == null) {
-                provider.updateHatchField(hatchIndex, 'ebBreakoutAgeDays', 10);
-              }
-              _persistBmkAges(provider, hatchIndex);
-            },
-      showSelectedIcon: false,
-      style: ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        foregroundColor: WidgetStateProperty.resolveWith((states) {
-          return states.contains(WidgetState.selected)
-              ? Colors.white
-              : AppColors.primary;
-        }),
-        backgroundColor: WidgetStateProperty.resolveWith((states) {
-          return states.contains(WidgetState.selected)
-              ? AppColors.primary
-              : Colors.white;
-        }),
       ),
     );
+  }
+
+  Widget _buildGradientNumberTile({
+    required Key key,
+    required String label,
+    required int? value,
+    required bool enabled,
+    required ValueChanged<String> onChanged,
+  }) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white.withValues(alpha: 0.78),
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 4),
+            KeyedSubtree(
+              key: key,
+              child: TextFormField(
+                key: ValueKey('gradient-number-$label-${value ?? ''}'),
+                initialValue: value?.toString() ?? '',
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                style: AppTextStyles.body.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+                decoration: InputDecoration(
+                  isDense: true,
+                  isCollapsed: true,
+                  hintText: '--',
+                  hintStyle: AppTextStyles.body.copyWith(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontWeight: FontWeight.w800,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: onChanged,
+                onFieldSubmitted: onChanged,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBreakoutTypePill({
+    required EggBreakoutType type,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    final foreground = selected ? AppColors.primary : Colors.white;
+    final background = selected
+        ? Colors.white
+        : Colors.white.withValues(alpha: 0.12);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.28),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              type.displayLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setBreakoutType(
+    AuditProvider provider,
+    int hatchIndex,
+    AuditModel audit,
+    EggBreakoutType nextType,
+  ) {
+    provider.updateHatchField(
+      hatchIndex,
+      'ebBreakoutType',
+      nextType.storageValue,
+    );
+    if (nextType == EggBreakoutType.candledEggBreakout &&
+        audit.ebBreakoutAgeDays == null) {
+      provider.updateHatchField(hatchIndex, 'ebBreakoutAgeDays', 10);
+    }
+    _persistBmkAges(provider, hatchIndex);
   }
 
   Widget _buildBreakoutSampleSection(
@@ -489,14 +512,33 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     AuditModel audit,
     EggBreakoutType breakoutType,
   ) {
-    final samples = EggBreakoutSampleEntry.decodeList(
+    final decodedSamples = EggBreakoutSampleEntry.decodeList(
       audit.ebTrayBreakoutJson,
-      fallbackBreakoutType: breakoutType,
+      fallbackBreakoutType:
+          _legacyBreakoutJsonNeedsTypeFallback(audit.ebTrayBreakoutJson)
+          ? breakoutType
+          : null,
+    );
+    final samples = _normalizeTraySamples(
+      decodedSamples
+          .where((sample) => sample.breakoutType == breakoutType)
+          .toList(),
     );
     final totalSample = samples.fold<int>(
       0,
       (sum, sample) => sum + (sample.totalSample ?? 0),
     );
+    final activeIndex = _activeBreakoutSampleIndex(hatchIndex, samples.length);
+    final storageDays = audit.ebStorageDays ?? audit.haStorageDays;
+    final bmkAgeDays = _calculateBmkAgeDays(
+      provider,
+      audit,
+      breakoutType,
+      storageDays: storageDays,
+    );
+    final benchmarkFuture = bmkAgeDays == null
+        ? null
+        : _breakoutBenchmarkFuture(bmkAgeDays);
 
     return Container(
       decoration: BoxDecoration(
@@ -508,43 +550,19 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  totalSample > 0
-                      ? '${samples.length} sample${samples.length == 1 ? '' : 's'} · $totalSample eggs sampled'
-                      : 'Add tray or pooled samples for diagnostic breakout entry',
-                  style: AppTextStyles.caption.copyWith(
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-              ),
-              if (!provider.isReadOnly)
-                TextButton.icon(
-                  onPressed: () {
-                    final nextIndex = samples.length + 1;
-                    final next = [
-                      ...samples,
-                      EggBreakoutSampleEntry.tray(
-                        id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
-                        label: 'Tray $nextIndex',
-                        position: 'random',
-                        traySize: 150,
-                        breakoutType: breakoutType,
-                      ),
-                    ];
-                    _persistBreakoutSamples(
-                      provider,
-                      hatchIndex,
-                      breakoutType,
-                      next,
-                    );
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Sample'),
-                ),
-            ],
+          Text(
+            totalSample > 0
+                ? '${samples.length} tray${samples.length == 1 ? '' : 's'} · $totalSample eggs sampled'
+                : 'Add tray samples for diagnostic breakout entry',
+            style: AppTextStyles.caption.copyWith(color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 10),
+          _buildTraySampleControls(
+            provider: provider,
+            hatchIndex: hatchIndex,
+            samples: samples,
+            breakoutType: breakoutType,
+            activeIndex: activeIndex,
           ),
           if (samples.isEmpty)
             Padding(
@@ -563,9 +581,153 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 entry.value,
                 samples,
                 breakoutType,
+                active: entry.key == activeIndex,
+                benchmarkFuture: benchmarkFuture,
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTraySampleControls({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required List<EggBreakoutSampleEntry> samples,
+    required EggBreakoutType breakoutType,
+    required int activeIndex,
+  }) {
+    final chips = [
+      for (final entry in samples.asMap().entries)
+        ChoiceChip(
+          key: ValueKey('breakout-sample-tab-${entry.key}'),
+          label: Text(entry.value.label),
+          selected: entry.key == activeIndex,
+          onSelected: provider.isReadOnly
+              ? null
+              : (_) => _activateBreakoutSample(
+                  hatchIndex,
+                  entry.key,
+                  entry.value.id,
+                ),
+          selectedColor: AppColors.primary.withValues(alpha: 0.14),
+          checkmarkColor: AppColors.primary,
+          labelStyle: AppTextStyles.body.copyWith(
+            color: entry.key == activeIndex
+                ? AppColors.primary
+                : AppColors.textBody,
+            fontWeight: FontWeight.w800,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: entry.key == activeIndex
+                  ? AppColors.primary
+                  : AppColors.borderDefault,
+            ),
+          ),
+        ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTrayActionButton(
+          key: const ValueKey('breakout-add-sample'),
+          tooltip: 'Add tray sample',
+          icon: Icons.add,
+          onPressed: provider.isReadOnly
+              ? null
+              : () {
+                  final nextIndex = samples.length + 1;
+                  final nextSample = EggBreakoutSampleEntry.tray(
+                    id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
+                    label: 'Tray $nextIndex',
+                    position: 'random',
+                    traySize: 150,
+                    breakoutType: breakoutType,
+                  );
+                  _activeBreakoutSampleIndexes[hatchIndex] = samples.length;
+                  _persistBreakoutSamples(provider, hatchIndex, breakoutType, [
+                    ...samples,
+                    nextSample,
+                  ]);
+                  _scrollToBreakoutSample(nextSample.id);
+                },
+        ),
+        if (samples.length > 1) ...[
+          const SizedBox(width: 8),
+          _buildTrayActionButton(
+            key: const ValueKey('breakout-remove-sample'),
+            tooltip: 'Remove active tray sample',
+            icon: Icons.remove,
+            onPressed: provider.isReadOnly
+                ? null
+                : () {
+                    final next = [...samples]..removeAt(activeIndex);
+                    final nextActiveIndex = activeIndex
+                        .clamp(0, next.length - 1)
+                        .toInt();
+                    _activeBreakoutSampleIndexes[hatchIndex] = nextActiveIndex;
+                    _persistBreakoutSamples(
+                      provider,
+                      hatchIndex,
+                      breakoutType,
+                      next,
+                    );
+                    if (next.isNotEmpty) {
+                      _scrollToBreakoutSample(next[nextActiveIndex].id);
+                    }
+                  },
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
+            ),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTrayActionButton({
+    required Key key,
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton.filledTonal(
+      key: key,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
       ),
     );
   }
@@ -576,84 +738,32 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     int sampleIndex,
     EggBreakoutSampleEntry sample,
     List<EggBreakoutSampleEntry> samples,
-    EggBreakoutType breakoutType,
-  ) {
+    EggBreakoutType breakoutType, {
+    required bool active,
+    required Future<Map<String, Object?>?>? benchmarkFuture,
+  }) {
+    final cardKey = _sampleCardKeys.putIfAbsent(sample.id, () => GlobalKey());
+
     return Container(
+      key: cardKey,
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: active ? AppColors.primary : const Color(0xFFE5E7EB),
+          width: active ? 1.5 : 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  sample.label,
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              if (!provider.isReadOnly)
-                IconButton(
-                  tooltip: 'Delete sample',
-                  onPressed: () {
-                    final next = [...samples]..removeAt(sampleIndex);
-                    _persistBreakoutSamples(
-                      provider,
-                      hatchIndex,
-                      breakoutType,
-                      next,
-                    );
-                  },
-                  icon: const Icon(Icons.delete_outline),
-                ),
-            ],
+          Text(
+            sample.label,
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 6),
-          SegmentedButton<EggBreakoutSampleMode>(
-            segments: const [
-              ButtonSegment(
-                value: EggBreakoutSampleMode.tray,
-                label: Text('Tray sample'),
-              ),
-              ButtonSegment(
-                value: EggBreakoutSampleMode.pool,
-                label: Text('Pool sample'),
-              ),
-            ],
-            selected: {sample.sampleMode},
-            onSelectionChanged: provider.isReadOnly || provider.isLoading
-                ? null
-                : (selection) {
-                    final nextMode = selection.first;
-                    final nextSample = sample.copyWith(
-                      sampleMode: nextMode,
-                      label: _defaultSampleLabel(
-                        nextMode,
-                        sampleIndex + 1,
-                        sample.label,
-                      ),
-                      numberOfTrays: sample.numberOfTrays ?? 1,
-                      traySize: sample.traySize ?? 150,
-                    );
-                    _replaceBreakoutSample(
-                      provider,
-                      hatchIndex,
-                      breakoutType,
-                      samples,
-                      sampleIndex,
-                      nextSample,
-                    );
-                  },
-            showSelectedIcon: false,
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -667,26 +777,14 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 value: sample.label,
                 breakoutType: breakoutType,
               ),
-              if (sample.sampleMode == EggBreakoutSampleMode.tray)
-                _breakoutPositionField(
-                  provider: provider,
-                  hatchIndex: hatchIndex,
-                  samples: samples,
-                  sampleIndex: sampleIndex,
-                  sample: sample,
-                  breakoutType: breakoutType,
-                ),
-              if (sample.sampleMode == EggBreakoutSampleMode.pool)
-                _breakoutNumberField(
-                  provider: provider,
-                  hatchIndex: hatchIndex,
-                  samples: samples,
-                  sampleIndex: sampleIndex,
-                  label: 'Number of trays',
-                  value: sample.numberOfTrays,
-                  sampleField: _BreakoutSampleField.numberOfTrays,
-                  breakoutType: breakoutType,
-                ),
+              _breakoutPositionField(
+                provider: provider,
+                hatchIndex: hatchIndex,
+                samples: samples,
+                sampleIndex: sampleIndex,
+                sample: sample,
+                breakoutType: breakoutType,
+              ),
               _breakoutNumberField(
                 provider: provider,
                 hatchIndex: hatchIndex,
@@ -697,26 +795,32 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 sampleField: _BreakoutSampleField.traySize,
                 breakoutType: breakoutType,
               ),
-              _totalSampleTile(sample),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: breakoutType.countFields.map((field) {
-              return _breakoutNumberField(
-                provider: provider,
-                hatchIndex: hatchIndex,
-                samples: samples,
-                sampleIndex: sampleIndex,
-                label: field.label,
-                value: sample.counts[field.key],
-                countKey: field.key,
-                suffixText: _formatPercent(sample.percentageFor(field.key)),
-                breakoutType: breakoutType,
+          const SizedBox(height: 14),
+          FutureBuilder<Map<String, Object?>?>(
+            future: benchmarkFuture,
+            builder: (context, snapshot) {
+              final benchmark = snapshot.data;
+              return Column(
+                children: [
+                  for (final field in breakoutType.countFields) ...[
+                    _buildBreakoutCountRow(
+                      provider: provider,
+                      hatchIndex: hatchIndex,
+                      samples: samples,
+                      sampleIndex: sampleIndex,
+                      field: field,
+                      sample: sample,
+                      breakoutType: breakoutType,
+                      bmkPercent: _bmkPercentForField(benchmark, field.key),
+                    ),
+                    if (field != breakoutType.countFields.last)
+                      const SizedBox(height: 8),
+                  ],
+                ],
               );
-            }).toList(),
+            },
           ),
         ],
       ),
@@ -837,89 +941,76 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _totalSampleTile(EggBreakoutSampleEntry sample) {
+  Widget _buildBreakoutCountRow({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutCountField field,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutType breakoutType,
+    required double? bmkPercent,
+  }) {
+    final percent = sample.percentageFor(field.key);
+    final exceedsBmk =
+        percent != null && bmkPercent != null && percent > bmkPercent;
+
     return Container(
-      width: 140,
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      key: ValueKey('breakout-row-${field.key}'),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: exceedsBmk ? const Color(0xFFFFF1F2) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD1D5DB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Total sample', style: AppTextStyles.caption),
-          Text(
-            sample.totalSample?.toString() ?? '--',
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReconciliationBar(
-    int total,
-    int sum,
-    int diff,
-    bool reconciled,
-  ) {
-    final isOver = diff < 0;
-    final label = reconciled
-        ? 'Budget reconciles: $total = $total'
-        : isOver
-        ? 'Over by ${-diff} eggs'
-        : 'Under by $diff eggs';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: reconciled ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
-        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: reconciled ? const Color(0xFF6EE7B7) : const Color(0xFFFECACA),
+          color: exceedsBmk ? const Color(0xFFF43F5E) : const Color(0xFFE5E7EB),
         ),
       ),
       child: Row(
         children: [
-          Icon(
-            reconciled ? Icons.check_circle : Icons.warning_amber_rounded,
-            color: reconciled ? Colors.green : Colors.red,
-            size: 22,
-          ),
-          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: reconciled
-                        ? Colors.green.shade800
-                        : Colors.red.shade800,
-                  ),
+            flex: 3,
+            child: KeyedSubtree(
+              key: ValueKey('breakout-count-${field.key}'),
+              child: TextFormField(
+                key: ValueKey(
+                  'breakout-count-${sample.id}-${field.key}-${sample.counts[field.key] ?? ''}',
                 ),
-                const SizedBox(height: 4),
-                LinearProgressIndicator(
-                  value: total > 0 ? (sum / total).clamp(0.0, 2.0) : 0.0,
-                  backgroundColor: Colors.grey.shade200,
-                  color: reconciled ? Colors.green : Colors.red,
-                  minHeight: 6,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$sum / $total eggs allocated',
-                  style: AppTextStyles.caption.copyWith(
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-              ],
+                initialValue: sample.counts[field.key]?.toString() ?? '',
+                enabled: !provider.isReadOnly,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: _inputDecoration(field.label),
+                onChanged: (text) {
+                  final counts = Map<String, int>.from(sample.counts);
+                  counts[field.key] = int.tryParse(text) ?? 0;
+                  _replaceBreakoutSample(
+                    provider,
+                    hatchIndex,
+                    breakoutType,
+                    samples,
+                    sampleIndex,
+                    sample.copyWith(counts: counts),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _breakoutMetricTile(
+              key: ValueKey('breakout-percent-${field.key}'),
+              value: _formatPercent(percent),
+              alert: exceedsBmk,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _breakoutMetricTile(
+              key: ValueKey('breakout-bmk-${field.key}'),
+              value: 'BMK ${_formatPercent(bmkPercent)}',
+              emphasized: bmkPercent != null,
+              alert: exceedsBmk,
+              alertKey: ValueKey('breakout-alert-${field.key}'),
             ),
           ),
         ],
@@ -927,198 +1018,60 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildBudgetCategoryGrid(
-    AuditProvider provider,
-    int hatchIndex,
-    AuditModel audit,
-  ) {
-    final categories = _budgetCategories;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: categories.map((cat) {
-            return SizedBox(
-              width: _compactFieldWidth(constraints.maxWidth),
-              child: _numberField(
-                audit: audit,
-                hatchIndex: hatchIndex,
-                provider: provider,
-                field: cat.field,
-                label: cat.label,
-                value: _getHatchField(audit, cat.field),
-                afterChanged: () =>
-                    _persistHatchCalculations(provider, hatchIndex, audit),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  int? _getHatchField(AuditModel audit, String field) {
-    switch (field) {
-      case 'haHatched':
-        return audit.haHatched;
-      case 'haCulled':
-        return audit.haCulled;
-      case 'haDead':
-        return audit.haDead;
-      case 'haPipped':
-        return audit.haPipped;
-      case 'haInfertileClear':
-        return audit.haInfertileClear;
-      case 'haEarlyDead':
-        return audit.haEarlyDead;
-      case 'haMidDead':
-        return audit.haMidDead;
-      case 'haMidLateDead':
-        return audit.haMidLateDead;
-      case 'haLateDead':
-        return audit.haLateDead;
-      case 'haContaminatedExploders':
-        return audit.haContaminatedExploders;
-      default:
-        return null;
-    }
-  }
-
-  Widget _buildPercentageSummary(AuditModel audit, int totalEggsSet) {
-    final categories = _budgetCategories;
-    final percentages = <String, double>{};
-    for (final cat in categories) {
-      final count = _getHatchField(audit, cat.field) ?? 0;
-      percentages[cat.label] = totalEggsSet > 0
-          ? (count / totalEggsSet) * 100
-          : 0.0;
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Category Percentages',
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: percentages.entries.map((entry) {
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      entry.key,
-                      style: AppTextStyles.caption.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${entry.value.toStringAsFixed(1)}%',
-                      style: AppTextStyles.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _textField({
-    required AuditModel audit,
-    required int hatchIndex,
-    required AuditProvider provider,
-    required String field,
-    required String label,
-    required String? value,
+  Widget _breakoutMetricTile({
+    required Key key,
+    required String value,
+    bool emphasized = false,
+    bool alert = false,
+    Key? alertKey,
   }) {
-    return AuditNumericFormField(
-      key: ValueKey('${audit.id}-$field'),
-      initialValue: value ?? '',
-      enabled: !provider.isReadOnly,
-      decoration: _inputDecoration(label),
-      onChanged: (text) {
-        provider.updateHatchField(hatchIndex, field, text);
-        if (field == 'setterId') {
-          provider.updateHatchField(hatchIndex, 'soSetterId', text);
-        }
-        if (field == 'hatcherId') {
-          provider.updateHatchField(hatchIndex, 'hoHatcherId', text);
-        }
-      },
-    );
-  }
-
-  Widget _numberField({
-    required AuditModel audit,
-    required int hatchIndex,
-    required AuditProvider provider,
-    required String field,
-    required String label,
-    required int? value,
-    VoidCallback? afterChanged,
-  }) {
-    return AuditNumericFormField(
-      key: ValueKey('${audit.id}-$field'),
-      initialValue: value?.toString() ?? '',
-      enabled: !provider.isReadOnly,
-      decoration: _inputDecoration(label),
-      onChanged: (text) {
-        provider.updateHatchField(hatchIndex, field, int.tryParse(text));
-        afterChanged?.call();
-      },
-    );
-  }
-
-  Widget _bmkAgeChip(int? ageDays) {
     return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      key: key,
+      height: 52,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: AppColors.infoBg,
+        color: emphasized
+            ? AppColors.primary.withValues(alpha: 0.08)
+            : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primary),
+        border: Border.all(
+          color: alert
+              ? const Color(0xFFF43F5E)
+              : emphasized
+              ? AppColors.primary
+              : const Color(0xFFD1D5DB),
+        ),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.auto_graph, size: 18, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
+          Flexible(
             child: Text(
-              'BMK Age ${_formatBmkAge(ageDays)}',
+              value,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.body.copyWith(
-                color: AppColors.primary,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.caption.copyWith(
+                color: alert
+                    ? const Color(0xFFBE123C)
+                    : emphasized
+                    ? AppColors.primary
+                    : AppColors.textBody,
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
+          if (alertKey != null) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.warning_amber_rounded,
+              key: alertKey,
+              size: 16,
+              color: const Color(0xFFBE123C),
+            ),
+          ],
         ],
       ),
     );
@@ -1186,94 +1139,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _smallBadge(String? value, String fallback) {
-    final label = (value == null || value.trim().isEmpty) ? fallback : value;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.infoBg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.caption.copyWith(
-          color: AppColors.primary,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _metricPill(String label, double value, {bool highlight = false}) {
-    return _metricTile(
-      label,
-      '${value.toStringAsFixed(1)}%',
-      highlight: highlight,
-    );
-  }
-
-  Widget _metricTile(String label, String value, {bool highlight = false}) {
-    return Container(
-      width: _metricTileWidth(),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: highlight ? AppColors.infoBg : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: highlight ? AppColors.primary : const Color(0xFFE5E7EB),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: AppTextStyles.caption),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: AppTextStyles.heading.copyWith(
-              fontSize: 20,
-              color: highlight ? AppColors.primary : Colors.black,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sizedField(bool wide, {required Widget child, double? maxWidth}) {
-    final available = maxWidth ?? MediaQuery.sizeOf(context).width - 56;
-    final width = wide ? 220.0 : _compactFieldWidth(available);
-    return SizedBox(width: width, child: child);
-  }
-
-  double _compactFieldWidth(double availableWidth) {
-    if (availableWidth < 320) return availableWidth;
-    final twoColumnWidth = (availableWidth - 10) / 2;
-    return twoColumnWidth.clamp(140.0, 220.0).toDouble();
-  }
-
-  double _metricTileWidth() {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final available = screenWidth - 56;
-    if (available < 320) return available;
-    return ((available - 8) / 2).clamp(136.0, 150.0).toDouble();
-  }
-
-  void _persistHatchCalculations(
-    AuditProvider provider,
-    int hatchIndex,
-    AuditModel audit,
-  ) {
-    provider.recalculateHatchMetrics(hatchIndex);
-    _persistBmkAges(provider, hatchIndex);
-  }
-
-  void _syncStorageDays(AuditProvider provider, int hatchIndex) {
-    final storageDays = provider.drafts[hatchIndex].haStorageDays;
-    provider.updateHatchField(hatchIndex, 'ebStorageDays', storageDays);
-    _persistBmkAges(provider, hatchIndex);
-  }
-
   void _persistAllBmkAges(AuditProvider provider) {
     for (var i = 0; i < provider.drafts.length; i++) {
       _persistBmkAges(provider, i);
@@ -1331,40 +1196,112 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return (ageDays / 7.0).ceil();
   }
 
-  String _formatBmkAge(int? ageDays) {
-    if (ageDays == null) return '--';
-    return '$ageDays days';
+  String _formatBmkWeeks(int? ageDays) {
+    final weeks = _legacyBmkWeeks(ageDays);
+    if (weeks == null) return '--';
+    return '$weeks week${weeks == 1 ? '' : 's'}';
   }
 
-  double _hatchability(AuditModel audit) {
-    final hatched = audit.haHatched ?? 0;
-    final total = audit.haTotalEggsSet ?? 19200;
-    return CalculationUtils.hatchability(hatched, total);
+  Future<Map<String, Object?>?> _breakoutBenchmarkFuture(int ageDays) {
+    return _breakoutBenchmarkFutures.putIfAbsent(
+      ageDays,
+      () => _benchmarkLookup.nearestBreakoutBenchmark(
+        calculatedBmkAgeDays: ageDays,
+      ),
+    );
   }
 
-  double _deadPct(AuditModel audit) {
-    final total = audit.haTotalEggsSet ?? 19200;
-    if (total <= 0) return 0.0;
-    return ((audit.haDead ?? 0) / total) * 100;
+  double? _bmkPercentForField(Map<String, Object?>? benchmark, String key) {
+    if (benchmark == null) return null;
+    final column = _breakoutBmkColumnForField(key);
+    if (column == null) return null;
+    return _doubleValue(benchmark[column]);
   }
 
-  double _culledPct(AuditModel audit) {
-    final total = audit.haTotalEggsSet ?? 19200;
-    if (total <= 0) return 0.0;
-    return ((audit.haCulled ?? 0) / total) * 100;
+  String? _breakoutBmkColumnForField(String key) {
+    return switch (key) {
+      'early72hBloodRing' => 'bloodRingPct',
+      'internalPip' => 'internalPipPct',
+      'externalPip' => 'externalPipPct',
+      'contaminated' => 'contamPct',
+      'culledDead' => 'cullPct',
+      'infertile' ||
+      'early24h' ||
+      'early48h' ||
+      'blackEye' ||
+      'midDead' ||
+      'lateDead' ||
+      'cracked' ||
+      'exposedBrain' ||
+      'crossedBeak' => '${key}Pct',
+      _ => null,
+    };
   }
 
-  double _fertilityFromBudget(AuditModel audit) {
-    final total = audit.haTotalEggsSet ?? 0;
-    if (total <= 0) return 0.0;
-    final infertile = audit.haInfertileClear ?? 0;
-    return CalculationUtils.fertility(total - infertile, infertile);
+  double? _doubleValue(Object? value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
-  double _hofFromBudget(AuditModel audit) {
-    return CalculationUtils.hof(
-      _hatchability(audit),
-      _fertilityFromBudget(audit),
+  int _activeBreakoutSampleIndex(int hatchIndex, int sampleCount) {
+    if (sampleCount <= 0) return 0;
+    final current = _activeBreakoutSampleIndexes[hatchIndex] ?? 0;
+    final clamped = current.clamp(0, sampleCount - 1).toInt();
+    _activeBreakoutSampleIndexes[hatchIndex] = clamped;
+    return clamped;
+  }
+
+  void _activateBreakoutSample(
+    int hatchIndex,
+    int sampleIndex,
+    String sampleId,
+  ) {
+    setState(() {
+      _activeBreakoutSampleIndexes[hatchIndex] = sampleIndex;
+    });
+    _scrollToBreakoutSample(sampleId);
+  }
+
+  void _scrollToBreakoutSample(String sampleId) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetContext = _sampleCardKeys[sampleId]?.currentContext;
+      if (targetContext == null) return;
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        alignment: 0.12,
+      );
+    });
+  }
+
+  List<EggBreakoutSampleEntry> _normalizeTraySamples(
+    List<EggBreakoutSampleEntry> samples,
+  ) {
+    return samples
+        .asMap()
+        .entries
+        .map((entry) => _asTraySample(entry.value, entry.key))
+        .toList();
+  }
+
+  EggBreakoutSampleEntry _asTraySample(
+    EggBreakoutSampleEntry sample,
+    int sampleIndex,
+  ) {
+    if (sample.sampleMode == EggBreakoutSampleMode.tray) return sample;
+    return sample.copyWith(
+      sampleMode: EggBreakoutSampleMode.tray,
+      label: _defaultSampleLabel(
+        EggBreakoutSampleMode.tray,
+        sampleIndex + 1,
+        sample.label,
+      ),
+      position: sample.position ?? 'random',
+      traySize: sample.totalSample ?? sample.traySize ?? 150,
     );
   }
 
@@ -1377,7 +1314,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     EggBreakoutSampleEntry sample,
   ) {
     final next = [...samples];
-    next[sampleIndex] = sample.copyWith(breakoutType: breakoutType);
+    next[sampleIndex] = _asTraySample(
+      sample.copyWith(breakoutType: breakoutType),
+      sampleIndex,
+    );
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, next);
   }
 
@@ -1387,19 +1327,46 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     EggBreakoutType breakoutType,
     List<EggBreakoutSampleEntry> samples,
   ) {
-    final typedSamples = samples
-        .map((sample) => sample.copyWith(breakoutType: breakoutType))
+    if (hatchIndex < 0 || hatchIndex >= provider.drafts.length) return;
+    final currentAudit = provider.drafts[hatchIndex];
+    final existingSamples = EggBreakoutSampleEntry.decodeList(
+      currentAudit.ebTrayBreakoutJson,
+      fallbackBreakoutType:
+          _legacyBreakoutJsonNeedsTypeFallback(currentAudit.ebTrayBreakoutJson)
+          ? breakoutType
+          : null,
+    );
+    final otherTypeSamples = existingSamples
+        .where((sample) => sample.breakoutType != breakoutType)
+        .toList();
+    final typedSamples = _normalizeTraySamples(samples)
+        .asMap()
+        .entries
+        .map((entry) => entry.value.copyWith(breakoutType: breakoutType))
         .toList();
     provider.updateHatchField(
       hatchIndex,
       'ebTrayBreakoutJson',
-      EggBreakoutSampleEntry.encodeList(typedSamples),
+      EggBreakoutSampleEntry.encodeList([...otherTypeSamples, ...typedSamples]),
     );
     provider.updateHatchField(
       hatchIndex,
       'ebBreakoutType',
       breakoutType.storageValue,
     );
+  }
+
+  bool _legacyBreakoutJsonNeedsTypeFallback(String? source) {
+    if (source == null || source.trim().isEmpty) return false;
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! List || decoded.isEmpty) return false;
+      final sampleMaps = decoded.whereType<Map>().toList();
+      if (sampleMaps.isEmpty) return false;
+      return sampleMaps.every((sample) => !sample.containsKey('breakoutType'));
+    } catch (_) {
+      return false;
+    }
   }
 
   String _defaultSampleLabel(
@@ -1427,25 +1394,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     if (value is String) return int.tryParse(value);
     return null;
   }
-}
-
-const List<_BudgetCategory> _budgetCategories = [
-  _BudgetCategory('Healthy Hatched', 'haHatched'),
-  _BudgetCategory('Culled', 'haCulled'),
-  _BudgetCategory('Dead at Hatch', 'haDead'),
-  _BudgetCategory('Pipped', 'haPipped'),
-  _BudgetCategory('Infertile/Clear', 'haInfertileClear'),
-  _BudgetCategory('Early Dead', 'haEarlyDead'),
-  _BudgetCategory('Mid Dead', 'haMidDead'),
-  _BudgetCategory('Mid/Late Dead', 'haMidLateDead'),
-  _BudgetCategory('Late Dead', 'haLateDead'),
-  _BudgetCategory('Contaminated/Exploders', 'haContaminatedExploders'),
-];
-
-class _BudgetCategory {
-  final String label;
-  final String field;
-  const _BudgetCategory(this.label, this.field);
 }
 
 enum _BreakoutSampleField { traySize, numberOfTrays }

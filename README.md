@@ -46,7 +46,7 @@ This project is a starting point for a Flutter application.
 
 ## Dev Shortcuts
 
-- `make run-web` starts Flutter web on `http://127.0.0.1:57861`.
+- `make run-web` starts Flutter web on `http://127.0.0.1:57863`.
 - `scripts/run_flutter_web.command` can be double-clicked on macOS to start the
   same web server. If it says ChickMark is already running, open or reload that
   URL in the Codex side browser.

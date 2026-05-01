@@ -85,6 +85,8 @@ class AuditModel {
   final String? cvtBottomPhoto;
   final double? cvtAvg;
   final double? cvtCvPct;
+  final String? cvtReadingsJson;
+  final String? cvtPhotosJson;
 
   // --- Chick Quality: PM Necropsy ---
   final int? pmSampleSize;
@@ -329,6 +331,8 @@ class AuditModel {
     this.cvtBottomPhoto,
     this.cvtAvg,
     this.cvtCvPct,
+    this.cvtReadingsJson,
+    this.cvtPhotosJson,
     // --- Chick Quality: PM Necropsy ---
     this.pmSampleSize,
     this.pmCollectionPoint,
@@ -569,6 +573,8 @@ class AuditModel {
       cvtBottomPhoto: map['cvtBottomPhoto'],
       cvtAvg: map['cvtAvg']?.toDouble(),
       cvtCvPct: map['cvtCvPct']?.toDouble(),
+      cvtReadingsJson: map['cvtReadingsJson'],
+      cvtPhotosJson: map['cvtPhotosJson'],
       // --- Chick Quality: PM Necropsy ---
       pmSampleSize: map['pm_sampleSize'],
       pmCollectionPoint: map['pm_collectionPoint'],
@@ -812,6 +818,8 @@ class AuditModel {
       'cvtBottomPhoto': cvtBottomPhoto,
       'cvtAvg': cvtAvg,
       'cvtCvPct': cvtCvPct,
+      'cvtReadingsJson': cvtReadingsJson,
+      'cvtPhotosJson': cvtPhotosJson,
       // --- Chick Quality: PM Necropsy ---
       'pm_sampleSize': pmSampleSize,
       'pm_collectionPoint': pmCollectionPoint,
