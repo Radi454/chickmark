@@ -93,7 +93,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Hatch Analysis',
+                title: 'Hatch Analysis & Egg Breakouts',
                 actions: [
                   if (auditProvider.isReadOnly)
                     IconButton(
@@ -206,17 +206,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'HATCHING & BREAKOUT',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.badge.copyWith(
-                  fontSize: 22,
-                  letterSpacing: 0,
-                  color: Colors.white.withValues(alpha: 0.82),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
                 'Breakout Type',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -255,11 +244,25 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             children: [
               _buildGradientInfoTile('Flock', widget.context.flockId),
               _buildGradientInfoTile('Breed', widget.context.breed ?? '--'),
+              _buildGradientInfoTile(
+                'BMK Age',
+                _formatBmkWeeks(bmkAgeDays),
+                key: const ValueKey('breakout-bmk-age-display-card'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
               _buildGradientNumberTile(
+                cardKey: const ValueKey('breakout-storage-days-entry-card'),
                 key: const ValueKey('breakout-storage-days'),
                 label: 'Storage days',
                 value: storageDays,
                 enabled: !provider.isReadOnly,
+                prominent: true,
                 onChanged: (value) {
                   final parsed = int.tryParse(value);
                   provider.updateHatchField(
@@ -290,7 +293,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                     _persistBmkAges(provider, hatchIndex);
                   },
                 ),
-              _buildGradientInfoTile('BMK Age', _formatBmkWeeks(bmkAgeDays)),
             ],
           ),
         ],
@@ -342,10 +344,11 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildGradientInfoTile(String label, String value) {
+  Widget _buildGradientInfoTile(String label, String value, {Key? key}) {
     return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
       child: Container(
+        key: key,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.14),
@@ -381,20 +384,29 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   }
 
   Widget _buildGradientNumberTile({
+    Key? cardKey,
     required Key key,
     required String label,
     required int? value,
     required bool enabled,
     required ValueChanged<String> onChanged,
+    bool prominent = false,
   }) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
+      constraints: BoxConstraints(
+        minWidth: prominent ? 220 : 132,
+        maxWidth: prominent ? 320 : 190,
+      ),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        key: cardKey,
+        padding: EdgeInsets.all(prominent ? 16 : 12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+          color: Colors.white.withValues(alpha: prominent ? 0.22 : 0.14),
+          borderRadius: BorderRadius.circular(prominent ? 14 : 10),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: prominent ? 0.42 : 0.24),
+            width: prominent ? 1.4 : 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,35 +421,27 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            KeyedSubtree(
-              key: key,
-              child: TextFormField(
-                key: ValueKey('gradient-number-$label-${value ?? ''}'),
-                initialValue: value?.toString() ?? '',
-                enabled: enabled,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: AppTextStyles.body.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-                decoration: InputDecoration(
-                  isDense: true,
-                  isCollapsed: true,
-                  hintText: '--',
-                  hintStyle: AppTextStyles.body.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w800,
+            Row(
+              children: [
+                Expanded(
+                  child: KeyedSubtree(
+                    key: key,
+                    child: _GradientNumberInput(
+                      value: value,
+                      enabled: enabled,
+                      onChanged: onChanged,
+                    ),
                   ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
                 ),
-                onChanged: onChanged,
-                onFieldSubmitted: onChanged,
-              ),
+                if (prominent) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.edit_rounded,
+                    size: 18,
+                    color: Colors.white.withValues(alpha: 0.78),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -952,11 +956,20 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     required double? bmkPercent,
   }) {
     final percent = sample.percentageFor(field.key);
+    final enteredCount = sample.counts[field.key];
+    final hasEnteredCount = enteredCount != null && enteredCount > 0;
     final exceedsBmk =
-        percent != null && bmkPercent != null && percent > bmkPercent;
+        hasEnteredCount &&
+        percent != null &&
+        bmkPercent != null &&
+        percent > bmkPercent;
 
     return Container(
-      key: ValueKey('breakout-row-${field.key}'),
+      key: ValueKey(
+        exceedsBmk
+            ? 'breakout-alert-${field.key}'
+            : 'breakout-row-${field.key}',
+      ),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: exceedsBmk ? const Color(0xFFFFF1F2) : const Color(0xFFF8FAFC),
@@ -1010,7 +1023,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               value: 'BMK ${_formatPercent(bmkPercent)}',
               emphasized: bmkPercent != null,
               alert: exceedsBmk,
-              alertKey: ValueKey('breakout-alert-${field.key}'),
             ),
           ),
         ],
@@ -1023,7 +1035,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     required String value,
     bool emphasized = false,
     bool alert = false,
-    Key? alertKey,
   }) {
     return Container(
       key: key,
@@ -1043,36 +1054,19 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               : const Color(0xFFD1D5DB),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.caption.copyWith(
-                color: alert
-                    ? const Color(0xFFBE123C)
-                    : emphasized
-                    ? AppColors.primary
-                    : AppColors.textBody,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          if (alertKey != null) ...[
-            const SizedBox(width: 4),
-            Icon(
-              Icons.warning_amber_rounded,
-              key: alertKey,
-              size: 16,
-              color: const Color(0xFFBE123C),
-            ),
-          ],
-        ],
+      child: Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: AppTextStyles.caption.copyWith(
+          color: alert
+              ? const Color(0xFFBE123C)
+              : emphasized
+              ? AppColors.primary
+              : AppColors.textBody,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -1397,3 +1391,88 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 }
 
 enum _BreakoutSampleField { traySize, numberOfTrays }
+
+class _GradientNumberInput extends StatefulWidget {
+  final int? value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  const _GradientNumberInput({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  State<_GradientNumberInput> createState() => _GradientNumberInputState();
+}
+
+class _GradientNumberInputState extends State<_GradientNumberInput> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value?.toString() ?? '');
+    _focusNode = FocusNode();
+    _controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _GradientNumberInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextText = widget.value?.toString() ?? '';
+    if (oldWidget.value != widget.value && nextText != _controller.text) {
+      _controller.text = nextText;
+    }
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = AppTextStyles.body.copyWith(
+      color: Colors.white,
+      fontWeight: FontWeight.w800,
+    );
+
+    return SizedBox(
+      height: 24,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          if (_controller.text.isEmpty)
+            Text(
+              '--',
+              style: textStyle.copyWith(
+                color: Colors.white.withValues(alpha: 0.72),
+              ),
+            ),
+          EditableText(
+            controller: _controller,
+            focusNode: _focusNode,
+            readOnly: !widget.enabled,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            style: textStyle,
+            cursorColor: Colors.white,
+            backgroundCursorColor: Colors.white54,
+            onChanged: widget.onChanged,
+            onSubmitted: widget.onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+}

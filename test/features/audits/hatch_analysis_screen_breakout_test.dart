@@ -132,10 +132,16 @@ void main() {
     final finder = find.byKey(key);
     await tester.ensureVisible(finder);
     await tester.pumpAndSettle();
-    final textField = find.descendant(
+    var textField = find.descendant(
       of: finder,
       matching: find.byType(TextField),
     );
+    if (textField.evaluate().isEmpty) {
+      textField = find.descendant(
+        of: finder,
+        matching: find.byType(EditableText),
+      );
+    }
     await tester.enterText(textField, value);
     await tester.pumpAndSettle();
   }
@@ -212,7 +218,9 @@ void main() {
   ) async {
     await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
 
+    expect(find.text('Hatch Analysis & Egg Breakouts'), findsOneWidget);
     expect(find.text('Breakout Type'), findsOneWidget);
+    expect(find.text('HATCHING & BREAKOUT'), findsNothing);
     expect(find.text('Fresh Egg'), findsOneWidget);
     expect(find.text('Candled Egg'), findsOneWidget);
     expect(find.text('Residue / Hatch Day'), findsOneWidget);
@@ -242,6 +250,27 @@ void main() {
     expect(find.text('BMK AGE'), findsOneWidget);
     expect(find.text('42 weeks'), findsOneWidget);
     expect(find.text('CANDLED AGE'), findsNothing);
+
+    final storageEntryCard = find.byKey(
+      const ValueKey('breakout-storage-days-entry-card'),
+    );
+    final bmkDisplayCard = find.byKey(
+      const ValueKey('breakout-bmk-age-display-card'),
+    );
+    expect(storageEntryCard, findsOneWidget);
+    expect(bmkDisplayCard, findsOneWidget);
+    expect(
+      tester.getSize(storageEntryCard).width,
+      greaterThan(tester.getSize(bmkDisplayCard).width),
+    );
+    expect(
+      find.descendant(of: storageEntryCard, matching: find.text('BMK AGE')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: bmkDisplayCard, matching: find.text('STORAGE DAYS')),
+      findsNothing,
+    );
   });
 
   testWidgets('storage days field updates persisted values and bmk weeks', (
@@ -372,6 +401,11 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('breakout-alert-infertile')),
+      findsNothing,
+    );
+    expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+    expect(
       find.byKey(const ValueKey('breakout-percent-infertile')),
       findsOneWidget,
     );
@@ -409,5 +443,6 @@ void main() {
       find.byKey(const ValueKey('breakout-alert-infertile')),
       findsOneWidget,
     );
+    expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
   });
 }
