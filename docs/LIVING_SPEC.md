@@ -204,11 +204,15 @@ start/end window. Synced spot sessions save summary values, chart JSON capped at
 audit card exposes a sync error and does not save live-preview readings as
 evidence. The walk-through visit screen mounts a Govee card for room-level
 stations with a clear temperature/RH spot: Egg storage room, Chick holding area,
-Incubator room, and Hatcher room.
+Incubator room, and Hatcher room. On web, Govee scanning is intentionally tied
+to explicit Scan/Reconnect button presses so the browser can show its Bluetooth
+device picker from a valid user gesture.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
 session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
-Setter Optimizing, and Hatcher Optimizing sections from repository queries.
+Setter Optimizing, and Hatcher Optimizing sections from repository queries. Egg
+Storage dashboard trends read the persisted EST average/CV fields
+`es_estAvg`/`es_estCv`.
 
 ## 5. Data Hierarchy
 

@@ -155,6 +155,14 @@ class GoveeService extends ChangeNotifier {
     Duration discoveryTimeout = _discoveryTimeout,
   }) async {
     _ensureBleInitialized();
+    if (kIsWeb) {
+      await _startWebUserGestureScan(
+        timeout: timeout,
+        discoveryTimeout: discoveryTimeout,
+      );
+      return;
+    }
+
     if (!await _ensureBluetoothSupported()) {
       return;
     }
@@ -184,6 +192,50 @@ class GoveeService extends ChangeNotifier {
         androidLegacy: true,
         androidUsesFineLocation: true,
       );
+    } catch (e) {
+      if (kDebugMode) debugPrint('Govee scan failed: $e');
+      _addDiagnostic('Scan failed: $e');
+      _isConnected = false;
+      _isScanning = false;
+      _discoveryTimeoutTimer?.cancel();
+      notifyListeners();
+    }
+  }
+
+  Future<void> _startWebUserGestureScan({
+    required Duration timeout,
+    required Duration discoveryTimeout,
+  }) async {
+    if (!_isAvailable) {
+      _addDiagnostic('Bluetooth adapter is not ready');
+      return;
+    }
+    if (_isScanning) {
+      if (!_isConnected) {
+        _startDiscoveryTimeout(discoveryTimeout);
+      }
+      return;
+    }
+
+    try {
+      // Web Bluetooth requires requestDevice() to run during the same browser
+      // gesture that triggered the scan. Avoid awaited preflight work here.
+      unawaited(_scanSubscription?.cancel());
+      _scanSubscription = FlutterBluePlus.onScanResults.listen(_handleResults);
+      _isScanning = true;
+      _reconnectScanTimer?.cancel();
+      _manualDisconnectRequested = false;
+      _addDiagnostic('Scanning for Govee advertisements');
+      notifyListeners();
+      _startDiscoveryTimeout(discoveryTimeout);
+      await FlutterBluePlus.startScan(
+        timeout: timeout,
+        continuousUpdates: true,
+        oneByOne: true,
+        androidLegacy: true,
+        androidUsesFineLocation: true,
+      );
+      _isBluetoothSupported = true;
     } catch (e) {
       if (kDebugMode) debugPrint('Govee scan failed: $e');
       _addDiagnostic('Scan failed: $e');
@@ -225,6 +277,12 @@ class GoveeService extends ChangeNotifier {
 
   Future<void> restartScan() async {
     _ensureBleInitialized();
+    if (kIsWeb) {
+      unawaited(stopScan());
+      await startScan();
+      return;
+    }
+
     await stopScan();
     await startScan();
   }

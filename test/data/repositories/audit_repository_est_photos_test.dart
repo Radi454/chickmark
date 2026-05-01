@@ -126,4 +126,49 @@ void main() {
       expect(evidence.isComplete, isFalse);
     });
   });
+
+  group('getEggStorageTrend', () {
+    late MockDatabaseHelper dbHelper;
+    late MockDatabase db;
+    late AuditRepository repository;
+
+    setUp(() {
+      dbHelper = MockDatabaseHelper();
+      db = MockDatabase();
+      when(() => dbHelper.db).thenAnswer((_) async => db);
+      repository = AuditRepository(dbHelper: dbHelper);
+    });
+
+    test('queries persisted EST summary columns', () async {
+      when(() => db.rawQuery(any(), any())).thenAnswer(
+        (_) async => [
+          {
+            'date': '2026-05-01',
+            'avgWeightG': 62.0,
+            'uniformityPct': 89.0,
+            'cvPct': 5.0,
+            'shellTempC': 20.1,
+            'uvAffectedPct': 30.0,
+            'co2': 700.0,
+            'estAvgF': 20.2,
+            'estCvPct': 3.0,
+          },
+        ],
+      );
+
+      final trend = await repository.getEggStorageTrend(DashboardFilter());
+
+      expect(trend, hasLength(1));
+      expect(trend!.first.estAvgF, 20.2);
+
+      final captured = verify(
+        () => db.rawQuery(captureAny(), captureAny()),
+      ).captured;
+      final sql = captured.first as String;
+      expect(sql, contains('AVG(es_estAvg) as estAvgF'));
+      expect(sql, contains('AVG(es_estCv) as estCvPct'));
+      expect(sql, isNot(contains('esEstAvg')));
+      expect(sql, isNot(contains('esEstCv')));
+    });
+  });
 }

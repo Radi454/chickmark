@@ -638,7 +638,7 @@ class AuditRepository {
     final db = await dbHelper.db;
     final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
     final result = await db.rawQuery(
-      'SELECT date, AVG(esEggAvgWeight) as avgWeightG, AVG(esEggUniformityPct) as uniformityPct, AVG(esEggCvPct) as cvPct, AVG(esShellTemp) as shellTempC, AVG(esEggSampleSize) as uvAffectedPct, AVG(esCo2) as co2, AVG(esEstAvg) as estAvgF, AVG(esEstCv) as estCvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
+      'SELECT date, AVG(esEggAvgWeight) as avgWeightG, AVG(esEggUniformityPct) as uniformityPct, AVG(esEggCvPct) as cvPct, AVG(esShellTemp) as shellTempC, AVG(esEggSampleSize) as uvAffectedPct, AVG(esCo2) as co2, AVG(es_estAvg) as estAvgF, AVG(es_estCv) as estCvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
     );
     if (result.isEmpty) return null;
