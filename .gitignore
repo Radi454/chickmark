@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+.worktrees/
 
 # IntelliJ related
 *.iml
@@ -47,4 +48,3 @@ app.*.map.json
 .env
 .env.json
 lib/core/constants/supabase_config.dart
-
