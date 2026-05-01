@@ -11,7 +11,9 @@ import '../../audits/screens/egg_storage_screen.dart';
 import '../../audits/screens/hatch_analysis_screen.dart';
 import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
+import '../../audits/utils/audit_govee_spots.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
+import '../../audits/widgets/govee_recording_card.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -71,6 +73,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     children: [
                       if (showProgress) ...[
                         _buildProgressIndicator(sessionProvider, stationKeys),
+                        _buildCurrentStationGoveeCard(
+                          sessionProvider,
+                          stationKeys,
+                        ),
                         const Divider(height: 1),
                       ],
                       Expanded(
@@ -368,6 +374,35 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentStationGoveeCard(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
+    if (stationKeys.isEmpty ||
+        provider.currentStationIndex < 0 ||
+        provider.currentStationIndex >= stationKeys.length) {
+      return const SizedBox.shrink();
+    }
+
+    final session = provider.currentSession;
+    if (session == null) return const SizedBox.shrink();
+
+    final stationKey = stationKeys[provider.currentStationIndex];
+    final spot = goveeSpotForStationKey(stationKey);
+    if (spot == null) return const SizedBox.shrink();
+
+    return Container(
+      color: const Color(0xFFF5F7FB),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: GoveeRecordingCard(
+        key: ValueKey('govee:${session.id}:$stationKey'),
+        place: spot.place,
+        auditSessionId: session.id,
+        label: spot.label,
       ),
     );
   }

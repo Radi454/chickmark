@@ -30,26 +30,35 @@ class GoveeRecordingCard extends StatefulWidget {
 
 class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
   bool _celsius = true;
+  TemperatureRhProvider? _temperatureProvider;
+  String? _tempSessionId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _temperatureProvider = context.read<TemperatureRhProvider>();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<TemperatureRhProvider>().startAuditSession(
+      _tempSessionId = _temperatureProvider?.startAuditSession(
         widget.place,
         widget.auditSessionId,
+        spotLabel: widget.label,
       );
     });
   }
 
   @override
   void dispose() {
-    if (mounted) {
-      unawaited(
-        context.read<TemperatureRhProvider>().stopAndSaveAuditSession(),
-      );
-    }
+    unawaited(
+      _temperatureProvider?.stopAndSaveAuditSession(
+        expectedTempSessionId: _tempSessionId,
+      ),
+    );
     super.dispose();
   }
 
@@ -62,9 +71,7 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
 
     final last = readings.isEmpty ? null : readings.last;
     final rssi = last?.rssi ?? provider.signalStrength;
-    final battery = last != null
-        ? null
-        : provider.batteryPercent;
+    final battery = last != null ? null : provider.batteryPercent;
     final updatedAt = last?.recordedAt ?? provider.liveUpdatedAt;
 
     final temps = readings.map((r) => r.temperatureFahrenheit).toList();
@@ -73,16 +80,11 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
     final avgTemp = temps.isEmpty
         ? null
         : temps.reduce((a, b) => a + b) / temps.length;
-    final minTemp =
-        temps.isEmpty ? null : temps.reduce(math.min);
-    final maxTemp =
-        temps.isEmpty ? null : temps.reduce(math.max);
-    final avgRh =
-        rhs.isEmpty ? null : rhs.reduce((a, b) => a + b) / rhs.length;
-    final minRh =
-        rhs.isEmpty ? null : rhs.reduce(math.min);
-    final maxRh =
-        rhs.isEmpty ? null : rhs.reduce(math.max);
+    final minTemp = temps.isEmpty ? null : temps.reduce(math.min);
+    final maxTemp = temps.isEmpty ? null : temps.reduce(math.max);
+    final avgRh = rhs.isEmpty ? null : rhs.reduce((a, b) => a + b) / rhs.length;
+    final minRh = rhs.isEmpty ? null : rhs.reduce(math.min);
+    final maxRh = rhs.isEmpty ? null : rhs.reduce(math.max);
 
     final formattedTemp = last != null
         ? TempConverter.display(
@@ -90,23 +92,27 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
             showCelsius: _celsius,
           )
         : '--';
-    final formattedRh =
-        last != null ? '${last.humidity.toStringAsFixed(1)}%' : '--';
+    final formattedRh = last != null
+        ? '${last.humidity.toStringAsFixed(1)}%'
+        : '--';
     final formattedAvgTemp = avgTemp != null
         ? TempConverter.display(avgTemp, showCelsius: _celsius)
         : '--';
-    final formattedAvgRh =
-        avgRh != null ? '${avgRh.toStringAsFixed(1)}%' : '--';
+    final formattedAvgRh = avgRh != null
+        ? '${avgRh.toStringAsFixed(1)}%'
+        : '--';
     final formattedMinTemp = minTemp != null
         ? TempConverter.display(minTemp, showCelsius: _celsius)
         : '--';
     final formattedMaxTemp = maxTemp != null
         ? TempConverter.display(maxTemp, showCelsius: _celsius)
         : '--';
-    final formattedMinRh =
-        minRh != null ? '${minRh.toStringAsFixed(1)}%' : '--';
-    final formattedMaxRh =
-        maxRh != null ? '${maxRh.toStringAsFixed(1)}%' : '--';
+    final formattedMinRh = minRh != null
+        ? '${minRh.toStringAsFixed(1)}%'
+        : '--';
+    final formattedMaxRh = maxRh != null
+        ? '${maxRh.toStringAsFixed(1)}%'
+        : '--';
 
     final muted = !connected;
 
@@ -174,8 +180,7 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
                   icon: Icons.thermostat,
                   label: formattedTemp,
                   subLabel: 'avg $formattedAvgTemp',
-                  rangeLabel:
-                      'min $formattedMinTemp  max $formattedMaxTemp',
+                  rangeLabel: 'min $formattedMinTemp  max $formattedMaxTemp',
                   muted: muted,
                 ),
               ),
@@ -193,10 +198,7 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
           ),
           const SizedBox(height: 12),
           if (readings.length >= 2)
-            SizedBox(
-              height: 120,
-              child: _buildChart(readings),
-            )
+            SizedBox(height: 120, child: _buildChart(readings))
           else
             Container(
               width: double.infinity,
@@ -220,12 +222,9 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
               Expanded(
                 child: Text(
                   [
-                    if (updatedAt != null)
-                      'Updated ${_formatTime(updatedAt)}',
-                    if (rssi != null)
-                      'RSSI $rssi',
-                    if (battery != null)
-                      'Battery $battery%',
+                    if (updatedAt != null) 'Updated ${_formatTime(updatedAt)}',
+                    if (rssi != null) 'RSSI $rssi',
+                    if (battery != null) 'Battery $battery%',
                     '${readings.length} pts',
                   ].join(' · '),
                   style: AppTextStyles.caption.copyWith(
@@ -451,20 +450,14 @@ class _GoveeRecordingCardState extends State<GoveeRecordingCard> {
   }
 
   double _chartMin(List<FlSpot> tempSpots, List<FlSpot> rhSpots) {
-    final allY = [
-      ...tempSpots.map((s) => s.y),
-      ...rhSpots.map((s) => s.y),
-    ];
+    final allY = [...tempSpots.map((s) => s.y), ...rhSpots.map((s) => s.y)];
     if (allY.isEmpty) return 0;
     final minY = allY.reduce(math.min);
     return minY - 5;
   }
 
   double _chartMax(List<FlSpot> tempSpots, List<FlSpot> rhSpots) {
-    final allY = [
-      ...tempSpots.map((s) => s.y),
-      ...rhSpots.map((s) => s.y),
-    ];
+    final allY = [...tempSpots.map((s) => s.y), ...rhSpots.map((s) => s.y)];
     if (allY.isEmpty) return 100;
     final maxY = allY.reduce(math.max);
     return maxY + 5;
