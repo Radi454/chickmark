@@ -200,16 +200,17 @@ The 100-chick weight entry grid opens from an Enter Weights modal sheet and
 persists to the existing `chickWeights`, `chickAvgWeight`,
 `chickUniformityPct`, and `chickCvPct` audit fields.
 
-Hatch Analysis is an egg breakout entry screen rather than a tabbed screen. It
-starts with a large blue gradient Hatching & Breakout card that makes Breakout
+Hatch Analysis & Egg Breakouts is an egg breakout entry screen rather than a
+tabbed screen. It starts with a large blue gradient card that makes Breakout
 Type the primary control. Breakout types are Fresh Egg, Candled Egg, and
-Residue / Hatch Day. The card also shows the auto-filled flock and breed,
-editable storage days, editable candled age when Candled Egg is selected, and a
-read-only BMK age displayed in weeks. The BMK age is calculated from current
-flock age minus storage days and the breakout-specific incubation offset: 0 days
-for Fresh Egg, the entered candled age for Candled Egg, and 21 days for Residue
-/ Hatch Day. Benchmark lookup still uses the calculated day value, then stores
-the legacy week value in the existing BMK age fields.
+Residue / Hatch Day. The card groups the auto-filled flock and breed with the
+read-only BMK age display, then places editable Storage Days in its own
+prominent entry card. Candled Age appears as an additional entry field only when
+Candled Egg is selected. The BMK age is displayed in weeks and is calculated
+from current flock age minus storage days and the breakout-specific incubation
+offset: 0 days for Fresh Egg, the entered candled age for Candled Egg, and 21
+days for Residue / Hatch Day. Benchmark lookup still uses the calculated day
+value, then stores the legacy week value in the existing BMK age fields.
 
 Breakout Samples sits below the main card. It uses tray chips plus circular add
 and remove controls to manage tray samples while keeping the tray cards visible
@@ -222,8 +223,11 @@ restores its previous tray values. Each tray card has label, position, tray
 size, and one-column breakout item rows. Each breakout item row contains a count
 input, a calculated percentage from the tray size, and a read-only BMK target
 percentage loaded from the nearest `bmk_egg_breakout` row for the calculated BMK
-age. Rows turn into a warning state when the calculated percentage is higher
-than the BMK target.
+age. Count inputs keep focus while values are typed and the keyboard next action
+moves to the following breakout item count. Rows turn into a warning state when
+the calculated percentage is higher than the BMK target after a positive count
+has been entered; the warning is shown through row and BMK tile styling rather
+than an icon.
 
 Setter Optimizing captures:
 

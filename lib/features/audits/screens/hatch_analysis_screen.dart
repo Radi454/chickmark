@@ -41,6 +41,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   final Map<int, Future<Map<String, Object?>?>> _breakoutBenchmarkFutures = {};
   final Map<int, int> _activeBreakoutSampleIndexes = {};
   final Map<String, GlobalKey> _sampleCardKeys = {};
+  final Map<String, FocusNode> _breakoutCountFocusNodes = {};
   late final List<GlobalKey> _sectionKeys = List.generate(
     2,
     (_) => GlobalKey(),
@@ -77,6 +78,9 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 
   @override
   void dispose() {
+    for (final node in _breakoutCountFocusNodes.values) {
+      node.dispose();
+    }
     _scrollController.dispose();
     super.dispose();
   }
@@ -93,7 +97,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Hatch Analysis',
+                title: 'Hatch Analysis & Egg Breakouts',
                 actions: [
                   if (auditProvider.isReadOnly)
                     IconButton(
@@ -206,17 +210,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'HATCHING & BREAKOUT',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.badge.copyWith(
-                  fontSize: 22,
-                  letterSpacing: 0,
-                  color: Colors.white.withValues(alpha: 0.82),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
                 'Breakout Type',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -255,11 +248,25 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             children: [
               _buildGradientInfoTile('Flock', widget.context.flockId),
               _buildGradientInfoTile('Breed', widget.context.breed ?? '--'),
+              _buildGradientInfoTile(
+                'BMK Age',
+                _formatBmkWeeks(bmkAgeDays),
+                key: const ValueKey('breakout-bmk-age-display-card'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
               _buildGradientNumberTile(
+                cardKey: const ValueKey('breakout-storage-days-entry-card'),
                 key: const ValueKey('breakout-storage-days'),
                 label: 'Storage days',
                 value: storageDays,
                 enabled: !provider.isReadOnly,
+                prominent: true,
                 onChanged: (value) {
                   final parsed = int.tryParse(value);
                   provider.updateHatchField(
@@ -290,7 +297,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                     _persistBmkAges(provider, hatchIndex);
                   },
                 ),
-              _buildGradientInfoTile('BMK Age', _formatBmkWeeks(bmkAgeDays)),
             ],
           ),
         ],
@@ -342,10 +348,11 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildGradientInfoTile(String label, String value) {
+  Widget _buildGradientInfoTile(String label, String value, {Key? key}) {
     return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
       child: Container(
+        key: key,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.14),
@@ -381,20 +388,29 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   }
 
   Widget _buildGradientNumberTile({
+    Key? cardKey,
     required Key key,
     required String label,
     required int? value,
     required bool enabled,
     required ValueChanged<String> onChanged,
+    bool prominent = false,
   }) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
+      constraints: BoxConstraints(
+        minWidth: prominent ? 220 : 132,
+        maxWidth: prominent ? 320 : 190,
+      ),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        key: cardKey,
+        padding: EdgeInsets.all(prominent ? 16 : 12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+          color: Colors.white.withValues(alpha: prominent ? 0.22 : 0.14),
+          borderRadius: BorderRadius.circular(prominent ? 14 : 10),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: prominent ? 0.42 : 0.24),
+            width: prominent ? 1.4 : 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,35 +425,27 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            KeyedSubtree(
-              key: key,
-              child: TextFormField(
-                key: ValueKey('gradient-number-$label-${value ?? ''}'),
-                initialValue: value?.toString() ?? '',
-                enabled: enabled,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: AppTextStyles.body.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-                decoration: InputDecoration(
-                  isDense: true,
-                  isCollapsed: true,
-                  hintText: '--',
-                  hintStyle: AppTextStyles.body.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w800,
+            Row(
+              children: [
+                Expanded(
+                  child: KeyedSubtree(
+                    key: key,
+                    child: _GradientNumberInput(
+                      value: value,
+                      enabled: enabled,
+                      onChanged: onChanged,
+                    ),
                   ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
                 ),
-                onChanged: onChanged,
-                onFieldSubmitted: onChanged,
-              ),
+                if (prominent) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.edit_rounded,
+                    size: 18,
+                    color: Colors.white.withValues(alpha: 0.78),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -952,8 +960,14 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     required double? bmkPercent,
   }) {
     final percent = sample.percentageFor(field.key);
+    final enteredCount = sample.counts[field.key];
+    final hasEnteredCount = enteredCount != null && enteredCount > 0;
     final exceedsBmk =
-        percent != null && bmkPercent != null && percent > bmkPercent;
+        hasEnteredCount &&
+        percent != null &&
+        bmkPercent != null &&
+        percent > bmkPercent;
+    final focusNode = _breakoutCountFocusNode(sample, field);
 
     return Container(
       key: ValueKey('breakout-row-${field.key}'),
@@ -965,57 +979,123 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           color: exceedsBmk ? const Color(0xFFF43F5E) : const Color(0xFFE5E7EB),
         ),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Expanded(
-            flex: 3,
-            child: KeyedSubtree(
-              key: ValueKey('breakout-count-${field.key}'),
-              child: TextFormField(
-                key: ValueKey(
-                  'breakout-count-${sample.id}-${field.key}-${sample.counts[field.key] ?? ''}',
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: KeyedSubtree(
+                  key: ValueKey('breakout-count-${field.key}'),
+                  child: TextFormField(
+                    key: ValueKey('breakout-count-${sample.id}-${field.key}'),
+                    initialValue: sample.counts[field.key]?.toString() ?? '',
+                    enabled: !provider.isReadOnly,
+                    focusNode: focusNode,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: _inputDecoration(field.label),
+                    onChanged: (text) {
+                      final counts = Map<String, int>.from(sample.counts);
+                      counts[field.key] = int.tryParse(text) ?? 0;
+                      _replaceBreakoutSample(
+                        provider,
+                        hatchIndex,
+                        breakoutType,
+                        samples,
+                        sampleIndex,
+                        sample.copyWith(counts: counts),
+                      );
+                    },
+                    onEditingComplete: () => _focusNextBreakoutCount(
+                      samples: samples,
+                      sampleIndex: sampleIndex,
+                      breakoutType: breakoutType,
+                      field: field,
+                    ),
+                  ),
                 ),
-                initialValue: sample.counts[field.key]?.toString() ?? '',
-                enabled: !provider.isReadOnly,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: _inputDecoration(field.label),
-                onChanged: (text) {
-                  final counts = Map<String, int>.from(sample.counts);
-                  counts[field.key] = int.tryParse(text) ?? 0;
-                  _replaceBreakoutSample(
-                    provider,
-                    hatchIndex,
-                    breakoutType,
-                    samples,
-                    sampleIndex,
-                    sample.copyWith(counts: counts),
-                  );
-                },
               ),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _breakoutMetricTile(
+                  key: ValueKey('breakout-percent-${field.key}'),
+                  value: _formatPercent(percent),
+                  alert: exceedsBmk,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _breakoutMetricTile(
+                  key: ValueKey('breakout-bmk-${field.key}'),
+                  value: 'BMK ${_formatPercent(bmkPercent)}',
+                  emphasized: bmkPercent != null,
+                  alert: exceedsBmk,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _breakoutMetricTile(
-              key: ValueKey('breakout-percent-${field.key}'),
-              value: _formatPercent(percent),
-              alert: exceedsBmk,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _breakoutMetricTile(
-              key: ValueKey('breakout-bmk-${field.key}'),
-              value: 'BMK ${_formatPercent(bmkPercent)}',
-              emphasized: bmkPercent != null,
-              alert: exceedsBmk,
-              alertKey: ValueKey('breakout-alert-${field.key}'),
-            ),
-          ),
+          if (exceedsBmk)
+            SizedBox.shrink(key: ValueKey('breakout-alert-${field.key}')),
         ],
       ),
     );
+  }
+
+  String _breakoutCountFocusKey(
+    EggBreakoutSampleEntry sample,
+    EggBreakoutCountField field,
+  ) {
+    return '${sample.id}:${field.key}';
+  }
+
+  FocusNode _breakoutCountFocusNode(
+    EggBreakoutSampleEntry sample,
+    EggBreakoutCountField field,
+  ) {
+    return _breakoutCountFocusNodes.putIfAbsent(
+      _breakoutCountFocusKey(sample, field),
+      () => FocusNode(debugLabel: 'breakout-count-${field.key}'),
+    );
+  }
+
+  void _focusNextBreakoutCount({
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutType breakoutType,
+    required EggBreakoutCountField field,
+  }) {
+    final fields = breakoutType.countFields;
+    final fieldIndex = fields.indexWhere((candidate) {
+      return candidate.key == field.key;
+    });
+    if (fieldIndex == -1) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+
+    var nextSampleIndex = sampleIndex;
+    var nextFieldIndex = fieldIndex + 1;
+    if (nextFieldIndex >= fields.length) {
+      nextSampleIndex += 1;
+      nextFieldIndex = 0;
+    }
+
+    if (nextSampleIndex >= samples.length) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+
+    final nextSample = samples[nextSampleIndex];
+    final nextField = fields[nextFieldIndex];
+    final nextNode =
+        _breakoutCountFocusNodes[_breakoutCountFocusKey(nextSample, nextField)];
+    if (nextNode == null) {
+      FocusScope.of(context).nextFocus();
+      return;
+    }
+    nextNode.requestFocus();
   }
 
   Widget _breakoutMetricTile({
@@ -1023,7 +1103,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     required String value,
     bool emphasized = false,
     bool alert = false,
-    Key? alertKey,
   }) {
     return Container(
       key: key,
@@ -1043,36 +1122,19 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               : const Color(0xFFD1D5DB),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.caption.copyWith(
-                color: alert
-                    ? const Color(0xFFBE123C)
-                    : emphasized
-                    ? AppColors.primary
-                    : AppColors.textBody,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          if (alertKey != null) ...[
-            const SizedBox(width: 4),
-            Icon(
-              Icons.warning_amber_rounded,
-              key: alertKey,
-              size: 16,
-              color: const Color(0xFFBE123C),
-            ),
-          ],
-        ],
+      child: Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: AppTextStyles.caption.copyWith(
+          color: alert
+              ? const Color(0xFFBE123C)
+              : emphasized
+              ? AppColors.primary
+              : AppColors.textBody,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -1397,3 +1459,88 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 }
 
 enum _BreakoutSampleField { traySize, numberOfTrays }
+
+class _GradientNumberInput extends StatefulWidget {
+  final int? value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  const _GradientNumberInput({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  State<_GradientNumberInput> createState() => _GradientNumberInputState();
+}
+
+class _GradientNumberInputState extends State<_GradientNumberInput> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value?.toString() ?? '');
+    _focusNode = FocusNode();
+    _controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _GradientNumberInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextText = widget.value?.toString() ?? '';
+    if (oldWidget.value != widget.value && nextText != _controller.text) {
+      _controller.text = nextText;
+    }
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = AppTextStyles.body.copyWith(
+      color: Colors.white,
+      fontWeight: FontWeight.w800,
+    );
+
+    return SizedBox(
+      height: 24,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          if (_controller.text.isEmpty)
+            Text(
+              '--',
+              style: textStyle.copyWith(
+                color: Colors.white.withValues(alpha: 0.72),
+              ),
+            ),
+          EditableText(
+            controller: _controller,
+            focusNode: _focusNode,
+            readOnly: !widget.enabled,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            style: textStyle,
+            cursorColor: Colors.white,
+            backgroundCursorColor: Colors.white54,
+            onChanged: widget.onChanged,
+            onSubmitted: widget.onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+}
