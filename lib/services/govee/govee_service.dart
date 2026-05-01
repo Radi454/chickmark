@@ -124,7 +124,7 @@ class GoveeService extends ChangeNotifier {
         _stopGattPolling();
         _reconnectScanTimer?.cancel();
       }
-notifyListeners();
+      notifyListeners();
     });
     _scanStateSubscription = FlutterBluePlus.isScanning.listen((isScanning) {
       if (_isScanning == isScanning) return;
@@ -1021,6 +1021,16 @@ notifyListeners();
     }
 
     await startScan();
+  }
+
+  Future<List<GoveeSensorReading>> syncHistory({
+    required DateTime startedAt,
+    required DateTime endedAt,
+  }) async {
+    _addDiagnostic(
+      'Device history sync is not available in this Govee integration yet',
+    );
+    return const [];
   }
 
   Future<void> _writeGoveeCommand(

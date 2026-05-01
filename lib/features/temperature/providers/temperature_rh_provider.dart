@@ -52,6 +52,10 @@ class TemperatureRhProvider extends ChangeNotifier {
   TemperaturePlace? _auditPlace;
   String? _auditSessionId;
   String? _auditTempSessionId;
+  String? _auditSpotLabel;
+  DateTime? _auditStartedAt;
+  bool _isAuditSyncing = false;
+  String? _auditSyncError;
 
   TemperatureSessionModel? get activeSession => _activeSession;
   TemperaturePlace? get activePlace => _activePlace;
@@ -117,11 +121,11 @@ class TemperatureRhProvider extends ChangeNotifier {
     return readings;
   }
 
-TemperatureRhProvider({
+  TemperatureRhProvider({
     TemperatureRhRepository? repository,
     GoveeService? goveeService,
-  })  : _repository = repository ?? TemperatureRhRepository(),
-        _goveeService = goveeService ?? GoveeService();
+  }) : _repository = repository ?? TemperatureRhRepository(),
+       _goveeService = goveeService ?? GoveeService();
 
   void setWarmupSeconds(int seconds) {
     _warmupSeconds = seconds.clamp(0, 600);
@@ -152,7 +156,10 @@ TemperatureRhProvider({
       unawaited(startAutoScan());
     }
     final deviceId = _goveeService.deviceId;
-    if (_isInitialized && _goveeService.isConnected && deviceId != null && deviceId != _lastPersistedDeviceId) {
+    if (_isInitialized &&
+        _goveeService.isConnected &&
+        deviceId != null &&
+        deviceId != _lastPersistedDeviceId) {
       unawaited(_persistLastDevice());
     }
     notifyListeners();
@@ -286,6 +293,7 @@ TemperatureRhProvider({
     String? auditSessionId,
     int? warmupSeconds,
   }) async {
+    _attachProviderListeners();
     if (isRecording || _isStarting) return;
     final activePlace = _activePlace;
     if (activePlace == null) {
@@ -618,9 +626,7 @@ TemperatureRhProvider({
       );
     }
 
-    final temps = readings
-        .map((r) => r.temperatureFahrenheit!)
-        .toList();
+    final temps = readings.map((r) => r.temperatureFahrenheit!).toList();
     final humidities = readings.map((r) => r.humidity!).toList();
 
     final tempMin = temps.reduce(math.min);
@@ -654,7 +660,7 @@ TemperatureRhProvider({
     if (values.length < 2 || mean == 0) return 0;
     final variance =
         values.map((v) => (v - mean) * (v - mean)).reduce((a, b) => a + b) /
-            values.length;
+        values.length;
     final stdDev = math.sqrt(variance);
     return (stdDev / mean) * 100;
   }
@@ -663,42 +669,131 @@ TemperatureRhProvider({
     List<GoveeSensorReading> readings,
     DateTime startTime,
   ) {
-    const maxPoints = 60;
     if (readings.isEmpty) {
       return const _ChartPointsResult(tempJson: '[]', rhJson: '[]');
     }
 
-    final bucketSize = math.max(1, (readings.length / maxPoints).ceil());
+    final chartReadings = _downsampleSensorReadings(readings);
     final tempPoints = <ChartPoint>[];
     final rhPoints = <ChartPoint>[];
 
-    for (var i = 0; i < readings.length; i += bucketSize) {
-      final bucket = readings.skip(i).take(bucketSize).toList();
-      var tempSum = 0.0;
-      var rhSum = 0.0;
-      var tSum = 0;
-      for (final reading in bucket) {
-        tempSum += reading.temperatureFahrenheit!;
-        rhSum += reading.humidity!;
-        tSum += reading.timestamp.millisecondsSinceEpoch;
-      }
-      final avgTimestamp = DateTime.fromMillisecondsSinceEpoch(
-        tSum ~/ bucket.length,
+    tempPoints.add(
+      ChartPoint(
+        timestamp: chartReadings.first.timestamp,
+        value: _roundTwo(chartReadings.first.temperatureFahrenheit!),
+      ),
+    );
+    rhPoints.add(
+      ChartPoint(
+        timestamp: chartReadings.first.timestamp,
+        value: _roundTwo(chartReadings.first.humidity!),
+      ),
+    );
+    for (final reading in chartReadings.skip(1)) {
+      tempPoints.add(
+        ChartPoint(
+          timestamp: reading.timestamp,
+          value: _roundTwo(reading.temperatureFahrenheit!),
+        ),
       );
-      tempPoints.add(ChartPoint(
-        timestamp: avgTimestamp,
-        value: _roundTwo(tempSum / bucket.length),
-      ));
-      rhPoints.add(ChartPoint(
-        timestamp: avgTimestamp,
-        value: _roundTwo(rhSum / bucket.length),
-      ));
+      rhPoints.add(
+        ChartPoint(
+          timestamp: reading.timestamp,
+          value: _roundTwo(reading.humidity!),
+        ),
+      );
     }
 
     return _ChartPointsResult(
       tempJson: ChartPoint.listToJson(tempPoints),
       rhJson: ChartPoint.listToJson(rhPoints),
     );
+  }
+
+  List<GoveeSensorReading> _downsampleSensorReadings(
+    List<GoveeSensorReading> readings, {
+    int maxPoints = 60,
+  }) {
+    final sorted = readings.toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    if (sorted.length <= maxPoints) return sorted;
+
+    final first = sorted.first.timestamp;
+    final last = sorted.last.timestamp;
+    final durationMs = math.max(1, last.difference(first).inMilliseconds);
+    final intervalMs = durationMs / maxPoints;
+    final buckets = List.generate(maxPoints, (_) => <GoveeSensorReading>[]);
+
+    for (final reading in sorted) {
+      final elapsedMs = reading.timestamp.difference(first).inMilliseconds;
+      final bucketIndex = math
+          .min(maxPoints - 1, math.max(0, (elapsedMs / intervalMs).floor()))
+          .toInt();
+      buckets[bucketIndex].add(reading);
+    }
+
+    return buckets.where((bucket) => bucket.isNotEmpty).map((bucket) {
+      var tempSum = 0.0;
+      var rhSum = 0.0;
+      var timestampSum = 0;
+      int? battery;
+      for (final reading in bucket) {
+        tempSum += reading.temperatureFahrenheit!;
+        rhSum += reading.humidity!;
+        timestampSum += reading.timestamp.millisecondsSinceEpoch;
+        battery = reading.batteryPercent ?? battery;
+      }
+      return GoveeSensorReading(
+        temperatureFahrenheit: _roundTwo(tempSum / bucket.length),
+        humidity: _roundTwo(rhSum / bucket.length),
+        batteryPercent: battery,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          timestampSum ~/ bucket.length,
+        ),
+      );
+    }).toList();
+  }
+
+  List<GoveeSensorReading> _filterHistoryReadings(
+    List<GoveeSensorReading> readings, {
+    required DateTime startedAt,
+    required DateTime endedAt,
+  }) {
+    return readings.where((reading) {
+      final temp = reading.temperatureFahrenheit;
+      final humidity = reading.humidity;
+      if (temp == null || humidity == null) return false;
+      if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
+        return false;
+      }
+      if (reading.timestamp.isBefore(startedAt) ||
+          reading.timestamp.isAfter(endedAt)) {
+        return false;
+      }
+      return true;
+    }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  List<TemperatureReadingModel> _buildTemperatureReadingsFromHistory(
+    List<GoveeSensorReading> readings, {
+    required String sessionId,
+    required TemperaturePlace place,
+  }) {
+    return readings.map((reading) {
+      return TemperatureReadingModel(
+        id: _uuid.v4(),
+        sessionId: sessionId,
+        customerId: '',
+        hatcheryId: '',
+        place: place,
+        temperatureFahrenheit: reading.temperatureFahrenheit!,
+        humidity: reading.humidity!,
+        rssi: _goveeService.signalStrength,
+        deviceName: _goveeService.deviceName,
+        recordedAt: reading.timestamp,
+        createdAt: DateTime.now(),
+      );
+    }).toList();
   }
 
   double _roundTwo(double value) {
@@ -722,9 +817,7 @@ TemperatureRhProvider({
 
   double? get liveRhAvg {
     if (_readingsBuffer.isEmpty) return null;
-    final valid = _readingsBuffer
-        .where((r) => r.humidity != null)
-        .toList();
+    final valid = _readingsBuffer.where((r) => r.humidity != null).toList();
     if (valid.isEmpty) return null;
     return _roundTwo(
       valid.map((r) => r.humidity!).reduce((a, b) => a + b) / valid.length,
@@ -749,12 +842,13 @@ TemperatureRhProvider({
 
   int get bufferedReadingCount => _readingsBuffer.length;
 
-  int get postWarmupReadingCount =>
-      _filterReadingsForSummary().length;
+  int get postWarmupReadingCount => _filterReadingsForSummary().length;
 
   List<TemperatureReadingModel> get auditCompressedReadings =>
       _compressedReadings;
   bool get isAuditRecording => _auditTimer != null;
+  bool get isAuditSyncing => _isAuditSyncing;
+  String? get auditSyncError => _auditSyncError;
 
   void _compress() {
     if (_rawReadings.length <= 60) {
@@ -764,16 +858,21 @@ TemperatureRhProvider({
     final step = _rawReadings.length / 60;
     _compressedReadings = List.generate(
       60,
-      (i) => _rawReadings[
-        (i * step).round().clamp(0, _rawReadings.length - 1)
-      ],
+      (i) => _rawReadings[(i * step).round().clamp(0, _rawReadings.length - 1)],
     );
   }
 
-  void startAuditSession(TemperaturePlace place, String auditSessionId) {
+  void startAuditSession(
+    TemperaturePlace place,
+    String auditSessionId, {
+    String? spotLabel,
+  }) {
     _auditPlace = place;
     _auditSessionId = auditSessionId;
     _auditTempSessionId = _uuid.v4();
+    _auditSpotLabel = spotLabel;
+    _auditStartedAt = DateTime.now();
+    _auditSyncError = null;
     _rawReadings.clear();
     _compressedReadings = [];
     _auditTimer?.cancel();
@@ -812,66 +911,86 @@ TemperatureRhProvider({
   Future<void> stopAndSaveAuditSession() async {
     _auditTimer?.cancel();
     _auditTimer = null;
-    if (_compressedReadings.isEmpty || _auditPlace == null) {
+    final place = _auditPlace;
+    final auditSessionId = _auditSessionId;
+    final tempSessionId = _auditTempSessionId;
+    final startedAt = _auditStartedAt;
+    final spotLabel = _auditSpotLabel;
+    final endedAt = DateTime.now();
+
+    if (place == null ||
+        auditSessionId == null ||
+        tempSessionId == null ||
+        startedAt == null) {
       _auditPlace = null;
       _auditSessionId = null;
       _auditTempSessionId = null;
+      _auditSpotLabel = null;
+      _auditStartedAt = null;
       _rawReadings.clear();
       _compressedReadings = [];
       return;
     }
 
-    final temps =
-        _compressedReadings.map((r) => r.temperatureFahrenheit).toList();
-    final rhs =
-        _compressedReadings.map((r) => r.humidity).toList();
-
-    final now = DateTime.now();
-    final session = TemperatureSessionModel(
-      id: _auditTempSessionId!,
-      customerId: '',
-      hatcheryId: '',
-      startedAt: _compressedReadings.first.recordedAt,
-      endedAt: _compressedReadings.last.recordedAt,
-      activePlace: _auditPlace!,
-      status: 'completed',
-      tempAvg: _roundTwo(temps.reduce((a, b) => a + b) / temps.length),
-      tempMin: _roundTwo(temps.reduce(math.min)),
-      tempMax: _roundTwo(temps.reduce(math.max)),
-      rhAvg: _roundTwo(rhs.reduce((a, b) => a + b) / rhs.length),
-      rhMin: _roundTwo(rhs.reduce(math.min)),
-      rhMax: _roundTwo(rhs.reduce(math.max)),
-      readingCount: _compressedReadings.length,
-      tempChartPointsJson: ChartPoint.listToJson(
-        _compressedReadings
-            .map((r) => ChartPoint(
-                  timestamp: r.recordedAt,
-                  value: r.temperatureFahrenheit,
-                ))
-            .toList(),
-      ),
-      rhChartPointsJson: ChartPoint.listToJson(
-        _compressedReadings
-            .map((r) => ChartPoint(
-                  timestamp: r.recordedAt,
-                  value: r.humidity,
-                ))
-            .toList(),
-      ),
-      auditSessionId: _auditSessionId,
-      createdAt: now,
-      updatedAt: now,
-    );
-
-    await _repository.upsertSession(session);
-    await _repository.insertReadings(_compressedReadings);
-
-    _auditPlace = null;
-    _auditSessionId = null;
-    _auditTempSessionId = null;
-    _rawReadings.clear();
-    _compressedReadings = [];
+    _isAuditSyncing = true;
+    _auditSyncError = null;
     notifyListeners();
+
+    try {
+      final syncedReadings = await _goveeService.syncHistory(
+        startedAt: startedAt,
+        endedAt: endedAt,
+      );
+      final validReadings = _filterHistoryReadings(
+        syncedReadings,
+        startedAt: startedAt,
+        endedAt: endedAt,
+      );
+
+      if (validReadings.isEmpty) {
+        _auditSyncError = 'No synced Govee history found for this spot';
+        return;
+      }
+
+      final compressedSensorReadings = _downsampleSensorReadings(validReadings);
+      final compressedReadings = _buildTemperatureReadingsFromHistory(
+        compressedSensorReadings,
+        sessionId: tempSessionId,
+        place: place,
+      );
+
+      final now = DateTime.now();
+      final session = TemperatureSessionModel(
+        id: tempSessionId,
+        customerId: '',
+        hatcheryId: '',
+        deviceId: _goveeService.deviceId,
+        deviceName: _goveeService.deviceName,
+        spotLabel: spotLabel,
+        captureSource: 'govee_history_sync',
+        startedAt: startedAt,
+        endedAt: endedAt,
+        activePlace: place,
+        status: 'completed',
+        auditSessionId: auditSessionId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final summary = _computeSummary(session, validReadings);
+
+      await _repository.upsertSession(summary);
+      await _repository.insertReadings(compressedReadings);
+    } finally {
+      _isAuditSyncing = false;
+      _auditPlace = null;
+      _auditSessionId = null;
+      _auditTempSessionId = null;
+      _auditSpotLabel = null;
+      _auditStartedAt = null;
+      _rawReadings.clear();
+      _compressedReadings = [];
+      notifyListeners();
+    }
   }
 
   @override
@@ -889,8 +1008,5 @@ class _ChartPointsResult {
   final String tempJson;
   final String rhJson;
 
-  const _ChartPointsResult({
-    required this.tempJson,
-    required this.rhJson,
-  });
+  const _ChartPointsResult({required this.tempJson, required this.rhJson});
 }

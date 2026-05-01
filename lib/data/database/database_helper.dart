@@ -718,6 +718,8 @@ class DatabaseHelper {
       hatcheryId TEXT NOT NULL,
       deviceId TEXT,
       deviceName TEXT,
+      spotLabel TEXT,
+      captureSource TEXT,
       startedAt TEXT NOT NULL,
       endedAt TEXT,
       activePlace TEXT NOT NULL,
@@ -997,6 +999,13 @@ class DatabaseHelper {
       db,
       'temperature_sessions',
       'auditSessionId',
+      'TEXT',
+    );
+    await _addColumnIfMissing(db, 'temperature_sessions', 'spotLabel', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'temperature_sessions',
+      'captureSource',
       'TEXT',
     );
     await db.execute(

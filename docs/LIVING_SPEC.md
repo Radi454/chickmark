@@ -193,6 +193,15 @@ Measures is a standalone temperature/RH log screen. It lists saved measure
 sessions, supports search, shows session details, and opens `TemperatureRhPanel`
 from a floating action button.
 
+Audit station Govee cards use live readings only as on-screen guidance while
+the auditor is at a room or spot. Official audit evidence is saved only after
+the card asks the Govee integration to sync device history for the recorded
+start/end window. Synced spot sessions save summary values, chart JSON capped at
+60 points, and up to 60 compressed reading rows with `spotLabel` and
+`captureSource = govee_history_sync`. If no synced history is available, the
+audit card exposes a sync error and does not save live-preview readings as
+evidence.
+
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
 session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
 Setter Optimizing, and Hatcher Optimizing sections from repository queries.
@@ -219,8 +228,10 @@ The implemented hierarchy is:
   dates, house labels for Egg multi-house samples, storage/incubation
   metadata, machine ids, BMK age days, benchmark snapshots, and result
   summaries.
-- `temperature_sessions` and `temperature_readings`: place-based Measures logs,
-  optionally linked to an audit session.
+- `temperature_sessions` and `temperature_readings`: place-based Measures logs
+  and Govee audit spot evidence, optionally linked to an audit session. Audit
+  spot evidence stores compact synced-history summaries and chart points rather
+  than every live preview reading.
 - `photos`: local photo records tied to audit ids, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
 - `troubleshooting`: seeded troubleshooting/reference content.

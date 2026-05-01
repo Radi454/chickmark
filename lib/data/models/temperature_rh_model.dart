@@ -64,6 +64,8 @@ class TemperatureSessionModel {
   final String hatcheryId;
   final String? deviceId;
   final String? deviceName;
+  final String? spotLabel;
+  final String? captureSource;
   final DateTime startedAt;
   final DateTime? endedAt;
   final TemperaturePlace activePlace;
@@ -91,6 +93,8 @@ class TemperatureSessionModel {
     required this.hatcheryId,
     this.deviceId,
     this.deviceName,
+    this.spotLabel,
+    this.captureSource,
     required this.startedAt,
     this.endedAt,
     required this.activePlace,
@@ -120,6 +124,8 @@ class TemperatureSessionModel {
       hatcheryId: map['hatcheryId'] as String,
       deviceId: map['deviceId'] as String?,
       deviceName: map['deviceName'] as String?,
+      spotLabel: map['spotLabel'] as String?,
+      captureSource: map['captureSource'] as String?,
       startedAt:
           DateTime.tryParse(map['startedAt'] as String? ?? '') ??
           DateTime.now(),
@@ -158,6 +164,8 @@ class TemperatureSessionModel {
       'hatcheryId': hatcheryId,
       'deviceId': deviceId,
       'deviceName': deviceName,
+      'spotLabel': spotLabel,
+      'captureSource': captureSource,
       'startedAt': startedAt.toIso8601String(),
       'endedAt': endedAt?.toIso8601String(),
       'activePlace': activePlace.name,
@@ -184,6 +192,8 @@ class TemperatureSessionModel {
   TemperatureSessionModel copyWith({
     String? deviceId,
     String? deviceName,
+    String? spotLabel,
+    String? captureSource,
     DateTime? endedAt,
     TemperaturePlace? activePlace,
     String? status,
@@ -209,6 +219,8 @@ class TemperatureSessionModel {
       hatcheryId: hatcheryId,
       deviceId: deviceId ?? this.deviceId,
       deviceName: deviceName ?? this.deviceName,
+      spotLabel: spotLabel ?? this.spotLabel,
+      captureSource: captureSource ?? this.captureSource,
       startedAt: startedAt,
       endedAt: endedAt ?? this.endedAt,
       activePlace: activePlace ?? this.activePlace,
