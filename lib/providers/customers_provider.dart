@@ -266,14 +266,10 @@ class CustomersProvider extends ChangeNotifier {
       final summaries = <VisitSessionSummary>[];
       for (final session in sessions) {
         final audits = await _auditRepository.getAuditsBySessionId(session.id);
-        final temps = await _tempRepository.getCompletedSummariesByAuditSession(
-          session.id,
-        );
         summaries.add(
           VisitSessionSummary.fromSession(
             session: session,
             stationAudits: audits,
-            temperatureSummaries: temps,
           ),
         );
       }
@@ -446,9 +442,9 @@ class CustomersProvider extends ChangeNotifier {
   Future<void> deleteCustomer(String customerId) async {
     _ensureCanEdit();
     try {
-      final audits = (await _auditRepository.getAllAudits(limit: 100000))
-          .where((audit) => audit.customerId == customerId)
-          .toList();
+      final audits = (await _auditRepository.getAllAudits(
+        limit: 100000,
+      )).where((audit) => audit.customerId == customerId).toList();
       for (final audit in audits) {
         final photos = await _photoRepository.getByAuditId(audit.id);
         for (final photo in photos) {

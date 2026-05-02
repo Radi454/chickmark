@@ -8,7 +8,7 @@ import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
+import '../../../features/dashboard/providers/dashboard_provider.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
 import '../../../features/customers/widgets/add_flock_sheet.dart';
 import '../../../features/customers/widgets/flock_management_sheet.dart';
@@ -231,9 +231,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
+        onTap: () async {
+          final dashboardProvider = context.read<DashboardProvider>();
+          final navigator = Navigator.of(context);
+          await dashboardProvider.selectVisitSession(visit);
+          if (!navigator.mounted) return;
+          await navigator.push(
             MaterialPageRoute(
               builder: (context) => VisitDetailScreen(visit: visit),
             ),
@@ -278,10 +281,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                   !visit.findingsSummary!.isEmpty) ...[
                 const SizedBox(height: 12),
                 _buildFindingsChips(visit.findingsSummary!),
-              ],
-              if (visit.temperatureSummaries.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _buildTemperatureChips(visit.temperatureSummaries),
               ],
             ],
           ),
@@ -390,34 +389,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           fontWeight: FontWeight.w600,
         ),
       ),
-    );
-  }
-
-  Widget _buildTemperatureChips(List<TemperatureSessionModel> temps) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: temps.map((t) {
-        final alertCount = t.alertCount ?? 0;
-        final color = alertCount > 0
-            ? const Color(0xFFE24B4A)
-            : const Color(0xFF3a9a5c);
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.18)),
-          ),
-          child: Text(
-            '${t.activePlace.label}: ${t.tempAvg?.toStringAsFixed(1) ?? '--'}°F',
-            style: AppTextStyles.caption.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 

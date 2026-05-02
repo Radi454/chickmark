@@ -27,6 +27,9 @@ class SupabasePullSummary {
   final int bmkEggBreakout;
   final int temperatureSessions;
   final int temperatureReadings;
+  final int goveeDailyCaptures;
+  final int goveeSpotCaptures;
+  final int goveeSpotReadings;
 
   const SupabasePullSummary({
     this.customers = 0,
@@ -39,6 +42,9 @@ class SupabasePullSummary {
     this.bmkEggBreakout = 0,
     this.temperatureSessions = 0,
     this.temperatureReadings = 0,
+    this.goveeDailyCaptures = 0,
+    this.goveeSpotCaptures = 0,
+    this.goveeSpotReadings = 0,
   });
 
   int get total =>
@@ -51,7 +57,10 @@ class SupabasePullSummary {
       bmkBreeds +
       bmkEggBreakout +
       temperatureSessions +
-      temperatureReadings;
+      temperatureReadings +
+      goveeDailyCaptures +
+      goveeSpotCaptures +
+      goveeSpotReadings;
 }
 
 class SupabaseService {
@@ -379,6 +388,9 @@ class SupabaseService {
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
     Future<void> Function(Map<String, dynamic>)? upsertTemperatureSession,
     Future<void> Function(Map<String, dynamic>)? upsertTemperatureReading,
+    Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
+    Future<void> Function(Map<String, dynamic>)? upsertGoveeSpotCapture,
+    Future<void> Function(Map<String, dynamic>)? upsertGoveeSpotReading,
   }) async {
     var summary = const SupabasePullSummary();
     try {
@@ -594,6 +606,84 @@ class SupabaseService {
           }
         } catch (e) {
           debugPrint('Supabase temperature reading pull skipped: $e');
+        }
+      }
+      if (upsertGoveeDailyCapture != null) {
+        try {
+          final captures = await _client.from('govee_daily_captures').select();
+          summary = SupabasePullSummary(
+            customers: summary.customers,
+            flocks: summary.flocks,
+            hatcheries: summary.hatcheries,
+            audits: summary.audits,
+            auditSessions: summary.auditSessions,
+            photos: summary.photos,
+            bmkBreeds: summary.bmkBreeds,
+            bmkEggBreakout: summary.bmkEggBreakout,
+            temperatureSessions: summary.temperatureSessions,
+            temperatureReadings: summary.temperatureReadings,
+            goveeDailyCaptures: captures.length,
+            goveeSpotCaptures: summary.goveeSpotCaptures,
+            goveeSpotReadings: summary.goveeSpotReadings,
+          );
+          debugPrint('Supabase pull: ${captures.length} Govee captures');
+          for (final row in captures) {
+            await upsertGoveeDailyCapture(Map<String, dynamic>.from(row));
+          }
+        } catch (e) {
+          debugPrint('Supabase Govee capture pull skipped: $e');
+        }
+      }
+      if (upsertGoveeSpotCapture != null) {
+        try {
+          final spots = await _client.from('govee_spot_captures').select();
+          summary = SupabasePullSummary(
+            customers: summary.customers,
+            flocks: summary.flocks,
+            hatcheries: summary.hatcheries,
+            audits: summary.audits,
+            auditSessions: summary.auditSessions,
+            photos: summary.photos,
+            bmkBreeds: summary.bmkBreeds,
+            bmkEggBreakout: summary.bmkEggBreakout,
+            temperatureSessions: summary.temperatureSessions,
+            temperatureReadings: summary.temperatureReadings,
+            goveeDailyCaptures: summary.goveeDailyCaptures,
+            goveeSpotCaptures: spots.length,
+            goveeSpotReadings: summary.goveeSpotReadings,
+          );
+          debugPrint('Supabase pull: ${spots.length} Govee spot captures');
+          for (final row in spots) {
+            await upsertGoveeSpotCapture(Map<String, dynamic>.from(row));
+          }
+        } catch (e) {
+          debugPrint('Supabase Govee spot capture pull skipped: $e');
+        }
+      }
+      if (upsertGoveeSpotReading != null) {
+        try {
+          final readings = await _client.from('govee_spot_readings').select();
+          summary = SupabasePullSummary(
+            customers: summary.customers,
+            flocks: summary.flocks,
+            hatcheries: summary.hatcheries,
+            audits: summary.audits,
+            auditSessions: summary.auditSessions,
+            photos: summary.photos,
+            bmkBreeds: summary.bmkBreeds,
+            bmkEggBreakout: summary.bmkEggBreakout,
+            temperatureSessions: summary.temperatureSessions,
+            temperatureReadings: summary.temperatureReadings,
+            goveeDailyCaptures: summary.goveeDailyCaptures,
+            goveeSpotCaptures: summary.goveeSpotCaptures,
+            goveeSpotReadings: readings.length,
+          );
+          debugPrint('Supabase pull: ${readings.length} Govee spot readings');
+          for (final row in readings) {
+            await upsertGoveeSpotReading(Map<String, dynamic>.from(row));
+          }
+        } catch (e) {
+          debugPrint('Supabase Govee spot reading pull skipped: $e');
         }
       }
     } catch (e, stackTrace) {

@@ -3,22 +3,78 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/utils/scorecard_formatter.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
+import 'package:mocktail/mocktail.dart';
+
+class _MockGoveeCaptureRepository extends Mock
+    implements GoveeCaptureRepository {}
 
 void main() {
+  group('DashboardProvider Govee captures', () {
+    late _MockGoveeCaptureRepository mockGoveeRepo;
+    late DashboardProvider provider;
+
+    setUp(() {
+      mockGoveeRepo = _MockGoveeCaptureRepository();
+      provider = DashboardProvider(goveeCaptureRepository: mockGoveeRepo);
+    });
+
+    test('loads Govee captures by customer hatchery and visit date', () async {
+      final capture = _makeGoveeCapture();
+      final spots = [
+        _makeGoveeSpot(spotIndex: 1),
+        _makeGoveeSpot(spotIndex: 2),
+        _makeGoveeSpot(spotIndex: 3),
+      ];
+      final readings = _makeGoveeReadings(spots: spots);
+
+      when(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: 'c1',
+          hatcheryId: 'h1',
+          captureDate: '2026-05-02',
+        ),
+      ).thenAnswer((_) async => [capture]);
+      when(
+        () => mockGoveeRepo.getSpotsForCapture('capture-1'),
+      ).thenAnswer((_) async => spots);
+      when(
+        () => mockGoveeRepo.getReadingsForCapture('capture-1'),
+      ).thenAnswer((_) async => readings);
+
+      await provider.selectVisitSession(
+        VisitSessionSummary.fromSession(
+          session: _makeSession(date: DateTime(2026, 5, 2)),
+          stationAudits: [],
+        ),
+      );
+
+      expect(provider.goveeCaptures, hasLength(1));
+      expect(provider.goveeCaptures.single.capture.id, 'capture-1');
+      verify(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: 'c1',
+          hatcheryId: 'h1',
+          captureDate: '2026-05-02',
+        ),
+      ).called(1);
+    });
+  });
+
   group('VisitSessionSummary aggregation', () {
-    test('aggregates empty session with no audits or temps', () {
+    test('aggregates empty session with no audits', () {
       final session = _makeSession(stationsCompleted: []);
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.session.id, 's1');
       expect(summary.stationAudits, isEmpty);
-      expect(summary.temperatureSummaries, isEmpty);
       expect(summary.scorecards.length, supportedStationKeys.length);
       expect(summary.findingsSummary, isNull);
       expect(summary.pmScoreSummary, isNull);
@@ -42,7 +98,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: audits,
-        temperatureSummaries: [],
       );
 
       expect(summary.isCompleted, true);
@@ -63,7 +118,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [_makeAudit(auditType: 'Egg Storage')],
-        temperatureSummaries: [],
       );
 
       expect(summary.selectedStationCount, 2);
@@ -84,7 +138,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.scorecards.length, 1);
@@ -100,7 +153,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       final eggSc = summary.scorecards.firstWhere(
@@ -118,7 +170,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.findingsSummary, isNotNull);
@@ -133,7 +184,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
       expect(summary.findingsSummary, isNull);
     });
@@ -151,7 +201,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
 
       expect(summary.pmScoreSummary, isNotNull);
@@ -167,7 +216,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
       expect(summary.pmScoreSummary!.overallSeverity, 'green');
     });
@@ -181,7 +229,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
       expect(summary.pmScoreSummary!.overallSeverity, 'red');
     });
@@ -200,7 +247,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
 
       expect(summary.hatchBudgetSummary, isNotNull);
@@ -209,51 +255,6 @@ void main() {
       expect(summary.hatchBudgetSummary!.hatchabilityPct, 85.0);
       expect(summary.hatchBudgetSummary!.fertilityPct, 94.0);
       expect(summary.hatchBudgetSummary!.hofPct, 90.4);
-    });
-
-    test('temperature summaries map correctly', () {
-      final temp = TemperatureSessionModel(
-        id: 't1',
-        customerId: 'c1',
-        hatcheryId: 'h1',
-        startedAt: DateTime.now(),
-        activePlace: TemperaturePlace.eggStorageRoom,
-        status: 'completed',
-        tempAvg: 68.5,
-        tempMin: 66.0,
-        tempMax: 71.0,
-        alertCount: 0,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      final summary = VisitSessionSummary.fromSession(
-        session: _makeSession(),
-        stationAudits: [],
-        temperatureSummaries: [temp],
-      );
-
-      expect(summary.temperatureSummaries.length, 1);
-      final chip = TemperatureSummary.fromSession(temp);
-      expect(chip.placeLabel, 'Egg storage room');
-      expect(chip.avgTempF, 68.5);
-      expect(chip.status, 'green');
-    });
-
-    test('temperature summary is red when alerts exist', () {
-      final temp = TemperatureSessionModel(
-        id: 't1',
-        customerId: 'c1',
-        hatcheryId: 'h1',
-        startedAt: DateTime.now(),
-        activePlace: TemperaturePlace.incubatorRoom,
-        status: 'completed',
-        tempAvg: 99.0,
-        alertCount: 2,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      final chip = TemperatureSummary.fromSession(temp);
-      expect(chip.status, 'red');
     });
   });
 
@@ -341,6 +342,7 @@ void main() {
 AuditSessionModel _makeSession({
   String id = 's1',
   String status = 'in_progress',
+  DateTime? date,
   List<String> selectedStationKeys = supportedStationKeys,
   List<String> stationsCompleted = const [],
   String? findingsJson,
@@ -351,7 +353,7 @@ AuditSessionModel _makeSession({
     customerId: 'c1',
     flockId: 'f1',
     hatcheryId: 'h1',
-    date: DateTime(2026, 4, 20),
+    date: date ?? DateTime(2026, 4, 20),
     status: status,
     selectedStationKeys: selectedStationKeys,
     stationsCompleted: stationsCompleted,
@@ -360,6 +362,73 @@ AuditSessionModel _makeSession({
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
+}
+
+GoveeDailyCaptureModel _makeGoveeCapture() {
+  final now = DateTime(2026, 5, 2, 12);
+  return GoveeDailyCaptureModel(
+    id: 'capture-1',
+    customerId: 'c1',
+    hatcheryId: 'h1',
+    place: TemperaturePlace.eggStorageRoom,
+    captureDate: '2026-05-02',
+    deviceId: 'device-1',
+    deviceName: 'Govee H5051',
+    status: 'completed',
+    tempAvg: 72.5,
+    tempMin: 71,
+    tempMax: 74,
+    rhAvg: 58,
+    rhMin: 55,
+    rhMax: 61,
+    spotCount: 3,
+    readingCount: 180,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+GoveeSpotCaptureModel _makeGoveeSpot({required int spotIndex}) {
+  final now = DateTime(2026, 5, 2, 12).add(Duration(minutes: spotIndex));
+  return GoveeSpotCaptureModel(
+    id: 'spot-$spotIndex',
+    captureId: 'capture-1',
+    spotIndex: spotIndex,
+    spotLabel: 'Spot $spotIndex',
+    warmupStartedAt: now,
+    validStartedAt: now.add(const Duration(seconds: 60)),
+    validEndedAt: now.add(const Duration(seconds: 120)),
+    validDurationSeconds: 60,
+    tempAvg: (71 + spotIndex).toDouble(),
+    tempMin: (70 + spotIndex).toDouble(),
+    tempMax: (72 + spotIndex).toDouble(),
+    rhAvg: (55 + spotIndex).toDouble(),
+    rhMin: (54 + spotIndex).toDouble(),
+    rhMax: (56 + spotIndex).toDouble(),
+    readingCount: 60,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+List<GoveeSpotReadingModel> _makeGoveeReadings({
+  required List<GoveeSpotCaptureModel> spots,
+}) {
+  final startedAt = DateTime(2026, 5, 2, 12);
+  return [
+    for (final spot in spots)
+      for (var i = 0; i < 60; i++)
+        GoveeSpotReadingModel(
+          id: '${spot.id}-reading-$i',
+          captureId: spot.captureId,
+          spotId: spot.id,
+          readingIndex: i,
+          recordedAt: startedAt.add(Duration(seconds: i)),
+          temperatureFahrenheit: 70 + spot.spotIndex + (i / 100),
+          humidity: 55 + spot.spotIndex + (i / 100),
+          createdAt: startedAt,
+        ),
+  ];
 }
 
 AuditModel _makeAudit({

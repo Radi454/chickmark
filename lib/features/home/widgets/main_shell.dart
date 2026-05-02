@@ -13,7 +13,7 @@ import '../../home/screens/home_screen.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
-import '../../temperature/screens/temperature_rh_screen.dart';
+import '../../govee/screens/govee_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -126,9 +126,7 @@ class _MainShellState extends State<MainShell> {
                     currentIndex: _currentIndex,
                     onDestinationSelected: _selectDestination,
                   ),
-                Expanded(
-                  child: _builtScreens[_currentIndex]!,
-                ),
+                Expanded(child: _builtScreens[_currentIndex]!),
               ],
             ),
           ),
@@ -148,7 +146,7 @@ class _MainShellState extends State<MainShell> {
       case 3:
         return const AuditsScreen();
       case 4:
-        return const TemperatureRhScreen();
+        return const GoveeScreen();
       case 5:
         return const BmkScreen();
       case 6:
@@ -162,8 +160,13 @@ class _MainShellState extends State<MainShell> {
     if (_currentIndex != index) {
       if (!_builtScreens.containsKey(index)) {
         final tabNames = [
-          'home', 'dashboard', 'customers', 'audits',
-          'temperature', 'bmk', 'settings',
+          'home',
+          'dashboard',
+          'customers',
+          'audits',
+          'govee',
+          'bmk',
+          'settings',
         ];
         _builtScreens[index] = _buildScreen(index);
         StartupTimer.lap('${tabNames[index]}_tab_first_load');

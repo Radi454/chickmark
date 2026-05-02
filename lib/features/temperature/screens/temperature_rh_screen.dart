@@ -38,7 +38,7 @@ class _TemperatureRhScreenState extends State<TemperatureRhScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(title: 'Measures'),
+      appBar: const GradientAppBar(title: 'Temperature/RH'),
       body: Consumer3<TemperatureRhProvider, CustomersProvider, AppProvider>(
         builder: (context, measureProvider, customersProvider, appProvider, _) {
           final loading =

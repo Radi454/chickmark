@@ -6,6 +6,7 @@ import '../../data/repositories/audit_session_repository.dart';
 import '../../data/repositories/bmk_repository.dart';
 import '../../data/repositories/customer_repository.dart';
 import '../../data/repositories/flock_repository.dart';
+import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
 import '../../data/repositories/photo_repository.dart';
 import '../../data/repositories/temperature_rh_repository.dart';
@@ -20,19 +21,48 @@ class StartupSyncProgress {
 }
 
 class StartupSyncService {
-  final SupabaseService _supabaseService = SupabaseService();
-  final CustomerRepository _customerRepository = CustomerRepository();
-  final FlockRepository _flockRepository = FlockRepository();
-  final HatcheryRepository _hatcheryRepository = HatcheryRepository();
-  final AuditRepository _auditRepository = AuditRepository();
-  final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
-  final PhotoRepository _photoRepository = PhotoRepository();
-  final BmkRepository _bmkRepository = BmkRepository();
-  final AuditSessionRepository _auditSessionRepository =
-      AuditSessionRepository();
-  final TemperatureRhRepository _temperatureRepository =
-      TemperatureRhRepository();
-  final PhotoSyncService _photoSyncService = PhotoSyncService();
+  final SupabaseService _supabaseService;
+  final CustomerRepository _customerRepository;
+  final FlockRepository _flockRepository;
+  final HatcheryRepository _hatcheryRepository;
+  final AuditRepository _auditRepository;
+  final ActivityLogRepository _activityLogRepository;
+  final PhotoRepository _photoRepository;
+  final BmkRepository _bmkRepository;
+  final AuditSessionRepository _auditSessionRepository;
+  final TemperatureRhRepository _temperatureRepository;
+  final GoveeCaptureRepository _goveeCaptureRepository;
+  final PhotoSyncService _photoSyncService;
+
+  StartupSyncService({
+    SupabaseService? supabaseService,
+    CustomerRepository? customerRepository,
+    FlockRepository? flockRepository,
+    HatcheryRepository? hatcheryRepository,
+    AuditRepository? auditRepository,
+    ActivityLogRepository? activityLogRepository,
+    PhotoRepository? photoRepository,
+    BmkRepository? bmkRepository,
+    AuditSessionRepository? auditSessionRepository,
+    TemperatureRhRepository? temperatureRepository,
+    GoveeCaptureRepository? goveeCaptureRepository,
+    PhotoSyncService? photoSyncService,
+  }) : _supabaseService = supabaseService ?? SupabaseService(),
+       _customerRepository = customerRepository ?? CustomerRepository(),
+       _flockRepository = flockRepository ?? FlockRepository(),
+       _hatcheryRepository = hatcheryRepository ?? HatcheryRepository(),
+       _auditRepository = auditRepository ?? AuditRepository(),
+       _activityLogRepository =
+           activityLogRepository ?? ActivityLogRepository(),
+       _photoRepository = photoRepository ?? PhotoRepository(),
+       _bmkRepository = bmkRepository ?? BmkRepository(),
+       _auditSessionRepository =
+           auditSessionRepository ?? AuditSessionRepository(),
+       _temperatureRepository =
+           temperatureRepository ?? TemperatureRhRepository(),
+       _goveeCaptureRepository =
+           goveeCaptureRepository ?? GoveeCaptureRepository(),
+       _photoSyncService = photoSyncService ?? PhotoSyncService();
 
   Future<void> run({
     ValueChanged<StartupSyncProgress>? onProgress,
@@ -100,8 +130,9 @@ class StartupSyncService {
     pushed += audits.length;
 
     progress(0.47, 'Uploading audit sessions');
-    final auditSessions =
-        await _auditSessionRepository.getAllSessions(limit: 100000);
+    final auditSessions = await _auditSessionRepository.getAllSessions(
+      limit: 100000,
+    );
     await _supabaseService.upsertRows(
       'audit_sessions',
       auditSessions.map((session) => session.toMap()).toList(),
@@ -125,6 +156,26 @@ class StartupSyncService {
       readings.map((reading) => reading.toMap()).toList(),
     );
     pushed += readings.length;
+
+    progress(0.64, 'Uploading Govee captures');
+    final goveeCaptures = await _goveeCaptureRepository.getAllCaptures();
+    await _supabaseService.upsertRows(
+      'govee_daily_captures',
+      goveeCaptures.map((capture) => capture.toMap()).toList(),
+    );
+    pushed += goveeCaptures.length;
+    final goveeSpots = await _goveeCaptureRepository.getAllSpots();
+    await _supabaseService.upsertRows(
+      'govee_spot_captures',
+      goveeSpots.map((spot) => spot.toMap()).toList(),
+    );
+    pushed += goveeSpots.length;
+    final goveeReadings = await _goveeCaptureRepository.getAllReadings();
+    await _supabaseService.upsertRows(
+      'govee_spot_readings',
+      goveeReadings.map((reading) => reading.toMap()).toList(),
+    );
+    pushed += goveeReadings.length;
     return pushed;
   }
 
@@ -146,12 +197,20 @@ class StartupSyncService {
           _temperatureRepository.upsertSessionRow(row),
       upsertTemperatureReading: (row) =>
           _temperatureRepository.upsertReadingRow(row),
+      upsertGoveeDailyCapture: (row) =>
+          _goveeCaptureRepository.upsertCaptureRow(row),
+      upsertGoveeSpotCapture: (row) =>
+          _goveeCaptureRepository.upsertSpotRow(row),
+      upsertGoveeSpotReading: (row) =>
+          _goveeCaptureRepository.upsertReadingRow(row),
     );
     progress(0.92, 'Preparing workspace');
     return summary.total;
   }
 
-  Future<void> _upsertAuditWithConflictCheck(Map<String, dynamic> remoteRow) async {
+  Future<void> _upsertAuditWithConflictCheck(
+    Map<String, dynamic> remoteRow,
+  ) async {
     await _upsertWithConflictCheck(
       remoteRow,
       getLocal: (id) => _auditRepository.getAuditRowById(id),

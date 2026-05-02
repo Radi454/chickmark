@@ -13,7 +13,9 @@ import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
 import '../../audits/utils/audit_govee_spots.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
-import '../../audits/widgets/govee_recording_card.dart';
+import '../../govee/providers/govee_capture_provider.dart';
+import '../../govee/screens/govee_screen.dart';
+import '../../../core/navigation/shell_navigation_scope.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -73,12 +75,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     children: [
                       if (showProgress) ...[
                         _buildProgressIndicator(sessionProvider, stationKeys),
-                        _buildCurrentStationGoveeCard(
-                          sessionProvider,
-                          stationKeys,
-                        ),
                         const Divider(height: 1),
                       ],
+                      _buildCurrentStationGoveeEntryPoint(
+                        sessionProvider,
+                        stationKeys,
+                      ),
                       Expanded(
                         child: Stack(
                           children: List.generate(
@@ -378,7 +380,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
   }
 
-  Widget _buildCurrentStationGoveeCard(
+  Widget _buildCurrentStationGoveeEntryPoint(
     AuditSessionProvider provider,
     List<String> stationKeys,
   ) {
@@ -398,11 +400,29 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     return Container(
       color: const Color(0xFFF5F7FB),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: GoveeRecordingCard(
-        key: ValueKey('govee:${session.id}:$stationKey'),
-        place: spot.place,
-        auditSessionId: session.id,
-        label: spot.label,
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        key: const ValueKey('audit-open-govee-readings'),
+        onPressed: () async {
+          final goveeProvider = context.read<GoveeCaptureProvider>();
+          final shell = ShellNavigationScope.maybeOf(context);
+          final navigator = Navigator.of(context);
+          await goveeProvider.configure(
+            customerId: session.customerId,
+            hatcheryId: session.hatcheryId,
+            place: spot.place,
+          );
+          if (shell != null) {
+            shell.switchTab(4);
+            return;
+          }
+          if (!navigator.mounted) return;
+          await navigator.push(
+            MaterialPageRoute<void>(builder: (_) => const GoveeScreen()),
+          );
+        },
+        icon: const Icon(Icons.device_thermostat_outlined),
+        label: const Text('Govee readings'),
       ),
     );
   }

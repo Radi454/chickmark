@@ -293,4 +293,48 @@ void main() {
     );
     expect(executedSql.any((sql) => sql.contains('DROP TABLE')), isFalse);
   });
+
+  test(
+    'v22 migration creates Govee tables and deletes old audit-linked temperature rows',
+    () async {
+      final db = MockDatabase();
+
+      when(() => db.execute(any())).thenAnswer((_) async {});
+
+      await DatabaseHelper().applyV22UpgradeForTest(db);
+
+      final executedSql = verify(
+        () => db.execute(captureAny()),
+      ).captured.cast<String>().toList();
+      final joinedSql = executedSql.join('\n');
+
+      expect(
+        joinedSql,
+        contains('CREATE TABLE IF NOT EXISTS govee_daily_captures'),
+      );
+      expect(
+        joinedSql,
+        contains('UNIQUE(customerId, hatcheryId, place, captureDate)'),
+      );
+      expect(
+        joinedSql,
+        contains('CREATE TABLE IF NOT EXISTS govee_spot_captures'),
+      );
+      expect(
+        joinedSql,
+        contains('CREATE TABLE IF NOT EXISTS govee_spot_readings'),
+      );
+      expect(joinedSql, contains('idx_govee_daily_scope'));
+      expect(
+        joinedSql,
+        contains('DELETE FROM temperature_readings WHERE sessionId IN'),
+      );
+      expect(
+        joinedSql,
+        contains(
+          'DELETE FROM temperature_sessions WHERE auditSessionId IS NOT NULL',
+        ),
+      );
+    },
+  );
 }

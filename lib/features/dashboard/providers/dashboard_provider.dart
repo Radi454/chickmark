@@ -3,7 +3,7 @@ import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
-import 'package:hatchaudit/data/repositories/temperature_rh_repository.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/troubleshooting_repository.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
@@ -14,6 +14,7 @@ import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart'
 import 'package:hatchaudit/features/dashboard/models/egg_breakout_models.dart';
 import 'package:hatchaudit/features/dashboard/models/chick_quality_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
+import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
 
 class DashboardProvider extends ChangeNotifier {
@@ -21,9 +22,12 @@ class DashboardProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepo = AuditSessionRepository();
   final CustomerRepository _customerRepo = CustomerRepository();
   final FlockRepository _flockRepo = FlockRepository();
-  final TemperatureRhRepository _tempRepo = TemperatureRhRepository();
   final TroubleshootingRepository _troubleshootingRepo =
       TroubleshootingRepository();
+  final GoveeCaptureRepository _goveeCaptureRepo;
+
+  DashboardProvider({GoveeCaptureRepository? goveeCaptureRepository})
+    : _goveeCaptureRepo = goveeCaptureRepository ?? GoveeCaptureRepository();
 
   String? _selectedCustomerId;
   String? _selectedFlockId;
@@ -71,6 +75,8 @@ class DashboardProvider extends ChangeNotifier {
   // Visit-session aggregation state (US6)
   List<VisitSessionSummary> _visitSessions = [];
   VisitSessionSummary? _selectedVisitSession;
+  List<GoveeCaptureSummary> _goveeCaptures = [];
+  bool _isLoadingGoveeCaptures = false;
 
   String? get selectedCustomerId => _selectedCustomerId;
   String? get selectedFlockId => _selectedFlockId;
@@ -132,6 +138,8 @@ class DashboardProvider extends ChangeNotifier {
   // Visit-session aggregation getters (US6)
   List<VisitSessionSummary> get visitSessions => _visitSessions;
   VisitSessionSummary? get selectedVisitSession => _selectedVisitSession;
+  List<GoveeCaptureSummary> get goveeCaptures => _goveeCaptures;
+  bool get isLoadingGoveeCaptures => _isLoadingGoveeCaptures;
   bool get canUseAllCustomers {
     final user = _currentUser;
     return user == null || !user.isCustomer;
@@ -250,8 +258,12 @@ class DashboardProvider extends ChangeNotifier {
     reload();
   }
 
-  void selectVisitSession(VisitSessionSummary session) {
+  Future<void> selectVisitSession(VisitSessionSummary session) async {
     _selectedVisitSession = session;
+    _isLoadingGoveeCaptures = true;
+    notifyListeners();
+    await _loadGoveeCapturesForVisit(session);
+    _isLoadingGoveeCaptures = false;
     notifyListeners();
   }
 
@@ -406,24 +418,61 @@ class DashboardProvider extends ChangeNotifier {
       final summaries = <VisitSessionSummary>[];
       for (final session in sessions) {
         final audits = await _auditRepo.getAuditsBySessionId(session.id);
-        final temps = await _tempRepo.getCompletedSummariesByAuditSession(
-          session.id,
-        );
         summaries.add(
           VisitSessionSummary.fromSession(
             session: session,
             stationAudits: audits,
-            temperatureSummaries: temps,
           ),
         );
       }
       _visitSessions = summaries;
       _selectedVisitSession = summaries.isNotEmpty ? summaries.first : null;
+      if (_selectedVisitSession != null) {
+        await _loadGoveeCapturesForVisit(_selectedVisitSession!);
+      } else {
+        _goveeCaptures = [];
+      }
     } catch (e) {
       debugPrint('Error loading visit sessions: $e');
       _visitSessions = [];
       _selectedVisitSession = null;
+      _goveeCaptures = [];
     }
+  }
+
+  Future<void> _loadGoveeCapturesForVisit(VisitSessionSummary visit) async {
+    try {
+      final session = visit.session;
+      final captures = await _goveeCaptureRepo.getCapturesForDashboard(
+        customerId: session.customerId,
+        hatcheryId: session.hatcheryId,
+        captureDate: _captureDateKey(session.date),
+      );
+      final summaries = <GoveeCaptureSummary>[];
+      for (final capture in captures) {
+        final spots = await _goveeCaptureRepo.getSpotsForCapture(capture.id);
+        final readings = await _goveeCaptureRepo.getReadingsForCapture(
+          capture.id,
+        );
+        summaries.add(
+          GoveeCaptureSummary(
+            capture: capture,
+            spots: spots,
+            readings: readings,
+          ),
+        );
+      }
+      _goveeCaptures = summaries;
+    } catch (e) {
+      debugPrint('Error loading Govee captures: $e');
+      _goveeCaptures = [];
+    }
+  }
+
+  String _captureDateKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
   }
 
   List<CustomerModel> _scopeCustomers(List<CustomerModel> customers) {

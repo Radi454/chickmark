@@ -45,17 +45,6 @@ class TemperatureRhProvider extends ChangeNotifier {
   String? _loadedHatcheryId;
   String? _error;
 
-  final List<TemperatureReadingModel> _rawReadings = [];
-  List<TemperatureReadingModel> _compressedReadings = [];
-  Timer? _auditTimer;
-  TemperaturePlace? _auditPlace;
-  String? _auditSessionId;
-  String? _auditTempSessionId;
-  String? _auditSpotLabel;
-  DateTime? _auditStartedAt;
-  bool _isAuditSyncing = false;
-  String? _auditSyncError;
-
   TemperatureSessionModel? get activeSession => _activeSession;
   TemperaturePlace? get activePlace => _activePlace;
   List<GoveeSensorReading> get liveReadings => List.unmodifiable(_liveReadings);
@@ -281,7 +270,6 @@ class TemperatureRhProvider extends ChangeNotifier {
   Future<void> startSession({
     required String customerId,
     required String hatcheryId,
-    String? auditSessionId,
     int? warmupSeconds,
   }) async {
     _attachProviderListeners();
@@ -312,7 +300,6 @@ class TemperatureRhProvider extends ChangeNotifier {
       activePlace: activePlace,
       status: 'active',
       warmupSeconds: _warmupSeconds,
-      auditSessionId: auditSessionId,
       createdAt: now,
       updatedAt: now,
     );
@@ -745,48 +732,6 @@ class TemperatureRhProvider extends ChangeNotifier {
     }).toList();
   }
 
-  List<GoveeSensorReading> _filterHistoryReadings(
-    List<GoveeSensorReading> readings, {
-    required DateTime startedAt,
-    required DateTime endedAt,
-  }) {
-    return readings.where((reading) {
-      final temp = reading.temperatureFahrenheit;
-      final humidity = reading.humidity;
-      if (temp == null || humidity == null) return false;
-      if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
-        return false;
-      }
-      if (reading.timestamp.isBefore(startedAt) ||
-          reading.timestamp.isAfter(endedAt)) {
-        return false;
-      }
-      return true;
-    }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  }
-
-  List<TemperatureReadingModel> _buildTemperatureReadingsFromHistory(
-    List<GoveeSensorReading> readings, {
-    required String sessionId,
-    required TemperaturePlace place,
-  }) {
-    return readings.map((reading) {
-      return TemperatureReadingModel(
-        id: _uuid.v4(),
-        sessionId: sessionId,
-        customerId: '',
-        hatcheryId: '',
-        place: place,
-        temperatureFahrenheit: reading.temperatureFahrenheit!,
-        humidity: reading.humidity!,
-        rssi: _goveeService.signalStrength,
-        deviceName: _goveeService.deviceName,
-        recordedAt: reading.timestamp,
-        createdAt: DateTime.now(),
-      );
-    }).toList();
-  }
-
   double _roundTwo(double value) {
     return (value * 100).round() / 100;
   }
@@ -835,172 +780,8 @@ class TemperatureRhProvider extends ChangeNotifier {
 
   int get postWarmupReadingCount => _filterReadingsForSummary().length;
 
-  List<TemperatureReadingModel> get auditCompressedReadings =>
-      _compressedReadings;
-  bool get isAuditRecording => _auditTimer != null;
-  bool get isAuditSyncing => _isAuditSyncing;
-  String? get auditSyncError => _auditSyncError;
-
-  void _compress() {
-    if (_rawReadings.length <= 60) {
-      _compressedReadings = List.from(_rawReadings);
-      return;
-    }
-    final step = _rawReadings.length / 60;
-    _compressedReadings = List.generate(
-      60,
-      (i) => _rawReadings[(i * step).round().clamp(0, _rawReadings.length - 1)],
-    );
-  }
-
-  String startAuditSession(
-    TemperaturePlace place,
-    String auditSessionId, {
-    String? spotLabel,
-  }) {
-    final tempSessionId = _uuid.v4();
-    _auditPlace = place;
-    _auditSessionId = auditSessionId;
-    _auditTempSessionId = tempSessionId;
-    _auditSpotLabel = spotLabel;
-    _auditStartedAt = DateTime.now();
-    _isAuditSyncing = false;
-    _auditSyncError = null;
-    _rawReadings.clear();
-    _compressedReadings = [];
-    _auditTimer?.cancel();
-    _auditTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final reading = _buildReadingFromCurrentGoveeData();
-      if (reading == null) return;
-      _rawReadings.add(reading);
-      _compress();
-      notifyListeners();
-    });
-    return tempSessionId;
-  }
-
-  TemperatureReadingModel? _buildReadingFromCurrentGoveeData() {
-    final latestReading = _goveeService.latestReading;
-    if (latestReading == null) return null;
-    final temp = latestReading.temperatureFahrenheit;
-    final humidity = latestReading.humidity;
-    if (temp == null || humidity == null) return null;
-
-    final now = DateTime.now();
-    return TemperatureReadingModel(
-      id: _uuid.v4(),
-      sessionId: _auditTempSessionId!,
-      customerId: '',
-      hatcheryId: '',
-      place: _auditPlace!,
-      temperatureFahrenheit: temp,
-      humidity: humidity,
-      rssi: _goveeService.signalStrength,
-      deviceName: _goveeService.deviceName,
-      recordedAt: now,
-      createdAt: now,
-    );
-  }
-
-  Future<void> stopAndSaveAuditSession({String? expectedTempSessionId}) async {
-    if (expectedTempSessionId != null &&
-        _auditTempSessionId != expectedTempSessionId) {
-      return;
-    }
-
-    _auditTimer?.cancel();
-    _auditTimer = null;
-    final place = _auditPlace;
-    final auditSessionId = _auditSessionId;
-    final tempSessionId = _auditTempSessionId;
-    final startedAt = _auditStartedAt;
-    final spotLabel = _auditSpotLabel;
-    final endedAt = DateTime.now();
-
-    if (place == null ||
-        auditSessionId == null ||
-        tempSessionId == null ||
-        startedAt == null) {
-      _auditPlace = null;
-      _auditSessionId = null;
-      _auditTempSessionId = null;
-      _auditSpotLabel = null;
-      _auditStartedAt = null;
-      _rawReadings.clear();
-      _compressedReadings = [];
-      return;
-    }
-
-    if (_auditTempSessionId == tempSessionId) {
-      _isAuditSyncing = true;
-      _auditSyncError = null;
-    }
-    notifyListeners();
-
-    try {
-      final syncedReadings = await _goveeService.syncHistory(
-        startedAt: startedAt,
-        endedAt: endedAt,
-      );
-      final validReadings = _filterHistoryReadings(
-        syncedReadings,
-        startedAt: startedAt,
-        endedAt: endedAt,
-      );
-
-      if (validReadings.isEmpty) {
-        if (_auditTempSessionId == tempSessionId) {
-          _auditSyncError = 'No synced Govee history found for this spot';
-        }
-        return;
-      }
-
-      final compressedSensorReadings = _downsampleSensorReadings(validReadings);
-      final compressedReadings = _buildTemperatureReadingsFromHistory(
-        compressedSensorReadings,
-        sessionId: tempSessionId,
-        place: place,
-      );
-
-      final now = DateTime.now();
-      final session = TemperatureSessionModel(
-        id: tempSessionId,
-        customerId: '',
-        hatcheryId: '',
-        deviceId: _goveeService.deviceId,
-        deviceName: _goveeService.deviceName,
-        spotLabel: spotLabel,
-        captureSource: 'govee_history_sync',
-        startedAt: startedAt,
-        endedAt: endedAt,
-        activePlace: place,
-        status: 'completed',
-        auditSessionId: auditSessionId,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final summary = _computeSummary(session, validReadings);
-
-      await _repository.upsertSession(summary);
-      await _repository.insertReadings(compressedReadings);
-    } finally {
-      if (_auditTempSessionId == tempSessionId) {
-        _isAuditSyncing = false;
-        _auditPlace = null;
-        _auditSessionId = null;
-        _auditTempSessionId = null;
-        _auditSpotLabel = null;
-        _auditStartedAt = null;
-        _rawReadings.clear();
-        _compressedReadings = [];
-      }
-      notifyListeners();
-    }
-  }
-
   @override
   void dispose() {
-    _auditTimer?.cancel();
     _captureTimer?.cancel();
     _readingSubscription?.cancel();
     _goveeService.removeListener(_handleGoveeServiceChanged);

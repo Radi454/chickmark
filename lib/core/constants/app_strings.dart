@@ -3,7 +3,7 @@ class AppStrings {
   static const String dashboardTab = 'Dashboard';
   static const String customersTab = 'Customers';
   static const String auditsTab = 'Audits';
-  static const String temperatureTab = 'Measures';
+  static const String temperatureTab = 'Govee';
   static const String bmkTab = 'BMK';
   static const String settingsTab = 'Settings';
   static const String signIn = 'Sign In';

@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-01
+2026-05-02
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -35,8 +35,8 @@ server.
 
 `HatchAuditApp` registers these root providers: `AppProvider`, `AuthProvider`,
 `CustomersProvider`, `AuditProvider`, `AuditSessionProvider`,
-`TemperatureRhProvider`, `BmkProvider`, `SettingsProvider`, and
-`DashboardProvider`.
+`TemperatureRhProvider`, `GoveeCaptureProvider`, `BmkProvider`,
+`SettingsProvider`, and `DashboardProvider`.
 
 Initial route selection is auth-state driven:
 
@@ -51,7 +51,7 @@ The main shell has seven destinations:
 - Dashboard
 - Customers
 - Audits
-- Measures
+- Govee
 - BMK
 - Settings
 
@@ -59,9 +59,8 @@ The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
 back navigation, and triggers background sync after the first Home build.
 
-A draggable Measures launcher appears as an authenticated overlay outside the
-login route. It can dock to the left or right edge and opens the temperature/RH
-panel.
+The previous floating Measures launcher is no longer shown. Govee recording is
+entered from the Govee tab or from a station-level Govee readings button.
 
 ## 3. Audit Workflow
 
@@ -250,30 +249,40 @@ Hatcher Optimizing captures:
 - Meconium assessment: Normal, Greenish, Watery, or Excessive.
 - Transfer day.
 
-Measures is a standalone temperature/RH log screen. It lists saved measure
-sessions, supports search, shows session details, and opens `TemperatureRhPanel`
-from a floating action button. Opening the panel initializes BLE state but does
-not automatically start a Web Bluetooth scan; browser-backed scans must be
-started from an explicit user action such as the panel scan button.
+Govee is a standalone daily capture workflow. It is independent from audit
+sessions and is keyed by `customerId`, `hatcheryId`, place, and calendar
+`captureDate`. The Govee screen is active-recording only; saved captures are
+reviewed from dashboard surfaces rather than browsed in the Govee tab.
 
-Audit station Govee cards use live readings only as on-screen guidance while
-the auditor is at a room or spot. Official audit evidence is saved only after
-the card asks the Govee integration to sync device history for the recorded
-start/end window. Synced spot sessions save summary values, chart JSON capped at
-60 points, and up to 60 compressed reading rows with `spotLabel` and
-`captureSource = govee_history_sync`. If no synced history is available, the
-audit card exposes a sync error and does not save live-preview readings as
-evidence. The walk-through visit screen mounts a Govee card for room-level
-stations with a clear temperature/RH spot: Egg storage room, Chick holding area,
-Incubator room, and Hatcher room. On web, Govee scanning is intentionally tied
-to explicit Scan/Reconnect button presses so the browser can show its Bluetooth
-device picker from a valid user gesture.
+Each saved place/date capture contains exactly three spot segments. A spot
+starts with 60 seconds of warmup that is ignored and never saved, then requires
+at least 60 seconds of valid synced Govee history and allows at most 300 valid
+seconds. The user cannot finish a spot before the minimum valid window. At the
+maximum valid window the provider auto-ends the spot and prompts relocation.
+Each spot is compressed into up to 60 bucket-averaged readings from synced
+device history. The review step allows editing only the three spot labels,
+defaulting to Spot 1, Spot 2, and Spot 3.
+
+Saving a capture atomically replaces any existing capture for the same customer,
+hatchery, place, and date. The old capture remains intact until the new
+three-spot recording is saved successfully. After saving, the active chart is
+cleared and the screen can suggest the next default place in this flow: Egg
+storage room, Chick holding area, Incubator room, and Hatcher room.
+
+Audit station screens show a compact `Govee readings` button for room-level
+stations with a mapped place: Egg storage room, Chick holding area, Incubator
+room, and Hatcher room. Opening from a station preselects customer, hatchery,
+and place in the Govee tab, while still letting the user change the place before
+recording.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
 session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
 Setter Optimizing, and Hatcher Optimizing sections from repository queries. Egg
 Storage dashboard trends read the persisted EST average/CV fields
-`es_estAvg`/`es_estCv`.
+`es_estAvg`/`es_estCv`. For the selected visit date, dashboard loads saved
+Govee captures by customer and hatchery and renders combined place charts with
+vertical spot markers, per-spot labels, Temp/RH averages, spot count, and
+reading count.
 
 ## 5. Data Hierarchy
 
@@ -297,20 +306,28 @@ The implemented hierarchy is:
   dates, house labels for Egg multi-house samples, storage/incubation
   metadata, machine ids, BMK age days, benchmark snapshots, and result
   summaries.
-- `temperature_sessions` and `temperature_readings`: place-based Measures logs
-  and Govee audit spot evidence, optionally linked to an audit session. Audit
-  spot evidence stores compact synced-history summaries and chart points rather
-  than every live preview reading.
+- `temperature_sessions` and `temperature_readings`: legacy place-based
+  temperature/RH logs. Audit-linked temperature rows are deleted during the v22
+  migration and the new Govee workflow does not query them.
+- `govee_daily_captures`: one saved Govee place/day capture per customer,
+  hatchery, place, and capture date, with device metadata and aggregate Temp/RH
+  summaries.
+- `govee_spot_captures`: the three spot windows for each daily capture,
+  including editable spot label, warmup/valid timestamps, duration, and
+  per-spot summaries.
+- `govee_spot_readings`: compressed synced-history readings for each spot,
+  ordered by reading index.
 - `photos`: local photo records tied to audit ids, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
 
-Visit session summaries combine one `audit_sessions` row, its station audits,
-and linked temperature summaries. Scorecards are parsed from persisted JSON when
-present; otherwise they are derived from completion state and simple threshold
-heuristics.
+Visit session summaries combine one `audit_sessions` row and its station
+audits. Scorecards are parsed from persisted JSON when present; otherwise they
+are derived from completion state and simple threshold heuristics. Dashboard
+Govee summaries are loaded separately by customer, hatchery, and selected visit
+date.
 
 ## 6. Models and Provider State
 
@@ -337,7 +354,13 @@ save coalescing through an in-flight save future.
 
 `DashboardProvider` owns cascade filters, available BMK ages, setter/hatcher
 filter sets, dashboard aggregate models, photo lists, BMK references, scoped
-customer/flock data, visit summaries, and the selected visit summary.
+customer/flock data, visit summaries, selected visit summary, and saved Govee
+capture summaries for the selected visit date.
+
+`GoveeCaptureProvider` owns the active standalone Govee capture scope, existing
+capture lookup, spot state machine, warmup and valid windows, synced-history
+bucket averaging, editable review labels, replacement save, and next-place
+progression.
 
 `TemperatureRhProvider` owns BLE/Govee initialization, scan/connect state,
 preferred device persistence, active place/session, live and saved readings,
@@ -352,7 +375,7 @@ month, active flocks, last audit date, recent audits, and audit type breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 20. The database file
+The app uses SQLite through `sqflite` at database version 22. The database file
 is `hatchaudit.db`. Foreign keys are enabled on configure. Web startup
 initializes the default sqflite factory with `sqflite_common_ffi_web` before the
 database opens and uses the browser-safe `hatchaudit.db` name directly instead
@@ -376,16 +399,21 @@ Tables created by the current database helper include:
 - `station_samples`
 - `temperature_sessions`
 - `temperature_readings`
+- `govee_daily_captures`
+- `govee_spot_captures`
+- `govee_spot_readings`
 
 The current `audits` unique index is on `customerId`, `flockId`, `date`,
 `auditType`, `hatchNumber`, `setterId`, and `hatcherId`. Repository writes use
 id-based upsert behavior for audits and audit sessions.
 
-The database helper includes upgrade paths through v20. Recent schema areas in
+The database helper includes upgrade paths through v22. Recent schema areas in
 the current code include audit sessions, station samples, hatcheries,
 temperature sessions/readings, operational indexes, PM necropsy fields, Egg
-Storage fields, Setter/Hatcher extra fields, station sample house fields, and a
-v20 station sample rebuild.
+Storage fields, Setter/Hatcher extra fields, station sample house fields, a v20
+station sample rebuild, and v22 standalone Govee capture tables. The v22 upgrade
+also deletes old audit-linked `temperature_sessions` and `temperature_readings`
+rows.
 
 Seed data is inserted for BMK breed rows, BMK egg breakout rows,
 troubleshooting rows, and dummy test data during database creation/upgrade.
@@ -396,10 +424,11 @@ path. The `photos` table tracks `uploadStatus` as `local`, `synced`, or
 missing files, and fails files larger than 5 MB.
 
 Supabase sync is best effort. `StartupSyncService` pushes local customers,
-flocks, hatcheries, audits, audit sessions, photos, and temperature logs, then
-pulls shared data back into local repositories. It keeps newer local audit rows
-when a pulled remote row is older by `updatedAt`. `BgSyncService` runs this
-sync after the shell starts and reports failure as offline data available.
+flocks, hatcheries, audits, audit sessions, photos, temperature logs, and Govee
+capture tables in dependency order, then pulls shared data back into local
+repositories. It keeps newer local audit rows when a pulled remote row is older
+by `updatedAt`. `BgSyncService` runs this sync after the shell starts and
+reports failure as offline data available.
 
 Temperature/RH sessions are persisted first as active/syncing rows and then as
 completed summaries. Summary readings exclude warmup data, out-of-range values,
@@ -427,11 +456,14 @@ capture.
   station types.
 - Supabase sync is best effort and failures are logged/debugged rather than
   surfaced as blocking workflow errors.
-- Some services and widgets carry transitional naming from Temperature to
-  Measures.
+- Some legacy temperature/RH provider code remains for old rows and tests, but
+  the user-facing tab is now the standalone Govee workflow.
 
 ## 9. Change Log
 
+- 2026-05-02: Replaced the Measures tab/launcher with standalone Govee daily
+  captures, added Govee persistence and sync tables, exposed station deep links,
+  and moved saved Govee charts to dashboard/visit surfaces.
 - 2026-04-28: Replaced placeholders with a code-derived map of current
   navigation, audit workflow, station screens, data hierarchy, provider state,
   persistence, sync, measures, OCR, and known technical debt.

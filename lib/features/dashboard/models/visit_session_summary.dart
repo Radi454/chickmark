@@ -2,15 +2,13 @@ import 'dart:convert';
 
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/audit_session_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
 import '../../../core/utils/audit_type_labels.dart';
 
-/// Aggregates one audit session with its station audits and temperature
-/// summaries for dashboard and customer-detail display.
+/// Aggregates one audit session with its station audits for dashboard and
+/// customer-detail display.
 class VisitSessionSummary {
   final AuditSessionModel session;
   final List<AuditModel> stationAudits;
-  final List<TemperatureSessionModel> temperatureSummaries;
   final List<StationScorecard> scorecards;
   final SessionFindingsSummary? findingsSummary;
   final PmScoreSummary? pmScoreSummary;
@@ -19,7 +17,6 @@ class VisitSessionSummary {
   const VisitSessionSummary({
     required this.session,
     this.stationAudits = const [],
-    this.temperatureSummaries = const [],
     this.scorecards = const [],
     this.findingsSummary,
     this.pmScoreSummary,
@@ -41,7 +38,6 @@ class VisitSessionSummary {
   factory VisitSessionSummary.fromSession({
     required AuditSessionModel session,
     required List<AuditModel> stationAudits,
-    required List<TemperatureSessionModel> temperatureSummaries,
   }) {
     final scorecards = _computeScorecards(session, stationAudits);
     final findings = _parseFindings(session.findingsJson);
@@ -51,7 +47,6 @@ class VisitSessionSummary {
     return VisitSessionSummary(
       session: session,
       stationAudits: stationAudits,
-      temperatureSummaries: temperatureSummaries,
       scorecards: scorecards,
       findingsSummary: findings,
       pmScoreSummary: pm,
@@ -453,44 +448,6 @@ class HatchBudgetSummary {
       hatchabilityPct: audit.haHatchability,
       fertilityPct: audit.haFertility,
       hofPct: audit.haHof,
-    );
-  }
-}
-
-/// A lightweight temperature summary for chips and cards.
-class TemperatureSummary {
-  final String placeLabel;
-  final double? avgTempF;
-  final double? minTempF;
-  final double? maxTempF;
-  final int alertCount;
-  final String status;
-
-  const TemperatureSummary({
-    required this.placeLabel,
-    this.avgTempF,
-    this.minTempF,
-    this.maxTempF,
-    this.alertCount = 0,
-    this.status = 'unknown',
-  });
-
-  factory TemperatureSummary.fromSession(TemperatureSessionModel session) {
-    String status = 'unknown';
-    if (session.status == 'completed') {
-      if (session.alertCount != null && session.alertCount! > 0) {
-        status = 'red';
-      } else {
-        status = 'green';
-      }
-    }
-    return TemperatureSummary(
-      placeLabel: session.activePlace.label,
-      avgTempF: session.tempAvg,
-      minTempF: session.tempMin,
-      maxTempF: session.tempMax,
-      alertCount: session.alertCount ?? 0,
-      status: status,
     );
   }
 }

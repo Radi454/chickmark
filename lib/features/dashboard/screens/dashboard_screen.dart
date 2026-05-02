@@ -8,6 +8,7 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/utils/scorecard_formatter.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
+import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/hatch_analysis_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/egg_breakout_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
@@ -158,10 +159,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: AppColors.textDisabled,
             ),
             SizedBox(height: AppSizes.spaceLg),
-            Text(
-              'No customer or flock data yet',
-              style: AppTextStyles.title,
-            ),
+            Text('No customer or flock data yet', style: AppTextStyles.title),
             SizedBox(height: AppSizes.spaceSm),
             Text(
               'Add a customer and flock to see dashboard insights.',
@@ -206,20 +204,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.all(AppSizes.spaceLg),
           child: Row(
             children: [
-              const Icon(
-                Icons.route,
-                color: AppColors.inactiveTab,
-                size: 20,
-              ),
+              const Icon(Icons.route, color: AppColors.inactiveTab, size: 20),
               const SizedBox(width: AppSizes.spaceMd),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Visit Sessions',
-                      style: AppTextStyles.title,
-                    ),
+                    const Text('Visit Sessions', style: AppTextStyles.title),
                     const SizedBox(height: AppSizes.spaceXs),
                     Text(
                       'Complete a hatchery visit to see session summaries here.',
@@ -255,7 +246,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildSessionFindings(session),
           _buildSessionPmScore(session),
           _buildSessionHatchBudget(session),
-          _buildSessionTemperatureChips(session),
+          _buildSessionGoveeCaptures(provider),
           _buildSessionViewDetailButton(context, session),
         ],
       ),
@@ -276,7 +267,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Wrap(
         spacing: AppSizes.spaceSm,
         children: sessions.map((s) {
-          final isSelected = provider.selectedVisitSession?.session.id == s.session.id;
+          final isSelected =
+              provider.selectedVisitSession?.session.id == s.session.id;
           return ChoiceChip(
             label: Text(localizations.formatShortDate(s.session.date)),
             selected: isSelected,
@@ -325,10 +317,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          const Text(
-            'Findings',
-            style: AppTextStyles.sectionTitle,
-          ),
+          const Text('Findings', style: AppTextStyles.sectionTitle),
           const SizedBox(height: AppSizes.spaceXs),
           Wrap(
             spacing: AppSizes.spaceSm,
@@ -337,9 +326,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (findings.greenCount > 0)
                 _findingChip('Good', findings.greenCount, AppColors.statusGood),
               if (findings.amberCount > 0)
-                _findingChip('Caution', findings.amberCount, AppColors.statusWarning),
+                _findingChip(
+                  'Caution',
+                  findings.amberCount,
+                  AppColors.statusWarning,
+                ),
               if (findings.redCount > 0)
-                _findingChip('Critical', findings.redCount, AppColors.statusError),
+                _findingChip(
+                  'Critical',
+                  findings.redCount,
+                  AppColors.statusError,
+                ),
             ],
           ),
           if (findings.findings.isNotEmpty) ...[
@@ -347,10 +344,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ...findings.findings.take(3).map((f) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceXs),
-                child: Text(
-                  '• ${f.title}',
-                  style: AppTextStyles.badgeLabel,
-                ),
+                child: Text('• ${f.title}', style: AppTextStyles.badgeLabel),
               );
             }),
           ],
@@ -381,17 +375,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          const Text(
-            'PM Necropsy',
-            style: AppTextStyles.sectionTitle,
-          ),
+          const Text('PM Necropsy', style: AppTextStyles.sectionTitle),
           const SizedBox(height: AppSizes.spaceXs),
           Wrap(
             spacing: AppSizes.spaceMd,
             children: [
               Text('Lesions: ${pm.totalLesions}'),
               Text('Deformities: ${pm.totalDeformities}'),
-              if (pm.gaspingPresent) Text('Gasping: ${pm.gaspingType ?? 'Yes'}'),
+              if (pm.gaspingPresent)
+                Text('Gasping: ${pm.gaspingType ?? 'Yes'}'),
             ],
           ),
         ],
@@ -411,10 +403,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          const Text(
-            'Hatch Budget',
-            style: AppTextStyles.sectionTitle,
-          ),
+          const Text('Hatch Budget', style: AppTextStyles.sectionTitle),
           const SizedBox(height: AppSizes.spaceXs),
           Wrap(
             spacing: AppSizes.spaceMd,
@@ -430,9 +419,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildSessionTemperatureChips(VisitSessionSummary session) {
-    final temps = session.temperatureSummaries;
-    if (temps.isEmpty) return const SizedBox.shrink();
+  Widget _buildSessionGoveeCaptures(DashboardProvider provider) {
+    if (provider.isLoadingGoveeCaptures) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceLg,
+          vertical: AppSizes.spaceSm,
+        ),
+        child: LinearProgressIndicator(minHeight: 2),
+      );
+    }
+    final captures = provider.goveeCaptures;
+    if (captures.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSizes.spaceLg,
@@ -442,24 +440,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          const Text(
-            'Temperature Summaries',
-            style: AppTextStyles.sectionTitle,
-          ),
-          const SizedBox(height: AppSizes.spaceXs),
-          Wrap(
-            spacing: AppSizes.spaceSm,
-            runSpacing: AppSizes.spaceXs,
-            children: temps.map((t) {
-              final color = ScorecardFormatter.statusColor(t.status);
-              return _summaryBadge(
-                color: color,
-                child: Text(
-                  '${t.activePlace.label}: ${t.tempAvg?.toStringAsFixed(1) ?? '--'}°F',
-                  style: AppTextStyles.badgeLabel.copyWith(color: color),
-                ),
-              );
-            }).toList(),
+          const Text('Govee Readings', style: AppTextStyles.sectionTitle),
+          const SizedBox(height: AppSizes.spaceSm),
+          ...captures.map(
+            (summary) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+              child: GoveeCaptureChart(summary: summary),
+            ),
           ),
         ],
       ),

@@ -21,7 +21,7 @@ class DatabaseHelper {
     if (_db != null) return _db!;
     _db = await openDatabase(
       await _databasePath(),
-      version: 21,
+      version: 22,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -382,6 +382,7 @@ class DatabaseHelper {
     await _createAuditSessionTables(db);
     await _createStationSamplesTable(db);
     await _createTemperatureRhTables(db);
+    await _createGoveeCaptureTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -616,6 +617,9 @@ class DatabaseHelper {
     if (oldVersion < 21) {
       await _applyV21Upgrade(db);
     }
+    if (oldVersion < 22) {
+      await _applyV22Upgrade(db);
+    }
   }
 
   Future<void> _createHatcheryTables(Database db) async {
@@ -770,6 +774,73 @@ class DatabaseHelper {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_temperature_readings_hatchery_time ON temperature_readings (hatcheryId, recordedAt)',
+    );
+  }
+
+  Future<void> _createGoveeCaptureTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS govee_daily_captures (
+      id TEXT PRIMARY KEY,
+      customerId TEXT NOT NULL,
+      hatcheryId TEXT NOT NULL,
+      place TEXT NOT NULL,
+      captureDate TEXT NOT NULL,
+      deviceId TEXT,
+      deviceName TEXT,
+      status TEXT NOT NULL,
+      tempAvg REAL,
+      tempMin REAL,
+      tempMax REAL,
+      rhAvg REAL,
+      rhMin REAL,
+      rhMax REAL,
+      spotCount INTEGER NOT NULL,
+      readingCount INTEGER NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      UNIQUE(customerId, hatcheryId, place, captureDate)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS govee_spot_captures (
+      id TEXT PRIMARY KEY,
+      captureId TEXT NOT NULL,
+      spotIndex INTEGER NOT NULL,
+      spotLabel TEXT NOT NULL,
+      warmupStartedAt TEXT NOT NULL,
+      validStartedAt TEXT NOT NULL,
+      validEndedAt TEXT NOT NULL,
+      validDurationSeconds INTEGER NOT NULL,
+      tempAvg REAL,
+      tempMin REAL,
+      tempMax REAL,
+      rhAvg REAL,
+      rhMin REAL,
+      rhMax REAL,
+      readingCount INTEGER NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS govee_spot_readings (
+      id TEXT PRIMARY KEY,
+      captureId TEXT NOT NULL,
+      spotId TEXT NOT NULL,
+      readingIndex INTEGER NOT NULL,
+      recordedAt TEXT NOT NULL,
+      temperatureFahrenheit REAL NOT NULL,
+      humidity REAL NOT NULL,
+      rssi INTEGER,
+      deviceName TEXT,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE,
+      FOREIGN KEY (spotId) REFERENCES govee_spot_captures(id) ON DELETE CASCADE
+    )''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_govee_daily_scope ON govee_daily_captures (customerId, hatcheryId, place, captureDate)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_govee_spots_capture ON govee_spot_captures (captureId, spotIndex)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_govee_readings_spot ON govee_spot_readings (spotId, readingIndex)',
     );
   }
 
@@ -1131,6 +1202,22 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV21UpgradeForTest(Database db) => _applyV21Upgrade(db);
+
+  Future<void> _applyV22Upgrade(Database db) async {
+    await _createGoveeCaptureTables(db);
+    await db.execute('''
+DELETE FROM temperature_readings WHERE sessionId IN (
+  SELECT id FROM temperature_sessions
+  WHERE auditSessionId IS NOT NULL
+)
+''');
+    await db.execute(
+      'DELETE FROM temperature_sessions WHERE auditSessionId IS NOT NULL',
+    );
+  }
+
+  @visibleForTesting
+  Future<void> applyV22UpgradeForTest(Database db) => _applyV22Upgrade(db);
 
   Future<void> _addStationSampleHouseColumns(
     DatabaseExecutor db,
