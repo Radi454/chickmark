@@ -263,10 +263,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 runSpacing: AppSizes.spaceSm,
                 children: [
                   _buildGradientInfoTile('Flock', widget.context.flockId),
-                  _buildGradientInfoTile(
-                    'Breed',
-                    widget.context.breed ?? '--',
-                  ),
+                  _buildGradientInfoTile('Breed', widget.context.breed ?? '--'),
                   _buildGradientInfoTile(
                     'BMK Age',
                     _formatBmkWeeksValue(bmkAgeWeeks),
