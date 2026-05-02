@@ -88,64 +88,7 @@ class GoveeScopePicker extends StatelessWidget {
                     },
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final current =
-                          DateTime.tryParse(govee.captureDate ?? '') ??
-                          DateTime.now();
-                      final selected = await showDatePicker(
-                        context: context,
-                        initialDate: current,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2035),
-                      );
-                      if (selected == null || !context.mounted) return;
-                      await _configure(
-                        context,
-                        govee.customerId,
-                        govee.hatcheryId,
-                        captureDate: _formatDate(selected),
-                      );
-                    },
-                    icon: const Icon(Icons.calendar_today_outlined),
-                    label: Text(
-                      govee.captureDate ?? _formatDate(DateTime.now()),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<TemperaturePlace>(
-                    initialValue:
-                        govee.place ?? TemperaturePlace.eggStorageRoom,
-                    decoration: const InputDecoration(
-                      labelText: 'Place',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: goveePlaceFlow
-                        .map(
-                          (place) => DropdownMenuItem(
-                            value: place,
-                            child: Text(place.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (place) async {
-                      if (place == null) return;
-                      await _configure(
-                        context,
-                        govee.customerId,
-                        govee.hatcheryId,
-                        place: place,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+            _DatePlaceControls(govee: govee, configure: _configure),
           ],
         ),
       ),
@@ -175,6 +118,93 @@ class GoveeScopePicker extends StatelessWidget {
       hatcheryId: hatcheryId,
       place: selectedPlace,
       captureDate: captureDate ?? govee.captureDate,
+    );
+  }
+}
+
+class _DatePlaceControls extends StatelessWidget {
+  const _DatePlaceControls({required this.govee, required this.configure});
+
+  final GoveeCaptureProvider govee;
+  final Future<void> Function(
+    BuildContext context,
+    String? customerId,
+    String? hatcheryId, {
+    TemperaturePlace? place,
+    String? captureDate,
+  })
+  configure;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateButton = OutlinedButton.icon(
+      onPressed: () async {
+        final current =
+            DateTime.tryParse(govee.captureDate ?? '') ?? DateTime.now();
+        final selected = await showDatePicker(
+          context: context,
+          initialDate: current,
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2035),
+        );
+        if (selected == null || !context.mounted) return;
+        await configure(
+          context,
+          govee.customerId,
+          govee.hatcheryId,
+          captureDate: _formatDate(selected),
+        );
+      },
+      icon: const Icon(Icons.calendar_today_outlined),
+      label: Text(
+        govee.captureDate ?? _formatDate(DateTime.now()),
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+
+    final placeDropdown = DropdownButtonFormField<TemperaturePlace>(
+      initialValue: govee.place ?? TemperaturePlace.eggStorageRoom,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Place',
+        border: OutlineInputBorder(),
+      ),
+      items: goveePlaceFlow
+          .map(
+            (place) => DropdownMenuItem(
+              value: place,
+              child: Text(place.label, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(),
+      onChanged: (place) async {
+        if (place == null) return;
+        await configure(
+          context,
+          govee.customerId,
+          govee.hatcheryId,
+          place: place,
+        );
+      },
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [dateButton, const SizedBox(height: 12), placeDropdown],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: dateButton),
+            const SizedBox(width: 12),
+            Expanded(child: placeDropdown),
+          ],
+        );
+      },
     );
   }
 

@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/govee_capture_model.dart';
 import '../models/temperature_rh_model.dart';
+import '../../features/dashboard/models/govee_capture_summary.dart';
 
 class GoveeCaptureRepository {
   final DatabaseHelper _dbHelper;
@@ -94,6 +95,65 @@ class GoveeCaptureRepository {
       'govee_daily_captures',
       where: where.toString(),
       whereArgs: whereArgs,
+      orderBy: 'captureDate DESC, updatedAt DESC',
+    );
+    return rows.map(GoveeDailyCaptureModel.fromMap).toList();
+  }
+
+  Future<List<GoveeCaptureSummary>> getCaptureSummaries({
+    String? customerId,
+    String? hatcheryId,
+    String? captureDate,
+    TemperaturePlace? place,
+  }) async {
+    final captures = await getCapturesForBrowser(
+      customerId: customerId,
+      hatcheryId: hatcheryId,
+      captureDate: captureDate,
+      place: place,
+    );
+    final summaries = <GoveeCaptureSummary>[];
+    for (final capture in captures) {
+      summaries.add(
+        GoveeCaptureSummary(
+          capture: capture,
+          spots: await getSpotsForCapture(capture.id),
+          readings: await getReadingsForCapture(capture.id),
+        ),
+      );
+    }
+    return summaries;
+  }
+
+  Future<List<GoveeDailyCaptureModel>> getCapturesForBrowser({
+    String? customerId,
+    String? hatcheryId,
+    String? captureDate,
+    TemperaturePlace? place,
+  }) async {
+    final db = await _dbHelper.db;
+    final where = <String>[];
+    final whereArgs = <Object?>[];
+    if (customerId != null && customerId.isNotEmpty) {
+      where.add('customerId = ?');
+      whereArgs.add(customerId);
+    }
+    if (hatcheryId != null && hatcheryId.isNotEmpty) {
+      where.add('hatcheryId = ?');
+      whereArgs.add(hatcheryId);
+    }
+    if (captureDate != null && captureDate.isNotEmpty) {
+      where.add('captureDate = ?');
+      whereArgs.add(captureDate);
+    }
+    if (place != null) {
+      where.add('place = ?');
+      whereArgs.add(place.name);
+    }
+    final rows = await db.query(
+      'govee_daily_captures',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'captureDate DESC, updatedAt DESC',
     );
     return rows.map(GoveeDailyCaptureModel.fromMap).toList();

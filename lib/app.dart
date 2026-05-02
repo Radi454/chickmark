@@ -12,6 +12,7 @@ import 'features/auth/screens/register_screen.dart';
 import 'features/bmk/providers/bmk_provider.dart';
 import 'features/dashboard/providers/dashboard_provider.dart';
 import 'features/govee/providers/govee_capture_provider.dart';
+import 'features/govee/widgets/govee_global_overlay.dart';
 import 'features/home/widgets/main_shell.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/sync/screens/startup_sync_screen.dart';
@@ -27,7 +28,16 @@ class HatchAuditApp extends StatefulWidget {
 }
 
 class _HatchAuditAppState extends State<HatchAuditApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final AuthProvider _authProvider;
+  String? _currentRoute;
+  String? _pendingRoute;
+  bool _hasObservedRoute = false;
+  bool _currentRouteIsPageRoute = true;
+  bool _pendingRouteIsPageRoute = true;
+  bool _routeUpdateScheduled = false;
+
+  static const Set<String> _goveeHiddenRoutes = {'/login'};
 
   @override
   void initState() {
@@ -59,9 +69,18 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
           return MaterialApp(
+            navigatorKey: _navigatorKey,
+            navigatorObservers: [
+              _RouteNameObserver(onRouteChanged: _handleRouteChanged),
+            ],
             title: 'ChickMark',
             theme: AppTheme.light(),
             initialRoute: _getInitialRoute(authProvider.state),
+            builder: (context, child) => GoveeGlobalOverlay(
+              showLauncher: _shouldShowGovee(authProvider.state),
+              panelContextBuilder: () => _navigatorKey.currentContext,
+              child: child ?? const SizedBox.shrink(),
+            ),
             routes: {
               '/login': (context) => const LoginScreen(),
               '/register': (context) => const RegisterScreen(),
@@ -87,5 +106,70 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
       case AuthState.unauthenticated:
         return '/login';
     }
+  }
+
+  bool _shouldShowGovee(AuthState state) {
+    if (state != AuthState.authenticated) return false;
+    if (_hasObservedRoute && !_currentRouteIsPageRoute) return false;
+    final routeName = _hasObservedRoute
+        ? _currentRoute
+        : _getInitialRoute(state);
+    return !_goveeHiddenRoutes.contains(routeName);
+  }
+
+  void _handleRouteChanged(Route<dynamic>? route) {
+    final routeName = route?.settings.name;
+    final isPageRoute = route == null || route is PageRoute<dynamic>;
+    if (_hasObservedRoute &&
+        _currentRoute == routeName &&
+        _currentRouteIsPageRoute == isPageRoute) {
+      return;
+    }
+
+    _pendingRoute = routeName;
+    _pendingRouteIsPageRoute = isPageRoute;
+    if (_routeUpdateScheduled) return;
+
+    _routeUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _routeUpdateScheduled = false;
+      if (!mounted) return;
+
+      final nextRoute = _pendingRoute;
+      final nextIsPageRoute = _pendingRouteIsPageRoute;
+      _pendingRoute = null;
+      if (_hasObservedRoute &&
+          _currentRoute == nextRoute &&
+          _currentRouteIsPageRoute == nextIsPageRoute) {
+        return;
+      }
+
+      setState(() {
+        _hasObservedRoute = true;
+        _currentRoute = nextRoute;
+        _currentRouteIsPageRoute = nextIsPageRoute;
+      });
+    });
+  }
+}
+
+class _RouteNameObserver extends NavigatorObserver {
+  final ValueChanged<Route<dynamic>?> onRouteChanged;
+
+  _RouteNameObserver({required this.onRouteChanged});
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    onRouteChanged(route);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    onRouteChanged(newRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    onRouteChanged(previousRoute);
   }
 }
