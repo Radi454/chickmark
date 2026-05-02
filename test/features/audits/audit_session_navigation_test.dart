@@ -284,63 +284,64 @@ void main() {
     );
   });
 
-  testWidgets('supported audit room station shows Govee readings button', (
-    tester,
-  ) async {
-    final repository = MockAuditSessionRepository();
-    final activityLog = MockActivityLogRepository();
-    final supabase = MockSupabaseService();
-    final provider = AuditSessionProvider(
-      repository: repository,
-      activityLogRepository: activityLog,
-      supabaseService: supabase,
-    );
+  testWidgets(
+    'supported audit room station relies on floating Govee launcher',
+    (tester) async {
+      final repository = MockAuditSessionRepository();
+      final activityLog = MockActivityLogRepository();
+      final supabase = MockSupabaseService();
+      final provider = AuditSessionProvider(
+        repository: repository,
+        activityLogRepository: activityLog,
+        supabaseService: supabase,
+      );
 
-    when(() => repository.insertSession(any())).thenAnswer((_) async {});
-    when(
-      () => activityLog.log(
-        any(),
-        any(),
-        entityType: any(named: 'entityType'),
-        entityId: any(named: 'entityId'),
-        details: any(named: 'details'),
-      ),
-    ).thenAnswer((_) async {});
-    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+      when(() => repository.insertSession(any())).thenAnswer((_) async {});
+      when(
+        () => activityLog.log(
+          any(),
+          any(),
+          entityType: any(named: 'entityType'),
+          entityId: any(named: 'entityId'),
+          details: any(named: 'details'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
 
-    await provider.startSession(
-      context: AuditSessionContext(
-        customerId: SessionTestFixtures.testCustomerId,
-        hatcheryId: SessionTestFixtures.testHatcheryId,
-        flockId: SessionTestFixtures.testFlockId,
-        date: SessionTestFixtures.testVisitDate,
-        breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['egg_storage'],
-      ),
-    );
+      await provider.startSession(
+        context: AuditSessionContext(
+          customerId: SessionTestFixtures.testCustomerId,
+          hatcheryId: SessionTestFixtures.testHatcheryId,
+          flockId: SessionTestFixtures.testFlockId,
+          date: SessionTestFixtures.testVisitDate,
+          breed: SessionTestFixtures.testBreed,
+          selectedStationKeys: const ['egg_storage'],
+        ),
+      );
 
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: provider),
-          ChangeNotifierProvider(create: (_) => CustomersProvider()),
-          ChangeNotifierProvider(
-            create: (_) => AuthProvider(supabaseService: supabase),
-          ),
-          ChangeNotifierProvider(create: (_) => AppProvider()),
-          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
-        ],
-        child: const MaterialApp(home: AuditSessionScreen()),
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: provider),
+            ChangeNotifierProvider(create: (_) => CustomersProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(supabaseService: supabase),
+            ),
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+          ],
+          child: const MaterialApp(home: AuditSessionScreen()),
+        ),
+      );
+      await tester.pump();
 
-    expect(find.text('Govee readings'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('audit-open-govee-readings')),
-      findsOneWidget,
-    );
-  });
+      expect(find.text('Govee readings'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('audit-open-govee-readings')),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('unsupported audit station does not show Govee readings button', (
     tester,

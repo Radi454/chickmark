@@ -27,7 +27,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   static const int spotCount = 3;
   static const Duration warmupDuration = Duration(seconds: 60);
   static const Duration minimumValidDuration = Duration(seconds: 60);
-  static const Duration maximumValidDuration = Duration(minutes: 5);
+  static const Duration maximumValidDuration = Duration(minutes: 15);
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
@@ -44,6 +44,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   DateTime? _warmupStartedAt;
   String? _error;
   final List<_PendingSpotCapture> _pendingSpots = [];
+  _SpotSyncWindow? _failedSyncWindow;
   TemperaturePlace? _suggestedNextPlace;
   Timer? _phaseTimer;
 
@@ -91,6 +92,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _captureDate = captureDate ?? _formatDate(_clock());
     _phase = GoveeSpotPhase.idle;
     _warmupStartedAt = null;
+    _failedSyncWindow = null;
     _stopPhaseTimer();
     _error = null;
     _pendingSpots.clear();
@@ -117,6 +119,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     }
 
     _warmupStartedAt = _clock();
+    _failedSyncWindow = null;
     _phase = GoveeSpotPhase.warmup;
     _startPhaseTimer();
     _error = null;
@@ -124,38 +127,43 @@ class GoveeCaptureProvider extends ChangeNotifier {
   }
 
   Future<void> finishCurrentSpot() async {
-    if (!canFinishCurrentSpot || _warmupStartedAt == null) {
+    if (!canFinishCurrentSpot &&
+        (_phase != GoveeSpotPhase.readyForNext || _failedSyncWindow == null)) {
       _error = 'Complete warmup and the minimum valid window first';
       notifyListeners();
       return;
     }
 
-    final warmupStartedAt = _warmupStartedAt!;
-    final validStartedAt = warmupStartedAt.add(warmupDuration);
-    final latestValidEndedAt = validStartedAt.add(maximumValidDuration);
-    final validEndedAt = _clock().isAfter(latestValidEndedAt)
-        ? latestValidEndedAt
-        : _clock();
+    final syncWindow = _failedSyncWindow ?? _buildCurrentSyncWindow();
+    if (syncWindow == null) {
+      _error = 'Complete warmup and the minimum valid window first';
+      notifyListeners();
+      return;
+    }
 
     _phase = GoveeSpotPhase.syncing;
     _stopPhaseTimer();
     _error = null;
     notifyListeners();
 
-    final synced = await _goveeService.syncHistory(
-      startedAt: validStartedAt,
-      endedAt: validEndedAt,
-    );
+    final List<GoveeSensorReading> synced;
+    try {
+      synced = await _goveeService.syncHistory(
+        startedAt: syncWindow.validStartedAt,
+        endedAt: syncWindow.validEndedAt,
+      );
+    } catch (_) {
+      _markSyncFailed(syncWindow);
+      return;
+    }
     final valid = _filterValidSyncedReadings(
       synced,
-      validStartedAt,
-      validEndedAt,
+      syncWindow.validStartedAt,
+      syncWindow.validEndedAt,
     );
 
     if (valid.length < 60) {
-      _error = 'Not enough synced Govee readings for this spot';
-      _phase = GoveeSpotPhase.readyForNext;
-      notifyListeners();
+      _markSyncFailed(syncWindow);
       return;
     }
 
@@ -163,12 +171,13 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _pendingSpots.add(
       _PendingSpotCapture(
         spotIndex: _pendingSpots.length + 1,
-        warmupStartedAt: warmupStartedAt,
-        validStartedAt: validStartedAt,
-        validEndedAt: validEndedAt,
+        warmupStartedAt: syncWindow.warmupStartedAt,
+        validStartedAt: syncWindow.validStartedAt,
+        validEndedAt: syncWindow.validEndedAt,
         readings: compressed,
       ),
     );
+    _failedSyncWindow = null;
     _warmupStartedAt = null;
     _phase = _pendingSpots.length >= spotCount
         ? GoveeSpotPhase.review
@@ -305,6 +314,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     final previousPlace = _place;
     _pendingSpots.clear();
     _warmupStartedAt = null;
+    _failedSyncWindow = null;
     _stopPhaseTimer();
     _phase = GoveeSpotPhase.saved;
     _suggestedNextPlace = previousPlace == null
@@ -371,6 +381,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   void _refreshTimedPhase() {
     final warmupStartedAt = _warmupStartedAt;
     if (warmupStartedAt == null ||
+        _failedSyncWindow != null ||
         (_phase != GoveeSpotPhase.warmup &&
             _phase != GoveeSpotPhase.validRecording &&
             _phase != GoveeSpotPhase.readyForNext)) {
@@ -407,6 +418,30 @@ class GoveeCaptureProvider extends ChangeNotifier {
   void _stopPhaseTimer() {
     _phaseTimer?.cancel();
     _phaseTimer = null;
+  }
+
+  _SpotSyncWindow? _buildCurrentSyncWindow() {
+    final warmupStartedAt = _warmupStartedAt;
+    if (warmupStartedAt == null) return null;
+    final validStartedAt = warmupStartedAt.add(warmupDuration);
+    final latestValidEndedAt = validStartedAt.add(maximumValidDuration);
+    final now = _clock();
+    final validEndedAt = now.isAfter(latestValidEndedAt)
+        ? latestValidEndedAt
+        : now;
+    return _SpotSyncWindow(
+      warmupStartedAt: warmupStartedAt,
+      validStartedAt: validStartedAt,
+      validEndedAt: validEndedAt,
+    );
+  }
+
+  void _markSyncFailed(_SpotSyncWindow syncWindow) {
+    _failedSyncWindow = syncWindow;
+    _error =
+        'Govee sync did not complete. Keep the H5051 powered on and near the app, reconnect Govee, then retry sync.';
+    _phase = GoveeSpotPhase.readyForNext;
+    notifyListeners();
   }
 
   @override
@@ -484,5 +519,17 @@ class _PendingSpotCapture {
     required this.validStartedAt,
     required this.validEndedAt,
     required this.readings,
+  });
+}
+
+class _SpotSyncWindow {
+  final DateTime warmupStartedAt;
+  final DateTime validStartedAt;
+  final DateTime validEndedAt;
+
+  const _SpotSyncWindow({
+    required this.warmupStartedAt,
+    required this.validStartedAt,
+    required this.validEndedAt,
   });
 }

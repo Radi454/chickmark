@@ -59,8 +59,9 @@ The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
 back navigation, and triggers background sync after the first Home build.
 
-The previous floating Measures launcher is no longer shown. Govee recording is
-entered from the Govee tab or from a station-level Govee readings button.
+The previous floating Measures launcher is no longer shown. Authenticated shell
+routes show a global draggable Govee launcher that opens an active Govee capture
+overlay on top of the current screen. The overlay is hidden on auth-only routes.
 
 ## 3. Audit Workflow
 
@@ -251,17 +252,35 @@ Hatcher Optimizing captures:
 
 Govee is a standalone daily capture workflow. It is independent from audit
 sessions and is keyed by `customerId`, `hatcheryId`, place, and calendar
-`captureDate`. The Govee screen is active-recording only; saved captures are
-reviewed from dashboard surfaces rather than browsed in the Govee tab.
+`captureDate`. Active capture is opened from the global floating launcher as an
+overlay on top of any shell screen. On first use during an audit session, the
+overlay seeds the customer and hatchery from the active visit and defaults the
+date to today.
+
+The active Govee overlay contains the live H5051 card, scope picker, spot
+recorder, replacement notice, review step, and saved notice. The live H5051 card
+is monitor-only: it shows connection, latest temperature/RH, battery, RSSI, and
+scan/read controls, but saved Govee captures do not record from live broadcast
+readings. Finish Spot saves only from the H5051 device-history sync window.
+
+The Govee tab is a saved-capture browser. It filters saved daily captures by
+customer, hatchery, date, and place, then renders the same combined Temp/RH chart
+summaries used by dashboard/visit surfaces.
 
 Each saved place/date capture contains exactly three spot segments. A spot
 starts with 60 seconds of warmup that is ignored and never saved, then requires
-at least 60 seconds of valid synced Govee history and allows at most 300 valid
+at least 60 seconds of valid synced Govee history and allows at most 900 valid
 seconds. The user cannot finish a spot before the minimum valid window. At the
-maximum valid window the provider auto-ends the spot and prompts relocation.
-Each spot is compressed into up to 60 bucket-averaged readings from synced
-device history. The review step allows editing only the three spot labels,
-defaulting to Spot 1, Spot 2, and Spot 3.
+maximum valid window the provider auto-ends the spot, plays one short system
+sound through the floating launcher, animates the launcher for attention, and
+prompts relocation. Each spot is compressed into up to 60 bucket-averaged
+readings from synced device history. The review step allows editing only the
+three spot labels, defaulting to Spot 1, Spot 2, and Spot 3.
+
+If spot sync does not return enough valid readings or throws, the workflow
+treats that as a device/app connection problem. It freezes the original spot
+window, shows reconnect and retry-sync actions, and blocks advancement until the
+same window syncs successfully.
 
 Saving a capture atomically replaces any existing capture for the same customer,
 hatchery, place, and date. The old capture remains intact until the new
@@ -269,11 +288,10 @@ three-spot recording is saved successfully. After saving, the active chart is
 cleared and the screen can suggest the next default place in this flow: Egg
 storage room, Chick holding area, Incubator room, and Hatcher room.
 
-Audit station screens show a compact `Govee readings` button for room-level
-stations with a mapped place: Egg storage room, Chick holding area, Incubator
-room, and Hatcher room. Opening from a station preselects customer, hatchery,
-and place in the Govee tab, while still letting the user change the place before
-recording.
+Audit station screens no longer show a compact `Govee readings` button for
+room-level stations. Auditors use the global floating launcher during
+walk-through audits, and the overlay remains independent from the current
+station screen.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
 session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
@@ -359,8 +377,8 @@ capture summaries for the selected visit date.
 
 `GoveeCaptureProvider` owns the active standalone Govee capture scope, existing
 capture lookup, spot state machine, warmup and valid windows, synced-history
-bucket averaging, editable review labels, replacement save, and next-place
-progression.
+bucket averaging, sync-failure retry windows, editable review labels,
+replacement save, and next-place progression.
 
 `TemperatureRhProvider` owns BLE/Govee initialization, scan/connect state,
 preferred device persistence, active place/session, live and saved readings,
@@ -458,12 +476,22 @@ capture.
   surfaced as blocking workflow errors.
 - Some legacy temperature/RH provider code remains for old rows and tests, but
   the user-facing tab is now the standalone Govee workflow.
+- The active Govee capture UI uses H5051 device-history sync as its save source,
+  but the low-level `GoveeService.syncHistory` implementation currently reports
+  that device-history sync is unavailable and returns no readings. The UI,
+  provider, database, dashboard, and tests are wired for synced history once the
+  H5051 history protocol is implemented.
 
 ## 9. Change Log
 
 - 2026-05-02: Replaced the Measures tab/launcher with standalone Govee daily
   captures, added Govee persistence and sync tables, exposed station deep links,
   and moved saved Govee charts to dashboard/visit surfaces.
+- 2026-05-02: Restored Govee as a global floating overlay with a live H5051
+  monitor card, moved the Govee tab to saved-capture browsing, removed station
+  Govee buttons, extended the spot max window to 15 minutes, added auto-end
+  sound/attention behavior, and preserved failed sync windows for reconnect and
+  retry.
 - 2026-04-28: Replaced placeholders with a code-derived map of current
   navigation, audit workflow, station screens, data hierarchy, provider state,
   persistence, sync, measures, OCR, and known technical debt.

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../features/temperature/providers/temperature_rh_provider.dart';
 import '../providers/govee_capture_provider.dart';
 
 class GoveeSpotRecorder extends StatelessWidget {
@@ -83,7 +86,39 @@ class GoveeSpotRecorder extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
+            if (phase == GoveeSpotPhase.readyForNext)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(
+                      context.read<TemperatureRhProvider>().connectSensor(),
+                    ),
+                    icon: const Icon(Icons.bluetooth_connected, size: 18),
+                    label: const Text('Reconnect Govee'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () => context
+                        .read<GoveeCaptureProvider>()
+                        .finishCurrentSpot(),
+                    icon: const Icon(Icons.sync, size: 18),
+                    label: const Text('Retry sync'),
+                  ),
+                ],
+              ),
+            if (phase == GoveeSpotPhase.readyForNext)
+              const SizedBox(height: 10),
           ],
+          Text(
+            'Minimum 1 min warmup + 1 min recording. Auto-end at 15 min recording.',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(

@@ -142,6 +142,13 @@ void main() {
     expect(provider.canFinishCurrentSpot, isTrue);
   });
 
+  test('maximum valid recording window is fifteen minutes', () {
+    expect(
+      GoveeCaptureProvider.maximumValidDuration,
+      const Duration(minutes: 15),
+    );
+  });
+
   test('bucket averaging compresses synced spot history to 60 readings', () {
     final readings = List.generate(300, (index) {
       return GoveeSensorReading(
@@ -161,6 +168,42 @@ void main() {
     expect(compressed, hasLength(60));
     expect(compressed.first.temperatureFahrenheit, closeTo(70.02, 0.05));
     expect(compressed.first.humidity, closeTo(55.01, 0.05));
+  });
+
+  test('retrying failed sync preserves the original spot window', () async {
+    final syncedWindows = <({DateTime startedAt, DateTime endedAt})>[];
+    when(
+      () => mockGovee.syncHistory(
+        startedAt: any(named: 'startedAt'),
+        endedAt: any(named: 'endedAt'),
+      ),
+    ).thenAnswer((invocation) async {
+      final startedAt = invocation.namedArguments[#startedAt] as DateTime;
+      final endedAt = invocation.namedArguments[#endedAt] as DateTime;
+      syncedWindows.add((startedAt: startedAt, endedAt: endedAt));
+      if (syncedWindows.length == 1) {
+        return const <GoveeSensorReading>[];
+      }
+      return List.generate(60, (index) {
+        return _reading(timestamp: startedAt.add(Duration(seconds: index)));
+      });
+    });
+    final provider = await configuredProvider();
+
+    await provider.startCurrentSpot();
+    fakeClock.elapse(const Duration(seconds: 120));
+    await provider.finishCurrentSpot();
+
+    expect(provider.completedSpotCount, 0);
+    expect(provider.error, contains('reconnect Govee'));
+
+    fakeClock.elapse(const Duration(minutes: 10));
+    await provider.finishCurrentSpot();
+
+    expect(provider.completedSpotCount, 1);
+    expect(syncedWindows, hasLength(2));
+    expect(syncedWindows[1].startedAt, syncedWindows[0].startedAt);
+    expect(syncedWindows[1].endedAt, syncedWindows[0].endedAt);
   });
 
   test(
