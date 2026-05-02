@@ -96,8 +96,9 @@ a station-exit confirmation path that attempts to save the current station.
 When a visit is resumed or a previously saved station is opened inside the
 session, the station frame hydrates the station from saved `audits` rows and
 station sample rows for that session before rendering so edits resave in place.
-Hatch Analysis & Egg Breakouts and Chicks suppress the large current-station progress
-strip so their own workbench headers are the first station content.
+This includes machine-comparison rows for Setters and Hatchers. Hatch Analysis
+& Egg Breakouts and Chicks suppress the large current-station progress strip so
+their own workbench headers are the first station content.
 
 Station save behavior:
 

@@ -8,6 +8,7 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/station_sample_model.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
@@ -20,12 +21,16 @@ import 'audit_context_screen.dart';
 class SetterOptimizingScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
+  final List<AuditModel> initialAudits;
+  final List<StationSampleModel> initialStationSamples;
   final int initialSectionIndex;
 
   const SetterOptimizingScreen({
     super.key,
     required this.context,
     this.initialAudit,
+    this.initialAudits = const [],
+    this.initialStationSamples = const [],
     this.initialSectionIndex = 0,
   });
   @override
@@ -101,6 +106,9 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
         date: widget.context.date,
       ),
       existingAudit: widget.initialAudit,
+      existingAudits: widget.initialAudits,
+      existingStationSamples: widget.initialStationSamples,
+      readOnly: widget.context.sessionId == null ? null : false,
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,

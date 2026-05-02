@@ -10,6 +10,8 @@ import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
+import 'package:hatchaudit/features/audits/screens/hatcher_optimizing_screen.dart';
+import 'package:hatchaudit/features/audits/screens/setter_optimizing_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
@@ -433,6 +435,209 @@ void main() {
       listen: false,
     );
 
+    expect(stationProvider.drafts, hasLength(2));
+    expect(stationProvider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
+  });
+
+  testWidgets('resumed Setters station hydrates saved machine samples', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-setters-resume',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['setters'],
+      stationsCompleted: const ['setters'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final firstMachine = AuditModel.fromMap({
+      ...makeSetterAudit(id: 'audit-setters-resume-1').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'setters-group-1',
+      'hatchNumber': 1,
+      'setterId': 'setter-a',
+      'soSetterId': 'setter-a',
+      'soEstAvg': 99.5,
+    });
+    final secondMachine = AuditModel.fromMap({
+      ...makeSetterAudit(id: 'audit-setters-resume-2').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'setters-group-1',
+      'hatchNumber': 2,
+      'setterId': 'setter-b',
+      'soSetterId': 'setter-b',
+      'soEstAvg': 100.1,
+    });
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => auditRepository.getAuditsBySessionId(session.id),
+    ).thenAnswer((_) async => [secondMachine, firstMachine]);
+    when(
+      () => stationSampleRepository.getSamplesForStation(session.id, 'setters'),
+    ).thenAnswer((_) async => []);
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final screenElement = tester.element(find.byType(SetterOptimizingScreen));
+    final stationProvider = Provider.of<AuditProvider>(
+      screenElement,
+      listen: false,
+    );
+
+    expect(stationProvider.isReadOnly, isFalse);
+    expect(stationProvider.drafts, hasLength(2));
+    expect(stationProvider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
+  });
+
+  testWidgets('resumed Hatchers station hydrates saved machine samples', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-hatchers-resume',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['hatchers'],
+      stationsCompleted: const ['hatchers'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final firstMachine = AuditModel.fromMap({
+      ...makeHatcherAudit(id: 'audit-hatchers-resume-1').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'hatchers-group-1',
+      'hatchNumber': 1,
+      'hatcherId': 'hatcher-a',
+      'hoHatcherId': 'hatcher-a',
+      'hoCvtAvg': 103.8,
+    });
+    final secondMachine = AuditModel.fromMap({
+      ...makeHatcherAudit(id: 'audit-hatchers-resume-2').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'hatchers-group-1',
+      'hatchNumber': 2,
+      'hatcherId': 'hatcher-b',
+      'hoHatcherId': 'hatcher-b',
+      'hoCvtAvg': 104.3,
+    });
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => auditRepository.getAuditsBySessionId(session.id),
+    ).thenAnswer((_) async => [secondMachine, firstMachine]);
+    when(
+      () =>
+          stationSampleRepository.getSamplesForStation(session.id, 'hatchers'),
+    ).thenAnswer((_) async => []);
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final screenElement = tester.element(find.byType(HatcherOptimizingScreen));
+    final stationProvider = Provider.of<AuditProvider>(
+      screenElement,
+      listen: false,
+    );
+
+    expect(stationProvider.isReadOnly, isFalse);
     expect(stationProvider.drafts, hasLength(2));
     expect(stationProvider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
   });

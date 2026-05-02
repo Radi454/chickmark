@@ -677,11 +677,15 @@ class _StationFrameState extends State<_StationFrame> {
         return SetterOptimizingScreen(
           context: widget.context,
           initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
         );
       case 'hatchers':
         return HatcherOptimizingScreen(
           context: widget.context,
           initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
         );
       default:
         return null;
