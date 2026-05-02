@@ -2,6 +2,157 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/services/govee/govee_service.dart';
 
 void main() {
+  group('GoveeService history sync helpers', () {
+    test('builds 0x3301 history request payloads with checksum', () {
+      expect(
+        GoveeService.buildGoveeHistoryRequestForTesting(
+          startMinutesBack: 21,
+          endMinutesBack: 2,
+        ),
+        const [
+          0x33,
+          0x01,
+          0x00,
+          0x15,
+          0x00,
+          0x02,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x25,
+        ],
+      );
+
+      expect(
+        GoveeService.buildGoveeHistoryRequestForTesting(
+          startMinutesBack: 28800,
+          endMinutesBack: 1,
+        ),
+        const [
+          0x33,
+          0x01,
+          0x70,
+          0x80,
+          0x00,
+          0x01,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0xc3,
+        ],
+      );
+    });
+
+    test('parses history data packets into minute timestamps', () {
+      final baseMinute = DateTime.parse('2026-05-02T10:30:00');
+      final readings =
+          GoveeService.parseGoveeHistoryDataPacketForTesting(const [
+            0x00,
+            0x15,
+            0x03,
+            0x71,
+            0xe7,
+            0x03,
+            0x75,
+            0xcf,
+            0x03,
+            0x71,
+            0xe7,
+            0x03,
+            0x75,
+            0xcf,
+            0x03,
+            0x71,
+            0xe6,
+            0x03,
+            0x75,
+            0xce,
+          ], syncBaseMinute: baseMinute);
+
+      expect(readings, hasLength(6));
+      expect(readings.first.timestamp, DateTime.parse('2026-05-02T10:09:00'));
+      expect(readings.last.timestamp, DateTime.parse('2026-05-02T10:14:00'));
+      expect(readings.first.temperatureFahrenheit, closeTo(72.5, 0.1));
+      expect(readings.first.humidity, closeTo(76.7, 0.1));
+    });
+
+    test('skips padded history records', () {
+      final readings =
+          GoveeService.parseGoveeHistoryDataPacketForTesting(const [
+            0x00,
+            0x03,
+            0x03,
+            0x75,
+            0xcf,
+            0x03,
+            0x75,
+            0xcf,
+            0x03,
+            0x75,
+            0xce,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+          ], syncBaseMinute: DateTime.parse('2026-05-02T10:30:00'));
+
+      expect(readings, hasLength(3));
+    });
+
+    test('parses history completion message count', () {
+      expect(
+        GoveeService.parseGoveeHistoryCompletionCountForTesting(const [
+          0xee,
+          0x01,
+          0x00,
+          0x04,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0xeb,
+        ]),
+        4,
+      );
+    });
+  });
+
   group('GoveeService command response parser', () {
     test('ignores empty 0x0A command echoes', () {
       final reading = GoveeService.parseGoveeCommandResponseForTesting(const [
@@ -252,8 +403,9 @@ void main() {
     });
 
     test('handles empty byte list gracefully', () {
-      final reading =
-          GoveeService.parseGoveeCommandResponseForTesting(const []);
+      final reading = GoveeService.parseGoveeCommandResponseForTesting(
+        const [],
+      );
 
       expect(reading, isNull);
     });
@@ -388,10 +540,14 @@ void main() {
 
   group('Govee combined advertisement parser (via testing wrapper)', () {
     test('parses valid Govee combined 6-byte advert', () {
-      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(
-        const [0x00, 0x03, 0x84, 0x66, 0x63, 0x00],
-        manufacturerId: 0xEC88,
-      );
+      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(const [
+        0x00,
+        0x03,
+        0x84,
+        0x66,
+        0x63,
+        0x00,
+      ], manufacturerId: 0xEC88);
 
       expect(reading, isNotNull);
       expect(reading!.temperatureFahrenheit, isNotNull);
@@ -400,19 +556,26 @@ void main() {
     });
 
     test('rejects combined advert with invalid length', () {
-      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(
-        const [0x00, 0x4c, 0xc8, 0xaf, 0x63],
-        manufacturerId: 0xEC88,
-      );
+      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(const [
+        0x00,
+        0x4c,
+        0xc8,
+        0xaf,
+        0x63,
+      ], manufacturerId: 0xEC88);
 
       expect(reading, isNull);
     });
 
     test('rejects combined advert with non-Govee manufacturer id', () {
-      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(
-        const [0x00, 0x4c, 0xc8, 0xaf, 0x63, 0x00],
-        manufacturerId: 0x0001,
-      );
+      final reading = GoveeService.parseGoveeCombinedAdvertForTesting(const [
+        0x00,
+        0x4c,
+        0xc8,
+        0xaf,
+        0x63,
+        0x00,
+      ], manufacturerId: 0x0001);
 
       expect(reading, isNull);
     });

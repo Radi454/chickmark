@@ -19,8 +19,26 @@ class DatabaseHelper {
 
   Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(
-      await _databasePath(),
+    final dbPath = await _databasePath();
+    try {
+      _db = await _openAppDatabase(dbPath);
+    } catch (error) {
+      if (!kIsWeb || !_isRecoverableWebDatabaseOpenError(error)) {
+        rethrow;
+      }
+
+      debugPrint(
+        'Resetting unreadable ChickMark web database at $dbPath: $error',
+      );
+      await deleteDatabase(dbPath);
+      _db = await _openAppDatabase(dbPath);
+    }
+    return _db!;
+  }
+
+  Future<Database> _openAppDatabase(String dbPath) {
+    return openDatabase(
+      dbPath,
       version: 23,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -28,7 +46,18 @@ class DatabaseHelper {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
-    return _db!;
+  }
+
+  bool _isRecoverableWebDatabaseOpenError(Object error) {
+    final message = error.toString();
+    return message.contains('Invalid typed array length') ||
+        message.contains('database disk image is malformed') ||
+        message.contains('sqlite3/src/wasm/vfs/indexed_db');
+  }
+
+  @visibleForTesting
+  bool isRecoverableWebDatabaseOpenErrorForTest(Object error) {
+    return _isRecoverableWebDatabaseOpenError(error);
   }
 
   Future<String> _databasePath() async {

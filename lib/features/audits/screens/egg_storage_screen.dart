@@ -27,6 +27,7 @@ import '../models/est_grid_data.dart';
 import '../models/est_guided_capture_state.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/est_guided_capture_panel.dart';
 import '../widgets/inline_camera_capture.dart';
@@ -361,9 +362,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           child: AuditKeyboardDismiss(
             child: SingleChildScrollView(
               controller: _scrollController,
-              padding: const EdgeInsets.all(AppSizes.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: AuditWorkbenchShell(
+                key: const ValueKey('egg-storage-workbench-shell'),
+                maxWidth: 1120,
                 children: [
                   _buildEggStorageHeader(),
                   const SizedBox(height: 16),
@@ -388,98 +389,17 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         ? hatcheryName!.trim()
         : (hatcheryId?.isNotEmpty == true ? hatcheryId! : 'Main Hatchery');
 
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 220),
-      padding: const EdgeInsets.all(AppSizes.spaceXxl),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF089FE0), Color(0xFF1C48C9)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.cardShadowElevated,
-            blurRadius: 22,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'AUDIT STATION',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.badge.copyWith(
-                  fontSize: 22,
-                  letterSpacing: 0,
-                  color: Colors.white.withValues(alpha: 0.82),
-                ),
-              ),
-              const SizedBox(height: AppSizes.spaceMd),
-              Text(
-                'Egg storage room',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.heading.copyWith(
-                  fontSize: 34,
-                  height: 1.05,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSizes.spaceXxl),
-          Container(
-            padding: const EdgeInsets.all(AppSizes.spaceLg),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.24),
-                width: 1.5,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'HATCHERY',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.badge.copyWith(
-                    fontSize: 20,
-                    letterSpacing: 0,
-                    color: Colors.white.withValues(alpha: 0.82),
-                  ),
-                ),
-                const SizedBox(height: AppSizes.spaceSm),
-                Text(
-                  hatcheryLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.title.copyWith(
-                    fontSize: 24,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return AuditStationHero(
+      heroKey: const ValueKey('egg-storage-header'),
+      icon: Icons.inventory_2_outlined,
+      eyebrow: 'AUDIT STATION',
+      title: 'Egg storage room',
+      subtitle: 'Storage class, shell condition, and egg quality checks.',
+      details: [
+        AuditHeroDetail(label: 'Station', value: widget.context.auditType),
+        AuditHeroDetail(label: 'Hatchery', value: hatcheryLabel),
+        const AuditHeroDetail(label: 'Target', value: 'Shell range'),
+      ],
     );
   }
 

@@ -25,12 +25,5 @@ class AppStrings {
   static const String completeVisit = 'Complete Visit';
   static const String nextStation = 'Next Station';
   static const String back = 'Back';
-  static const String saveAndContinue = 'Save and continue';
-  static const String saveAndLeave = 'Save and leave';
-  static const String leaveVisit = 'Leave visit?';
-  static const String leaveStation = 'Leave station?';
-  static const String unsavedChangesPrompt =
-      'This station has unsaved changes. Save before leaving this screen.';
-  static const String stay = 'Stay';
   static const String monitoringPrompt = 'Start monitoring';
 }

@@ -431,12 +431,12 @@ class _HeaderCard extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: AppColors.brandGradient,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
             color: Color(0x14111827),
-            blurRadius: 28,
-            offset: Offset(0, 16),
+            blurRadius: 22,
+            offset: Offset(0, 10),
           ),
         ],
       ),
@@ -448,7 +448,7 @@ class _HeaderCard extends StatelessWidget {
             style: AppTextStyles.caption.copyWith(
               color: Colors.white.withValues(alpha: 0.78),
               fontWeight: FontWeight.w900,
-              letterSpacing: 0.8,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 6),
@@ -456,8 +456,9 @@ class _HeaderCard extends StatelessWidget {
             'Chick quality',
             style: AppTextStyles.heading.copyWith(
               color: Colors.white,
-              fontSize: 30,
+              fontSize: 28,
               fontWeight: FontWeight.w800,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 18),

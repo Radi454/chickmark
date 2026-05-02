@@ -105,6 +105,13 @@ class GoveeSpotRecorder extends StatelessWidget {
                     icon: const Icon(Icons.sync, size: 18),
                     label: const Text('Retry sync'),
                   ),
+                  TextButton.icon(
+                    onPressed: () => context
+                        .read<GoveeCaptureProvider>()
+                        .cancelCurrentSpot(),
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: Text('Restart Spot $currentSpot'),
+                  ),
                 ],
               ),
             if (phase == GoveeSpotPhase.readyForNext)

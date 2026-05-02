@@ -20,6 +20,36 @@ import 'features/temperature/providers/temperature_rh_provider.dart';
 import 'providers/app_provider.dart';
 import 'providers/customers_provider.dart';
 
+const Set<String> _goveeLauncherRoutes = {'/main'};
+
+String _initialRouteForAuthState(AuthState state) {
+  switch (state) {
+    case AuthState.authenticated:
+      return '/main';
+    case AuthState.pendingApproval:
+      return '/pending-approval';
+    case AuthState.loading:
+      return '/login';
+    case AuthState.error:
+    case AuthState.unauthenticated:
+      return '/login';
+  }
+}
+
+bool shouldShowGoveeLauncher({
+  required AuthState state,
+  required bool hasObservedRoute,
+  required String? currentRoute,
+  required bool currentRouteIsPageRoute,
+}) {
+  if (state != AuthState.authenticated) return false;
+  if (hasObservedRoute && !currentRouteIsPageRoute) return false;
+  final routeName = hasObservedRoute
+      ? currentRoute ?? _initialRouteForAuthState(state)
+      : _initialRouteForAuthState(state);
+  return _goveeLauncherRoutes.contains(routeName);
+}
+
 class HatchAuditApp extends StatefulWidget {
   const HatchAuditApp({super.key});
 
@@ -36,8 +66,6 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   bool _currentRouteIsPageRoute = true;
   bool _pendingRouteIsPageRoute = true;
   bool _routeUpdateScheduled = false;
-
-  static const Set<String> _goveeHiddenRoutes = {'/login'};
 
   @override
   void initState() {
@@ -95,26 +123,16 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   }
 
   String _getInitialRoute(AuthState state) {
-    switch (state) {
-      case AuthState.authenticated:
-        return '/main';
-      case AuthState.pendingApproval:
-        return '/pending-approval';
-      case AuthState.loading:
-        return '/login';
-      case AuthState.error:
-      case AuthState.unauthenticated:
-        return '/login';
-    }
+    return _initialRouteForAuthState(state);
   }
 
   bool _shouldShowGovee(AuthState state) {
-    if (state != AuthState.authenticated) return false;
-    if (_hasObservedRoute && !_currentRouteIsPageRoute) return false;
-    final routeName = _hasObservedRoute
-        ? _currentRoute
-        : _getInitialRoute(state);
-    return !_goveeHiddenRoutes.contains(routeName);
+    return shouldShowGoveeLauncher(
+      state: state,
+      hasObservedRoute: _hasObservedRoute,
+      currentRoute: _currentRoute,
+      currentRouteIsPageRoute: _currentRouteIsPageRoute,
+    );
   }
 
   void _handleRouteChanged(Route<dynamic>? route) {

@@ -62,6 +62,23 @@ List<Map<String, Object?>> _stationSampleForeignKeys() => [
 ];
 
 void main() {
+  test('web database recovery recognizes corrupted IndexedDB open errors', () {
+    final helper = DatabaseHelper();
+
+    expect(
+      helper.isRecoverableWebDatabaseOpenErrorForTest(
+        RangeError('Invalid typed array length: -4096'),
+      ),
+      isTrue,
+    );
+    expect(
+      helper.isRecoverableWebDatabaseOpenErrorForTest(
+        StateError('schema migration failed'),
+      ),
+      isFalse,
+    );
+  });
+
   test('v18 migration adds columns without recreating tables', () async {
     final db = MockDatabase();
 

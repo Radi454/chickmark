@@ -241,40 +241,53 @@ class _SampleModeSwitch extends StatelessWidget {
   Widget build(BuildContext context) {
     final height = expanded ? 64.0 : 44.0;
 
-    return Opacity(
-      opacity: enabled ? 1 : 0.62,
-      child: IgnorePointer(
-        ignoring: !enabled,
-        child: Container(
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(height / 2),
-            border: Border.all(color: AppColors.textSecondary),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Row(
-            mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
-            children: [
-              _SampleModeButton(
-                icon: Icons.all_inclusive,
-                label: pooledLabel,
-                active: value == StationSampleModel.sampleModePooled,
-                expanded: expanded,
-                onTap: () => onChanged(StationSampleModel.sampleModePooled),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fillWidth =
+            expanded ||
+            (constraints.hasBoundedWidth && constraints.maxWidth < 560);
+        final large = expanded;
+
+        return Opacity(
+          opacity: enabled ? 1 : 0.62,
+          child: IgnorePointer(
+            ignoring: !enabled,
+            child: Container(
+              width: fillWidth ? double.infinity : null,
+              height: height,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(height / 2),
+                border: Border.all(color: AppColors.textSecondary),
               ),
-              Container(width: 1, color: AppColors.textSecondary),
-              _SampleModeButton(
-                icon: Icons.compare_arrows,
-                label: comparisonLabel,
-                active: value == StationSampleModel.sampleModeComparison,
-                expanded: expanded,
-                onTap: () => onChanged(StationSampleModel.sampleModeComparison),
+              clipBehavior: Clip.antiAlias,
+              child: Row(
+                mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
+                children: [
+                  _SampleModeButton(
+                    icon: Icons.all_inclusive,
+                    label: pooledLabel,
+                    active: value == StationSampleModel.sampleModePooled,
+                    fillWidth: fillWidth,
+                    large: large,
+                    onTap: () => onChanged(StationSampleModel.sampleModePooled),
+                  ),
+                  Container(width: 1, color: AppColors.textSecondary),
+                  _SampleModeButton(
+                    icon: Icons.compare_arrows,
+                    label: comparisonLabel,
+                    active: value == StationSampleModel.sampleModeComparison,
+                    fillWidth: fillWidth,
+                    large: large,
+                    onTap: () =>
+                        onChanged(StationSampleModel.sampleModeComparison),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -283,51 +296,61 @@ class _SampleModeButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
-  final bool expanded;
+  final bool fillWidth;
+  final bool large;
   final VoidCallback onTap;
 
   const _SampleModeButton({
     required this.icon,
     required this.label,
     required this.active,
-    required this.expanded,
+    required this.fillWidth,
+    required this.large,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final gap = large ? 12.0 : 8.0;
+    final horizontalPadding = large ? 22.0 : (fillWidth ? 8.0 : 14.0);
+    final fontSize = large ? 21.0 : 14.0;
+
     final child = InkWell(
       onTap: onTap,
       child: Container(
         height: double.infinity,
-        padding: EdgeInsets.symmetric(horizontal: expanded ? 22 : 14),
+        padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
         color: active ? AppColors.primary : Colors.white,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
           children: [
             Icon(
               icon,
               color: active ? Colors.white : AppColors.primary,
-              size: expanded ? 28 : 20,
+              size: large ? 28 : 20,
             ),
-            const SizedBox(width: 12),
-            if (expanded)
+            SizedBox(width: gap),
+            if (fillWidth)
               Flexible(
                 child: _SampleModeLabel(
                   label: label,
                   active: active,
-                  fontSize: 21,
+                  fontSize: fontSize,
                 ),
               )
             else
-              _SampleModeLabel(label: label, active: active, fontSize: 14),
+              _SampleModeLabel(
+                label: label,
+                active: active,
+                fontSize: fontSize,
+              ),
           ],
         ),
       ),
     );
 
-    return expanded ? Expanded(child: child) : child;
+    return fillWidth ? Expanded(child: child) : child;
   }
 }
 

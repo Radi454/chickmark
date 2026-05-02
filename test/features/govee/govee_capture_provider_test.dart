@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
@@ -39,6 +41,7 @@ void main() {
   late MockGoveeCaptureRepository mockRepo;
   late MockGoveeService mockGovee;
   late FakeClock fakeClock;
+  late StreamController<GoveeSensorReading> liveReadingsController;
 
   setUpAll(() {
     registerFallbackValue(TemperaturePlace.eggStorageRoom);
@@ -64,6 +67,8 @@ void main() {
     mockRepo = MockGoveeCaptureRepository();
     mockGovee = MockGoveeService();
     fakeClock = FakeClock(DateTime.parse('2026-05-02T10:00:00'));
+    liveReadingsController =
+        StreamController<GoveeSensorReading>.broadcast();
 
     when(
       () => mockRepo.getCaptureForScope(
@@ -76,6 +81,7 @@ void main() {
     when(() => mockGovee.deviceId).thenReturn('device-1');
     when(() => mockGovee.deviceName).thenReturn('Govee H5051');
     when(() => mockGovee.signalStrength).thenReturn(-61);
+    when(() => mockGovee.readings).thenAnswer((_) => liveReadingsController.stream);
     when(
       () => mockGovee.syncHistory(
         startedAt: any(named: 'startedAt'),
@@ -83,9 +89,9 @@ void main() {
       ),
     ).thenAnswer((invocation) async {
       final startedAt = invocation.namedArguments[#startedAt] as DateTime;
-      return List.generate(60, (index) {
+      return List.generate(1, (index) {
         return _reading(
-          timestamp: startedAt.add(Duration(seconds: index)),
+          timestamp: startedAt.add(Duration(minutes: index)),
           temp: 70 + index / 100,
           humidity: 55 + index / 200,
         );
@@ -98,6 +104,10 @@ void main() {
         readings: any(named: 'readings'),
       ),
     ).thenAnswer((_) async {});
+  });
+
+  tearDown(() async {
+    await liveReadingsController.close();
   });
 
   Future<GoveeCaptureProvider> configuredProvider() async {
@@ -184,8 +194,8 @@ void main() {
       if (syncedWindows.length == 1) {
         return const <GoveeSensorReading>[];
       }
-      return List.generate(60, (index) {
-        return _reading(timestamp: startedAt.add(Duration(seconds: index)));
+      return List.generate(1, (index) {
+        return _reading(timestamp: startedAt.add(Duration(minutes: index)));
       });
     });
     final provider = await configuredProvider();
@@ -236,14 +246,173 @@ void main() {
       expect(capture.place, TemperaturePlace.eggStorageRoom);
       expect(capture.captureDate, '2026-05-02');
       expect(capture.spotCount, 3);
-      expect(capture.readingCount, 180);
+      expect(capture.readingCount, 3);
       expect(spots.map((spot) => spot.spotLabel), ['Door', 'Middle', 'Back']);
-      expect(spots.map((spot) => spot.readingCount), [60, 60, 60]);
-      expect(readings, hasLength(180));
+      expect(spots.map((spot) => spot.readingCount), [1, 1, 1]);
+      expect(readings, hasLength(3));
       expect(readings.first.readingIndex, 0);
-      expect(readings.last.readingIndex, 59);
+      expect(readings.last.readingIndex, 0);
     },
   );
+
+  test(
+    'falls back to live BLE readings when GATT history sync returns nothing',
+    () async {
+      when(
+        () => mockGovee.syncHistory(
+          startedAt: any(named: 'startedAt'),
+          endedAt: any(named: 'endedAt'),
+        ),
+      ).thenAnswer((_) async => const <GoveeSensorReading>[]);
+
+      final provider = await configuredProvider();
+      await provider.startCurrentSpot();
+
+      final warmupStartedAt = fakeClock.now();
+      final validStartedAt =
+          warmupStartedAt.add(GoveeCaptureProvider.warmupDuration);
+      liveReadingsController.add(
+        _reading(
+          timestamp: validStartedAt.add(const Duration(seconds: 5)),
+          temp: 73.4,
+          humidity: 51.2,
+        ),
+      );
+      liveReadingsController.add(
+        _reading(
+          timestamp: validStartedAt.add(const Duration(seconds: 30)),
+          temp: 73.6,
+          humidity: 51.4,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      fakeClock.elapse(const Duration(seconds: 120));
+      await provider.finishCurrentSpot();
+
+      expect(provider.completedSpotCount, 1);
+      expect(provider.error, isNull);
+    },
+  );
+
+  test(
+    'falls back to live BLE readings when GATT history sync throws',
+    () async {
+      when(
+        () => mockGovee.syncHistory(
+          startedAt: any(named: 'startedAt'),
+          endedAt: any(named: 'endedAt'),
+        ),
+      ).thenThrow(TimeoutException('history sync timeout'));
+
+      final provider = await configuredProvider();
+      await provider.startCurrentSpot();
+
+      final warmupStartedAt = fakeClock.now();
+      final validStartedAt =
+          warmupStartedAt.add(GoveeCaptureProvider.warmupDuration);
+      liveReadingsController.add(
+        _reading(
+          timestamp: validStartedAt.add(const Duration(seconds: 10)),
+          temp: 74.1,
+          humidity: 52.0,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      fakeClock.elapse(const Duration(seconds: 120));
+      await provider.finishCurrentSpot();
+
+      expect(provider.completedSpotCount, 1);
+      expect(provider.error, isNull);
+    },
+  );
+
+  test(
+    'reports sync failure with cause when GATT and live readings both empty',
+    () async {
+      when(
+        () => mockGovee.syncHistory(
+          startedAt: any(named: 'startedAt'),
+          endedAt: any(named: 'endedAt'),
+        ),
+      ).thenThrow(TimeoutException('history sync timeout'));
+
+      final provider = await configuredProvider();
+      await provider.startCurrentSpot();
+      fakeClock.elapse(const Duration(seconds: 120));
+      await provider.finishCurrentSpot();
+
+      expect(provider.completedSpotCount, 0);
+      expect(provider.error, contains('reconnect Govee'));
+      expect(provider.error, contains('history sync timeout'));
+    },
+  );
+
+  test('cancelCurrentSpot clears failed sync state and re-enables start',
+      () async {
+    when(
+      () => mockGovee.syncHistory(
+        startedAt: any(named: 'startedAt'),
+        endedAt: any(named: 'endedAt'),
+      ),
+    ).thenAnswer((_) async => const <GoveeSensorReading>[]);
+
+    final provider = await configuredProvider();
+    await provider.startCurrentSpot();
+    fakeClock.elapse(const Duration(seconds: 120));
+    await provider.finishCurrentSpot();
+
+    expect(provider.phase, GoveeSpotPhase.readyForNext);
+    expect(provider.error, isNotNull);
+
+    provider.cancelCurrentSpot();
+
+    expect(provider.phase, GoveeSpotPhase.idle);
+    expect(provider.error, isNull);
+    expect(provider.completedSpotCount, 0);
+    expect(provider.canFinishCurrentSpot, isFalse);
+  });
+
+  test('cancelCurrentSpot after a saved spot returns to complete phase',
+      () async {
+    when(
+      () => mockGovee.syncHistory(
+        startedAt: any(named: 'startedAt'),
+        endedAt: any(named: 'endedAt'),
+      ),
+    ).thenAnswer((invocation) async {
+      final startedAt = invocation.namedArguments[#startedAt] as DateTime;
+      return [_reading(timestamp: startedAt.add(const Duration(seconds: 10)))];
+    });
+
+    final provider = await configuredProvider();
+    await provider.startCurrentSpot();
+    fakeClock.elapse(const Duration(seconds: 120));
+    await provider.finishCurrentSpot();
+    expect(provider.completedSpotCount, 1);
+
+    when(
+      () => mockGovee.syncHistory(
+        startedAt: any(named: 'startedAt'),
+        endedAt: any(named: 'endedAt'),
+      ),
+    ).thenAnswer((_) async => const <GoveeSensorReading>[]);
+
+    fakeClock.elapse(const Duration(minutes: 1));
+    await provider.startCurrentSpot();
+    fakeClock.elapse(const Duration(seconds: 120));
+    await provider.finishCurrentSpot();
+
+    expect(provider.phase, GoveeSpotPhase.readyForNext);
+    expect(provider.error, isNotNull);
+
+    provider.cancelCurrentSpot();
+
+    expect(provider.phase, GoveeSpotPhase.complete);
+    expect(provider.completedSpotCount, 1);
+    expect(provider.error, isNull);
+  });
 
   test(
     'savePlaceCapture clears active spots and suggests next place',

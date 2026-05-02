@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
@@ -9,6 +10,7 @@ import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
+import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatcher_optimizing_screen.dart';
 import 'package:hatchaudit/features/audits/screens/setter_optimizing_screen.dart';
@@ -43,6 +45,17 @@ void main() {
         flockId: 'fallback',
         hatcheryId: 'fallback',
         date: DateTime(2026),
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      ),
+    );
+    registerFallbackValue(makeChickQualityAudit(id: 'fallback-audit'));
+    registerFallbackValue(
+      StationSampleModel(
+        id: 'fallback-sample',
+        auditSessionId: 'fallback-session',
+        stationType: 'chicks',
+        sampleIndex: 1,
         createdAt: DateTime(2026),
         updatedAt: DateTime(2026),
       ),
@@ -169,6 +182,111 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Next Station'), findsOneWidget);
+  });
+
+  testWidgets('dirty station navigation saves without leave dialog', (
+    tester,
+  ) async {
+    final repository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+    when(() => supabase.syncAudit(any())).thenAnswer((_) async {});
+    when(
+      () => repository.markStationCompleted(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => repository.getSessionById(any()),
+    ).thenAnswer((_) async => provider.currentSession);
+    when(
+      () => auditRepository.getAuditsBySessionId(any()),
+    ).thenAnswer((_) async => []);
+    when(
+      () => stationSampleRepository.getSamplesForStation(any(), any()),
+    ).thenAnswer((_) async => []);
+    when(
+      () => auditRepository.getAuditById(any()),
+    ).thenAnswer((_) async => null);
+    when(() => auditRepository.insertAudit(any())).thenAnswer((_) async {});
+    when(
+      () => stationSampleRepository.upsertSample(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => stationSampleRepository.deleteSample(any()),
+    ).thenAnswer((_) async {});
+    when(() => auditRepository.deleteAudit(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['chicks', 'setters'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+            activityLogRepository: activityLog,
+            supabaseService: supabase,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final screenElement = tester.element(find.byType(ChickQualityScreen));
+    final stationProvider = Provider.of<AuditProvider>(
+      screenElement,
+      listen: false,
+    );
+    stationProvider.updateField('pasgarFinalScore', 100.0);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pump();
+
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(provider.currentStationIndex, 1);
+    verify(() => auditRepository.insertAudit(any())).called(1);
+    verify(() => stationSampleRepository.upsertSample(any())).called(1);
   });
 
   testWidgets('resumed Egg station hydrates saved audit data', (tester) async {
@@ -642,6 +760,126 @@ void main() {
     expect(stationProvider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
   });
 
+  testWidgets('Setters session opens with sample mode controls visible', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(536, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['setters'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+        ],
+        child: const MaterialApp(home: AuditSessionScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final singleSample = find.text('Single Sample');
+    expect(singleSample, findsOneWidget);
+    expect(tester.getRect(singleSample).top, greaterThanOrEqualTo(0));
+  });
+
+  testWidgets('Hatchers session opens with sample mode controls visible', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(536, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['hatchers'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+        ],
+        child: const MaterialApp(home: AuditSessionScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final singleSample = find.text('Single Sample');
+    expect(singleSample, findsOneWidget);
+    expect(tester.getRect(singleSample).top, greaterThanOrEqualTo(0));
+  });
+
   testWidgets('chick quality session hides the station progress strip', (
     tester,
   ) async {
@@ -769,7 +1007,7 @@ void main() {
   });
 
   testWidgets(
-    'supported audit room station relies on floating Govee launcher',
+    'supported audit room station has no station-owned Govee button',
     (tester) async {
       final repository = MockAuditSessionRepository();
       final activityLog = MockActivityLogRepository();

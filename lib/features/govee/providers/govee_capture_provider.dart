@@ -28,6 +28,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   static const Duration warmupDuration = Duration(seconds: 60);
   static const Duration minimumValidDuration = Duration(seconds: 60);
   static const Duration maximumValidDuration = Duration(minutes: 15);
+  static const int minimumSyncedReadingCount = 1;
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
@@ -47,6 +48,8 @@ class GoveeCaptureProvider extends ChangeNotifier {
   _SpotSyncWindow? _failedSyncWindow;
   TemperaturePlace? _suggestedNextPlace;
   Timer? _phaseTimer;
+  final List<GoveeSensorReading> _liveReadingsBuffer = [];
+  StreamSubscription<GoveeSensorReading>? _liveReadingsSubscription;
 
   GoveeCaptureProvider({
     GoveeCaptureRepository? repository,
@@ -94,6 +97,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _warmupStartedAt = null;
     _failedSyncWindow = null;
     _stopPhaseTimer();
+    _stopLiveReadingsCapture();
     _error = null;
     _pendingSpots.clear();
     _suggestedNextPlace = null;
@@ -122,6 +126,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _failedSyncWindow = null;
     _phase = GoveeSpotPhase.warmup;
     _startPhaseTimer();
+    _startLiveReadingsCapture();
     _error = null;
     notifyListeners();
   }
@@ -146,25 +151,34 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
 
-    final List<GoveeSensorReading> synced;
+    List<GoveeSensorReading> synced = const [];
+    Object? syncError;
     try {
       synced = await _goveeService.syncHistory(
         startedAt: syncWindow.validStartedAt,
         endedAt: syncWindow.validEndedAt,
       );
-    } catch (_) {
-      _markSyncFailed(syncWindow);
-      return;
+    } catch (e) {
+      syncError = e;
     }
-    final valid = _filterValidSyncedReadings(
+    var valid = _filterValidSyncedReadings(
       synced,
       syncWindow.validStartedAt,
       syncWindow.validEndedAt,
     );
 
-    if (valid.length < 60) {
-      _markSyncFailed(syncWindow);
-      return;
+    if (valid.length < minimumSyncedReadingCount) {
+      final liveFallback = _filterValidSyncedReadings(
+        _liveReadingsBuffer,
+        syncWindow.validStartedAt,
+        syncWindow.validEndedAt,
+      );
+      if (liveFallback.length >= minimumSyncedReadingCount) {
+        valid = liveFallback;
+      } else {
+        _markSyncFailed(syncWindow, cause: syncError);
+        return;
+      }
     }
 
     final compressed = compressSyncedReadings(valid, targetCount: 60);
@@ -179,9 +193,27 @@ class GoveeCaptureProvider extends ChangeNotifier {
     );
     _failedSyncWindow = null;
     _warmupStartedAt = null;
+    _stopLiveReadingsCapture();
     _phase = _pendingSpots.length >= spotCount
         ? GoveeSpotPhase.review
         : GoveeSpotPhase.complete;
+    notifyListeners();
+  }
+
+  void cancelCurrentSpot() {
+    if (_phase == GoveeSpotPhase.syncing || _phase == GoveeSpotPhase.saving) {
+      return;
+    }
+    _warmupStartedAt = null;
+    _failedSyncWindow = null;
+    _stopPhaseTimer();
+    _stopLiveReadingsCapture();
+    _error = null;
+    _phase = _pendingSpots.length >= spotCount
+        ? GoveeSpotPhase.review
+        : (_pendingSpots.isEmpty
+              ? GoveeSpotPhase.idle
+              : GoveeSpotPhase.complete);
     notifyListeners();
   }
 
@@ -316,6 +348,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _warmupStartedAt = null;
     _failedSyncWindow = null;
     _stopPhaseTimer();
+    _stopLiveReadingsCapture();
     _phase = GoveeSpotPhase.saved;
     _suggestedNextPlace = previousPlace == null
         ? null
@@ -436,17 +469,33 @@ class GoveeCaptureProvider extends ChangeNotifier {
     );
   }
 
-  void _markSyncFailed(_SpotSyncWindow syncWindow) {
+  void _markSyncFailed(_SpotSyncWindow syncWindow, {Object? cause}) {
     _failedSyncWindow = syncWindow;
+    final causeText = cause == null ? '' : ' (${cause.toString()})';
     _error =
-        'Govee sync did not complete. Keep the H5051 powered on and near the app, reconnect Govee, then retry sync.';
+        'Govee sync did not complete. Keep the H5051 powered on and near the app, reconnect Govee, then retry sync.$causeText';
     _phase = GoveeSpotPhase.readyForNext;
     notifyListeners();
+  }
+
+  void _startLiveReadingsCapture() {
+    _liveReadingsBuffer.clear();
+    _liveReadingsSubscription?.cancel();
+    _liveReadingsSubscription = _goveeService.readings.listen((reading) {
+      _liveReadingsBuffer.add(reading);
+    });
+  }
+
+  void _stopLiveReadingsCapture() {
+    _liveReadingsSubscription?.cancel();
+    _liveReadingsSubscription = null;
+    _liveReadingsBuffer.clear();
   }
 
   @override
   void dispose() {
     _stopPhaseTimer();
+    _stopLiveReadingsCapture();
     super.dispose();
   }
 

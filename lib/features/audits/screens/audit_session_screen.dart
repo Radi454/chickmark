@@ -5,8 +5,10 @@ import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
+import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
+import '../../../services/supabase/supabase_service.dart';
 import '../../audits/providers/audit_provider.dart';
 import '../../audits/providers/audit_session_provider.dart';
 import '../../audits/screens/audit_context_screen.dart';
@@ -24,11 +26,15 @@ bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
 class AuditSessionScreen extends StatefulWidget {
   final AuditRepository? auditRepository;
   final StationSampleRepository? stationSampleRepository;
+  final ActivityLogRepository? activityLogRepository;
+  final SupabaseService? supabaseService;
 
   const AuditSessionScreen({
     super.key,
     this.auditRepository,
     this.stationSampleRepository,
+    this.activityLogRepository,
+    this.supabaseService,
   });
 
   @override
@@ -42,6 +48,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       widget.auditRepository ?? AuditRepository();
   late final StationSampleRepository _stationSampleRepository =
       widget.stationSampleRepository ?? StationSampleRepository();
+  late final ActivityLogRepository _activityLogRepository =
+      widget.activityLogRepository ?? ActivityLogRepository();
+  late final SupabaseService _supabaseService =
+      widget.supabaseService ?? SupabaseService();
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
 
@@ -277,7 +287,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
 
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
-      final p = AuditProvider();
+      final p = AuditProvider(
+        repository: _auditRepository,
+        stationSampleRepository: _stationSampleRepository,
+        activityLogRepository: _activityLogRepository,
+        supabaseService: _supabaseService,
+      );
       return p;
     });
 
@@ -389,10 +404,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handleBackNavigation(BuildContext context) async {
-    final shouldLeave = await _confirmStationExit(
-      title: 'Leave visit?',
-      actionLabel: 'Save and leave',
-    );
+    final shouldLeave = await _saveStationBeforeExit();
     if (!shouldLeave) return;
     if (!mounted) return;
 
@@ -408,10 +420,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
     if (_isSavingStation) return;
-    final shouldContinue = await _confirmStationExit(
-      title: 'Leave station?',
-      actionLabel: 'Save and continue',
-    );
+    final shouldContinue = await _saveStationBeforeExit();
     if (!shouldContinue) return;
 
     await provider.markCurrentStationCompleted();
@@ -435,10 +444,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
-    final shouldMove = await _confirmStationExit(
-      title: 'Go back to previous station?',
-      actionLabel: 'Save and go back',
-    );
+    final shouldMove = await _saveStationBeforeExit();
     if (!shouldMove) return;
 
     provider.goToPreviousStation();
@@ -454,10 +460,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) async {
     if (stationIndex == provider.currentStationIndex) return;
 
-    final shouldMove = await _confirmStationExit(
-      title: 'Switch stations?',
-      actionLabel: 'Save and switch',
-    );
+    final shouldMove = await _saveStationBeforeExit();
     if (!shouldMove) return;
 
     provider.goToStation(stationIndex);
@@ -466,38 +469,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     });
   }
 
-  Future<bool> _confirmStationExit({
-    required String title,
-    required String actionLabel,
-  }) async {
+  Future<bool> _saveStationBeforeExit() async {
     final stationAuditProvider = _currentStationProvider;
     if (stationAuditProvider == null) return true;
 
     if (!mounted) return false;
-    if (stationAuditProvider.isDirty) {
-      final shouldSave = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: const Text(
-            'This station has unsaved changes. Save before leaving this screen.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Stay'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(actionLabel),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldSave != true) return false;
-    }
-
     setState(() => _isSavingStation = true);
     var saved = false;
     try {
