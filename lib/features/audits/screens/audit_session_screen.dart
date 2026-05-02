@@ -3,6 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../data/models/audit_model.dart';
+import '../../../data/models/station_sample_model.dart';
+import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/station_sample_repository.dart';
 import '../../audits/providers/audit_provider.dart';
 import '../../audits/providers/audit_session_provider.dart';
 import '../../audits/screens/audit_context_screen.dart';
@@ -22,7 +26,14 @@ bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
 }
 
 class AuditSessionScreen extends StatefulWidget {
-  const AuditSessionScreen({super.key});
+  final AuditRepository? auditRepository;
+  final StationSampleRepository? stationSampleRepository;
+
+  const AuditSessionScreen({
+    super.key,
+    this.auditRepository,
+    this.stationSampleRepository,
+  });
 
   @override
   State<AuditSessionScreen> createState() => _AuditSessionScreenState();
@@ -31,6 +42,10 @@ class AuditSessionScreen extends StatefulWidget {
 class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
+  late final AuditRepository _auditRepository =
+      widget.auditRepository ?? AuditRepository();
+  late final StationSampleRepository _stationSampleRepository =
+      widget.stationSampleRepository ?? StationSampleRepository();
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
 
@@ -281,6 +296,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
+        auditRepository: _auditRepository,
+        stationSampleRepository: _stationSampleRepository,
         eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
@@ -608,12 +625,16 @@ class _StationFrame extends StatefulWidget {
   final String stationKey;
   final AuditContextData context;
   final String sessionId;
+  final AuditRepository auditRepository;
+  final StationSampleRepository stationSampleRepository;
   final EggStorageStationController? eggStorageController;
 
   const _StationFrame({
     required this.stationKey,
     required this.context,
     required this.sessionId,
+    required this.auditRepository,
+    required this.stationSampleRepository,
     this.eggStorageController,
   });
 
@@ -622,29 +643,113 @@ class _StationFrame extends StatefulWidget {
 }
 
 class _StationFrameState extends State<_StationFrame> {
+  late Future<_StationInitialData> _initialDataFuture;
+
   @override
-  Widget build(BuildContext context) {
-    final stationWidget = _buildStationWidget();
-    return stationWidget ?? const Center(child: Text('Station not available'));
+  void initState() {
+    super.initState();
+    _initialDataFuture = _loadInitialData();
   }
 
-  Widget? _buildStationWidget() {
+  @override
+  void didUpdateWidget(covariant _StationFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionId != widget.sessionId ||
+        oldWidget.stationKey != widget.stationKey) {
+      _initialDataFuture = _loadInitialData();
+    }
+  }
+
+  Future<_StationInitialData> _loadInitialData() async {
+    try {
+      final audits = await widget.auditRepository.getAuditsBySessionId(
+        widget.sessionId,
+      );
+      final stationAudits =
+          audits
+              .where((audit) => audit.auditType == widget.context.auditType)
+              .toList()
+            ..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
+      final samples = await widget.stationSampleRepository.getSamplesForStation(
+        widget.sessionId,
+        widget.stationKey,
+      );
+      return _StationInitialData(
+        stationAudits: stationAudits,
+        stationSamples: samples,
+      );
+    } catch (_) {
+      return const _StationInitialData();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_StationInitialData>(
+      future: _initialDataFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final initialData = snapshot.data ?? const _StationInitialData();
+        final stationWidget = _buildStationWidget(initialData);
+        return stationWidget ??
+            const Center(child: Text('Station not available'));
+      },
+    );
+  }
+
+  Widget? _buildStationWidget(_StationInitialData initialData) {
+    final initialAudit = initialData.stationAudits.isEmpty
+        ? null
+        : initialData.stationAudits.first;
+
     switch (widget.stationKey) {
       case 'egg':
         return EggStorageScreen(
           context: widget.context,
+          initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
           stationController: widget.eggStorageController,
         );
       case 'chicks':
-        return ChickQualityScreen(context: widget.context);
+        return ChickQualityScreen(
+          context: widget.context,
+          initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
+        );
       case 'hatch_analysis_egg_breakouts':
-        return HatchAnalysisScreen(context: widget.context);
+        return HatchAnalysisScreen(
+          context: widget.context,
+          initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
+        );
       case 'setters':
-        return SetterOptimizingScreen(context: widget.context);
+        return SetterOptimizingScreen(
+          context: widget.context,
+          initialAudit: initialAudit,
+        );
       case 'hatchers':
-        return HatcherOptimizingScreen(context: widget.context);
+        return HatcherOptimizingScreen(
+          context: widget.context,
+          initialAudit: initialAudit,
+        );
       default:
         return null;
     }
   }
+}
+
+class _StationInitialData {
+  final List<AuditModel> stationAudits;
+  final List<StationSampleModel> stationSamples;
+
+  const _StationInitialData({
+    this.stationAudits = const [],
+    this.stationSamples = const [],
+  });
 }

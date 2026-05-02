@@ -10,6 +10,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/station_sample_model.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
@@ -26,12 +27,16 @@ import 'audit_context_screen.dart';
 class ChickQualityScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
+  final List<AuditModel> initialAudits;
+  final List<StationSampleModel> initialStationSamples;
   final int initialTabIndex;
 
   const ChickQualityScreen({
     super.key,
     required this.context,
     this.initialAudit,
+    this.initialAudits = const [],
+    this.initialStationSamples = const [],
     this.initialTabIndex = 0,
   });
 
@@ -71,6 +76,9 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     auditProvider.initialize(
       auditContext,
       existingAudit: widget.initialAudit,
+      existingAudits: widget.initialAudits,
+      existingStationSamples: widget.initialStationSamples,
+      readOnly: widget.context.sessionId == null ? null : false,
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
@@ -133,12 +141,6 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                       ),
                     ),
                   ),
-                ),
-                _FooterBar(
-                  provider: auditProvider,
-                  onSave: () => _saveStation(auditProvider, completed: false),
-                  onComplete: () =>
-                      _saveStation(auditProvider, completed: true),
                 ),
               ],
             ),
@@ -328,25 +330,6 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           ),
         );
       },
-    );
-  }
-
-  Future<void> _saveStation(
-    AuditProvider provider, {
-    required bool completed,
-  }) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final saved = await provider.saveSamplesWithResult(markAllTabsSaved: true);
-    if (!mounted) return;
-
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          saved
-              ? (completed ? 'Chicks station saved.' : 'Draft saved.')
-              : 'Could not save station. Try again.',
-        ),
-      ),
     );
   }
 
@@ -1034,93 +1017,6 @@ class _WeightStats {
       low: low,
       high: high,
       uniformity: uniformity,
-    );
-  }
-}
-
-class _FooterBar extends StatelessWidget {
-  final AuditProvider provider;
-  final VoidCallback onSave;
-  final VoidCallback onComplete;
-
-  const _FooterBar({
-    required this.provider,
-    required this.onSave,
-    required this.onComplete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final status = provider.isLoading
-        ? 'Saving chick quality station...'
-        : provider.isDirty
-        ? 'Unsaved changes in this chick quality station.'
-        : 'Draft saved locally. Chick quality segmentation ready for review.';
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        key: const ValueKey('chick-quality-footer'),
-        margin: const EdgeInsets.fromLTRB(22, 0, 22, 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.92),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.borderDefault),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x14111827),
-              blurRadius: 24,
-              offset: Offset(0, -8),
-            ),
-          ],
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final actions = [
-              OutlinedButton(
-                onPressed: provider.isLoading || provider.isReadOnly
-                    ? null
-                    : onSave,
-                child: const Text('Save Draft'),
-              ),
-              FilledButton(
-                onPressed: provider.isLoading || provider.isReadOnly
-                    ? null
-                    : onComplete,
-                child: const Text('Complete Station'),
-              ),
-            ];
-
-            if (constraints.maxWidth < 560) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(status, style: AppTextStyles.caption),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: actions[0]),
-                      const SizedBox(width: 10),
-                      Expanded(child: actions[1]),
-                    ],
-                  ),
-                ],
-              );
-            }
-
-            return Row(
-              children: [
-                Expanded(child: Text(status, style: AppTextStyles.caption)),
-                const SizedBox(width: 14),
-                actions[0],
-                const SizedBox(width: 10),
-                actions[1],
-              ],
-            );
-          },
-        ),
-      ),
     );
   }
 }

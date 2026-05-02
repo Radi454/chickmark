@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
+import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
+import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
@@ -17,6 +22,11 @@ import 'session_test_helpers.dart';
 
 class MockAuditSessionRepository extends Mock
     implements AuditSessionRepository {}
+
+class MockAuditRepository extends Mock implements AuditRepository {}
+
+class MockStationSampleRepository extends Mock
+    implements StationSampleRepository {}
 
 class MockActivityLogRepository extends Mock implements ActivityLogRepository {}
 
@@ -159,6 +169,274 @@ void main() {
     expect(find.text('Next Station'), findsOneWidget);
   });
 
+  testWidgets('resumed Egg station hydrates saved audit data', (tester) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-egg-resume',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['egg'],
+      stationsCompleted: const ['egg'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final savedEggAudit = AuditModel.fromMap({
+      ...makeEggStorageAudit(id: 'audit-egg-resume').toMap(),
+      'sessionId': session.id,
+      'esEggStorageDays': 9,
+    });
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => auditRepository.getAuditsBySessionId(session.id),
+    ).thenAnswer((_) async => [savedEggAudit]);
+    when(
+      () => stationSampleRepository.getSamplesForStation(session.id, 'egg'),
+    ).thenAnswer((_) async => []);
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.widgetWithText(TextField, '9'), findsOneWidget);
+  });
+
+  testWidgets('resumed Chicks station hydrates saved comparison samples', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-chicks-resume',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['chicks'],
+      stationsCompleted: const ['chicks'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final firstSample = AuditModel.fromMap({
+      ...makeChickQualityAudit(id: 'audit-chicks-resume-1').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'chicks-group-1',
+      'hatchNumber': 1,
+      'chickAvgWeight': 40.0,
+    });
+    final secondSample = AuditModel.fromMap({
+      ...makeChickQualityAudit(id: 'audit-chicks-resume-2').toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'chicks-group-1',
+      'hatchNumber': 2,
+      'chickAvgWeight': 45.0,
+    });
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => auditRepository.getAuditsBySessionId(session.id),
+    ).thenAnswer((_) async => [secondSample, firstSample]);
+    when(
+      () => stationSampleRepository.getSamplesForStation(session.id, 'chicks'),
+    ).thenAnswer((_) async => []);
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Multi House Samples'), findsOneWidget);
+    expect(find.text('Sample 1'), findsOneWidget);
+    expect(find.text('Sample 2'), findsOneWidget);
+  });
+
+  testWidgets('resumed Hatch Analysis station hydrates saved breakout rows', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final stationSampleRepository = MockStationSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-hatch-analysis-resume',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['hatch_analysis_egg_breakouts'],
+      stationsCompleted: const ['hatch_analysis_egg_breakouts'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final firstBreakout = AuditModel.fromMap({
+      ...makeHatchAnalysisAudit(
+        id: 'audit-hatch-analysis-resume-1',
+        hatchNumber: 1,
+      ).toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'hatch-analysis-group-1',
+    });
+    final secondBreakout = AuditModel.fromMap({
+      ...makeHatchAnalysisAudit(
+        id: 'audit-hatch-analysis-resume-2',
+        hatchNumber: 2,
+      ).toMap(),
+      'sessionId': session.id,
+      'sampleMode': 'compare',
+      'compareGroupKey': 'hatch-analysis-group-1',
+    });
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => auditRepository.getAuditsBySessionId(session.id),
+    ).thenAnswer((_) async => [secondBreakout, firstBreakout]);
+    when(
+      () => stationSampleRepository.getSamplesForStation(
+        session.id,
+        'hatch_analysis_egg_breakouts',
+      ),
+    ).thenAnswer((_) async => []);
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            stationSampleRepository: stationSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final screenElement = tester.element(find.byType(HatchAnalysisScreen));
+    final stationProvider = Provider.of<AuditProvider>(
+      screenElement,
+      listen: false,
+    );
+
+    expect(stationProvider.drafts, hasLength(2));
+    expect(stationProvider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
+  });
+
   testWidgets('chick quality session hides the station progress strip', (
     tester,
   ) async {
@@ -221,6 +499,7 @@ void main() {
       find.byKey(const ValueKey('audit-session-navigation-footer')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('chick-quality-footer')), findsNothing);
   });
 
   testWidgets('hatch analysis session hides the station progress strip', (

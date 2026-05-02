@@ -38,6 +38,8 @@ import 'audit_context_screen.dart';
 class EggStorageScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
+  final List<AuditModel> initialAudits;
+  final List<StationSampleModel> initialStationSamples;
   final int initialSectionIndex;
   final EggStorageStationController? stationController;
 
@@ -45,6 +47,8 @@ class EggStorageScreen extends StatefulWidget {
     super.key,
     required this.context,
     this.initialAudit,
+    this.initialAudits = const [],
+    this.initialStationSamples = const [],
     this.initialSectionIndex = 0,
     this.stationController,
   });
@@ -141,6 +145,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     auditProvider.initialize(
       auditContext,
       existingAudit: widget.initialAudit,
+      existingAudits: widget.initialAudits,
+      existingStationSamples: widget.initialStationSamples,
+      readOnly: widget.context.sessionId == null ? null : false,
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,

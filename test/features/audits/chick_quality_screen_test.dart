@@ -288,41 +288,11 @@ void main() {
     expect(find.byKey(const ValueKey('weight-grid-widget')), findsOneWidget);
   });
 
-  testWidgets('renders footer save actions', (tester) async {
+  testWidgets('does not render its own sticky save footer', (tester) async {
     await pumpScreen(tester);
 
-    expect(find.byKey(const ValueKey('chick-quality-footer')), findsOneWidget);
-    expect(find.text('Save Draft'), findsOneWidget);
-    expect(find.text('Complete Station'), findsOneWidget);
-    expect(
-      find.text('Unsaved changes in this chick quality station.'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('Save Draft uses the existing provider save flow', (
-    tester,
-  ) async {
-    final auditRepository = MockAuditRepository();
-    final supabaseService = MockSupabaseService();
-    when(
-      () => auditRepository.getAuditById(any()),
-    ).thenAnswer((_) async => null);
-    when(() => auditRepository.insertAudit(any())).thenAnswer((_) async {});
-    when(() => supabaseService.syncAudit(any())).thenAnswer((_) async {});
-
-    final provider = AuditProvider(
-      repository: auditRepository,
-      supabaseService: supabaseService,
-    );
-    await pumpScreen(tester, provider: provider);
-    provider.updateField('pasgarFinalScore', 25.0);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Save Draft'));
-    await tester.pumpAndSettle();
-
-    verify(() => auditRepository.insertAudit(any())).called(1);
-    expect(provider.isDirty, isFalse);
+    expect(find.byKey(const ValueKey('chick-quality-footer')), findsNothing);
+    expect(find.text('Save Draft'), findsNothing);
+    expect(find.text('Complete Station'), findsNothing);
   });
 }

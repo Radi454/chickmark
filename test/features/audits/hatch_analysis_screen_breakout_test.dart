@@ -281,7 +281,7 @@ void main() {
     expect(find.text('Ross 308'), findsOneWidget);
     expect(find.text('STORAGE DAYS'), findsOneWidget);
     expect(find.text('BMK AGE'), findsOneWidget);
-    expect(find.text('42 weeks'), findsOneWidget);
+    expect(find.text('42 wks'), findsOneWidget);
     expect(find.text('CANDLED AGE'), findsNothing);
 
     final storageEntryCard = find.byKey(
@@ -324,7 +324,7 @@ void main() {
 
     expect(provider.drafts.single.haStorageDays, 8);
     expect(provider.drafts.single.ebStorageDays, 8);
-    expect(find.text('41 weeks'), findsOneWidget);
+    expect(find.text('41 wks'), findsOneWidget);
   });
 
   testWidgets('candled breakout exposes candled age and updates bmk age', (
@@ -339,7 +339,7 @@ void main() {
     );
 
     expect(find.text('CANDLED AGE'), findsOneWidget);
-    expect(find.text('40 weeks'), findsOneWidget);
+    expect(find.text('40 wks'), findsOneWidget);
   });
 
   testWidgets('breakout counts are scoped by breakout type', (tester) async {

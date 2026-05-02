@@ -104,6 +104,9 @@ class AuditProvider extends ChangeNotifier {
   void initialize(
     AuditContext context, {
     AuditModel? existingAudit,
+    List<AuditModel>? existingAudits,
+    List<StationSampleModel>? existingStationSamples,
+    bool? readOnly,
     bool notify = true,
     UserModel? currentUser,
     String? sessionId,
@@ -111,18 +114,34 @@ class AuditProvider extends ChangeNotifier {
     _context = context;
     _currentUser = currentUser;
     _tempUnit = TempUnit.fahrenheit;
-    _activeSessionId = sessionId ?? existingAudit?.sessionId;
+    final restoredAudits =
+        existingAudits
+            ?.where((audit) => audit.auditType == context.auditType)
+            .toList()
+          ?..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
+    final restoredSessionId =
+        restoredAudits != null && restoredAudits.isNotEmpty
+        ? restoredAudits.first.sessionId
+        : null;
+    _activeSessionId =
+        sessionId ?? existingAudit?.sessionId ?? restoredSessionId;
 
-    if (existingAudit != null) {
+    if (restoredAudits != null && restoredAudits.isNotEmpty) {
+      _drafts = restoredAudits;
+      _activeHatchIndex = 0;
+      _isReadOnly = readOnly ?? !(currentUser?.canEditAudits ?? false);
+    } else if (existingAudit != null) {
       _drafts = [existingAudit];
       _activeHatchIndex = 0;
-      _isReadOnly = !(currentUser?.canEditAudits ?? false);
+      _isReadOnly = readOnly ?? !(currentUser?.canEditAudits ?? false);
     } else {
       _drafts = [_createNewDraft(hatchNumber: 1)];
       _activeHatchIndex = 0;
-      _isReadOnly = false;
+      _isReadOnly = readOnly ?? false;
     }
-    _stationSamples = _buildSamplesForDrafts();
+    _stationSamples = _buildSamplesForDrafts(
+      existingStationSamples: existingStationSamples,
+    );
 
     _savedTabs.clear();
     _removedStationSampleIds.clear();
@@ -710,11 +729,70 @@ class AuditProvider extends ChangeNotifier {
     }
   }
 
-  List<StationSampleModel> _buildSamplesForDrafts() {
-    return List.generate(
+  List<StationSampleModel> _buildSamplesForDrafts({
+    List<StationSampleModel>? existingStationSamples,
+  }) {
+    final builtSamples = List.generate(
       _drafts.length,
       (index) => _createSampleForDraft(_drafts[index], index),
     );
+    if (existingStationSamples == null || existingStationSamples.isEmpty) {
+      return builtSamples;
+    }
+
+    return List.generate(builtSamples.length, (index) {
+      final draft = _drafts[index];
+      final fresh = builtSamples[index];
+      final existing = _matchingExistingSample(
+        existingStationSamples,
+        draft,
+        fresh,
+      );
+      if (existing == null) return fresh;
+
+      return existing.copyWith(
+        legacyAuditId: fresh.legacyAuditId,
+        stationType: fresh.stationType,
+        sampleMode: fresh.sampleMode,
+        comparisonType: fresh.comparisonType,
+        sampleIndex: fresh.sampleIndex,
+        sampleLabel: fresh.sampleLabel,
+        sampleType: fresh.sampleType,
+        breakoutType: fresh.breakoutType,
+        groupKey: fresh.groupKey,
+        groupLabel: fresh.groupLabel,
+        batchNo: fresh.batchNo,
+        houseNo: fresh.houseNo,
+        houseLabel: fresh.houseLabel,
+        hatchNo: fresh.hatchNo,
+        storageDays: fresh.storageDays,
+        incubationDay: fresh.incubationDay,
+        setterNo: fresh.setterNo,
+        hatcherNo: fresh.hatcherNo,
+        calculatedBmkAgeDays: fresh.calculatedBmkAgeDays,
+        benchmarkBreed: fresh.benchmarkBreed,
+        benchmarkAgeDays: fresh.benchmarkAgeDays,
+        resultSummaryJson: fresh.resultSummaryJson,
+        updatedAt: fresh.updatedAt,
+      );
+    });
+  }
+
+  StationSampleModel? _matchingExistingSample(
+    List<StationSampleModel> samples,
+    AuditModel draft,
+    StationSampleModel fresh,
+  ) {
+    for (final sample in samples) {
+      if (sample.legacyAuditId == draft.id) return sample;
+    }
+    for (final sample in samples) {
+      if (sample.sampleIndex == fresh.sampleIndex &&
+          sample.stationType == fresh.stationType) {
+        return sample;
+      }
+    }
+    return null;
   }
 
   StationSampleModel _createSampleForDraft(AuditModel draft, int index) {

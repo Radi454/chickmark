@@ -58,7 +58,7 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.text('Egg'), findsWidgets);
-    expect(find.text('Egg'), findsNothing);
+    expect(find.text('Egg storage room'), findsOneWidget);
     expect(find.text('Egg Shell Temperature'), findsOneWidget);
     expect(find.text('19.0-21.0°C'), findsOneWidget);
     expect(find.text('Upside Down Score'), findsOneWidget);

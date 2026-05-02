@@ -92,6 +92,9 @@ shows a progress indicator, keeps one `AuditProvider` per station, and shows one
 station at a time. Moving forward, moving back, switching to an earlier or
 completed station, leaving the visit, or saving the final station all go through
 a station-exit confirmation path that attempts to save the current station.
+When a visit is resumed or a previously saved station is opened inside the
+session, the station frame hydrates the station from saved `audits` rows and
+station sample rows for that session before rendering so edits resave in place.
 Hatch Analysis & Egg Breakouts and Chicks suppress the large current-station progress
 strip so their own workbench headers are the first station content.
 
@@ -166,12 +169,14 @@ controls, UV inspection, and station notes.
 - Notes: optional free-text station comments persisted on the audit row.
 
 Chicks uses a split workbench structure instead of tabs. The screen
-starts with a blue gradient Audit Station card showing Chicks and the
+starts with a blue gradient Audit Station card showing Chick quality and the
 selected hatchery context. The workbench uses two columns on wide screens and
-collapses into one scrollable column on smaller screens. A sticky footer shows
-the local draft status and provides Save Draft and Complete Station actions;
-both actions save all Chicks samples through the existing station sample
-save flow.
+collapses into one scrollable column on smaller screens. The Chicks screen does
+not render its own sticky save footer; visit sessions use the session-level
+Back / Next Station navigation, and standalone editor saves are handled outside
+this embedded workbench. When opened from a resumed visit session, Chicks
+restores all saved comparison sample rows and linked station samples before rendering the
+workbench.
 
 The left workbench column contains Pasgar Score, YFBM, Chick Vent Temperature,
 and PM Necropsy panels. Pasgar captures sample size, defect counts/photos, and
@@ -201,18 +206,21 @@ persists to the existing `chickWeights`, `chickAvgWeight`,
 
 Hatch Analysis & Egg Breakouts is an egg breakout entry screen rather than a
 tabbed screen. It uses a centered workbench layout with a compact blue gradient
-Breakout Type header, a neutral Breakout Samples panel, and the existing sticky
+Breakout Type card, a separate matching blue metadata card, a neutral Breakout
+Samples panel, and the existing sticky
 station navigation footer when embedded in a visit session. Breakout types are
-Fresh Egg, Candled Egg, and Residue / Hatch Day. The compact header keeps the
-breakout selector, auto-filled flock, breed, read-only BMK age display, and
-editable Storage Days together; wider layouts place the selector beside the
-header title while mobile layouts stack it vertically. Candled Age appears as an
-additional entry field only when Candled Egg is selected. The BMK age is
-displayed in weeks and is calculated from current flock age minus storage days
+Fresh Egg, Candled Egg, and Residue / Hatch Day. The Breakout Type card keeps
+the selector beside the header title on wider layouts and stacks it vertically
+on mobile. The metadata card shows auto-filled flock, breed, read-only BMK age,
+and editable Storage Days; Candled Age appears as an additional entry field only
+when Candled Egg is selected. The BMK age is displayed as `wks` and is
+calculated from current flock age minus storage days
 and the breakout-specific incubation offset: 0 days for Fresh Egg, the entered
 candled age for Candled Egg, and 21 days for Residue / Hatch Day. Benchmark
 lookup still uses the calculated day value, then stores the legacy week value in
-the existing BMK age fields.
+the existing BMK age fields. When opened from a resumed visit session, Hatch
+Analysis restores all saved breakout audit rows and linked station samples
+before rendering.
 
 Breakout Samples sits below the main card. It uses tray chips plus circular add
 and remove controls to manage tray samples while keeping the tray cards visible
