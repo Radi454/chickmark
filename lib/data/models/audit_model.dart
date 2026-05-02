@@ -19,7 +19,7 @@ class AuditModel {
   final String sampleMode;
   final String? compareGroupKey;
 
-  // --- Chick Quality: CHA Environmental ---
+  // --- Chicks: CHA Environmental ---
   final bool? chaGoveeConnected;
   final double? chaCo2;
   final String? chaCo2Photo;
@@ -40,7 +40,7 @@ class AuditModel {
   final double? chaNoiseLevel;
   final String? chaNoiseLevelPhoto;
 
-  // --- Chick Quality: Pasgar ---
+  // --- Chicks: Pasgar ---
   final int? pasgarSampleSize;
   final int? pasgarReflexes;
   final String? pasgarReflexesPhoto;
@@ -56,7 +56,7 @@ class AuditModel {
   final String? pasgarFeatherDevPhoto;
   final double? pasgarFinalScore;
 
-  // --- Chick Quality: Weights ---
+  // --- Chicks: Weights ---
   final int? chickStorageDays;
   final int? chickSampleSize;
   final String? chickWeights;
@@ -66,13 +66,13 @@ class AuditModel {
   final int? chickBmkAge;
   final double? chickBmkWeight;
 
-  // --- Chick Quality: YFBM ---
+  // --- Chicks: YFBM ---
   final String? yfbmPhoto;
   final String? yfbmEntries;
   final double? yfbmAvgPct;
   final double? yfbmCvPct;
 
-  // --- Chick Quality: CVT ---
+  // --- Chicks: CVT ---
   final int? cvtSampleSize;
   final String? cvtTopBasket;
   final double? cvtTopTemp;
@@ -88,7 +88,7 @@ class AuditModel {
   final String? cvtReadingsJson;
   final String? cvtPhotosJson;
 
-  // --- Chick Quality: PM Necropsy ---
+  // --- Chicks: PM Necropsy ---
   final int? pmSampleSize;
   final String? pmCollectionPoint;
   final int? pmOmphalitisCount;
@@ -135,7 +135,7 @@ class AuditModel {
   final String? pmSuspectedCauseManual;
   final String? pmPhotosJson;
 
-  // --- Hatch Analysis: Hatch Results ---
+  // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
   final int? haStorageDays;
   final int? haTotalEggsSet;
   final int? haHatched;
@@ -155,7 +155,7 @@ class AuditModel {
   final int? haContaminatedExploders;
   final String? haBenchmarkStatusesJson;
 
-  // --- Hatch Analysis: Egg Breakout ---
+  // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
   final int? ebTraySize;
   final String? ebBreakoutType;
   final int? ebBreakoutAgeDays;
@@ -176,7 +176,7 @@ class AuditModel {
   final int? ebCrossedBeakCount;
   final int? ebCulledDeadCount;
 
-  // --- Setter Optimizing ---
+  // --- Setters ---
   final String? soBreed;
   final String? soSetterId;
   final int? soIncubationAge;
@@ -192,7 +192,7 @@ class AuditModel {
   final String? soMachineType;
   final double? soTurningAngle;
 
-  // --- Hatcher Optimizing ---
+  // --- Hatchers ---
   final String? hoBreed;
   final String? hoHatcherId;
   final int? hoIncubationAge;
@@ -210,7 +210,7 @@ class AuditModel {
   final String? hoMeconium;
   final int? hoTransferDay;
 
-  // --- Egg Storage ---
+  // --- Egg ---
   final bool? esGoveeConnected;
   final double? esGoveeTemp;
   final double? esGoveeHumidity;
@@ -269,7 +269,7 @@ class AuditModel {
     this.sessionId,
     String? sampleMode,
     this.compareGroupKey,
-    // --- Chick Quality: CHA Environmental ---
+    // --- Chicks: CHA Environmental ---
     this.chaGoveeConnected,
     this.chaCo2,
     this.chaCo2Photo,
@@ -289,7 +289,7 @@ class AuditModel {
     this.chaAirOutletPhoto,
     this.chaNoiseLevel,
     this.chaNoiseLevelPhoto,
-    // --- Chick Quality: Pasgar ---
+    // --- Chicks: Pasgar ---
     this.pasgarSampleSize,
     this.pasgarReflexes,
     this.pasgarReflexesPhoto,
@@ -304,7 +304,7 @@ class AuditModel {
     this.pasgarFeatherDev,
     this.pasgarFeatherDevPhoto,
     this.pasgarFinalScore,
-    // --- Chick Quality: Weights ---
+    // --- Chicks: Weights ---
     this.chickStorageDays,
     this.chickSampleSize,
     this.chickWeights,
@@ -313,12 +313,12 @@ class AuditModel {
     this.chickCvPct,
     this.chickBmkAge,
     this.chickBmkWeight,
-    // --- Chick Quality: YFBM ---
+    // --- Chicks: YFBM ---
     this.yfbmPhoto,
     this.yfbmEntries,
     this.yfbmAvgPct,
     this.yfbmCvPct,
-    // --- Chick Quality: CVT ---
+    // --- Chicks: CVT ---
     this.cvtSampleSize,
     this.cvtTopBasket,
     this.cvtTopTemp,
@@ -333,7 +333,7 @@ class AuditModel {
     this.cvtCvPct,
     this.cvtReadingsJson,
     this.cvtPhotosJson,
-    // --- Chick Quality: PM Necropsy ---
+    // --- Chicks: PM Necropsy ---
     this.pmSampleSize,
     this.pmCollectionPoint,
     this.pmOmphalitisCount,
@@ -379,7 +379,7 @@ class AuditModel {
     this.pmSuspectedCauseAuto,
     this.pmSuspectedCauseManual,
     this.pmPhotosJson,
-    // --- Hatch Analysis: Hatch Results ---
+    // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
     this.haStorageDays,
     this.haTotalEggsSet,
     this.haHatched,
@@ -398,7 +398,7 @@ class AuditModel {
     this.haLateDead,
     this.haContaminatedExploders,
     this.haBenchmarkStatusesJson,
-    // --- Hatch Analysis: Egg Breakout ---
+    // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
     this.ebTraySize,
     this.ebBreakoutType,
     this.ebBreakoutAgeDays,
@@ -418,7 +418,7 @@ class AuditModel {
     this.ebExposedBrainCount,
     this.ebCrossedBeakCount,
     this.ebCulledDeadCount,
-    // --- Setter Optimizing ---
+    // --- Setters ---
     this.soBreed,
     this.soSetterId,
     this.soIncubationAge,
@@ -433,7 +433,7 @@ class AuditModel {
     this.soEstCv,
     this.soMachineType,
     this.soTurningAngle,
-    // --- Hatcher Optimizing ---
+    // --- Hatchers ---
     this.hoBreed,
     this.hoHatcherId,
     this.hoIncubationAge,
@@ -450,7 +450,7 @@ class AuditModel {
     this.hoChickPantingPhoto,
     this.hoMeconium,
     this.hoTransferDay,
-    // --- Egg Storage ---
+    // --- Egg ---
     this.esGoveeConnected,
     this.esGoveeTemp,
     this.esGoveeHumidity,
@@ -511,7 +511,7 @@ class AuditModel {
       sessionId: map['sessionId'],
       sampleMode: map['sampleMode'],
       compareGroupKey: map['compareGroupKey'],
-      // --- Chick Quality: CHA Environmental ---
+      // --- Chicks: CHA Environmental ---
       chaGoveeConnected: map['chaGoveeConnected'] == 1,
       chaCo2: map['chaCo2']?.toDouble(),
       chaCo2Photo: map['chaCo2Photo'],
@@ -531,7 +531,7 @@ class AuditModel {
       chaAirOutletPhoto: map['chaAirOutletPhoto'],
       chaNoiseLevel: map['chaNoiseLevel']?.toDouble(),
       chaNoiseLevelPhoto: map['chaNoiseLevelPhoto'],
-      // --- Chick Quality: Pasgar ---
+      // --- Chicks: Pasgar ---
       pasgarSampleSize: map['pasgarSampleSize'],
       pasgarReflexes: map['pasgarReflexes'],
       pasgarReflexesPhoto: map['pasgarReflexesPhoto'],
@@ -546,7 +546,7 @@ class AuditModel {
       pasgarFeatherDev: map['pasgarFeatherDev'],
       pasgarFeatherDevPhoto: map['pasgarFeatherDevPhoto'],
       pasgarFinalScore: map['pasgarFinalScore']?.toDouble(),
-      // --- Chick Quality: Weights ---
+      // --- Chicks: Weights ---
       chickStorageDays: map['chickStorageDays'],
       chickSampleSize: map['chickSampleSize'],
       chickWeights: map['chickWeights'],
@@ -555,12 +555,12 @@ class AuditModel {
       chickCvPct: map['chickCvPct']?.toDouble(),
       chickBmkAge: map['chickBmkAge'],
       chickBmkWeight: map['chickBmkWeight']?.toDouble(),
-      // --- Chick Quality: YFBM ---
+      // --- Chicks: YFBM ---
       yfbmPhoto: map['yfbmPhoto'],
       yfbmEntries: map['yfbmEntries'],
       yfbmAvgPct: map['yfbmAvgPct']?.toDouble(),
       yfbmCvPct: map['yfbmCvPct']?.toDouble(),
-      // --- Chick Quality: CVT ---
+      // --- Chicks: CVT ---
       cvtSampleSize: map['cvtSampleSize'],
       cvtTopBasket: map['cvtTopBasket'],
       cvtTopTemp: map['cvtTopTemp']?.toDouble(),
@@ -575,7 +575,7 @@ class AuditModel {
       cvtCvPct: map['cvtCvPct']?.toDouble(),
       cvtReadingsJson: map['cvtReadingsJson'],
       cvtPhotosJson: map['cvtPhotosJson'],
-      // --- Chick Quality: PM Necropsy ---
+      // --- Chicks: PM Necropsy ---
       pmSampleSize: map['pm_sampleSize'],
       pmCollectionPoint: map['pm_collectionPoint'],
       pmOmphalitisCount: map['pm_omphalitisCount'],
@@ -621,7 +621,7 @@ class AuditModel {
       pmSuspectedCauseAuto: map['pm_suspectedCauseAuto'],
       pmSuspectedCauseManual: map['pm_suspectedCauseManual'],
       pmPhotosJson: map['pm_photosJson'],
-      // --- Hatch Analysis: Hatch Results ---
+      // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       haStorageDays: map['haStorageDays'],
       haTotalEggsSet: map['haTotalEggsSet'],
       haHatched: map['haHatched'],
@@ -640,7 +640,7 @@ class AuditModel {
       haLateDead: map['haLateDead'],
       haContaminatedExploders: map['haContaminatedExploders'],
       haBenchmarkStatusesJson: map['haBenchmarkStatusesJson'],
-      // --- Hatch Analysis: Egg Breakout ---
+      // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
       ebTraySize: map['ebTraySize'],
       ebBreakoutType: map['ebBreakoutType'],
       ebBreakoutAgeDays: map['ebBreakoutAgeDays'],
@@ -660,7 +660,7 @@ class AuditModel {
       ebExposedBrainCount: map['ebExposedBrainCount'],
       ebCrossedBeakCount: map['ebCrossedBeakCount'],
       ebCulledDeadCount: map['ebCulledDeadCount'],
-      // --- Setter Optimizing ---
+      // --- Setters ---
       soBreed: map['soBreed'],
       soSetterId: map['soSetterId'],
       soIncubationAge: map['soIncubationAge'],
@@ -675,7 +675,7 @@ class AuditModel {
       soEstCv: map['soEstCv']?.toDouble(),
       soMachineType: map['so_machineType'],
       soTurningAngle: map['so_turningAngle']?.toDouble(),
-      // --- Hatcher Optimizing ---
+      // --- Hatchers ---
       hoBreed: map['hoBreed'],
       hoHatcherId: map['hoHatcherId'],
       hoIncubationAge: map['hoIncubationAge'],
@@ -692,7 +692,7 @@ class AuditModel {
       hoChickPantingPhoto: map['hoChickPantingPhoto'],
       hoMeconium: map['ho_meconium'],
       hoTransferDay: map['ho_transferDay'],
-      // --- Egg Storage ---
+      // --- Egg ---
       esGoveeConnected: map['esGoveeConnected'] == 1,
       esGoveeTemp: map['esGoveeTemp']?.toDouble(),
       esGoveeHumidity: map['esGoveeHumidity']?.toDouble(),
@@ -754,7 +754,7 @@ class AuditModel {
       'sessionId': sessionId,
       'sampleMode': sampleMode,
       'compareGroupKey': compareGroupKey,
-      // --- Chick Quality: CHA Environmental ---
+      // --- Chicks: CHA Environmental ---
       'chaGoveeConnected': chaGoveeConnected == null
           ? null
           : (chaGoveeConnected! ? 1 : 0),
@@ -776,7 +776,7 @@ class AuditModel {
       'chaAirOutletPhoto': chaAirOutletPhoto,
       'chaNoiseLevel': chaNoiseLevel,
       'chaNoiseLevelPhoto': chaNoiseLevelPhoto,
-      // --- Chick Quality: Pasgar ---
+      // --- Chicks: Pasgar ---
       'pasgarSampleSize': pasgarSampleSize,
       'pasgarReflexes': pasgarReflexes,
       'pasgarReflexesPhoto': pasgarReflexesPhoto,
@@ -791,7 +791,7 @@ class AuditModel {
       'pasgarFeatherDev': pasgarFeatherDev,
       'pasgarFeatherDevPhoto': pasgarFeatherDevPhoto,
       'pasgarFinalScore': pasgarFinalScore,
-      // --- Chick Quality: Weights ---
+      // --- Chicks: Weights ---
       'chickStorageDays': chickStorageDays,
       'chickSampleSize': chickSampleSize,
       'chickWeights': chickWeights,
@@ -800,12 +800,12 @@ class AuditModel {
       'chickCvPct': chickCvPct,
       'chickBmkAge': chickBmkAge,
       'chickBmkWeight': chickBmkWeight,
-      // --- Chick Quality: YFBM ---
+      // --- Chicks: YFBM ---
       'yfbmPhoto': yfbmPhoto,
       'yfbmEntries': yfbmEntries,
       'yfbmAvgPct': yfbmAvgPct,
       'yfbmCvPct': yfbmCvPct,
-      // --- Chick Quality: CVT ---
+      // --- Chicks: CVT ---
       'cvtSampleSize': cvtSampleSize,
       'cvtTopBasket': cvtTopBasket,
       'cvtTopTemp': cvtTopTemp,
@@ -820,7 +820,7 @@ class AuditModel {
       'cvtCvPct': cvtCvPct,
       'cvtReadingsJson': cvtReadingsJson,
       'cvtPhotosJson': cvtPhotosJson,
-      // --- Chick Quality: PM Necropsy ---
+      // --- Chicks: PM Necropsy ---
       'pm_sampleSize': pmSampleSize,
       'pm_collectionPoint': pmCollectionPoint,
       'pm_omphalitisCount': pmOmphalitisCount,
@@ -868,7 +868,7 @@ class AuditModel {
       'pm_suspectedCauseAuto': pmSuspectedCauseAuto,
       'pm_suspectedCauseManual': pmSuspectedCauseManual,
       'pm_photosJson': pmPhotosJson,
-      // --- Hatch Analysis: Hatch Results ---
+      // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       'haStorageDays': haStorageDays,
       'haTotalEggsSet': haTotalEggsSet,
       'haHatched': haHatched,
@@ -887,7 +887,7 @@ class AuditModel {
       'haLateDead': haLateDead,
       'haContaminatedExploders': haContaminatedExploders,
       'haBenchmarkStatusesJson': haBenchmarkStatusesJson,
-      // --- Hatch Analysis: Egg Breakout ---
+      // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
       'ebTraySize': ebTraySize,
       'ebBreakoutType': ebBreakoutType,
       'ebBreakoutAgeDays': ebBreakoutAgeDays,
@@ -907,7 +907,7 @@ class AuditModel {
       'ebExposedBrainCount': ebExposedBrainCount,
       'ebCrossedBeakCount': ebCrossedBeakCount,
       'ebCulledDeadCount': ebCulledDeadCount,
-      // --- Setter Optimizing ---
+      // --- Setters ---
       'soBreed': soBreed,
       'soSetterId': soSetterId,
       'soIncubationAge': soIncubationAge,
@@ -924,7 +924,7 @@ class AuditModel {
       'soEstCv': soEstCv,
       'so_machineType': soMachineType,
       'so_turningAngle': soTurningAngle,
-      // --- Hatcher Optimizing ---
+      // --- Hatchers ---
       'hoBreed': hoBreed,
       'hoHatcherId': hoHatcherId,
       'hoIncubationAge': hoIncubationAge,
@@ -945,7 +945,7 @@ class AuditModel {
       'hoChickPantingPhoto': hoChickPantingPhoto,
       'ho_meconium': hoMeconium,
       'ho_transferDay': hoTransferDay,
-      // --- Egg Storage ---
+      // --- Egg ---
       'esGoveeConnected': esGoveeConnected == null
           ? null
           : (esGoveeConnected! ? 1 : 0),

@@ -18,7 +18,7 @@ void main() {
     id: 'sample-1',
     auditSessionId: 'session-1',
     legacyAuditId: 'audit-1',
-    stationType: 'chick_quality',
+    stationType: 'chicks',
     sampleMode: StationSampleModel.sampleModeComparison,
     comparisonType: StationSampleModel.comparisonTypeBatch,
     sampleIndex: 1,
@@ -96,15 +96,12 @@ void main() {
       () => db.query(
         'station_samples',
         where: 'auditSessionId = ? AND stationType = ?',
-        whereArgs: ['session-1', 'chick_quality'],
+        whereArgs: ['session-1', 'chicks'],
         orderBy: 'sampleIndex ASC, createdAt ASC',
       ),
     ).thenAnswer((_) async => [sample.toMap()]);
 
-    final result = await repository.getSamplesForStation(
-      'session-1',
-      'chick_quality',
-    );
+    final result = await repository.getSamplesForStation('session-1', 'chicks');
 
     expect(result, hasLength(1));
     expect(result.single.id, 'sample-1');
@@ -163,7 +160,7 @@ void main() {
       'id': 'sample-2',
       'audit_session_id': 'session-1',
       'legacy_audit_id': 'audit-2',
-      'station_type': 'egg_storage',
+      'station_type': 'egg',
       'sample_mode': 'pooled',
       'sample_index': 1,
       'sample_label': 'Sample 1',
@@ -186,7 +183,7 @@ void main() {
 
     expect(captured['auditSessionId'], 'session-1');
     expect(captured['legacyAuditId'], 'audit-2');
-    expect(captured['stationType'], 'egg_storage');
+    expect(captured['stationType'], 'egg');
     expect(captured['houseNo'], 'HSE-02');
     expect(captured['houseLabel'], 'South House');
     expect(captured.containsKey('unknown_column'), isFalse);

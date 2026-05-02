@@ -63,7 +63,7 @@ void main() {
   });
 
   AuditContextData contextData() => AuditContextData(
-    auditType: 'Hatch Analysis',
+    auditType: 'Hatch Analysis & Egg Breakouts',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
@@ -243,6 +243,27 @@ void main() {
     expect(find.text('Batch Info'), findsNothing);
     expect(find.text('Hatchability Results'), findsNothing);
     expect(find.text('100% Budget Categories'), findsNothing);
+  });
+
+  testWidgets('uses compact professional workbench structure', (tester) async {
+    await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
+
+    final workbench = find.byKey(
+      const ValueKey('hatch-analysis-workbench-shell'),
+    );
+    final header = find.byKey(const ValueKey('hatch-analysis-breakout-header'));
+    final samplesPanel = find.byKey(
+      const ValueKey('hatch-analysis-samples-panel'),
+    );
+
+    expect(workbench, findsOneWidget);
+    expect(header, findsOneWidget);
+    expect(samplesPanel, findsOneWidget);
+    expect(tester.getSize(header).height, lessThan(260));
+    expect(
+      tester.getSize(samplesPanel).width,
+      equals(tester.getSize(header).width),
+    );
   });
 
   testWidgets('main card shows flock breed storage and calculated bmk age', (

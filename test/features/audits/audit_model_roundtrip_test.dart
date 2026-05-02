@@ -12,7 +12,7 @@ void main() {
     AuditModel baseEggStorage() {
       return AuditModel(
         id: 'test-id',
-        auditType: 'Egg Storage',
+        auditType: 'Egg',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -26,7 +26,7 @@ void main() {
     AuditModel baseSetter() {
       return AuditModel(
         id: 'test-setter',
-        auditType: 'Setter Optimizing',
+        auditType: 'Setters',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -40,7 +40,7 @@ void main() {
     AuditModel baseHatcher() {
       return AuditModel(
         id: 'test-hatcher',
-        auditType: 'Hatcher Optimizing',
+        auditType: 'Hatchers',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -54,7 +54,7 @@ void main() {
     AuditModel baseChickQuality() {
       return AuditModel(
         id: 'test-pm',
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -72,7 +72,7 @@ void main() {
       return AuditModel.fromMap(map);
     }
 
-    test('Egg Storage expanded EST grid fields round-trip', () {
+    test('Egg expanded EST grid fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_estReadingsJson':
             '{"door_top":19.5,"door_middle":20.1,"door_bottom":20.3,"middle_top":19.8,"middle_middle":20.0,"middle_bottom":20.2,"back_top":19.7,"back_middle":19.9,"back_bottom":20.4}',
@@ -89,7 +89,7 @@ void main() {
       expect(restored.esEstCv, original.esEstCv);
     });
 
-    test('Egg Storage expanded UV inspection fields round-trip', () {
+    test('Egg expanded UV inspection fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_uvSampleSize': 50,
         'es_uvCuticleDamageCount': 3,
@@ -114,7 +114,7 @@ void main() {
       expect(restored.esUvPhotosJson, original.esUvPhotosJson);
     });
 
-    test('Egg Storage expanded egg quality fields round-trip', () {
+    test('Egg expanded egg quality fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_crackPct': 2.5,
         'es_brokenPct': 1.0,
@@ -136,7 +136,7 @@ void main() {
       expect(restored.esEggColorDistJson, original.esEggColorDistJson);
     });
 
-    test('Egg Storage expanded storage checklist fields round-trip', () {
+    test('Egg expanded storage checklist fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_eggOrientation': 'Point Down',
         'es_traySpacing': 'Adequate',
@@ -154,7 +154,7 @@ void main() {
       expect(restored.esCondensation, true);
     });
 
-    test('Egg Storage condensation false round-trip', () {
+    test('Egg condensation false round-trip', () {
       final original = fromMapWith(baseEggStorage(), {'es_condensation': 0});
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
@@ -162,43 +162,37 @@ void main() {
       expect(restored.esCondensation, false);
     });
 
-    test(
-      'Setter Optimizing expanded machine type and turning angle round-trip',
-      () {
-        final original = fromMapWith(baseSetter(), {
-          'so_machineType': 'Single Stage',
-          'so_turningAngle': 45.0,
-          'soEstAvg': 100.5,
-          'soEstCv': 0.3,
-        });
-        final map = original.toMap();
-        final restored = AuditModel.fromMap(map);
+    test('Setters expanded machine type and turning angle round-trip', () {
+      final original = fromMapWith(baseSetter(), {
+        'so_machineType': 'Single Stage',
+        'so_turningAngle': 45.0,
+        'soEstAvg': 100.5,
+        'soEstCv': 0.3,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
 
-        expect(restored.soMachineType, 'Single Stage');
-        expect(restored.soTurningAngle, 45.0);
-        expect(restored.soEstAvg, 100.5);
-        expect(restored.soEstCv, 0.3);
-      },
-    );
+      expect(restored.soMachineType, 'Single Stage');
+      expect(restored.soTurningAngle, 45.0);
+      expect(restored.soEstAvg, 100.5);
+      expect(restored.soEstCv, 0.3);
+    });
 
-    test(
-      'Hatcher Optimizing expanded meconium and transfer day round-trip',
-      () {
-        final original = fromMapWith(baseHatcher(), {
-          'ho_meconium': 'Normal',
-          'ho_transferDay': 18,
-          'hoCvtAvg': 104.2,
-          'hoCvtCv': 0.5,
-        });
-        final map = original.toMap();
-        final restored = AuditModel.fromMap(map);
+    test('Hatchers expanded meconium and transfer day round-trip', () {
+      final original = fromMapWith(baseHatcher(), {
+        'ho_meconium': 'Normal',
+        'ho_transferDay': 18,
+        'hoCvtAvg': 104.2,
+        'hoCvtCv': 0.5,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
 
-        expect(restored.hoMeconium, 'Normal');
-        expect(restored.hoTransferDay, 18);
-        expect(restored.hoCvtAvg, 104.2);
-        expect(restored.hoCvtCv, 0.5);
-      },
-    );
+      expect(restored.hoMeconium, 'Normal');
+      expect(restored.hoTransferDay, 18);
+      expect(restored.hoCvtAvg, 104.2);
+      expect(restored.hoCvtCv, 0.5);
+    });
 
     test('PM Necropsy lesion and severity fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
@@ -286,7 +280,7 @@ void main() {
       expect(restored.pmPhotosJson, '["pm_photo1.jpg","pm_photo2.jpg"]');
     });
 
-    test('Chick Quality CVT grid fields round-trip', () {
+    test('Chicks CVT grid fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
         'cvtReadingsJson':
             '{"front_top":104.0,"front_middle":103.8,"front_bottom":103.6}',

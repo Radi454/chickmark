@@ -116,12 +116,10 @@ void main() {
     });
 
     test('fromMap handles selectedStationKeys JSON', () {
-      final row = makeAuditSessionRow(
-        selectedStationKeys: ['chick_quality', 'egg_storage'],
-      );
+      final row = makeAuditSessionRow(selectedStationKeys: ['chicks', 'egg']);
       final model = AuditSessionModel.fromMap(row);
 
-      expect(model.selectedStationKeys, ['chick_quality', 'egg_storage']);
+      expect(model.selectedStationKeys, ['chicks', 'egg']);
     });
 
     test('fromMap defaults missing selectedStationKeys to all stations', () {
@@ -142,12 +140,10 @@ void main() {
     });
 
     test('fromMap handles stationsCompleted JSON', () {
-      final row = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage', 'chick_quality'],
-      );
+      final row = makeAuditSessionRow(stationsCompleted: ['egg', 'chicks']);
       final model = AuditSessionModel.fromMap(row);
 
-      expect(model.stationsCompleted, ['egg_storage', 'chick_quality']);
+      expect(model.stationsCompleted, ['egg', 'chicks']);
     });
 
     test('fromMap handles null stationsCompleted gracefully', () {
@@ -332,7 +328,7 @@ void main() {
         ),
       ).thenAnswer((_) async => 1);
 
-      await repository.markStationCompleted(testSession.id, 'egg_storage');
+      await repository.markStationCompleted(testSession.id, 'egg');
 
       verify(
         () => mockDb.update(
@@ -387,10 +383,10 @@ void main() {
       () async {
         final row = makeAuditSessionRow(
           stationsCompleted: [
-            'egg_storage',
-            'chick_quality',
-            'hatch_analysis',
-            'setter_optimizing',
+            'egg',
+            'chicks',
+            'hatch_analysis_egg_breakouts',
+            'setters',
           ],
         );
 
@@ -417,10 +413,7 @@ void main() {
           return 1;
         });
 
-        await repository.markStationCompleted(
-          testSession.id,
-          'hatcher_optimizing',
-        );
+        await repository.markStationCompleted(testSession.id, 'hatchers');
 
         expect(capturedUpdates.isNotEmpty, isTrue);
         final update = capturedUpdates.first;
@@ -431,8 +424,8 @@ void main() {
 
     test('markStationCompleted completes selected station subset', () async {
       final row = makeAuditSessionRow(
-        selectedStationKeys: ['egg_storage', 'chick_quality'],
-        stationsCompleted: ['egg_storage'],
+        selectedStationKeys: ['egg', 'chicks'],
+        stationsCompleted: ['egg'],
       );
 
       when(
@@ -458,16 +451,18 @@ void main() {
         return 1;
       });
 
-      await repository.markStationCompleted(testSession.id, 'chick_quality');
+      await repository.markStationCompleted(testSession.id, 'chicks');
 
       final update = capturedUpdates.first;
       expect(update['status'], 'completed');
       expect(update['completedAt'], isNotNull);
-      expect(update['stationsCompleted'], contains('chick_quality'));
+      expect(update['stationsCompleted'], contains('chicks'));
     });
 
     test('updateSessionProgress filters to selected station subset', () async {
-      final row = makeAuditSessionRow(selectedStationKeys: ['hatch_analysis']);
+      final row = makeAuditSessionRow(
+        selectedStationKeys: ['hatch_analysis_egg_breakouts'],
+      );
 
       when(
         () => mockDb.query(
@@ -493,12 +488,15 @@ void main() {
       });
 
       await repository.updateSessionProgress(testSession.id, [
-        'egg_storage',
-        'hatch_analysis',
+        'egg',
+        'hatch_analysis_egg_breakouts',
       ]);
 
       final update = capturedUpdates.first;
-      expect(update['stationsCompleted'], jsonEncode(['hatch_analysis']));
+      expect(
+        update['stationsCompleted'],
+        jsonEncode(['hatch_analysis_egg_breakouts']),
+      );
       expect(update['status'], 'completed');
     });
   });

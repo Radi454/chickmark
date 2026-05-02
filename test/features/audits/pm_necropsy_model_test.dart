@@ -20,16 +20,8 @@ List<String> validatePmConditionalRules(AuditModel audit) {
       audit.pmPerihepatitisCount,
       audit.pmPerihepatitisSeverity,
     ],
-    [
-      'Pericarditis',
-      audit.pmPericarditisCount,
-      audit.pmPericarditisSeverity,
-    ],
-    [
-      'Airsac Acute',
-      audit.pmAirsacAcuteCount,
-      audit.pmAirsacAcuteSeverity,
-    ],
+    ['Pericarditis', audit.pmPericarditisCount, audit.pmPericarditisSeverity],
+    ['Airsac Acute', audit.pmAirsacAcuteCount, audit.pmAirsacAcuteSeverity],
     [
       'Airsac Chronic',
       audit.pmAirsacChronicCount,
@@ -86,7 +78,7 @@ List<String> validatePmConditionalRules(AuditModel audit) {
 AuditModel _buildPmAudit(Map<String, dynamic> pmOverrides) {
   final base = AuditModel(
     id: 'pm-test-id',
-    auditType: 'Chick Quality',
+    auditType: 'Chicks',
     customerId: 'cust-pm',
     flockId: 'flock-pm',
     date: DateTime(2026, 4, 25),
@@ -128,31 +120,26 @@ void main() {
     });
 
     test('returns error when lesion count > 0 but severity is missing', () {
-      final audit = _buildPmAudit({
-        'pm_omphalitisCount': 3,
-      });
+      final audit = _buildPmAudit({'pm_omphalitisCount': 3});
 
       final errors = validatePmConditionalRules(audit);
       expect(errors, isNotEmpty);
-      expect(
-        errors.any((e) => e.contains('Omphalitis')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Omphalitis')), true);
     });
 
-    test('returns error when lesion count > 0 but severity is empty string', () {
-      final audit = _buildPmAudit({
-        'pm_omphalitisCount': 3,
-        'pm_omphalitisSeverity': '',
-      });
+    test(
+      'returns error when lesion count > 0 but severity is empty string',
+      () {
+        final audit = _buildPmAudit({
+          'pm_omphalitisCount': 3,
+          'pm_omphalitisSeverity': '',
+        });
 
-      final errors = validatePmConditionalRules(audit);
-      expect(errors, isNotEmpty);
-      expect(
-        errors.any((e) => e.contains('Omphalitis')),
-        true,
-      );
-    });
+        final errors = validatePmConditionalRules(audit);
+        expect(errors, isNotEmpty);
+        expect(errors.any((e) => e.contains('Omphalitis')), true);
+      },
+    );
 
     test('returns multiple errors for multiple lesions missing severity', () {
       final audit = _buildPmAudit({
@@ -164,26 +151,15 @@ void main() {
 
       final errors = validatePmConditionalRules(audit);
       expect(errors.length, 2);
-      expect(
-        errors.any((e) => e.contains('Omphalitis')),
-        true,
-      );
-      expect(
-        errors.any((e) => e.contains('Pericarditis')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Omphalitis')), true);
+      expect(errors.any((e) => e.contains('Pericarditis')), true);
     });
 
     test('no error when lesion count is 0 and severity is null', () {
-      final audit = _buildPmAudit({
-        'pm_omphalitisCount': 0,
-      });
+      final audit = _buildPmAudit({'pm_omphalitisCount': 0});
 
       final errors = validatePmConditionalRules(audit);
-      expect(
-        errors.any((e) => e.contains('Omphalitis')),
-        false,
-      );
+      expect(errors.any((e) => e.contains('Omphalitis')), false);
     });
 
     test('no error when lesion count is null', () {
@@ -203,16 +179,11 @@ void main() {
     });
 
     test('returns error when gasping is present but subtype missing', () {
-      final audit = _buildPmAudit({
-        'pm_gaspingPresent': 1,
-      });
+      final audit = _buildPmAudit({'pm_gaspingPresent': 1});
 
       final errors = validatePmConditionalRules(audit);
       expect(errors, isNotEmpty);
-      expect(
-        errors.any((e) => e.contains('Gasping')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Gasping')), true);
     });
 
     test('returns error when gasping is present but subtype empty', () {
@@ -223,22 +194,14 @@ void main() {
 
       final errors = validatePmConditionalRules(audit);
       expect(errors, isNotEmpty);
-      expect(
-        errors.any((e) => e.contains('Gasping')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Gasping')), true);
     });
 
     test('no error when gasping is not present', () {
-      final audit = _buildPmAudit({
-        'pm_gaspingPresent': 0,
-      });
+      final audit = _buildPmAudit({'pm_gaspingPresent': 0});
 
       final errors = validatePmConditionalRules(audit);
-      expect(
-        errors.any((e) => e.contains('Gasping')),
-        false,
-      );
+      expect(errors.any((e) => e.contains('Gasping')), false);
     });
 
     test('valid when other deformity count has description', () {
@@ -252,28 +215,18 @@ void main() {
     });
 
     test('returns error when other deformity count > 0 but no description', () {
-      final audit = _buildPmAudit({
-        'pm_otherDeformityCount': 3,
-      });
+      final audit = _buildPmAudit({'pm_otherDeformityCount': 3});
 
       final errors = validatePmConditionalRules(audit);
       expect(errors, isNotEmpty);
-      expect(
-        errors.any((e) => e.contains('Other deformity')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Other deformity')), true);
     });
 
     test('no error when other deformity count is 0 and description null', () {
-      final audit = _buildPmAudit({
-        'pm_otherDeformityCount': 0,
-      });
+      final audit = _buildPmAudit({'pm_otherDeformityCount': 0});
 
       final errors = validatePmConditionalRules(audit);
-      expect(
-        errors.any((e) => e.contains('Other deformity')),
-        false,
-      );
+      expect(errors.any((e) => e.contains('Other deformity')), false);
     });
 
     test('compound: gasping missing subtype AND lesion missing severity', () {
@@ -284,14 +237,8 @@ void main() {
 
       final errors = validatePmConditionalRules(audit);
       expect(errors.length, 2);
-      expect(
-        errors.any((e) => e.contains('Gasping')),
-        true,
-      );
-      expect(
-        errors.any((e) => e.contains('Pericarditis')),
-        true,
-      );
+      expect(errors.any((e) => e.contains('Gasping')), true);
+      expect(errors.any((e) => e.contains('Pericarditis')), true);
     });
   });
 
@@ -371,9 +318,7 @@ void main() {
     });
 
     test('pmGaspingPresent false serializes correctly', () {
-      final audit = _buildPmAudit({
-        'pm_gaspingPresent': 0,
-      });
+      final audit = _buildPmAudit({'pm_gaspingPresent': 0});
 
       final map = audit.toMap();
       final restored = AuditModel.fromMap(map);

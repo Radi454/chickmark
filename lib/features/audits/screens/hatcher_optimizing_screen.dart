@@ -214,7 +214,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Hatcher Optimizing',
+                title: 'Hatchers',
                 actions: [
                   if (auditProvider.isReadOnly)
                     IconButton(

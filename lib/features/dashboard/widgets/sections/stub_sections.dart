@@ -99,7 +99,7 @@ Widget _photoSection(BuildContext context, List<String> photos) {
   );
 }
 
-// ─── Chick Quality ───────────────────────────────────────────────────────────
+// ─── Chicks ───────────────────────────────────────────────────────────
 
 class ChickQualitySection extends StatefulWidget {
   const ChickQualitySection({super.key});
@@ -130,7 +130,7 @@ class _ChickQualitySectionState extends State<ChickQualitySection>
       builder: (context, provider, _) {
         return Card(
           child: ExpansionTile(
-            title: const Text('Chick Quality'),
+            title: const Text('Chicks'),
             initiallyExpanded: true,
             children: [
               TabBar(
@@ -554,7 +554,7 @@ class _ChaTab extends StatelessWidget {
   }
 }
 
-// ─── Egg Storage ─────────────────────────────────────────────────────────────
+// ─── Egg ─────────────────────────────────────────────────────────────
 
 class EggStorageSection extends StatefulWidget {
   const EggStorageSection({super.key});
@@ -895,7 +895,7 @@ class _Co2Tab extends StatelessWidget {
   }
 }
 
-// ─── Setter Optimizing ───────────────────────────────────────────────────────
+// ─── Setters ───────────────────────────────────────────────────────
 
 class SetterOptimizingSection extends StatelessWidget {
   const SetterOptimizingSection({super.key});
@@ -907,7 +907,7 @@ class SetterOptimizingSection extends StatelessWidget {
         final hasData = provider.setterComparisons.isNotEmpty;
         return Card(
           child: ExpansionTile(
-            title: const Text('Setter Optimizing'),
+            title: const Text('Setters'),
             initiallyExpanded: true,
             children: [
               if (provider.availableSetterIds.isEmpty)
@@ -1169,7 +1169,7 @@ class SetterOptimizingSection extends StatelessWidget {
   }
 }
 
-// ─── Hatcher Optimizing ──────────────────────────────────────────────────────
+// ─── Hatchers ──────────────────────────────────────────────────────
 
 class HatcherOptimizingSection extends StatelessWidget {
   const HatcherOptimizingSection({super.key});
@@ -1181,7 +1181,7 @@ class HatcherOptimizingSection extends StatelessWidget {
         final hasData = provider.hatcherComparisons.isNotEmpty;
         return Card(
           child: ExpansionTile(
-            title: const Text('Hatcher Optimizing'),
+            title: const Text('Hatchers'),
             initiallyExpanded: true,
             children: [
               if (provider.availableHatcherIds.isEmpty)

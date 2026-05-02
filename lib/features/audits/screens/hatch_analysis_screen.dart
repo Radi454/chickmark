@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/date_utils.dart' as hatch_dates;
 import '../../../data/models/audit_model.dart';
@@ -145,28 +146,35 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   }) {
     final breakoutType = EggBreakoutType.fromStorageValue(audit.ebBreakoutType);
 
-    return Column(
-      key: hatchIndex == provider.activeHatchIndex ? _sectionKeys[0] : null,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildBreakoutTypeCard(provider, hatchIndex, audit, breakoutType),
-        const SizedBox(height: 16),
-        _surface(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _sectionTitle('Breakout Samples'),
-              const SizedBox(height: 8),
-              _buildBreakoutSampleSection(
-                provider,
-                hatchIndex,
-                audit,
-                breakoutType,
+    return Center(
+      key: const ValueKey('hatch-analysis-workbench-shell'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1040),
+        child: Column(
+          key: hatchIndex == provider.activeHatchIndex ? _sectionKeys[0] : null,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildBreakoutTypeCard(provider, hatchIndex, audit, breakoutType),
+            const SizedBox(height: AppSizes.spaceLg),
+            _surface(
+              containerKey: const ValueKey('hatch-analysis-samples-panel'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionTitle('Breakout Samples'),
+                  const SizedBox(height: AppSizes.spaceSm),
+                  _buildBreakoutSampleSection(
+                    provider,
+                    hatchIndex,
+                    audit,
+                    breakoutType,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -183,124 +191,144 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       breakoutType,
       storageDays: storageDays,
     );
+    final bmkAgeWeeks = _displayBmkWeeks(bmkAgeDays, audit, breakoutType);
 
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 300),
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF089FE0), Color(0xFF1C48C9)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useWideHeader = constraints.maxWidth >= 560;
+        final headerTitle = Text(
+          'Breakout Type',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.heading.copyWith(
+            fontSize: useWideHeader ? 26 : 24,
+            height: 1.08,
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        );
+        final selector = Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.22),
+              width: 1.2,
+            ),
+          ),
+          child: _buildBreakoutTypeSelector(
+            provider,
+            hatchIndex,
+            audit,
+            breakoutType,
+          ),
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              key: const ValueKey('hatch-analysis-breakout-header'),
+              width: double.infinity,
+              padding: EdgeInsets.all(useWideHeader ? 20 : 18),
+              decoration: _gradientHeaderDecoration(),
+              child: useWideHeader
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(width: 170, child: headerTitle),
+                        const SizedBox(width: AppSizes.spaceLg),
+                        Expanded(child: selector),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        headerTitle,
+                        const SizedBox(height: AppSizes.spaceMd),
+                        selector,
+                      ],
+                    ),
+            ),
+            const SizedBox(height: AppSizes.spaceMd),
+            Container(
+              key: const ValueKey('hatch-analysis-context-card'),
+              width: double.infinity,
+              padding: EdgeInsets.all(useWideHeader ? 20 : 18),
+              decoration: _gradientHeaderDecoration(),
+              child: Wrap(
+                spacing: AppSizes.spaceSm,
+                runSpacing: AppSizes.spaceSm,
+                children: [
+                  _buildGradientInfoTile('Flock', widget.context.flockId),
+                  _buildGradientInfoTile(
+                    'Breed',
+                    widget.context.breed ?? '--',
+                  ),
+                  _buildGradientInfoTile(
+                    'BMK Age',
+                    _formatBmkWeeksValue(bmkAgeWeeks),
+                    key: const ValueKey('breakout-bmk-age-display-card'),
+                  ),
+                  _buildGradientNumberTile(
+                    cardKey: const ValueKey('breakout-storage-days-entry-card'),
+                    key: const ValueKey('breakout-storage-days'),
+                    label: 'Storage days',
+                    value: storageDays,
+                    enabled: !provider.isReadOnly,
+                    prominent: true,
+                    onChanged: (value) {
+                      final parsed = int.tryParse(value);
+                      provider.updateHatchField(
+                        hatchIndex,
+                        'haStorageDays',
+                        parsed,
+                      );
+                      provider.updateHatchField(
+                        hatchIndex,
+                        'ebStorageDays',
+                        parsed,
+                      );
+                      _persistBmkAges(provider, hatchIndex);
+                    },
+                  ),
+                  if (breakoutType == EggBreakoutType.candledEggBreakout)
+                    _buildGradientNumberTile(
+                      key: const ValueKey('breakout-candled-age'),
+                      label: 'Candled age',
+                      value: audit.ebBreakoutAgeDays ?? 10,
+                      enabled: !provider.isReadOnly,
+                      onChanged: (value) {
+                        provider.updateHatchField(
+                          hatchIndex,
+                          'ebBreakoutAgeDays',
+                          int.tryParse(value),
+                        );
+                        _persistBmkAges(provider, hatchIndex);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  BoxDecoration _gradientHeaderDecoration() {
+    return BoxDecoration(
+      gradient: AppColors.brandGradient,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: const [
+        BoxShadow(
+          color: AppColors.cardShadow,
+          blurRadius: 16,
+          offset: Offset(0, 8),
         ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.cardShadowElevated,
-            blurRadius: 22,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Breakout Type',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.heading.copyWith(
-                  fontSize: 34,
-                  height: 1.05,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.24),
-                width: 1.5,
-              ),
-            ),
-            child: _buildBreakoutTypeSelector(
-              provider,
-              hatchIndex,
-              audit,
-              breakoutType,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _buildGradientInfoTile('Flock', widget.context.flockId),
-              _buildGradientInfoTile('Breed', widget.context.breed ?? '--'),
-              _buildGradientInfoTile(
-                'BMK Age',
-                _formatBmkWeeks(bmkAgeDays),
-                key: const ValueKey('breakout-bmk-age-display-card'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _buildGradientNumberTile(
-                cardKey: const ValueKey('breakout-storage-days-entry-card'),
-                key: const ValueKey('breakout-storage-days'),
-                label: 'Storage days',
-                value: storageDays,
-                enabled: !provider.isReadOnly,
-                prominent: true,
-                onChanged: (value) {
-                  final parsed = int.tryParse(value);
-                  provider.updateHatchField(
-                    hatchIndex,
-                    'haStorageDays',
-                    parsed,
-                  );
-                  provider.updateHatchField(
-                    hatchIndex,
-                    'ebStorageDays',
-                    parsed,
-                  );
-                  _persistBmkAges(provider, hatchIndex);
-                },
-              ),
-              if (breakoutType == EggBreakoutType.candledEggBreakout)
-                _buildGradientNumberTile(
-                  key: const ValueKey('breakout-candled-age'),
-                  label: 'Candled age',
-                  value: audit.ebBreakoutAgeDays ?? 10,
-                  enabled: !provider.isReadOnly,
-                  onChanged: (value) {
-                    provider.updateHatchField(
-                      hatchIndex,
-                      'ebBreakoutAgeDays',
-                      int.tryParse(value),
-                    );
-                    _persistBmkAges(provider, hatchIndex);
-                  },
-                ),
-            ],
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -324,7 +352,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           );
         }).toList();
 
-        if (constraints.maxWidth < 560) {
+        if (constraints.maxWidth < 320) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -350,13 +378,13 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 
   Widget _buildGradientInfoTile(String label, String value, {Key? key}) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 132, maxWidth: 190),
+      constraints: const BoxConstraints(minWidth: 124, maxWidth: 180),
       child: Container(
         key: key,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
         ),
         child: Column(
@@ -398,15 +426,15 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   }) {
     return ConstrainedBox(
       constraints: BoxConstraints(
-        minWidth: prominent ? 220 : 132,
-        maxWidth: prominent ? 320 : 190,
+        minWidth: prominent ? 196 : 124,
+        maxWidth: prominent ? 280 : 180,
       ),
       child: Container(
         key: cardKey,
-        padding: EdgeInsets.all(prominent ? 16 : 12),
+        padding: EdgeInsets.all(prominent ? 12 : 10),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: prominent ? 0.22 : 0.14),
-          borderRadius: BorderRadius.circular(prominent ? 14 : 10),
+          borderRadius: BorderRadius.circular(prominent ? 10 : 8),
           border: Border.all(
             color: Colors.white.withValues(alpha: prominent ? 0.42 : 0.24),
             width: prominent ? 1.4 : 1,
@@ -470,7 +498,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(12),
@@ -481,13 +509,15 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             ),
           ),
           child: Center(
-            child: Text(
-              type.displayLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.body.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                type.displayLabel,
+                maxLines: 1,
+                style: AppTextStyles.caption.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -550,11 +580,11 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderDefault),
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1178,15 +1208,17 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   Widget _surface({required Widget child, Key? containerKey}) {
     return Container(
       key: containerKey,
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSizes.spaceLg),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
+            color: AppColors.cardShadow,
+            blurRadius: 14,
+            offset: Offset(0, 6),
           ),
         ],
       ),
@@ -1258,10 +1290,27 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return (ageDays / 7.0).ceil();
   }
 
+  int? _displayBmkWeeks(
+    int? calculatedAgeDays,
+    AuditModel audit,
+    EggBreakoutType breakoutType,
+  ) {
+    final calculatedWeeks = _legacyBmkWeeks(calculatedAgeDays);
+    if (calculatedWeeks != null) return calculatedWeeks;
+    return breakoutType.showsHatchability
+        ? (audit.haBmkAge ?? audit.ebBmkAge)
+        : (audit.ebBmkAge ?? audit.haBmkAge);
+  }
+
+  String _formatBmkWeeksValue(int? weeks) {
+    if (weeks == null) return '0 wks';
+    return '$weeks wks';
+  }
+
   String _formatBmkWeeks(int? ageDays) {
     final weeks = _legacyBmkWeeks(ageDays);
     if (weeks == null) return '--';
-    return '$weeks week${weeks == 1 ? '' : 's'}';
+    return _formatBmkWeeksValue(weeks);
   }
 
   Future<Map<String, Object?>?> _breakoutBenchmarkFuture(int ageDays) {

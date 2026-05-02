@@ -89,11 +89,11 @@ void main() {
         stationsCompleted: supportedStationKeys,
       );
       final audits = [
-        _makeAudit(auditType: 'Egg Storage'),
-        _makeAudit(auditType: 'Chick Quality'),
-        _makeAudit(auditType: 'Hatch Analysis'),
-        _makeAudit(auditType: 'Setter Optimizing'),
-        _makeAudit(auditType: 'Hatcher Optimizing'),
+        _makeAudit(auditType: 'Egg'),
+        _makeAudit(auditType: 'Chicks'),
+        _makeAudit(auditType: 'Hatch Analysis & Egg Breakouts'),
+        _makeAudit(auditType: 'Setters'),
+        _makeAudit(auditType: 'Hatchers'),
       ];
       final summary = VisitSessionSummary.fromSession(
         session: session,
@@ -112,28 +112,28 @@ void main() {
 
     test('uses selected station subset for progress and scorecards', () {
       final session = _makeSession(
-        selectedStationKeys: const ['egg_storage', 'hatch_analysis'],
-        stationsCompleted: const ['egg_storage'],
+        selectedStationKeys: const ['egg', 'hatch_analysis_egg_breakouts'],
+        stationsCompleted: const ['egg'],
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
-        stationAudits: [_makeAudit(auditType: 'Egg Storage')],
+        stationAudits: [_makeAudit(auditType: 'Egg')],
       );
 
       expect(summary.selectedStationCount, 2);
       expect(summary.completedStationCount, 1);
       expect(summary.completionFraction, 0.5);
       expect(summary.scorecards.map((scorecard) => scorecard.stationKey), [
-        'egg_storage',
-        'hatch_analysis',
+        'egg',
+        'hatch_analysis_egg_breakouts',
       ]);
     });
 
     test('filters persisted scorecards to selected stations', () {
       final session = _makeSession(
-        selectedStationKeys: const ['hatch_analysis'],
+        selectedStationKeys: const ['hatch_analysis_egg_breakouts'],
         scorecardJson:
-            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"green"},{"stationKey":"hatch_analysis","stationLabel":"Hatch Analysis","status":"amber"}]',
+            '[{"stationKey":"egg","stationLabel":"Egg","status":"green"},{"stationKey":"hatch_analysis_egg_breakouts","stationLabel":"Hatch Analysis & Egg Breakouts","status":"amber"}]',
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
@@ -141,14 +141,17 @@ void main() {
       );
 
       expect(summary.scorecards.length, 1);
-      expect(summary.scorecards.first.stationKey, 'hatch_analysis');
+      expect(
+        summary.scorecards.first.stationKey,
+        'hatch_analysis_egg_breakouts',
+      );
       expect(summary.scorecards.first.status, 'amber');
     });
 
     test('scorecard falls back to persisted JSON when available', () {
       final session = _makeSession(
         scorecardJson:
-            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"amber","detail":"Review"}]',
+            '[{"stationKey":"egg","stationLabel":"Egg","status":"amber","detail":"Review"}]',
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
@@ -156,7 +159,7 @@ void main() {
       );
 
       final eggSc = summary.scorecards.firstWhere(
-        (sc) => sc.stationKey == 'egg_storage',
+        (sc) => sc.stationKey == 'egg',
       );
       expect(eggSc.stationLabel, 'Egg');
       expect(eggSc.status, 'amber');
@@ -190,7 +193,7 @@ void main() {
 
     test('PM score summary aggregates lesions and deformities', () {
       final audit = _makeAudit(
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         pmOmphalitisCount: 2,
         pmGaseousCecaCount: 1,
         pmExposedBrainCount: 1,
@@ -212,7 +215,7 @@ void main() {
     });
 
     test('PM severity is green when no lesions, deformities, or gasping', () {
-      final audit = _makeAudit(auditType: 'Chick Quality');
+      final audit = _makeAudit(auditType: 'Chicks');
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
@@ -222,7 +225,7 @@ void main() {
 
     test('PM severity is red when many lesions or deformities', () {
       final audit = _makeAudit(
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         pmOmphalitisCount: 6,
         pmExposedBrainCount: 4,
       );
@@ -235,7 +238,7 @@ void main() {
 
     test('hatch budget summary reads from hatch analysis audit', () {
       final audit = _makeAudit(
-        auditType: 'Hatch Analysis',
+        auditType: 'Hatch Analysis & Egg Breakouts',
         haTotalEggsSet: 10000,
         haHatched: 8500,
         haCulled: 100,
@@ -300,9 +303,9 @@ void main() {
   group('StationScorecard heuristic derivation', () {
     test('unknown when station not completed', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: false,
-        audit: _makeAudit(auditType: 'Egg Storage'),
+        audit: _makeAudit(auditType: 'Egg'),
       );
       expect(sc.status, 'unknown');
       expect(sc.detail, 'Not completed');
@@ -310,27 +313,27 @@ void main() {
 
     test('red for egg storage shell temp > 21C', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg Storage', esShellTemp: 22.5),
+        audit: _makeAudit(auditType: 'Egg', esShellTemp: 22.5),
       );
       expect(sc.status, 'red');
     });
 
     test('amber for setter EST outside optimal range', () {
       final sc = StationScorecard.derive(
-        stationKey: 'setter_optimizing',
+        stationKey: 'setters',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Setter Optimizing', soEstAvg: 99.5),
+        audit: _makeAudit(auditType: 'Setters', soEstAvg: 99.5),
       );
       expect(sc.status, 'amber');
     });
 
     test('green when no critical alerts', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg Storage', esShellTemp: 20.0),
+        audit: _makeAudit(auditType: 'Egg', esShellTemp: 20.0),
       );
       expect(sc.status, 'green');
     });

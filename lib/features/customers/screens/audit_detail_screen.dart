@@ -38,27 +38,27 @@ Future<void> openAuditEditor(
   );
 
   final screen = switch (audit.auditType) {
-    'Chick Quality' => ChickQualityScreen(
+    'Chicks' => ChickQualityScreen(
       context: contextData,
       initialAudit: audit,
       initialTabIndex: sectionIndex,
     ),
-    'Hatch Analysis' => HatchAnalysisScreen(
+    'Hatch Analysis & Egg Breakouts' => HatchAnalysisScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Setter Optimizing' => SetterOptimizingScreen(
+    'Setters' => SetterOptimizingScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Hatcher Optimizing' => HatcherOptimizingScreen(
+    'Hatchers' => HatcherOptimizingScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Egg Storage' => EggStorageScreen(
+    'Egg' => EggStorageScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
@@ -212,11 +212,11 @@ class AuditDetailScreen extends StatelessWidget {
 
   List<_AuditSummarySection> _sectionsForAudit() {
     return switch (audit.auditType) {
-      'Chick Quality' => _chickQualitySections(),
-      'Hatch Analysis' => _hatchAnalysisSections(),
-      'Setter Optimizing' => _setterSections(),
-      'Hatcher Optimizing' => _hatcherSections(),
-      'Egg Storage' => _eggStorageSections(),
+      'Chicks' => _chickQualitySections(),
+      'Hatch Analysis & Egg Breakouts' => _hatchAnalysisSections(),
+      'Setters' => _setterSections(),
+      'Hatchers' => _hatcherSections(),
+      'Egg' => _eggStorageSections(),
       _ => [],
     };
   }

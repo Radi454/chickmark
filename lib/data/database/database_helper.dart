@@ -21,7 +21,7 @@ class DatabaseHelper {
     if (_db != null) return _db!;
     _db = await openDatabase(
       await _databasePath(),
-      version: 22,
+      version: 23,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -92,7 +92,7 @@ class DatabaseHelper {
       sessionId TEXT,
       sampleMode TEXT NOT NULL DEFAULT 'pool',
       compareGroupKey TEXT,
-      -- Chick Quality: CHA Environmental
+      -- Chicks: CHA Environmental
       chaGoveeConnected INTEGER,
       chaCo2 REAL,
       chaCo2Photo TEXT,
@@ -112,7 +112,7 @@ class DatabaseHelper {
       chaAirOutletPhoto TEXT,
       chaNoiseLevel REAL,
       chaNoiseLevelPhoto TEXT,
-      -- Chick Quality: Pasgar
+      -- Chicks: Pasgar
       pasgarSampleSize INTEGER,
       pasgarReflexes INTEGER,
       pasgarReflexesPhoto TEXT,
@@ -127,7 +127,7 @@ class DatabaseHelper {
       pasgarFeatherDev INTEGER,
       pasgarFeatherDevPhoto TEXT,
       pasgarFinalScore REAL,
-      -- Chick Quality: Weights
+      -- Chicks: Weights
       chickStorageDays INTEGER,
       chickSampleSize INTEGER,
       chickWeights TEXT,
@@ -136,12 +136,12 @@ class DatabaseHelper {
       chickCvPct REAL,
       chickBmkAge INTEGER,
       chickBmkWeight REAL,
-      -- Chick Quality: YFBM
+      -- Chicks: YFBM
       yfbmPhoto TEXT,
       yfbmEntries TEXT,
       yfbmAvgPct REAL,
       yfbmCvPct REAL,
-      -- Chick Quality: CVT
+      -- Chicks: CVT
       cvtSampleSize INTEGER,
       cvtTopBasket TEXT,
       cvtTopTemp REAL,
@@ -156,7 +156,7 @@ class DatabaseHelper {
       cvtCvPct REAL,
       cvtReadingsJson TEXT,
       cvtPhotosJson TEXT,
-      -- Hatch Analysis: Hatch Results
+      -- Hatch Analysis & Egg Breakouts: Hatch Results
       haStorageDays INTEGER,
       haTotalEggsSet INTEGER,
       haHatched INTEGER,
@@ -175,7 +175,7 @@ class DatabaseHelper {
       haLateDead INTEGER,
       haContaminatedExploders INTEGER,
       haBenchmarkStatusesJson TEXT,
-      -- Hatch Analysis: Egg Breakout
+      -- Hatch Analysis & Egg Breakouts: Egg Breakout
       ebTraySize INTEGER,
       ebBreakoutType TEXT,
       ebBreakoutAgeDays INTEGER,
@@ -195,7 +195,7 @@ class DatabaseHelper {
       ebExposedBrainCount INTEGER,
       ebCrossedBeakCount INTEGER,
       ebCulledDeadCount INTEGER,
-      -- Setter Optimizing
+      -- Setters
       soBreed TEXT,
       soSetterId TEXT,
       soIncubationAge INTEGER,
@@ -208,7 +208,7 @@ class DatabaseHelper {
       soEstPhotos TEXT,
       soEstAvg REAL,
       soEstCv REAL,
-      -- Hatcher Optimizing
+      -- Hatchers
       hoBreed TEXT,
       hoHatcherId TEXT,
       hoIncubationAge INTEGER,
@@ -225,7 +225,7 @@ class DatabaseHelper {
       hoChickPantingPhoto TEXT,
       ho_meconium TEXT,
       ho_transferDay INTEGER,
-      -- Egg Storage
+      -- Egg
       esGoveeConnected INTEGER,
       esGoveeTemp REAL,
       esGoveeHumidity REAL,
@@ -619,6 +619,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 22) {
       await _applyV22Upgrade(db);
+    }
+    if (oldVersion < 23) {
+      await _applyV23Upgrade(db);
     }
   }
 
@@ -1218,6 +1221,104 @@ DELETE FROM temperature_readings WHERE sessionId IN (
 
   @visibleForTesting
   Future<void> applyV22UpgradeForTest(Database db) => _applyV22Upgrade(db);
+
+  Future<void> _applyV23Upgrade(Database db) async {
+    await _renameStationIdentityValues(db);
+  }
+
+  @visibleForTesting
+  Future<void> applyV23UpgradeForTest(Database db) => _applyV23Upgrade(db);
+
+  Future<void> _renameStationIdentityValues(Database db) async {
+    await db.execute("""
+      UPDATE OR IGNORE audits
+      SET auditType = CASE auditType
+        WHEN 'Egg Storage' THEN 'Egg'
+        WHEN 'Egg Storage & Handling' THEN 'Egg'
+        WHEN 'Chick Quality' THEN 'Chicks'
+        WHEN 'Hatch Analysis' THEN 'Hatch Analysis & Egg Breakouts'
+        WHEN 'Setter Optimizing' THEN 'Setters'
+        WHEN 'Hatcher Optimizing' THEN 'Hatchers'
+        ELSE auditType
+      END
+      WHERE auditType IN (
+        'Egg Storage',
+        'Egg Storage & Handling',
+        'Chick Quality',
+        'Hatch Analysis',
+        'Setter Optimizing',
+        'Hatcher Optimizing'
+      )
+    """);
+    await db.execute("""
+      UPDATE station_samples
+      SET stationType = CASE stationType
+        WHEN 'Egg Storage' THEN 'Egg'
+        WHEN 'Egg Storage & Handling' THEN 'Egg'
+        WHEN 'Chick Quality' THEN 'Chicks'
+        WHEN 'Hatch Analysis' THEN 'Hatch Analysis & Egg Breakouts'
+        WHEN 'Setter Optimizing' THEN 'Setters'
+        WHEN 'Hatcher Optimizing' THEN 'Hatchers'
+        ELSE stationType
+      END
+      WHERE stationType IN (
+        'Egg Storage',
+        'Egg Storage & Handling',
+        'Chick Quality',
+        'Hatch Analysis',
+        'Setter Optimizing',
+        'Hatcher Optimizing'
+      )
+    """);
+    for (final column in const [
+      'selectedStationKeys',
+      'stationsCompleted',
+      'scorecardJson',
+      'findingsJson',
+    ]) {
+      await _replaceAuditSessionTextColumn(db, column);
+    }
+  }
+
+  Future<void> _replaceAuditSessionTextColumn(
+    Database db,
+    String column,
+  ) async {
+    await db.execute("""
+      UPDATE audit_sessions
+      SET $column = replace(
+        replace(
+          replace(
+            replace(
+              replace(
+                replace(
+                  replace(
+                    replace(
+                      replace(
+                        replace($column,
+                          '"egg_storage"', '"egg"'
+                        ),
+                        '"chick_quality"', '"chicks"'
+                      ),
+                      '"hatch_analysis"', '"hatch_analysis_egg_breakouts"'
+                    ),
+                    '"setter_optimizing"', '"setters"'
+                  ),
+                  '"hatcher_optimizing"', '"hatchers"'
+                ),
+                '"Egg Storage"', '"Egg"'
+              ),
+              '"Chick Quality"', '"Chicks"'
+            ),
+            '"Hatch Analysis"', '"Hatch Analysis & Egg Breakouts"'
+          ),
+          '"Setter Optimizing"', '"Setters"'
+        ),
+        '"Hatcher Optimizing"', '"Hatchers"'
+      )
+      WHERE $column IS NOT NULL
+    """);
+  }
 
   Future<void> _addStationSampleHouseColumns(
     DatabaseExecutor db,

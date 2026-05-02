@@ -363,7 +363,7 @@ class AuditRepository {
   }) async {
     final db = await dbHelper.db;
     final filters = <String>[
-      "auditType = 'Setter Optimizing'",
+      "auditType = 'Setters'",
       'COALESCE(soSetterId, setterId) IS NOT NULL',
     ];
     final args = <Object?>[];
@@ -388,7 +388,7 @@ class AuditRepository {
   }) async {
     final db = await dbHelper.db;
     final filters = <String>[
-      "auditType = 'Hatcher Optimizing'",
+      "auditType = 'Hatchers'",
       'COALESCE(hoHatcherId, hatcherId) IS NOT NULL',
     ];
     final args = <Object?>[];
@@ -409,7 +409,10 @@ class AuditRepository {
 
   Future<HatchAnalysisAvg?> getHatchAnalysisAvg(DashboardFilter filter) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
+    final (:clause, :args) = _buildWhereWithArgs(
+      filter,
+      'hatch_analysis_egg_breakouts',
+    );
     final result = await db.rawQuery(
       'SELECT AVG(haHatchability) as hatchabilityPct, AVG(haFertility) as fertilityPct, AVG(haHof) as hofPct, AVG(haCulled) as culledPct, AVG(haDead) as deadPct FROM audits $clause',
       args,
@@ -422,7 +425,10 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
+    final (:clause, :args) = _buildWhereWithArgs(
+      filter,
+      'hatch_analysis_egg_breakouts',
+    );
     final result = await db.rawQuery(
       'SELECT date, AVG(haHatchability) as hatchabilityPct, AVG(haFertility) as fertilityPct, AVG(haHof) as hofPct, AVG(haCulled) as culledPct, AVG(haDead) as deadPct FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
@@ -436,7 +442,10 @@ class AuditRepository {
     String breakoutType,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
+    final (:clause, :args) = _buildWhereWithArgs(
+      filter,
+      'hatch_analysis_egg_breakouts',
+    );
     final typeFilter = _eggBreakoutTypeArg(breakoutType);
     final result = await db.rawQuery(
       '''
@@ -484,7 +493,10 @@ class AuditRepository {
     String breakoutType,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatch_analysis');
+    final (:clause, :args) = _buildWhereWithArgs(
+      filter,
+      'hatch_analysis_egg_breakouts',
+    );
     final typeFilter = _eggBreakoutTypeArg(breakoutType);
     final result = await db.rawQuery(
       '''
@@ -538,9 +550,9 @@ class AuditRepository {
   Future<List<String>> getEggStorageEstPhotoPaths(
     DashboardFilter filter,
   ) async {
-    final existing = await getPhotoPaths(filter, 'egg_storage', 'shell_temp');
+    final existing = await getPhotoPaths(filter, 'egg', 'shell_temp');
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg');
     final rows = await db.rawQuery(
       'SELECT es_estPhotosJson FROM audits $clause ORDER BY date DESC, createdAt DESC',
       args,
@@ -552,7 +564,7 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg');
     final rows = await db.rawQuery(
       'SELECT es_estReadingsJson, es_estPhotosJson FROM audits $clause ORDER BY date DESC, createdAt DESC LIMIT 1',
       args,
@@ -569,7 +581,7 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
     final result = await db.rawQuery(
       'SELECT date, AVG(chickAvgWeight) as avgWeightG, AVG(chickUniformityPct) as uniformityPct, AVG(chickCvPct) as cvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
@@ -580,7 +592,7 @@ class AuditRepository {
 
   Future<PasgarAvg?> getPasgarAvg(DashboardFilter filter) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
     final result = await db.rawQuery('''
       SELECT
         AVG(pasgarFinalScore) as score,
@@ -599,7 +611,7 @@ class AuditRepository {
 
   Future<CvtAvg?> getCvtAvg(DashboardFilter filter) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
     final result = await db.rawQuery(
       'SELECT AVG(cvtAvg) as avgTempF, AVG(cvtCvPct) as cvPct FROM audits $clause',
       args,
@@ -610,7 +622,7 @@ class AuditRepository {
 
   Future<List<YfbmTrend>?> getYfbmTrend(DashboardFilter filter) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
     final result = await db.rawQuery(
       'SELECT date, AVG(yfbmAvgPct) as avgPct, AVG(yfbmCvPct) as cvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
@@ -623,7 +635,7 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chick_quality');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
     final result = await db.rawQuery(
       'SELECT date, AVG(chaCo2) as co2, AVG(chaPm10) as pm10, AVG(chaPm25) as pm25, AVG((COALESCE(chaAirVelocitySpot1, 0) + COALESCE(chaAirVelocitySpot2, 0) + COALESCE(chaAirVelocitySpot3, 0)) / NULLIF((chaAirVelocitySpot1 IS NOT NULL) + (chaAirVelocitySpot2 IS NOT NULL) + (chaAirVelocitySpot3 IS NOT NULL), 0)) as airVelocity, AVG(chaNoiseLevel) as noiseLevel FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
@@ -636,7 +648,7 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg_storage');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'egg');
     final result = await db.rawQuery(
       'SELECT date, AVG(esEggAvgWeight) as avgWeightG, AVG(esEggUniformityPct) as uniformityPct, AVG(esEggCvPct) as cvPct, AVG(esShellTemp) as shellTempC, AVG(esEggSampleSize) as uvAffectedPct, AVG(esCo2) as co2, AVG(es_estAvg) as estAvgF, AVG(es_estCv) as estCvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
       args,
@@ -651,7 +663,7 @@ class AuditRepository {
   ) async {
     if (setterIds.isEmpty) return [];
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'setter_optimizing');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'setters');
     final idPlaceholders = List.filled(setterIds.length, '?').join(',');
     final result = await db.rawQuery(
       'SELECT soSetterId as setterId, NULL as hatchabilityPct, NULL as fertilityPct, NULL as hofPct, NULL as culledPct, NULL as deadPct, AVG(soEstAvg) as estAvgF, AVG(soEstCv) as estCvPct, AVG(soTurningAngle) as turningAngle FROM audits $clause AND soSetterId IN ($idPlaceholders) GROUP BY soSetterId',
@@ -667,7 +679,7 @@ class AuditRepository {
   ) async {
     if (hatcherIds.isEmpty) return [];
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatcher_optimizing');
+    final (:clause, :args) = _buildWhereWithArgs(filter, 'hatchers');
     final idPlaceholders = List.filled(hatcherIds.length, '?').join(',');
     final result = await db.rawQuery(
       'SELECT hoHatcherId as hatcherId, NULL as hatchabilityPct, NULL as fertilityPct, NULL as hofPct, NULL as culledPct, NULL as deadPct, AVG(hoCvtAvg) as cvtAvgF, AVG(hoCvtCv) as cvtCvPct, hoMeconium as meconium, hoTransferDay as transferDay FROM audits $clause AND hoHatcherId IN ($idPlaceholders) GROUP BY hoHatcherId',
@@ -899,16 +911,16 @@ class AuditRepository {
 
   String _displayAuditType(String auditType) {
     switch (auditType) {
-      case 'chick_quality':
-        return 'Chick Quality';
-      case 'hatch_analysis':
-        return 'Hatch Analysis';
-      case 'egg_storage':
-        return 'Egg Storage';
-      case 'setter_optimizing':
-        return 'Setter Optimizing';
-      case 'hatcher_optimizing':
-        return 'Hatcher Optimizing';
+      case 'chicks':
+        return 'Chicks';
+      case 'hatch_analysis_egg_breakouts':
+        return 'Hatch Analysis & Egg Breakouts';
+      case 'egg':
+        return 'Egg';
+      case 'setters':
+        return 'Setters';
+      case 'hatchers':
+        return 'Hatchers';
       default:
         return auditType;
     }

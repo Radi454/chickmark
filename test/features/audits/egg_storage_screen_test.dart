@@ -27,7 +27,7 @@ void main() {
   });
 
   AuditContextData contextData() => AuditContextData(
-    auditType: 'Egg Storage',
+    auditType: 'Egg',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
@@ -58,7 +58,7 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.text('Egg'), findsWidgets);
-    expect(find.text('Egg Storage & Handling'), findsNothing);
+    expect(find.text('Egg'), findsNothing);
     expect(find.text('Egg Shell Temperature'), findsOneWidget);
     expect(find.text('19.0-21.0°C'), findsOneWidget);
     expect(find.text('Upside Down Score'), findsOneWidget);

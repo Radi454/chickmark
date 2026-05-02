@@ -337,7 +337,7 @@ class DashboardProvider extends ChangeNotifier {
         [];
     _eggBreakoutPhotos = await _auditRepo.getPhotoPaths(
       filter,
-      'hatch_analysis',
+      'hatch_analysis_egg_breakouts',
       'egg_breakout',
     );
   }
@@ -357,17 +357,9 @@ class DashboardProvider extends ChangeNotifier {
     _cvtAvg = await _auditRepo.getCvtAvg(filter);
     _yfbmTrend = await _auditRepo.getYfbmTrend(filter) ?? [];
     _chaTrend = await _auditRepo.getChaEnvironmentalTrend(filter) ?? [];
-    _cvtPhotos = await _auditRepo.getPhotoPaths(filter, 'chick_quality', 'cvt');
-    _yfbmPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'chick_quality',
-      'yfbm',
-    );
-    _chaPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'chick_quality',
-      'cha_env',
-    );
+    _cvtPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'cvt');
+    _yfbmPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'yfbm');
+    _chaPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'cha_env');
   }
 
   Future<void> _loadEggStorage(DashboardFilter filter) async {
@@ -376,11 +368,7 @@ class DashboardProvider extends ChangeNotifier {
       filter,
     );
     _shellTempPhotos = await _auditRepo.getEggStorageEstPhotoPaths(filter);
-    _uvPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'egg_storage',
-      'uv_inspection',
-    );
+    _uvPhotos = await _auditRepo.getPhotoPaths(filter, 'egg', 'uv_inspection');
   }
 
   Future<void> _loadSetterComparison(DashboardFilter filter) async {

@@ -453,7 +453,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
   List<_Metric> _metricsForAudit() {
     final List<_Metric> metrics = [];
     switch (audit.auditType) {
-      case 'Chick Quality':
+      case 'Chicks':
         if (audit.pasgarFinalScore != null) {
           metrics.add(
             _Metric('Pasgar', audit.pasgarFinalScore!.toStringAsFixed(1)),
@@ -477,7 +477,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
             _Metric('CVT avg', '${audit.cvtAvg!.toStringAsFixed(1)}°F'),
           );
         }
-      case 'Hatch Analysis':
+      case 'Hatch Analysis & Egg Breakouts':
         if (audit.haHatchability != null) {
           metrics.add(
             _Metric(
@@ -497,7 +497,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.haTotalEggsSet != null) {
           metrics.add(_Metric('Eggs set', '${audit.haTotalEggsSet}'));
         }
-      case 'Setter Optimizing':
+      case 'Setters':
         if (audit.soSetterId != null) {
           metrics.add(_Metric('Setter', audit.soSetterId!));
         }
@@ -509,7 +509,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.soCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.soCo2!.toStringAsFixed(0)} ppm'));
         }
-      case 'Hatcher Optimizing':
+      case 'Hatchers':
         if (audit.hoHatcherId != null) {
           metrics.add(_Metric('Hatcher', audit.hoHatcherId!));
         }
@@ -521,7 +521,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.hoCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.hoCo2!.toStringAsFixed(0)} ppm'));
         }
-      case 'Egg Storage':
+      case 'Egg':
         if (audit.esShellTemp != null) {
           metrics.add(
             _Metric('Shell temp', '${audit.esShellTemp!.toStringAsFixed(1)}°F'),

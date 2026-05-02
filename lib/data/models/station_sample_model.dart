@@ -11,7 +11,7 @@ class StationSampleModel {
 
   static const String sampleTypeDefault = 'default';
   static const String sampleTypeChickQualityHatchedBatch =
-      'chick_quality_hatched_batch';
+      'chicks_hatched_batch';
   static const String sampleTypeBreakoutFresh = 'breakout_fresh';
   static const String sampleTypeBreakoutCandled10d = 'breakout_candled_10d';
   static const String sampleTypeBreakoutResidue21d = 'breakout_residue_21d';

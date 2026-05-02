@@ -19,7 +19,7 @@ void main() {
   });
 
   AuditContext context() => AuditContext(
-    auditType: 'Chick Quality',
+    auditType: 'Chicks',
     customerId: 'customer-1',
     flockId: 'flock-1',
     flockAgeWeeks: 42,
@@ -50,11 +50,11 @@ void main() {
 
   test('all station contexts default to one pooled sample', () {
     for (final auditType in [
-      'Egg Storage',
-      'Chick Quality',
-      'Hatch Analysis',
-      'Setter Optimizing',
-      'Hatcher Optimizing',
+      'Egg',
+      'Chicks',
+      'Hatch Analysis & Egg Breakouts',
+      'Setters',
+      'Hatchers',
     ]) {
       final provider = AuditProvider();
       provider.initialize(stationContext(auditType), notify: false);
@@ -147,7 +147,7 @@ void main() {
 
   test('sample drafts keep independent values when switching samples', () {
     final provider = AuditProvider();
-    provider.initialize(stationContext('Egg Storage'), notify: false);
+    provider.initialize(stationContext('Egg'), notify: false);
 
     provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
     provider.updateField('esEggStorageDays', 3);
@@ -166,7 +166,7 @@ void main() {
 
   test('egg storage comparison samples are labeled as house samples', () {
     final provider = AuditProvider();
-    provider.initialize(stationContext('Egg Storage'), notify: false);
+    provider.initialize(stationContext('Egg'), notify: false);
 
     provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
     provider.addSample();
@@ -196,7 +196,7 @@ void main() {
 
   test('removing egg storage house samples keeps house labels sequential', () {
     final provider = AuditProvider();
-    provider.initialize(stationContext('Egg Storage'), notify: false);
+    provider.initialize(stationContext('Egg'), notify: false);
 
     provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
     provider.addSample();

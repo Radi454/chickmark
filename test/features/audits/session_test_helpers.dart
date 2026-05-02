@@ -22,11 +22,11 @@ class SessionTestFixtures {
   static final DateTime testCreatedAt = DateTime(2026, 4, 24, 7, 55);
   static final DateTime testUpdatedAt = DateTime(2026, 4, 24, 8);
 
-  static const String stationEggStorage = 'egg_storage';
-  static const String stationChickQuality = 'chick_quality';
-  static const String stationHatchAnalysis = 'hatch_analysis';
-  static const String stationSetter = 'setter_optimizing';
-  static const String stationHatcher = 'hatcher_optimizing';
+  static const String stationEggStorage = 'egg';
+  static const String stationChickQuality = 'chicks';
+  static const String stationHatchAnalysis = 'hatch_analysis_egg_breakouts';
+  static const String stationSetter = 'setters';
+  static const String stationHatcher = 'hatchers';
 
   static const List<String> allStationKeys = [
     stationEggStorage,
@@ -236,7 +236,7 @@ AuditModel makeStationAudit({
 AuditModel makeEggStorageAudit({String id = 'audit-egg-storage-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Egg Storage',
+      auditType: 'Egg',
       esGoveeConnected: true,
       esGoveeTemp: 72.5,
       esGoveeHumidity: 65,
@@ -252,7 +252,7 @@ AuditModel makeEggStorageAudit({String id = 'audit-egg-storage-1'}) =>
 AuditModel makeChickQualityAudit({String id = 'audit-chick-quality-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Chick Quality',
+      auditType: 'Chicks',
       pasgarSampleSize: 40,
       pasgarReflexes: 2,
       pasgarBeak: 1,
@@ -278,7 +278,7 @@ AuditModel makeHatchAnalysisAudit({
   int hatchNumber = 1,
 }) => makeStationAudit(
   id: id,
-  auditType: 'Hatch Analysis',
+  auditType: 'Hatch Analysis & Egg Breakouts',
   hatchNumber: hatchNumber,
   haStorageDays: 7,
   haTotalEggsSet: 10000,
@@ -292,7 +292,7 @@ AuditModel makeHatchAnalysisAudit({
 
 AuditModel makeSetterAudit({String id = 'audit-setter-1'}) => makeStationAudit(
   id: id,
-  auditType: 'Setter Optimizing',
+  auditType: 'Setters',
   setterId: 'setter-1',
   soSetterId: 'setter-1',
   soBreed: SessionTestFixtures.testBreed,
@@ -308,7 +308,7 @@ AuditModel makeSetterAudit({String id = 'audit-setter-1'}) => makeStationAudit(
 AuditModel makeHatcherAudit({String id = 'audit-hatcher-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Hatcher Optimizing',
+      auditType: 'Hatchers',
       hatcherId: 'hatcher-1',
       hoHatcherId: 'hatcher-1',
       hoBreed: SessionTestFixtures.testBreed,

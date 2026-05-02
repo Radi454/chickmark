@@ -81,19 +81,19 @@ class AuditSessionProvider extends ChangeNotifier {
   String? get error => _error;
 
   static const Map<String, String> stationDisplayLabels = {
-    'egg_storage': AuditTypeLabels.eggStationLabel,
-    'chick_quality': 'Chick Quality',
-    'hatch_analysis': 'Hatch Analysis',
-    'setter_optimizing': 'Setter Optimizing',
-    'hatcher_optimizing': 'Hatcher Optimizing',
+    'egg': AuditTypeLabels.eggStationLabel,
+    'chicks': 'Chicks',
+    'hatch_analysis_egg_breakouts': 'Hatch Analysis & Egg Breakouts',
+    'setters': 'Setters',
+    'hatchers': 'Hatchers',
   };
 
   static const Map<String, String> stationKeyToAuditType = {
-    'egg_storage': 'Egg Storage',
-    'chick_quality': 'Chick Quality',
-    'hatch_analysis': 'Hatch Analysis',
-    'setter_optimizing': 'Setter Optimizing',
-    'hatcher_optimizing': 'Hatcher Optimizing',
+    'egg': 'Egg',
+    'chicks': 'Chicks',
+    'hatch_analysis_egg_breakouts': 'Hatch Analysis & Egg Breakouts',
+    'setters': 'Setters',
+    'hatchers': 'Hatchers',
   };
 
   /// Start a new audit session.

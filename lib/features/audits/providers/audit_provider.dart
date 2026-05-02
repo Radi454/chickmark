@@ -149,21 +149,17 @@ class AuditProvider extends ChangeNotifier {
       hatcherId: _context!.hatcherId,
       sessionId: _activeSessionId,
       sampleMode: SampleMode.pool,
-      haTotalEggsSet: _context!.auditType == 'Hatch Analysis' ? 19200 : null,
-      soBreed: _context!.auditType == 'Setter Optimizing'
-          ? _context!.breed
+      haTotalEggsSet: _context!.auditType == 'Hatch Analysis & Egg Breakouts'
+          ? 19200
           : null,
-      soSetterId: _context!.auditType == 'Setter Optimizing'
-          ? _context!.setterId
-          : null,
-      soIncubationAge: _context!.auditType == 'Setter Optimizing' ? 1 : null,
-      hoBreed: _context!.auditType == 'Hatcher Optimizing'
-          ? _context!.breed
-          : null,
-      hoHatcherId: _context!.auditType == 'Hatcher Optimizing'
+      soBreed: _context!.auditType == 'Setters' ? _context!.breed : null,
+      soSetterId: _context!.auditType == 'Setters' ? _context!.setterId : null,
+      soIncubationAge: _context!.auditType == 'Setters' ? 1 : null,
+      hoBreed: _context!.auditType == 'Hatchers' ? _context!.breed : null,
+      hoHatcherId: _context!.auditType == 'Hatchers'
           ? _context!.hatcherId
           : null,
-      hoIncubationAge: _context!.auditType == 'Hatcher Optimizing' ? 18 : null,
+      hoIncubationAge: _context!.auditType == 'Hatchers' ? 18 : null,
     );
   }
 
@@ -771,7 +767,7 @@ class AuditProvider extends ChangeNotifier {
     final existing = _stationSamples[index];
     final fresh = _createSampleForDraft(_drafts[index], index);
     final keepGeneratedHouseMetadata =
-        _drafts[index].auditType == 'Egg Storage' &&
+        _drafts[index].auditType == 'Egg' &&
         SampleMode.isCompare(_drafts[index].sampleMode);
     final next = fresh.copyWith(
       id: existing.id,
@@ -827,13 +823,13 @@ class AuditProvider extends ChangeNotifier {
   String? _defaultComparisonType(String auditType, String sampleMode) {
     if (!SampleMode.isCompare(sampleMode)) return null;
     switch (auditType) {
-      case 'Egg Storage':
+      case 'Egg':
         return StationSampleModel.comparisonTypeHouse;
-      case 'Chick Quality':
-      case 'Hatch Analysis':
+      case 'Chicks':
+      case 'Hatch Analysis & Egg Breakouts':
         return StationSampleModel.comparisonTypeBatch;
-      case 'Setter Optimizing':
-      case 'Hatcher Optimizing':
+      case 'Setters':
+      case 'Hatchers':
         return StationSampleModel.comparisonTypeMachine;
       default:
         return null;
@@ -841,8 +837,7 @@ class AuditProvider extends ChangeNotifier {
   }
 
   String _sampleLabelForDraft(AuditModel draft, int index) {
-    if (draft.auditType == 'Egg Storage' &&
-        SampleMode.isCompare(draft.sampleMode)) {
+    if (draft.auditType == 'Egg' && SampleMode.isCompare(draft.sampleMode)) {
       return 'H${index + 1}';
     }
     return 'Sample ${index + 1}';
@@ -850,31 +845,29 @@ class AuditProvider extends ChangeNotifier {
 
   String? _groupLabelForDraft(AuditModel draft) {
     if (draft.compareGroupKey == null) return null;
-    if (draft.auditType == 'Egg Storage') return 'House comparison';
+    if (draft.auditType == 'Egg') return 'House comparison';
     return 'Comparison';
   }
 
   String? _houseNoForDraft(AuditModel draft, int index) {
-    if (draft.auditType != 'Egg Storage' ||
-        !SampleMode.isCompare(draft.sampleMode)) {
+    if (draft.auditType != 'Egg' || !SampleMode.isCompare(draft.sampleMode)) {
       return null;
     }
     return 'H${index + 1}';
   }
 
   String? _houseLabelForDraft(AuditModel draft, int index) {
-    if (draft.auditType != 'Egg Storage' ||
-        !SampleMode.isCompare(draft.sampleMode)) {
+    if (draft.auditType != 'Egg' || !SampleMode.isCompare(draft.sampleMode)) {
       return null;
     }
     return 'House ${index + 1}';
   }
 
   String _defaultSampleType(String auditType, String? breakoutType) {
-    if (auditType == 'Chick Quality') {
+    if (auditType == 'Chicks') {
       return StationSampleModel.sampleTypeChickQualityHatchedBatch;
     }
-    if (auditType == 'Hatch Analysis') {
+    if (auditType == 'Hatch Analysis & Egg Breakouts') {
       return switch (EggBreakoutType.fromStorageValue(breakoutType)) {
         EggBreakoutType.freshEggBreakout =>
           StationSampleModel.sampleTypeBreakoutFresh,

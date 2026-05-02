@@ -41,7 +41,7 @@ void main() {
     registerFallbackValue(
       AuditModel(
         id: 'fallback',
-        auditType: 'Egg Storage',
+        auditType: 'Egg',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: DateTime(2026, 1, 1),
@@ -56,7 +56,7 @@ void main() {
       StationSampleModel(
         id: 'fallback-sample',
         auditSessionId: 'session-1',
-        stationType: 'egg_storage',
+        stationType: 'egg',
         sampleIndex: 1,
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
@@ -96,7 +96,7 @@ void main() {
     );
     provider.initialize(
       AuditContext(
-        auditType: 'Egg Storage',
+        auditType: 'Egg',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: '2026-01-01',
@@ -150,7 +150,7 @@ void main() {
               ).captured.single
               as StationSampleModel;
       expect(captured.auditSessionId, 'session-1');
-      expect(captured.stationType, 'egg_storage');
+      expect(captured.stationType, 'egg');
       expect(captured.sampleMode, StationSampleModel.sampleModePooled);
       expect(captured.legacyAuditId, provider.activeDraft.id);
     },
@@ -240,7 +240,7 @@ void main() {
       );
       provider.initialize(
         AuditContext(
-          auditType: 'Egg Storage',
+          auditType: 'Egg',
           customerId: 'customer-1',
           flockId: 'flock-1',
           flockAgeWeeks: 42,
@@ -290,7 +290,7 @@ void main() {
       );
       provider.initialize(
         AuditContext(
-          auditType: 'Setter Optimizing',
+          auditType: 'Setters',
           customerId: 'customer-1',
           flockId: 'flock-1',
           setterId: 'S1',

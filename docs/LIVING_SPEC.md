@@ -81,23 +81,23 @@ The current New Audit button on Home opens `AuditContextScreen` without an
 
 Supported station keys are:
 
-- `egg_storage`
-- `chick_quality`
-- `hatch_analysis`
-- `setter_optimizing`
-- `hatcher_optimizing`
+- `egg`
+- `chicks`
+- `hatch_analysis_egg_breakouts`
+- `setters`
+- `hatchers`
 
 `AuditSessionScreen` renders the selected stations in one visit workflow. It
 shows a progress indicator, keeps one `AuditProvider` per station, and shows one
 station at a time. Moving forward, moving back, switching to an earlier or
 completed station, leaving the visit, or saving the final station all go through
 a station-exit confirmation path that attempts to save the current station.
-Hatch Analysis and Chick Quality suppress the large current-station progress
+Hatch Analysis & Egg Breakouts and Chicks suppress the large current-station progress
 strip so their own workbench headers are the first station content.
 
 Station save behavior:
 
-- Hatch Analysis saves all samples and marks all tab indices saved.
+- Hatch Analysis & Egg Breakouts saves all samples and marks all tab indices saved.
 - Other stations save through `AuditProvider.saveSamplesWithResult(tabIndex: 0)`.
 - Saving persists legacy audit rows in `audits`.
 - When a visit session id exists, saving also upserts linked rows in
@@ -108,7 +108,7 @@ Station save behavior:
 
 The legacy single-station flow still exists in code when `AuditContextScreen` is
 constructed with an explicit `auditType`. It collects customer/flock context and,
-for Setter or Hatcher Optimizing, requires the relevant machine id before
+for Setter or Hatchers, requires the relevant machine id before
 opening a single station screen with a fresh `AuditProvider`.
 
 The Audits tab lists recent visit sessions and legacy audit rows. In-progress
@@ -127,7 +127,7 @@ their own app bar when embedded in `AuditSessionScreen`, and use read-only mode
 for existing audits unless edit mode is enabled by an allowed user. Visit
 sessions use the gradient station app bar and a raised bottom navigation bar
 with the primary Next Station/Save action. Most stations also show the white
-stepper strip with large station circles/labels; Hatch Analysis hides that strip
+stepper strip with large station circles/labels; Hatch Analysis & Egg Breakouts hides that strip
 so its Hatching & Breakout card is the first content on the screen.
 
 Audit numeric fields use a platform-adaptive input surface. Android and iOS
@@ -165,12 +165,12 @@ controls, UV inspection, and station notes.
   condensation, and related storage fields.
 - Notes: optional free-text station comments persisted on the audit row.
 
-Chick Quality uses a split workbench structure instead of tabs. The screen
-starts with a blue gradient Audit Station card showing Chick Quality and the
+Chicks uses a split workbench structure instead of tabs. The screen
+starts with a blue gradient Audit Station card showing Chicks and the
 selected hatchery context. The workbench uses two columns on wide screens and
 collapses into one scrollable column on smaller screens. A sticky footer shows
 the local draft status and provides Save Draft and Complete Station actions;
-both actions save all Chick Quality samples through the existing station sample
+both actions save all Chicks samples through the existing station sample
 save flow.
 
 The left workbench column contains Pasgar Score, YFBM, Chick Vent Temperature,
@@ -200,16 +200,19 @@ persists to the existing `chickWeights`, `chickAvgWeight`,
 `chickUniformityPct`, and `chickCvPct` audit fields.
 
 Hatch Analysis & Egg Breakouts is an egg breakout entry screen rather than a
-tabbed screen. It starts with a large blue gradient card that makes Breakout
-Type the primary control. Breakout types are Fresh Egg, Candled Egg, and
-Residue / Hatch Day. The card groups the auto-filled flock and breed with the
-read-only BMK age display, then places editable Storage Days in its own
-prominent entry card. Candled Age appears as an additional entry field only when
-Candled Egg is selected. The BMK age is displayed in weeks and is calculated
-from current flock age minus storage days and the breakout-specific incubation
-offset: 0 days for Fresh Egg, the entered candled age for Candled Egg, and 21
-days for Residue / Hatch Day. Benchmark lookup still uses the calculated day
-value, then stores the legacy week value in the existing BMK age fields.
+tabbed screen. It uses a centered workbench layout with a compact blue gradient
+Breakout Type header, a neutral Breakout Samples panel, and the existing sticky
+station navigation footer when embedded in a visit session. Breakout types are
+Fresh Egg, Candled Egg, and Residue / Hatch Day. The compact header keeps the
+breakout selector, auto-filled flock, breed, read-only BMK age display, and
+editable Storage Days together; wider layouts place the selector beside the
+header title while mobile layouts stack it vertically. Candled Age appears as an
+additional entry field only when Candled Egg is selected. The BMK age is
+displayed in weeks and is calculated from current flock age minus storage days
+and the breakout-specific incubation offset: 0 days for Fresh Egg, the entered
+candled age for Candled Egg, and 21 days for Residue / Hatch Day. Benchmark
+lookup still uses the calculated day value, then stores the legacy week value in
+the existing BMK age fields.
 
 Breakout Samples sits below the main card. It uses tray chips plus circular add
 and remove controls to manage tray samples while keeping the tray cards visible
@@ -228,7 +231,7 @@ the calculated percentage is higher than the BMK target after a positive count
 has been entered; the warning is shown through row and BMK tile styling rather
 than an icon.
 
-Setter Optimizing captures:
+Setters captures:
 
 - Breed from flock.
 - Setter ID.
@@ -238,7 +241,7 @@ Setter Optimizing captures:
 - CO2 level and photo.
 - EST average/CV summary and EST grid/photos.
 
-Hatcher Optimizing captures:
+Hatchers captures:
 
 - Breed from flock.
 - Hatcher ID.
@@ -276,8 +279,8 @@ and place in the Govee tab, while still letting the user change the place before
 recording.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
-session summaries plus Hatch Analysis, Egg Breakout, Chick Quality, Egg,
-Setter Optimizing, and Hatcher Optimizing sections from repository queries. Egg
+session summaries plus Hatch Analysis & Egg Breakouts, Egg Breakout, Chicks, Egg,
+Setters, and Hatchers sections from repository queries. Egg
 Storage dashboard trends read the persisted EST average/CV fields
 `es_estAvg`/`es_estCv`. For the selected visit date, dashboard loads saved
 Govee captures by customer and hatchery and renders combined place charts with

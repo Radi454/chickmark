@@ -226,7 +226,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Setter Optimizing',
+                title: 'Setters',
                 actions: [
                   if (auditProvider.isReadOnly)
                     IconButton(

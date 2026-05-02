@@ -81,11 +81,8 @@ void main() {
 
   group('AuditSessionProvider - startSession', () {
     test('uses Egg as the visible label while preserving audit type', () {
-      expect(AuditSessionProvider.stationDisplayLabels['egg_storage'], 'Egg');
-      expect(
-        AuditSessionProvider.stationKeyToAuditType['egg_storage'],
-        'Egg Storage',
-      );
+      expect(AuditSessionProvider.stationDisplayLabels['egg'], 'Egg');
+      expect(AuditSessionProvider.stationKeyToAuditType['egg'], 'Egg');
     });
 
     test('creates new session with in_progress status', () async {
@@ -100,7 +97,7 @@ void main() {
       expect(provider.isResumed, isFalse);
     });
 
-    test('starts at station index 0 (Egg Storage)', () async {
+    test('starts at station index 0 (Egg)', () async {
       when(() => mockRepo.insertSession(any())).thenAnswer((_) async {});
 
       await provider.startSession(context: testContext, currentUser: testUser);
@@ -118,23 +115,17 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['hatcher_optimizing', 'egg_storage'],
+          selectedStationKeys: const ['hatchers', 'egg'],
         ),
         currentUser: testUser,
       );
 
-      expect(provider.stationKeys, ['hatcher_optimizing', 'egg_storage']);
-      expect(provider.currentSession!.selectedStationKeys, [
-        'hatcher_optimizing',
-        'egg_storage',
-      ]);
+      expect(provider.stationKeys, ['hatchers', 'egg']);
+      expect(provider.currentSession!.selectedStationKeys, ['hatchers', 'egg']);
       final captured =
           verify(() => mockRepo.insertSession(captureAny())).captured.single
               as AuditSessionModel;
-      expect(captured.selectedStationKeys, [
-        'hatcher_optimizing',
-        'egg_storage',
-      ]);
+      expect(captured.selectedStationKeys, ['hatchers', 'egg']);
     });
 
     test('syncs session to Supabase after creation', () async {
@@ -149,7 +140,7 @@ void main() {
   group('AuditSessionProvider - resumeSession', () {
     test('loads existing session and sets resumed flag', () async {
       final resumedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage', 'chick_quality'],
+        stationsCompleted: ['egg', 'chicks'],
       );
       final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -179,8 +170,8 @@ void main() {
 
     test('resumes using persisted custom station order', () async {
       final resumedRow = makeAuditSessionRow(
-        selectedStationKeys: ['setter_optimizing', 'hatcher_optimizing'],
-        stationsCompleted: ['setter_optimizing'],
+        selectedStationKeys: ['setters', 'hatchers'],
+        stationsCompleted: ['setters'],
       );
       final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -190,7 +181,7 @@ void main() {
 
       await provider.resumeSession(resumedSession.id);
 
-      expect(provider.stationKeys, ['setter_optimizing', 'hatcher_optimizing']);
+      expect(provider.stationKeys, ['setters', 'hatchers']);
       expect(provider.currentStationIndex, 1);
     });
 
@@ -198,7 +189,7 @@ void main() {
       'resumes at the first missing station when completion order has gaps',
       () async {
         final resumedRow = makeAuditSessionRow(
-          stationsCompleted: ['egg_storage', 'hatch_analysis'],
+          stationsCompleted: ['egg', 'hatch_analysis_egg_breakouts'],
         );
         final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -296,7 +287,7 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['egg_storage', 'hatch_analysis'],
+          selectedStationKeys: const ['egg', 'hatch_analysis_egg_breakouts'],
         ),
         currentUser: testUser,
       );
@@ -320,13 +311,11 @@ void main() {
     });
 
     test('markCurrentStationCompleted updates progress', () async {
-      final updatedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage'],
-      );
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
       final updatedSession = AuditSessionModel.fromMap(updatedRow);
 
       when(
-        () => mockRepo.markStationCompleted(any(), 'egg_storage'),
+        () => mockRepo.markStationCompleted(any(), 'egg'),
       ).thenAnswer((_) async {});
       when(
         () => mockRepo.getSessionById(any()),
@@ -334,13 +323,11 @@ void main() {
 
       await provider.markCurrentStationCompleted();
 
-      expect(provider.currentSession!.stationsCompleted, ['egg_storage']);
+      expect(provider.currentSession!.stationsCompleted, ['egg']);
     });
 
     test('markCurrentStationCompleted syncs to Supabase', () async {
-      final updatedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage'],
-      );
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
       final updatedSession = AuditSessionModel.fromMap(updatedRow);
 
       when(
@@ -395,23 +382,23 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['chick_quality', 'hatch_analysis'],
+          selectedStationKeys: const ['chicks', 'hatch_analysis_egg_breakouts'],
         ),
         currentUser: testUser,
       );
 
       final completedRow = makeAuditSessionRow(
         status: 'completed',
-        selectedStationKeys: ['chick_quality', 'hatch_analysis'],
-        stationsCompleted: ['chick_quality', 'hatch_analysis'],
+        selectedStationKeys: ['chicks', 'hatch_analysis_egg_breakouts'],
+        stationsCompleted: ['chicks', 'hatch_analysis_egg_breakouts'],
         completedAt: DateTime.now(),
       );
       final completedSession = AuditSessionModel.fromMap(completedRow);
 
       when(
         () => mockRepo.updateSessionProgress(any(), [
-          'chick_quality',
-          'hatch_analysis',
+          'chicks',
+          'hatch_analysis_egg_breakouts',
         ]),
       ).thenAnswer((_) async {});
       when(
@@ -422,8 +409,8 @@ void main() {
 
       verify(
         () => mockRepo.updateSessionProgress(any(), [
-          'chick_quality',
-          'hatch_analysis',
+          'chicks',
+          'hatch_analysis_egg_breakouts',
         ]),
       ).called(1);
       expect(provider.isSessionComplete, isTrue);

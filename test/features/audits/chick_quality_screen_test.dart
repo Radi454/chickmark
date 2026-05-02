@@ -28,7 +28,7 @@ void main() {
     registerFallbackValue(
       AuditModel(
         id: 'fallback',
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: DateTime(2026, 4, 27),
@@ -47,7 +47,7 @@ void main() {
   });
 
   AuditContextData contextData() => AuditContextData(
-    auditType: 'Chick Quality',
+    auditType: 'Chicks',
     customerId: 'customer-1',
     flockId: 'flock-1',
     date: '2026-04-27',
@@ -102,7 +102,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Audit station'), findsOneWidget);
-    expect(find.text('Chick Quality'), findsWidgets);
+    expect(find.text('Chicks'), findsWidgets);
     expect(find.text('Hatchery'), findsOneWidget);
 
     expect(

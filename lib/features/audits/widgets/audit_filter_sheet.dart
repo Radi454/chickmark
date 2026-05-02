@@ -17,11 +17,11 @@ class AuditFilterSheet extends StatefulWidget {
 
 class _AuditFilterSheetState extends State<AuditFilterSheet> {
   static const Map<String, String> _auditTypeLabels = {
-    'Chick Quality': 'Chick Quality',
-    'Hatch Analysis': 'Hatch Analysis',
+    'Chicks': 'Chicks',
+    'Hatch Analysis & Egg Breakouts': 'Hatch Analysis & Egg Breakouts',
     AuditTypeLabels.eggAuditType: AuditTypeLabels.eggStationLabel,
-    'Setter Optimizing': 'Setter Optimizing',
-    'Hatcher Optimizing': 'Hatcher Optimizing',
+    'Setters': 'Setters',
+    'Hatchers': 'Hatchers',
   };
 
   AuditFilter _filter = AuditFilter.empty;

@@ -86,8 +86,8 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
         .where((h) => h.id == _selectedHatcheryId)
         .firstOrNull;
 
-    final showSetterField = widget.auditType == 'Setter Optimizing';
-    final showHatcherField = widget.auditType == 'Hatcher Optimizing';
+    final showSetterField = widget.auditType == 'Setters';
+    final showHatcherField = widget.auditType == 'Hatchers';
     final title = _isSessionFlow ? 'New Visit' : widget.auditType!;
 
     return Scaffold(
@@ -507,10 +507,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
       return false;
     }
     if (_isSessionFlow && _selectedHatcheryId == null) return false;
-    if (widget.auditType == 'Setter Optimizing') {
+    if (widget.auditType == 'Setters') {
       return _setterIdController.text.trim().isNotEmpty;
     }
-    if (widget.auditType == 'Hatcher Optimizing') {
+    if (widget.auditType == 'Hatchers') {
       return _hatcherIdController.text.trim().isNotEmpty;
     }
     return true;
@@ -553,19 +553,19 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
     Widget screen;
     switch (widget.auditType) {
-      case 'Chick Quality':
+      case 'Chicks':
         screen = ChickQualityScreen(context: contextData);
         break;
-      case 'Hatch Analysis':
+      case 'Hatch Analysis & Egg Breakouts':
         screen = HatchAnalysisScreen(context: contextData);
         break;
-      case 'Setter Optimizing':
+      case 'Setters':
         screen = SetterOptimizingScreen(context: contextData);
         break;
-      case 'Hatcher Optimizing':
+      case 'Hatchers':
         screen = HatcherOptimizingScreen(context: contextData);
         break;
-      case 'Egg Storage':
+      case 'Egg':
         screen = EggStorageScreen(context: contextData);
         break;
       default:

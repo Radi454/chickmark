@@ -344,15 +344,15 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   String _stationLabel(String key) {
     switch (key) {
-      case 'egg_storage':
+      case 'egg':
         return 'Egg';
-      case 'chick_quality':
+      case 'chicks':
         return 'Chick';
-      case 'hatch_analysis':
+      case 'hatch_analysis_egg_breakouts':
         return 'Hatch';
-      case 'setter_optimizing':
+      case 'setters':
         return 'Setter';
-      case 'hatcher_optimizing':
+      case 'hatchers':
         return 'Hatcher';
       default:
         return key;

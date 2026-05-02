@@ -11,7 +11,7 @@ void main() {
         id: 'sample-1',
         auditSessionId: 'session-1',
         legacyAuditId: 'audit-1',
-        stationType: 'chick_quality',
+        stationType: 'chicks',
         sampleMode: StationSampleModel.sampleModeComparison,
         comparisonType: StationSampleModel.comparisonTypeBatch,
         sampleIndex: 2,
@@ -71,7 +71,7 @@ void main() {
       final sample = StationSampleModel(
         id: 'sample-1',
         auditSessionId: 'session-1',
-        stationType: 'egg_storage',
+        stationType: 'egg',
         sampleIndex: 1,
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -96,7 +96,7 @@ void main() {
         final first = StationSampleModel(
           id: 'sample-1',
           auditSessionId: 'session-1',
-          stationType: 'chick_quality',
+          stationType: 'chicks',
           sampleIndex: 1,
           calculatedBmkAgeDays: 280,
           createdAt: createdAt,

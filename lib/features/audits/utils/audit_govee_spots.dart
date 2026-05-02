@@ -9,19 +9,19 @@ class AuditGoveeSpot {
 
 AuditGoveeSpot? goveeSpotForStationKey(String stationKey) {
   return switch (stationKey) {
-    'egg_storage' => const AuditGoveeSpot(
+    'egg' => const AuditGoveeSpot(
       place: TemperaturePlace.eggStorageRoom,
       label: 'Egg storage room',
     ),
-    'chick_quality' => const AuditGoveeSpot(
+    'chicks' => const AuditGoveeSpot(
       place: TemperaturePlace.chickHoldingArea,
       label: 'Chick holding area',
     ),
-    'setter_optimizing' => const AuditGoveeSpot(
+    'setters' => const AuditGoveeSpot(
       place: TemperaturePlace.incubatorRoom,
       label: 'Incubator room',
     ),
-    'hatcher_optimizing' => const AuditGoveeSpot(
+    'hatchers' => const AuditGoveeSpot(
       place: TemperaturePlace.hatcherRoom,
       label: 'Hatcher room',
     ),

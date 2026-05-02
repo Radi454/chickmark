@@ -260,7 +260,7 @@ void main() {
     },
   );
 
-  test('v21 migration adds Chick Quality CVT grid JSON columns', () async {
+  test('v21 migration adds Chicks CVT grid JSON columns', () async {
     final db = MockDatabase();
 
     when(() => db.rawQuery('PRAGMA table_info(audits)')).thenAnswer(
@@ -337,4 +337,27 @@ void main() {
       );
     },
   );
+
+  test('v23 migration renames station identity values', () async {
+    final db = MockDatabase();
+
+    when(() => db.execute(any())).thenAnswer((_) async {});
+
+    await DatabaseHelper().applyV23UpgradeForTest(db);
+
+    final executedSql = verify(
+      () => db.execute(captureAny()),
+    ).captured.cast<String>().toList();
+    final joinedSql = executedSql.join('\n');
+
+    expect(joinedSql, contains("WHEN 'Chick Quality' THEN 'Chicks'"));
+    expect(
+      joinedSql,
+      contains("WHEN 'Hatch Analysis' THEN 'Hatch Analysis & Egg Breakouts'"),
+    );
+    expect(joinedSql, contains("WHEN 'Setter Optimizing' THEN 'Setters'"));
+    expect(joinedSql, contains("WHEN 'Hatcher Optimizing' THEN 'Hatchers'"));
+    expect(joinedSql, contains('"chick_quality"'));
+    expect(joinedSql, contains('"hatch_analysis_egg_breakouts"'));
+  });
 }

@@ -114,16 +114,16 @@ class StationSampleMapper {
 
   static String stationTypeForAuditType(String auditType) {
     switch (auditType) {
-      case 'Egg Storage':
-        return 'egg_storage';
-      case 'Chick Quality':
-        return 'chick_quality';
-      case 'Hatch Analysis':
-        return 'hatch_analysis';
-      case 'Setter Optimizing':
-        return 'setter_optimizing';
-      case 'Hatcher Optimizing':
-        return 'hatcher_optimizing';
+      case 'Egg':
+        return 'egg';
+      case 'Chicks':
+        return 'chicks';
+      case 'Hatch Analysis & Egg Breakouts':
+        return 'hatch_analysis_egg_breakouts';
+      case 'Setters':
+        return 'setters';
+      case 'Hatchers':
+        return 'hatchers';
       default:
         return auditType.trim().toLowerCase().replaceAll(' ', '_');
     }
@@ -149,13 +149,13 @@ class StationSampleMapper {
   static String? _comparisonType(String stationType, String sampleMode) {
     if (sampleMode != StationSampleModel.sampleModeComparison) return null;
     switch (stationType) {
-      case 'egg_storage':
+      case 'egg':
         return StationSampleModel.comparisonTypeHouse;
-      case 'setter_optimizing':
-      case 'hatcher_optimizing':
+      case 'setters':
+      case 'hatchers':
         return StationSampleModel.comparisonTypeMachine;
-      case 'chick_quality':
-      case 'hatch_analysis':
+      case 'chicks':
+      case 'hatch_analysis_egg_breakouts':
         return StationSampleModel.comparisonTypeBatch;
       default:
         return null;
@@ -163,10 +163,10 @@ class StationSampleMapper {
   }
 
   static String _sampleType(String stationType, String? breakoutType) {
-    if (stationType == 'chick_quality') {
+    if (stationType == 'chicks') {
       return StationSampleModel.sampleTypeChickQualityHatchedBatch;
     }
-    if (stationType == 'hatch_analysis') {
+    if (stationType == 'hatch_analysis_egg_breakouts') {
       switch (breakoutType) {
         case StationSampleModel.breakoutTypeFresh:
           return StationSampleModel.sampleTypeBreakoutFresh;
@@ -180,23 +180,23 @@ class StationSampleMapper {
   }
 
   static String _sampleLabel(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'H$sampleIndex';
+    if (stationType == 'egg') return 'H$sampleIndex';
     return 'Sample $sampleIndex';
   }
 
   static String? _groupLabel(String stationType, String? groupKey) {
     if (groupKey == null || groupKey.isEmpty) return null;
-    if (stationType == 'egg_storage') return 'House comparison';
+    if (stationType == 'egg') return 'House comparison';
     return 'Comparison';
   }
 
   static String? _houseNo(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'H$sampleIndex';
+    if (stationType == 'egg') return 'H$sampleIndex';
     return null;
   }
 
   static String? _houseLabel(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'House $sampleIndex';
+    if (stationType == 'egg') return 'House $sampleIndex';
     return null;
   }
 

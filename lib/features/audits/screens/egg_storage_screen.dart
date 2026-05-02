@@ -419,7 +419,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
               ),
               const SizedBox(height: AppSizes.spaceMd),
               Text(
-                AuditTypeLabels.eggStationLabel,
+                'Egg storage room',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.heading.copyWith(

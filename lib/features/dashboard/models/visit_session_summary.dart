@@ -120,7 +120,7 @@ class VisitSessionSummary {
   }
 
   static PmScoreSummary? _computePmScore(List<AuditModel> audits) {
-    final cq = audits.where((a) => a.auditType == 'Chick Quality').toList();
+    final cq = audits.where((a) => a.auditType == 'Chicks').toList();
     if (cq.isEmpty) return null;
     // Use the most recent chick quality audit for PM data.
     final audit = cq.last;
@@ -128,7 +128,9 @@ class VisitSessionSummary {
   }
 
   static HatchBudgetSummary? _computeHatchBudget(List<AuditModel> audits) {
-    final ha = audits.where((a) => a.auditType == 'Hatch Analysis').toList();
+    final ha = audits
+        .where((a) => a.auditType == 'Hatch Analysis & Egg Breakouts')
+        .toList();
     if (ha.isEmpty) return null;
     final audit = ha.last;
     return HatchBudgetSummary.fromAudit(audit);
@@ -136,16 +138,16 @@ class VisitSessionSummary {
 
   static String _auditTypeToStationKey(String auditType) {
     switch (auditType) {
-      case 'Egg Storage':
-        return 'egg_storage';
-      case 'Chick Quality':
-        return 'chick_quality';
-      case 'Hatch Analysis':
-        return 'hatch_analysis';
-      case 'Setter Optimizing':
-        return 'setter_optimizing';
-      case 'Hatcher Optimizing':
-        return 'hatcher_optimizing';
+      case 'Egg':
+        return 'egg';
+      case 'Chicks':
+        return 'chicks';
+      case 'Hatch Analysis & Egg Breakouts':
+        return 'hatch_analysis_egg_breakouts';
+      case 'Setters':
+        return 'setters';
+      case 'Hatchers':
+        return 'hatchers';
       default:
         return '';
     }
@@ -216,16 +218,16 @@ class StationScorecard {
 
   static String _stationLabel(String key) {
     switch (key) {
-      case 'egg_storage':
+      case 'egg':
         return AuditTypeLabels.eggStationLabel;
-      case 'chick_quality':
-        return 'Chick Quality';
-      case 'hatch_analysis':
-        return 'Hatch Analysis';
-      case 'setter_optimizing':
-        return 'Setter';
-      case 'hatcher_optimizing':
-        return 'Hatcher';
+      case 'chicks':
+        return 'Chicks';
+      case 'hatch_analysis_egg_breakouts':
+        return 'Hatch Analysis & Egg Breakouts';
+      case 'setters':
+        return 'Setters';
+      case 'hatchers':
+        return 'Hatchers';
       default:
         return key;
     }
@@ -236,14 +238,14 @@ class StationScorecard {
     // Returns 'red' for clear critical thresholds, 'amber' for marginal,
     // null when clean.
     switch (stationKey) {
-      case 'egg_storage':
+      case 'egg':
         if (audit.esShellTemp != null) {
           final t = audit.esShellTemp!;
           if (t > 21) return 'red';
           if (t < 19) return 'amber';
         }
         break;
-      case 'chick_quality':
+      case 'chicks':
         if (audit.pasgarFinalScore != null && audit.pasgarFinalScore! < 7) {
           return 'amber';
         }
@@ -251,18 +253,18 @@ class StationScorecard {
           return 'red';
         }
         break;
-      case 'hatch_analysis':
+      case 'hatch_analysis_egg_breakouts':
         if (audit.haHatchability != null && audit.haHatchability! < 75) {
           return 'red';
         }
         break;
-      case 'setter_optimizing':
+      case 'setters':
         if (audit.soEstAvg != null) {
           final t = audit.soEstAvg!;
           if (t < 100 || t > 101) return 'amber';
         }
         break;
-      case 'hatcher_optimizing':
+      case 'hatchers':
         if (audit.hoCvtAvg != null) {
           final t = audit.hoCvtAvg!;
           if (t < 103 || t > 105) return 'amber';

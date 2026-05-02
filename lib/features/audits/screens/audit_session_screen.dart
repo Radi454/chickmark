@@ -63,8 +63,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               ? null
               : stationKeys[sessionProvider.currentStationIndex];
           final showProgress =
-              currentStationKey != 'hatch_analysis' &&
-              currentStationKey != 'chick_quality';
+              currentStationKey != 'hatch_analysis_egg_breakouts' &&
+              currentStationKey != 'chicks';
 
           return Stack(
             children: [
@@ -256,8 +256,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
     final auditContext = AuditContextData(
       auditType:
-          AuditSessionProvider.stationKeyToAuditType[stationKey] ??
-          'Egg Storage',
+          AuditSessionProvider.stationKeyToAuditType[stationKey] ?? 'Egg',
       customerId: session.customerId,
       flockId: session.flockId,
       hatcheryId: session.hatcheryId,
@@ -282,7 +281,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
-        eggStorageController: stationKey == 'egg_storage'
+        eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
                 EggStorageStationController.new,
@@ -568,7 +567,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     if (sessionProvider.currentSession == null) return true;
     final stationKey =
         sessionProvider.stationKeys[sessionProvider.currentStationIndex];
-    if (stationKey != 'egg_storage') return true;
+    if (stationKey != 'egg') return true;
     return _eggStorageControllers[stationKey]?.prepareForStationExit() ??
         Future.value(true);
   }
@@ -592,7 +591,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               .read<AuditSessionProvider>()
               .currentStationIndex];
 
-    if (stationKey == 'hatch_analysis') {
+    if (stationKey == 'hatch_analysis_egg_breakouts') {
       return stationAuditProvider.saveSamplesWithResult(markAllTabsSaved: true);
     }
     return stationAuditProvider.saveSamplesWithResult(tabIndex: 0);
@@ -631,18 +630,18 @@ class _StationFrameState extends State<_StationFrame> {
 
   Widget? _buildStationWidget() {
     switch (widget.stationKey) {
-      case 'egg_storage':
+      case 'egg':
         return EggStorageScreen(
           context: widget.context,
           stationController: widget.eggStorageController,
         );
-      case 'chick_quality':
+      case 'chicks':
         return ChickQualityScreen(context: widget.context);
-      case 'hatch_analysis':
+      case 'hatch_analysis_egg_breakouts':
         return HatchAnalysisScreen(context: widget.context);
-      case 'setter_optimizing':
+      case 'setters':
         return SetterOptimizingScreen(context: widget.context);
-      case 'hatcher_optimizing':
+      case 'hatchers':
         return HatcherOptimizingScreen(context: widget.context);
       default:
         return null;

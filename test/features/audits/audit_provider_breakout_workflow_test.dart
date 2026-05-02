@@ -23,7 +23,7 @@ void main() {
     final provider = AuditProvider();
     provider.initialize(
       AuditContext(
-        auditType: 'Hatch Analysis',
+        auditType: 'Hatch Analysis & Egg Breakouts',
         customerId: 'customer-1',
         flockId: 'flock-1',
         flockAgeWeeks: 42,

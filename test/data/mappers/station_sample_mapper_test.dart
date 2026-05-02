@@ -21,10 +21,10 @@ void main() {
       updatedAt: DateTime(2026, 4, 27),
     );
 
-    test('maps Chick Quality compare audit to batch comparison sample', () {
+    test('maps Chicks compare audit to batch comparison sample', () {
       final row = makeStationAudit(
         id: 'audit-1',
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         hatchNumber: 2,
         setterId: 'S-1',
         hatcherId: 'H-1',
@@ -41,7 +41,7 @@ void main() {
 
       expect(sample.auditSessionId, 'session-1');
       expect(sample.legacyAuditId, 'audit-1');
-      expect(sample.stationType, 'chick_quality');
+      expect(sample.stationType, 'chicks');
       expect(sample.sampleMode, StationSampleModel.sampleModeComparison);
       expect(sample.comparisonType, StationSampleModel.comparisonTypeBatch);
       expect(
@@ -60,36 +60,39 @@ void main() {
       expect(sample.resultSummaryJson, contains('chickAvgWeight'));
     });
 
-    test('maps Hatch Analysis breakout type without tray-global fields', () {
-      final row = makeHatchAnalysisAudit(id: 'audit-2').toMap()
-        ..['sessionId'] = 'session-1'
-        ..['ebBreakoutType'] = 'Candled 10d'
-        ..['ebBmkAge'] = 39
-        ..['ebTrayBreakoutJson'] =
-            '[{"tray_no":"T1","tray_level":"top","tray_depth":"front"}]';
-      final audit = AuditModel.fromMap(row);
+    test(
+      'maps Hatch Analysis & Egg Breakouts breakout type without tray-global fields',
+      () {
+        final row = makeHatchAnalysisAudit(id: 'audit-2').toMap()
+          ..['sessionId'] = 'session-1'
+          ..['ebBreakoutType'] = 'Candled 10d'
+          ..['ebBmkAge'] = 39
+          ..['ebTrayBreakoutJson'] =
+              '[{"tray_no":"T1","tray_level":"top","tray_depth":"front"}]';
+        final audit = AuditModel.fromMap(row);
 
-      final sample = StationSampleMapper.fromLegacyAudit(audit);
-      final map = sample.toMap();
+        final sample = StationSampleMapper.fromLegacyAudit(audit);
+        final map = sample.toMap();
 
-      expect(sample.stationType, 'hatch_analysis');
-      expect(
-        sample.sampleType,
-        StationSampleModel.sampleTypeBreakoutCandled10d,
-      );
-      expect(sample.breakoutType, StationSampleModel.breakoutTypeCandled10d);
-      expect(sample.calculatedBmkAgeDays, 273);
-      expect(map.containsKey('trayNo'), isFalse);
-      expect(map.containsKey('trayLevel'), isFalse);
-      expect(map.containsKey('trayDepth'), isFalse);
-    });
+        expect(sample.stationType, 'hatch_analysis_egg_breakouts');
+        expect(
+          sample.sampleType,
+          StationSampleModel.sampleTypeBreakoutCandled10d,
+        );
+        expect(sample.breakoutType, StationSampleModel.breakoutTypeCandled10d);
+        expect(sample.calculatedBmkAgeDays, 273);
+        expect(map.containsKey('trayNo'), isFalse);
+        expect(map.containsKey('trayLevel'), isFalse);
+        expect(map.containsKey('trayDepth'), isFalse);
+      },
+    );
 
     test('builds legacy audit patch from sample metadata', () {
       final sample = StationSampleModel(
         id: 'sample-1',
         auditSessionId: 'session-1',
         legacyAuditId: 'audit-1',
-        stationType: 'hatch_analysis',
+        stationType: 'hatch_analysis_egg_breakouts',
         sampleMode: StationSampleModel.sampleModeComparison,
         comparisonType: StationSampleModel.comparisonTypeBatch,
         sampleIndex: 3,

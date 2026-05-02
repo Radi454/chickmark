@@ -125,7 +125,7 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['egg_storage', 'setter_optimizing'],
+        selectedStationKeys: const ['egg', 'setters'],
       ),
     );
 
@@ -190,7 +190,7 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['chick_quality'],
+        selectedStationKeys: const ['chicks'],
       ),
     );
 
@@ -254,7 +254,7 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['hatch_analysis'],
+        selectedStationKeys: const ['hatch_analysis_egg_breakouts'],
       ),
     );
 
@@ -315,7 +315,7 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['egg_storage'],
+        selectedStationKeys: const ['egg'],
       ),
     );
 
@@ -373,7 +373,7 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['hatch_analysis'],
+        selectedStationKeys: const ['hatch_analysis_egg_breakouts'],
       ),
     );
 

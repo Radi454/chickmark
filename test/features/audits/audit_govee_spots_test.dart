@@ -7,25 +7,25 @@ void main() {
   group('goveeSpotForStationKey', () {
     test('maps walk-through stations to hatchery temperature places', () {
       expect(
-        goveeSpotForStationKey('egg_storage')?.place,
+        goveeSpotForStationKey('egg')?.place,
         TemperaturePlace.eggStorageRoom,
       );
       expect(
-        goveeSpotForStationKey('chick_quality')?.place,
+        goveeSpotForStationKey('chicks')?.place,
         TemperaturePlace.chickHoldingArea,
       );
       expect(
-        goveeSpotForStationKey('setter_optimizing')?.place,
+        goveeSpotForStationKey('setters')?.place,
         TemperaturePlace.incubatorRoom,
       );
       expect(
-        goveeSpotForStationKey('hatcher_optimizing')?.place,
+        goveeSpotForStationKey('hatchers')?.place,
         TemperaturePlace.hatcherRoom,
       );
     });
 
     test('omits stations without a clear room-level Govee spot', () {
-      expect(goveeSpotForStationKey('hatch_analysis'), isNull);
+      expect(goveeSpotForStationKey('hatch_analysis_egg_breakouts'), isNull);
     });
   });
 }

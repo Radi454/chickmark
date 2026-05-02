@@ -36,31 +36,15 @@ class _AuditStationSelectionScreenState
   bool _isStarting = false;
 
   static const _allStations = [
+    {'key': 'egg', 'name': AuditTypeLabels.eggStationLabel, 'icon': Icons.egg},
+    {'key': 'chicks', 'name': 'Chicks', 'icon': Icons.cruelty_free},
     {
-      'key': 'egg_storage',
-      'name': AuditTypeLabels.eggStationLabel,
-      'icon': Icons.egg,
-    },
-    {
-      'key': 'chick_quality',
-      'name': 'Chick Quality',
-      'icon': Icons.cruelty_free,
-    },
-    {
-      'key': 'hatch_analysis',
-      'name': 'Hatch Analysis',
+      'key': 'hatch_analysis_egg_breakouts',
+      'name': 'Hatch Analysis & Egg Breakouts',
       'icon': Icons.bar_chart,
     },
-    {
-      'key': 'setter_optimizing',
-      'name': 'Setter Optimizing',
-      'icon': Icons.thermostat,
-    },
-    {
-      'key': 'hatcher_optimizing',
-      'name': 'Hatcher Optimizing',
-      'icon': Icons.device_thermostat,
-    },
+    {'key': 'setters', 'name': 'Setters', 'icon': Icons.thermostat},
+    {'key': 'hatchers', 'name': 'Hatchers', 'icon': Icons.device_thermostat},
   ];
 
   List<Map<String, dynamic>> get _availableStations => _allStations

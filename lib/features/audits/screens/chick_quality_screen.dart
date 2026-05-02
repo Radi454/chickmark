@@ -101,7 +101,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         appBar: widget.context.sessionId != null
             ? null
             : GradientAppBar(
-                title: 'Chick Quality',
+                title: 'Chicks',
                 toolbarHeight: 88,
                 actions: [
                   if (auditProvider.isReadOnly)
@@ -343,7 +343,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       SnackBar(
         content: Text(
           saved
-              ? (completed ? 'Chick Quality station saved.' : 'Draft saved.')
+              ? (completed ? 'Chicks station saved.' : 'Draft saved.')
               : 'Could not save station. Try again.',
         ),
       ),
@@ -470,7 +470,7 @@ class _HeaderCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Chick Quality',
+            'Chick quality',
             style: AppTextStyles.heading.copyWith(
               color: Colors.white,
               fontSize: 30,

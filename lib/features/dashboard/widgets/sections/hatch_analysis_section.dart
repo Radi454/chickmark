@@ -33,7 +33,7 @@ class _HatchAnalysisSectionState extends State<HatchAnalysisSection> {
           padding: EdgeInsets.zero,
           child: ExpansionTile(
             title: const Text(
-              'Hatch Analysis',
+              'Hatch Analysis & Egg Breakouts',
               style: AppTextStyles.sectionTitle,
             ),
             initiallyExpanded: true,
@@ -103,10 +103,7 @@ class _HatchAnalysisSectionState extends State<HatchAnalysisSection> {
       child: Row(
         children: [
           Expanded(child: Text(label, style: AppTextStyles.body)),
-          Text(
-            '${value.toStringAsFixed(1)}%',
-            style: AppTextStyles.badgeLabel,
-          ),
+          Text('${value.toStringAsFixed(1)}%', style: AppTextStyles.badgeLabel),
           const SizedBox(width: AppSizes.spaceSm),
           Container(
             width: AppSizes.spaceMd,
