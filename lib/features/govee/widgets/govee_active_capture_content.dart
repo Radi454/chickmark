@@ -3,11 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../dashboard/models/govee_capture_summary.dart';
+import '../../dashboard/widgets/govee_capture_chart.dart';
 import '../providers/govee_capture_provider.dart';
 import 'govee_live_reading_card.dart';
-import 'govee_review_sheet.dart';
+import 'govee_place_recorder.dart';
 import 'govee_scope_picker.dart';
-import 'govee_spot_recorder.dart';
 
 class GoveeActiveCaptureContent extends StatelessWidget {
   final EdgeInsets padding;
@@ -35,16 +36,17 @@ class GoveeActiveCaptureContent extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            const GoveeSpotRecorder(),
-            if (provider.phase == GoveeSpotPhase.review) ...[
+            const GoveePlaceRecorder(),
+            if (provider.finishedCapture != null) ...[
               const SizedBox(height: 12),
-              GoveeReviewSheet(
-                initialLabels: const ['Spot 1', 'Spot 2', 'Spot 3'],
-                onSave: (labels) =>
-                    _saveWithReplacementConfirmation(context, provider, labels),
+              GoveeCaptureChart(
+                summary: GoveeCaptureSummary(
+                  capture: provider.finishedCapture!,
+                  readings: provider.finishedReadings,
+                ),
               ),
             ],
-            if (provider.phase == GoveeSpotPhase.saved) ...[
+            if (provider.phase == GoveeCapturePhase.saved) ...[
               const SizedBox(height: 12),
               _SavedNotice(nextLabel: provider.suggestedNextPlace?.label),
             ],
@@ -52,39 +54,6 @@ class GoveeActiveCaptureContent extends StatelessWidget {
         );
       },
     );
-  }
-
-  Future<void> _saveWithReplacementConfirmation(
-    BuildContext context,
-    GoveeCaptureProvider provider,
-    List<String> labels,
-  ) async {
-    if (provider.hasExistingCapture) {
-      final shouldReplace = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Replace existing Govee capture?'),
-          content: Text(
-            '${provider.place?.label ?? 'This place'} already has saved '
-            'records for ${provider.captureDate ?? 'this date'}. Delete the '
-            'older records and save this new capture?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Replace'),
-            ),
-          ],
-        ),
-      );
-      if (shouldReplace != true) return;
-    }
-    if (!context.mounted) return;
-    await provider.savePlaceCapture(spotLabels: labels);
   }
 }
 
@@ -108,7 +77,7 @@ class _ExistingCaptureNotice extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '$placeLabel already has a Govee capture for $date. You will be asked before older records are replaced.',
+              '$placeLabel already has a Govee capture for $date. Saving a new recording replaces the older records for this scope.',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),

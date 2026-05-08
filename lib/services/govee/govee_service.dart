@@ -9,12 +9,20 @@ class GoveeSensorReading {
   final double? humidity;
   final int? batteryPercent;
   final DateTime timestamp;
+  final DateTime? bucketStartedAt;
+  final DateTime? bucketEndedAt;
+  final int rawReadingCount;
+  final String source;
 
   GoveeSensorReading({
     this.temperatureFahrenheit,
     this.humidity,
     this.batteryPercent,
     required this.timestamp,
+    this.bucketStartedAt,
+    this.bucketEndedAt,
+    this.rawReadingCount = 1,
+    this.source = 'history_sync',
   });
 }
 
@@ -34,12 +42,54 @@ class DiscoveredGoveeDevice {
   });
 }
 
+enum _GoveeHistoryProtocol { minuteBack, epochMinute }
+
+class _GoveeHistorySyncRequest {
+  final _GoveeHistoryProtocol protocol;
+  final List<int> payload;
+  final DateTime? baseMinute;
+  final int? startMinutesBack;
+  final int? endMinutesBack;
+  final int? startEpochMinute;
+  final int? endEpochMinute;
+
+  const _GoveeHistorySyncRequest({
+    required this.protocol,
+    required this.payload,
+    this.baseMinute,
+    this.startMinutesBack,
+    this.endMinutesBack,
+    this.startEpochMinute,
+    this.endEpochMinute,
+  });
+
+  String get commandLabel {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack => '0x3301',
+      _GoveeHistoryProtocol.epochMinute => 'epoch-minute 0x0000',
+    };
+  }
+
+  String diagnostic({required bool retry}) {
+    final prefix = retry
+        ? 'Retried history sync after reconnect'
+        : 'History sync requested';
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack =>
+        '$prefix ${startMinutesBack}m to ${endMinutesBack}m back',
+      _GoveeHistoryProtocol.epochMinute =>
+        '$prefix epoch-minute window $startEpochMinute to $endEpochMinute',
+    };
+  }
+}
+
 class GoveeService extends ChangeNotifier {
   static const Duration _scanTimeout = Duration(minutes: 30);
   static const Duration _discoveryTimeout = Duration(seconds: 8);
   static const Duration _gattPollInterval = Duration(seconds: 5);
   static const Duration _reconnectScanDelay = Duration(seconds: 2);
-  static const Duration _historySyncTimeout = Duration(seconds: 20);
+  static const Duration _historySyncTimeout = Duration(seconds: 45);
+  static const Duration _adapterStateReadyTimeout = Duration(seconds: 2);
   static const int _maxDiagnosticEntries = 120;
   static const int _goveeManufacturerId = 0xEC88;
   static const int _appleManufacturerId = 0x004C;
@@ -84,12 +134,16 @@ class GoveeService extends ChangeNotifier {
   String? _preferredDeviceId;
   final Map<String, DiscoveredGoveeDevice> _discoveredGoveeDevices = {};
   Future<bool>? _supportCheck;
+  Future<void>? _availabilityRefresh;
   final Set<String> _debugLoggedScanIds = <String>{};
   final List<String> _diagnostics = <String>[];
   Completer<List<GoveeSensorReading>>? _historySyncCompleter;
   List<GoveeSensorReading> _historySyncReadings = <GoveeSensorReading>[];
   DateTime? _historySyncBaseMinute;
+  DateTime? _historySyncStartedAt;
+  DateTime? _historySyncEndedAt;
   int _historySyncPacketCount = 0;
+  _GoveeHistoryProtocol _historySyncProtocol = _GoveeHistoryProtocol.minuteBack;
   final StreamController<GoveeSensorReading> _readingsController =
       StreamController<GoveeSensorReading>.broadcast();
 
@@ -110,6 +164,37 @@ class GoveeService extends ChangeNotifier {
 
   Stream<GoveeSensorReading> get readings => _readingsController.stream;
 
+  @visibleForTesting
+  static String get deviceCommandCharacteristicUuidForTesting =>
+      _goveeDeviceCharacteristicUuid;
+
+  @visibleForTesting
+  static String get historyWriteCharacteristicUuidForTesting =>
+      _goveeCommandCharacteristicUuid;
+
+  @visibleForTesting
+  static String get historyResponseCharacteristicUuidForTesting =>
+      _goveeCommandCharacteristicUuid;
+
+  @visibleForTesting
+  static String get historyDataCharacteristicUuidForTesting =>
+      _goveeDataCharacteristicUuid;
+
+  @visibleForTesting
+  static bool shouldPollGattForTesting({
+    required bool hasCharacteristic,
+    required bool isGattConnected,
+    required bool canWrite,
+    required bool historySyncActive,
+  }) {
+    return _shouldPollGatt(
+      hasCharacteristic: hasCharacteristic,
+      isGattConnected: isGattConnected,
+      canWrite: canWrite,
+      historySyncActive: historySyncActive,
+    );
+  }
+
   bool _bleInitialized = false;
 
   GoveeService();
@@ -117,7 +202,6 @@ class GoveeService extends ChangeNotifier {
   void _ensureBleInitialized() {
     if (_bleInitialized) return;
     _bleInitialized = true;
-    _refreshAvailability();
     _adapterSubscription = FlutterBluePlus.adapterState.listen((state) {
       final available = state == BluetoothAdapterState.on;
       if (_isAvailable == available) return;
@@ -149,22 +233,45 @@ class GoveeService extends ChangeNotifier {
     });
   }
 
-  Future<void> _refreshAvailability() async {
-    try {
-      _isAvailable =
-          await FlutterBluePlus.adapterState.first == BluetoothAdapterState.on;
-    } catch (_) {
-      _isAvailable = false;
-    }
-    notifyListeners();
+  Future<void> _ensureNativeBleInitialized() async {
+    await _refreshAvailability(waitForKnown: true);
+    if (_bleInitialized) return;
+    _ensureBleInitialized();
+  }
+
+  Future<void> _refreshAvailability({bool waitForKnown = false}) async {
+    final pending = _availabilityRefresh;
+    if (pending != null) return pending;
+
+    final refresh = () async {
+      try {
+        final state = waitForKnown
+            ? await FlutterBluePlus.adapterState
+                  .where((state) => state != BluetoothAdapterState.unknown)
+                  .first
+                  .timeout(
+                    _adapterStateReadyTimeout,
+                    onTimeout: () => FlutterBluePlus.adapterStateNow,
+                  )
+            : await FlutterBluePlus.adapterState.first;
+        _isAvailable = state == BluetoothAdapterState.on;
+      } catch (_) {
+        _isAvailable = false;
+      } finally {
+        _availabilityRefresh = null;
+      }
+      notifyListeners();
+    }();
+    _availabilityRefresh = refresh;
+    return refresh;
   }
 
   Future<void> startScan({
     Duration timeout = _scanTimeout,
     Duration discoveryTimeout = _discoveryTimeout,
   }) async {
-    _ensureBleInitialized();
     if (kIsWeb) {
+      _ensureBleInitialized();
       await _startWebUserGestureScan(
         timeout: timeout,
         discoveryTimeout: discoveryTimeout,
@@ -172,6 +279,7 @@ class GoveeService extends ChangeNotifier {
       return;
     }
 
+    await _ensureNativeBleInitialized();
     if (!await _ensureBluetoothSupported()) {
       return;
     }
@@ -259,6 +367,14 @@ class GoveeService extends ChangeNotifier {
     final known = _isBluetoothSupported;
     if (known != null) return known;
 
+    if (!_shouldUseBluetoothSupportPreflight(
+      isWeb: kIsWeb,
+      platform: defaultTargetPlatform,
+    )) {
+      _isBluetoothSupported = true;
+      return true;
+    }
+
     final pending = _supportCheck;
     if (pending != null) return pending;
 
@@ -282,6 +398,14 @@ class GoveeService extends ChangeNotifier {
     }();
     _supportCheck = check;
     return check;
+  }
+
+  static bool _shouldUseBluetoothSupportPreflight({
+    required bool isWeb,
+    required TargetPlatform platform,
+  }) {
+    if (isWeb) return true;
+    return platform != TargetPlatform.iOS && platform != TargetPlatform.macOS;
   }
 
   Future<void> restartScan() async {
@@ -394,9 +518,20 @@ class GoveeService extends ChangeNotifier {
           _stopGattPolling();
           unawaited(_cancelGattNotificationSubscriptions());
           _clearGattCharacteristics();
-          _failHistorySync(
-            StateError('Govee disconnected during history sync'),
-          );
+          if (_historySyncActive &&
+              _shouldRetryHistorySyncAfterGattDisconnect()) {
+            _historySyncReadings = <GoveeSensorReading>[];
+            _historySyncBaseMinute = null;
+            _historySyncPacketCount = 0;
+            _addDiagnostic(
+              'GATT disconnected during history sync; retrying on reconnect',
+              notify: false,
+            );
+          } else {
+            _failHistorySync(
+              StateError('Govee disconnected during history sync'),
+            );
+          }
           _scheduleReconnectScan();
         }
         notifyListeners();
@@ -445,8 +580,12 @@ class GoveeService extends ChangeNotifier {
   }
 
   Future<void> initializeBle() async {
-    _ensureBleInitialized();
-    await _refreshAvailability();
+    if (kIsWeb) {
+      _ensureBleInitialized();
+      await _refreshAvailability();
+      return;
+    }
+    await _ensureNativeBleInitialized();
   }
 
   Future<void> selectDevice(String remoteId) async {
@@ -594,6 +733,15 @@ class GoveeService extends ChangeNotifier {
           }
         }
       }
+      if (_historySyncActive) {
+        try {
+          await _requestActiveHistorySync(retry: true);
+        } catch (e) {
+          _failHistorySync(e);
+          rethrow;
+        }
+        return;
+      }
       await _requestGoveeGattReadings(goveeCharacteristics);
       _startGattPolling();
     } catch (e) {
@@ -692,6 +840,14 @@ class GoveeService extends ChangeNotifier {
       return result.advertisementData.advName;
     }
     return 'Govee sensor';
+  }
+
+  _GoveeHistoryProtocol _historyProtocolForDeviceName(String? name) {
+    final lowerName = (name ?? '').toLowerCase();
+    if (lowerName.contains('h5051') || lowerName.contains('h5179')) {
+      return _GoveeHistoryProtocol.epochMinute;
+    }
+    return _GoveeHistoryProtocol.minuteBack;
   }
 
   bool _hasGoveeAdvertisement(ScanResult result) {
@@ -1037,6 +1193,117 @@ class GoveeService extends ChangeNotifier {
     return payload;
   }
 
+  static _GoveeHistorySyncRequest _buildHistorySyncRequest({
+    required _GoveeHistoryProtocol protocol,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required DateTime now,
+  }) {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack => _buildMinuteBackHistorySyncRequest(
+        startedAt: startedAt,
+        endedAt: endedAt,
+        now: now,
+      ),
+      _GoveeHistoryProtocol.epochMinute => _buildEpochMinuteHistorySyncRequest(
+        startedAt: startedAt,
+        endedAt: endedAt,
+        now: now,
+      ),
+    };
+  }
+
+  static _GoveeHistorySyncRequest _buildMinuteBackHistorySyncRequest({
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required DateTime now,
+  }) {
+    final baseMinute = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+    );
+    final startMinutesBack = math.min(
+      0xFFFF,
+      _ceilMinutes(now.difference(startedAt)) + 1,
+    );
+    final requestedEndMinutesBack = math.max(
+      1,
+      _floorMinutes(now.difference(endedAt)) - 1,
+    );
+    final endMinutesBack = math.min(startMinutesBack, requestedEndMinutesBack);
+    return _GoveeHistorySyncRequest(
+      protocol: _GoveeHistoryProtocol.minuteBack,
+      payload: _buildGoveeHistoryRequest(
+        startMinutesBack: startMinutesBack,
+        endMinutesBack: endMinutesBack,
+      ),
+      baseMinute: baseMinute,
+      startMinutesBack: startMinutesBack,
+      endMinutesBack: endMinutesBack,
+    );
+  }
+
+  static _GoveeHistorySyncRequest _buildEpochMinuteHistorySyncRequest({
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required DateTime now,
+  }) {
+    final latestSafeEnd = now.subtract(const Duration(minutes: 1));
+    final safeEndedAt = endedAt.isBefore(latestSafeEnd)
+        ? endedAt
+        : latestSafeEnd;
+    final requestedStartMinute = startedAt.millisecondsSinceEpoch ~/ 60000;
+    final requestedEndMinute = safeEndedAt.millisecondsSinceEpoch ~/ 60000;
+    final startEpochMinute = math.min(requestedStartMinute, requestedEndMinute);
+    final endEpochMinute = math.max(requestedStartMinute, requestedEndMinute);
+    return _GoveeHistorySyncRequest(
+      protocol: _GoveeHistoryProtocol.epochMinute,
+      payload: _buildGoveeEpochMinuteHistoryRequest(
+        startEpochMinute: startEpochMinute,
+        endEpochMinute: endEpochMinute,
+      ),
+      startEpochMinute: startEpochMinute,
+      endEpochMinute: endEpochMinute,
+    );
+  }
+
+  static List<int> _buildGoveeEpochMinuteHistoryRequest({
+    required int startEpochMinute,
+    required int endEpochMinute,
+  }) {
+    if (startEpochMinute < 0 || startEpochMinute > 0xFFFFFFFF) {
+      throw RangeError.range(
+        startEpochMinute,
+        0,
+        0xFFFFFFFF,
+        'startEpochMinute',
+      );
+    }
+    if (endEpochMinute < startEpochMinute || endEpochMinute > 0xFFFFFFFF) {
+      throw RangeError.range(
+        endEpochMinute,
+        startEpochMinute,
+        0xFFFFFFFF,
+        'endEpochMinute',
+      );
+    }
+    return [
+      0x00,
+      0x00,
+      startEpochMinute & 0xFF,
+      (startEpochMinute >> 8) & 0xFF,
+      (startEpochMinute >> 16) & 0xFF,
+      (startEpochMinute >> 24) & 0xFF,
+      endEpochMinute & 0xFF,
+      (endEpochMinute >> 8) & 0xFF,
+      (endEpochMinute >> 16) & 0xFF,
+      (endEpochMinute >> 24) & 0xFF,
+    ];
+  }
+
   static List<GoveeSensorReading> _parseGoveeHistoryDataPacket(
     List<int> data, {
     required DateTime syncBaseMinute,
@@ -1080,11 +1347,67 @@ class GoveeService extends ChangeNotifier {
     return readings;
   }
 
-  static bool _isGoveeHistoryAck(List<int> data) {
-    return data.length >= 2 &&
-        data[0] == 0x33 &&
-        data[1] == 0x01 &&
-        _hasValidGoveeChecksum(data);
+  static List<GoveeSensorReading> _parseGoveeEpochMinuteHistoryDataPacket(
+    List<int> data,
+  ) {
+    if (data.length < 8) return const [];
+    final firstEpochMinute = _unsignedInt32LittleEndian(
+      data[0],
+      data[1],
+      data[2],
+      data[3],
+    );
+    final readings = <GoveeSensorReading>[];
+    var recordIndex = 0;
+    for (var offset = 4; offset + 3 < data.length; offset += 4) {
+      final tempLow = data[offset] & 0xFF;
+      final tempHigh = data[offset + 1] & 0xFF;
+      final humidityLow = data[offset + 2] & 0xFF;
+      final humidityHigh = data[offset + 3] & 0xFF;
+      if (tempLow == 0xFF &&
+          tempHigh == 0xFF &&
+          humidityLow == 0xFF &&
+          humidityHigh == 0xFF) {
+        recordIndex += 1;
+        continue;
+      }
+
+      final epochMinute = firstEpochMinute - recordIndex;
+      if (epochMinute < 0) {
+        recordIndex += 1;
+        continue;
+      }
+      final tempRaw = _signedInt16(tempLow, tempHigh);
+      final humidityRaw = humidityLow | (humidityHigh << 8);
+      final tempF = _celsiusToFahrenheit(tempRaw / 100.0);
+      final humidity = humidityRaw / 100.0;
+      if (_isValidReading(tempF, humidity)) {
+        readings.add(
+          GoveeSensorReading(
+            temperatureFahrenheit: tempF,
+            humidity: humidity,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(epochMinute * 60000),
+          ),
+        );
+      }
+      recordIndex += 1;
+    }
+    return readings;
+  }
+
+  static bool _isGoveeHistoryAck(
+    List<int> data,
+    _GoveeHistoryProtocol protocol,
+  ) {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack =>
+        data.length >= 2 &&
+            data[0] == 0x33 &&
+            data[1] == 0x01 &&
+            _hasValidGoveeChecksum(data),
+      _GoveeHistoryProtocol.epochMinute =>
+        data.length >= 2 && data[0] == 0x00 && data[1] == 0x00,
+    };
   }
 
   static int? _parseGoveeHistoryCompletionCount(List<int> data) {
@@ -1104,6 +1427,18 @@ class GoveeService extends ChangeNotifier {
 
   static int _unsignedInt16BigEndian(int highByte, int lowByte) {
     return ((highByte & 0xFF) << 8) | (lowByte & 0xFF);
+  }
+
+  static int _unsignedInt32LittleEndian(
+    int firstByte,
+    int secondByte,
+    int thirdByte,
+    int fourthByte,
+  ) {
+    return (firstByte & 0xFF) |
+        ((secondByte & 0xFF) << 8) |
+        ((thirdByte & 0xFF) << 16) |
+        ((fourthByte & 0xFF) << 24);
   }
 
   _PackedTempHumidity? _decodePackedTempHumidity(
@@ -1247,6 +1582,7 @@ class GoveeService extends ChangeNotifier {
     }
 
     if (!_isGattConnected ||
+        _goveeDeviceCharacteristic == null ||
         _goveeHistoryControlCharacteristic == null ||
         _goveeHistoryDataCharacteristic == null) {
       if (_device != null) {
@@ -1254,52 +1590,52 @@ class GoveeService extends ChangeNotifier {
       }
     }
 
-    final controlCharacteristic = _goveeHistoryControlCharacteristic;
+    final writeCharacteristic = _goveeHistoryControlCharacteristic;
+    final responseCharacteristic = _goveeHistoryControlCharacteristic;
     final dataCharacteristic = _goveeHistoryDataCharacteristic;
     if (!_isGattConnected ||
-        controlCharacteristic == null ||
+        writeCharacteristic == null ||
+        responseCharacteristic == null ||
         dataCharacteristic == null ||
-        !_canWrite(controlCharacteristic)) {
+        !_canWrite(writeCharacteristic)) {
       _addDiagnostic(
-        'History sync needs a connected H5051. Keep the device near the app and reconnect Govee.',
+        'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.',
       );
       return const [];
     }
 
     final now = DateTime.now();
-    final baseMinute = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute,
-    );
-    final startMinutesBack = math.min(
-      0xFFFF,
-      _ceilMinutes(now.difference(startedAt)) + 1,
-    );
-    final endMinutesBack = math.max(
-      0,
-      _floorMinutes(now.difference(endedAt)) - 1,
-    );
-    final request = _buildGoveeHistoryRequest(
-      startMinutesBack: startMinutesBack,
-      endMinutesBack: math.min(startMinutesBack, endMinutesBack),
+    final protocol = _historyProtocolForDeviceName(_deviceName);
+    final syncRequest = _buildHistorySyncRequest(
+      protocol: protocol,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      now: now,
     );
 
     _historySyncCompleter = Completer<List<GoveeSensorReading>>();
     _historySyncReadings = <GoveeSensorReading>[];
-    _historySyncBaseMinute = baseMinute;
+    _historySyncBaseMinute = syncRequest.baseMinute;
+    _historySyncStartedAt = startedAt;
+    _historySyncEndedAt = endedAt;
     _historySyncPacketCount = 0;
+    _historySyncProtocol = protocol;
+    final wasPolling = _gattPollTimer != null;
+    if (wasPolling) {
+      _stopGattPolling();
+      _addDiagnostic(
+        'Paused live GATT polling for history sync',
+        notify: false,
+      );
+    }
 
     try {
-      await _ensureHistoryNotifications(
-        controlCharacteristic,
-        dataCharacteristic,
-      );
-      await _writeGoveeHistoryRequest(controlCharacteristic, request);
-      _addDiagnostic(
-        'History sync requested ${startMinutesBack}m to ${math.min(startMinutesBack, endMinutesBack)}m back',
+      await _requestActiveHistorySync(
+        retry: false,
+        syncRequest: syncRequest,
+        writeCharacteristic: writeCharacteristic,
+        responseCharacteristic: responseCharacteristic,
+        dataCharacteristic: dataCharacteristic,
       );
       return await _historySyncCompleter!.future.timeout(_historySyncTimeout);
     } on TimeoutException {
@@ -1311,8 +1647,57 @@ class GoveeService extends ChangeNotifier {
       _historySyncCompleter = null;
       _historySyncReadings = <GoveeSensorReading>[];
       _historySyncBaseMinute = null;
+      _historySyncStartedAt = null;
+      _historySyncEndedAt = null;
       _historySyncPacketCount = 0;
+      _historySyncProtocol = _GoveeHistoryProtocol.minuteBack;
+      if (wasPolling && _isGattConnected) {
+        _startGattPolling();
+      }
     }
+  }
+
+  Future<void> _requestActiveHistorySync({
+    required bool retry,
+    _GoveeHistorySyncRequest? syncRequest,
+    BluetoothCharacteristic? writeCharacteristic,
+    BluetoothCharacteristic? responseCharacteristic,
+    BluetoothCharacteristic? dataCharacteristic,
+  }) async {
+    final startedAt = _historySyncStartedAt;
+    final endedAt = _historySyncEndedAt;
+    if (!_historySyncActive || startedAt == null || endedAt == null) {
+      throw StateError('No active Govee history sync to request');
+    }
+
+    final resolvedWrite =
+        writeCharacteristic ?? _goveeHistoryControlCharacteristic;
+    final resolvedResponse =
+        responseCharacteristic ?? _goveeHistoryControlCharacteristic;
+    final resolvedData = dataCharacteristic ?? _goveeHistoryDataCharacteristic;
+    if (!_isGattConnected ||
+        resolvedWrite == null ||
+        resolvedResponse == null ||
+        resolvedData == null ||
+        !_canWrite(resolvedWrite)) {
+      throw StateError('Govee history sync could not reconnect GATT');
+    }
+
+    final resolvedSyncRequest =
+        syncRequest ??
+        _buildHistorySyncRequest(
+          protocol: _historySyncProtocol,
+          startedAt: startedAt,
+          endedAt: endedAt,
+          now: DateTime.now(),
+        );
+
+    _historySyncReadings = <GoveeSensorReading>[];
+    _historySyncBaseMinute = resolvedSyncRequest.baseMinute;
+    _historySyncPacketCount = 0;
+    await _ensureHistoryNotifications(resolvedResponse, resolvedData);
+    await _writeGoveeHistoryRequest(resolvedWrite, resolvedSyncRequest);
+    _addDiagnostic(resolvedSyncRequest.diagnostic(retry: retry));
   }
 
   Future<void> _writeGoveeCommand(
@@ -1346,8 +1731,9 @@ class GoveeService extends ChangeNotifier {
 
   Future<void> _writeGoveeHistoryRequest(
     BluetoothCharacteristic characteristic,
-    List<int> payload,
+    _GoveeHistorySyncRequest request,
   ) async {
+    final payload = request.payload;
     try {
       await characteristic.write(
         payload,
@@ -1360,12 +1746,17 @@ class GoveeService extends ChangeNotifier {
           'Govee history write ${characteristic.uuid.str}: ${_hex(payload)}',
         );
       }
-      _addDiagnostic('Write history request 0x3301', notify: false);
+      _addDiagnostic(
+        'Write history request ${request.commandLabel} to ${characteristic.uuid.str} (${payload.length} bytes)',
+        notify: false,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Govee history write failed ${characteristic.uuid.str}: $e');
       }
-      _addDiagnostic('History sync write failed: $e');
+      _addDiagnostic(
+        'History sync write failed ${characteristic.uuid.str} (${payload.length} bytes): $e',
+      );
       rethrow;
     }
   }
@@ -1401,12 +1792,19 @@ class GoveeService extends ChangeNotifier {
     if (completer == null || completer.isCompleted) return false;
 
     if (uuid == _goveeCommandCharacteristicUuid) {
-      if (_isGoveeHistoryAck(value)) {
-        _addDiagnostic('History sync accepted by H5051', notify: false);
+      if (_isGoveeHistoryAck(value, _historySyncProtocol)) {
+        _addDiagnostic(
+          'History sync accepted by ${_historyProtocolLabel(_historySyncProtocol)}',
+          notify: false,
+        );
         return true;
       }
 
-      final completionCount = _parseGoveeHistoryCompletionCount(value);
+      final completionCount =
+          _parseGoveeHistoryCompletionCount(value) ??
+          (_isGoveeEpochMinuteHistoryCompletion(value, _historySyncProtocol)
+              ? _historySyncPacketCount
+              : null);
       if (completionCount != null) {
         final readings = List<GoveeSensorReading>.from(_historySyncReadings)
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -1420,13 +1818,7 @@ class GoveeService extends ChangeNotifier {
     }
 
     if (uuid != _goveeDataCharacteristicUuid) return false;
-    final baseMinute = _historySyncBaseMinute;
-    if (baseMinute == null) return true;
-
-    final readings = _parseGoveeHistoryDataPacket(
-      value,
-      syncBaseMinute: baseMinute,
-    );
+    final readings = _parseActiveHistoryDataPacket(value);
     _historySyncPacketCount += 1;
     _historySyncReadings.addAll(readings);
     _addDiagnostic(
@@ -1434,6 +1826,32 @@ class GoveeService extends ChangeNotifier {
       notify: false,
     );
     return true;
+  }
+
+  List<GoveeSensorReading> _parseActiveHistoryDataPacket(List<int> value) {
+    if (_historySyncProtocol == _GoveeHistoryProtocol.epochMinute) {
+      return _parseGoveeEpochMinuteHistoryDataPacket(value);
+    }
+
+    final baseMinute = _historySyncBaseMinute;
+    if (baseMinute == null) return const <GoveeSensorReading>[];
+    return _parseGoveeHistoryDataPacket(value, syncBaseMinute: baseMinute);
+  }
+
+  String _historyProtocolLabel(_GoveeHistoryProtocol protocol) {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack => 'minute-back command',
+      _GoveeHistoryProtocol.epochMinute => 'epoch-minute command',
+    };
+  }
+
+  bool _isGoveeEpochMinuteHistoryCompletion(
+    List<int> data,
+    _GoveeHistoryProtocol protocol,
+  ) {
+    return protocol == _GoveeHistoryProtocol.epochMinute &&
+        data.length == 1 &&
+        data[0] == 0x02;
   }
 
   void _clearGattCharacteristics() {
@@ -1446,6 +1864,16 @@ class GoveeService extends ChangeNotifier {
     final completer = _historySyncCompleter;
     if (completer == null || completer.isCompleted) return;
     completer.completeError(error);
+  }
+
+  bool get _historySyncActive =>
+      _historySyncCompleter != null && !_historySyncCompleter!.isCompleted;
+
+  bool _shouldRetryHistorySyncAfterGattDisconnect() {
+    return !_manualDisconnectRequested &&
+        _autoReconnectEnabled &&
+        _isAvailable &&
+        _isConnected;
   }
 
   bool _canWrite(BluetoothCharacteristic characteristic) {
@@ -1488,16 +1916,33 @@ class GoveeService extends ChangeNotifier {
 
   Future<void> _pollGattReading({bool includeBattery = false}) async {
     final characteristic = _goveeDeviceCharacteristic;
-    if (characteristic == null ||
-        !_isGattConnected ||
-        !_canWrite(characteristic)) {
+    final canWrite = characteristic != null && _canWrite(characteristic);
+    if (!_shouldPollGatt(
+      hasCharacteristic: characteristic != null,
+      isGattConnected: _isGattConnected,
+      canWrite: canWrite,
+      historySyncActive:
+          _historySyncCompleter != null && !_historySyncCompleter!.isCompleted,
+    )) {
       return;
     }
     _gattPollCount += 1;
-    await _writeGoveeCommand(characteristic, 0x0A);
+    await _writeGoveeCommand(characteristic!, 0x0A);
     if (includeBattery || _gattPollCount % 12 == 0) {
       await _writeGoveeCommand(characteristic, 0x08);
     }
+  }
+
+  static bool _shouldPollGatt({
+    required bool hasCharacteristic,
+    required bool isGattConnected,
+    required bool canWrite,
+    required bool historySyncActive,
+  }) {
+    return hasCharacteristic &&
+        isGattConnected &&
+        canWrite &&
+        !historySyncActive;
   }
 
   void _stopGattPolling() {

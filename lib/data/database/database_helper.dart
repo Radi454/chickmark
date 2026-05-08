@@ -36,10 +36,10 @@ class DatabaseHelper {
     return _db!;
   }
 
-  Future<Database> _openAppDatabase(String dbPath) {
+  Future<Database> _openAppDatabase(String path) {
     return openDatabase(
-      dbPath,
-      version: 23,
+      path,
+      version: 25,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -652,6 +652,12 @@ class DatabaseHelper {
     if (oldVersion < 23) {
       await _applyV23Upgrade(db);
     }
+    if (oldVersion < 24) {
+      await _applyV24Upgrade(db);
+    }
+    if (oldVersion < 25) {
+      await _applyV25Upgrade(db);
+    }
   }
 
   Future<void> _createHatcheryTables(Database db) async {
@@ -814,65 +820,48 @@ class DatabaseHelper {
       id TEXT PRIMARY KEY,
       customerId TEXT NOT NULL,
       hatcheryId TEXT NOT NULL,
+      stationKey TEXT NOT NULL DEFAULT '',
       place TEXT NOT NULL,
+      machineId TEXT NOT NULL DEFAULT '',
       captureDate TEXT NOT NULL,
+      startedAt TEXT,
+      endedAt TEXT,
       deviceId TEXT,
       deviceName TEXT,
       status TEXT NOT NULL,
       tempAvg REAL,
       tempMin REAL,
       tempMax REAL,
+      tempSd REAL,
+      tempCvPct REAL,
       rhAvg REAL,
       rhMin REAL,
       rhMax REAL,
-      spotCount INTEGER NOT NULL,
+      rhSd REAL,
+      rhCvPct REAL,
       readingCount INTEGER NOT NULL,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
-      UNIQUE(customerId, hatcheryId, place, captureDate)
+      UNIQUE(customerId, hatcheryId, place, machineId, captureDate)
     )''');
-    await db.execute('''CREATE TABLE IF NOT EXISTS govee_spot_captures (
+    await db.execute('''CREATE TABLE IF NOT EXISTS govee_place_readings (
       id TEXT PRIMARY KEY,
       captureId TEXT NOT NULL,
-      spotIndex INTEGER NOT NULL,
-      spotLabel TEXT NOT NULL,
-      warmupStartedAt TEXT NOT NULL,
-      validStartedAt TEXT NOT NULL,
-      validEndedAt TEXT NOT NULL,
-      validDurationSeconds INTEGER NOT NULL,
-      tempAvg REAL,
-      tempMin REAL,
-      tempMax REAL,
-      rhAvg REAL,
-      rhMin REAL,
-      rhMax REAL,
-      readingCount INTEGER NOT NULL,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE
-    )''');
-    await db.execute('''CREATE TABLE IF NOT EXISTS govee_spot_readings (
-      id TEXT PRIMARY KEY,
-      captureId TEXT NOT NULL,
-      spotId TEXT NOT NULL,
       readingIndex INTEGER NOT NULL,
       recordedAt TEXT NOT NULL,
       temperatureFahrenheit REAL NOT NULL,
       humidity REAL NOT NULL,
-      rssi INTEGER,
-      deviceName TEXT,
       createdAt TEXT NOT NULL,
-      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE,
-      FOREIGN KEY (spotId) REFERENCES govee_spot_captures(id) ON DELETE CASCADE
+      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE
     )''');
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_daily_scope ON govee_daily_captures (customerId, hatcheryId, place, captureDate)',
+      'CREATE INDEX IF NOT EXISTS idx_govee_daily_scope ON govee_daily_captures (customerId, hatcheryId, place, machineId, captureDate)',
     );
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_spots_capture ON govee_spot_captures (captureId, spotIndex)',
+      'CREATE INDEX IF NOT EXISTS idx_govee_daily_dashboard ON govee_daily_captures (customerId, hatcheryId, captureDate)',
     );
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_readings_spot ON govee_spot_readings (spotId, readingIndex)',
+      'CREATE INDEX IF NOT EXISTS idx_govee_place_readings_capture ON govee_place_readings (captureId, readingIndex)',
     );
   }
 
@@ -1257,6 +1246,218 @@ DELETE FROM temperature_readings WHERE sessionId IN (
 
   @visibleForTesting
   Future<void> applyV23UpgradeForTest(Database db) => _applyV23Upgrade(db);
+
+  Future<void> _applyV24Upgrade(Database db) async {
+    await _normalizeGoveePlaceValues(db);
+  }
+
+  @visibleForTesting
+  Future<void> applyV24UpgradeForTest(Database db) => _applyV24Upgrade(db);
+
+  Future<void> _applyV25Upgrade(Database db) async {
+    if (!await _tableExists(db, 'govee_daily_captures')) {
+      await _createGoveeCaptureTables(db);
+      return;
+    }
+
+    final dailyRows = await db.query('govee_daily_captures');
+    final placeReadingRows = await _tableExists(db, 'govee_place_readings')
+        ? await db.query('govee_place_readings')
+        : <Map<String, Object?>>[];
+    final spotReadingRows = await _tableExists(db, 'govee_spot_readings')
+        ? await db.query('govee_spot_readings')
+        : <Map<String, Object?>>[];
+
+    await db.execute('DROP TABLE IF EXISTS govee_spot_readings');
+    await db.execute('DROP TABLE IF EXISTS govee_spot_captures');
+    await db.execute('DROP TABLE IF EXISTS govee_place_readings');
+    await db.execute('DROP TABLE IF EXISTS govee_daily_captures');
+    await _createGoveeCaptureTables(db);
+
+    for (final row in dailyRows) {
+      await db.insert('govee_daily_captures', _migrateGoveeDailyRow(row));
+    }
+
+    if (placeReadingRows.isNotEmpty) {
+      final grouped = _groupGoveeReadingRows(placeReadingRows);
+      for (final entry in grouped.entries) {
+        for (var i = 0; i < entry.value.length; i += 1) {
+          await db.insert(
+            'govee_place_readings',
+            _migrateGoveeReadingRow(entry.value[i], readingIndex: i),
+          );
+        }
+      }
+      return;
+    }
+
+    final grouped = _groupGoveeReadingRows(spotReadingRows);
+    for (final entry in grouped.entries) {
+      for (var i = 0; i < entry.value.length; i += 1) {
+        await db.insert(
+          'govee_place_readings',
+          _migrateGoveeReadingRow(entry.value[i], readingIndex: i),
+        );
+      }
+    }
+  }
+
+  @visibleForTesting
+  Future<void> applyV25UpgradeForTest(Database db) => _applyV25Upgrade(db);
+
+  Map<String, Object?> _migrateGoveeDailyRow(Map<String, Object?> row) {
+    final place = _migratedGoveePlaceName('${row['place'] ?? ''}');
+    final stationKey = '${row['stationKey'] ?? ''}'.trim();
+    return {
+      'id': row['id'],
+      'customerId': row['customerId'],
+      'hatcheryId': row['hatcheryId'],
+      'stationKey': stationKey.isEmpty
+          ? _goveeStationKeyForPlaceName(place)
+          : stationKey,
+      'place': place,
+      'machineId': row['machineId'] ?? '',
+      'captureDate': row['captureDate'],
+      'startedAt': row['startedAt'] ?? row['createdAt'],
+      'endedAt': row['endedAt'] ?? row['updatedAt'],
+      'deviceId': row['deviceId'],
+      'deviceName': row['deviceName'],
+      'status': row['status'] ?? 'completed',
+      'tempAvg': row['tempAvg'],
+      'tempMin': row['tempMin'],
+      'tempMax': row['tempMax'],
+      'tempSd': row['tempSd'],
+      'tempCvPct': row['tempCvPct'],
+      'rhAvg': row['rhAvg'],
+      'rhMin': row['rhMin'],
+      'rhMax': row['rhMax'],
+      'rhSd': row['rhSd'],
+      'rhCvPct': row['rhCvPct'],
+      'readingCount': row['readingCount'] ?? 0,
+      'createdAt': row['createdAt'],
+      'updatedAt': row['updatedAt'],
+    };
+  }
+
+  Map<String, List<Map<String, Object?>>> _groupGoveeReadingRows(
+    List<Map<String, Object?>> rows,
+  ) {
+    final grouped = <String, List<Map<String, Object?>>>{};
+    for (final row in rows) {
+      final captureId = '${row['captureId'] ?? ''}';
+      if (captureId.isEmpty) continue;
+      grouped.putIfAbsent(captureId, () => []).add(row);
+    }
+    for (final readings in grouped.values) {
+      readings.sort((a, b) {
+        final timeCompare = '${a['recordedAt'] ?? ''}'.compareTo(
+          '${b['recordedAt'] ?? ''}',
+        );
+        if (timeCompare != 0) return timeCompare;
+        final spotCompare = '${a['spotId'] ?? ''}'.compareTo(
+          '${b['spotId'] ?? ''}',
+        );
+        if (spotCompare != 0) return spotCompare;
+        return _pragmaInt(
+          a['readingIndex'],
+        ).compareTo(_pragmaInt(b['readingIndex']));
+      });
+    }
+    return grouped;
+  }
+
+  Map<String, Object?> _migrateGoveeReadingRow(
+    Map<String, Object?> row, {
+    required int readingIndex,
+  }) {
+    return {
+      'id': row['id'],
+      'captureId': row['captureId'],
+      'readingIndex': readingIndex,
+      'recordedAt': row['recordedAt'],
+      'temperatureFahrenheit': row['temperatureFahrenheit'],
+      'humidity': row['humidity'],
+      'createdAt': row['createdAt'],
+    };
+  }
+
+  String _migratedGoveePlaceName(String place) {
+    return switch (place) {
+      'incubatorRoom' => 'setterRoom',
+      'insideIncubator' => 'insideSetter',
+      _ => place,
+    };
+  }
+
+  String _goveeStationKeyForPlaceName(String place) {
+    return switch (place) {
+      'eggStorageRoom' => 'egg',
+      'chickHoldingArea' => 'chicks',
+      'setterRoom' || 'insideSetter' => 'setters',
+      'hatcherRoom' || 'insideHatcher' => 'hatchers',
+      _ => '',
+    };
+  }
+
+  Future<void> _normalizeGoveePlaceValues(Database db) async {
+    if (await _tableExists(db, 'govee_daily_captures')) {
+      await db.execute("""
+        UPDATE govee_daily_captures
+        SET place = ${_migratedGoveePlaceSql('place')},
+            stationKey = COALESCE(
+              NULLIF(TRIM(stationKey), ''),
+              ${_goveeStationKeySql(_migratedGoveePlaceSql('place'))}
+            ),
+            machineId = COALESCE(machineId, '')
+      """);
+    }
+    if (await _tableExists(db, 'temperature_sessions')) {
+      await db.execute("""
+        UPDATE temperature_sessions
+        SET activePlace = ${_migratedGoveePlaceSql('activePlace')}
+        WHERE activePlace IN ('incubatorRoom', 'insideIncubator')
+      """);
+    }
+    if (await _tableExists(db, 'temperature_readings')) {
+      await db.execute("""
+        UPDATE temperature_readings
+        SET place = ${_migratedGoveePlaceSql('place')}
+        WHERE place IN ('incubatorRoom', 'insideIncubator')
+      """);
+    }
+  }
+
+  Future<bool> _tableExists(Database db, String table) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [table],
+    );
+    return rows.isNotEmpty;
+  }
+
+  String _migratedGoveePlaceSql(String expression) {
+    return """
+CASE $expression
+  WHEN 'incubatorRoom' THEN 'setterRoom'
+  WHEN 'insideIncubator' THEN 'insideSetter'
+  ELSE $expression
+END
+""";
+  }
+
+  String _goveeStationKeySql(String placeExpression) {
+    return """
+CASE $placeExpression
+  WHEN 'eggStorageRoom' THEN 'egg'
+  WHEN 'chickHoldingArea' THEN 'chicks'
+  WHEN 'setterRoom' THEN 'setters'
+  WHEN 'insideSetter' THEN 'setters'
+  WHEN 'hatcherRoom' THEN 'hatchers'
+  WHEN 'insideHatcher' THEN 'hatchers'
+  ELSE ''
+END
+""";
+  }
 
   Future<void> _renameStationIdentityValues(Database db) async {
     await db.execute("""

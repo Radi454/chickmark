@@ -27,8 +27,8 @@ class FakeClock {
 
 GoveeSensorReading _reading({
   required DateTime timestamp,
-  double temp = 72.0,
-  double humidity = 56.0,
+  double? temp = 72.0,
+  double? humidity = 56.0,
 }) {
   return GoveeSensorReading(
     temperatureFahrenheit: temp,
@@ -37,11 +37,25 @@ GoveeSensorReading _reading({
   );
 }
 
+List<GoveeSensorReading> _readingsFrom({
+  required DateTime startedAt,
+  required int count,
+  Duration step = const Duration(seconds: 1),
+}) {
+  return List.generate(count, (index) {
+    return _reading(
+      timestamp: startedAt.add(step * index),
+      temp: 70 + index / 100,
+      humidity: 55 + index / 200,
+    );
+  });
+}
+
 void main() {
   late MockGoveeCaptureRepository mockRepo;
   late MockGoveeService mockGovee;
   late FakeClock fakeClock;
-  late StreamController<GoveeSensorReading> liveReadingsController;
+  late StreamController<GoveeSensorReading> liveReadings;
 
   setUpAll(() {
     registerFallbackValue(TemperaturePlace.eggStorageRoom);
@@ -53,35 +67,36 @@ void main() {
         place: TemperaturePlace.eggStorageRoom,
         captureDate: '2026-05-02',
         status: 'completed',
-        spotCount: 3,
-        readingCount: 180,
+        readingCount: 50,
         createdAt: DateTime(2026, 5, 2),
         updatedAt: DateTime(2026, 5, 2),
       ),
     );
-    registerFallbackValue(<GoveeSpotCaptureModel>[]);
-    registerFallbackValue(<GoveeSpotReadingModel>[]);
+    registerFallbackValue(<GoveePlaceReadingModel>[]);
   });
 
   setUp(() {
     mockRepo = MockGoveeCaptureRepository();
     mockGovee = MockGoveeService();
     fakeClock = FakeClock(DateTime.parse('2026-05-02T10:00:00'));
-    liveReadingsController =
-        StreamController<GoveeSensorReading>.broadcast();
+    liveReadings = StreamController<GoveeSensorReading>.broadcast();
 
     when(
       () => mockRepo.getCaptureForScope(
         customerId: any(named: 'customerId'),
         hatcheryId: any(named: 'hatcheryId'),
+        stationKey: any(named: 'stationKey'),
         place: any(named: 'place'),
+        machineId: any(named: 'machineId'),
         captureDate: any(named: 'captureDate'),
       ),
     ).thenAnswer((_) async => null);
     when(() => mockGovee.deviceId).thenReturn('device-1');
     when(() => mockGovee.deviceName).thenReturn('Govee H5051');
+    when(() => mockGovee.isGattConnected).thenReturn(true);
     when(() => mockGovee.signalStrength).thenReturn(-61);
-    when(() => mockGovee.readings).thenAnswer((_) => liveReadingsController.stream);
+    when(() => mockGovee.diagnostics).thenReturn(const []);
+    when(() => mockGovee.readings).thenAnswer((_) => liveReadings.stream);
     when(
       () => mockGovee.syncHistory(
         startedAt: any(named: 'startedAt'),
@@ -89,28 +104,29 @@ void main() {
       ),
     ).thenAnswer((invocation) async {
       final startedAt = invocation.namedArguments[#startedAt] as DateTime;
-      return List.generate(1, (index) {
-        return _reading(
-          timestamp: startedAt.add(Duration(minutes: index)),
-          temp: 70 + index / 100,
-          humidity: 55 + index / 200,
-        );
-      });
+      return _readingsFrom(
+        startedAt: startedAt.add(GoveeCaptureProvider.warmupDuration),
+        count: 1000,
+      );
     });
     when(
       () => mockRepo.saveReplacement(
         capture: any(named: 'capture'),
-        spots: any(named: 'spots'),
         readings: any(named: 'readings'),
       ),
     ).thenAnswer((_) async {});
   });
 
   tearDown(() async {
-    await liveReadingsController.close();
+    await liveReadings.close();
   });
 
-  Future<GoveeCaptureProvider> configuredProvider() async {
+  Future<GoveeCaptureProvider> configuredProvider({
+    TemperaturePlace place = TemperaturePlace.eggStorageRoom,
+    String stationKey = 'egg',
+    String? machineId,
+    GoveeCaptureTarget captureTarget = GoveeCaptureTarget.room,
+  }) async {
     final provider = GoveeCaptureProvider(
       repository: mockRepo,
       goveeService: mockGovee,
@@ -120,318 +136,218 @@ void main() {
     await provider.configure(
       customerId: 'customer-1',
       hatcheryId: 'hatchery-1',
-      place: TemperaturePlace.eggStorageRoom,
+      place: place,
       captureDate: '2026-05-02',
+      stationKey: stationKey,
+      machineId: machineId,
+      captureTarget: captureTarget,
     );
     return provider;
   }
 
-  test('spot cannot finish before warmup plus minimum valid window', () async {
-    final provider = await configuredProvider();
-
-    await provider.startCurrentSpot();
-    fakeClock.elapse(const Duration(seconds: 119));
-
-    expect(provider.canFinishCurrentSpot, isFalse);
-
-    fakeClock.elapse(const Duration(seconds: 1));
-
-    expect(provider.canFinishCurrentSpot, isTrue);
-  });
-
-  test('spot auto-ends after maximum valid window', () async {
-    final provider = await configuredProvider();
-
-    await provider.startCurrentSpot();
-    fakeClock.elapse(
-      GoveeCaptureProvider.warmupDuration +
-          GoveeCaptureProvider.maximumValidDuration,
-    );
-
-    expect(provider.phase, GoveeSpotPhase.autoEnded);
-    expect(provider.canFinishCurrentSpot, isTrue);
-  });
-
-  test('maximum valid recording window is fifteen minutes', () {
-    expect(
-      GoveeCaptureProvider.maximumValidDuration,
-      const Duration(minutes: 15),
-    );
-  });
-
-  test('bucket averaging compresses synced spot history to 60 readings', () {
-    final readings = List.generate(300, (index) {
-      return GoveeSensorReading(
-        temperatureFahrenheit: 70 + (index / 100),
-        humidity: 55 + (index / 200),
-        timestamp: DateTime.parse(
-          '2026-05-02T10:00:00',
-        ).add(Duration(seconds: index)),
-      );
-    });
-
-    final compressed = GoveeCaptureProvider.compressSyncedReadings(
-      readings,
-      targetCount: 60,
-    );
-
-    expect(compressed, hasLength(60));
-    expect(compressed.first.temperatureFahrenheit, closeTo(70.02, 0.05));
-    expect(compressed.first.humidity, closeTo(55.01, 0.05));
-  });
-
-  test('retrying failed sync preserves the original spot window', () async {
-    final syncedWindows = <({DateTime startedAt, DateTime endedAt})>[];
-    when(
-      () => mockGovee.syncHistory(
-        startedAt: any(named: 'startedAt'),
-        endedAt: any(named: 'endedAt'),
-      ),
-    ).thenAnswer((invocation) async {
-      final startedAt = invocation.namedArguments[#startedAt] as DateTime;
-      final endedAt = invocation.namedArguments[#endedAt] as DateTime;
-      syncedWindows.add((startedAt: startedAt, endedAt: endedAt));
-      if (syncedWindows.length == 1) {
-        return const <GoveeSensorReading>[];
-      }
-      return List.generate(1, (index) {
-        return _reading(timestamp: startedAt.add(Duration(minutes: index)));
-      });
-    });
-    final provider = await configuredProvider();
-
-    await provider.startCurrentSpot();
-    fakeClock.elapse(const Duration(seconds: 120));
-    await provider.finishCurrentSpot();
-
-    expect(provider.completedSpotCount, 0);
-    expect(provider.error, contains('reconnect Govee'));
-
-    fakeClock.elapse(const Duration(minutes: 10));
-    await provider.finishCurrentSpot();
-
-    expect(provider.completedSpotCount, 1);
-    expect(syncedWindows, hasLength(2));
-    expect(syncedWindows[1].startedAt, syncedWindows[0].startedAt);
-    expect(syncedWindows[1].endedAt, syncedWindows[0].endedAt);
-  });
-
   test(
-    'savePlaceCapture persists one daily capture with three spots',
+    'manual Start/Stop records one place window from history sync',
     () async {
-      final provider = await configuredProvider();
+      final provider = await configuredProvider(
+        place: TemperaturePlace.setterRoom,
+        stationKey: 'setters',
+        machineId: 'setter-7',
+        captureTarget: GoveeCaptureTarget.insideMachine,
+      );
 
-      for (var spot = 0; spot < GoveeCaptureProvider.spotCount; spot += 1) {
-        await provider.startCurrentSpot();
-        fakeClock.elapse(const Duration(seconds: 120));
-        await provider.finishCurrentSpot();
-        fakeClock.elapse(const Duration(minutes: 1));
-      }
+      await provider.startRecording();
+      fakeClock.elapse(const Duration(minutes: 20));
+      await provider.stopAndSavePlaceCapture();
 
-      await provider.savePlaceCapture(spotLabels: ['Door', 'Middle', 'Back']);
+      verify(
+        () => mockGovee.syncHistory(
+          startedAt: DateTime.parse('2026-05-02T10:00:00'),
+          endedAt: DateTime.parse('2026-05-02T10:20:00'),
+        ),
+      ).called(1);
 
       final captured = verify(
         () => mockRepo.saveReplacement(
           capture: captureAny(named: 'capture'),
-          spots: captureAny(named: 'spots'),
           readings: captureAny(named: 'readings'),
         ),
       ).captured;
       final capture = captured[0] as GoveeDailyCaptureModel;
-      final spots = captured[1] as List<GoveeSpotCaptureModel>;
-      final readings = captured[2] as List<GoveeSpotReadingModel>;
+      final readings = captured[1] as List<GoveePlaceReadingModel>;
 
-      expect(capture.customerId, 'customer-1');
-      expect(capture.hatcheryId, 'hatchery-1');
-      expect(capture.place, TemperaturePlace.eggStorageRoom);
-      expect(capture.captureDate, '2026-05-02');
-      expect(capture.spotCount, 3);
-      expect(capture.readingCount, 3);
-      expect(spots.map((spot) => spot.spotLabel), ['Door', 'Middle', 'Back']);
-      expect(spots.map((spot) => spot.readingCount), [1, 1, 1]);
-      expect(readings, hasLength(3));
-      expect(readings.first.readingIndex, 0);
-      expect(readings.last.readingIndex, 0);
+      expect(capture.place, TemperaturePlace.insideSetter);
+      expect(capture.machineId, 'setter-7');
+      expect(capture.startedAt, DateTime.parse('2026-05-02T10:00:00'));
+      expect(capture.endedAt, DateTime.parse('2026-05-02T10:20:00'));
+      expect(capture.readingCount, 100);
+      expect(readings, hasLength(100));
     },
   );
 
   test(
-    'falls back to live BLE readings when GATT history sync returns nothing',
+    'live readings are preview only and saved data comes from history',
     () async {
-      when(
-        () => mockGovee.syncHistory(
-          startedAt: any(named: 'startedAt'),
-          endedAt: any(named: 'endedAt'),
-        ),
-      ).thenAnswer((_) async => const <GoveeSensorReading>[]);
-
       final provider = await configuredProvider();
-      await provider.startCurrentSpot();
+      final live = _reading(
+        timestamp: DateTime.parse('2026-05-02T10:00:05'),
+        temp: 110,
+        humidity: 90,
+      );
 
-      final warmupStartedAt = fakeClock.now();
-      final validStartedAt =
-          warmupStartedAt.add(GoveeCaptureProvider.warmupDuration);
-      liveReadingsController.add(
-        _reading(
-          timestamp: validStartedAt.add(const Duration(seconds: 5)),
-          temp: 73.4,
-          humidity: 51.2,
-        ),
-      );
-      liveReadingsController.add(
-        _reading(
-          timestamp: validStartedAt.add(const Duration(seconds: 30)),
-          temp: 73.6,
-          humidity: 51.4,
-        ),
-      );
+      await provider.startRecording();
+      liveReadings.add(live);
       await Future<void>.delayed(Duration.zero);
+      fakeClock.elapse(const Duration(minutes: 11));
+      await provider.stopAndSavePlaceCapture();
 
-      fakeClock.elapse(const Duration(seconds: 120));
-      await provider.finishCurrentSpot();
+      expect(provider.liveRecordingReadings, contains(same(live)));
+      final captured = verify(
+        () => mockRepo.saveReplacement(
+          capture: captureAny(named: 'capture'),
+          readings: captureAny(named: 'readings'),
+        ),
+      ).captured;
+      final capture = captured[0] as GoveeDailyCaptureModel;
 
-      expect(provider.completedSpotCount, 1);
-      expect(provider.error, isNull);
+      expect(capture.tempMax, lessThan(90));
+      expect(capture.rhMax, lessThan(70));
     },
   );
 
   test(
-    'falls back to live BLE readings when GATT history sync throws',
+    'warmup and invalid readings are excluded before stats and LTTB',
     () async {
       when(
         () => mockGovee.syncHistory(
           startedAt: any(named: 'startedAt'),
           endedAt: any(named: 'endedAt'),
         ),
-      ).thenThrow(TimeoutException('history sync timeout'));
-
+      ).thenAnswer((_) async {
+        final start = DateTime.parse('2026-05-02T10:00:00');
+        return [
+          _reading(timestamp: start.add(const Duration(seconds: 10)), temp: 10),
+          _reading(
+            timestamp: start.add(const Duration(seconds: 70)),
+            temp: null,
+          ),
+          _reading(
+            timestamp: start.add(const Duration(seconds: 71)),
+            humidity: 101,
+          ),
+          ..._readingsFrom(
+            startedAt: start.add(const Duration(seconds: 80)),
+            count: 120,
+          ),
+        ];
+      });
       final provider = await configuredProvider();
-      await provider.startCurrentSpot();
 
-      final warmupStartedAt = fakeClock.now();
-      final validStartedAt =
-          warmupStartedAt.add(GoveeCaptureProvider.warmupDuration);
-      liveReadingsController.add(
-        _reading(
-          timestamp: validStartedAt.add(const Duration(seconds: 10)),
-          temp: 74.1,
-          humidity: 52.0,
+      await provider.startRecording();
+      fakeClock.elapse(const Duration(minutes: 5));
+      await provider.stopAndSavePlaceCapture();
+
+      final captured = verify(
+        () => mockRepo.saveReplacement(
+          capture: captureAny(named: 'capture'),
+          readings: captureAny(named: 'readings'),
         ),
+      ).captured;
+      final capture = captured[0] as GoveeDailyCaptureModel;
+      final readings = captured[1] as List<GoveePlaceReadingModel>;
+
+      expect(capture.tempMin, greaterThanOrEqualTo(70));
+      expect(capture.rhMax, lessThanOrEqualTo(100));
+      expect(readings, hasLength(50));
+      expect(
+        readings.every(
+          (reading) => !reading.recordedAt.isBefore(
+            DateTime.parse('2026-05-02T10:01:00'),
+          ),
+        ),
+        isTrue,
       );
-      await Future<void>.delayed(Duration.zero);
-
-      fakeClock.elapse(const Duration(seconds: 120));
-      await provider.finishCurrentSpot();
-
-      expect(provider.completedSpotCount, 1);
-      expect(provider.error, isNull);
     },
   );
 
-  test(
-    'reports sync failure with cause when GATT and live readings both empty',
-    () async {
-      when(
-        () => mockGovee.syncHistory(
-          startedAt: any(named: 'startedAt'),
-          endedAt: any(named: 'endedAt'),
-        ),
-      ).thenThrow(TimeoutException('history sync timeout'));
-
-      final provider = await configuredProvider();
-      await provider.startCurrentSpot();
-      fakeClock.elapse(const Duration(seconds: 120));
-      await provider.finishCurrentSpot();
-
-      expect(provider.completedSpotCount, 0);
-      expect(provider.error, contains('reconnect Govee'));
-      expect(provider.error, contains('history sync timeout'));
-    },
-  );
-
-  test('cancelCurrentSpot clears failed sync state and re-enables start',
-      () async {
+  test('summary computes Avg Min Max SD and CV for Temp and RH', () async {
     when(
       () => mockGovee.syncHistory(
         startedAt: any(named: 'startedAt'),
         endedAt: any(named: 'endedAt'),
       ),
-    ).thenAnswer((_) async => const <GoveeSensorReading>[]);
-
-    final provider = await configuredProvider();
-    await provider.startCurrentSpot();
-    fakeClock.elapse(const Duration(seconds: 120));
-    await provider.finishCurrentSpot();
-
-    expect(provider.phase, GoveeSpotPhase.readyForNext);
-    expect(provider.error, isNotNull);
-
-    provider.cancelCurrentSpot();
-
-    expect(provider.phase, GoveeSpotPhase.idle);
-    expect(provider.error, isNull);
-    expect(provider.completedSpotCount, 0);
-    expect(provider.canFinishCurrentSpot, isFalse);
-  });
-
-  test('cancelCurrentSpot after a saved spot returns to complete phase',
-      () async {
-    when(
-      () => mockGovee.syncHistory(
-        startedAt: any(named: 'startedAt'),
-        endedAt: any(named: 'endedAt'),
-      ),
-    ).thenAnswer((invocation) async {
-      final startedAt = invocation.namedArguments[#startedAt] as DateTime;
-      return [_reading(timestamp: startedAt.add(const Duration(seconds: 10)))];
+    ).thenAnswer((_) async {
+      final start = DateTime.parse('2026-05-02T10:01:00');
+      return [
+        _reading(timestamp: start, temp: 70, humidity: 50),
+        _reading(
+          timestamp: start.add(const Duration(seconds: 1)),
+          temp: 72,
+          humidity: 52,
+        ),
+        _reading(
+          timestamp: start.add(const Duration(seconds: 2)),
+          temp: 74,
+          humidity: 54,
+        ),
+      ];
     });
-
     final provider = await configuredProvider();
-    await provider.startCurrentSpot();
-    fakeClock.elapse(const Duration(seconds: 120));
-    await provider.finishCurrentSpot();
-    expect(provider.completedSpotCount, 1);
 
-    when(
-      () => mockGovee.syncHistory(
-        startedAt: any(named: 'startedAt'),
-        endedAt: any(named: 'endedAt'),
+    await provider.startRecording();
+    fakeClock.elapse(const Duration(minutes: 2));
+    await provider.stopAndSavePlaceCapture();
+
+    final captured = verify(
+      () => mockRepo.saveReplacement(
+        capture: captureAny(named: 'capture'),
+        readings: captureAny(named: 'readings'),
       ),
-    ).thenAnswer((_) async => const <GoveeSensorReading>[]);
+    ).captured;
+    final capture = captured[0] as GoveeDailyCaptureModel;
 
-    fakeClock.elapse(const Duration(minutes: 1));
-    await provider.startCurrentSpot();
-    fakeClock.elapse(const Duration(seconds: 120));
-    await provider.finishCurrentSpot();
-
-    expect(provider.phase, GoveeSpotPhase.readyForNext);
-    expect(provider.error, isNotNull);
-
-    provider.cancelCurrentSpot();
-
-    expect(provider.phase, GoveeSpotPhase.complete);
-    expect(provider.completedSpotCount, 1);
-    expect(provider.error, isNull);
+    expect(capture.tempAvg, 72);
+    expect(capture.tempMin, 70);
+    expect(capture.tempMax, 74);
+    expect(capture.tempSd, 1.63);
+    expect(capture.tempCvPct, 2.27);
+    expect(capture.rhAvg, 52);
+    expect(capture.rhMin, 50);
+    expect(capture.rhMax, 54);
+    expect(capture.rhSd, 1.63);
+    expect(capture.rhCvPct, 3.14);
   });
 
   test(
-    'savePlaceCapture clears active spots and suggests next place',
+    'failed history sync preserves window and blocks accidental restart',
     () async {
+      when(
+        () => mockGovee.syncHistory(
+          startedAt: any(named: 'startedAt'),
+          endedAt: any(named: 'endedAt'),
+        ),
+      ).thenThrow(StateError('history timed out'));
       final provider = await configuredProvider();
 
-      for (var spot = 0; spot < GoveeCaptureProvider.spotCount; spot += 1) {
-        await provider.startCurrentSpot();
-        fakeClock.elapse(const Duration(seconds: 120));
-        await provider.finishCurrentSpot();
-        fakeClock.elapse(const Duration(minutes: 1));
-      }
+      await provider.startRecording();
+      fakeClock.elapse(const Duration(minutes: 5));
+      await provider.stopAndSavePlaceCapture();
 
-      await provider.savePlaceCapture(spotLabels: ['Door', 'Middle', 'Back']);
+      expect(provider.phase, GoveeCapturePhase.syncFailed);
+      expect(provider.canStartRecording, isFalse);
+      expect(provider.syncFailureDetails, contains('StateError'));
+      expect(provider.syncFailureDetails, contains('history timed out'));
+      expect(provider.syncFailureDiagnostics.first, contains('Govee H5051'));
 
-      expect(provider.phase, GoveeSpotPhase.saved);
-      expect(provider.completedSpotCount, 0);
-      expect(provider.suggestedNextPlace, TemperaturePlace.chickHoldingArea);
-      expect(provider.place, TemperaturePlace.chickHoldingArea);
+      await provider.startRecording();
+
+      expect(provider.phase, GoveeCapturePhase.syncFailed);
+      expect(provider.canStartRecording, isFalse);
+      verifyNever(
+        () => mockRepo.saveReplacement(
+          capture: any(named: 'capture'),
+          readings: any(named: 'readings'),
+        ),
+      );
     },
   );
 }

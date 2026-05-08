@@ -77,8 +77,7 @@ void main() {
           upsertTemperatureSession: any(named: 'upsertTemperatureSession'),
           upsertTemperatureReading: any(named: 'upsertTemperatureReading'),
           upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
-          upsertGoveeSpotCapture: any(named: 'upsertGoveeSpotCapture'),
-          upsertGoveeSpotReading: any(named: 'upsertGoveeSpotReading'),
+          upsertGoveePlaceReading: any(named: 'upsertGoveePlaceReading'),
         ),
       ).thenAnswer((_) async => const SupabasePullSummary());
 
@@ -97,7 +96,6 @@ void main() {
       when(
         () => goveeRepo.getAllCaptures(),
       ).thenAnswer((_) async => [_capture]);
-      when(() => goveeRepo.getAllSpots()).thenAnswer((_) async => [_spot]);
       when(
         () => goveeRepo.getAllReadings(),
       ).thenAnswer((_) async => [_reading]);
@@ -124,8 +122,7 @@ void main() {
 
       verifyInOrder([
         () => supabase.upsertRows('govee_daily_captures', any()),
-        () => supabase.upsertRows('govee_spot_captures', any()),
-        () => supabase.upsertRows('govee_spot_readings', any()),
+        () => supabase.upsertRows('govee_place_readings', any()),
       ]);
       expect(progressMessages, contains('Uploading Govee captures'));
     },
@@ -141,30 +138,14 @@ final _capture = GoveeDailyCaptureModel(
   place: TemperaturePlace.eggStorageRoom,
   captureDate: '2026-05-02',
   status: 'completed',
-  spotCount: 1,
   readingCount: 1,
   createdAt: _now,
   updatedAt: _now,
 );
 
-final _spot = GoveeSpotCaptureModel(
-  id: 'spot-1',
-  captureId: 'capture-1',
-  spotIndex: 1,
-  spotLabel: 'Spot 1',
-  warmupStartedAt: _now,
-  validStartedAt: _now.add(const Duration(seconds: 60)),
-  validEndedAt: _now.add(const Duration(seconds: 120)),
-  validDurationSeconds: 60,
-  readingCount: 1,
-  createdAt: _now,
-  updatedAt: _now,
-);
-
-final _reading = GoveeSpotReadingModel(
+final _reading = GoveePlaceReadingModel(
   id: 'reading-1',
   captureId: 'capture-1',
-  spotId: 'spot-1',
   readingIndex: 0,
   recordedAt: _now.add(const Duration(seconds: 60)),
   temperatureFahrenheit: 72,

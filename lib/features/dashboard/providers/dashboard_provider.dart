@@ -438,16 +438,11 @@ class DashboardProvider extends ChangeNotifier {
       );
       final summaries = <GoveeCaptureSummary>[];
       for (final capture in captures) {
-        final spots = await _goveeCaptureRepo.getSpotsForCapture(capture.id);
         final readings = await _goveeCaptureRepo.getReadingsForCapture(
           capture.id,
         );
         summaries.add(
-          GoveeCaptureSummary(
-            capture: capture,
-            spots: spots,
-            readings: readings,
-          ),
+          GoveeCaptureSummary(capture: capture, readings: readings),
         );
       }
       _goveeCaptures = summaries;

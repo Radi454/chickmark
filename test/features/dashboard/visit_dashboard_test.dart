@@ -25,12 +25,7 @@ void main() {
 
     test('loads Govee captures by customer hatchery and visit date', () async {
       final capture = _makeGoveeCapture();
-      final spots = [
-        _makeGoveeSpot(spotIndex: 1),
-        _makeGoveeSpot(spotIndex: 2),
-        _makeGoveeSpot(spotIndex: 3),
-      ];
-      final readings = _makeGoveeReadings(spots: spots);
+      final readings = _makeGoveeReadings();
 
       when(
         () => mockGoveeRepo.getCapturesForDashboard(
@@ -39,9 +34,6 @@ void main() {
           captureDate: '2026-05-02',
         ),
       ).thenAnswer((_) async => [capture]);
-      when(
-        () => mockGoveeRepo.getSpotsForCapture('capture-1'),
-      ).thenAnswer((_) async => spots);
       when(
         () => mockGoveeRepo.getReadingsForCapture('capture-1'),
       ).thenAnswer((_) async => readings);
@@ -62,6 +54,12 @@ void main() {
           captureDate: '2026-05-02',
         ),
       ).called(1);
+      verifyNever(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: any(named: 'customerId'),
+          hatcheryId: any(named: 'hatcheryId'),
+        ),
+      );
     });
   });
 
@@ -374,6 +372,7 @@ GoveeDailyCaptureModel _makeGoveeCapture() {
     customerId: 'c1',
     hatcheryId: 'h1',
     place: TemperaturePlace.eggStorageRoom,
+    machineId: null,
     captureDate: '2026-05-02',
     deviceId: 'device-1',
     deviceName: 'Govee H5051',
@@ -384,53 +383,25 @@ GoveeDailyCaptureModel _makeGoveeCapture() {
     rhAvg: 58,
     rhMin: 55,
     rhMax: 61,
-    spotCount: 3,
     readingCount: 180,
     createdAt: now,
     updatedAt: now,
   );
 }
 
-GoveeSpotCaptureModel _makeGoveeSpot({required int spotIndex}) {
-  final now = DateTime(2026, 5, 2, 12).add(Duration(minutes: spotIndex));
-  return GoveeSpotCaptureModel(
-    id: 'spot-$spotIndex',
-    captureId: 'capture-1',
-    spotIndex: spotIndex,
-    spotLabel: 'Spot $spotIndex',
-    warmupStartedAt: now,
-    validStartedAt: now.add(const Duration(seconds: 60)),
-    validEndedAt: now.add(const Duration(seconds: 120)),
-    validDurationSeconds: 60,
-    tempAvg: (71 + spotIndex).toDouble(),
-    tempMin: (70 + spotIndex).toDouble(),
-    tempMax: (72 + spotIndex).toDouble(),
-    rhAvg: (55 + spotIndex).toDouble(),
-    rhMin: (54 + spotIndex).toDouble(),
-    rhMax: (56 + spotIndex).toDouble(),
-    readingCount: 60,
-    createdAt: now,
-    updatedAt: now,
-  );
-}
-
-List<GoveeSpotReadingModel> _makeGoveeReadings({
-  required List<GoveeSpotCaptureModel> spots,
-}) {
+List<GoveePlaceReadingModel> _makeGoveeReadings() {
   final startedAt = DateTime(2026, 5, 2, 12);
   return [
-    for (final spot in spots)
-      for (var i = 0; i < 60; i++)
-        GoveeSpotReadingModel(
-          id: '${spot.id}-reading-$i',
-          captureId: spot.captureId,
-          spotId: spot.id,
-          readingIndex: i,
-          recordedAt: startedAt.add(Duration(seconds: i)),
-          temperatureFahrenheit: 70 + spot.spotIndex + (i / 100),
-          humidity: 55 + spot.spotIndex + (i / 100),
-          createdAt: startedAt,
-        ),
+    for (var i = 0; i < 180; i++)
+      GoveePlaceReadingModel(
+        id: 'capture-1-reading-$i',
+        captureId: 'capture-1',
+        readingIndex: i,
+        recordedAt: startedAt.add(Duration(seconds: i)),
+        temperatureFahrenheit: 70 + (i / 100),
+        humidity: 55 + (i / 100),
+        createdAt: startedAt,
+      ),
   ];
 }
 

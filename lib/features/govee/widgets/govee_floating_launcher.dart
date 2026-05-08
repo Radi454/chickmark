@@ -46,7 +46,7 @@ class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
   Widget build(BuildContext context) {
     final provider = context.watch<GoveeCaptureProvider>();
     final phase = provider.phase;
-    final attention = phase == GoveeSpotPhase.autoEnded;
+    final attention = phase == GoveeCapturePhase.syncFailed;
     final active = _isActive(phase);
     _syncAnimation(active: active, attention: attention);
     _maybePlayAutoEndSound(attention);
@@ -96,6 +96,7 @@ class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
           );
         },
         child: Material(
+          key: const ValueKey('govee-global-launcher'),
           color: color,
           elevation: 8,
           shadowColor: const Color(0x47193FC2),
@@ -149,10 +150,10 @@ class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
     unawaited(SystemSound.play(SystemSoundType.alert));
   }
 
-  bool _isActive(GoveeSpotPhase phase) {
+  bool _isActive(GoveeCapturePhase phase) {
     return switch (phase) {
-      GoveeSpotPhase.idle => false,
-      GoveeSpotPhase.saved => false,
+      GoveeCapturePhase.idle => false,
+      GoveeCapturePhase.saved => false,
       _ => true,
     };
   }

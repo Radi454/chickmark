@@ -134,7 +134,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final title = stationKey != null
         ? (AuditSessionProvider.stationDisplayLabels[stationKey] ?? 'Visit')
         : 'Visit';
-    return GradientAppBar(title: title, toolbarHeight: 88);
+    return GradientAppBar(title: title);
   }
 
   Widget _buildSavedOverlay() {
@@ -179,7 +179,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
     return Container(
       key: const ValueKey('audit-session-progress-shell'),
-      padding: const EdgeInsets.fromLTRB(32, 20, 32, 22),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       color: Colors.white,
       child: Row(
         children: List.generate(stationKeys.length, (index) {
@@ -200,8 +200,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     child: Column(
                       children: [
                         Container(
-                          width: 56,
-                          height: 56,
+                          width: 34,
+                          height: 34,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isReached
@@ -212,26 +212,27 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                             child: isReached
                                 ? const Icon(
                                     Icons.check,
-                                    size: 30,
+                                    size: 20,
                                     color: Colors.white,
                                   )
                                 : Text(
                                     '${index + 1}',
                                     style: TextStyle(
-                                      fontSize: 22,
+                                      fontSize: 15,
                                       fontWeight: FontWeight.w800,
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 4),
                         Text(
                           _shortStationLabel(displayLabels[index]),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
+                          overflow: TextOverflow.visible,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 12,
+                            height: 1.0,
                             fontWeight: isReached
                                 ? FontWeight.w800
                                 : FontWeight.w500,
@@ -248,8 +249,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 if (index < stationKeys.length - 1)
                   Expanded(
                     child: Container(
-                      height: 4,
-                      margin: const EdgeInsets.only(top: 28),
+                      height: 3,
+                      margin: const EdgeInsets.only(top: 17),
                       color: isReached
                           ? AppColors.completedText
                           : Colors.grey.shade300,
@@ -325,7 +326,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
     return Container(
       key: const ValueKey('audit-session-navigation-footer'),
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+      padding: const EdgeInsets.fromLTRB(24, 7, 24, 7),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.94),
         boxShadow: [
@@ -352,10 +353,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                   side: const BorderSide(color: AppColors.primary),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
-                    vertical: 16,
+                    vertical: 12,
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -382,17 +383,17 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                       ? 'Saving...'
                       : (isLast ? 'Save' : 'Next Station'),
                   style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(64),
-                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  minimumSize: const Size.fromHeight(52),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),

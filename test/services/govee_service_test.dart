@@ -1,8 +1,619 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/services/govee/govee_service.dart';
 
+base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
+  final calls = <String>[];
+  final writes = <List<int>>[];
+  final _adapterStateController =
+      StreamController<BmBluetoothAdapterState>.broadcast();
+  final _scanController = StreamController<BmScanResponse>.broadcast();
+  final _connectionController =
+      StreamController<BmConnectionStateResponse>.broadcast();
+  final _servicesController =
+      StreamController<BmDiscoverServicesResult>.broadcast();
+  final _characteristicReceivedController =
+      StreamController<BmCharacteristicData>.broadcast();
+  final _characteristicWrittenController =
+      StreamController<BmCharacteristicData>.broadcast();
+  final _descriptorWrittenController =
+      StreamController<BmDescriptorData>.broadcast();
+
+  final DeviceIdentifier remoteId = DeviceIdentifier(
+    '798FC583-07B3-1978-1E50-2AD46A8F149A',
+  );
+  final Guid serviceUuid = Guid('494e5445-4c4c-495f-524f-434b535f2000');
+  String platformName = 'Govee_H5075_ECC3';
+  bool disconnectOnFirstHistoryWrite = false;
+  bool epochMinuteUsesShortCompletion = false;
+  int historyWriteCount = 0;
+
+  @override
+  Stream<BmBluetoothAdapterState> get onAdapterStateChanged =>
+      _adapterStateController.stream;
+
+  @override
+  Stream<BmScanResponse> get onScanResponse => _scanController.stream;
+
+  @override
+  Stream<BmConnectionStateResponse> get onConnectionStateChanged =>
+      _connectionController.stream;
+
+  @override
+  Stream<BmDiscoverServicesResult> get onDiscoveredServices =>
+      _servicesController.stream;
+
+  @override
+  Stream<BmCharacteristicData> get onCharacteristicReceived =>
+      _characteristicReceivedController.stream;
+
+  @override
+  Stream<BmCharacteristicData> get onCharacteristicWritten =>
+      _characteristicWrittenController.stream;
+
+  @override
+  Stream<BmDescriptorData> get onDescriptorWritten =>
+      _descriptorWrittenController.stream;
+
+  @override
+  Future<BmBluetoothAdapterState> getAdapterState(
+    BmBluetoothAdapterStateRequest request,
+  ) async {
+    calls.add('getAdapterState');
+    return BmBluetoothAdapterState(adapterState: BmAdapterStateEnum.on);
+  }
+
+  @override
+  Future<bool> isSupported(BmIsSupportedRequest request) async {
+    calls.add('isSupported');
+    return true;
+  }
+
+  @override
+  Future<bool> startScan(BmScanSettings request) async {
+    calls.add('startScan');
+    scheduleMicrotask(() {
+      _scanController.add(
+        BmScanResponse(
+          advertisements: [
+            BmScanAdvertisement(
+              remoteId: remoteId,
+              platformName: platformName,
+              advName: platformName,
+              connectable: true,
+              txPowerLevel: null,
+              appearance: null,
+              manufacturerData: const {},
+              serviceData: const {},
+              serviceUuids: const [],
+              rssi: -48,
+            ),
+          ],
+          success: true,
+          errorCode: 0,
+          errorString: '',
+        ),
+      );
+    });
+    return true;
+  }
+
+  @override
+  Future<bool> stopScan(BmStopScanRequest request) async {
+    calls.add('stopScan');
+    return true;
+  }
+
+  @override
+  Future<bool> connect(BmConnectRequest request) async {
+    calls.add('connect');
+    scheduleMicrotask(() => _emitConnection(BmConnectionStateEnum.connected));
+    return true;
+  }
+
+  @override
+  Future<bool> discoverServices(BmDiscoverServicesRequest request) async {
+    calls.add('discoverServices');
+    scheduleMicrotask(() {
+      _servicesController.add(
+        BmDiscoverServicesResult(
+          remoteId: remoteId,
+          services: [
+            BmBluetoothService(
+              remoteId: remoteId,
+              primaryServiceUuid: null,
+              serviceUuid: serviceUuid,
+              characteristics: [
+                _characteristic(
+                  GoveeService.deviceCommandCharacteristicUuidForTesting,
+                  write: true,
+                  notify: true,
+                ),
+                _characteristic(
+                  GoveeService.historyResponseCharacteristicUuidForTesting,
+                  write: true,
+                  notify: true,
+                ),
+                _characteristic(
+                  GoveeService.historyDataCharacteristicUuidForTesting,
+                  notify: true,
+                ),
+              ],
+            ),
+          ],
+          success: true,
+          errorCode: 0,
+          errorString: '',
+        ),
+      );
+    });
+    return true;
+  }
+
+  @override
+  Future<bool> setNotifyValue(BmSetNotifyValueRequest request) async {
+    calls.add('setNotifyValue:${request.characteristicUuid.str}');
+    scheduleMicrotask(() {
+      _descriptorWrittenController.add(
+        BmDescriptorData(
+          remoteId: remoteId,
+          primaryServiceUuid: request.primaryServiceUuid,
+          serviceUuid: request.serviceUuid,
+          characteristicUuid: request.characteristicUuid,
+          descriptorUuid: Guid('00002902-0000-1000-8000-00805f9b34fb'),
+          instanceId: request.instanceId,
+          value: request.enable ? const [0x01, 0x00] : const [0x00, 0x00],
+          success: true,
+          errorCode: 0,
+          errorString: '',
+        ),
+      );
+    });
+    return true;
+  }
+
+  @override
+  Future<bool> writeCharacteristic(BmWriteCharacteristicRequest request) async {
+    calls.add('writeCharacteristic:${request.characteristicUuid.str}');
+    writes.add(request.value);
+    scheduleMicrotask(() {
+      _characteristicWrittenController.add(
+        _characteristicData(
+          characteristicUuid: request.characteristicUuid,
+          value: request.value,
+        ),
+      );
+    });
+
+    if (_isHistoryRequest(request.value)) {
+      historyWriteCount += 1;
+      if (disconnectOnFirstHistoryWrite && historyWriteCount == 1) {
+        Future<void>.delayed(const Duration(milliseconds: 1), () {
+          _emitConnection(BmConnectionStateEnum.disconnected);
+        });
+      } else {
+        Future<void>.delayed(const Duration(milliseconds: 1), () {
+          _emitHistoryNotifications();
+        });
+      }
+    }
+    return true;
+  }
+
+  BmBluetoothCharacteristic _characteristic(
+    String uuid, {
+    bool write = false,
+    bool notify = false,
+  }) {
+    return BmBluetoothCharacteristic(
+      remoteId: remoteId,
+      primaryServiceUuid: null,
+      serviceUuid: serviceUuid,
+      characteristicUuid: Guid(uuid),
+      instanceId: 0,
+      descriptors: const [],
+      properties: BmCharacteristicProperties(
+        broadcast: false,
+        read: false,
+        writeWithoutResponse: false,
+        write: write,
+        notify: notify,
+        indicate: false,
+        authenticatedSignedWrites: false,
+        extendedProperties: false,
+        notifyEncryptionRequired: false,
+        indicateEncryptionRequired: false,
+      ),
+    );
+  }
+
+  BmCharacteristicData _characteristicData({
+    required Guid characteristicUuid,
+    required List<int> value,
+  }) {
+    return BmCharacteristicData(
+      remoteId: remoteId,
+      primaryServiceUuid: null,
+      serviceUuid: serviceUuid,
+      characteristicUuid: characteristicUuid,
+      instanceId: 0,
+      value: value,
+      success: true,
+      errorCode: 0,
+      errorString: '',
+    );
+  }
+
+  void _emitConnection(BmConnectionStateEnum state) {
+    _connectionController.add(
+      BmConnectionStateResponse(
+        remoteId: remoteId,
+        connectionState: state,
+        disconnectReasonCode: null,
+        disconnectReasonString: null,
+      ),
+    );
+  }
+
+  void _emitHistoryNotifications() {
+    if (writes.last.length == 10) {
+      _emitEpochMinuteHistoryNotifications();
+      return;
+    }
+
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyResponseCharacteristicUuidForTesting,
+        ),
+        value: GoveeService.buildGoveeHistoryRequestForTesting(
+          startMinutesBack: 3,
+          endMinutesBack: 1,
+        ),
+      ),
+    );
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyDataCharacteristicUuidForTesting,
+        ),
+        value: const [
+          0x00,
+          0x03,
+          0x03,
+          0x75,
+          0xcf,
+          0x03,
+          0x75,
+          0xcf,
+          0x03,
+          0x75,
+          0xce,
+        ],
+      ),
+    );
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyResponseCharacteristicUuidForTesting,
+        ),
+        value: const [
+          0xee,
+          0x01,
+          0x00,
+          0x01,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0xee,
+        ],
+      ),
+    );
+  }
+
+  void _emitEpochMinuteHistoryNotifications() {
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyResponseCharacteristicUuidForTesting,
+        ),
+        value: writes.last,
+      ),
+    );
+    final epochMinute = DateTime.now().millisecondsSinceEpoch ~/ 60000;
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyDataCharacteristicUuidForTesting,
+        ),
+        value: [
+          epochMinute & 0xFF,
+          (epochMinute >> 8) & 0xFF,
+          (epochMinute >> 16) & 0xFF,
+          (epochMinute >> 24) & 0xFF,
+          0xC4,
+          0x09,
+          0x64,
+          0x19,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+          0xFF,
+        ],
+      ),
+    );
+    _characteristicReceivedController.add(
+      _characteristicData(
+        characteristicUuid: Guid(
+          GoveeService.historyResponseCharacteristicUuidForTesting,
+        ),
+        value: epochMinuteUsesShortCompletion
+            ? const [0x02]
+            : const [
+                0xee,
+                0x01,
+                0x00,
+                0x01,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0xee,
+              ],
+      ),
+    );
+  }
+
+  bool _isHistoryRequest(List<int> value) {
+    return value.length >= 2 &&
+        ((value[0] == 0x33 && value[1] == 0x01) ||
+            (value.length == 10 && value[0] == 0x00 && value[1] == 0x00));
+  }
+
+  void reset() {
+    calls.clear();
+    writes.clear();
+    platformName = 'Govee_H5075_ECC3';
+    disconnectOnFirstHistoryWrite = false;
+    epochMinuteUsesShortCompletion = false;
+    historyWriteCount = 0;
+    _emitConnection(BmConnectionStateEnum.disconnected);
+  }
+
+  Future<void> close() async {
+    await _adapterStateController.close();
+    await _scanController.close();
+    await _connectionController.close();
+    await _servicesController.close();
+    await _characteristicReceivedController.close();
+    await _characteristicWrittenController.close();
+    await _descriptorWrittenController.close();
+  }
+}
+
 void main() {
   group('GoveeService history sync helpers', () {
+    late _FakeBluetoothPlatform platform;
+
+    setUpAll(() {
+      platform = _FakeBluetoothPlatform();
+      FlutterBluePlusPlatform.instance = platform;
+    });
+
+    setUp(() {
+      platform.reset();
+    });
+
+    tearDownAll(() async {
+      await platform.close();
+    });
+
+    test('uses 2012 for history requests and 2013 for history data', () {
+      expect(
+        GoveeService.historyWriteCharacteristicUuidForTesting,
+        GoveeService.historyResponseCharacteristicUuidForTesting,
+      );
+      expect(
+        GoveeService.historyWriteCharacteristicUuidForTesting.endsWith('2011'),
+        isFalse,
+      );
+      expect(
+        GoveeService.historyWriteCharacteristicUuidForTesting.endsWith('2012'),
+        isTrue,
+      );
+      expect(
+        GoveeService.historyResponseCharacteristicUuidForTesting.endsWith(
+          '2012',
+        ),
+        isTrue,
+      );
+      expect(
+        GoveeService.historyDataCharacteristicUuidForTesting.endsWith('2013'),
+        isTrue,
+      );
+    });
+
+    test('suppresses live GATT polling while history sync is active', () {
+      expect(
+        GoveeService.shouldPollGattForTesting(
+          hasCharacteristic: true,
+          isGattConnected: true,
+          canWrite: true,
+          historySyncActive: false,
+        ),
+        isTrue,
+      );
+      expect(
+        GoveeService.shouldPollGattForTesting(
+          hasCharacteristic: true,
+          isGattConnected: true,
+          canWrite: true,
+          historySyncActive: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'keeps history sync alive across an auto-reconnectable GATT drop',
+      () async {
+        platform.disconnectOnFirstHistoryWrite = true;
+
+        final service = GoveeService();
+        addTearDown(service.dispose);
+        service.setAutoReconnectEnabled(true);
+        await service.initializeBle();
+        await service.startScan(
+          timeout: const Duration(seconds: 5),
+          discoveryTimeout: const Duration(seconds: 5),
+        );
+
+        for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(service.isGattConnected, isTrue);
+
+        final readings = await service.syncHistory(
+          startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+          endedAt: DateTime.now(),
+        );
+
+        expect(readings, isNotEmpty);
+        expect(platform.historyWriteCount, greaterThanOrEqualTo(2));
+        expect(
+          platform.calls.where(
+            (call) =>
+                call ==
+                'writeCharacteristic:${GoveeService.historyWriteCharacteristicUuidForTesting}',
+          ),
+          isNotEmpty,
+        );
+        expect(platform.writes.last[5], 0x01);
+        expect(
+          service.diagnostics,
+          contains(contains('GATT disconnected during history sync; retrying')),
+        );
+      },
+    );
+
+    test('uses epoch-minute history requests for H5051 devices', () async {
+      platform.platformName = 'Govee_H5051_ECC3';
+
+      final service = GoveeService();
+      addTearDown(service.dispose);
+      await service.initializeBle();
+      await service.startScan(
+        timeout: const Duration(seconds: 5),
+        discoveryTimeout: const Duration(seconds: 5),
+      );
+
+      for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(service.isGattConnected, isTrue);
+
+      final readings = await service.syncHistory(
+        startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+        endedAt: DateTime.now(),
+      );
+
+      final historyWrite = platform.writes.lastWhere(
+        (write) => write.isNotEmpty && write.first == 0x00,
+      );
+      expect(historyWrite, hasLength(10));
+      expect(historyWrite.take(2), [0x00, 0x00]);
+      expect(readings, isNotEmpty);
+      expect(readings.first.temperatureFahrenheit, closeTo(77.0, 0.1));
+      expect(readings.first.humidity, closeTo(65.0, 0.1));
+    });
+
+    test('completes H5051 epoch-minute sync on 0x02 status', () async {
+      platform
+        ..platformName = 'Govee_H5051_ECC3'
+        ..epochMinuteUsesShortCompletion = true;
+
+      final service = GoveeService();
+      addTearDown(service.dispose);
+      await service.initializeBle();
+      await service.startScan(
+        timeout: const Duration(seconds: 5),
+        discoveryTimeout: const Duration(seconds: 5),
+      );
+
+      for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(service.isGattConnected, isTrue);
+
+      final readings = await service
+          .syncHistory(
+            startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+            endedAt: DateTime.now(),
+          )
+          .timeout(const Duration(seconds: 1));
+
+      expect(readings, isNotEmpty);
+      expect(
+        service.diagnostics,
+        contains(contains('History sync complete: 1 packets')),
+      );
+    });
+
+    test('macOS scan uses a single adapter-state readiness check', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+
+      final service = GoveeService();
+      addTearDown(service.dispose);
+      await service.startScan(
+        timeout: const Duration(milliseconds: 10),
+        discoveryTimeout: const Duration(milliseconds: 10),
+      );
+
+      expect(platform.calls, contains('startScan'));
+      expect(platform.calls, isNot(contains('isSupported')));
+      expect(
+        platform.calls.where((call) => call == 'getAdapterState').length,
+        lessThanOrEqualTo(1),
+      );
+    });
+
     test('builds 0x3301 history request payloads with checksum', () {
       expect(
         GoveeService.buildGoveeHistoryRequestForTesting(
@@ -110,6 +721,7 @@ void main() {
             0x03,
             0x75,
             0xce,
+            0xff,
             0xff,
             0xff,
             0xff,

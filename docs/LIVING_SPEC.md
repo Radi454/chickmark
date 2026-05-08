@@ -8,17 +8,12 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-03
+2026-05-08
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
 SQLite database helper. This update intentionally does not use deleted or old
 feature specs as source material.
-
-Maintenance note: unused legacy Dart files, obsolete root-level mockup/spec
-artifacts, placeholder tests, and unused direct Flutter dependencies were
-removed without any intended product behavior change. Current Flutter code and
-this living spec remain the source of truth.
 
 ## 2. Navigation
 
@@ -64,11 +59,11 @@ The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
 back navigation, and triggers background sync after the first Home build.
 
-The previous floating Measures launcher is no longer shown. The authenticated
-main shell shows a global draggable Govee launcher that opens an active Govee
-capture overlay above shell tabs. The overlay is hidden on auth-only and pushed
-audit editor/detail routes so station navigation cannot be affected by the
-global launcher.
+The previous floating Measures launcher is no longer shown. Govee recording is
+entered from the Govee tab or from the scoped floating Govee shortcut on the
+authenticated main route. The floating shortcut opens the same standalone Govee
+workflow and is hidden on pushed page routes, so station editors and detail
+screens are not covered.
 
 ## 3. Audit Workflow
 
@@ -98,23 +93,13 @@ Supported station keys are:
 `AuditSessionScreen` renders the selected stations in one visit workflow. It
 shows a progress indicator, keeps one `AuditProvider` per station, and shows one
 station at a time. Moving forward, moving back, switching to an earlier or
-completed station, leaving the visit, or saving the final station attempts to
-save the current station directly; if that save fails, navigation is blocked and
-the screen shows a failure snackbar.
+completed station, leaving the visit, or saving the final station all go through
+a station-exit confirmation path that attempts to save the current station.
 When a visit is resumed or a previously saved station is opened inside the
 session, the station frame hydrates the station from saved `audits` rows and
 station sample rows for that session before rendering so edits resave in place.
-This includes machine-comparison rows for Setters and Hatchers. Hatch Analysis
-& Egg Breakouts and Chicks suppress the large current-station progress strip so
-their own workbench headers are the first station content.
-
-Setters and Hatchers open visit-session station entry at the top of the station
-form so the Sample Mode controls remain visible. Detail/edit deep links can
-still pass a section index to scroll directly to a requested section, and the
-Sample Mode switch fills narrow layouts so its labels do not overflow.
-Setters, Hatchers, Egg Storage, and Chicks use compact audit workbench layouts
-with station headers, bounded content width, responsive panel columns, and
-mobile-stacking sections instead of the older elevated card stack.
+Hatch Analysis & Egg Breakouts and Chicks suppress the current-station progress
+strip so their own workbench headers are the first station content.
 
 Station save behavior:
 
@@ -146,10 +131,11 @@ separately in `audit_sessions`.
 All station screens initialize an `AuditProvider` with `AuditContext`, hide
 their own app bar when embedded in `AuditSessionScreen`, and use read-only mode
 for existing audits unless edit mode is enabled by an allowed user. Visit
-sessions use the gradient station app bar and a raised bottom navigation bar
-with the primary Next Station/Save action. Most stations also show the white
-stepper strip with large station circles/labels; Hatch Analysis & Egg Breakouts hides that strip
-so its Hatching & Breakout card is the first content on the screen.
+sessions use a default-height gradient station app bar and a compact raised
+bottom navigation bar with the primary Next Station/Save action. Most stations
+also show a white compact stepper strip with short wrapping station labels; Hatch
+Analysis & Egg Breakouts hides that strip so its Hatching & Breakout card is
+the first content on the screen.
 
 Audit numeric fields use a platform-adaptive input surface. Android and iOS
 targets open the large in-app audit keypad with decimal, negative, backspace,
@@ -279,56 +265,111 @@ Hatchers captures:
 - Transfer day.
 
 Govee is a standalone daily capture workflow. It is independent from audit
-sessions and is keyed by `customerId`, `hatcheryId`, place, and calendar
-`captureDate`. Active capture is opened from the global floating launcher on the
-main shell or from the Govee tab. It defaults the date to today.
+sessions and is keyed by `customerId`, `hatcheryId`, place, nullable machine id,
+and calendar `captureDate`. The Govee screen is
+active-recording only; saved captures are reviewed from dashboard surfaces
+rather than browsed in the Govee tab.
 
-The active Govee overlay contains the live H5051 card, scope picker, spot
-recorder, replacement notice, review step, and saved notice. The live H5051 card
-is monitor-only: it shows connection, latest temperature/RH, battery, RSSI, and
-scan/read controls, but saved Govee captures do not record from live broadcast
-readings. Finish Spot saves only from the H5051 device-history sync window.
+The active Govee recorder opens on a ChickMark-blue gradient live header that
+mirrors the Govee app's device-first hierarchy while keeping ChickMark colors.
+The header centers the device name and connection status, shows large
+Temperature and Relative Humidity values side by side, displays the latest
+updated-at timestamp, and exposes a clear `Scan`, `Read`, or reconnect action.
+The old historical browser tabs and export affordance are not part of the active
+recording screen. On Flutter Web, Bluetooth initialization is pre-warmed when
+the screen opens, but the Web Bluetooth device request is still started directly
+from the user's Scan tap so Chrome keeps the permission request attached to the
+gesture. On iOS and macOS, Scan uses adapter-state readiness as the preflight
+check and avoids the FlutterBluePlus Darwin `isSupported` call that can produce
+duplicate native method responses. Native Scan waits briefly for CoreBluetooth
+to leave its initial unknown state and avoids duplicate first-start adapter
+state reads before scanning. The macOS CocoaPods build stamps the same
+Bluetooth usage descriptions into the embedded FlutterBluePlus framework as the
+main app bundle so macOS TCC does not abort the app when CoreBluetooth is first
+initialized.
 
-The Govee tab is a saved-capture browser. It filters saved daily captures by
-customer, hatchery, date, and place, then renders the same combined Temp/RH chart
-summaries used by dashboard/visit surfaces.
+Each saved place/date capture is one manual place-level Start/Stop window. Live
+readings are shown only as a preview while recording. When the user stops, the
+provider syncs Govee history for the full Start/Stop window and treats that
+history sync as the authoritative saved dataset. The first 60 seconds of the
+window are warmup and ignored before statistics or chart reduction. Readings with
+missing Temp/RH values, impossible temperatures, or RH outside 0-100% are also
+excluded.
 
-Each saved place/date capture contains exactly three spot segments. A spot
-starts with 60 seconds of warmup that is ignored and never saved, then requires
-at least one valid synced H5051 history reading after the 60-second minimum
-recording window and allows at most 900 valid seconds. The user cannot finish a
-spot before the minimum valid window. At the maximum valid window the provider
-auto-ends the spot, plays one short system sound through the floating launcher,
-animates the launcher for attention, and prompts relocation. H5051 history is
-minute-level device history; each spot preserves the synced device readings and
-only compresses to 60 bucket-averaged readings when a longer synced window
-returns more than 60 readings. The review step allows editing only the three
-spot labels, defaulting to Spot 1, Spot 2, and Spot 3.
+Summary statistics are computed from the full valid synced dataset before any
+chart reduction. Each completed capture stores Temp and RH average, minimum,
+maximum, standard deviation, coefficient of variation percent, and the saved
+representative reading count. Stored chart points are selected with LTTB using
+timestamp as X and `temperatureFahrenheit + humidity` as the combined Y value.
+The LTTB target is 10% of valid readings, clamped to a minimum of 50 and maximum
+of 500; valid datasets of 50 readings or fewer are saved whole. First and last
+valid readings are preserved.
 
-If spot sync does not return enough valid readings or throws, the workflow
-treats that as a device/app connection problem. It freezes the original spot
-window, shows reconnect and retry-sync actions, and blocks advancement until the
-same window syncs successfully.
+The recorder body shows the selected place and station/machine context, plus
+recording, syncing, retry, saving, and saved states. While recording, the screen
+renders live Temperature and RH preview charts. After save, it shows a finished
+place card with Avg, Min, Max, SD, CV%, and separate saved Temperature and RH
+charts. Chart touches show the exact timestamp, Temp, RH, place, and machine
+context when present.
+
+If history sync cannot reconnect or otherwise fails during Stop, no capture is
+saved. The recorder keeps the Start/Stop window and exposes a
+reconnect-and-retry state for the same place recording. In that state, Retry sync
+is the primary action and starting a fresh recording is blocked so the failed
+history window is not accidentally overwritten. The failed state also shows sync
+diagnostics: the caught error, connected device/GATT/RSSI/window context, and the
+most recent BLE diagnostic entries from the Govee service.
+
+Govee history sync uses the Govee GATT command/data characteristics. Live reads
+continue to use the `2011` command characteristic. History writes go through the
+`2012` history/control characteristic, `2012` also carries acceptance and
+completion notifications, and `2013` carries history data packets. H5051/H5179
+class devices use the 10-byte epoch-minute history request (`0x0000` plus
+little-endian start/end epoch minutes) and parse `2013` packets as an epoch
+minute followed by 4-byte little-endian Temp/RH records. For that epoch-minute
+protocol, a `2012` status byte of `0x00` accepts the request and `0x02`
+completes the history transfer using the packets already received. Older
+H507-style devices keep the `0x3301` 20-byte minute-back request with checksum
+and packed 3-byte records. The requested stop bound is kept at least one minute
+back because the current minute may not yet be stored in device history. The service
+logs the packet and reading counts used for hardware validation. Live GATT
+polling is paused while a history sync is active so `0x0A` preview reads do not
+overlap the history transaction. If GATT drops during an active history
+transaction while auto-reconnect is available, the service keeps the original
+Start/Stop window pending, reconnects, re-enables notifications, and reissues
+the history request before surfacing a sync failure.
 
 Saving a capture atomically replaces any existing capture for the same customer,
-hatchery, place, and date. The old capture remains intact until the new
-three-spot recording is saved successfully. After saving, the active chart is
-cleared and the screen can suggest the next default place in this flow: Egg
-storage room, Chick holding area, Incubator room, and Hatcher room.
+hatchery, place, machine id, and date. Captures store a derived station key for
+station-aware grouping and sync. The old capture remains intact until the new
+place-level recording is saved successfully. After saving, the active live
+preview is cleared and the screen can suggest the next default place in this
+flow: Egg storage room, Chick holding area, Setter room, Inside setter, Hatcher
+room, and Inside hatcher.
 
-Audit station screens no longer show a compact `Govee readings` button for
-room-level stations. Saved station and dashboard summaries consume independent
-Govee captures by customer, hatchery, place, and date instead of owning capture
-state inside the station editor.
+The standalone Govee workflow supports room-level captures and inside-machine
+captures. Room environment captures save without a machine id. Inside-machine
+captures save the configured machine id when it is available, while still
+letting the user change the place before recording.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
-session summaries plus Hatch Analysis & Egg Breakouts, Egg Breakout, Chicks, Egg,
-Setters, and Hatchers sections from repository queries. Egg
-Storage dashboard trends read the persisted EST average/CV fields
-`es_estAvg`/`es_estCv`. For the selected visit date, dashboard loads saved
-Govee captures by customer and hatchery and renders combined place charts with
-vertical spot markers, per-spot labels, Temp/RH averages, spot count, and
-reading count.
+session summaries plus Hatch Analysis & Egg Breakouts, Egg Breakout, Chicks,
+Egg, Setters, and Hatchers sections from repository queries. Egg Storage
+dashboard trends read the persisted EST average/CV fields
+`es_estAvg`/`es_estCv`.
+
+When the selected visit date has saved Govee captures for the same customer and
+hatchery, Dashboard shows a dedicated `Govee Environmental Readings` section.
+Those Dashboard records are loaded by `customerId`, `hatcheryId`, and
+`captureDate`; they are not hard-linked to audit session ids. The section has
+local place chips when more than one place exists, and local machine chips when
+inside-setter or inside-hatcher records provide more than one machine option.
+These filters affect only the Govee section. Each capture card shows place,
+machine when present, recording time range, Temp avg/min/max/SD/CV%, RH
+avg/min/max/SD/CV%, and saved representative reading count. Each card renders
+separate timestamp-based Temperature and Relative Humidity charts from
+place-level LTTB readings. Dashboard chart touches show exact timestamp,
+temperature, RH, place, and machine when present.
 
 ## 5. Data Hierarchy
 
@@ -355,14 +396,13 @@ The implemented hierarchy is:
 - `temperature_sessions` and `temperature_readings`: legacy place-based
   temperature/RH logs. Audit-linked temperature rows are deleted during the v22
   migration and the new Govee workflow does not query them.
-- `govee_daily_captures`: one saved Govee place/day capture per customer,
-  hatchery, place, and capture date, with device metadata and aggregate Temp/RH
-  summaries.
-- `govee_spot_captures`: the three spot windows for each daily capture,
-  including editable spot label, warmup/valid timestamps, duration, and
-  per-spot summaries.
-- `govee_spot_readings`: compressed synced-history readings for each spot,
-  ordered by reading index.
+- `govee_daily_captures`: saved Govee place/day captures scoped by customer,
+  hatchery, place, machine id, and capture date, with station key, capture
+  start/end timestamps, device metadata, aggregate Temp/RH average/min/max/SD/CV
+  summaries, and representative reading count.
+- `govee_place_readings`: LTTB-selected representative readings for each saved
+  place/day capture, ordered by reading index with timestamp, Temp, RH, and
+  creation timestamp.
 - `photos`: local photo records tied to audit ids, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
 - `troubleshooting`: seeded troubleshooting/reference content.
@@ -401,12 +441,13 @@ save coalescing through an in-flight save future.
 `DashboardProvider` owns cascade filters, available BMK ages, setter/hatcher
 filter sets, dashboard aggregate models, photo lists, BMK references, scoped
 customer/flock data, visit summaries, selected visit summary, and saved Govee
-capture summaries for the selected visit date.
+capture summaries loaded by the selected visit customer, hatchery, and date.
 
 `GoveeCaptureProvider` owns the active standalone Govee capture scope, existing
-capture lookup, spot state machine, warmup and valid windows, synced-history
-bucket averaging, sync-failure retry windows, editable review labels,
-replacement save, and next-place progression.
+capture lookup, manual Start/Stop place recording, live preview readings,
+history-sync retry state, warmup/invalid filtering, full-dataset Temp/RH summary
+stats, LTTB representative readings, replacement save, finished-place preview,
+and next-place progression.
 
 `TemperatureRhProvider` owns BLE/Govee initialization, scan/connect state,
 preferred device persistence, active place/session, live and saved readings,
@@ -421,7 +462,7 @@ month, active flocks, last audit date, recent audits, and audit type breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 22. The database file
+The app uses SQLite through `sqflite` at database version 25. The database file
 is `hatchaudit.db`. Foreign keys are enabled on configure. Web startup
 initializes the default sqflite factory with `sqflite_common_ffi_web` before the
 database opens and uses the browser-safe `hatchaudit.db` name directly instead
@@ -446,20 +487,24 @@ Tables created by the current database helper include:
 - `temperature_sessions`
 - `temperature_readings`
 - `govee_daily_captures`
-- `govee_spot_captures`
-- `govee_spot_readings`
+- `govee_place_readings`
 
 The current `audits` unique index is on `customerId`, `flockId`, `date`,
 `auditType`, `hatchNumber`, `setterId`, and `hatcherId`. Repository writes use
 id-based upsert behavior for audits and audit sessions.
 
-The database helper includes upgrade paths through v22. Recent schema areas in
+The database helper includes upgrade paths through v25. Recent schema areas in
 the current code include audit sessions, station samples, hatcheries,
 temperature sessions/readings, operational indexes, PM necropsy fields, Egg
 Storage fields, Setter/Hatcher extra fields, station sample house fields, a v20
-station sample rebuild, and v22 standalone Govee capture tables. The v22 upgrade
-also deletes old audit-linked `temperature_sessions` and `temperature_readings`
-rows.
+station sample rebuild, v22 standalone Govee capture tables, and the v24
+machine-aware Govee capture rebuild. The v22 upgrade also deletes old
+audit-linked `temperature_sessions` and `temperature_readings` rows. The v24
+upgrade normalizes legacy Govee setter place names. The v25 upgrade rebuilds the
+Govee schema around `govee_daily_captures` and `govee_place_readings`, removes
+new writes to the old spot tables, preserves existing daily captures, migrates
+old spot readings into place-level readings, and drops the old spot tables after
+migration.
 
 Seed data is inserted for BMK breed rows, BMK egg breakout rows,
 troubleshooting rows, and dummy test data during database creation/upgrade.
@@ -492,6 +537,7 @@ capture.
 - Saved station audit rows are initialized with status `active`; visit
   completion lives on `audit_sessions`, so Home's active audit count can differ
   from completed visit state.
+- `DiagnosticEngine.evaluate` is a placeholder that returns no findings.
 - Visit-session scorecards use persisted JSON only when present; otherwise they
   use fallback threshold heuristics in `VisitSessionSummary`.
 - The legacy single-station flow is still present in code alongside the newer
@@ -501,44 +547,56 @@ capture.
   station types.
 - Supabase sync is best effort and failures are logged/debugged rather than
   surfaced as blocking workflow errors.
-- On Flutter web, unreadable local SQLite/IndexedDB demo stores are treated as
-  disposable. If opening `hatchaudit.db` fails with a known web-store corruption
-  signature, the app deletes the local web database and recreates the current
-  schema once.
 - Some legacy temperature/RH provider code remains for old rows and tests, but
   the user-facing tab is now the standalone Govee workflow.
-- The active Govee capture UI uses H5051 device-history sync as its save source.
-  `GoveeService.syncHistory` writes `0x3301` history requests to the Govee
-  history-control characteristic (`494e5445-4c4c-495f-524f-434b535f2012`),
-  collects minute-level history packets from the data characteristic
-  (`494e5445-4c4c-495f-524f-434b535f2013`), and completes when the H5051 sends
-  the `0xee01` history-complete notification. Device-specific validation still
-  depends on testing against the physical H5051.
 
 ## 9. Change Log
 
-- 2026-05-03: Removed unused legacy Dart files, obsolete root-level mockup/spec
-  artifacts, placeholder tests, and unused direct dependencies as a maintenance
-  cleanup with no intended product behavior change.
+- 2026-05-08: Fixed H5051/H5179 epoch-minute history sync completion by
+  treating the single-byte `2012` status `0x02` as transfer complete after data
+  packets arrive, preventing successful syncs from timing out and looping
+  reconnects.
+- 2026-05-07: Split Govee history sync by device family: H5051/H5179 names now
+  use the 10-byte epoch-minute request on `2012`, older H507-style names keep
+  the `0x3301` minute-back request, live `0x0A` reads stay on `2011`, and the
+  sync window avoids the not-yet-stored current minute.
+- 2026-05-07: Reworked Govee capture persistence to one manual place-level
+  Start/Stop window, added Temp/RH SD and CV% summaries, replaced bucketed spot
+  readings with LTTB-selected `govee_place_readings`, migrated old spot readings
+  into place-level rows, removed spot labels/boundaries from Dashboard Govee
+  charts, and synced the new table through startup Supabase sync.
+- 2026-05-07: Hardened native Govee Scan on iOS/macOS by using adapter-state
+  readiness instead of the FlutterBluePlus Darwin `isSupported` preflight that
+  can emit duplicate native method responses, and by avoiding duplicate
+  first-start adapter state reads while CoreBluetooth is still initializing.
+  The macOS build also injects the Bluetooth usage descriptions into the
+  embedded FlutterBluePlus framework to satisfy TCC when the framework touches
+  CoreBluetooth.
+- 2026-05-07: Tightened the visit-session station shell with a default-height
+  station app bar, compact progress strip, smaller station icons/labels, and a
+  shorter bottom navigation footer. Progress labels wrap to avoid hidden station
+  names in five-station visits.
+- 2026-05-06: Added the Dashboard `Govee Environmental Readings` section with
+  local place/machine filters, timestamp-based Temperature and RH charts, and
+  detailed chart touch tooltips loaded by selected hatchery/date.
+- 2026-05-06: Bumped SQLite to v24 for machine-aware Govee capture scope,
+  renamed Govee setter places, and preserved legacy Govee records during
+  migration. This was superseded by the v25 place-level readings migration.
+- 2026-05-06: Updated an intermediate Govee recording provider iteration; the
+  active behavior is now the v25 place-level Start/Stop flow.
+- 2026-05-06: Redesigned the active Govee entry screen with the gradient live
+  header, station room/inside-machine picker, and Temp/RH preview charts.
+- 2026-05-03: Scoped the floating Govee shortcut to `MainShell` so the launcher
+  does not rebuild the root navigator or retrigger startup background sync.
+- 2026-05-03: Restored the scoped floating Govee shortcut on the authenticated
+  main shell as a hardware-validation entrypoint while keeping the standalone
+  Govee capture workflow unchanged.
+- 2026-05-03: Restored H5051 live Scan/Read controls and the stored-history
+  `0x3301` sync path needed to validate device history before redesigning the
+  visit-based Govee model.
 - 2026-05-02: Replaced the Measures tab/launcher with standalone Govee daily
   captures, added Govee persistence and sync tables, exposed station deep links,
   and moved saved Govee charts to dashboard/visit surfaces.
-- 2026-05-02: Restored Govee as a global floating overlay with a live H5051
-  monitor card, moved the Govee tab to saved-capture browsing, removed station
-  Govee buttons, extended the spot max window to 15 minutes, added auto-end
-  sound/attention behavior, and preserved failed sync windows for reconnect and
-  retry.
-- 2026-05-02: Implemented the low-level H5051 history-sync path for standalone
-  Govee captures, including `0x3301` request construction, history-packet
-  decoding, completion handling, and minute-level synced spot acceptance.
-- 2026-05-02: Limited the global Govee launcher to the authenticated main shell
-  so pushed audit editor/detail routes can navigate without overlay layout
-  mutations during route transitions.
-- 2026-05-02: Added web database corruption recovery so demo IndexedDB stores
-  that cannot be opened are automatically reset to the current schema.
-- 2026-05-02: Standardized the remaining station entry screens around compact
-  professional audit workbenches, including redesigned Setters and Hatchers,
-  tighter Egg Storage width/header treatment, and Chick Quality header polish.
 - 2026-04-28: Replaced placeholders with a code-derived map of current
   navigation, audit workflow, station screens, data hierarchy, provider state,
   persistence, sync, measures, OCR, and known technical debt.

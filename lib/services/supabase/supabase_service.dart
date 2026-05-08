@@ -28,8 +28,7 @@ class SupabasePullSummary {
   final int temperatureSessions;
   final int temperatureReadings;
   final int goveeDailyCaptures;
-  final int goveeSpotCaptures;
-  final int goveeSpotReadings;
+  final int goveePlaceReadings;
 
   const SupabasePullSummary({
     this.customers = 0,
@@ -43,8 +42,7 @@ class SupabasePullSummary {
     this.temperatureSessions = 0,
     this.temperatureReadings = 0,
     this.goveeDailyCaptures = 0,
-    this.goveeSpotCaptures = 0,
-    this.goveeSpotReadings = 0,
+    this.goveePlaceReadings = 0,
   });
 
   int get total =>
@@ -59,8 +57,7 @@ class SupabasePullSummary {
       temperatureSessions +
       temperatureReadings +
       goveeDailyCaptures +
-      goveeSpotCaptures +
-      goveeSpotReadings;
+      goveePlaceReadings;
 }
 
 class SupabaseService {
@@ -389,8 +386,7 @@ class SupabaseService {
     Future<void> Function(Map<String, dynamic>)? upsertTemperatureSession,
     Future<void> Function(Map<String, dynamic>)? upsertTemperatureReading,
     Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
-    Future<void> Function(Map<String, dynamic>)? upsertGoveeSpotCapture,
-    Future<void> Function(Map<String, dynamic>)? upsertGoveeSpotReading,
+    Future<void> Function(Map<String, dynamic>)? upsertGoveePlaceReading,
   }) async {
     var summary = const SupabasePullSummary();
     try {
@@ -623,8 +619,7 @@ class SupabaseService {
             temperatureSessions: summary.temperatureSessions,
             temperatureReadings: summary.temperatureReadings,
             goveeDailyCaptures: captures.length,
-            goveeSpotCaptures: summary.goveeSpotCaptures,
-            goveeSpotReadings: summary.goveeSpotReadings,
+            goveePlaceReadings: summary.goveePlaceReadings,
           );
           debugPrint('Supabase pull: ${captures.length} Govee captures');
           for (final row in captures) {
@@ -634,9 +629,9 @@ class SupabaseService {
           debugPrint('Supabase Govee capture pull skipped: $e');
         }
       }
-      if (upsertGoveeSpotCapture != null) {
+      if (upsertGoveePlaceReading != null) {
         try {
-          final spots = await _client.from('govee_spot_captures').select();
+          final readings = await _client.from('govee_place_readings').select();
           summary = SupabasePullSummary(
             customers: summary.customers,
             flocks: summary.flocks,
@@ -649,41 +644,14 @@ class SupabaseService {
             temperatureSessions: summary.temperatureSessions,
             temperatureReadings: summary.temperatureReadings,
             goveeDailyCaptures: summary.goveeDailyCaptures,
-            goveeSpotCaptures: spots.length,
-            goveeSpotReadings: summary.goveeSpotReadings,
+            goveePlaceReadings: readings.length,
           );
-          debugPrint('Supabase pull: ${spots.length} Govee spot captures');
-          for (final row in spots) {
-            await upsertGoveeSpotCapture(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase Govee spot capture pull skipped: $e');
-        }
-      }
-      if (upsertGoveeSpotReading != null) {
-        try {
-          final readings = await _client.from('govee_spot_readings').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-            goveeDailyCaptures: summary.goveeDailyCaptures,
-            goveeSpotCaptures: summary.goveeSpotCaptures,
-            goveeSpotReadings: readings.length,
-          );
-          debugPrint('Supabase pull: ${readings.length} Govee spot readings');
+          debugPrint('Supabase pull: ${readings.length} Govee place readings');
           for (final row in readings) {
-            await upsertGoveeSpotReading(Map<String, dynamic>.from(row));
+            await upsertGoveePlaceReading(Map<String, dynamic>.from(row));
           }
         } catch (e) {
-          debugPrint('Supabase Govee spot reading pull skipped: $e');
+          debugPrint('Supabase Govee place reading pull skipped: $e');
         }
       }
     } catch (e, stackTrace) {
