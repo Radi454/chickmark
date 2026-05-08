@@ -272,9 +272,10 @@ class _RecordingState extends StatelessWidget {
   }
 
   String _stateText(GoveeCapturePhase phase) {
+    final elapsed = _durationText(provider.recordingElapsedSeconds);
     return switch (phase) {
       GoveeCapturePhase.validRecording =>
-        'Live readings are preview only. Stop will sync the full Govee history window.',
+        'Recording length $elapsed. Live readings are preview only. Stop will sync the full Govee history window.',
       GoveeCapturePhase.syncing =>
         'Syncing saved history from the Govee device.',
       GoveeCapturePhase.syncFailed =>
@@ -285,5 +286,12 @@ class _RecordingState extends StatelessWidget {
       _ =>
         'Start once for this place, then stop when the place window is complete.',
     };
+  }
+
+  String _durationText(int totalSeconds) {
+    final safeSeconds = totalSeconds < 0 ? 0 : totalSeconds;
+    final minutes = (safeSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (safeSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }

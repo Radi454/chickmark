@@ -104,10 +104,7 @@ void main() {
       ),
     ).thenAnswer((invocation) async {
       final startedAt = invocation.namedArguments[#startedAt] as DateTime;
-      return _readingsFrom(
-        startedAt: startedAt.add(GoveeCaptureProvider.warmupDuration),
-        count: 1000,
-      );
+      return _readingsFrom(startedAt: startedAt, count: 1000);
     });
     when(
       () => mockRepo.saveReplacement(
@@ -185,6 +182,23 @@ void main() {
   );
 
   test(
+    'stop is available while recording and elapsed length updates',
+    () async {
+      final provider = await configuredProvider();
+
+      await provider.startRecording();
+
+      expect(provider.canStopRecording, isTrue);
+      expect(provider.recordingElapsedSeconds, 0);
+
+      fakeClock.elapse(const Duration(seconds: 75));
+
+      expect(provider.recordingElapsedSeconds, 75);
+      expect(provider.canStopRecording, isTrue);
+    },
+  );
+
+  test(
     'live readings are preview only and saved data comes from history',
     () async {
       final provider = await configuredProvider();
@@ -215,35 +229,23 @@ void main() {
   );
 
   test(
-    'warmup and invalid readings are excluded before stats and LTTB',
+    'minute history buckets overlapping the Start/Stop window are saved',
     () async {
+      fakeClock = FakeClock(DateTime.parse('2026-05-02T10:00:30'));
       when(
         () => mockGovee.syncHistory(
           startedAt: any(named: 'startedAt'),
           endedAt: any(named: 'endedAt'),
         ),
-      ).thenAnswer((_) async {
-        final start = DateTime.parse('2026-05-02T10:00:00');
-        return [
-          _reading(timestamp: start.add(const Duration(seconds: 10)), temp: 10),
-          _reading(
-            timestamp: start.add(const Duration(seconds: 70)),
-            temp: null,
-          ),
-          _reading(
-            timestamp: start.add(const Duration(seconds: 71)),
-            humidity: 101,
-          ),
-          ..._readingsFrom(
-            startedAt: start.add(const Duration(seconds: 80)),
-            count: 120,
-          ),
-        ];
-      });
+      ).thenAnswer(
+        (_) async => [
+          _reading(timestamp: DateTime.parse('2026-05-02T10:00:00')),
+        ],
+      );
       final provider = await configuredProvider();
 
       await provider.startRecording();
-      fakeClock.elapse(const Duration(minutes: 5));
+      fakeClock.elapse(const Duration(seconds: 30));
       await provider.stopAndSavePlaceCapture();
 
       final captured = verify(
@@ -252,22 +254,60 @@ void main() {
           readings: captureAny(named: 'readings'),
         ),
       ).captured;
-      final capture = captured[0] as GoveeDailyCaptureModel;
       final readings = captured[1] as List<GoveePlaceReadingModel>;
 
-      expect(capture.tempMin, greaterThanOrEqualTo(70));
-      expect(capture.rhMax, lessThanOrEqualTo(100));
-      expect(readings, hasLength(50));
-      expect(
-        readings.every(
-          (reading) => !reading.recordedAt.isBefore(
-            DateTime.parse('2026-05-02T10:01:00'),
-          ),
-        ),
-        isTrue,
-      );
+      expect(provider.phase, GoveeCapturePhase.saved);
+      expect(readings.single.recordedAt, DateTime.parse('2026-05-02T10:00:00'));
     },
   );
+
+  test('invalid readings are excluded before stats and LTTB', () async {
+    when(
+      () => mockGovee.syncHistory(
+        startedAt: any(named: 'startedAt'),
+        endedAt: any(named: 'endedAt'),
+      ),
+    ).thenAnswer((_) async {
+      final start = DateTime.parse('2026-05-02T10:00:00');
+      return [
+        _reading(timestamp: start.add(const Duration(seconds: 10)), temp: -100),
+        _reading(timestamp: start.add(const Duration(seconds: 70)), temp: null),
+        _reading(
+          timestamp: start.add(const Duration(seconds: 71)),
+          humidity: 101,
+        ),
+        ..._readingsFrom(
+          startedAt: start.add(const Duration(seconds: 80)),
+          count: 120,
+        ),
+      ];
+    });
+    final provider = await configuredProvider();
+
+    await provider.startRecording();
+    fakeClock.elapse(const Duration(minutes: 5));
+    await provider.stopAndSavePlaceCapture();
+
+    final captured = verify(
+      () => mockRepo.saveReplacement(
+        capture: captureAny(named: 'capture'),
+        readings: captureAny(named: 'readings'),
+      ),
+    ).captured;
+    final capture = captured[0] as GoveeDailyCaptureModel;
+    final readings = captured[1] as List<GoveePlaceReadingModel>;
+
+    expect(capture.tempMin, greaterThanOrEqualTo(70));
+    expect(capture.rhMax, lessThanOrEqualTo(100));
+    expect(readings, hasLength(50));
+    expect(
+      readings.every(
+        (reading) =>
+            !reading.recordedAt.isBefore(DateTime.parse('2026-05-02T10:01:00')),
+      ),
+      isTrue,
+    );
+  });
 
   test('summary computes Avg Min Max SD and CV for Temp and RH', () async {
     when(

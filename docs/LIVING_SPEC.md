@@ -291,9 +291,12 @@ initialized.
 Each saved place/date capture is one manual place-level Start/Stop window. Live
 readings are shown only as a preview while recording. When the user stops, the
 provider syncs Govee history for the full Start/Stop window and treats that
-history sync as the authoritative saved dataset. The first 60 seconds of the
-window are warmup and ignored before statistics or chart reduction. Readings with
-missing Temp/RH values, impossible temperatures, or RH outside 0-100% are also
+history sync as the authoritative saved dataset. Stop and save is available
+while recording, and the recorder shows the current recording length. The active
+recorder also shows live Temp/RH preview charts while recording, including in
+the floating capture panel. Govee history is minute-granular, so synced minute
+buckets that overlap the Start/Stop window are eligible for saving. Readings
+with missing Temp/RH values, impossible temperatures, or RH outside 0-100% are
 excluded.
 
 Summary statistics are computed from the full valid synced dataset before any
@@ -334,7 +337,11 @@ and packed 3-byte records. The requested stop bound is kept at least one minute
 back because the current minute may not yet be stored in device history. The service
 logs the packet and reading counts used for hardware validation. Live GATT
 polling is paused while a history sync is active so `0x0A` preview reads do not
-overlap the history transaction. If GATT drops during an active history
+overlap the history transaction. If GATT is connected but history/control/data
+characteristics are missing, the service rediscovers services. If a reconnect is
+already in progress, history sync waits for that attempt before checking the
+characteristics. If they remain unavailable, sync fails into the retry state
+instead of returning an empty history result. If GATT drops during an active history
 transaction while auto-reconnect is available, the service keeps the original
 Start/Stop window pending, reconnects, re-enables notifications, and reissues
 the history request before surfacing a sync failure.
@@ -445,7 +452,7 @@ capture summaries loaded by the selected visit customer, hatchery, and date.
 
 `GoveeCaptureProvider` owns the active standalone Govee capture scope, existing
 capture lookup, manual Start/Stop place recording, live preview readings,
-history-sync retry state, warmup/invalid filtering, full-dataset Temp/RH summary
+history-sync retry state, invalid-reading filtering, full-dataset Temp/RH summary
 stats, LTTB representative readings, replacement save, finished-place preview,
 and next-place progression.
 
@@ -556,6 +563,13 @@ capture.
   treating the single-byte `2012` status `0x02` as transfer complete after data
   packets arrive, preventing successful syncs from timing out and looping
   reconnects.
+- 2026-05-08: Removed Govee place recording warmup, kept Stop and save
+  available while recording, and showed current recording length.
+- 2026-05-08: Made missing Govee history/control/data characteristics fail into
+  the retryable sync error state instead of returning an empty history result.
+- 2026-05-08: Made Govee history sync await an in-flight GATT reconnect before
+  checking H5051 history characteristics, avoiding a false retry error after a
+  live read disconnect.
 - 2026-05-07: Split Govee history sync by device family: H5051/H5179 names now
   use the 10-byte epoch-minute request on `2012`, older H507-style names keep
   the `0x3301` minute-back request, live `0x0A` reads stay on `2011`, and the

@@ -4,6 +4,10 @@ import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
 import 'package:hatchaudit/features/govee/screens/govee_screen.dart';
+import 'package:hatchaudit/features/govee/widgets/govee_active_capture_content.dart';
+import 'package:hatchaudit/features/govee/widgets/govee_chart_preview.dart';
+import 'package:hatchaudit/features/temperature/providers/temperature_rh_provider.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/govee/govee_service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -13,6 +17,9 @@ class _MockGoveeCaptureRepository extends Mock
     implements GoveeCaptureRepository {}
 
 class _MockGoveeService extends Mock implements GoveeService {}
+
+class _MockTemperatureRhProvider extends Mock
+    implements TemperatureRhProvider {}
 
 class _FakeClock {
   DateTime _now;
@@ -91,6 +98,31 @@ void _stubLiveGovee(
   when(
     () => govee.readings,
   ).thenAnswer((_) => readings ?? const Stream.empty());
+}
+
+void _stubTemperatureProvider(
+  _MockTemperatureRhProvider provider, {
+  List<GoveeSensorReading> readings = const [],
+}) {
+  final latest = readings.isEmpty ? null : readings.last;
+  when(() => provider.isBleAvailable).thenReturn(true);
+  when(() => provider.isSensorConnected).thenReturn(true);
+  when(() => provider.isGattConnected).thenReturn(true);
+  when(() => provider.isGattConnecting).thenReturn(false);
+  when(() => provider.isScanning).thenReturn(false);
+  when(() => provider.deviceName).thenReturn('Govee H5051');
+  when(() => provider.signalStrength).thenReturn(-61);
+  when(() => provider.batteryPercent).thenReturn(latest?.batteryPercent);
+  when(() => provider.error).thenReturn(null);
+  when(
+    () => provider.liveTemperatureFahrenheit,
+  ).thenReturn(latest?.temperatureFahrenheit);
+  when(() => provider.liveHumidity).thenReturn(latest?.humidity);
+  when(() => provider.liveUpdatedAt).thenReturn(latest?.timestamp);
+  when(() => provider.lastSensorSeenAt).thenReturn(latest?.timestamp);
+  when(() => provider.liveReadings).thenReturn(readings);
+  when(() => provider.addListener(any())).thenReturn(null);
+  when(() => provider.removeListener(any())).thenReturn(null);
 }
 
 void main() {
@@ -197,6 +229,76 @@ void main() {
     expect(find.textContaining('Govee H5051'), findsWidgets);
     expect(find.textContaining('History sync timed out'), findsOneWidget);
   });
+
+  testWidgets('recording shows elapsed length and enabled stop action', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee);
+    final provider = await _configuredProvider(govee: govee);
+
+    await provider.startRecording();
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    final stopButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Stop and save'),
+    );
+    expect(stopButton.onPressed, isNotNull);
+    expect(find.textContaining('Warmup'), findsNothing);
+    expect(find.textContaining('Recording length 00:00'), findsOneWidget);
+  });
+
+  testWidgets(
+    'active capture panel shows live preview charts while recording',
+    (tester) async {
+      final startedAt = DateTime.parse('2026-05-06T08:00:00');
+      final readings = [
+        GoveeSensorReading(
+          temperatureFahrenheit: 98,
+          humidity: 50,
+          timestamp: startedAt,
+        ),
+        GoveeSensorReading(
+          temperatureFahrenheit: 99,
+          humidity: 51,
+          timestamp: startedAt.add(const Duration(minutes: 1)),
+        ),
+      ];
+      final govee = _MockGoveeService();
+      final temperatureProvider = _MockTemperatureRhProvider();
+      _stubLiveGovee(govee);
+      _stubTemperatureProvider(temperatureProvider, readings: readings);
+      final provider = await _configuredProvider(govee: govee);
+
+      await provider.startRecording();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<GoveeCaptureProvider>.value(value: provider),
+            ListenableProvider<TemperatureRhProvider>.value(
+              value: temperatureProvider,
+            ),
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: GoveeActiveCaptureContent()),
+          ),
+        ),
+      );
+
+      expect(find.text('Temperature preview'), findsOneWidget);
+      expect(find.text('Relative Humidity preview'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('govee-temperature-preview-chart')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('govee-rh-preview-chart')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('live chart preview renders temperature and RH charts', (
     tester,

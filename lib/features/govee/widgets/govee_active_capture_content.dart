@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../services/govee/govee_service.dart';
 import '../../dashboard/models/govee_capture_summary.dart';
 import '../../dashboard/widgets/govee_capture_chart.dart';
+import '../../temperature/providers/temperature_rh_provider.dart';
 import '../providers/govee_capture_provider.dart';
+import 'govee_chart_preview.dart';
 import 'govee_live_reading_card.dart';
 import 'govee_place_recorder.dart';
 import 'govee_scope_picker.dart';
@@ -20,12 +23,30 @@ class GoveeActiveCaptureContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final temperatureProvider = context.watch<TemperatureRhProvider>();
+
     return Consumer<GoveeCaptureProvider>(
       builder: (context, provider, _) {
+        final List<GoveeSensorReading> previewReadings;
+        if (provider.liveRecordingReadings.isNotEmpty) {
+          previewReadings = provider.liveRecordingReadings;
+        } else if (provider.isRecording) {
+          previewReadings = temperatureProvider.liveReadings;
+        } else {
+          previewReadings = const <GoveeSensorReading>[];
+        }
+
         return ListView(
           padding: padding,
           children: [
             const GoveeLiveReadingCard(),
+            if (previewReadings.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              GoveeChartPreview(
+                readings: previewReadings,
+                machineId: provider.machineId,
+              ),
+            ],
             const SizedBox(height: 12),
             const GoveeScopePicker(),
             if (provider.hasExistingCapture) ...[

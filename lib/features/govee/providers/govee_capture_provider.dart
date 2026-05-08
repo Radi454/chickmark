@@ -23,11 +23,12 @@ enum GoveeCapturePhase {
 enum GoveeCaptureTarget { room, insideMachine }
 
 class GoveeCaptureProvider extends ChangeNotifier {
-  static const Duration warmupDuration = Duration(seconds: 60);
+  static const Duration _historyReadingBucketDuration = Duration(minutes: 1);
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
   final DateTime Function() _clock;
+  final bool _enablePhaseTimer;
   final Uuid _uuid = const Uuid();
 
   String? _customerId;
@@ -49,6 +50,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   List<String> _syncFailureDiagnostics = const [];
   TemperaturePlace? _suggestedNextPlace;
   bool _goveeListenersAttached = false;
+  Timer? _phaseTimer;
   StreamSubscription<GoveeSensorReading>? _liveSubscription;
   final List<GoveeSensorReading> _liveRecordingReadings = [];
 
@@ -59,7 +61,8 @@ class GoveeCaptureProvider extends ChangeNotifier {
     bool enablePhaseTimer = true,
   }) : _repository = repository ?? GoveeCaptureRepository(),
        _goveeService = goveeService ?? GoveeService(),
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _enablePhaseTimer = enablePhaseTimer;
 
   String? get customerId => _customerId;
   String? get hatcheryId => _hatcheryId;
@@ -98,6 +101,16 @@ class GoveeCaptureProvider extends ChangeNotifier {
   TemperaturePlace? get suggestedNextPlace => _suggestedNextPlace;
   GoveeCapturePhase get phase => _phase;
   bool get isRecording => _phase == GoveeCapturePhase.validRecording;
+  int get recordingElapsedSeconds {
+    final startedAt = _recordingStartedAt;
+    if (_phase != GoveeCapturePhase.validRecording || startedAt == null) {
+      return 0;
+    }
+    final elapsed = _clock().difference(startedAt);
+    if (elapsed.isNegative) return 0;
+    return elapsed.inSeconds;
+  }
+
   bool get canStartRecording =>
       _customerId != null &&
       _hatcheryId != null &&
@@ -105,7 +118,8 @@ class GoveeCaptureProvider extends ChangeNotifier {
       _captureDate != null &&
       (_phase == GoveeCapturePhase.idle || _phase == GoveeCapturePhase.saved);
   bool get canStopRecording =>
-      isRecording || _phase == GoveeCapturePhase.syncFailed;
+      _phase == GoveeCapturePhase.syncFailed ||
+      _phase == GoveeCapturePhase.validRecording;
   bool get isBleAvailable => _goveeService.isAvailable;
   bool get isSensorConnected => _goveeService.isConnected;
   bool get isGattConnected => _goveeService.isGattConnected;
@@ -133,6 +147,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     GoveeCaptureTarget captureTarget = GoveeCaptureTarget.room,
   }) async {
     _customerId = customerId;
+    _stopPhaseTimer();
     _hatcheryId = hatcheryId;
     final resolvedStationKey = stationKey?.trim().isNotEmpty == true
         ? stationKey!.trim()
@@ -242,6 +257,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
+    _startPhaseTimer();
     notifyListeners();
   }
 
@@ -264,6 +280,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
       return;
     }
 
+    _stopPhaseTimer();
     _phase = GoveeCapturePhase.syncing;
     _error = null;
     _syncFailureDetails = null;
@@ -291,12 +308,12 @@ class GoveeCaptureProvider extends ChangeNotifier {
       return;
     }
 
-    final validStartedAt = startedAt.add(warmupDuration);
-    final valid = _filterValidSyncedReadings(synced, validStartedAt, endedAt);
+    final valid = _filterValidSyncedReadings(synced, startedAt, endedAt);
 
     if (valid.isEmpty) {
-      _error = 'No valid synced Govee readings were found after warmup';
+      _error = 'No valid synced Govee readings were found';
       _phase = GoveeCapturePhase.validRecording;
+      _startPhaseTimer();
       notifyListeners();
       return;
     }
@@ -385,6 +402,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
     _phase = GoveeCapturePhase.saved;
+    _stopPhaseTimer();
     _suggestedNextPlace = nextGoveePlace(_place!);
     _existingCapture = null;
     notifyListeners();
@@ -400,6 +418,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
     _phase = GoveeCapturePhase.saved;
+    _stopPhaseTimer();
     notifyListeners();
   }
 
@@ -427,6 +446,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopPhaseTimer();
     unawaited(_liveSubscription?.cancel());
     if (_goveeListenersAttached) {
       _goveeService.removeListener(_handleGoveeServiceChanged);
@@ -446,12 +466,32 @@ class GoveeCaptureProvider extends ChangeNotifier {
       if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
         return false;
       }
-      if (reading.timestamp.isBefore(startedAt) ||
+      final readingBucketEndedAt = reading.timestamp.add(
+        _historyReadingBucketDuration,
+      );
+      if (!readingBucketEndedAt.isAfter(startedAt) ||
           reading.timestamp.isAfter(endedAt)) {
         return false;
       }
       return true;
     }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  void _startPhaseTimer() {
+    if (!_enablePhaseTimer) return;
+    _phaseTimer?.cancel();
+    _phaseTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_phase != GoveeCapturePhase.validRecording) {
+        _stopPhaseTimer();
+        return;
+      }
+      notifyListeners();
+    });
+  }
+
+  void _stopPhaseTimer() {
+    _phaseTimer?.cancel();
+    _phaseTimer = null;
   }
 
   List<String> _buildSyncFailureDiagnostics({

@@ -123,6 +123,7 @@ class GoveeService extends ChangeNotifier {
   StreamSubscription<BluetoothAdapterState>? _adapterSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   StreamSubscription<bool>? _scanStateSubscription;
+  Future<void>? _gattConnectionAttempt;
   final List<StreamSubscription<List<int>>> _gattNotificationSubscriptions =
       <StreamSubscription<List<int>>>[];
   Timer? _discoveryTimeoutTimer;
@@ -501,7 +502,26 @@ class GoveeService extends ChangeNotifier {
   Future<void> connectDevice() async {
     _ensureBleInitialized();
     final device = _device;
-    if (device == null || _isGattConnected || _isGattConnecting) return;
+    if (device == null || _isGattConnected) return;
+    final pendingConnection = _gattConnectionAttempt;
+    if (pendingConnection != null) {
+      await pendingConnection;
+      return;
+    }
+    if (_isGattConnecting) return;
+
+    final connectionAttempt = _connectDevice(device);
+    _gattConnectionAttempt = connectionAttempt;
+    try {
+      await connectionAttempt;
+    } finally {
+      if (identical(_gattConnectionAttempt, connectionAttempt)) {
+        _gattConnectionAttempt = null;
+      }
+    }
+  }
+
+  Future<void> _connectDevice(BluetoothDevice device) async {
     _isGattConnecting = true;
     _manualDisconnectRequested = false;
     _addDiagnostic('Connecting GATT to ${_deviceName ?? 'Govee sensor'}');
@@ -1581,14 +1601,7 @@ class GoveeService extends ChangeNotifier {
       throw StateError('Govee history sync is already in progress');
     }
 
-    if (!_isGattConnected ||
-        _goveeDeviceCharacteristic == null ||
-        _goveeHistoryControlCharacteristic == null ||
-        _goveeHistoryDataCharacteristic == null) {
-      if (_device != null) {
-        await connectDevice();
-      }
-    }
+    await _ensureHistoryCharacteristicsReady();
 
     final writeCharacteristic = _goveeHistoryControlCharacteristic;
     final responseCharacteristic = _goveeHistoryControlCharacteristic;
@@ -1598,10 +1611,10 @@ class GoveeService extends ChangeNotifier {
         responseCharacteristic == null ||
         dataCharacteristic == null ||
         !_canWrite(writeCharacteristic)) {
-      _addDiagnostic(
-        'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.',
-      );
-      return const [];
+      final message =
+          'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.';
+      _addDiagnostic(message);
+      throw StateError(message);
     }
 
     final now = DateTime.now();
@@ -1655,6 +1668,25 @@ class GoveeService extends ChangeNotifier {
         _startGattPolling();
       }
     }
+  }
+
+  Future<void> _ensureHistoryCharacteristicsReady() async {
+    if (_isGattConnected &&
+        _goveeDeviceCharacteristic != null &&
+        _goveeHistoryControlCharacteristic != null &&
+        _goveeHistoryDataCharacteristic != null) {
+      return;
+    }
+
+    final device = _device;
+    if (device == null) return;
+
+    if (!_isGattConnected) {
+      await connectDevice();
+      return;
+    }
+
+    await _discoverAndRead(device);
   }
 
   Future<void> _requestActiveHistorySync({

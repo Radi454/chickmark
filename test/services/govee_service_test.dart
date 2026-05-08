@@ -29,6 +29,8 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   String platformName = 'Govee_H5075_ECC3';
   bool disconnectOnFirstHistoryWrite = false;
   bool epochMinuteUsesShortCompletion = false;
+  bool includeHistoryCharacteristics = true;
+  Completer<void>? connectGate;
   int historyWriteCount = 0;
 
   @override
@@ -110,6 +112,10 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   @override
   Future<bool> connect(BmConnectRequest request) async {
     calls.add('connect');
+    final gate = connectGate;
+    if (gate != null) {
+      await gate.future;
+    }
     scheduleMicrotask(() => _emitConnection(BmConnectionStateEnum.connected));
     return true;
   }
@@ -118,6 +124,24 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   Future<bool> discoverServices(BmDiscoverServicesRequest request) async {
     calls.add('discoverServices');
     scheduleMicrotask(() {
+      final characteristics = [
+        _characteristic(
+          GoveeService.deviceCommandCharacteristicUuidForTesting,
+          write: true,
+          notify: true,
+        ),
+        if (includeHistoryCharacteristics) ...[
+          _characteristic(
+            GoveeService.historyResponseCharacteristicUuidForTesting,
+            write: true,
+            notify: true,
+          ),
+          _characteristic(
+            GoveeService.historyDataCharacteristicUuidForTesting,
+            notify: true,
+          ),
+        ],
+      ];
       _servicesController.add(
         BmDiscoverServicesResult(
           remoteId: remoteId,
@@ -126,22 +150,7 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
               remoteId: remoteId,
               primaryServiceUuid: null,
               serviceUuid: serviceUuid,
-              characteristics: [
-                _characteristic(
-                  GoveeService.deviceCommandCharacteristicUuidForTesting,
-                  write: true,
-                  notify: true,
-                ),
-                _characteristic(
-                  GoveeService.historyResponseCharacteristicUuidForTesting,
-                  write: true,
-                  notify: true,
-                ),
-                _characteristic(
-                  GoveeService.historyDataCharacteristicUuidForTesting,
-                  notify: true,
-                ),
-              ],
+              characteristics: characteristics,
             ),
           ],
           success: true,
@@ -410,6 +419,8 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
     platformName = 'Govee_H5075_ECC3';
     disconnectOnFirstHistoryWrite = false;
     epochMinuteUsesShortCompletion = false;
+    includeHistoryCharacteristics = true;
+    connectGate = null;
     historyWriteCount = 0;
     _emitConnection(BmConnectionStateEnum.disconnected);
   }
@@ -530,6 +541,53 @@ void main() {
       },
     );
 
+    test(
+      'history sync waits for an in-progress reconnect before checking characteristics',
+      () async {
+        platform.platformName = 'Govee_H5051_ECC3';
+
+        final service = GoveeService();
+        addTearDown(service.dispose);
+        service.setAutoReconnectEnabled(true);
+        await service.initializeBle();
+        await service.startScan(
+          timeout: const Duration(seconds: 5),
+          discoveryTimeout: const Duration(seconds: 5),
+        );
+
+        for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(service.isGattConnected, isTrue);
+
+        platform._emitConnection(BmConnectionStateEnum.disconnected);
+        await Future<void>.delayed(Duration.zero);
+        expect(service.isGattConnected, isFalse);
+
+        final connectGate = Completer<void>();
+        platform.connectGate = connectGate;
+        final reconnect = service.connectDevice();
+        await Future<void>.delayed(Duration.zero);
+        expect(service.isGattConnecting, isTrue);
+
+        final sync = service.syncHistory(
+          startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+          endedAt: DateTime.now(),
+        );
+
+        connectGate.complete();
+        await reconnect;
+
+        final readings = await sync.timeout(const Duration(seconds: 1));
+
+        expect(readings, isNotEmpty);
+        expect(
+          service.diagnostics,
+          contains(contains('History sync requested epoch-minute window')),
+        );
+      },
+    );
+
     test('uses epoch-minute history requests for H5051 devices', () async {
       platform.platformName = 'Govee_H5051_ECC3';
 
@@ -592,6 +650,50 @@ void main() {
         contains(contains('History sync complete: 1 packets')),
       );
     });
+
+    test(
+      'missing history characteristics fail sync instead of returning empty',
+      () async {
+        platform
+          ..platformName = 'Govee_H5051_ECC3'
+          ..includeHistoryCharacteristics = false;
+
+        final service = GoveeService();
+        addTearDown(service.dispose);
+        await service.initializeBle();
+        await service.startScan(
+          timeout: const Duration(seconds: 5),
+          discoveryTimeout: const Duration(seconds: 5),
+        );
+
+        for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(service.isGattConnected, isTrue);
+
+        await expectLater(
+          service.syncHistory(
+            startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+            endedAt: DateTime.now(),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('history/control/data characteristics'),
+            ),
+          ),
+        );
+        expect(
+          service.diagnostics,
+          contains(
+            contains(
+              'History sync needs connected H5051 history/control/data characteristics',
+            ),
+          ),
+        );
+      },
+    );
 
     test('macOS scan uses a single adapter-state readiness check', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
