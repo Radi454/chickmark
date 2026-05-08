@@ -135,7 +135,13 @@ void main() {
         flockId: SessionTestFixtures.testFlockId,
         date: SessionTestFixtures.testVisitDate,
         breed: SessionTestFixtures.testBreed,
-        selectedStationKeys: const ['egg', 'setters'],
+        selectedStationKeys: const [
+          'egg',
+          'hatch_analysis_egg_breakouts',
+          'hatchers',
+          'chicks',
+          'setters',
+        ],
       ),
     );
 
@@ -167,6 +173,24 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Next Station'), findsOneWidget);
+    expect(find.text('Hatch Analysis'), findsOneWidget);
+
+    final hatchAnalysisLabel = tester.widget<Text>(find.text('Hatch Analysis'));
+    expect(hatchAnalysisLabel.maxLines, 2);
+    expect(hatchAnalysisLabel.overflow, isNot(TextOverflow.ellipsis));
+
+    final appBar = tester.widget<AppBar>(find.byType(AppBar).first);
+    expect(appBar.toolbarHeight, kToolbarHeight);
+
+    final progressSize = tester.getSize(
+      find.byKey(const ValueKey('audit-session-progress-shell')),
+    );
+    expect(progressSize.height, lessThanOrEqualTo(82));
+
+    final footerSize = tester.getSize(
+      find.byKey(const ValueKey('audit-session-navigation-footer')),
+    );
+    expect(footerSize.height, lessThanOrEqualTo(78));
   });
 
   testWidgets('resumed Egg station hydrates saved audit data', (tester) async {

@@ -14,6 +14,7 @@ import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
 import '../../govee/screens/govee_screen.dart';
+import '../../govee/widgets/govee_global_overlay.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -105,29 +106,33 @@ class _MainShellState extends State<MainShell> {
       builder: (context, constraints) {
         final useNavigationRail = constraints.maxWidth >= 900;
 
-        return Scaffold(
-          key: _scaffoldKey,
-          drawer: useNavigationRail
-              ? null
-              : _ShellNavigationDrawer(
-                  currentIndex: _currentIndex,
-                  onDestinationSelected: _selectDestination,
-                ),
-          body: ShellNavigationScope(
-            hasDrawer: !useNavigationRail,
-            openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-            canGoBack: _tabHistory.isNotEmpty,
-            goBack: _goBack,
-            switchTab: _selectDestination,
-            child: Row(
-              children: [
-                if (useNavigationRail)
-                  _ShellNavigationRail(
+        return GoveeGlobalOverlay(
+          showLauncher: true,
+          panelContextBuilder: () => context,
+          child: Scaffold(
+            key: _scaffoldKey,
+            drawer: useNavigationRail
+                ? null
+                : _ShellNavigationDrawer(
                     currentIndex: _currentIndex,
                     onDestinationSelected: _selectDestination,
                   ),
-                Expanded(child: _builtScreens[_currentIndex]!),
-              ],
+            body: ShellNavigationScope(
+              hasDrawer: !useNavigationRail,
+              openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+              canGoBack: _tabHistory.isNotEmpty,
+              goBack: _goBack,
+              switchTab: _selectDestination,
+              child: Row(
+                children: [
+                  if (useNavigationRail)
+                    _ShellNavigationRail(
+                      currentIndex: _currentIndex,
+                      onDestinationSelected: _selectDestination,
+                    ),
+                  Expanded(child: _builtScreens[_currentIndex]!),
+                ],
+              ),
             ),
           ),
         );

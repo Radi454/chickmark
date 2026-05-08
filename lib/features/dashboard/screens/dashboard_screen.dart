@@ -8,7 +8,7 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/utils/scorecard_formatter.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
-import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
+import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/hatch_analysis_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/egg_breakout_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
@@ -177,6 +177,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildVisitSessionsSection(context, provider),
           const SizedBox(height: AppSizes.spaceLg),
         ],
+        if (provider.isLoadingGoveeCaptures ||
+            provider.goveeCaptures.isNotEmpty) ...[
+          GoveeEnvironmentalReadingsSection(
+            captures: provider.goveeCaptures,
+            isLoading: provider.isLoadingGoveeCaptures,
+          ),
+          const SizedBox(height: AppSizes.spaceLg),
+        ],
         const HatchAnalysisSection(),
         const SizedBox(height: AppSizes.spaceLg),
         const EggBreakoutSection(),
@@ -246,7 +254,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildSessionFindings(session),
           _buildSessionPmScore(session),
           _buildSessionHatchBudget(session),
-          _buildSessionGoveeCaptures(provider),
           _buildSessionViewDetailButton(context, session),
         ],
       ),
@@ -413,40 +420,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (hb.hatchabilityPct != null)
                 Text('Hatch%: ${hb.hatchabilityPct!.toStringAsFixed(1)}%'),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSessionGoveeCaptures(DashboardProvider provider) {
-    if (provider.isLoadingGoveeCaptures) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: AppSizes.spaceLg,
-          vertical: AppSizes.spaceSm,
-        ),
-        child: LinearProgressIndicator(minHeight: 2),
-      );
-    }
-    final captures = provider.goveeCaptures;
-    if (captures.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSizes.spaceLg,
-        vertical: AppSizes.spaceSm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Divider(),
-          const Text('Govee Readings', style: AppTextStyles.sectionTitle),
-          const SizedBox(height: AppSizes.spaceSm),
-          ...captures.map(
-            (summary) => Padding(
-              padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
-              child: GoveeCaptureChart(summary: summary),
-            ),
           ),
         ],
       ),

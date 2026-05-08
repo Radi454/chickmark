@@ -164,15 +164,9 @@ class StartupSyncService {
       goveeCaptures.map((capture) => capture.toMap()).toList(),
     );
     pushed += goveeCaptures.length;
-    final goveeSpots = await _goveeCaptureRepository.getAllSpots();
-    await _supabaseService.upsertRows(
-      'govee_spot_captures',
-      goveeSpots.map((spot) => spot.toMap()).toList(),
-    );
-    pushed += goveeSpots.length;
     final goveeReadings = await _goveeCaptureRepository.getAllReadings();
     await _supabaseService.upsertRows(
-      'govee_spot_readings',
+      'govee_place_readings',
       goveeReadings.map((reading) => reading.toMap()).toList(),
     );
     pushed += goveeReadings.length;
@@ -199,9 +193,7 @@ class StartupSyncService {
           _temperatureRepository.upsertReadingRow(row),
       upsertGoveeDailyCapture: (row) =>
           _goveeCaptureRepository.upsertCaptureRow(row),
-      upsertGoveeSpotCapture: (row) =>
-          _goveeCaptureRepository.upsertSpotRow(row),
-      upsertGoveeSpotReading: (row) =>
+      upsertGoveePlaceReading: (row) =>
           _goveeCaptureRepository.upsertReadingRow(row),
     );
     progress(0.92, 'Preparing workspace');

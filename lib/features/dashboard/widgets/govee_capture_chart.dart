@@ -12,8 +12,10 @@ class GoveeCaptureChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final points = summary.combinedTempPoints;
-    final spots = summary.sortedSpots;
+    final points = summary.combinedPoints;
+    final machineLabel = summary.capture.machineId;
+    final startedAt = summary.recordingStartedAt;
+    final endedAt = summary.recordingEndedAt;
 
     return Container(
       padding: const EdgeInsets.all(AppSizes.spaceMd),
@@ -38,16 +40,25 @@ class GoveeCaptureChart extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (machineLabel != null) ...[
+                      const SizedBox(height: AppSizes.spaceXs),
+                      Text(machineLabel, style: AppTextStyles.caption),
+                    ],
                     const SizedBox(height: AppSizes.spaceXs),
                     Text(
                       summary.capture.captureDate,
                       style: AppTextStyles.caption,
                     ),
+                    if (startedAt != null && endedAt != null) ...[
+                      const SizedBox(height: AppSizes.spaceXs),
+                      Text(
+                        '${_formatClock(startedAt)} - ${_formatClock(endedAt)}',
+                        style: AppTextStyles.caption,
+                      ),
+                    ],
                   ],
                 ),
               ),
-              _metricPill('${summary.capture.spotCount} spots'),
-              const SizedBox(width: AppSizes.spaceXs),
               _metricPill('${summary.capture.readingCount} readings'),
             ],
           ),
@@ -56,13 +67,28 @@ class GoveeCaptureChart extends StatelessWidget {
             spacing: AppSizes.spaceSm,
             runSpacing: AppSizes.spaceXs,
             children: [
-              if (summary.capture.tempAvg != null)
-                _metricPill(
-                  '${summary.capture.tempAvg!.toStringAsFixed(1)} F avg',
+              _metricPill(
+                _rangeMetric(
+                  label: 'Temp',
+                  unit: 'F',
+                  avg: summary.capture.tempAvg,
+                  min: summary.capture.tempMin,
+                  max: summary.capture.tempMax,
+                  sd: summary.capture.tempSd,
+                  cvPct: summary.capture.tempCvPct,
                 ),
-              if (summary.capture.rhAvg != null)
-                _metricPill('${summary.capture.rhAvg!.toStringAsFixed(1)}% RH'),
-              for (final spot in spots) _metricPill(spot.spotLabel),
+              ),
+              _metricPill(
+                _rangeMetric(
+                  label: 'RH',
+                  unit: '%',
+                  avg: summary.capture.rhAvg,
+                  min: summary.capture.rhMin,
+                  max: summary.capture.rhMax,
+                  sd: summary.capture.rhSd,
+                  cvPct: summary.capture.rhCvPct,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSizes.spaceMd),
@@ -71,104 +97,29 @@ class GoveeCaptureChart extends StatelessWidget {
               height: 180,
               child: Center(child: Text('No readings saved')),
             )
-          else
-            SizedBox(
-              height: 190,
-              child: Column(
-                children: [
-                  Expanded(child: _lineChart(points)),
-                  const SizedBox(height: AppSizes.spaceXs),
-                  Row(
-                    children: spots
-                        .map(
-                          (spot) => Expanded(
-                            child: Text(
-                              spot.spotLabel,
-                              textAlign: TextAlign.center,
-                              style: AppTextStyles.caption,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
+          else ...[
+            _MetricLineChart(
+              chartKey: ValueKey(
+                'govee-temperature-chart-${summary.capture.id}',
               ),
+              title: 'Temperature',
+              unit: 'F',
+              color: AppColors.chart1,
+              summary: summary,
+              valueFor: (point) => point.temperatureFahrenheit,
             ),
+            const SizedBox(height: AppSizes.spaceMd),
+            _MetricLineChart(
+              chartKey: ValueKey('govee-rh-chart-${summary.capture.id}'),
+              title: 'Relative Humidity',
+              unit: '%',
+              color: AppColors.chart2,
+              summary: summary,
+              valueFor: (point) => point.humidity,
+            ),
+          ],
         ],
       ),
-    );
-  }
-
-  Widget _lineChart(List<GoveeChartPoint> points) {
-    final chartPoints = points
-        .map((point) => FlSpot(point.x.toDouble(), point.temperatureFahrenheit))
-        .toList();
-    final yValues = chartPoints.map((spot) => spot.y).toList();
-    final minY = yValues.reduce((a, b) => a < b ? a : b) - 1;
-    final maxY = yValues.reduce((a, b) => a > b ? a : b) + 1;
-
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: chartPoints.last.x,
-        minY: minY,
-        maxY: maxY,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) =>
-              const FlLine(color: AppColors.chartGridH, strokeWidth: 1),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 36,
-              getTitlesWidget: (value, meta) =>
-                  Text(value.toStringAsFixed(0), style: AppTextStyles.caption),
-            ),
-          ),
-          bottomTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        lineTouchData: const LineTouchData(enabled: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: chartPoints,
-            isCurved: true,
-            color: AppColors.chart1,
-            barWidth: 3,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: AppColors.chart1.withValues(alpha: 0.12),
-            ),
-          ),
-        ],
-        extraLinesData: ExtraLinesData(
-          verticalLines: summary.spotBoundaryIndexes
-              .map(
-                (boundary) => VerticalLine(
-                  x: boundary.toDouble(),
-                  color: AppColors.statusNeutralText.withValues(alpha: 0.42),
-                  strokeWidth: 1,
-                  dashArray: [4, 4],
-                ),
-              )
-              .toList(),
-        ),
-      ),
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
     );
   }
 
@@ -188,4 +139,182 @@ class GoveeCaptureChart extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MetricLineChart extends StatelessWidget {
+  final Key chartKey;
+  final String title;
+  final String unit;
+  final Color color;
+  final GoveeCaptureSummary summary;
+  final double Function(GoveeChartPoint point) valueFor;
+
+  const _MetricLineChart({
+    required this.chartKey,
+    required this.title,
+    required this.unit,
+    required this.color,
+    required this.summary,
+    required this.valueFor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final points = summary.combinedPoints;
+    final chartPoints = points
+        .map((point) => FlSpot(point.x, valueFor(point)))
+        .toList(growable: false);
+    final yValues = chartPoints.map((spot) => spot.y).toList();
+    var minY = yValues.reduce((a, b) => a < b ? a : b) - 1;
+    var maxY = yValues.reduce((a, b) => a > b ? a : b) + 1;
+    if (minY == maxY) {
+      minY -= 1;
+      maxY += 1;
+    }
+    final minX = chartPoints.first.x;
+    final maxX = chartPoints.last.x == minX ? minX + 1 : chartPoints.last.x;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppTextStyles.subtitle),
+        const SizedBox(height: AppSizes.spaceXs),
+        SizedBox(
+          height: 165,
+          child: LineChart(
+            key: chartKey,
+            LineChartData(
+              minX: minX,
+              maxX: maxX,
+              minY: minY,
+              maxY: maxY,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                getDrawingHorizontalLine: (_) =>
+                    const FlLine(color: AppColors.chartGridH, strokeWidth: 1),
+              ),
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 38,
+                    getTitlesWidget: (value, meta) => Text(
+                      value.toStringAsFixed(0),
+                      style: AppTextStyles.caption,
+                    ),
+                  ),
+                ),
+                bottomTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              lineTouchData: LineTouchData(
+                enabled: true,
+                handleBuiltInTouches: true,
+                touchTooltipData: LineTouchTooltipData(
+                  maxContentWidth: 260,
+                  getTooltipItems: (touchedSpots) => touchedSpots
+                      .map((spot) => _tooltipForPoint(spot))
+                      .toList(growable: false),
+                ),
+              ),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: chartPoints,
+                  isCurved: true,
+                  color: color,
+                  barWidth: 3,
+                  dotData: const FlDotData(show: false),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: color.withValues(alpha: 0.12),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+          ),
+        ),
+      ],
+    );
+  }
+
+  LineTooltipItem _tooltipForPoint(LineBarSpot spot) {
+    final point = _nearestPoint(spot.x);
+    final machineLabel = summary.capture.machineId;
+    final lines = [
+      _formatTimestamp(point.recordedAt),
+      'Temp ${point.temperatureFahrenheit.toStringAsFixed(1)}F',
+      'RH ${point.humidity.toStringAsFixed(1)}%',
+      summary.capture.place.label,
+      ?machineLabel,
+    ];
+
+    return LineTooltipItem(
+      lines.join('\n'),
+      const TextStyle(
+        color: AppColors.textOnPrimary,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        height: 1.35,
+      ),
+    );
+  }
+
+  GoveeChartPoint _nearestPoint(double x) {
+    final points = summary.combinedPoints;
+    var closest = points.first;
+    var closestDistance = (closest.x - x).abs();
+    for (final point in points.skip(1)) {
+      final distance = (point.x - x).abs();
+      if (distance < closestDistance) {
+        closest = point;
+        closestDistance = distance;
+      }
+    }
+    return closest;
+  }
+}
+
+String _rangeMetric({
+  required String label,
+  required String unit,
+  required double? avg,
+  required double? min,
+  required double? max,
+  required double? sd,
+  required double? cvPct,
+}) {
+  return '$label avg ${_formatMetric(avg)}$unit / min ${_formatMetric(min)}$unit / max ${_formatMetric(max)}$unit / SD ${_formatMetric(sd)} / CV ${_formatMetric(cvPct)}%';
+}
+
+String _formatMetric(double? value) {
+  if (value == null) return '--';
+  return value.toStringAsFixed(1);
+}
+
+String _formatClock(DateTime dateTime) {
+  final hour = dateTime.hour;
+  final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+  final minute = dateTime.minute.toString().padLeft(2, '0');
+  final suffix = hour >= 12 ? 'PM' : 'AM';
+  return '$displayHour:$minute $suffix';
+}
+
+String _formatTimestamp(DateTime dateTime) {
+  final month = dateTime.month.toString().padLeft(2, '0');
+  final day = dateTime.day.toString().padLeft(2, '0');
+  final hour = dateTime.hour.toString().padLeft(2, '0');
+  final minute = dateTime.minute.toString().padLeft(2, '0');
+  final second = dateTime.second.toString().padLeft(2, '0');
+  return '${dateTime.year}-$month-$day $hour:$minute:$second';
 }

@@ -21,8 +21,7 @@ void main() {
   final now = DateTime.parse('2026-05-02T10:00:00');
   late GoveeDailyCaptureModel oldCapture;
   late GoveeDailyCaptureModel newCapture;
-  late List<GoveeSpotCaptureModel> newSpots;
-  late List<GoveeSpotReadingModel> newReadings;
+  late List<GoveePlaceReadingModel> newReadings;
 
   setUpAll(() {
     registerFallbackValue(<String, Object?>{});
@@ -38,10 +37,10 @@ void main() {
       id: 'old-capture',
       customerId: 'customer-1',
       hatcheryId: 'hatchery-1',
+      stationKey: 'egg',
       place: TemperaturePlace.eggStorageRoom,
       captureDate: '2026-05-02',
       status: 'completed',
-      spotCount: 3,
       readingCount: 180,
       createdAt: now,
       updatedAt: now,
@@ -49,34 +48,18 @@ void main() {
     newCapture = oldCapture.copyWith(
       id: 'new-capture',
       tempAvg: 72.4,
+      tempSd: 1.23,
+      tempCvPct: 1.7,
       rhAvg: 56.8,
+      rhSd: 2.1,
+      rhCvPct: 3.7,
+      readingCount: 100,
       updatedAt: now.add(const Duration(minutes: 10)),
     );
-    newSpots = List.generate(3, (index) {
-      final spotIndex = index + 1;
-      return GoveeSpotCaptureModel(
-        id: 'spot-$spotIndex',
-        captureId: newCapture.id,
-        spotIndex: spotIndex,
-        spotLabel: 'Spot $spotIndex',
-        warmupStartedAt: now.add(Duration(minutes: index * 10)),
-        validStartedAt: now
-            .add(Duration(minutes: index * 10))
-            .add(const Duration(seconds: 60)),
-        validEndedAt: now
-            .add(Duration(minutes: index * 10))
-            .add(const Duration(seconds: 120)),
-        validDurationSeconds: 60,
-        readingCount: 60,
-        createdAt: now,
-        updatedAt: now,
-      );
-    });
-    newReadings = List.generate(60, (index) {
-      return GoveeSpotReadingModel(
+    newReadings = List.generate(100, (index) {
+      return GoveePlaceReadingModel(
         id: 'reading-$index',
         captureId: newCapture.id,
-        spotId: newSpots.first.id,
         readingIndex: index,
         recordedAt: now.add(Duration(seconds: index)),
         temperatureFahrenheit: 70 + (index / 10),
@@ -136,103 +119,133 @@ void main() {
     });
   });
 
-  test(
-    'saveReplacement replaces existing capture for same scope atomically',
-    () async {
-      when(
-        () => txn.query(
-          'govee_daily_captures',
-          where:
-              'customerId = ? AND hatcheryId = ? AND place = ? AND captureDate = ?',
-          whereArgs: [
-            newCapture.customerId,
-            newCapture.hatcheryId,
-            newCapture.place.name,
-            newCapture.captureDate,
-          ],
-          limit: 1,
-        ),
-      ).thenAnswer((_) async => [oldCapture.toMap()]);
-
-      await repository.saveReplacement(
-        capture: newCapture,
-        spots: newSpots,
-        readings: newReadings,
-      );
-
-      verify(() => db.transaction<void>(any())).called(1);
-      verify(
-        () => txn.delete(
-          'govee_daily_captures',
-          where: 'id = ?',
-          whereArgs: [oldCapture.id],
-        ),
-      ).called(1);
-      verify(
-        () => txn.insert(
-          'govee_daily_captures',
-          newCapture.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        ),
-      ).called(1);
-      verify(
-        () => txn.insert(
-          'govee_spot_captures',
-          newSpots.first.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        ),
-      ).called(1);
-      verify(
-        () => txn.insert(
-          'govee_spot_readings',
-          newReadings.first.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        ),
-      ).called(1);
-    },
-  );
-
-  test('getCaptureForScope queries one place date capture', () async {
+  test('saveReplacement writes only daily capture and place readings', () async {
     when(
-      () => db.query(
+      () => txn.query(
         'govee_daily_captures',
         where:
-            'customerId = ? AND hatcheryId = ? AND place = ? AND captureDate = ?',
+            'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
         whereArgs: [
-          'customer-1',
-          'hatchery-1',
-          TemperaturePlace.eggStorageRoom.name,
-          '2026-05-02',
+          newCapture.customerId,
+          newCapture.hatcheryId,
+          newCapture.place.name,
+          '',
+          newCapture.captureDate,
         ],
         limit: 1,
       ),
+    ).thenAnswer((_) async => [oldCapture.toMap()]);
+
+    await repository.saveReplacement(
+      capture: newCapture,
+      readings: newReadings,
+    );
+
+    verify(() => db.transaction<void>(any())).called(1);
+    verify(
+      () => txn.delete(
+        'govee_daily_captures',
+        where: 'id = ?',
+        whereArgs: [oldCapture.id],
+      ),
+    ).called(1);
+    verify(
+      () => txn.insert('govee_daily_captures', {
+        ...newCapture.toMap(),
+        'machineId': '',
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    ).called(1);
+    verifyNever(
+      () => txn.insert(
+        'govee_spot_captures',
+        any(),
+        conflictAlgorithm: any(named: 'conflictAlgorithm'),
+      ),
+    );
+    verifyNever(
+      () => txn.insert(
+        'govee_spot_readings',
+        any(),
+        conflictAlgorithm: any(named: 'conflictAlgorithm'),
+      ),
+    );
+    verify(
+      () => txn.insert(
+        'govee_place_readings',
+        newReadings.first.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      ),
+    ).called(1);
+  });
+
+  test(
+    'getCaptureForScope queries one machine-aware place date capture',
+    () async {
+      when(
+        () => db.query(
+          'govee_daily_captures',
+          where:
+              'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
+          whereArgs: [
+            'customer-1',
+            'hatchery-1',
+            TemperaturePlace.eggStorageRoom.name,
+            'setter-1',
+            '2026-05-02',
+          ],
+          limit: 1,
+        ),
+      ).thenAnswer((_) async => [newCapture.toMap()]);
+
+      final result = await repository.getCaptureForScope(
+        customerId: 'customer-1',
+        hatcheryId: 'hatchery-1',
+        stationKey: 'egg',
+        place: TemperaturePlace.eggStorageRoom,
+        machineId: 'setter-1',
+        captureDate: '2026-05-02',
+      );
+
+      expect(result, isNotNull);
+      expect(result!.id, newCapture.id);
+    },
+  );
+
+  test('getCapturesForDashboard queries date-scoped hatchery captures', () async {
+    when(
+      () => db.query(
+        'govee_daily_captures',
+        where: 'customerId = ? AND hatcheryId = ? AND captureDate = ?',
+        whereArgs: ['customer-1', 'hatchery-1', '2026-05-02'],
+        orderBy:
+            'captureDate DESC, stationKey ASC, place ASC, machineId ASC, updatedAt DESC',
+      ),
     ).thenAnswer((_) async => [newCapture.toMap()]);
 
-    final result = await repository.getCaptureForScope(
+    final result = await repository.getCapturesForDashboard(
       customerId: 'customer-1',
       hatcheryId: 'hatchery-1',
-      place: TemperaturePlace.eggStorageRoom,
       captureDate: '2026-05-02',
     );
 
-    expect(result, isNotNull);
-    expect(result!.id, newCapture.id);
+    expect(result, hasLength(1));
+    expect(result.single.id, newCapture.id);
   });
 
-  test('getReadingsForSpot returns ordered bucketed readings', () async {
+  test('getReadingsForCapture returns ordered place readings', () async {
     when(
       () => db.query(
-        'govee_spot_readings',
-        where: 'spotId = ?',
-        whereArgs: [newSpots.first.id],
-        orderBy: 'readingIndex ASC',
+        'govee_place_readings',
+        where: 'captureId = ?',
+        whereArgs: [newCapture.id],
+        orderBy: 'readingIndex ASC, recordedAt ASC',
       ),
     ).thenAnswer((_) async => newReadings.map((r) => r.toMap()).toList());
 
-    final result = await repository.getReadingsForSpot(newSpots.first.id);
+    final result = await repository.getReadingsForCapture(newCapture.id);
 
-    expect(result, hasLength(60));
+    expect(result, hasLength(100));
     expect(result.first.id, newReadings.first.id);
-    expect(result.last.readingIndex, 59);
+    expect(result.last.readingIndex, 99);
   });
 }

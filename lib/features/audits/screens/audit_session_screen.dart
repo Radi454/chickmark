@@ -132,7 +132,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final title = stationKey != null
         ? (AuditSessionProvider.stationDisplayLabels[stationKey] ?? 'Visit')
         : 'Visit';
-    return GradientAppBar(title: title, toolbarHeight: 88);
+    return GradientAppBar(title: title);
   }
 
   Widget _buildSavedOverlay() {
@@ -150,13 +150,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               return Transform.scale(
                 scale: value,
                 child: Container(
-                  width: 120,
-                  height: 120,
+                  width: 96,
+                  height: 96,
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppColors.completedText,
                   ),
-                  child: const Icon(Icons.check, color: Colors.white, size: 64),
+                  child: const Icon(Icons.check, color: Colors.white, size: 48),
                 ),
               );
             },
@@ -177,7 +177,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
     return Container(
       key: const ValueKey('audit-session-progress-shell'),
-      padding: const EdgeInsets.fromLTRB(32, 20, 32, 22),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       color: Colors.white,
       child: Row(
         children: List.generate(stationKeys.length, (index) {
@@ -198,8 +198,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     child: Column(
                       children: [
                         Container(
-                          width: 56,
-                          height: 56,
+                          width: 36,
+                          height: 36,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isReached
@@ -210,28 +210,30 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                             child: isReached
                                 ? const Icon(
                                     Icons.check,
-                                    size: 30,
+                                    size: 18,
                                     color: Colors.white,
                                   )
                                 : Text(
                                     '${index + 1}',
                                     style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 4),
                         Text(
                           _shortStationLabel(displayLabels[index]),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
+                          overflow: TextOverflow.visible,
+                          softWrap: true,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 11,
+                            height: 1.05,
                             fontWeight: isReached
-                                ? FontWeight.w800
+                                ? FontWeight.w700
                                 : FontWeight.w500,
                             color: isReached
                                 ? AppColors.completedText
@@ -246,8 +248,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 if (index < stationKeys.length - 1)
                   Expanded(
                     child: Container(
-                      height: 4,
-                      margin: const EdgeInsets.only(top: 28),
+                      height: 2,
+                      margin: const EdgeInsets.only(top: 18),
                       color: isReached
                           ? AppColors.completedText
                           : Colors.grey.shade300,
@@ -318,7 +320,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
     return Container(
       key: const ValueKey('audit-session-navigation-footer'),
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.94),
         boxShadow: [
@@ -344,11 +346,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                   foregroundColor: AppColors.primary,
                   side: const BorderSide(color: AppColors.primary),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
+                    horizontal: 14,
+                    vertical: 12,
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -375,17 +377,17 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                       ? 'Saving...'
                       : (isLast ? 'Save' : 'Next Station'),
                   style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(64),
-                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  minimumSize: const Size.fromHeight(52),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -423,10 +425,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           final goveeProvider = context.read<GoveeCaptureProvider>();
           final shell = ShellNavigationScope.maybeOf(context);
           final navigator = Navigator.of(context);
+          final machineId = _machineIdForStation(stationKey);
           await goveeProvider.configure(
             customerId: session.customerId,
             hatcheryId: session.hatcheryId,
             place: spot.place,
+            stationKey: stationKey,
+            machineId: machineId,
           );
           if (shell != null) {
             shell.switchTab(4);
@@ -441,6 +446,19 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         label: const Text('Govee readings'),
       ),
     );
+  }
+
+  String? _machineIdForStation(String stationKey) {
+    final stationProvider = _stationAuditProviders[stationKey];
+    if (stationProvider == null || stationProvider.drafts.isEmpty) {
+      return null;
+    }
+    final draft = stationProvider.activeDraft;
+    return switch (stationKey) {
+      'setters' => draft.setterId ?? draft.soSetterId,
+      'hatchers' => draft.hatcherId ?? draft.hoHatcherId,
+      _ => null,
+    };
   }
 
   Future<void> _handleBackNavigation(BuildContext context) async {

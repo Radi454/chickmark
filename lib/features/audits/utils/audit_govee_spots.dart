@@ -2,9 +2,14 @@ import '../../../data/models/temperature_rh_model.dart';
 
 class AuditGoveeSpot {
   final TemperaturePlace place;
+  final TemperaturePlace? insideMachinePlace;
   final String label;
 
-  const AuditGoveeSpot({required this.place, required this.label});
+  const AuditGoveeSpot({
+    required this.place,
+    required this.label,
+    this.insideMachinePlace,
+  });
 }
 
 AuditGoveeSpot? goveeSpotForStationKey(String stationKey) {
@@ -18,12 +23,14 @@ AuditGoveeSpot? goveeSpotForStationKey(String stationKey) {
       label: 'Chick holding area',
     ),
     'setters' => const AuditGoveeSpot(
-      place: TemperaturePlace.incubatorRoom,
-      label: 'Incubator room',
+      place: TemperaturePlace.setterRoom,
+      label: 'Setter room',
+      insideMachinePlace: TemperaturePlace.insideSetter,
     ),
     'hatchers' => const AuditGoveeSpot(
       place: TemperaturePlace.hatcherRoom,
       label: 'Hatcher room',
+      insideMachinePlace: TemperaturePlace.insideHatcher,
     ),
     _ => null,
   };

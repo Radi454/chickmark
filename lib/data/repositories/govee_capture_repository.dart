@@ -14,14 +14,22 @@ class GoveeCaptureRepository {
     required String customerId,
     required String hatcheryId,
     required TemperaturePlace place,
+    String? stationKey,
+    String? machineId,
     required String captureDate,
   }) async {
     final db = await _dbHelper.db;
     final rows = await db.query(
       'govee_daily_captures',
       where:
-          'customerId = ? AND hatcheryId = ? AND place = ? AND captureDate = ?',
-      whereArgs: [customerId, hatcheryId, place.name, captureDate],
+          'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
+      whereArgs: [
+        customerId,
+        hatcheryId,
+        place.name,
+        _storedMachineId(machineId),
+        captureDate,
+      ],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -30,19 +38,19 @@ class GoveeCaptureRepository {
 
   Future<void> saveReplacement({
     required GoveeDailyCaptureModel capture,
-    required List<GoveeSpotCaptureModel> spots,
-    required List<GoveeSpotReadingModel> readings,
+    required List<GoveePlaceReadingModel> readings,
   }) async {
     final db = await _dbHelper.db;
     await db.transaction<void>((txn) async {
       final existing = await txn.query(
         'govee_daily_captures',
         where:
-            'customerId = ? AND hatcheryId = ? AND place = ? AND captureDate = ?',
+            'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
         whereArgs: [
           capture.customerId,
           capture.hatcheryId,
           capture.place.name,
+          _storedMachineId(capture.machineId),
           capture.captureDate,
         ],
         limit: 1,
@@ -58,19 +66,12 @@ class GoveeCaptureRepository {
 
       await txn.insert(
         'govee_daily_captures',
-        capture.toMap(),
+        _captureToStorageMap(capture),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      for (final spot in spots) {
-        await txn.insert(
-          'govee_spot_captures',
-          spot.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
       for (final reading in readings) {
         await txn.insert(
-          'govee_spot_readings',
+          'govee_place_readings',
           reading.toMap(),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -94,46 +95,23 @@ class GoveeCaptureRepository {
       'govee_daily_captures',
       where: where.toString(),
       whereArgs: whereArgs,
-      orderBy: 'captureDate DESC, updatedAt DESC',
+      orderBy:
+          'captureDate DESC, stationKey ASC, place ASC, machineId ASC, updatedAt DESC',
     );
     return rows.map(GoveeDailyCaptureModel.fromMap).toList();
   }
 
-  Future<List<GoveeSpotCaptureModel>> getSpotsForCapture(
+  Future<List<GoveePlaceReadingModel>> getReadingsForCapture(
     String captureId,
   ) async {
     final db = await _dbHelper.db;
     final rows = await db.query(
-      'govee_spot_captures',
+      'govee_place_readings',
       where: 'captureId = ?',
       whereArgs: [captureId],
-      orderBy: 'spotIndex ASC',
+      orderBy: 'readingIndex ASC, recordedAt ASC',
     );
-    return rows.map(GoveeSpotCaptureModel.fromMap).toList();
-  }
-
-  Future<List<GoveeSpotReadingModel>> getReadingsForCapture(
-    String captureId,
-  ) async {
-    final db = await _dbHelper.db;
-    final rows = await db.query(
-      'govee_spot_readings',
-      where: 'captureId = ?',
-      whereArgs: [captureId],
-      orderBy: 'spotId ASC, readingIndex ASC',
-    );
-    return rows.map(GoveeSpotReadingModel.fromMap).toList();
-  }
-
-  Future<List<GoveeSpotReadingModel>> getReadingsForSpot(String spotId) async {
-    final db = await _dbHelper.db;
-    final rows = await db.query(
-      'govee_spot_readings',
-      where: 'spotId = ?',
-      whereArgs: [spotId],
-      orderBy: 'readingIndex ASC',
-    );
-    return rows.map(GoveeSpotReadingModel.fromMap).toList();
+    return rows.map(GoveePlaceReadingModel.fromMap).toList();
   }
 
   Future<List<GoveeDailyCaptureModel>> getAllCaptures() async {
@@ -145,22 +123,13 @@ class GoveeCaptureRepository {
     return rows.map(GoveeDailyCaptureModel.fromMap).toList();
   }
 
-  Future<List<GoveeSpotCaptureModel>> getAllSpots() async {
+  Future<List<GoveePlaceReadingModel>> getAllReadings() async {
     final db = await _dbHelper.db;
     final rows = await db.query(
-      'govee_spot_captures',
-      orderBy: 'captureId ASC, spotIndex ASC',
+      'govee_place_readings',
+      orderBy: 'captureId ASC, readingIndex ASC',
     );
-    return rows.map(GoveeSpotCaptureModel.fromMap).toList();
-  }
-
-  Future<List<GoveeSpotReadingModel>> getAllReadings() async {
-    final db = await _dbHelper.db;
-    final rows = await db.query(
-      'govee_spot_readings',
-      orderBy: 'captureId ASC, spotId ASC, readingIndex ASC',
-    );
-    return rows.map(GoveeSpotReadingModel.fromMap).toList();
+    return rows.map(GoveePlaceReadingModel.fromMap).toList();
   }
 
   Future<void> upsertCaptureRow(Map<String, dynamic> row) async {
@@ -168,14 +137,9 @@ class GoveeCaptureRepository {
     await _upsertFilteredRow(db, 'govee_daily_captures', row);
   }
 
-  Future<void> upsertSpotRow(Map<String, dynamic> row) async {
-    final db = await _dbHelper.db;
-    await _upsertFilteredRow(db, 'govee_spot_captures', row);
-  }
-
   Future<void> upsertReadingRow(Map<String, dynamic> row) async {
     final db = await _dbHelper.db;
-    await _upsertFilteredRow(db, 'govee_spot_readings', row);
+    await _upsertFilteredRow(db, 'govee_place_readings', row);
   }
 
   Future<void> _upsertFilteredRow(
@@ -184,10 +148,13 @@ class GoveeCaptureRepository {
     Map<String, dynamic> row,
   ) async {
     final columns = await _tableColumns(db, table);
-    final normalized = _filterColumns(_normalizeRow(row), columns);
+    final normalized = _normalizeRow(row);
+    if (table == 'govee_daily_captures') {
+      _normalizeCaptureStorageRow(normalized);
+    }
     await db.insert(
       table,
-      normalized,
+      _filterColumns(normalized, columns),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -211,6 +178,22 @@ class GoveeCaptureRepository {
     for (final entry in row.entries) {
       normalized[_camelize(entry.key)] = entry.value;
     }
+    if (normalized.containsKey('place')) {
+      normalized['place'] = temperaturePlaceFromName(
+        normalized['place'] as String?,
+      ).name;
+    }
+    if (normalized.containsKey('activePlace')) {
+      normalized['activePlace'] = temperaturePlaceFromName(
+        normalized['activePlace'] as String?,
+      ).name;
+    }
+    if (normalized.containsKey('machineId')) {
+      normalized['machineId'] = _storedMachineId(normalized['machineId']);
+    }
+    if (normalized.containsKey('stationKey')) {
+      normalized['stationKey'] = '${normalized['stationKey'] ?? ''}'.trim();
+    }
     return normalized;
   }
 
@@ -222,5 +205,26 @@ class GoveeCaptureRepository {
           if (part.isEmpty) return part;
           return part[0].toUpperCase() + part.substring(1);
         }).join();
+  }
+
+  Map<String, dynamic> _captureToStorageMap(GoveeDailyCaptureModel capture) {
+    final row = capture.toMap();
+    _normalizeCaptureStorageRow(row);
+    return row;
+  }
+
+  void _normalizeCaptureStorageRow(Map<String, dynamic> row) {
+    final place = temperaturePlaceFromName(row['place'] as String?);
+    row['place'] = place.name;
+    final stationKey = '${row['stationKey'] ?? ''}'.trim();
+    row['stationKey'] = stationKey.isEmpty
+        ? goveeStationKeyForTemperaturePlace(place)
+        : stationKey;
+    row['machineId'] = _storedMachineId(row['machineId']);
+  }
+
+  String _storedMachineId(Object? machineId) {
+    if (machineId == null) return '';
+    return machineId.toString().trim();
   }
 }

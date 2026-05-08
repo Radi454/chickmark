@@ -16,11 +16,19 @@ void main() {
       );
       expect(
         goveeSpotForStationKey('setters')?.place,
-        TemperaturePlace.incubatorRoom,
+        TemperaturePlace.setterRoom,
+      );
+      expect(
+        goveeSpotForStationKey('setters')?.insideMachinePlace,
+        TemperaturePlace.insideSetter,
       );
       expect(
         goveeSpotForStationKey('hatchers')?.place,
         TemperaturePlace.hatcherRoom,
+      );
+      expect(
+        goveeSpotForStationKey('hatchers')?.insideMachinePlace,
+        TemperaturePlace.insideHatcher,
       );
     });
 

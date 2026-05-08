@@ -3,8 +3,10 @@ import '../../../data/models/temperature_rh_model.dart';
 const List<TemperaturePlace> goveePlaceFlow = [
   TemperaturePlace.eggStorageRoom,
   TemperaturePlace.chickHoldingArea,
-  TemperaturePlace.incubatorRoom,
+  TemperaturePlace.setterRoom,
+  TemperaturePlace.insideSetter,
   TemperaturePlace.hatcherRoom,
+  TemperaturePlace.insideHatcher,
 ];
 
 TemperaturePlace? nextGoveePlace(TemperaturePlace place) {
