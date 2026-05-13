@@ -302,49 +302,47 @@ class _AuditStationSelectionScreenState
   }
 
   Future<void> _handleStartVisit() async {
+    if (_isStarting) return;
     setState(() => _isStarting = true);
 
     final sessionProvider = context.read<AuditSessionProvider>();
 
-    await sessionProvider.startSession(
-      context: AuditSessionContext(
-        customerId: widget.customerId,
-        hatcheryId: widget.hatcheryId,
-        flockId: widget.flockId,
-        date: DateTime.now(),
-        breed: widget.selectedFlock.breed,
-        flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
-        selectedStationKeys: _orderedSelectedKeys,
-      ),
-      currentUser: context.read<AuthProvider>().user,
-    );
-
-    if (!mounted) {
-      setState(() => _isStarting = false);
-      return;
-    }
-
-    if (sessionProvider.error != null) {
-      setState(() => _isStarting = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
-      return;
-    }
-
-    if (!mounted) {
-      setState(() => _isStarting = false);
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChangeNotifierProvider.value(
-          value: sessionProvider,
-          child: const AuditSessionScreen(),
+    try {
+      await sessionProvider.startSession(
+        context: AuditSessionContext(
+          customerId: widget.customerId,
+          hatcheryId: widget.hatcheryId,
+          flockId: widget.flockId,
+          date: DateTime.now(),
+          breed: widget.selectedFlock.breed,
+          flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
+          selectedStationKeys: _orderedSelectedKeys,
         ),
-      ),
-    );
+        currentUser: context.read<AuthProvider>().user,
+      );
+
+      if (!mounted) return;
+
+      if (sessionProvider.error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
+        return;
+      }
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChangeNotifierProvider.value(
+            value: sessionProvider,
+            child: const AuditSessionScreen(),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isStarting = false);
+      }
+    }
   }
 }

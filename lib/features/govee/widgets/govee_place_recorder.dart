@@ -64,22 +64,32 @@ class GoveePlaceRecorder extends StatelessWidget {
               ),
             ),
           ],
-          if (provider.phase == GoveeCapturePhase.syncFailed &&
+          if ((provider.phase == GoveeCapturePhase.syncFailed ||
+                  provider.phase == GoveeCapturePhase.saveFailed) &&
               (provider.syncFailureDetails != null ||
                   provider.syncFailureDiagnostics.isNotEmpty)) ...[
             const SizedBox(height: 12),
             _SyncDiagnostics(provider: provider),
           ],
           const SizedBox(height: 14),
-          if (provider.phase == GoveeCapturePhase.syncFailed)
+          if (provider.phase == GoveeCapturePhase.syncFailed ||
+              provider.phase == GoveeCapturePhase.saveFailed)
             FilledButton.icon(
               onPressed: provider.canStopRecording
                   ? () => context
                         .read<GoveeCaptureProvider>()
                         .stopAndSavePlaceCapture()
                   : null,
-              icon: const Icon(Icons.sync),
-              label: const Text('Retry sync'),
+              icon: Icon(
+                provider.phase == GoveeCapturePhase.saveFailed
+                    ? Icons.save_outlined
+                    : Icons.sync,
+              ),
+              label: Text(
+                provider.phase == GoveeCapturePhase.saveFailed
+                    ? 'Retry save'
+                    : 'Retry sync',
+              ),
             )
           else
             Row(
@@ -120,6 +130,7 @@ class GoveePlaceRecorder extends StatelessWidget {
       GoveeCapturePhase.syncing => 'Syncing Govee history',
       GoveeCapturePhase.syncFailed => 'History sync failed',
       GoveeCapturePhase.saving => 'Saving place capture',
+      GoveeCapturePhase.saveFailed => 'Save failed',
       GoveeCapturePhase.saved => 'Place capture saved',
       _ => 'Place recorder',
     };
@@ -272,26 +283,20 @@ class _RecordingState extends StatelessWidget {
   }
 
   String _stateText(GoveeCapturePhase phase) {
-    final elapsed = _durationText(provider.recordingElapsedSeconds);
     return switch (phase) {
       GoveeCapturePhase.validRecording =>
-        'Recording length $elapsed. Live readings are preview only. Stop will sync the full Govee history window.',
+        'Live readings are preview only. Stop will sync the full Govee history window.',
       GoveeCapturePhase.syncing =>
         'Syncing saved history from the Govee device.',
       GoveeCapturePhase.syncFailed =>
         'Reconnect and retry this place recording.',
       GoveeCapturePhase.saving =>
         'Saving LTTB chart points and full summary stats.',
+      GoveeCapturePhase.saveFailed =>
+        'Retry save using the synced Govee history already captured.',
       GoveeCapturePhase.saved => 'Saved. Choose another place when ready.',
       _ =>
         'Start once for this place, then stop when the place window is complete.',
     };
-  }
-
-  String _durationText(int totalSeconds) {
-    final safeSeconds = totalSeconds < 0 ? 0 : totalSeconds;
-    final minutes = (safeSeconds ~/ 60).toString().padLeft(2, '0');
-    final seconds = (safeSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
   }
 }

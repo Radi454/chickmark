@@ -84,8 +84,8 @@ void main() {
     });
     expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
     expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'Sample 1',
-      'Sample 2',
+      'M1',
+      'M2',
     ]);
   });
 
@@ -140,8 +140,8 @@ void main() {
       provider.drafts.first.compareGroupKey,
     });
     expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'Sample 1',
-      'Sample 2',
+      'M1',
+      'M2',
     ]);
   });
 
@@ -193,6 +193,141 @@ void main() {
       'House 3',
     ]);
   });
+
+  test('setter comparison samples are labeled by setter number', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Setters',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        setterId: '5',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.addSample();
+    provider.updateField('setterId', '7');
+    provider.updateField('soSetterId', '7');
+
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeMachine,
+      StationSampleModel.comparisonTypeMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindMachine,
+      StationSampleModel.sampleKindMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'S5',
+      'S7',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.setterNo), [
+      '5',
+      '7',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.groupLabel), [
+      'Setter comparison',
+      'Setter comparison',
+    ]);
+    expect(provider.drafts.map((draft) => draft.setterId), ['5', '7']);
+    expect(provider.drafts.map((draft) => draft.soSetterId), ['5', '7']);
+  });
+
+  test(
+    'chick quality samples stay machine scoped while weights use houses',
+    () {
+      final provider = AuditProvider();
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          setterId: 'S-1',
+          hatcherId: 'H-1',
+          date: '2026-04-27',
+        ),
+        notify: false,
+      );
+
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.addSample();
+      provider.updateSampleMetadata({'setterNo': 'S-2', 'hatcherNo': 'H-2'});
+      provider.setChickWeightSampleMode(
+        StationSampleModel.sampleModeComparison,
+      );
+      provider.addChickWeightSample();
+
+      expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+        StationSampleModel.comparisonTypeMachine,
+        StationSampleModel.comparisonTypeMachine,
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+        'M1',
+        'M2',
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.groupLabel), [
+        'Machine comparison',
+        'Machine comparison',
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.sectorType), [
+        StationSampleModel.sectorChickQuality,
+        StationSampleModel.sectorChickQuality,
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+        StationSampleModel.sampleKindMachine,
+        StationSampleModel.sampleKindMachine,
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.setterNo), [
+        'S-1',
+        'S-2',
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
+        'H-1',
+        'H-2',
+      ]);
+      expect(provider.activeDraft.setterId, 'S-2');
+      expect(provider.activeDraft.hatcherId, 'H-2');
+
+      expect(
+        provider.chickWeightSamples.map((sample) => sample.comparisonType),
+        [
+          StationSampleModel.comparisonTypeHouse,
+          StationSampleModel.comparisonTypeHouse,
+        ],
+      );
+      expect(provider.chickWeightSamples.map((sample) => sample.sampleLabel), [
+        'H1',
+        'H2',
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.groupLabel), [
+        'House comparison',
+        'House comparison',
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.sectorType), [
+        StationSampleModel.sectorChickWeights,
+        StationSampleModel.sectorChickWeights,
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.sampleKind), [
+        StationSampleModel.sampleKindHouse,
+        StationSampleModel.sampleKindHouse,
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.houseNo), [
+        'H1',
+        'H2',
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.setterNo), [
+        null,
+        null,
+      ]);
+      expect(provider.chickWeightSamples.map((sample) => sample.hatcherNo), [
+        null,
+        null,
+      ]);
+    },
+  );
 
   test('removing egg storage house samples keeps house labels sequential', () {
     final provider = AuditProvider();

@@ -26,6 +26,7 @@ import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
 import '../models/est_guided_capture_state.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
+import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
@@ -90,6 +91,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   final AuditRepository _auditRepository = AuditRepository();
   final PhotoRepository _photoRepository = PhotoRepository();
   final GlobalKey<InlineCameraCaptureState> _estCameraKey = GlobalKey();
+  final FocusNode _storageDaysFocusNode = FocusNode();
   final TextEditingController _estGuidedValueController =
       TextEditingController();
   final TextEditingController _storageDaysController = TextEditingController();
@@ -131,6 +133,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         _estFocusNodes[key] = FocusNode();
       }
     }
+    _storageDaysFocusNode.addListener(_handleStorageDaysFocusChange);
     final auditProvider = Provider.of<AuditProvider>(context, listen: false);
     final auditContext = AuditContext(
       auditType: widget.context.auditType,
@@ -199,7 +202,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     _coolerProximity = null;
     _condensation = null;
     _bmkEggWeight = null;
-    _storageDaysController.text = _formatNumber(audit.esEggStorageDays);
+    _storageDaysController.text = _formatNumber(audit.esEggStorageDays ?? 0);
     _loadEstGrid(audit.esEstReadingsJson);
     _loadEstPhotos(audit.esEstPhotosJson);
     _estAvgController.text = audit.esEstAvg != null
@@ -308,6 +311,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     _discardUnconfirmedEstPhoto(_estCaptureState);
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
+    _storageDaysFocusNode
+      ..removeListener(_handleStorageDaysFocusChange)
+      ..dispose();
     _estGuidedValueController.dispose();
     _storageDaysController.dispose();
     for (final controller in _estControllers.values) {
@@ -351,6 +357,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             : GradientAppBar(
                 title: AuditTypeLabels.eggStationLabel,
                 actions: [
+                  const AuditAutosaveStatus(onDark: true),
                   if (auditProvider.isReadOnly)
                     IconButton(
                       icon: const Icon(Icons.edit),
@@ -663,6 +670,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       children: [
         AuditNumericField(
           controller: _storageDaysController,
+          focusNode: _storageDaysFocusNode,
           enabled: !auditProvider.isReadOnly,
           decoration: InputDecoration(
             labelText: 'Storage Days',
@@ -673,11 +681,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           ),
           onChanged: (value) {
-            final days = int.tryParse(value);
-            auditProvider.updateField('esEggStorageDays', days);
-            unawaited(_syncEggStorageBmk(auditProvider, days));
-            _updateEstCalculations(auditProvider);
-            setState(() {});
+            _applyStorageDaysChange(auditProvider, value);
           },
         ),
         const SizedBox(height: 12),
@@ -759,6 +763,32 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
+  void _handleStorageDaysFocusChange() {
+    if (!mounted) return;
+    final auditProvider = context.read<AuditProvider>();
+    if (auditProvider.isReadOnly) return;
+
+    if (_storageDaysFocusNode.hasFocus) {
+      if (_storageDaysController.text.trim() == '0') {
+        _storageDaysController.clear();
+      }
+      return;
+    }
+
+    if (_storageDaysController.text.trim().isEmpty) {
+      _storageDaysController.text = '0';
+      _applyStorageDaysChange(auditProvider, '0');
+    }
+  }
+
+  void _applyStorageDaysChange(AuditProvider auditProvider, String value) {
+    final days = int.tryParse(value);
+    auditProvider.updateField('esEggStorageDays', days);
+    unawaited(_syncEggStorageBmk(auditProvider, days));
+    _updateEstCalculations(auditProvider);
+    if (mounted) setState(() {});
+  }
+
   Widget _buildUvTraySection(AuditProvider auditProvider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -808,15 +838,14 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       cardKey: _sectionKeys[3],
       mark: 'EQ',
       icon: Icons.monitor_weight_outlined,
-      title: 'Egg Quality Assessment',
-      meta: '',
+      title: 'Egg Quality',
+      meta: 'Sampling scope and 100-egg uniformity',
       statusLabel: qualityStatus.label,
       statusColor: qualityStatus.color,
-      showHeader: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildEggQualityContext(qualityStatus, auditProvider),
+          _buildEggQualityContext(auditProvider),
           const SizedBox(height: 12),
           _buildEggSampleControls(auditProvider),
           const SizedBox(height: 12),
@@ -826,10 +855,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
-  Widget _buildEggQualityContext(
-    _PanelStatus status,
-    AuditProvider auditProvider,
-  ) {
+  Widget _buildEggQualityContext(AuditProvider auditProvider) {
     final storageDays = int.tryParse(_storageDaysController.text);
     final activeDraft = auditProvider.activeDraft;
     final bmkAge =
@@ -837,10 +863,11 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: AppColors.brandGradient,
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -848,21 +875,39 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.infoBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.monitor_weight_outlined,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Egg Quality Assessment',
+                      'Sample setup',
                       style: AppTextStyles.title.copyWith(
-                        color: Colors.white,
                         fontWeight: FontWeight.w800,
                       ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Flock context and benchmark age',
+                      style: AppTextStyles.caption,
                     ),
                   ],
                 ),
               ),
-              _buildStatusPill(status.label, Colors.white),
             ],
           ),
           const SizedBox(height: 12),
@@ -889,9 +934,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(35),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withAlpha(45)),
+          border: Border.all(color: AppColors.borderDefault),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -900,7 +945,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             Text(
               label.toUpperCase(),
               style: AppTextStyles.caption.copyWith(
-                color: Colors.white.withAlpha(190),
+                color: AppColors.textSecondary,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -909,7 +954,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
               value,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.body.copyWith(
-                color: Colors.white,
+                color: AppColors.textPrimary,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -924,26 +969,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSampleControlCard(
-          title: 'Egg Sample Mode',
-          note: 'Choose one sample or compare houses',
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildModeChip(
-                label: 'Single Sample',
-                selected: !auditProvider.isCompareMode,
-                enabled: !auditProvider.isReadOnly,
-                onSelected: () => _setEggSampleMode(auditProvider, false),
-              ),
-              _buildModeChip(
-                label: 'Multi House Samples',
-                selected: auditProvider.isCompareMode,
-                enabled: !auditProvider.isReadOnly,
-                onSelected: () => _setEggSampleMode(auditProvider, true),
-              ),
-            ],
-          ),
+          title: 'Sampling scope',
+          note: 'Record one house or compare houses',
+          child: _buildSamplingScopeSelector(auditProvider),
         ),
         if (auditProvider.isCompareMode) ...[
           const SizedBox(height: 10),
@@ -1001,26 +1029,47 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     );
   }
 
-  Widget _buildModeChip({
-    required String label,
-    required bool selected,
-    required bool enabled,
-    required VoidCallback onSelected,
-  }) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: enabled ? (_) => onSelected() : null,
-      selectedColor: AppColors.primary.withAlpha(30),
-      checkmarkColor: AppColors.primary,
-      labelStyle: AppTextStyles.body.copyWith(
-        color: selected ? AppColors.primary : AppColors.textBody,
-        fontWeight: FontWeight.w700,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: selected ? AppColors.primary : AppColors.borderDefault,
+  Widget _buildSamplingScopeSelector(AuditProvider auditProvider) {
+    return SizedBox(
+      width: double.infinity,
+      child: SegmentedButton<bool>(
+        showSelectedIcon: true,
+        segments: const [
+          ButtonSegment<bool>(
+            value: false,
+            icon: Icon(Icons.home_work_outlined),
+            label: Text('One house'),
+          ),
+          ButtonSegment<bool>(
+            value: true,
+            icon: Icon(Icons.compare_arrows),
+            label: Text('Compare houses'),
+          ),
+        ],
+        selected: {auditProvider.isCompareMode},
+        onSelectionChanged: auditProvider.isReadOnly
+            ? null
+            : (values) {
+                final compare = values.first;
+                if (compare == auditProvider.isCompareMode) return;
+                _setEggSampleMode(auditProvider, compare);
+              },
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          side: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return BorderSide(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+            );
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            return states.contains(WidgetState.selected)
+                ? AppColors.primary
+                : AppColors.textBody;
+          }),
+          textStyle: WidgetStateProperty.all(
+            AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+          ),
         ),
       ),
     );
@@ -1788,14 +1837,21 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   Widget _summCard(String label, String value, Color color) => Container(
     padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
-      color: color.withAlpha(25),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: color),
+      color: color.withAlpha(18),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withAlpha(90)),
     ),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
+        Text(
+          label,
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w700,
+          ),
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 4),
         FittedBox(
           fit: BoxFit.scaleDown,
@@ -1803,7 +1859,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             value,
             maxLines: 1,
             style: AppTextStyles.body.copyWith(
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w800,
               color: color,
             ),
           ),
@@ -2817,10 +2873,11 @@ class _UvTray {
 
   double get affectedPct => totalEggs == null || totalEggs == 0
       ? 0.0
-      : affectedCount / totalEggs! * 100;
+      : CalculationUtils.percentOf(affectedCount, totalEggs) ?? 0.0;
 
-  double get upsideDownPct =>
-      totalEggs == null || totalEggs == 0 ? 0.0 : upsideDown / totalEggs! * 100;
+  double get upsideDownPct => totalEggs == null || totalEggs == 0
+      ? 0.0
+      : CalculationUtils.percentOf(upsideDown, totalEggs) ?? 0.0;
 
   Map<String, dynamic> toMap() => {
     'totalEggs': totalEggs,

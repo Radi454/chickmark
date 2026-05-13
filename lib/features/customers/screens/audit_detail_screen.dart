@@ -328,11 +328,7 @@ class AuditDetailScreen extends StatelessWidget {
         title: 'Environment',
         icon: Icons.sensors,
         sectionIndex: 1,
-        metrics: [
-          _metric('Govee temp', _celsius(audit.soGoveeTemp)),
-          _metric('Humidity', _percent(audit.soGoveeHumidity)),
-          _metric('CO2', _ppm(audit.soCo2)),
-        ],
+        metrics: [_metric('CO2', _ppm(audit.soCo2))],
       ),
       _section(
         title: 'Egg Shell Temperature',
@@ -363,11 +359,7 @@ class AuditDetailScreen extends StatelessWidget {
         title: 'Environment',
         icon: Icons.sensors,
         sectionIndex: 1,
-        metrics: [
-          _metric('Govee temp', _celsius(audit.hoGoveeTemp)),
-          _metric('Humidity', _percent(audit.hoGoveeHumidity)),
-          _metric('CO2', _ppm(audit.hoCo2)),
-        ],
+        metrics: [_metric('CO2', _ppm(audit.hoCo2))],
       ),
       _section(
         title: 'Chick Vent Temperature',

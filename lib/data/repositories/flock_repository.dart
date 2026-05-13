@@ -1,17 +1,15 @@
 import '../models/flock_model.dart';
 import '../database/database_helper.dart';
 import 'package:sqflite/sqflite.dart';
+import 'sync_tombstone_repository.dart';
 
 class FlockRepository {
   final dbHelper = DatabaseHelper();
 
   Future<void> insertFlock(FlockModel flock) async {
+    await dbHelper.assertForeignKeys(customerId: flock.customerId);
     final db = await dbHelper.db;
-    await db.insert(
-      'flocks',
-      flock.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _upsertById(db, 'flocks', flock.toMap());
   }
 
   Future<List<FlockModel>> getFlocksByCustomer(String customerId) async {
@@ -51,23 +49,53 @@ class FlockRepository {
 
   Future<void> deleteFlock(String id) async {
     final db = await dbHelper.db;
-    await db.delete('flocks', where: 'id = ?', whereArgs: [id]);
+    await db.transaction<void>((txn) async {
+      await SyncTombstoneRepository.queueDeleteWithExecutor(txn, 'flocks', id);
+      await txn.delete('flocks', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<void> deleteFlocksByCustomer(String customerId) async {
     final db = await dbHelper.db;
-    await db.delete('flocks', where: 'customerId = ?', whereArgs: [customerId]);
+    await db.transaction<void>((txn) async {
+      final rows = await txn.query(
+        'flocks',
+        columns: ['id'],
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'flocks',
+        rows.map((row) => row['id']),
+      );
+      await txn.delete(
+        'flocks',
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+      );
+    });
   }
 
   Future<void> upsertFlock(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'flocks');
     final normalized = _filterColumns(_normalizeFlockRow(row), columns);
-    await db.insert(
-      'flocks',
-      normalized,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await _upsertById(db, 'flocks', normalized);
+  }
+
+  Future<void> _upsertById(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final inserted = await db.insert(
+      table,
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    if (inserted != 0) return;
+    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
   Future<Set<String>> _tableColumns(Database db, String table) async {

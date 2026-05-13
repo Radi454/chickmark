@@ -64,14 +64,22 @@ void main() {
         'early48h',
         'early72hBloodRing',
       ]);
-      expect(
-        EggBreakoutType.candledEggBreakout.countFields.map((f) => f.key),
-        containsAll(['infertile', 'early24h', 'blackEye', 'midDead']),
-      );
-      expect(
-        EggBreakoutType.residueHatchDay.countFields.map((f) => f.key),
-        containsAll(['infertile', 'lateDead', 'externalPip', 'malposition']),
-      );
+      expect(EggBreakoutType.candledEggBreakout.countFields.map((f) => f.key), [
+        'infertile',
+        'early24h',
+        'early48h',
+        'early72hBloodRing',
+        'blackEye',
+      ]);
+      expect(EggBreakoutType.residueHatchDay.countFields.map((f) => f.key), [
+        'infertile',
+        'earlyDead',
+        'midDead',
+        'lateDead',
+        'externalPip',
+        'cracked',
+        'contaminated',
+      ]);
     });
   });
 
@@ -88,6 +96,17 @@ void main() {
       expect(sample.sampleMode, EggBreakoutSampleMode.tray);
       expect(sample.totalSample, 150);
       expect(sample.percentageFor('infertile'), 10);
+    });
+
+    test('rejects impossible count percentages above sample total', () {
+      final sample = EggBreakoutSampleEntry.tray(
+        id: 'sample-1',
+        label: 'Tray 1',
+        traySize: 150,
+        counts: {'infertile': 151},
+      );
+
+      expect(sample.percentageFor('infertile'), isNull);
     });
 
     test('calculates pool sample totals and percentages', () {
@@ -150,6 +169,18 @@ void main() {
       expect(restored.last.numberOfTrays, 3);
       expect(restored.last.totalSample, 450);
       expect(restored.last.counts['blackEye'], 4);
+    });
+
+    test('does not default cleaned residue count fields to zero', () {
+      final sample = EggBreakoutSampleEntry.fromJson({
+        'id': 'tray-1',
+        'sampleMode': 'tray',
+        'breakoutType': 'residueHatchDay',
+        'counts': {'earlyDead': 0, 'early24h': 0},
+      }, index: 1);
+
+      expect(sample.counts.containsKey('earlyDead'), isFalse);
+      expect(sample.counts.containsKey('early24h'), isFalse);
     });
   });
 }

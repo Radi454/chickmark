@@ -7,7 +7,9 @@ import 'package:uuid/uuid.dart';
 import '../../../data/models/govee_capture_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../data/repositories/govee_capture_repository.dart';
+import '../../../core/utils/calculation_utils.dart';
 import '../../../services/govee/govee_service.dart';
+import '../../dashboard/models/govee_capture_summary.dart';
 import '../../temperature/services/lttb_downsampler.dart';
 import '../utils/govee_place_flow.dart';
 
@@ -17,18 +19,19 @@ enum GoveeCapturePhase {
   syncing,
   syncFailed,
   saving,
+  saveFailed,
   saved,
 }
 
 enum GoveeCaptureTarget { room, insideMachine }
 
 class GoveeCaptureProvider extends ChangeNotifier {
-  static const Duration _historyReadingBucketDuration = Duration(minutes: 1);
+  static const Duration warmupDuration = Duration(seconds: 60);
+  static const int maxLivePreviewReadings = 500;
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
   final DateTime Function() _clock;
-  final bool _enablePhaseTimer;
   final Uuid _uuid = const Uuid();
 
   String? _customerId;
@@ -41,16 +44,20 @@ class GoveeCaptureProvider extends ChangeNotifier {
   GoveeDailyCaptureModel? _existingCapture;
   GoveeDailyCaptureModel? _finishedCapture;
   List<GoveePlaceReadingModel> _finishedReadings = const [];
+  List<GoveeCaptureSummary> _savedSummaries = const [];
+  String? _selectedSavedCaptureId;
   GoveeCapturePhase _phase = GoveeCapturePhase.idle;
   DateTime? _recordingStartedAt;
   DateTime? _failedRecordingStartedAt;
   DateTime? _failedRecordingEndedAt;
+  DateTime? _pendingSaveStartedAt;
+  DateTime? _pendingSaveEndedAt;
+  List<GoveeSensorReading> _pendingSaveReadings = const [];
   String? _error;
   String? _syncFailureDetails;
   List<String> _syncFailureDiagnostics = const [];
   TemperaturePlace? _suggestedNextPlace;
   bool _goveeListenersAttached = false;
-  Timer? _phaseTimer;
   StreamSubscription<GoveeSensorReading>? _liveSubscription;
   final List<GoveeSensorReading> _liveRecordingReadings = [];
 
@@ -61,8 +68,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     bool enablePhaseTimer = true,
   }) : _repository = repository ?? GoveeCaptureRepository(),
        _goveeService = goveeService ?? GoveeService(),
-       _clock = clock ?? DateTime.now,
-       _enablePhaseTimer = enablePhaseTimer;
+       _clock = clock ?? DateTime.now;
 
   String? get customerId => _customerId;
   String? get hatcheryId => _hatcheryId;
@@ -93,6 +99,18 @@ class GoveeCaptureProvider extends ChangeNotifier {
   GoveeDailyCaptureModel? get finishedCapture => _finishedCapture;
   List<GoveePlaceReadingModel> get finishedReadings =>
       List.unmodifiable(_finishedReadings);
+  List<GoveeCaptureSummary> get savedSummaries =>
+      List.unmodifiable(_savedSummaries);
+  GoveeCaptureSummary? get selectedSavedSummary {
+    final selectedId = _selectedSavedCaptureId;
+    if (selectedId != null) {
+      for (final summary in _savedSummaries) {
+        if (summary.capture.id == selectedId) return summary;
+      }
+    }
+    return _savedSummaries.isEmpty ? null : _savedSummaries.first;
+  }
+
   bool get hasExistingCapture => _existingCapture != null;
   String? get error => _error;
   String? get syncFailureDetails => _syncFailureDetails;
@@ -101,16 +119,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
   TemperaturePlace? get suggestedNextPlace => _suggestedNextPlace;
   GoveeCapturePhase get phase => _phase;
   bool get isRecording => _phase == GoveeCapturePhase.validRecording;
-  int get recordingElapsedSeconds {
-    final startedAt = _recordingStartedAt;
-    if (_phase != GoveeCapturePhase.validRecording || startedAt == null) {
-      return 0;
-    }
-    final elapsed = _clock().difference(startedAt);
-    if (elapsed.isNegative) return 0;
-    return elapsed.inSeconds;
-  }
-
   bool get canStartRecording =>
       _customerId != null &&
       _hatcheryId != null &&
@@ -118,8 +126,9 @@ class GoveeCaptureProvider extends ChangeNotifier {
       _captureDate != null &&
       (_phase == GoveeCapturePhase.idle || _phase == GoveeCapturePhase.saved);
   bool get canStopRecording =>
+      isRecording ||
       _phase == GoveeCapturePhase.syncFailed ||
-      _phase == GoveeCapturePhase.validRecording;
+      _phase == GoveeCapturePhase.saveFailed;
   bool get isBleAvailable => _goveeService.isAvailable;
   bool get isSensorConnected => _goveeService.isConnected;
   bool get isGattConnected => _goveeService.isGattConnected;
@@ -147,7 +156,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
     GoveeCaptureTarget captureTarget = GoveeCaptureTarget.room,
   }) async {
     _customerId = customerId;
-    _stopPhaseTimer();
     _hatcheryId = hatcheryId;
     final resolvedStationKey = stationKey?.trim().isNotEmpty == true
         ? stationKey!.trim()
@@ -161,21 +169,32 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _recordingStartedAt = null;
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
+    _clearPendingSave();
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
     _liveRecordingReadings.clear();
-    _finishedCapture = null;
-    _finishedReadings = const [];
     _suggestedNextPlace = null;
-    _existingCapture = await _repository.getCaptureForScope(
-      customerId: customerId,
-      hatcheryId: hatcheryId,
-      stationKey: resolvedStationKey,
-      place: _place!,
-      machineId: this.machineId,
-      captureDate: _captureDate!,
-    );
+    try {
+      _existingCapture = await _repository.getCaptureForScope(
+        customerId: customerId,
+        hatcheryId: hatcheryId,
+        stationKey: resolvedStationKey,
+        place: _place!,
+        machineId: this.machineId,
+        captureDate: _captureDate!,
+      );
+      await _loadSavedSummaries(preferredCaptureId: _existingCapture?.id);
+    } catch (e) {
+      _existingCapture = null;
+      _savedSummaries = const [];
+      _selectedSavedCaptureId = null;
+      _syncSelectedSavedSummary();
+      _error = 'Could not load saved Govee captures for this date.';
+      if (kDebugMode) {
+        debugPrint('Govee capture configure failed: $e');
+      }
+    }
     notifyListeners();
   }
 
@@ -250,23 +269,27 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _recordingStartedAt = _clock();
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
+    _clearPendingSave();
     _liveRecordingReadings.clear();
-    _finishedCapture = null;
-    _finishedReadings = const [];
     _phase = GoveeCapturePhase.validRecording;
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
-    _startPhaseTimer();
     notifyListeners();
   }
 
   Future<void> stopAndSavePlaceCapture() async {
-    final startedAt = _phase == GoveeCapturePhase.syncFailed
+    final isRetryingSync = _phase == GoveeCapturePhase.syncFailed;
+    final isRetryingSave = _phase == GoveeCapturePhase.saveFailed;
+    final startedAt = isRetryingSync
         ? _failedRecordingStartedAt
+        : isRetryingSave
+        ? _pendingSaveStartedAt
         : _recordingStartedAt;
-    final endedAt = _phase == GoveeCapturePhase.syncFailed
+    final endedAt = isRetryingSync
         ? _failedRecordingEndedAt
+        : isRetryingSave
+        ? _pendingSaveEndedAt
         : _clock();
 
     if (startedAt == null ||
@@ -280,45 +303,55 @@ class GoveeCaptureProvider extends ChangeNotifier {
       return;
     }
 
-    _stopPhaseTimer();
-    _phase = GoveeCapturePhase.syncing;
-    _error = null;
-    _syncFailureDetails = null;
-    _syncFailureDiagnostics = const [];
-    notifyListeners();
-
-    late final List<GoveeSensorReading> synced;
-    try {
-      synced = await _goveeService.syncHistory(
-        startedAt: startedAt,
-        endedAt: endedAt,
-      );
-    } catch (e) {
-      _failedRecordingStartedAt = startedAt;
-      _failedRecordingEndedAt = endedAt;
-      _phase = GoveeCapturePhase.syncFailed;
-      _error = 'Reconnect the Govee sensor, then retry this place recording.';
-      _syncFailureDetails = '${e.runtimeType}: $e';
-      _syncFailureDiagnostics = _buildSyncFailureDiagnostics(
-        startedAt: startedAt,
-        endedAt: endedAt,
-      );
-      if (kDebugMode) debugPrint('Govee capture history sync failed: $e');
+    late final List<GoveeSensorReading> valid;
+    if (isRetryingSave && _pendingSaveReadings.isNotEmpty) {
+      valid = _pendingSaveReadings;
+      _error = null;
+      _syncFailureDetails = null;
+      _syncFailureDiagnostics = const [];
+    } else {
+      _phase = GoveeCapturePhase.syncing;
+      _error = null;
+      _syncFailureDetails = null;
+      _syncFailureDiagnostics = const [];
       notifyListeners();
-      return;
+
+      late final List<GoveeSensorReading> synced;
+      try {
+        synced = await _goveeService.syncHistory(
+          startedAt: startedAt,
+          endedAt: endedAt,
+        );
+      } catch (e) {
+        _failedRecordingStartedAt = startedAt;
+        _failedRecordingEndedAt = endedAt;
+        _phase = GoveeCapturePhase.syncFailed;
+        _error = 'Reconnect the Govee sensor, then retry this place recording.';
+        _syncFailureDetails = '${e.runtimeType}: $e';
+        _syncFailureDiagnostics = _buildSyncFailureDiagnostics(
+          startedAt: startedAt,
+          endedAt: endedAt,
+        );
+        if (kDebugMode) debugPrint('Govee capture history sync failed: $e');
+        notifyListeners();
+        return;
+      }
+
+      final validStartedAt = startedAt.add(warmupDuration);
+      valid = _filterValidSyncedReadings(synced, validStartedAt, endedAt);
     }
 
-    final valid = _filterValidSyncedReadings(synced, startedAt, endedAt);
-
     if (valid.isEmpty) {
-      _error = 'No valid synced Govee readings were found';
+      _error = 'No valid synced Govee readings were found after warmup';
       _phase = GoveeCapturePhase.validRecording;
-      _startPhaseTimer();
       notifyListeners();
       return;
     }
 
     _phase = GoveeCapturePhase.saving;
+    _pendingSaveStartedAt = startedAt;
+    _pendingSaveEndedAt = endedAt;
+    _pendingSaveReadings = List.unmodifiable(valid);
     notifyListeners();
 
     final now = _clock();
@@ -393,32 +426,66 @@ class GoveeCaptureProvider extends ChangeNotifier {
         })
         .toList(growable: false);
 
-    await _repository.saveReplacement(capture: capture, readings: readings);
-    _finishedCapture = capture;
-    _finishedReadings = readings;
+    final savedCapture = capture.copyWith(
+      chartPointsJson: GoveePlaceReadingModel.listToJson(readings),
+    );
+    try {
+      await _repository.saveReplacement(
+        capture: savedCapture,
+        readings: readings,
+      );
+      await _loadSavedSummaries(
+        preferredCaptureId: savedCapture.id,
+        fallbackSummary: GoveeCaptureSummary(
+          capture: savedCapture,
+          readings: readings,
+        ),
+      );
+    } catch (e) {
+      _phase = GoveeCapturePhase.saveFailed;
+      _error =
+          'Could not save this Govee place capture. Retry save before starting another place.';
+      _syncFailureDetails = '${e.runtimeType}: $e';
+      _syncFailureDiagnostics = _buildSaveFailureDiagnostics(
+        startedAt: startedAt,
+        endedAt: endedAt,
+        readingCount: readings.length,
+      );
+      if (kDebugMode) debugPrint('Govee capture save failed: $e');
+      notifyListeners();
+      return;
+    }
     _recordingStartedAt = null;
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
+    _clearPendingSave();
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
     _phase = GoveeCapturePhase.saved;
-    _stopPhaseTimer();
     _suggestedNextPlace = nextGoveePlace(_place!);
     _existingCapture = null;
     notifyListeners();
   }
 
   void clearAfterSaveAndSuggestNextPlace() {
-    _finishedCapture = null;
-    _finishedReadings = const [];
     _liveRecordingReadings.clear();
     _recordingStartedAt = null;
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
+    _clearPendingSave();
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
     _phase = GoveeCapturePhase.saved;
-    _stopPhaseTimer();
+    _syncSelectedSavedSummary();
+    notifyListeners();
+  }
+
+  void selectSavedCapture(String captureId) {
+    if (_savedSummaries.every((summary) => summary.capture.id != captureId)) {
+      return;
+    }
+    _selectedSavedCaptureId = captureId;
+    _syncSelectedSavedSummary();
     notifyListeners();
   }
 
@@ -441,12 +508,15 @@ class GoveeCaptureProvider extends ChangeNotifier {
     final startedAt = _recordingStartedAt;
     if (startedAt != null && reading.timestamp.isBefore(startedAt)) return;
     _liveRecordingReadings.add(reading);
+    final overflow = _liveRecordingReadings.length - maxLivePreviewReadings;
+    if (overflow > 0) {
+      _liveRecordingReadings.removeRange(0, overflow);
+    }
     notifyListeners();
   }
 
   @override
   void dispose() {
-    _stopPhaseTimer();
     unawaited(_liveSubscription?.cancel());
     if (_goveeListenersAttached) {
       _goveeService.removeListener(_handleGoveeServiceChanged);
@@ -466,32 +536,12 @@ class GoveeCaptureProvider extends ChangeNotifier {
       if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
         return false;
       }
-      final readingBucketEndedAt = reading.timestamp.add(
-        _historyReadingBucketDuration,
-      );
-      if (!readingBucketEndedAt.isAfter(startedAt) ||
+      if (reading.timestamp.isBefore(startedAt) ||
           reading.timestamp.isAfter(endedAt)) {
         return false;
       }
       return true;
     }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  }
-
-  void _startPhaseTimer() {
-    if (!_enablePhaseTimer) return;
-    _phaseTimer?.cancel();
-    _phaseTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_phase != GoveeCapturePhase.validRecording) {
-        _stopPhaseTimer();
-        return;
-      }
-      notifyListeners();
-    });
-  }
-
-  void _stopPhaseTimer() {
-    _phaseTimer?.cancel();
-    _phaseTimer = null;
   }
 
   List<String> _buildSyncFailureDiagnostics({
@@ -504,6 +554,23 @@ class GoveeCaptureProvider extends ChangeNotifier {
       _syncContextLine(startedAt: startedAt, endedAt: endedAt),
       ...diagnostics.sublist(start),
     ];
+  }
+
+  List<String> _buildSaveFailureDiagnostics({
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required int readingCount,
+  }) {
+    return [
+      _syncContextLine(startedAt: startedAt, endedAt: endedAt),
+      'Prepared $readingCount representative readings for local save.',
+    ];
+  }
+
+  void _clearPendingSave() {
+    _pendingSaveStartedAt = null;
+    _pendingSaveEndedAt = null;
+    _pendingSaveReadings = const [];
   }
 
   String _syncContextLine({
@@ -525,13 +592,138 @@ class GoveeCaptureProvider extends ChangeNotifier {
     return 'Device: $device ($id), $gatt, $rssi, window ${startedAt.toIso8601String()} to ${endedAt.toIso8601String()}';
   }
 
+  Future<void> _loadSavedSummaries({
+    String? preferredCaptureId,
+    GoveeCaptureSummary? fallbackSummary,
+  }) async {
+    if (_customerId == null || _hatcheryId == null || _captureDate == null) {
+      _savedSummaries = const [];
+      _selectedSavedCaptureId = null;
+      _syncSelectedSavedSummary();
+      return;
+    }
+
+    final captures = await _repository.getCapturesForDashboard(
+      customerId: _customerId!,
+      hatcheryId: _hatcheryId!,
+      captureDate: _captureDate,
+    );
+    final summaries = <GoveeCaptureSummary>[];
+    for (final capture in captures) {
+      summaries.add(
+        GoveeCaptureSummary(
+          capture: capture,
+          readings: await _repository.getReadingsForCapture(capture.id),
+        ),
+      );
+    }
+
+    if (fallbackSummary != null &&
+        summaries.every(
+          (summary) => summary.capture.id != fallbackSummary.capture.id,
+        )) {
+      summaries.removeWhere(
+        (summary) =>
+            _sameSavedCaptureScope(summary.capture, fallbackSummary.capture),
+      );
+      summaries.add(fallbackSummary);
+    }
+
+    _savedSummaries = _dedupeSavedSummaries(summaries)
+      ..sort(_compareSavedSummaries);
+    _selectedSavedCaptureId = _preferredSavedCaptureId(preferredCaptureId);
+    _syncSelectedSavedSummary();
+  }
+
+  List<GoveeCaptureSummary> _dedupeSavedSummaries(
+    List<GoveeCaptureSummary> summaries,
+  ) {
+    final byScope = <String, GoveeCaptureSummary>{};
+    for (final summary in summaries) {
+      final key = _savedCaptureScopeKey(summary.capture);
+      final existing = byScope[key];
+      if (existing == null ||
+          existing.capture.updatedAt.isBefore(summary.capture.updatedAt)) {
+        byScope[key] = summary;
+      }
+    }
+    return byScope.values.toList(growable: false);
+  }
+
+  int _compareSavedSummaries(GoveeCaptureSummary a, GoveeCaptureSummary b) {
+    final flowCompare = _placeFlowIndex(
+      a.capture.place,
+    ).compareTo(_placeFlowIndex(b.capture.place));
+    if (flowCompare != 0) return flowCompare;
+    final machineCompare = (a.capture.machineId ?? '').compareTo(
+      b.capture.machineId ?? '',
+    );
+    if (machineCompare != 0) return machineCompare;
+    return b.capture.updatedAt.compareTo(a.capture.updatedAt);
+  }
+
+  String? _preferredSavedCaptureId(String? preferredCaptureId) {
+    if (preferredCaptureId != null &&
+        _savedSummaries.any(
+          (summary) => summary.capture.id == preferredCaptureId,
+        )) {
+      return preferredCaptureId;
+    }
+    final currentScopeCapture = _savedSummaryForCurrentScope();
+    if (currentScopeCapture != null) return currentScopeCapture.capture.id;
+    return _savedSummaries.isEmpty ? null : _savedSummaries.first.capture.id;
+  }
+
+  GoveeCaptureSummary? _savedSummaryForCurrentScope() {
+    for (final summary in _savedSummaries) {
+      final capture = summary.capture;
+      if (capture.place == _place &&
+          _normalizedMachineId(capture.machineId) ==
+              _normalizedMachineId(machineId) &&
+          capture.captureDate == _captureDate) {
+        return summary;
+      }
+    }
+    return null;
+  }
+
+  void _syncSelectedSavedSummary() {
+    final summary = selectedSavedSummary;
+    _finishedCapture = summary?.capture;
+    _finishedReadings = summary?.readings ?? const [];
+  }
+
+  bool _sameSavedCaptureScope(
+    GoveeDailyCaptureModel a,
+    GoveeDailyCaptureModel b,
+  ) {
+    return _savedCaptureScopeKey(a) == _savedCaptureScopeKey(b);
+  }
+
+  String _savedCaptureScopeKey(GoveeDailyCaptureModel capture) {
+    return [
+      capture.customerId,
+      capture.hatcheryId,
+      capture.captureDate,
+      capture.place.name,
+      _normalizedMachineId(capture.machineId),
+    ].join('|');
+  }
+
+  int _placeFlowIndex(TemperaturePlace place) {
+    final index = goveePlaceFlow.indexOf(place);
+    return index < 0 ? goveePlaceFlow.length : index;
+  }
+
+  String _normalizedMachineId(String? machineId) => machineId?.trim() ?? '';
+
   static double? _averageReadingValue(
     List<GoveeSensorReading> readings,
     double? Function(GoveeSensorReading reading) valueFor,
   ) {
     final values = readings.map(valueFor).whereType<double>().toList();
     if (values.isEmpty) return null;
-    return _roundTwo(values.reduce((a, b) => a + b) / values.length);
+    return _roundTwo(CalculationUtils.average(values));
   }
 
   static double? _minReadingValue(
@@ -540,7 +732,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   ) {
     final values = readings.map(valueFor).whereType<double>().toList();
     if (values.isEmpty) return null;
-    return _roundTwo(values.reduce(math.min));
+    return _roundTwo(CalculationUtils.minValue(values)!);
   }
 
   static double? _maxReadingValue(
@@ -549,7 +741,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   ) {
     final values = readings.map(valueFor).whereType<double>().toList();
     if (values.isEmpty) return null;
-    return _roundTwo(values.reduce(math.max));
+    return _roundTwo(CalculationUtils.maxValue(values)!);
   }
 
   static double? _standardDeviationReadingValue(
@@ -558,13 +750,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   ) {
     final values = readings.map(valueFor).whereType<double>().toList();
     if (values.isEmpty) return null;
-    final avg = values.reduce((a, b) => a + b) / values.length;
-    final variance =
-        values
-            .map((value) => math.pow(value - avg, 2))
-            .reduce((a, b) => a + b) /
-        values.length;
-    return _roundTwo(math.sqrt(variance));
+    return _roundTwo(CalculationUtils.stdDev(values));
   }
 
   static double? _coefficientOfVariationReadingValue(
@@ -573,14 +759,8 @@ class GoveeCaptureProvider extends ChangeNotifier {
   ) {
     final values = readings.map(valueFor).whereType<double>().toList();
     if (values.isEmpty) return null;
-    final avg = values.reduce((a, b) => a + b) / values.length;
-    if (avg == 0) return null;
-    final variance =
-        values
-            .map((value) => math.pow(value - avg, 2))
-            .reduce((a, b) => a + b) /
-        values.length;
-    return _roundTwo(math.sqrt(variance) / avg * 100);
+    if (CalculationUtils.average(values) == 0) return null;
+    return CalculationUtils.cvPercent(values, decimalPlaces: 2);
   }
 
   static double _roundTwo(double value) => (value * 100).round() / 100;

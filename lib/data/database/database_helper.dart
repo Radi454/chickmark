@@ -3,61 +3,34 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../models/panel_sample_schema.dart';
+import '../models/station_sample_model.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
 import 'seeds/dummy_data_seeds.dart';
 import 'seeds/troubleshooting_seeds.dart';
+
+part 'database_schema.dart';
+part 'database_migrations.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
-  static const String _stationSamplesRebuildTable =
-      'station_samples__v20_rebuild';
-
   static Database? _db;
 
   Future<Database> get db async {
     if (_db != null) return _db!;
-    final dbPath = await _databasePath();
-    try {
-      _db = await _openAppDatabase(dbPath);
-    } catch (error) {
-      if (!kIsWeb || !_isRecoverableWebDatabaseOpenError(error)) {
-        rethrow;
-      }
-
-      debugPrint(
-        'Resetting unreadable ChickMark web database at $dbPath: $error',
-      );
-      await deleteDatabase(dbPath);
-      _db = await _openAppDatabase(dbPath);
-    }
-    return _db!;
-  }
-
-  Future<Database> _openAppDatabase(String path) {
-    return openDatabase(
-      path,
-      version: 25,
+    _db = await openDatabase(
+      await _databasePath(),
+      version: 34,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
-  }
-
-  bool _isRecoverableWebDatabaseOpenError(Object error) {
-    final message = error.toString();
-    return message.contains('Invalid typed array length') ||
-        message.contains('database disk image is malformed') ||
-        message.contains('sqlite3/src/wasm/vfs/indexed_db');
-  }
-
-  @visibleForTesting
-  bool isRecoverableWebDatabaseOpenErrorForTest(Object error) {
-    return _isRecoverableWebDatabaseOpenError(error);
+    return _db!;
   }
 
   Future<String> _databasePath() async {
@@ -102,7 +75,8 @@ class DatabaseHelper {
       isAgeEstimated INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
-      soldAt TEXT
+      soldAt TEXT,
+      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
     )''');
     await db.execute('''CREATE TABLE audits (
       id TEXT PRIMARY KEY,
@@ -122,7 +96,6 @@ class DatabaseHelper {
       sampleMode TEXT NOT NULL DEFAULT 'pool',
       compareGroupKey TEXT,
       -- Chicks: CHA Environmental
-      chaGoveeConnected INTEGER,
       chaCo2 REAL,
       chaCo2Photo TEXT,
       chaPm10 REAL,
@@ -228,9 +201,7 @@ class DatabaseHelper {
       soBreed TEXT,
       soSetterId TEXT,
       soIncubationAge INTEGER,
-      soGoveeConnected INTEGER,
-      soGoveeTemp REAL,
-      soGoveeHumidity REAL,
+      soIncubationHours INTEGER,
       soCo2 REAL,
       soCo2Photo TEXT,
       soEstReadings TEXT,
@@ -241,9 +212,7 @@ class DatabaseHelper {
       hoBreed TEXT,
       hoHatcherId TEXT,
       hoIncubationAge INTEGER,
-      hoGoveeConnected INTEGER,
-      hoGoveeTemp REAL,
-      hoGoveeHumidity REAL,
+      hoIncubationHours INTEGER,
       hoCo2 REAL,
       hoCo2Photo TEXT,
       hoCvtReadings TEXT,
@@ -255,9 +224,6 @@ class DatabaseHelper {
       ho_meconium TEXT,
       ho_transferDay INTEGER,
       -- Egg
-      esGoveeConnected INTEGER,
-      esGoveeTemp REAL,
-      esGoveeHumidity REAL,
       esCo2 REAL,
       esCo2Photo TEXT,
       esShellTemp REAL,
@@ -341,7 +307,9 @@ class DatabaseHelper {
       pm_suspectedCauseManual TEXT,
       pm_photosJson TEXT,
       so_machineType TEXT,
-      so_turningAngle REAL
+      so_turningAngle REAL,
+      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+      FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
     )''');
     await db.execute('''CREATE TABLE bmk_breeds (
       id TEXT PRIMARY KEY,
@@ -354,34 +322,7 @@ class DatabaseHelper {
       eggWeightG REAL DEFAULT 0.0,
       chickWeightG REAL DEFAULT 0.0
     )''');
-    await db.execute('''CREATE TABLE bmk_egg_breakout (
-      id TEXT PRIMARY KEY,
-      ageWeek INTEGER NOT NULL UNIQUE,
-      infertilePct REAL DEFAULT 0.0,
-      early24hPct REAL DEFAULT 0.0,
-      early48hPct REAL DEFAULT 0.0,
-      bloodRingPct REAL DEFAULT 0.0,
-      blackEyePct REAL DEFAULT 0.0,
-      midDeadPct REAL DEFAULT 0.0,
-      lateDeadPct REAL DEFAULT 0.0,
-      pippedInternalPct REAL DEFAULT 0.0,
-      pippedExternalPct REAL DEFAULT 0.0,
-      explodedPct REAL DEFAULT 0.0,
-      mushyPct REAL DEFAULT 0.0,
-      contamPct REAL DEFAULT 0.0,
-      cullPct REAL DEFAULT 0.0,
-      seeperPct REAL DEFAULT 0.0,
-      otherPct REAL DEFAULT 0.0,
-      feathersPct REAL DEFAULT 0.0,
-      turnedPct REAL DEFAULT 0.0,
-      exposedBrainPct REAL DEFAULT 0.0,
-      crossedBeakPct REAL DEFAULT 0.0,
-      crackedPct REAL DEFAULT 0.0,
-      earlyDeadPct REAL DEFAULT 0.0,
-      midBlackEyePct REAL DEFAULT 0.0,
-      internalPipPct REAL DEFAULT 0.0,
-      externalPipPct REAL DEFAULT 0.0
-    )''');
+    await _createCleanBmkEggBreakoutTable(db);
     await db.execute('''CREATE TABLE troubleshooting (
       id TEXT PRIMARY KEY,
       hatcheryCauses TEXT,
@@ -396,7 +337,8 @@ class DatabaseHelper {
       description TEXT,
       createdAt TEXT,
       auditId TEXT,
-      uploadStatus TEXT NOT NULL DEFAULT 'local'
+      uploadStatus TEXT NOT NULL DEFAULT 'local',
+      FOREIGN KEY (auditId) REFERENCES audits(id) ON DELETE CASCADE
     )''');
     await db.execute('''CREATE TABLE activity_log (
       id TEXT PRIMARY KEY,
@@ -410,7 +352,8 @@ class DatabaseHelper {
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createStationSamplesTable(db);
-    await _createTemperatureRhTables(db);
+    await _createPanelSampleSchemaTables(db);
+    await _createSyncTombstoneTable(db);
     await _createGoveeCaptureTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
@@ -427,7 +370,7 @@ class DatabaseHelper {
       for (final seed in kBmkEggBreakoutSeeds) {
         batch.insert(
           'bmk_egg_breakout',
-          seed,
+          _cleanBmkEggBreakoutSeed(seed),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -467,30 +410,12 @@ class DatabaseHelper {
         chickWeightG REAL DEFAULT 0.0
       )''');
       await db.execute('DROP TABLE IF EXISTS bmk_egg_breakout');
-      await db.execute('''CREATE TABLE bmk_egg_breakout (
-        id TEXT PRIMARY KEY,
-        ageWeek INTEGER NOT NULL UNIQUE,
-        infertilePct REAL DEFAULT 0.0,
-        early24hPct REAL DEFAULT 0.0,
-        early48hPct REAL DEFAULT 0.0,
-        bloodRingPct REAL DEFAULT 0.0,
-        blackEyePct REAL DEFAULT 0.0,
-        midDeadPct REAL DEFAULT 0.0,
-        lateDeadPct REAL DEFAULT 0.0,
-        pippedInternalPct REAL DEFAULT 0.0,
-        pippedExternalPct REAL DEFAULT 0.0,
-        explodedPct REAL DEFAULT 0.0,
-        mushyPct REAL DEFAULT 0.0,
-        contamPct REAL DEFAULT 0.0,
-        cullPct REAL DEFAULT 0.0,
-        seeperPct REAL DEFAULT 0.0,
-        otherPct REAL DEFAULT 0.0
-      )''');
+      await _createCleanBmkEggBreakoutTable(db);
       for (final seed in kBmkBreedSeeds) {
         await db.insert('bmk_breeds', seed);
       }
       for (final seed in kBmkEggBreakoutSeeds) {
-        await db.insert('bmk_egg_breakout', seed);
+        await db.insert('bmk_egg_breakout', _cleanBmkEggBreakoutSeed(seed));
       }
     }
     if (oldVersion < 4) {
@@ -583,7 +508,6 @@ class DatabaseHelper {
     }
     if (oldVersion < 10) {
       await _createHatcheryTables(db);
-      await _createTemperatureRhTables(db);
     }
     if (oldVersion < 11) {
       await _addColumnIfMissing(
@@ -658,1167 +582,85 @@ class DatabaseHelper {
     if (oldVersion < 25) {
       await _applyV25Upgrade(db);
     }
-  }
-
-  Future<void> _createHatcheryTables(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS hatcheries (
-      id TEXT PRIMARY KEY,
-      customerId TEXT NOT NULL,
-      name TEXT NOT NULL,
-      location TEXT,
-      notes TEXT,
-      createdAt TEXT,
-      createdBy TEXT
-    )''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_hatcheries_customer ON hatcheries (customerId)',
-    );
-  }
-
-  Future<void> _createAuditSessionTables(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS audit_sessions (
-      id TEXT PRIMARY KEY,
-      customerId TEXT NOT NULL,
-      flockId TEXT NOT NULL,
-      hatcheryId TEXT NOT NULL,
-      date TEXT NOT NULL,
-      breed TEXT,
-      flockAgeWeeks INTEGER,
-      status TEXT DEFAULT 'in_progress',
-      selectedStationKeys TEXT,
-      stationsCompleted TEXT,
-      findingsJson TEXT,
-      scorecardJson TEXT,
-      notes TEXT,
-      createdBy TEXT,
-      createdAt TEXT,
-      updatedAt TEXT,
-      completedAt TEXT
-    )''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audit_sessions_customer_date ON audit_sessions (customerId, date DESC)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audit_sessions_flock_date ON audit_sessions (flockId, date DESC)',
-    );
-  }
-
-  Future<void> _createStationSamplesTable(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS station_samples (
-      id TEXT PRIMARY KEY,
-      auditSessionId TEXT NOT NULL,
-      legacyAuditId TEXT,
-      stationType TEXT NOT NULL,
-      sampleMode TEXT NOT NULL DEFAULT 'pooled',
-      comparisonType TEXT,
-      sampleIndex INTEGER NOT NULL DEFAULT 1,
-      sampleLabel TEXT,
-      sampleType TEXT,
-      breakoutType TEXT,
-      groupKey TEXT,
-      groupLabel TEXT,
-      batchNo TEXT,
-      houseNo TEXT,
-      houseLabel TEXT,
-      hatchNo TEXT,
-      eggProductionDate TEXT,
-      settingDate TEXT,
-      hatchDate TEXT,
-      storageDays INTEGER,
-      incubationDay INTEGER,
-      setterNo TEXT,
-      hatcherNo TEXT,
-      calculatedBmkAgeDays INTEGER,
-      benchmarkBreed TEXT,
-      benchmarkAgeDays INTEGER,
-      benchmarkSource TEXT,
-      benchmarkSnapshotJson TEXT,
-      resultSummaryJson TEXT,
-      notes TEXT,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      FOREIGN KEY (auditSessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
-      FOREIGN KEY (legacyAuditId) REFERENCES audits(id) ON DELETE CASCADE
-    )''');
-    await _createStationSamplesIndexes(db);
-  }
-
-  Future<void> _createStationSamplesIndexes(DatabaseExecutor db) async {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_station_samples_session_station ON station_samples (auditSessionId, stationType)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_station_samples_group ON station_samples (auditSessionId, groupKey)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_station_samples_legacy_audit ON station_samples (legacyAuditId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_station_samples_bmk_age ON station_samples (calculatedBmkAgeDays)',
-    );
-  }
-
-  Future<void> _createTemperatureRhTables(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS temperature_sessions (
-      id TEXT PRIMARY KEY,
-      customerId TEXT NOT NULL,
-      hatcheryId TEXT NOT NULL,
-      deviceId TEXT,
-      deviceName TEXT,
-      spotLabel TEXT,
-      captureSource TEXT,
-      startedAt TEXT NOT NULL,
-      endedAt TEXT,
-      activePlace TEXT NOT NULL,
-      status TEXT NOT NULL,
-      tempAvg REAL,
-      tempMin REAL,
-      tempMax REAL,
-      tempCvPct REAL,
-      rhAvg REAL,
-      rhMin REAL,
-      rhMax REAL,
-      rhCvPct REAL,
-      readingCount INTEGER,
-      alertCount INTEGER,
-      tempChartPointsJson TEXT,
-      rhChartPointsJson TEXT,
-      warmupSeconds INTEGER DEFAULT 120,
-      auditSessionId TEXT,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    )''');
-    await db.execute('''CREATE TABLE IF NOT EXISTS temperature_readings (
-      id TEXT PRIMARY KEY,
-      sessionId TEXT NOT NULL,
-      customerId TEXT NOT NULL,
-      hatcheryId TEXT NOT NULL,
-      place TEXT NOT NULL,
-      temperatureFahrenheit REAL NOT NULL,
-      humidity REAL NOT NULL,
-      rssi INTEGER,
-      deviceName TEXT,
-      recordedAt TEXT NOT NULL,
-      createdAt TEXT NOT NULL
-    )''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_hatchery ON temperature_sessions (hatcheryId, startedAt)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_audit_session ON temperature_sessions (auditSessionId, startedAt)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_temperature_readings_session_time ON temperature_readings (sessionId, recordedAt)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_temperature_readings_hatchery_time ON temperature_readings (hatcheryId, recordedAt)',
-    );
-  }
-
-  Future<void> _createGoveeCaptureTables(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS govee_daily_captures (
-      id TEXT PRIMARY KEY,
-      customerId TEXT NOT NULL,
-      hatcheryId TEXT NOT NULL,
-      stationKey TEXT NOT NULL DEFAULT '',
-      place TEXT NOT NULL,
-      machineId TEXT NOT NULL DEFAULT '',
-      captureDate TEXT NOT NULL,
-      startedAt TEXT,
-      endedAt TEXT,
-      deviceId TEXT,
-      deviceName TEXT,
-      status TEXT NOT NULL,
-      tempAvg REAL,
-      tempMin REAL,
-      tempMax REAL,
-      tempSd REAL,
-      tempCvPct REAL,
-      rhAvg REAL,
-      rhMin REAL,
-      rhMax REAL,
-      rhSd REAL,
-      rhCvPct REAL,
-      readingCount INTEGER NOT NULL,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      UNIQUE(customerId, hatcheryId, place, machineId, captureDate)
-    )''');
-    await db.execute('''CREATE TABLE IF NOT EXISTS govee_place_readings (
-      id TEXT PRIMARY KEY,
-      captureId TEXT NOT NULL,
-      readingIndex INTEGER NOT NULL,
-      recordedAt TEXT NOT NULL,
-      temperatureFahrenheit REAL NOT NULL,
-      humidity REAL NOT NULL,
-      createdAt TEXT NOT NULL,
-      FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE
-    )''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_daily_scope ON govee_daily_captures (customerId, hatcheryId, place, machineId, captureDate)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_daily_dashboard ON govee_daily_captures (customerId, hatcheryId, captureDate)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_govee_place_readings_capture ON govee_place_readings (captureId, readingIndex)',
-    );
-  }
-
-  Future<void> _createOperationalIndexes(Database db) async {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_customer ON audits (customerId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_flock ON audits (flockId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_date ON audits (date DESC)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_type ON audits (auditType)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_customer_type ON audits (customerId, auditType)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_customer_date ON audits (customerId, date DESC)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_session ON audits (sessionId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_photos_audit ON photos (auditId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_flocks_customer ON flocks (customerId, status)',
-    );
-  }
-
-  Future<void> _createActivityLogIndexes(Database db) async {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log (userId, timestamp DESC)',
-    );
-  }
-
-  Future<void> _applyV15Upgrade(Database db) async {
-    await _createAuditSessionTables(db);
-
-    await _addColumnIfMissing(db, 'audits', 'sessionId', 'TEXT');
-
-    await _addColumnIfMissing(db, 'audits', 'pm_sampleSize', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_collectionPoint', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_omphalitisCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_omphalitisSeverity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_gaseousCecaCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_gaseousCecaSeverity', 'TEXT');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_unabsorbedYolkCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_unabsorbedYolkSeverity',
-      'TEXT',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_perihepatitisCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_perihepatitisSeverity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_pericarditisCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_pericarditisSeverity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_airsacAcuteCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_airsacAcuteSeverity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_airsacChronicCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_airsacChronicSeverity', 'TEXT');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_pulmonaryGranulomaCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_pulmonaryGranulomaSeverity',
-      'TEXT',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_swollenJointsCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_swollenJointsSeverity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_stuntedOrgansCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_stuntedOrgansSeverity', 'TEXT');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_pulmonaryHemorrhageCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_pulmonaryHemorrhageSeverity',
-      'TEXT',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_gaspingPresent', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_gaspingType', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_exposedBrainCount', 'INTEGER');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_ectopicVisceraCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_extraLegsCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_crossedBeakCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_absentEyeBothCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_absentEyeOneCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_smallEyeCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_hydrocephalyCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_starGazerCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_curledToesCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'pm_shortLegsCount', 'INTEGER');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_spinalDeformityCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_cardiacAnomalyCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_conjoinedCount', 'INTEGER');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'pm_otherDeformityCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(db, 'audits', 'pm_otherDeformityText', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_suspectedCauseAuto', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_suspectedCauseManual', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'pm_photosJson', 'TEXT');
-
-    await _addColumnIfMissing(db, 'audits', 'es_estReadingsJson', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_estAvg', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_estCv', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_uvSampleSize', 'INTEGER');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'es_uvCuticleDamageCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'es_uvWashingEvidenceCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(db, 'audits', 'es_uvFecalCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'es_uvMottledCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'es_uvOtherCount', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'es_uvPhotosJson', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_crackPct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_brokenPct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_misshapedPct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_paleShellPct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_roughTexturePct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_floorEggPct', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'es_eggColorDistJson', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_eggOrientation', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_traySpacing', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_coolerProximity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_wallProximity', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'es_condensation', 'INTEGER');
-
-    await _addColumnIfMissing(db, 'audits', 'so_machineType', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'so_turningAngle', 'REAL');
-    await _addColumnIfMissing(db, 'audits', 'ho_meconium', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'ho_transferDay', 'INTEGER');
-
-    await _addColumnIfMissing(db, 'audits', 'haPipped', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haInfertileClear', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haEarlyDead', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haMidDead', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haMidLateDead', 'INTEGER');
-    await _addColumnIfMissing(db, 'audits', 'haLateDead', 'INTEGER');
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'haContaminatedExploders',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(db, 'audits', 'haBenchmarkStatusesJson', 'TEXT');
-
-    await _addColumnIfMissing(db, 'temperature_sessions', 'tempAvg', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'tempMin', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'tempMax', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'tempCvPct', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'rhAvg', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'rhMin', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'rhMax', 'REAL');
-    await _addColumnIfMissing(db, 'temperature_sessions', 'rhCvPct', 'REAL');
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'readingCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'alertCount',
-      'INTEGER',
-    );
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'tempChartPointsJson',
-      'TEXT',
-    );
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'rhChartPointsJson',
-      'TEXT',
-    );
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'warmupSeconds',
-      'INTEGER DEFAULT 120',
-    );
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'auditSessionId',
-      'TEXT',
-    );
-    await _addColumnIfMissing(db, 'temperature_sessions', 'spotLabel', 'TEXT');
-    await _addColumnIfMissing(
-      db,
-      'temperature_sessions',
-      'captureSource',
-      'TEXT',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_temperature_sessions_audit_session ON temperature_sessions (auditSessionId, startedAt)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_audits_session ON audits (sessionId)',
-    );
-  }
-
-  Future<void> _applyV16Upgrade(Database db) async {
-    await _addColumnIfMissing(
-      db,
-      'audit_sessions',
-      'selectedStationKeys',
-      'TEXT',
-    );
-  }
-
-  Future<void> _applyV17Upgrade(Database db) async {
-    await _addColumnIfMissing(db, 'audits', 'es_estPhotosJson', 'TEXT');
-  }
-
-  Future<void> _applyV18Upgrade(Database db) async {
-    await _addColumnIfMissing(
-      db,
-      'audits',
-      'sampleMode',
-      "TEXT NOT NULL DEFAULT 'pool'",
-    );
-    await _addColumnIfMissing(db, 'audits', 'compareGroupKey', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'ebTrayBreakoutJson', 'TEXT');
-    await _addColumnIfMissing(db, 'troubleshooting', 'benchmarkJson', 'TEXT');
-    await _addColumnIfMissing(
-      db,
-      'troubleshooting',
-      'interpretationJson',
-      'TEXT',
-    );
-    await _addColumnIfMissing(db, 'troubleshooting', 'sourceRefsJson', 'TEXT');
-    await db.execute("""
-      UPDATE audits
-      SET sampleMode = 'pool'
-      WHERE sampleMode IS NULL OR sampleMode NOT IN ('pool', 'compare')
-    """);
-    await db.execute("""
-      UPDATE audits
-      SET sampleMode = 'compare',
-          compareGroupKey = COALESCE(
-            compareGroupKey,
-            customerId || '|' || COALESCE(flockId, '') || '|' || date || '|' || auditType
-          )
-      WHERE hatchNumber > 1
-         OR id IN (
-           SELECT a1.id
-           FROM audits a1
-           WHERE EXISTS (
-             SELECT 1
-             FROM audits a2
-             WHERE a2.customerId = a1.customerId
-               AND COALESCE(a2.flockId, '') = COALESCE(a1.flockId, '')
-               AND a2.date = a1.date
-               AND a2.auditType = a1.auditType
-               AND a2.hatchNumber > 1
-           )
-         )
-    """);
-    await _seedTroubleshooting(db);
+    if (oldVersion < 26) {
+      await _applyV26Upgrade(db);
+    }
+    if (oldVersion < 27) {
+      await _applyV27Upgrade(db);
+    }
+    if (oldVersion < 28) {
+      await _applyV28Upgrade(db);
+    }
+    if (oldVersion < 29) {
+      await _applyV29Upgrade(db);
+    }
+    if (oldVersion < 30) {
+      await _applyV30Upgrade(db);
+    }
+    if (oldVersion < 31) {
+      await _applyV31Upgrade(db);
+    }
+    if (oldVersion < 32) {
+      await _applyV32Upgrade(db);
+    }
+    if (oldVersion < 33) {
+      await _applyV33Upgrade(db);
+    }
+    if (oldVersion < 34) {
+      await _applyV34Upgrade(db);
+    }
   }
 
   @visibleForTesting
   Future<void> applyV18UpgradeForTest(Database db) => _applyV18Upgrade(db);
 
-  Future<void> _applyV19Upgrade(Database db) async {
-    await _createStationSamplesTable(db);
-  }
-
   @visibleForTesting
   Future<void> applyV19UpgradeForTest(Database db) => _applyV19Upgrade(db);
-
-  Future<void> _applyV20Upgrade(Database db) async {
-    final tableInfo = await db.rawQuery('PRAGMA table_info(station_samples)');
-    if (tableInfo.isEmpty) {
-      await _createStationSamplesTable(db);
-      return;
-    }
-
-    final foreignKeys = await db.rawQuery(
-      'PRAGMA foreign_key_list(station_samples)',
-    );
-    if (_hasStationSamplesForeignKeys(foreignKeys)) {
-      await _addStationSampleHouseColumns(db, _columnNames(tableInfo));
-      await _createStationSamplesIndexes(db);
-      return;
-    }
-
-    final columnNames = _columnNames(tableInfo);
-    if (!columnNames.contains('auditSessionId') ||
-        !columnNames.contains('legacyAuditId')) {
-      throw StateError(
-        'station_samples must contain auditSessionId and legacyAuditId '
-        'before the v20 corrective rebuild can add foreign keys.',
-      );
-    }
-
-    await db.transaction<void>((txn) async {
-      await _rebuildStationSamplesTableForV20(txn, tableInfo);
-    });
-  }
 
   @visibleForTesting
   Future<void> applyV20UpgradeForTest(Database db) => _applyV20Upgrade(db);
 
-  Future<void> _applyV21Upgrade(Database db) async {
-    await _addColumnIfMissing(db, 'audits', 'cvtReadingsJson', 'TEXT');
-    await _addColumnIfMissing(db, 'audits', 'cvtPhotosJson', 'TEXT');
-  }
-
   @visibleForTesting
   Future<void> applyV21UpgradeForTest(Database db) => _applyV21Upgrade(db);
-
-  Future<void> _applyV22Upgrade(Database db) async {
-    await _createGoveeCaptureTables(db);
-    await db.execute('''
-DELETE FROM temperature_readings WHERE sessionId IN (
-  SELECT id FROM temperature_sessions
-  WHERE auditSessionId IS NOT NULL
-)
-''');
-    await db.execute(
-      'DELETE FROM temperature_sessions WHERE auditSessionId IS NOT NULL',
-    );
-  }
 
   @visibleForTesting
   Future<void> applyV22UpgradeForTest(Database db) => _applyV22Upgrade(db);
 
-  Future<void> _applyV23Upgrade(Database db) async {
-    await _renameStationIdentityValues(db);
-  }
-
   @visibleForTesting
   Future<void> applyV23UpgradeForTest(Database db) => _applyV23Upgrade(db);
-
-  Future<void> _applyV24Upgrade(Database db) async {
-    await _normalizeGoveePlaceValues(db);
-  }
 
   @visibleForTesting
   Future<void> applyV24UpgradeForTest(Database db) => _applyV24Upgrade(db);
 
-  Future<void> _applyV25Upgrade(Database db) async {
-    if (!await _tableExists(db, 'govee_daily_captures')) {
-      await _createGoveeCaptureTables(db);
-      return;
-    }
-
-    final dailyRows = await db.query('govee_daily_captures');
-    final placeReadingRows = await _tableExists(db, 'govee_place_readings')
-        ? await db.query('govee_place_readings')
-        : <Map<String, Object?>>[];
-    final spotReadingRows = await _tableExists(db, 'govee_spot_readings')
-        ? await db.query('govee_spot_readings')
-        : <Map<String, Object?>>[];
-
-    await db.execute('DROP TABLE IF EXISTS govee_spot_readings');
-    await db.execute('DROP TABLE IF EXISTS govee_spot_captures');
-    await db.execute('DROP TABLE IF EXISTS govee_place_readings');
-    await db.execute('DROP TABLE IF EXISTS govee_daily_captures');
-    await _createGoveeCaptureTables(db);
-
-    for (final row in dailyRows) {
-      await db.insert('govee_daily_captures', _migrateGoveeDailyRow(row));
-    }
-
-    if (placeReadingRows.isNotEmpty) {
-      final grouped = _groupGoveeReadingRows(placeReadingRows);
-      for (final entry in grouped.entries) {
-        for (var i = 0; i < entry.value.length; i += 1) {
-          await db.insert(
-            'govee_place_readings',
-            _migrateGoveeReadingRow(entry.value[i], readingIndex: i),
-          );
-        }
-      }
-      return;
-    }
-
-    final grouped = _groupGoveeReadingRows(spotReadingRows);
-    for (final entry in grouped.entries) {
-      for (var i = 0; i < entry.value.length; i += 1) {
-        await db.insert(
-          'govee_place_readings',
-          _migrateGoveeReadingRow(entry.value[i], readingIndex: i),
-        );
-      }
-    }
-  }
-
   @visibleForTesting
   Future<void> applyV25UpgradeForTest(Database db) => _applyV25Upgrade(db);
 
-  Map<String, Object?> _migrateGoveeDailyRow(Map<String, Object?> row) {
-    final place = _migratedGoveePlaceName('${row['place'] ?? ''}');
-    final stationKey = '${row['stationKey'] ?? ''}'.trim();
-    return {
-      'id': row['id'],
-      'customerId': row['customerId'],
-      'hatcheryId': row['hatcheryId'],
-      'stationKey': stationKey.isEmpty
-          ? _goveeStationKeyForPlaceName(place)
-          : stationKey,
-      'place': place,
-      'machineId': row['machineId'] ?? '',
-      'captureDate': row['captureDate'],
-      'startedAt': row['startedAt'] ?? row['createdAt'],
-      'endedAt': row['endedAt'] ?? row['updatedAt'],
-      'deviceId': row['deviceId'],
-      'deviceName': row['deviceName'],
-      'status': row['status'] ?? 'completed',
-      'tempAvg': row['tempAvg'],
-      'tempMin': row['tempMin'],
-      'tempMax': row['tempMax'],
-      'tempSd': row['tempSd'],
-      'tempCvPct': row['tempCvPct'],
-      'rhAvg': row['rhAvg'],
-      'rhMin': row['rhMin'],
-      'rhMax': row['rhMax'],
-      'rhSd': row['rhSd'],
-      'rhCvPct': row['rhCvPct'],
-      'readingCount': row['readingCount'] ?? 0,
-      'createdAt': row['createdAt'],
-      'updatedAt': row['updatedAt'],
-    };
-  }
+  @visibleForTesting
+  Future<void> applyV26UpgradeForTest(Database db) => _applyV26Upgrade(db);
 
-  Map<String, List<Map<String, Object?>>> _groupGoveeReadingRows(
-    List<Map<String, Object?>> rows,
-  ) {
-    final grouped = <String, List<Map<String, Object?>>>{};
-    for (final row in rows) {
-      final captureId = '${row['captureId'] ?? ''}';
-      if (captureId.isEmpty) continue;
-      grouped.putIfAbsent(captureId, () => []).add(row);
-    }
-    for (final readings in grouped.values) {
-      readings.sort((a, b) {
-        final timeCompare = '${a['recordedAt'] ?? ''}'.compareTo(
-          '${b['recordedAt'] ?? ''}',
-        );
-        if (timeCompare != 0) return timeCompare;
-        final spotCompare = '${a['spotId'] ?? ''}'.compareTo(
-          '${b['spotId'] ?? ''}',
-        );
-        if (spotCompare != 0) return spotCompare;
-        return _pragmaInt(
-          a['readingIndex'],
-        ).compareTo(_pragmaInt(b['readingIndex']));
-      });
-    }
-    return grouped;
-  }
+  @visibleForTesting
+  Future<void> applyV27UpgradeForTest(Database db) => _applyV27Upgrade(db);
 
-  Map<String, Object?> _migrateGoveeReadingRow(
-    Map<String, Object?> row, {
-    required int readingIndex,
-  }) {
-    return {
-      'id': row['id'],
-      'captureId': row['captureId'],
-      'readingIndex': readingIndex,
-      'recordedAt': row['recordedAt'],
-      'temperatureFahrenheit': row['temperatureFahrenheit'],
-      'humidity': row['humidity'],
-      'createdAt': row['createdAt'],
-    };
-  }
+  @visibleForTesting
+  Future<void> applyV28UpgradeForTest(Database db) => _applyV28Upgrade(db);
 
-  String _migratedGoveePlaceName(String place) {
-    return switch (place) {
-      'incubatorRoom' => 'setterRoom',
-      'insideIncubator' => 'insideSetter',
-      _ => place,
-    };
-  }
+  @visibleForTesting
+  Future<void> applyV29UpgradeForTest(Database db) => _applyV29Upgrade(db);
 
-  String _goveeStationKeyForPlaceName(String place) {
-    return switch (place) {
-      'eggStorageRoom' => 'egg',
-      'chickHoldingArea' => 'chicks',
-      'setterRoom' || 'insideSetter' => 'setters',
-      'hatcherRoom' || 'insideHatcher' => 'hatchers',
-      _ => '',
-    };
-  }
+  @visibleForTesting
+  Future<void> applyV30UpgradeForTest(Database db) => _applyV30Upgrade(db);
 
-  Future<void> _normalizeGoveePlaceValues(Database db) async {
-    if (await _tableExists(db, 'govee_daily_captures')) {
-      await db.execute("""
-        UPDATE govee_daily_captures
-        SET place = ${_migratedGoveePlaceSql('place')},
-            stationKey = COALESCE(
-              NULLIF(TRIM(stationKey), ''),
-              ${_goveeStationKeySql(_migratedGoveePlaceSql('place'))}
-            ),
-            machineId = COALESCE(machineId, '')
-      """);
-    }
-    if (await _tableExists(db, 'temperature_sessions')) {
-      await db.execute("""
-        UPDATE temperature_sessions
-        SET activePlace = ${_migratedGoveePlaceSql('activePlace')}
-        WHERE activePlace IN ('incubatorRoom', 'insideIncubator')
-      """);
-    }
-    if (await _tableExists(db, 'temperature_readings')) {
-      await db.execute("""
-        UPDATE temperature_readings
-        SET place = ${_migratedGoveePlaceSql('place')}
-        WHERE place IN ('incubatorRoom', 'insideIncubator')
-      """);
-    }
-  }
+  @visibleForTesting
+  Future<void> applyV31UpgradeForTest(Database db) => _applyV31Upgrade(db);
 
-  Future<bool> _tableExists(Database db, String table) async {
-    final rows = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-      [table],
-    );
-    return rows.isNotEmpty;
-  }
+  @visibleForTesting
+  Future<void> applyV32UpgradeForTest(Database db) => _applyV32Upgrade(db);
 
-  String _migratedGoveePlaceSql(String expression) {
-    return """
-CASE $expression
-  WHEN 'incubatorRoom' THEN 'setterRoom'
-  WHEN 'insideIncubator' THEN 'insideSetter'
-  ELSE $expression
-END
-""";
-  }
+  @visibleForTesting
+  Future<void> applyV33UpgradeForTest(Database db) => _applyV33Upgrade(db);
 
-  String _goveeStationKeySql(String placeExpression) {
-    return """
-CASE $placeExpression
-  WHEN 'eggStorageRoom' THEN 'egg'
-  WHEN 'chickHoldingArea' THEN 'chicks'
-  WHEN 'setterRoom' THEN 'setters'
-  WHEN 'insideSetter' THEN 'setters'
-  WHEN 'hatcherRoom' THEN 'hatchers'
-  WHEN 'insideHatcher' THEN 'hatchers'
-  ELSE ''
-END
-""";
-  }
-
-  Future<void> _renameStationIdentityValues(Database db) async {
-    await db.execute("""
-      UPDATE OR IGNORE audits
-      SET auditType = CASE auditType
-        WHEN 'Egg Storage' THEN 'Egg'
-        WHEN 'Egg Storage & Handling' THEN 'Egg'
-        WHEN 'Chick Quality' THEN 'Chicks'
-        WHEN 'Hatch Analysis' THEN 'Hatch Analysis & Egg Breakouts'
-        WHEN 'Setter Optimizing' THEN 'Setters'
-        WHEN 'Hatcher Optimizing' THEN 'Hatchers'
-        ELSE auditType
-      END
-      WHERE auditType IN (
-        'Egg Storage',
-        'Egg Storage & Handling',
-        'Chick Quality',
-        'Hatch Analysis',
-        'Setter Optimizing',
-        'Hatcher Optimizing'
-      )
-    """);
-    await db.execute("""
-      UPDATE station_samples
-      SET stationType = CASE stationType
-        WHEN 'Egg Storage' THEN 'Egg'
-        WHEN 'Egg Storage & Handling' THEN 'Egg'
-        WHEN 'Chick Quality' THEN 'Chicks'
-        WHEN 'Hatch Analysis' THEN 'Hatch Analysis & Egg Breakouts'
-        WHEN 'Setter Optimizing' THEN 'Setters'
-        WHEN 'Hatcher Optimizing' THEN 'Hatchers'
-        ELSE stationType
-      END
-      WHERE stationType IN (
-        'Egg Storage',
-        'Egg Storage & Handling',
-        'Chick Quality',
-        'Hatch Analysis',
-        'Setter Optimizing',
-        'Hatcher Optimizing'
-      )
-    """);
-    for (final column in const [
-      'selectedStationKeys',
-      'stationsCompleted',
-      'scorecardJson',
-      'findingsJson',
-    ]) {
-      await _replaceAuditSessionTextColumn(db, column);
-    }
-  }
-
-  Future<void> _replaceAuditSessionTextColumn(
-    Database db,
-    String column,
-  ) async {
-    await db.execute("""
-      UPDATE audit_sessions
-      SET $column = replace(
-        replace(
-          replace(
-            replace(
-              replace(
-                replace(
-                  replace(
-                    replace(
-                      replace(
-                        replace($column,
-                          '"egg_storage"', '"egg"'
-                        ),
-                        '"chick_quality"', '"chicks"'
-                      ),
-                      '"hatch_analysis"', '"hatch_analysis_egg_breakouts"'
-                    ),
-                    '"setter_optimizing"', '"setters"'
-                  ),
-                  '"hatcher_optimizing"', '"hatchers"'
-                ),
-                '"Egg Storage"', '"Egg"'
-              ),
-              '"Chick Quality"', '"Chicks"'
-            ),
-            '"Hatch Analysis"', '"Hatch Analysis & Egg Breakouts"'
-          ),
-          '"Setter Optimizing"', '"Setters"'
-        ),
-        '"Hatcher Optimizing"', '"Hatchers"'
-      )
-      WHERE $column IS NOT NULL
-    """);
-  }
-
-  Future<void> _addStationSampleHouseColumns(
-    DatabaseExecutor db,
-    Set<String> columnNames,
-  ) async {
-    if (!columnNames.contains('houseNo')) {
-      await db.execute('ALTER TABLE station_samples ADD COLUMN houseNo TEXT');
-    }
-    if (!columnNames.contains('houseLabel')) {
-      await db.execute(
-        'ALTER TABLE station_samples ADD COLUMN houseLabel TEXT',
-      );
-    }
-  }
-
-  Future<void> _rebuildStationSamplesTableForV20(
-    DatabaseExecutor db,
-    List<Map<String, Object?>> existingColumns,
-  ) async {
-    final existingNames = _columnNames(existingColumns);
-    final columnDefinitions = <String>[];
-    final insertColumns = <String>[];
-    final selectExpressions = <String>[];
-
-    for (final column in existingColumns) {
-      final name = column['name']?.toString();
-      if (name == null || name.isEmpty) continue;
-      final quotedName = _quoteSqlIdentifier(name);
-      columnDefinitions.add(_columnDefinitionForRebuild(column));
-      insertColumns.add(quotedName);
-      selectExpressions.add(quotedName);
-    }
-
-    for (final name in const ['houseNo', 'houseLabel']) {
-      if (existingNames.contains(name)) continue;
-      columnDefinitions.add('$name TEXT');
-      insertColumns.add(_quoteSqlIdentifier(name));
-      selectExpressions.add('NULL');
-    }
-
-    final createSql =
-        '''
-CREATE TABLE "$_stationSamplesRebuildTable" (
-  ${columnDefinitions.join(',\n  ')},
-  FOREIGN KEY ("auditSessionId") REFERENCES audit_sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY ("legacyAuditId") REFERENCES audits(id) ON DELETE CASCADE
-)''';
-
-    await db.execute('DROP TABLE IF EXISTS "$_stationSamplesRebuildTable"');
-    await db.execute(createSql);
-    await db.execute(
-      'INSERT INTO "$_stationSamplesRebuildTable" '
-      '(${insertColumns.join(', ')}) '
-      'SELECT ${selectExpressions.join(', ')} FROM station_samples',
-    );
-    await db.execute('DROP TABLE station_samples');
-    await db.execute(
-      'ALTER TABLE "$_stationSamplesRebuildTable" RENAME TO station_samples',
-    );
-    await _createStationSamplesIndexes(db);
-  }
-
-  bool _hasStationSamplesForeignKeys(List<Map<String, Object?>> foreignKeys) {
-    final hasAuditSessionFk = foreignKeys.any(
-      (row) =>
-          row['from'] == 'auditSessionId' &&
-          row['table'] == 'audit_sessions' &&
-          row['to'] == 'id',
-    );
-    final hasAuditFk = foreignKeys.any(
-      (row) =>
-          row['from'] == 'legacyAuditId' &&
-          row['table'] == 'audits' &&
-          row['to'] == 'id',
-    );
-    return hasAuditSessionFk && hasAuditFk;
-  }
-
-  Set<String> _columnNames(List<Map<String, Object?>> tableInfo) {
-    return {
-      for (final row in tableInfo)
-        if (row['name'] != null) row['name'].toString(),
-    };
-  }
-
-  String _columnDefinitionForRebuild(Map<String, Object?> column) {
-    final name = column['name']?.toString() ?? '';
-    final type = column['type']?.toString().trim() ?? '';
-    final defaultValue = column['dflt_value'];
-    final isNotNull = _pragmaInt(column['notnull']) == 1;
-    final isPrimaryKey = _pragmaInt(column['pk']) > 0;
-    final parts = <String>[_quoteSqlIdentifier(name)];
-    if (type.isNotEmpty) parts.add(type);
-    if (isPrimaryKey) parts.add('PRIMARY KEY');
-    if (isNotNull) parts.add('NOT NULL');
-    if (defaultValue != null) parts.add('DEFAULT $defaultValue');
-    return parts.join(' ');
-  }
-
-  int _pragmaInt(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  String _quoteSqlIdentifier(String value) {
-    return '"${value.replaceAll('"', '""')}"';
-  }
-
-  Future<void> _ensureDummyTestData(Database db) async {
-    if (kReleaseMode) return;
-    for (final seed in kDummyCustomerSeeds) {
-      await db.insert(
-        'customers',
-        seed,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    for (final seed in kDummyFlockSeeds) {
-      await db.insert(
-        'flocks',
-        seed,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    for (final seed in kDummyAuditSeeds) {
-      await db.insert(
-        'audits',
-        seed,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-  }
-
-  Future<void> _seedTroubleshooting(Database db) async {
-    final columns = await db.rawQuery('PRAGMA table_info(troubleshooting)');
-    final columnNames = columns.map((row) => row['name'] as String).toSet();
-
-    for (final entry in kTroubleshootingSeeds.entries) {
-      final row = <String, Object?>{
-        'id': entry.key,
-        'hatcheryCauses': jsonEncode(entry.value['hatcheryCauses']),
-        'farmFlockCauses': jsonEncode(entry.value['farmFlockCauses']),
-      };
-
-      if (columnNames.contains('benchmarkJson')) {
-        row['benchmarkJson'] = entry.value['benchmark'] == null
-            ? null
-            : jsonEncode(entry.value['benchmark']);
-      }
-      if (columnNames.contains('interpretationJson')) {
-        row['interpretationJson'] = entry.value['interpretation'] == null
-            ? null
-            : jsonEncode(entry.value['interpretation']);
-      }
-      if (columnNames.contains('sourceRefsJson')) {
-        row['sourceRefsJson'] = entry.value['sourceRefs'] == null
-            ? null
-            : jsonEncode(entry.value['sourceRefs']);
-      }
-
-      await db.insert(
-        'troubleshooting',
-        row,
-        conflictAlgorithm: entry.value.containsKey('sourceRefs')
-            ? ConflictAlgorithm.replace
-            : ConflictAlgorithm.ignore,
-      );
-    }
-  }
-
-  Future<void> _ensureUserAuthColumns(Database db) async {
-    final existingTables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'",
-    );
-    if (existingTables.isEmpty) {
-      await db.execute('''CREATE TABLE users (
-        id TEXT PRIMARY KEY,
-        fullName TEXT,
-        email TEXT UNIQUE,
-        role TEXT,
-        status TEXT,
-        customerId TEXT,
-        accessToken TEXT,
-        tokenExpiry TEXT,
-        createdAt TEXT,
-        lastLoginAt TEXT
-      )''');
-      return;
-    }
-
-    await _addColumnIfMissing(db, 'users', 'fullName', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'email', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'role', "TEXT DEFAULT 'auditor'");
-    await _addColumnIfMissing(db, 'users', 'status', "TEXT DEFAULT 'pending'");
-    await _addColumnIfMissing(db, 'users', 'customerId', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'accessToken', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'tokenExpiry', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'createdAt', 'TEXT');
-    await _addColumnIfMissing(db, 'users', 'lastLoginAt', 'TEXT');
-  }
-
-  Future<void> _addColumnIfMissing(
-    Database db,
-    String table,
-    String column,
-    String definition,
-  ) async {
-    final info = await db.rawQuery('PRAGMA table_info($table)');
-    final exists = info.any((row) => row['name'] == column);
-    if (!exists) {
-      await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
-    }
-  }
-
-  Future<void> _backfillEggBreakoutAliases(Database db) async {
-    await db.execute('''
-      UPDATE bmk_egg_breakout
-      SET
-        earlyDeadPct = CASE WHEN earlyDeadPct = 0 THEN midDeadPct ELSE earlyDeadPct END,
-        midBlackEyePct = CASE WHEN midBlackEyePct = 0 THEN blackEyePct ELSE midBlackEyePct END,
-        internalPipPct = CASE WHEN internalPipPct = 0 THEN pippedInternalPct ELSE internalPipPct END,
-        externalPipPct = CASE WHEN externalPipPct = 0 THEN pippedExternalPct ELSE externalPipPct END
-    ''');
-  }
-
-  Future<void> _ensureCompleteBmkBreedSeedData(Database db) async {
-    const breeds = ['Ross308', 'Arbo', 'Avian', 'Cobb500', 'Hubbard', 'IR'];
-    for (final breed in breeds) {
-      final startAge = breed == 'Cobb500' ? 24 : 25;
-      for (var age = startAge; age <= 65; age++) {
-        final existing = await db.query(
-          'bmk_breeds',
-          where: 'breed = ? AND ageWeek = ?',
-          whereArgs: [breed, age],
-          limit: 1,
-        );
-        if (existing.isNotEmpty) continue;
-
-        final template = await _nearestBmkBreedRow(db, breed, age);
-        if (template == null) continue;
-        await db.insert('bmk_breeds', {
-          'id': '${breed.toLowerCase()}-$age',
-          'breed': breed,
-          'ageWeek': age,
-          'hatchabilityPct': template['hatchabilityPct'],
-          'fertilityPct': template['fertilityPct'],
-          'hofPct': template['hofPct'],
-          'productionPct': template['productionPct'],
-          'eggWeightG': template['eggWeightG'],
-          'chickWeightG': template['chickWeightG'],
-        });
-      }
-    }
-  }
-
-  Future<Map<String, Object?>?> _nearestBmkBreedRow(
-    Database db,
-    String breed,
-    int age,
-  ) async {
-    final rows = await db.query(
-      'bmk_breeds',
-      where: 'breed = ?',
-      whereArgs: [breed],
-      orderBy: 'ABS(ageWeek - $age) ASC',
-      limit: 1,
-    );
-    return rows.isEmpty ? null : rows.first;
-  }
+  @visibleForTesting
+  Future<void> applyV34UpgradeForTest(Database db) => _applyV34Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

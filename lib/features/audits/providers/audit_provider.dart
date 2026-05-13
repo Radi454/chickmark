@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_thresholds.dart';
+import '../../../core/security/safe_debug_log.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/mappers/station_sample_mapper.dart';
 import '../../../data/models/audit_model.dart';
@@ -15,6 +17,7 @@ import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
 import '../models/egg_breakout_tray_rollup.dart';
 import '../models/egg_breakout_sample.dart';
+import '../models/residue_batch_metrics.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -47,31 +50,49 @@ class AuditProvider extends ChangeNotifier {
     StationSampleRepository? stationSampleRepository,
     ActivityLogRepository? activityLogRepository,
     SupabaseService? supabaseService,
+    Duration autosaveDebounceDuration = defaultAutosaveDebounceDuration,
+    bool autosaveEnabled = true,
   }) : _repository = repository ?? AuditRepository(),
        _stationSampleRepository =
            stationSampleRepository ?? StationSampleRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
-       _supabaseService = supabaseService ?? SupabaseService();
+       _supabaseService = supabaseService ?? SupabaseService(),
+       _autosaveDebounceDuration = autosaveDebounceDuration,
+       _autosaveEnabled = autosaveEnabled;
+
+  static const Duration defaultAutosaveDebounceDuration = Duration(seconds: 1);
 
   final AuditRepository _repository;
   final StationSampleRepository _stationSampleRepository;
   final ActivityLogRepository _activityLogRepository;
   final SupabaseService _supabaseService;
+  final Duration _autosaveDebounceDuration;
+  final bool _autosaveEnabled;
   final Uuid _uuid = const Uuid();
 
   // State
   AuditContext? _context;
   List<AuditModel> _drafts = [];
   List<StationSampleModel> _stationSamples = [];
+  List<StationSampleModel> _chickWeightSamples = [];
   final Set<String> _removedStationSampleIds = {};
   final Set<String> _removedLegacyAuditIds = {};
   int _activeHatchIndex = 0;
+  int _activeChickWeightSampleIndex = 0;
   final Map<int, Set<int>> _savedTabs = {}; // hatchIndex -> saved tab indices
   TempUnit _tempUnit = TempUnit.fahrenheit;
   bool _isReadOnly = false;
   bool _isLoading = false;
   bool _isDirty = false;
+  bool _isAutosaving = false;
+  DateTime? _lastAutosavedAt;
+  String? _autosaveError;
+  int _changeVersion = 0;
+  int _savedVersion = 0;
+  Timer? _autosaveTimer;
+  Future<bool>? _autosaveFuture;
+  bool _isDisposed = false;
   UserModel? _currentUser;
   String? _activeSessionId;
   Future<bool>? _saveFuture;
@@ -88,6 +109,19 @@ class AuditProvider extends ChangeNotifier {
   bool get isReadOnly => _isReadOnly;
   bool get isLoading => _isLoading;
   bool get isDirty => _isDirty;
+  bool get isAutosaving => _isAutosaving;
+  DateTime? get lastAutosavedAt => _lastAutosavedAt;
+  String? get autosaveError => _autosaveError;
+  bool get isAutosaveCaughtUp =>
+      !_isDirty &&
+      !_isAutosaving &&
+      _autosaveError == null &&
+      _savedVersion == _changeVersion;
+  bool get hasPendingAutosave =>
+      _isDirty ||
+      _isAutosaving ||
+      (_autosaveTimer?.isActive ?? false) ||
+      _autosaveError != null;
   int get hatchCount => _drafts.length;
   String get sampleMode => activeDraft.sampleMode;
   bool get isCompareMode => SampleMode.isCompare(sampleMode);
@@ -97,8 +131,44 @@ class AuditProvider extends ChangeNotifier {
       List.unmodifiable(_stationSamples);
   StationSampleModel get activeStationSample =>
       _stationSamples[_activeHatchIndex];
+  List<StationSampleModel> get chickWeightSamples =>
+      List.unmodifiable(_chickWeightSamples);
+  int get activeChickWeightSampleIndex => _activeChickWeightSampleIndex;
+  StationSampleModel get activeChickWeightSample =>
+      _chickWeightSamples[_activeChickWeightSampleIndex];
+  String get chickWeightSampleMode => _chickWeightSamples.isEmpty
+      ? StationSampleModel.sampleModePooled
+      : activeChickWeightSample.sampleMode;
+  bool get isChickWeightCompareMode =>
+      chickWeightSampleMode == StationSampleModel.sampleModeComparison;
   String get stationSampleMode => activeStationSample.sampleMode;
   String? get comparisonType => activeStationSample.comparisonType;
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _autosaveTimer?.cancel();
+    super.dispose();
+  }
+
+  void _notifyListeners() {
+    if (!_isDisposed) notifyListeners();
+  }
+
+  void _markDirtyAndScheduleAutosave() {
+    _changeVersion++;
+    _isDirty = true;
+    _autosaveError = null;
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() {
+    if (!_autosaveEnabled || _isReadOnly || _isDisposed) return;
+    _autosaveTimer?.cancel();
+    _autosaveTimer = Timer(_autosaveDebounceDuration, () {
+      unawaited(_runAutosave());
+    });
+  }
 
   // Initialize new audit session
   void initialize(
@@ -140,12 +210,22 @@ class AuditProvider extends ChangeNotifier {
       _isReadOnly = readOnly ?? false;
     }
     _stationSamples = _buildSamplesForDrafts(
-      existingStationSamples: existingStationSamples,
+      existingStationSamples: _primarySamplesForContext(existingStationSamples),
     );
+    _chickWeightSamples = _buildChickWeightSamplesForContext(
+      existingStationSamples,
+    );
+    _activeChickWeightSampleIndex = 0;
 
     _savedTabs.clear();
     _removedStationSampleIds.clear();
     _removedLegacyAuditIds.clear();
+    _autosaveTimer?.cancel();
+    _autosaveError = null;
+    _isAutosaving = false;
+    _lastAutosavedAt = null;
+    _changeVersion = 0;
+    _savedVersion = 0;
     _isDirty = false;
     if (notify) notifyListeners();
   }
@@ -153,6 +233,16 @@ class AuditProvider extends ChangeNotifier {
   // Create a new draft audit
   AuditModel _createNewDraft({required int hatchNumber}) {
     final now = DateTime.now();
+    final isHatchBreakout =
+        _context!.auditType == 'Hatch Analysis & Egg Breakouts';
+    final isSetterOptimizing = _context!.auditType == 'Setters';
+    final setterId = isHatchBreakout
+        ? '$hatchNumber'
+        : isSetterOptimizing
+        ? (hatchNumber == 1 && _context!.setterId?.trim().isNotEmpty == true
+              ? _context!.setterId
+              : '$hatchNumber')
+        : _context!.setterId;
     return AuditModel(
       id: _uuid.v4(),
       auditType: _context!.auditType,
@@ -164,21 +254,24 @@ class AuditProvider extends ChangeNotifier {
       createdBy: _currentUser?.id ?? '',
       createdAt: now,
       updatedAt: now,
-      setterId: _context!.setterId,
-      hatcherId: _context!.hatcherId,
+      setterId: setterId,
+      hatcherId: isHatchBreakout ? '$hatchNumber' : _context!.hatcherId,
       sessionId: _activeSessionId,
       sampleMode: SampleMode.pool,
-      haTotalEggsSet: _context!.auditType == 'Hatch Analysis & Egg Breakouts'
-          ? 19200
-          : null,
-      soBreed: _context!.auditType == 'Setters' ? _context!.breed : null,
-      soSetterId: _context!.auditType == 'Setters' ? _context!.setterId : null,
+      esEggStorageDays: _context!.auditType == 'Egg' ? 0 : null,
+      haTotalEggsSet: isHatchBreakout ? 19200 : null,
+      haStorageDays: isHatchBreakout ? 0 : null,
+      ebStorageDays: isHatchBreakout ? 0 : null,
+      soBreed: isSetterOptimizing ? _context!.breed : null,
+      soSetterId: isSetterOptimizing ? setterId : null,
       soIncubationAge: _context!.auditType == 'Setters' ? 1 : null,
+      soIncubationHours: _context!.auditType == 'Setters' ? 0 : null,
       hoBreed: _context!.auditType == 'Hatchers' ? _context!.breed : null,
       hoHatcherId: _context!.auditType == 'Hatchers'
           ? _context!.hatcherId
           : null,
       hoIncubationAge: _context!.auditType == 'Hatchers' ? 18 : null,
+      hoIncubationHours: _context!.auditType == 'Hatchers' ? 0 : null,
     );
   }
 
@@ -196,7 +289,7 @@ class AuditProvider extends ChangeNotifier {
     final updatedDraft = _updateAuditField(_drafts[hatchIndex], key, value);
     _drafts[hatchIndex] = updatedDraft;
     _syncStationSampleFromDraft(hatchIndex);
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
 
     notifyListeners();
   }
@@ -211,6 +304,14 @@ class AuditProvider extends ChangeNotifier {
       map.addAll(
         EggBreakoutTrayRollup.fromJson(value as String?).toAuditFields(),
       );
+    }
+    final provisional = AuditModel.fromMap(map);
+    if (EggBreakoutType.fromStorageValue(provisional.ebBreakoutType) ==
+        EggBreakoutType.residueHatchDay) {
+      final metrics = ResidueBatchMetrics.fromAudit(provisional);
+      map['haHatchability'] = metrics.hatchabilityPct;
+      map['haFertility'] = metrics.fertilityPct;
+      map['haHof'] = metrics.hofPct;
     }
     map['updatedAt'] = DateTime.now().toIso8601String();
     return AuditModel.fromMap(map);
@@ -253,7 +354,7 @@ class AuditProvider extends ChangeNotifier {
       _drafts[i] = AuditModel.fromMap(map);
       _syncStationSampleFromDraft(i);
     }
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
     notifyListeners();
   }
 
@@ -264,7 +365,7 @@ class AuditProvider extends ChangeNotifier {
       comparisonType: value,
       updatedAt: DateTime.now(),
     );
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
     notifyListeners();
   }
 
@@ -307,7 +408,7 @@ class AuditProvider extends ChangeNotifier {
     );
     _stationSamples[_activeHatchIndex] = sample;
     _applySamplePatchToDraft(_activeHatchIndex);
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
     notifyListeners();
   }
 
@@ -341,70 +442,185 @@ class AuditProvider extends ChangeNotifier {
     bool markAllTabsSaved = false,
   }) async {
     if (_isReadOnly) return true;
+    _autosaveTimer?.cancel();
+    _autosaveTimer = null;
+    final autosaveInFlight = _autosaveFuture;
+    if (autosaveInFlight != null) {
+      await autosaveInFlight;
+    }
     final inFlight = _saveFuture;
     if (inFlight != null) return inFlight;
 
+    final saveVersion = _changeVersion;
     final future = _saveSamplesInternal(
       tabIndex: tabIndex,
       markAllTabsSaved: markAllTabsSaved,
+      saveVersion: saveVersion,
+      runFinalSaveSideEffects: true,
+      showLoading: true,
     );
     _saveFuture = future;
     try {
-      return await future;
+      final saved = await future;
+      if (saved) {
+        _lastAutosavedAt = DateTime.now();
+        _autosaveError = null;
+        if (_changeVersion > saveVersion && _isDirty) {
+          _scheduleAutosave();
+        }
+      }
+      return saved;
     } finally {
       _saveFuture = null;
     }
   }
 
+  Future<bool> flushAutosave() async {
+    if (_isReadOnly) return true;
+    if (!_autosaveEnabled) return true;
+    _autosaveTimer?.cancel();
+    _autosaveTimer = null;
+    final autosaveInFlight = _autosaveFuture;
+    if (autosaveInFlight != null) return autosaveInFlight;
+    if (!_isDirty && _autosaveError == null) return true;
+    return _runAutosave();
+  }
+
+  Future<bool> _runAutosave() {
+    if (!_autosaveEnabled || _isReadOnly) return Future.value(true);
+    _autosaveTimer?.cancel();
+    _autosaveTimer = null;
+    if (!_isDirty) return Future.value(_autosaveError == null);
+    final finalSaveInFlight = _saveFuture;
+    if (finalSaveInFlight != null) return finalSaveInFlight;
+    final existingAutosave = _autosaveFuture;
+    if (existingAutosave != null) return existingAutosave;
+
+    final saveVersion = _changeVersion;
+    _isAutosaving = true;
+    _autosaveError = null;
+    _notifyListeners();
+
+    final future = () async {
+      final saved = await _saveSamplesInternal(
+        saveVersion: saveVersion,
+        runFinalSaveSideEffects: false,
+        showLoading: false,
+      );
+      if (saved) {
+        _lastAutosavedAt = DateTime.now();
+        if (_changeVersion > saveVersion && _isDirty) {
+          _scheduleAutosave();
+        }
+      } else {
+        _autosaveError =
+            'Could not autosave this station draft. Use Save to retry.';
+      }
+      _isAutosaving = false;
+      _autosaveFuture = null;
+      _notifyListeners();
+      return saved;
+    }();
+    _autosaveFuture = future;
+    return future;
+  }
+
   Future<bool> _saveSamplesInternal({
     int? tabIndex,
     bool markAllTabsSaved = false,
+    required int saveVersion,
+    required bool runFinalSaveSideEffects,
+    required bool showLoading,
   }) async {
-    _isLoading = true;
-    notifyListeners();
+    if (showLoading) {
+      _isLoading = true;
+      _notifyListeners();
+    }
 
     try {
-      final draftsToSave = isCompareMode ? _drafts : [_drafts.first];
+      final draftsToSave = List<AuditModel>.from(
+        isCompareMode ? _drafts : [_drafts.first],
+      );
+      final samplesToSave = <int, StationSampleModel?>{};
       for (var i = 0; i < draftsToSave.length; i++) {
-        final existing = await _repository.getAuditById(draftsToSave[i].id);
-        await _repository.insertAudit(draftsToSave[i]);
-        if (markAllTabsSaved) {
-          _savedTabs[i] = {0, 1, 2, 3, 4};
-        } else if (tabIndex != null) {
-          _savedTabs.putIfAbsent(i, () => {}).add(tabIndex);
+        samplesToSave[i] = _sampleForSave(i, draftsToSave[i]);
+      }
+      final chickWeightSamplesToSave = _chickWeightSamplesForSave();
+      final removedStationSampleIds = List<String>.from(
+        _removedStationSampleIds,
+      );
+      final removedLegacyAuditIds = List<String>.from(_removedLegacyAuditIds);
+      final finalSaveSideEffects = <({AuditModel audit, String action})>[];
+      for (var i = 0; i < draftsToSave.length; i++) {
+        final draft = runFinalSaveSideEffects
+            ? _asStatus(draftsToSave[i], 'active')
+            : _asStatus(draftsToSave[i], 'draft');
+        final existing = runFinalSaveSideEffects
+            ? await _repository.getAuditById(draft.id)
+            : null;
+        await _repository.insertAudit(draft);
+        if (runFinalSaveSideEffects) {
+          if (markAllTabsSaved) {
+            _savedTabs[i] = {0, 1, 2, 3, 4};
+          } else if (tabIndex != null) {
+            _savedTabs.putIfAbsent(i, () => {}).add(tabIndex);
+          }
+          final action =
+              existing == null || existing.status.toLowerCase() == 'draft'
+              ? 'create'
+              : 'update';
+          finalSaveSideEffects.add((audit: draft, action: action));
         }
-        await _logAuditChange(
-          draftsToSave[i],
-          existing == null ? 'create' : 'update',
-        );
-        await _checkThresholdsAndAlert(draftsToSave[i]);
-        unawaited(_supabaseService.syncAudit(draftsToSave[i].toMap()));
 
-        final sample = _sampleForSave(i, draftsToSave[i]);
+        final sample = samplesToSave[i];
         if (sample != null) {
           await _stationSampleRepository.upsertSample(sample);
-          _stationSamples[i] = sample;
+          if (i < _stationSamples.length) {
+            _stationSamples[i] = sample;
+          }
         }
       }
-      for (final id in _removedStationSampleIds) {
+      for (var i = 0; i < chickWeightSamplesToSave.length; i++) {
+        final sample = chickWeightSamplesToSave[i];
+        await _stationSampleRepository.upsertSample(sample);
+        if (i < _chickWeightSamples.length) {
+          _chickWeightSamples[i] = sample;
+        }
+      }
+      for (final id in removedStationSampleIds) {
         await _stationSampleRepository.deleteSample(id);
       }
-      for (final id in _removedLegacyAuditIds) {
+      for (final id in removedLegacyAuditIds) {
         await _repository.deleteAudit(id);
       }
-      _removedStationSampleIds.clear();
-      _removedLegacyAuditIds.clear();
-      _isDirty = false;
+      for (final sideEffect in finalSaveSideEffects) {
+        await _runFinalSaveSideEffects(sideEffect.audit, sideEffect.action);
+      }
+      _removedStationSampleIds.removeAll(removedStationSampleIds);
+      _removedLegacyAuditIds.removeAll(removedLegacyAuditIds);
+      if (_changeVersion == saveVersion) {
+        _isDirty = false;
+        _savedVersion = saveVersion;
+      } else if (!runFinalSaveSideEffects) {
+        _scheduleAutosave();
+      }
       return true;
     } catch (e) {
-      if (kDebugMode) {
-        print('Error saving hatch analysis: $e');
-      }
+      safeDebugLog('Error saving audit station', error: e);
       return false;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (showLoading) {
+        _isLoading = false;
+      }
+      _notifyListeners();
     }
+  }
+
+  AuditModel _asStatus(AuditModel audit, String status) {
+    if (audit.status == status) return audit;
+    final map = audit.toMap();
+    map['status'] = status;
+    return AuditModel.fromMap(map);
   }
 
   // PM Necropsy conditional field validation
@@ -508,11 +724,14 @@ class AuditProvider extends ChangeNotifier {
     final map = draft.toMap();
     map['sampleMode'] = SampleMode.compare;
     map['compareGroupKey'] = _activeCompareGroupKey();
+    if (_context?.auditType == 'Hatch Analysis & Egg Breakouts') {
+      map['ebBreakoutType'] = activeDraft.ebBreakoutType;
+    }
     final nextDraft = AuditModel.fromMap(map);
     _drafts.add(nextDraft);
     _stationSamples.add(_createSampleForDraft(nextDraft, _drafts.length - 1));
     _activeHatchIndex = _drafts.length - 1;
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
 
     notifyListeners();
   }
@@ -552,7 +771,7 @@ class AuditProvider extends ChangeNotifier {
     _savedTabs
       ..clear()
       ..addAll(nextSavedTabs);
-    _isDirty = true;
+    _markDirtyAndScheduleAutosave();
     notifyListeners();
   }
 
@@ -596,24 +815,8 @@ class AuditProvider extends ChangeNotifier {
       return 'Invalid hatch index';
     }
     final a = _drafts[hatchIndex];
-    if (!EggBreakoutType.fromStorageValue(a.ebBreakoutType).showsHatchability) {
+    if (EggBreakoutType.fromStorageValue(a.ebBreakoutType).showsHatchability) {
       return null;
-    }
-
-    if (a.haTotalEggsSet == null || a.haTotalEggsSet! <= 0) {
-      return 'Total Eggs Set must be positive';
-    }
-
-    final sum = hatchBudgetSum(hatchIndex);
-    final total = a.haTotalEggsSet!;
-
-    if (sum != total) {
-      final diff = total - sum;
-      if (diff > 0) {
-        return 'Unallocated eggs: $diff eggs still need a category assignment';
-      } else {
-        return 'Over budget: ${-diff} eggs exceed the total $total. Reduce category counts.';
-      }
     }
     return null;
   }
@@ -621,25 +824,14 @@ class AuditProvider extends ChangeNotifier {
   void recalculateHatchMetrics(int hatchIndex) {
     if (hatchIndex < 0 || hatchIndex >= _drafts.length) return;
     final a = _drafts[hatchIndex];
-    final total = a.haTotalEggsSet ?? 0;
-    if (total <= 0) return;
-
-    final hatched = a.haHatched ?? 0;
-    final hatchability = total > 0 ? (hatched / total) * 100 : 0.0;
-    updateHatchField(
-      hatchIndex,
-      'haHatchability',
-      double.parse(hatchability.toStringAsFixed(1)),
-    );
-
-    final infertile = a.haInfertileClear ?? 0;
-    final fertile = total - infertile;
-    final fertility = total > 0 ? (fertile / total) * 100 : 0.0;
-    final fertilityRounded = double.parse(fertility.toStringAsFixed(1));
-    updateHatchField(hatchIndex, 'haFertility', fertilityRounded);
-
-    final hof = fertility > 0 ? (hatchability / fertility) * 100 : 0.0;
-    updateHatchField(hatchIndex, 'haHof', double.parse(hof.toStringAsFixed(1)));
+    if (EggBreakoutType.fromStorageValue(a.ebBreakoutType) !=
+        EggBreakoutType.residueHatchDay) {
+      return;
+    }
+    final metrics = ResidueBatchMetrics.fromAudit(a);
+    updateHatchField(hatchIndex, 'haHatchability', metrics.hatchabilityPct);
+    updateHatchField(hatchIndex, 'haFertility', metrics.fertilityPct);
+    updateHatchField(hatchIndex, 'haHof', metrics.hofPct);
   }
 
   // Load an existing audit for editing
@@ -686,7 +878,11 @@ class AuditProvider extends ChangeNotifier {
           map['compareGroupKey'] = compareGroupKey;
           _drafts[i] = AuditModel.fromMap(map);
         }
-        _stationSamples = _buildSamplesForDrafts();
+        final loadedSamples = await _loadSavedSamplesForEdit(audit);
+        _stationSamples = _buildSamplesForDrafts(
+          existingStationSamples: _primarySamplesForContext(loadedSamples),
+        );
+        _chickWeightSamples = _buildChickWeightSamplesForContext(loadedSamples);
         _activeHatchIndex = (audit.hatchNumber - 1)
             .clamp(0, _drafts.length - 1)
             .toInt();
@@ -698,13 +894,21 @@ class AuditProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error loading audit: $e');
-      }
+      safeDebugLog('Error loading audit', error: e);
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<List<StationSampleModel>> _loadSavedSamplesForEdit(
+    AuditModel audit,
+  ) async {
+    final sessionId = _activeSessionId ?? audit.sessionId;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      return _stationSampleRepository.getSamplesBySessionId(sessionId);
+    }
+    return _stationSampleRepository.getSamplesByLegacyAuditId(audit.id);
   }
 
   // Toggle edit mode
@@ -725,7 +929,329 @@ class AuditProvider extends ChangeNotifier {
         _drafts[i] = AuditModel.fromMap(map);
         _syncStationSampleFromDraft(i);
       }
+      for (var i = 0; i < _chickWeightSamples.length; i++) {
+        _chickWeightSamples[i] = _chickWeightSamples[i].copyWith(
+          auditSessionId: sessionId,
+          updatedAt: DateTime.now(),
+        );
+      }
       notifyListeners();
+    }
+  }
+
+  void setChickWeightSampleMode(String mode) {
+    if (_isReadOnly || !_isChicksContext || _chickWeightSamples.isEmpty) return;
+    final normalized = StationSampleModel.normalizeSampleMode(mode);
+    final compareGroupKey =
+        normalized == StationSampleModel.sampleModeComparison
+        ? _activeChickWeightCompareGroupKey()
+        : null;
+
+    if (normalized == StationSampleModel.sampleModePooled &&
+        _chickWeightSamples.length > 1) {
+      _removedStationSampleIds.addAll(
+        _chickWeightSamples.skip(1).map((sample) => sample.id),
+      );
+      _chickWeightSamples = [_chickWeightSamples.first];
+      _activeChickWeightSampleIndex = 0;
+    }
+
+    for (var i = 0; i < _chickWeightSamples.length; i++) {
+      _chickWeightSamples[i] = _normalizedChickWeightSample(
+        _chickWeightSamples[i],
+        index: i,
+        sampleMode: normalized,
+        groupKey: compareGroupKey,
+      );
+    }
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
+  }
+
+  void addChickWeightSample() {
+    if (_isReadOnly || !_isChicksContext) return;
+    if (!isChickWeightCompareMode) {
+      setChickWeightSampleMode(StationSampleModel.sampleModeComparison);
+    }
+    final mode = StationSampleModel.sampleModeComparison;
+    final groupKey = _activeChickWeightCompareGroupKey();
+    _chickWeightSamples.add(
+      _createChickWeightSample(_chickWeightSamples.length, mode, groupKey),
+    );
+    _activeChickWeightSampleIndex = _chickWeightSamples.length - 1;
+    _normalizeChickWeightSamples();
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
+  }
+
+  void removeActiveChickWeightSample() {
+    if (_isReadOnly ||
+        !_isChicksContext ||
+        !isChickWeightCompareMode ||
+        _chickWeightSamples.length <= 1) {
+      return;
+    }
+    final removedIndex = _activeChickWeightSampleIndex;
+    _removedStationSampleIds.add(_chickWeightSamples[removedIndex].id);
+    _chickWeightSamples.removeAt(removedIndex);
+    _activeChickWeightSampleIndex = _activeChickWeightSampleIndex
+        .clamp(0, _chickWeightSamples.length - 1)
+        .toInt();
+    _normalizeChickWeightSamples();
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
+  }
+
+  void switchChickWeightSample(int index) {
+    if (index < 0 || index >= _chickWeightSamples.length) return;
+    _activeChickWeightSampleIndex = index;
+    notifyListeners();
+  }
+
+  void updateChickWeightSampleMetadata(Map<String, dynamic> fields) {
+    if (_isReadOnly || !_isChicksContext || _chickWeightSamples.isEmpty) return;
+    final sample = activeChickWeightSample;
+    _chickWeightSamples[_activeChickWeightSampleIndex] = sample.copyWith(
+      sampleLabel: fields['sampleLabel'] as String? ?? sample.sampleLabel,
+      houseNo: fields['houseNo'] as String? ?? sample.houseNo,
+      houseLabel: fields['houseLabel'] as String? ?? sample.houseLabel,
+      notes: fields['notes'] as String? ?? sample.notes,
+      updatedAt: DateTime.now(),
+    );
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
+  }
+
+  void updateChickWeightSampleResult({
+    required String weightsJson,
+    double? avgWeight,
+    double? uniformityPct,
+    double? cvPct,
+  }) {
+    if (_isReadOnly || !_isChicksContext || _chickWeightSamples.isEmpty) return;
+    final summary = <String, Object?>{
+      'auditType': 'Chicks',
+      'sectorType': StationSampleModel.sectorChickWeights,
+      'sampleLabel': activeChickWeightSample.sampleLabel,
+      'chickWeights': _decodedWeights(weightsJson),
+      'chickAvgWeight': avgWeight,
+      'chickUniformityPct': uniformityPct,
+      'chickCvPct': cvPct,
+    }..removeWhere((_, value) => value == null);
+    _chickWeightSamples[_activeChickWeightSampleIndex] = activeChickWeightSample
+        .copyWith(
+          resultSummaryJson: jsonEncode(summary),
+          updatedAt: DateTime.now(),
+        );
+
+    final map = activeDraft.toMap();
+    map['chickWeights'] = weightsJson;
+    map['chickAvgWeight'] = avgWeight;
+    map['chickUniformityPct'] = uniformityPct;
+    map['chickCvPct'] = cvPct;
+    map['updatedAt'] = DateTime.now().toIso8601String();
+    _drafts[_activeHatchIndex] = AuditModel.fromMap(map);
+    _syncStationSampleFromDraft(_activeHatchIndex);
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
+  }
+
+  bool get _isChicksContext => _context?.auditType == 'Chicks';
+
+  List<StationSampleModel>? _primarySamplesForContext(
+    List<StationSampleModel>? samples,
+  ) {
+    if (!_isChicksContext || samples == null) return samples;
+    return samples
+        .where(
+          (sample) =>
+              sample.sectorType != StationSampleModel.sectorChickWeights,
+        )
+        .toList();
+  }
+
+  List<StationSampleModel> _buildChickWeightSamplesForContext(
+    List<StationSampleModel>? existingStationSamples,
+  ) {
+    if (!_isChicksContext || _drafts.isEmpty) return [];
+    final existing =
+        existingStationSamples
+            ?.where(
+              (sample) =>
+                  sample.stationType == 'chicks' &&
+                  sample.sectorType == StationSampleModel.sectorChickWeights,
+            )
+            .toList()
+          ?..sort((a, b) => a.sampleIndex.compareTo(b.sampleIndex));
+    if (existing != null && existing.isNotEmpty) {
+      return [
+        for (var i = 0; i < existing.length; i++)
+          _normalizedChickWeightSample(
+            existing[i],
+            index: i,
+            sampleMode: existing.first.sampleMode,
+            groupKey: existing.first.groupKey,
+          ),
+      ];
+    }
+    return [
+      _createChickWeightSample(0, StationSampleModel.sampleModePooled, null),
+    ];
+  }
+
+  StationSampleModel _createChickWeightSample(
+    int index,
+    String sampleMode,
+    String? groupKey,
+  ) {
+    final now = DateTime.now();
+    final draft = activeDraft;
+    final isComparison = sampleMode == StationSampleModel.sampleModeComparison;
+    return StationSampleModel(
+      id: _uuid.v4(),
+      auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
+      stationType: 'chicks',
+      sectorType: StationSampleModel.sectorChickWeights,
+      sampleKind: StationSampleModel.sampleKindHouse,
+      sampleMode: sampleMode,
+      comparisonType: isComparison
+          ? StationSampleModel.comparisonTypeHouse
+          : null,
+      sampleIndex: index + 1,
+      sampleLabel: 'H${index + 1}',
+      sampleType: StationSampleModel.sampleTypeDefault,
+      groupKey: isComparison ? groupKey : null,
+      groupLabel: isComparison ? 'House comparison' : null,
+      houseNo: 'H${index + 1}',
+      houseLabel: 'House ${index + 1}',
+      calculatedBmkAgeDays: BmkAgeCalculator.calculateDays(
+        currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
+          _context?.flockAgeWeeks,
+        ),
+        auditDate: draft.date,
+        legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+        storageDays: draft.chickStorageDays,
+        flockEntryDate: _context?.flockEntryDate,
+      ),
+      benchmarkBreed: _context?.breed,
+      resultSummaryJson: _chickWeightResultSummaryJsonFromDraft(draft),
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  StationSampleModel _normalizedChickWeightSample(
+    StationSampleModel sample, {
+    required int index,
+    required String sampleMode,
+    required String? groupKey,
+  }) {
+    final isComparison = sampleMode == StationSampleModel.sampleModeComparison;
+    return StationSampleModel(
+      id: sample.id,
+      auditSessionId: _activeSessionId ?? sample.auditSessionId,
+      legacyAuditId: sample.legacyAuditId,
+      stationType: 'chicks',
+      sectorType: StationSampleModel.sectorChickWeights,
+      sampleKind: StationSampleModel.sampleKindHouse,
+      sampleMode: sampleMode,
+      comparisonType: isComparison
+          ? StationSampleModel.comparisonTypeHouse
+          : null,
+      sampleIndex: index + 1,
+      sampleLabel: 'H${index + 1}',
+      sampleType: sample.sampleType,
+      breakoutType: sample.breakoutType,
+      groupKey: isComparison ? groupKey : null,
+      groupLabel: isComparison ? 'House comparison' : null,
+      batchNo: sample.batchNo,
+      houseNo: 'H${index + 1}',
+      houseLabel: 'House ${index + 1}',
+      hatchNo: sample.hatchNo,
+      eggProductionDate: sample.eggProductionDate,
+      settingDate: sample.settingDate,
+      hatchDate: sample.hatchDate,
+      storageDays: sample.storageDays,
+      incubationDay: sample.incubationDay,
+      calculatedBmkAgeDays: sample.calculatedBmkAgeDays,
+      benchmarkBreed: sample.benchmarkBreed,
+      benchmarkAgeDays: sample.benchmarkAgeDays,
+      benchmarkSource: sample.benchmarkSource,
+      benchmarkSnapshotJson: sample.benchmarkSnapshotJson,
+      resultSummaryJson: sample.resultSummaryJson,
+      notes: sample.notes,
+      createdAt: sample.createdAt,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  void _normalizeChickWeightSamples() {
+    if (_chickWeightSamples.isEmpty) return;
+    final mode = chickWeightSampleMode;
+    final groupKey = mode == StationSampleModel.sampleModeComparison
+        ? _activeChickWeightCompareGroupKey()
+        : null;
+    for (var i = 0; i < _chickWeightSamples.length; i++) {
+      _chickWeightSamples[i] = _normalizedChickWeightSample(
+        _chickWeightSamples[i],
+        index: i,
+        sampleMode: mode,
+        groupKey: groupKey,
+      );
+    }
+  }
+
+  String _activeChickWeightCompareGroupKey() {
+    for (final sample in _chickWeightSamples) {
+      final key = sample.groupKey;
+      if (key != null && key.isNotEmpty) return key;
+    }
+    return _uuid.v4();
+  }
+
+  List<StationSampleModel> _chickWeightSamplesForSave() {
+    if (!_isChicksContext || _chickWeightSamples.isEmpty) return [];
+    final sessionId = _activeSessionId ?? activeDraft.sessionId;
+    if (sessionId == null || sessionId.isEmpty) return [];
+    final samples = isChickWeightCompareMode
+        ? _chickWeightSamples
+        : [_chickWeightSamples.first];
+    return [
+      for (var i = 0; i < samples.length; i++)
+        _normalizedChickWeightSample(
+          samples[i],
+          index: i,
+          sampleMode: samples.first.sampleMode,
+          groupKey: samples.first.groupKey,
+        ).copyWith(auditSessionId: sessionId, updatedAt: DateTime.now()),
+    ];
+  }
+
+  String? _chickWeightResultSummaryJsonFromDraft(AuditModel draft) {
+    if (draft.chickWeights == null &&
+        draft.chickAvgWeight == null &&
+        draft.chickUniformityPct == null &&
+        draft.chickCvPct == null) {
+      return null;
+    }
+    final summary = <String, Object?>{
+      'auditType': 'Chicks',
+      'sectorType': StationSampleModel.sectorChickWeights,
+      'chickWeights': draft.chickWeights == null
+          ? null
+          : _decodedWeights(draft.chickWeights!),
+      'chickAvgWeight': draft.chickAvgWeight,
+      'chickUniformityPct': draft.chickUniformityPct,
+      'chickCvPct': draft.chickCvPct,
+    }..removeWhere((_, value) => value == null);
+    return jsonEncode(summary);
+  }
+
+  Object? _decodedWeights(String weightsJson) {
+    try {
+      return jsonDecode(weightsJson);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -753,6 +1279,8 @@ class AuditProvider extends ChangeNotifier {
       return existing.copyWith(
         legacyAuditId: fresh.legacyAuditId,
         stationType: fresh.stationType,
+        sectorType: fresh.sectorType,
+        sampleKind: fresh.sampleKind,
         sampleMode: fresh.sampleMode,
         comparisonType: fresh.comparisonType,
         sampleIndex: fresh.sampleIndex,
@@ -802,6 +1330,8 @@ class AuditProvider extends ChangeNotifier {
       auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
       legacyAuditId: draft.id,
       stationType: StationSampleMapper.stationTypeForAuditType(draft.auditType),
+      sectorType: _defaultSectorType(draft.auditType),
+      sampleKind: _defaultSampleKind(draft.auditType),
       sampleMode: SampleMode.isCompare(draft.sampleMode)
           ? StationSampleModel.sampleModeComparison
           : StationSampleModel.sampleModePooled,
@@ -847,20 +1377,34 @@ class AuditProvider extends ChangeNotifier {
     final keepGeneratedHouseMetadata =
         _drafts[index].auditType == 'Egg' &&
         SampleMode.isCompare(_drafts[index].sampleMode);
+    final keepGeneratedMachineMetadata =
+        _drafts[index].auditType == 'Chicks' &&
+        SampleMode.isCompare(_drafts[index].sampleMode);
+    final keepGeneratedSetterMetadata =
+        _drafts[index].auditType == 'Setters' &&
+        SampleMode.isCompare(_drafts[index].sampleMode);
+    final keepGeneratedSampleMetadata =
+        keepGeneratedHouseMetadata ||
+        keepGeneratedMachineMetadata ||
+        keepGeneratedSetterMetadata;
     final next = fresh.copyWith(
       id: existing.id,
       auditSessionId: _activeSessionId ?? existing.auditSessionId,
       legacyAuditId: _drafts[index].id,
-      comparisonType:
-          existing.comparisonType ??
-          _defaultComparisonType(
-            _drafts[index].auditType,
-            _drafts[index].sampleMode,
-          ),
+      sectorType: fresh.sectorType,
+      sampleKind: fresh.sampleKind,
+      comparisonType: keepGeneratedSampleMetadata
+          ? fresh.comparisonType
+          : existing.comparisonType ?? fresh.comparisonType,
+      sampleLabel: keepGeneratedSampleMetadata
+          ? fresh.sampleLabel
+          : existing.sampleLabel,
       sampleType: existing.sampleType,
       breakoutType: existing.breakoutType,
       groupKey: _drafts[index].compareGroupKey ?? existing.groupKey,
-      groupLabel: existing.groupLabel,
+      groupLabel: keepGeneratedSampleMetadata
+          ? fresh.groupLabel
+          : existing.groupLabel,
       batchNo: existing.batchNo,
       houseNo: keepGeneratedHouseMetadata ? fresh.houseNo : existing.houseNo,
       houseLabel: keepGeneratedHouseMetadata
@@ -870,6 +1414,9 @@ class AuditProvider extends ChangeNotifier {
       eggProductionDate: existing.eggProductionDate,
       settingDate: existing.settingDate,
       hatchDate: existing.hatchDate,
+      setterNo: keepGeneratedSetterMetadata
+          ? fresh.setterNo
+          : existing.setterNo,
       notes: existing.notes,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),
@@ -904,19 +1451,49 @@ class AuditProvider extends ChangeNotifier {
       case 'Egg':
         return StationSampleModel.comparisonTypeHouse;
       case 'Chicks':
-      case 'Hatch Analysis & Egg Breakouts':
-        return StationSampleModel.comparisonTypeBatch;
       case 'Setters':
       case 'Hatchers':
         return StationSampleModel.comparisonTypeMachine;
+      case 'Hatch Analysis & Egg Breakouts':
+        return StationSampleModel.comparisonTypeBatch;
       default:
         return null;
     }
   }
 
+  String _defaultSectorType(String auditType) {
+    return switch (auditType) {
+      'Egg' => StationSampleModel.sectorEggQuality,
+      'Chicks' => StationSampleModel.sectorChickQuality,
+      'Hatch Analysis & Egg Breakouts' =>
+        StationSampleModel.sectorHatchBreakout,
+      'Setters' => StationSampleModel.sectorSetterOptimizing,
+      'Hatchers' => StationSampleModel.sectorHatcherOptimizing,
+      _ => StationSampleModel.sectorDefault,
+    };
+  }
+
+  String _defaultSampleKind(String auditType) {
+    return switch (auditType) {
+      'Egg' => StationSampleModel.sampleKindHouse,
+      'Chicks' ||
+      'Setters' ||
+      'Hatchers' => StationSampleModel.sampleKindMachine,
+      'Hatch Analysis & Egg Breakouts' => StationSampleModel.sampleKindBatch,
+      _ => StationSampleModel.sampleKindPooled,
+    };
+  }
+
   String _sampleLabelForDraft(AuditModel draft, int index) {
     if (draft.auditType == 'Egg' && SampleMode.isCompare(draft.sampleMode)) {
       return 'H${index + 1}';
+    }
+    if (draft.auditType == 'Chicks' && SampleMode.isCompare(draft.sampleMode)) {
+      return 'M${index + 1}';
+    }
+    if (draft.auditType == 'Setters' &&
+        SampleMode.isCompare(draft.sampleMode)) {
+      return _setterSampleLabel(draft, index);
     }
     return 'Sample ${index + 1}';
   }
@@ -924,7 +1501,20 @@ class AuditProvider extends ChangeNotifier {
   String? _groupLabelForDraft(AuditModel draft) {
     if (draft.compareGroupKey == null) return null;
     if (draft.auditType == 'Egg') return 'House comparison';
+    if (draft.auditType == 'Chicks') return 'Machine comparison';
+    if (draft.auditType == 'Setters') return 'Setter comparison';
     return 'Comparison';
+  }
+
+  String _setterSampleLabel(AuditModel draft, int index) {
+    final raw = (draft.setterId ?? draft.soSetterId ?? '').trim();
+    if (raw.isEmpty) return 'S${index + 1}';
+    final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
+    if (digits.isNotEmpty) return 'S$digits';
+    final withoutPrefix = raw.toLowerCase().startsWith('s')
+        ? raw.substring(1).trim()
+        : raw;
+    return 'S$withoutPrefix';
   }
 
   String? _houseNoForDraft(AuditModel draft, int index) {
@@ -991,6 +1581,26 @@ class AuditProvider extends ChangeNotifier {
       entityType: 'audit',
       entityId: audit.id,
       details: audit.auditType,
+    );
+  }
+
+  Future<void> _runFinalSaveSideEffects(AuditModel audit, String action) async {
+    try {
+      await _logAuditChange(audit, action);
+    } catch (e) {
+      safeDebugLog('Error logging audit save', error: e);
+    }
+
+    try {
+      await _checkThresholdsAndAlert(audit);
+    } catch (e) {
+      safeDebugLog('Error checking audit thresholds', error: e);
+    }
+
+    unawaited(
+      _supabaseService.syncAudit(audit.toMap()).catchError((Object e) {
+        safeDebugLog('Error syncing audit', error: e);
+      }),
     );
   }
 

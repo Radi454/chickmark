@@ -17,6 +17,18 @@ void main() {
       expect(normalized['middle_top'], 19.8);
       expect(normalized.containsKey('door_top'), isFalse);
     });
+
+    test('maps title-cased legacy setter keys to front location keys', () {
+      final normalized = EstGridData.normalizeReadings({
+        'Door_Top': 100.2,
+        'Door_Middle': 100.4,
+        'Door_Bottom': 100.6,
+      });
+
+      expect(normalized['front_top'], 100.2);
+      expect(normalized['front_middle'], 100.4);
+      expect(normalized['front_bottom'], 100.6);
+    });
   });
 
   group('EstGridData scan contract', () {

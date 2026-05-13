@@ -123,7 +123,6 @@ class GoveeService extends ChangeNotifier {
   StreamSubscription<BluetoothAdapterState>? _adapterSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   StreamSubscription<bool>? _scanStateSubscription;
-  Future<void>? _gattConnectionAttempt;
   final List<StreamSubscription<List<int>>> _gattNotificationSubscriptions =
       <StreamSubscription<List<int>>>[];
   Timer? _discoveryTimeoutTimer;
@@ -138,6 +137,8 @@ class GoveeService extends ChangeNotifier {
   Future<void>? _availabilityRefresh;
   final Set<String> _debugLoggedScanIds = <String>{};
   final List<String> _diagnostics = <String>[];
+  Future<void>? _gattConnectOperation;
+  Future<void>? _gattDiscoveryOperation;
   Completer<List<GoveeSensorReading>>? _historySyncCompleter;
   List<GoveeSensorReading> _historySyncReadings = <GoveeSensorReading>[];
   DateTime? _historySyncBaseMinute;
@@ -499,26 +500,24 @@ class GoveeService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> connectDevice() async {
+  Future<void> connectDevice() {
     _ensureBleInitialized();
-    final device = _device;
-    if (device == null || _isGattConnected) return;
-    final pendingConnection = _gattConnectionAttempt;
-    if (pendingConnection != null) {
-      await pendingConnection;
-      return;
-    }
-    if (_isGattConnecting) return;
+    final pendingConnect = _gattConnectOperation;
+    if (pendingConnect != null) return pendingConnect;
 
-    final connectionAttempt = _connectDevice(device);
-    _gattConnectionAttempt = connectionAttempt;
-    try {
-      await connectionAttempt;
-    } finally {
-      if (identical(_gattConnectionAttempt, connectionAttempt)) {
-        _gattConnectionAttempt = null;
-      }
+    final device = _device;
+    if (device == null) return Future<void>.value();
+    if (_isGattConnected) {
+      return _gattDiscoveryOperation ?? Future<void>.value();
     }
+
+    final operation = _connectDevice(device);
+    _gattConnectOperation = operation;
+    return operation.whenComplete(() {
+      if (identical(_gattConnectOperation, operation)) {
+        _gattConnectOperation = null;
+      }
+    });
   }
 
   Future<void> _connectDevice(BluetoothDevice device) async {
@@ -675,7 +674,20 @@ class GoveeService extends ChangeNotifier {
     });
   }
 
-  Future<void> _discoverAndRead(BluetoothDevice device) async {
+  Future<void> _discoverAndRead(BluetoothDevice device) {
+    final pendingDiscovery = _gattDiscoveryOperation;
+    if (pendingDiscovery != null) return pendingDiscovery;
+
+    final operation = _discoverAndReadInternal(device);
+    _gattDiscoveryOperation = operation;
+    return operation.whenComplete(() {
+      if (identical(_gattDiscoveryOperation, operation)) {
+        _gattDiscoveryOperation = null;
+      }
+    });
+  }
+
+  Future<void> _discoverAndReadInternal(BluetoothDevice device) async {
     try {
       await _cancelGattNotificationSubscriptions();
       final services = await device.discoverServices();
@@ -714,7 +726,7 @@ class GoveeService extends ChangeNotifier {
               final value = await characteristic.read();
               if (kDebugMode) {
                 debugPrint(
-                  'Govee read ${characteristic.uuid.str}: ${_hex(value)}',
+                  'Govee read ${characteristic.uuid.str}: ${value.length} bytes',
                 );
               }
               _parseCharacteristicValue(uuid, value);
@@ -736,7 +748,7 @@ class GoveeService extends ChangeNotifier {
               ) {
                 if (kDebugMode) {
                   debugPrint(
-                    'Govee notify ${characteristic.uuid.str}: ${_hex(value)}',
+                    'Govee notify ${characteristic.uuid.str}: ${value.length} bytes',
                   );
                 }
                 _parseCharacteristicValue(uuid, value);
@@ -1426,7 +1438,28 @@ class GoveeService extends ChangeNotifier {
             data[1] == 0x01 &&
             _hasValidGoveeChecksum(data),
       _GoveeHistoryProtocol.epochMinute =>
-        data.length >= 2 && data[0] == 0x00 && data[1] == 0x00,
+        (data.length == 1 && data[0] == 0x00) ||
+            (data.length >= 2 && data[0] == 0x00 && data[1] == 0x00),
+    };
+  }
+
+  static bool _isGoveeHistoryComplete(
+    List<int> data,
+    _GoveeHistoryProtocol protocol,
+  ) {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack => false,
+      _GoveeHistoryProtocol.epochMinute => data.length == 1 && data[0] == 0x02,
+    };
+  }
+
+  static bool _isGoveeHistoryProgress(
+    List<int> data,
+    _GoveeHistoryProtocol protocol,
+  ) {
+    return switch (protocol) {
+      _GoveeHistoryProtocol.minuteBack => false,
+      _GoveeHistoryProtocol.epochMinute => data.length == 1 && data[0] == 0x03,
     };
   }
 
@@ -1602,7 +1635,6 @@ class GoveeService extends ChangeNotifier {
     }
 
     await _ensureHistoryCharacteristicsReady();
-
     final writeCharacteristic = _goveeHistoryControlCharacteristic;
     final responseCharacteristic = _goveeHistoryControlCharacteristic;
     final dataCharacteristic = _goveeHistoryDataCharacteristic;
@@ -1611,10 +1643,10 @@ class GoveeService extends ChangeNotifier {
         responseCharacteristic == null ||
         dataCharacteristic == null ||
         !_canWrite(writeCharacteristic)) {
-      final message =
-          'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.';
-      _addDiagnostic(message);
-      throw StateError(message);
+      _addDiagnostic(
+        'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.',
+      );
+      return const [];
     }
 
     final now = DateTime.now();
@@ -1668,25 +1700,6 @@ class GoveeService extends ChangeNotifier {
         _startGattPolling();
       }
     }
-  }
-
-  Future<void> _ensureHistoryCharacteristicsReady() async {
-    if (_isGattConnected &&
-        _goveeDeviceCharacteristic != null &&
-        _goveeHistoryControlCharacteristic != null &&
-        _goveeHistoryDataCharacteristic != null) {
-      return;
-    }
-
-    final device = _device;
-    if (device == null) return;
-
-    if (!_isGattConnected) {
-      await connectDevice();
-      return;
-    }
-
-    await _discoverAndRead(device);
   }
 
   Future<void> _requestActiveHistorySync({
@@ -1745,7 +1758,9 @@ class GoveeService extends ChangeNotifier {
             characteristic.properties.writeWithoutResponse,
       );
       if (kDebugMode) {
-        debugPrint('Govee write ${characteristic.uuid.str}: ${_hex(payload)}');
+        debugPrint(
+          'Govee write ${characteristic.uuid.str}: ${payload.length} bytes',
+        );
       }
       _addDiagnostic(
         'Write command 0x${command.toRadixString(16).padLeft(2, '0')}',
@@ -1775,7 +1790,7 @@ class GoveeService extends ChangeNotifier {
       );
       if (kDebugMode) {
         debugPrint(
-          'Govee history write ${characteristic.uuid.str}: ${_hex(payload)}',
+          'Govee history write ${characteristic.uuid.str}: ${payload.length} bytes',
         );
       }
       _addDiagnostic(
@@ -1810,6 +1825,45 @@ class GoveeService extends ChangeNotifier {
     }
   }
 
+  Future<bool> _ensureHistoryCharacteristicsReady() async {
+    if (_hasHistoryGattCharacteristics) return true;
+
+    final pendingConnect = _gattConnectOperation;
+    if (pendingConnect != null) {
+      await pendingConnect;
+      if (_hasHistoryGattCharacteristics) return true;
+    }
+
+    final pendingDiscovery = _gattDiscoveryOperation;
+    if (pendingDiscovery != null) {
+      await pendingDiscovery;
+      if (_hasHistoryGattCharacteristics) return true;
+    }
+
+    final device = _device;
+    if (device == null) return false;
+
+    if (!_isGattConnected) {
+      await connectDevice();
+      if (_hasHistoryGattCharacteristics) return true;
+    }
+
+    if (_isGattConnected) {
+      _addDiagnostic(
+        'History characteristics missing; rediscovering GATT services',
+        notify: false,
+      );
+      await _discoverAndRead(device);
+    }
+    return _hasHistoryGattCharacteristics;
+  }
+
+  bool get _hasHistoryGattCharacteristics =>
+      _isGattConnected &&
+      _goveeDeviceCharacteristic != null &&
+      _goveeHistoryControlCharacteristic != null &&
+      _goveeHistoryDataCharacteristic != null;
+
   List<int> _buildGoveeCommand(int prefix, int command) {
     final payload = <int>[prefix & 0xFF, command & 0xFF];
     while (payload.length < 19) {
@@ -1832,24 +1886,26 @@ class GoveeService extends ChangeNotifier {
         return true;
       }
 
-      final completionCount =
-          _parseGoveeHistoryCompletionCount(value) ??
-          (_isGoveeEpochMinuteHistoryCompletion(value, _historySyncProtocol)
-              ? _historySyncPacketCount
-              : null);
+      if (_isGoveeHistoryProgress(value, _historySyncProtocol)) {
+        _addDiagnostic('History sync progress status received', notify: false);
+        return true;
+      }
+
+      if (_isGoveeHistoryComplete(value, _historySyncProtocol)) {
+        _completeHistorySync(_historySyncPacketCount);
+        return true;
+      }
+
+      final completionCount = _parseGoveeHistoryCompletionCount(value);
       if (completionCount != null) {
-        final readings = List<GoveeSensorReading>.from(_historySyncReadings)
-          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-        _addDiagnostic(
-          'History sync complete: $completionCount packets, ${readings.length} readings',
-        );
-        completer.complete(readings);
+        _completeHistorySync(completionCount);
         return true;
       }
       return false;
     }
 
     if (uuid != _goveeDataCharacteristicUuid) return false;
+    if (value.isEmpty) return true;
     final readings = _parseActiveHistoryDataPacket(value);
     _historySyncPacketCount += 1;
     _historySyncReadings.addAll(readings);
@@ -1858,6 +1914,17 @@ class GoveeService extends ChangeNotifier {
       notify: false,
     );
     return true;
+  }
+
+  void _completeHistorySync(int completionCount) {
+    final completer = _historySyncCompleter;
+    if (completer == null || completer.isCompleted) return;
+    final readings = List<GoveeSensorReading>.from(_historySyncReadings)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    _addDiagnostic(
+      'History sync complete: $completionCount packets, ${readings.length} readings',
+    );
+    completer.complete(readings);
   }
 
   List<GoveeSensorReading> _parseActiveHistoryDataPacket(List<int> value) {
@@ -1875,15 +1942,6 @@ class GoveeService extends ChangeNotifier {
       _GoveeHistoryProtocol.minuteBack => 'minute-back command',
       _GoveeHistoryProtocol.epochMinute => 'epoch-minute command',
     };
-  }
-
-  bool _isGoveeEpochMinuteHistoryCompletion(
-    List<int> data,
-    _GoveeHistoryProtocol protocol,
-  ) {
-    return protocol == _GoveeHistoryProtocol.epochMinute &&
-        data.length == 1 &&
-        data[0] == 0x02;
   }
 
   void _clearGattCharacteristics() {
@@ -1998,8 +2056,7 @@ class GoveeService extends ChangeNotifier {
     if (!kDebugMode) return;
     debugPrint(
       'Govee BLE advertisement name=${_displayName(result)} '
-      'id=${result.device.remoteId.str} rssi=${result.rssi} '
-      '${_advertisementSummary(result)}',
+      'rssi=${result.rssi}',
     );
   }
 
@@ -2010,26 +2067,7 @@ class GoveeService extends ChangeNotifier {
     final id = result.device.remoteId.str;
     if (!_debugLoggedScanIds.add(id)) return;
     final name = _displayName(result);
-    debugPrint(
-      'BLE scan candidate ignored name=$name id=$id rssi=${result.rssi} '
-      '${_advertisementSummary(result)}',
-    );
-  }
-
-  String _advertisementSummary(ScanResult result) {
-    final serviceData = result.advertisementData.serviceData.map(
-      (key, value) => MapEntry(key.str, _hex(value)),
-    );
-    final manufacturerData = result.advertisementData.manufacturerData.map(
-      (key, value) => MapEntry(key.toString(), _hex(value)),
-    );
-    return 'serviceData=$serviceData manufacturerData=$manufacturerData';
-  }
-
-  String _hex(List<int> bytes) {
-    return bytes
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join(' ');
+    debugPrint('BLE scan candidate ignored name=$name rssi=${result.rssi}');
   }
 
   static bool _isValidReading(double tempF, double humidity) {

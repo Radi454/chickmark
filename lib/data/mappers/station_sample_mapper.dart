@@ -35,10 +35,12 @@ class StationSampleMapper {
       auditSessionId: sessionId,
       legacyAuditId: audit.id,
       stationType: stationType,
+      sectorType: _sectorType(stationType),
+      sampleKind: _sampleKind(stationType),
       sampleMode: sampleMode,
       comparisonType: _comparisonType(stationType, sampleMode),
       sampleIndex: audit.hatchNumber,
-      sampleLabel: _sampleLabel(stationType, audit.hatchNumber),
+      sampleLabel: _sampleLabel(stationType, audit.hatchNumber, audit),
       sampleType: _sampleType(stationType, breakoutType),
       breakoutType: breakoutType,
       groupKey: audit.compareGroupKey,
@@ -90,26 +92,59 @@ class StationSampleMapper {
       patch['hoHatcherId'] = sample.hatcherNo;
     }
     if (sample.storageDays != null) {
-      patch['esEggStorageDays'] = sample.storageDays;
-      patch['chickStorageDays'] = sample.storageDays;
-      patch['haStorageDays'] = sample.storageDays;
-      patch['ebStorageDays'] = sample.storageDays;
+      final storageKey = _legacyStorageDaysKey(sample);
+      if (storageKey != null) {
+        patch[storageKey] = sample.storageDays;
+      }
     }
     if (sample.incubationDay != null) {
-      patch['soIncubationAge'] = sample.incubationDay;
-      patch['hoIncubationAge'] = sample.incubationDay;
+      final incubationKey = _legacyIncubationDayKey(sample);
+      if (incubationKey != null) {
+        patch[incubationKey] = sample.incubationDay;
+      }
     }
     final legacyWeek = _legacyWeek(sample.calculatedBmkAgeDays);
     if (legacyWeek != null) {
-      patch['esEggBmkAge'] = legacyWeek;
-      patch['chickBmkAge'] = legacyWeek;
-      patch['haBmkAge'] = legacyWeek;
-      patch['ebBmkAge'] = legacyWeek;
+      final bmkKey = _legacyBmkAgeKey(sample);
+      if (bmkKey != null) {
+        patch[bmkKey] = legacyWeek;
+      }
     }
     if (sample.breakoutType != null) {
       patch['ebBreakoutType'] = sample.breakoutType;
     }
     return patch;
+  }
+
+  static String? _legacyStorageDaysKey(StationSampleModel sample) {
+    if (sample.stationType == 'egg') return 'esEggStorageDays';
+    if (sample.stationType == 'chicks') return 'chickStorageDays';
+    if (sample.stationType == 'hatch_analysis_egg_breakouts') {
+      return _isEggBreakoutSample(sample) ? 'ebStorageDays' : 'haStorageDays';
+    }
+    return null;
+  }
+
+  static String? _legacyBmkAgeKey(StationSampleModel sample) {
+    if (sample.stationType == 'egg') return 'esEggBmkAge';
+    if (sample.stationType == 'chicks') return 'chickBmkAge';
+    if (sample.stationType == 'hatch_analysis_egg_breakouts') {
+      return _isEggBreakoutSample(sample) ? 'ebBmkAge' : 'haBmkAge';
+    }
+    return null;
+  }
+
+  static String? _legacyIncubationDayKey(StationSampleModel sample) {
+    if (sample.stationType == 'setters') return 'soIncubationAge';
+    if (sample.stationType == 'hatchers') return 'hoIncubationAge';
+    return null;
+  }
+
+  static bool _isEggBreakoutSample(StationSampleModel sample) {
+    if (sample.breakoutType != null) return true;
+    return sample.sampleType == StationSampleModel.sampleTypeBreakoutFresh ||
+        sample.sampleType == StationSampleModel.sampleTypeBreakoutCandled10d ||
+        sample.sampleType == StationSampleModel.sampleTypeBreakoutResidue21d;
   }
 
   static String stationTypeForAuditType(String auditType) {
@@ -153,13 +188,35 @@ class StationSampleMapper {
         return StationSampleModel.comparisonTypeHouse;
       case 'setters':
       case 'hatchers':
-        return StationSampleModel.comparisonTypeMachine;
       case 'chicks':
+        return StationSampleModel.comparisonTypeMachine;
       case 'hatch_analysis_egg_breakouts':
         return StationSampleModel.comparisonTypeBatch;
       default:
         return null;
     }
+  }
+
+  static String _sectorType(String stationType) {
+    return switch (stationType) {
+      'egg' => StationSampleModel.sectorEggQuality,
+      'chicks' => StationSampleModel.sectorChickQuality,
+      'hatch_analysis_egg_breakouts' => StationSampleModel.sectorHatchBreakout,
+      'setters' => StationSampleModel.sectorSetterOptimizing,
+      'hatchers' => StationSampleModel.sectorHatcherOptimizing,
+      _ => StationSampleModel.sectorDefault,
+    };
+  }
+
+  static String _sampleKind(String stationType) {
+    return switch (stationType) {
+      'egg' => StationSampleModel.sampleKindHouse,
+      'chicks' ||
+      'setters' ||
+      'hatchers' => StationSampleModel.sampleKindMachine,
+      'hatch_analysis_egg_breakouts' => StationSampleModel.sampleKindBatch,
+      _ => StationSampleModel.sampleKindPooled,
+    };
   }
 
   static String _sampleType(String stationType, String? breakoutType) {
@@ -179,15 +236,41 @@ class StationSampleMapper {
     return StationSampleModel.sampleTypeDefault;
   }
 
-  static String _sampleLabel(String stationType, int sampleIndex) {
+  static String _sampleLabel(
+    String stationType,
+    int sampleIndex,
+    AuditModel audit,
+  ) {
     if (stationType == 'egg') return 'H$sampleIndex';
+    if (stationType == 'chicks') return 'M$sampleIndex';
+    if (stationType == 'setters') {
+      return _setterSampleLabel(
+        audit.setterId ?? audit.soSetterId,
+        fallbackIndex: sampleIndex,
+      );
+    }
     return 'Sample $sampleIndex';
   }
 
   static String? _groupLabel(String stationType, String? groupKey) {
     if (groupKey == null || groupKey.isEmpty) return null;
     if (stationType == 'egg') return 'House comparison';
+    if (stationType == 'chicks') return 'Machine comparison';
+    if (stationType == 'setters') return 'Setter comparison';
     return 'Comparison';
+  }
+
+  static String _setterSampleLabel(String? raw, {required int fallbackIndex}) {
+    final trimmed = raw?.trim() ?? '';
+    if (trimmed.isEmpty) return 'S$fallbackIndex';
+    final digits = RegExp(
+      r'\d+',
+    ).allMatches(trimmed).map((match) => match.group(0)).join();
+    if (digits.isNotEmpty) return 'S$digits';
+    final withoutPrefix = trimmed.toLowerCase().startsWith('s')
+        ? trimmed.substring(1).trim()
+        : trimmed;
+    return 'S$withoutPrefix';
   }
 
   static String? _houseNo(String stationType, int sampleIndex) {
@@ -235,7 +318,6 @@ class StationSampleMapper {
   }
 
   static int? _legacyWeek(int? calculatedBmkAgeDays) {
-    if (calculatedBmkAgeDays == null) return null;
-    return (calculatedBmkAgeDays / 7.0).ceil();
+    return BmkAgeCalculator.displayWeekForDays(calculatedBmkAgeDays);
   }
 }

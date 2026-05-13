@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import '../models/photo_model.dart';
+import 'sync_tombstone_repository.dart';
 
 class PhotoRepository {
   final dbHelper = DatabaseHelper();
@@ -68,7 +69,20 @@ class PhotoRepository {
 
   Future<void> deleteByAuditId(String auditId) async {
     final db = await dbHelper.db;
-    await db.delete('photos', where: 'auditId = ?', whereArgs: [auditId]);
+    await db.transaction<void>((txn) async {
+      final rows = await txn.query(
+        'photos',
+        columns: ['id'],
+        where: 'auditId = ?',
+        whereArgs: [auditId],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'photos',
+        rows.map((row) => row['id']),
+      );
+      await txn.delete('photos', where: 'auditId = ?', whereArgs: [auditId]);
+    });
   }
 
   Future<void> upsertPhoto(Map<String, dynamic> row) async {
@@ -128,7 +142,9 @@ class PhotoRepository {
 
   bool _isRemotePath(String? path) {
     if (path == null || path.isEmpty) return false;
-    return path.startsWith('http://') || path.startsWith('https://');
+    return path.startsWith('http://') ||
+        path.startsWith('https://') ||
+        path.startsWith('supabase://');
   }
 
   String _camelize(String key) {

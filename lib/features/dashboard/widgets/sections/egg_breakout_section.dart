@@ -83,22 +83,16 @@ class EggBreakoutSection extends StatelessWidget {
         bmk?.earlyDeadPct ?? 0,
       ),
       _EggBreakoutMetric(
-        'Mid Black Eye',
+        'Mid Dead',
         avg.midDeadCount,
         avg.midDeadPct,
-        bmk?.midBlackEyePct ?? 0,
+        bmk?.midDeadPct ?? 0,
       ),
       _EggBreakoutMetric(
         'Late Dead',
         avg.lateDeadCount,
         avg.lateDeadPct,
         bmk?.lateDeadPct ?? 0,
-      ),
-      _EggBreakoutMetric(
-        'Internal Pip',
-        avg.internalPipCount,
-        avg.internalPipPct,
-        bmk?.internalPipPct ?? 0,
       ),
       _EggBreakoutMetric(
         'External Pip',
@@ -117,30 +111,6 @@ class EggBreakoutSection extends StatelessWidget {
         avg.contaminatedCount,
         avg.contamPct,
         bmk?.contamPct ?? 0,
-      ),
-      _EggBreakoutMetric(
-        'Malposition',
-        avg.malpositionCount,
-        avg.malpositionPct,
-        bmk?.turnedPct ?? 0,
-      ),
-      _EggBreakoutMetric(
-        'Exposed Brain',
-        avg.exposedBrainCount,
-        avg.exposedBrainPct,
-        bmk?.exposedBrainPct ?? 0,
-      ),
-      _EggBreakoutMetric(
-        'Crossed Beak',
-        avg.crossedBeakCount,
-        avg.crossedBeakPct,
-        bmk?.crossedBeakPct ?? 0,
-      ),
-      _EggBreakoutMetric(
-        'Culled / Dead',
-        avg.culledDeadCount,
-        avg.cullPct,
-        bmk?.cullPct ?? 0,
       ),
     ];
 

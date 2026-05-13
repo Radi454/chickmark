@@ -5,10 +5,8 @@ import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
-import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
-import '../../../services/supabase/supabase_service.dart';
 import '../../audits/providers/audit_provider.dart';
 import '../../audits/providers/audit_session_provider.dart';
 import '../../audits/screens/audit_context_screen.dart';
@@ -17,7 +15,13 @@ import '../../audits/screens/egg_storage_screen.dart';
 import '../../audits/screens/hatch_analysis_screen.dart';
 import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
+import '../../audits/utils/audit_govee_spots.dart';
+import '../../audits/widgets/audit_autosave_status.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
+import '../../govee/providers/govee_capture_provider.dart';
+import '../../govee/screens/govee_screen.dart';
+import '../../../core/navigation/shell_navigation_scope.dart';
+import '../../../providers/customers_provider.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -26,15 +30,11 @@ bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
 class AuditSessionScreen extends StatefulWidget {
   final AuditRepository? auditRepository;
   final StationSampleRepository? stationSampleRepository;
-  final ActivityLogRepository? activityLogRepository;
-  final SupabaseService? supabaseService;
 
   const AuditSessionScreen({
     super.key,
     this.auditRepository,
     this.stationSampleRepository,
-    this.activityLogRepository,
-    this.supabaseService,
   });
 
   @override
@@ -44,16 +44,22 @@ class AuditSessionScreen extends StatefulWidget {
 class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
+  final Set<String> _mountedStationKeys = <String>{};
   late final AuditRepository _auditRepository =
       widget.auditRepository ?? AuditRepository();
   late final StationSampleRepository _stationSampleRepository =
       widget.stationSampleRepository ?? StationSampleRepository();
-  late final ActivityLogRepository _activityLogRepository =
-      widget.activityLogRepository ?? ActivityLogRepository();
-  late final SupabaseService _supabaseService =
-      widget.supabaseService ?? SupabaseService();
+  String? _mountedSessionId;
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
+
+  @override
+  void dispose() {
+    for (final provider in _stationAuditProviders.values) {
+      provider.dispose();
+    }
+    super.dispose();
+  }
 
   AuditProvider? get _currentStationProvider {
     final sessionProvider = context.read<AuditSessionProvider>();
@@ -83,9 +89,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           final currentStationKey = stationKeys.isEmpty
               ? null
               : stationKeys[sessionProvider.currentStationIndex];
+          _syncMountedStations(
+            sessionProvider.currentSession!.id,
+            stationKeys,
+            currentStationKey,
+          );
           final showProgress =
-              currentStationKey != 'hatch_analysis_egg_breakouts' &&
-              currentStationKey != 'chicks';
+              currentStationKey != 'hatch_analysis_egg_breakouts';
 
           return Stack(
             children: [
@@ -98,20 +108,14 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                         _buildProgressIndicator(sessionProvider, stationKeys),
                         const Divider(height: 1),
                       ],
+                      _buildCurrentStationGoveeEntryPoint(
+                        sessionProvider,
+                        stationKeys,
+                      ),
                       Expanded(
-                        child: Stack(
-                          children: List.generate(
-                            stationKeys.length,
-                            (i) => Offstage(
-                              offstage:
-                                  i != sessionProvider.currentStationIndex,
-                              child: _buildStationWidget(
-                                sessionProvider,
-                                stationKeys,
-                                i,
-                              ),
-                            ),
-                          ),
+                        child: _buildMountedStationStack(
+                          sessionProvider,
+                          stationKeys,
                         ),
                       ),
                       _buildNavigationFooter(sessionProvider, stationKeys),
@@ -124,6 +128,38 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           );
         },
       ),
+    );
+  }
+
+  void _syncMountedStations(
+    String sessionId,
+    List<String> stationKeys,
+    String? currentStationKey,
+  ) {
+    if (_mountedSessionId != sessionId) {
+      _mountedStationKeys.clear();
+      _mountedSessionId = sessionId;
+    }
+
+    _mountedStationKeys.removeWhere((key) => !stationKeys.contains(key));
+    if (currentStationKey != null) {
+      _mountedStationKeys.add(currentStationKey);
+    }
+  }
+
+  Widget _buildMountedStationStack(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
+    return Stack(
+      children: [
+        for (var i = 0; i < stationKeys.length; i++)
+          if (_mountedStationKeys.contains(stationKeys[i]))
+            Offstage(
+              offstage: i != provider.currentStationIndex,
+              child: _buildStationWidget(provider, stationKeys, i),
+            ),
+      ],
     );
   }
 
@@ -152,13 +188,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               return Transform.scale(
                 scale: value,
                 child: Container(
-                  width: 120,
-                  height: 120,
+                  width: 96,
+                  height: 96,
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppColors.completedText,
                   ),
-                  child: const Icon(Icons.check, color: Colors.white, size: 64),
+                  child: const Icon(Icons.check, color: Colors.white, size: 48),
                 ),
               );
             },
@@ -200,8 +236,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                     child: Column(
                       children: [
                         Container(
-                          width: 34,
-                          height: 34,
+                          width: 36,
+                          height: 36,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isReached
@@ -212,14 +248,14 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                             child: isReached
                                 ? const Icon(
                                     Icons.check,
-                                    size: 20,
+                                    size: 18,
                                     color: Colors.white,
                                   )
                                 : Text(
                                     '${index + 1}',
                                     style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
@@ -230,11 +266,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                           _shortStationLabel(displayLabels[index]),
                           maxLines: 2,
                           overflow: TextOverflow.visible,
+                          softWrap: true,
                           style: TextStyle(
-                            fontSize: 12,
-                            height: 1.0,
+                            fontSize: 11,
+                            height: 1.05,
                             fontWeight: isReached
-                                ? FontWeight.w800
+                                ? FontWeight.w700
                                 : FontWeight.w500,
                             color: isReached
                                 ? AppColors.completedText
@@ -249,8 +286,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 if (index < stationKeys.length - 1)
                   Expanded(
                     child: Container(
-                      height: 3,
-                      margin: const EdgeInsets.only(top: 17),
+                      height: 2,
+                      margin: const EdgeInsets.only(top: 18),
                       color: isReached
                           ? AppColors.completedText
                           : Colors.grey.shade300,
@@ -271,6 +308,19 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) {
     final session = provider.currentSession!;
     final stationKey = stationKeys[index];
+    CustomersProvider? customersProvider;
+    try {
+      customersProvider = context.read<CustomersProvider>();
+    } on ProviderNotFoundException {
+      customersProvider = null;
+    }
+    final flock = customersProvider?.flockById(session.flockId);
+    final sessionFlockAgeWeeks = session.flockAgeWeeks;
+    final resolvedFlockAgeWeeks =
+        sessionFlockAgeWeeks != null && sessionFlockAgeWeeks > 0
+        ? sessionFlockAgeWeeks
+        : flock?.currentAgeWeeks.toInt();
+    final sessionBreed = session.breed;
 
     final auditContext = AuditContextData(
       auditType:
@@ -279,21 +329,18 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       flockId: session.flockId,
       hatcheryId: session.hatcheryId,
       sessionId: session.id,
-      breed: session.breed,
+      breed: sessionBreed != null && sessionBreed.trim().isNotEmpty
+          ? sessionBreed
+          : flock?.breed,
       setterId: null,
       hatcherId: null,
-      flockEntryDate: null,
-      flockAgeWeeks: session.flockAgeWeeks,
+      flockEntryDate: flock?.entryDate,
+      flockAgeWeeks: resolvedFlockAgeWeeks,
       date: session.date.toIso8601String().split('T')[0],
     );
 
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
-      final p = AuditProvider(
-        repository: _auditRepository,
-        stationSampleRepository: _stationSampleRepository,
-        activityLogRepository: _activityLogRepository,
-        supabaseService: _supabaseService,
-      );
+      final p = AuditProvider();
       return p;
     });
 
@@ -323,10 +370,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final index = provider.currentStationIndex;
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
+    final stationProvider = _currentStationProvider;
 
     return Container(
       key: const ValueKey('audit-session-navigation-footer'),
-      padding: const EdgeInsets.fromLTRB(24, 7, 24, 7),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.94),
         boxShadow: [
@@ -352,7 +400,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                   foregroundColor: AppColors.primary,
                   side: const BorderSide(color: AppColors.primary),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: 14,
                     vertical: 12,
                   ),
                   shape: RoundedRectangleBorder(
@@ -361,6 +409,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 ),
               ),
             if (!isFirst) const SizedBox(width: 12),
+            if (stationProvider != null) ...[
+              ChangeNotifierProvider<AuditProvider>.value(
+                value: stationProvider,
+                child: const AuditAutosaveStatus(),
+              ),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: ElevatedButton.icon(
                 key: const ValueKey('audit-session-next-action'),
@@ -404,8 +459,108 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
   }
 
+  Widget _buildCurrentStationGoveeEntryPoint(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
+    if (stationKeys.isEmpty ||
+        provider.currentStationIndex < 0 ||
+        provider.currentStationIndex >= stationKeys.length) {
+      return const SizedBox.shrink();
+    }
+
+    final session = provider.currentSession;
+    if (session == null) return const SizedBox.shrink();
+
+    final stationKey = stationKeys[provider.currentStationIndex];
+    final spot = goveeSpotForStationKey(stationKey);
+    if (spot == null) return const SizedBox.shrink();
+
+    return Material(
+      color: AppColors.background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: InkWell(
+          key: const ValueKey('audit-open-govee-readings'),
+          onTap: () async {
+            final goveeProvider = context.read<GoveeCaptureProvider>();
+            final shell = ShellNavigationScope.maybeOf(context);
+            final navigator = Navigator.of(context);
+            final machineId = _machineIdForStation(stationKey);
+            await goveeProvider.configure(
+              customerId: session.customerId,
+              hatcheryId: session.hatcheryId,
+              place: spot.place,
+              stationKey: stationKey,
+              machineId: machineId,
+            );
+            if (shell != null) {
+              shell.switchTab(4);
+              return;
+            }
+            if (!navigator.mounted) return;
+            await navigator.push(
+              MaterialPageRoute<void>(builder: (_) => const GoveeScreen()),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.borderDefault),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.infoBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.device_thermostat_outlined,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Govee readings',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String? _machineIdForStation(String stationKey) {
+    final stationProvider = _stationAuditProviders[stationKey];
+    if (stationProvider == null || stationProvider.drafts.isEmpty) {
+      return null;
+    }
+    final draft = stationProvider.activeDraft;
+    return switch (stationKey) {
+      'setters' => draft.setterId ?? draft.soSetterId,
+      'hatchers' => draft.hatcherId ?? draft.hoHatcherId,
+      _ => null,
+    };
+  }
+
   Future<void> _handleBackNavigation(BuildContext context) async {
-    final shouldLeave = await _saveStationBeforeExit();
+    final shouldLeave = await _confirmStationExit();
     if (!shouldLeave) return;
     if (!mounted) return;
 
@@ -421,7 +576,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
     if (_isSavingStation) return;
-    final shouldContinue = await _saveStationBeforeExit();
+    final shouldContinue = await _confirmStationExit();
     if (!shouldContinue) return;
 
     await provider.markCurrentStationCompleted();
@@ -445,7 +600,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
-    final shouldMove = await _saveStationBeforeExit();
+    final shouldMove = await _confirmStationExit();
     if (!shouldMove) return;
 
     provider.goToPreviousStation();
@@ -461,7 +616,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) async {
     if (stationIndex == provider.currentStationIndex) return;
 
-    final shouldMove = await _saveStationBeforeExit();
+    final shouldMove = await _confirmStationExit();
     if (!shouldMove) return;
 
     provider.goToStation(stationIndex);
@@ -470,11 +625,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     });
   }
 
-  Future<bool> _saveStationBeforeExit() async {
+  Future<bool> _confirmStationExit() async {
     final stationAuditProvider = _currentStationProvider;
     if (stationAuditProvider == null) return true;
 
     if (!mounted) return false;
+
     setState(() => _isSavingStation = true);
     var saved = false;
     try {
@@ -661,8 +817,6 @@ class _StationFrameState extends State<_StationFrame> {
         return HatcherOptimizingScreen(
           context: widget.context,
           initialAudit: initialAudit,
-          initialAudits: initialData.stationAudits,
-          initialStationSamples: initialData.stationSamples,
         );
       default:
         return null;

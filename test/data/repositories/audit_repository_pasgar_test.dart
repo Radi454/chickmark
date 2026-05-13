@@ -47,6 +47,8 @@ void main() {
 
       expect(sql, contains('pasgarReflexes * 100.0 / pasgarSampleSize'));
       expect(sql, contains('pasgarFeatherDev * 100.0 / pasgarSampleSize'));
+      expect(sql, contains('pasgarReflexes BETWEEN 0 AND pasgarSampleSize'));
+      expect(sql, contains('pasgarFeatherDev BETWEEN 0 AND pasgarSampleSize'));
     });
   });
 }

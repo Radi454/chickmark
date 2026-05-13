@@ -4,14 +4,21 @@ import '../../data/repositories/photo_repository.dart';
 import '../supabase/supabase_service.dart';
 
 class PhotoSyncService {
-  final PhotoRepository _repo = PhotoRepository();
-  final SupabaseService _supabase = SupabaseService();
+  PhotoSyncService({PhotoRepository? repository, SupabaseService? supabase})
+    : _repo = repository ?? PhotoRepository(),
+      _supabase = supabase ?? SupabaseService();
+
+  final PhotoRepository _repo;
+  final SupabaseService _supabase;
 
   Future<void> syncPending() async {
     final available = await _supabase.refreshAvailability();
     if (!available) return;
 
-    final pending = await _repo.getByStatus('local');
+    final pending = [
+      ...await _repo.getByStatus('local'),
+      ...await _repo.getByStatus('failed'),
+    ];
     for (final photo in pending) {
       try {
         final file = File(photo.filePath);

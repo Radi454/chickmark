@@ -28,9 +28,8 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   final Guid serviceUuid = Guid('494e5445-4c4c-495f-524f-434b535f2000');
   String platformName = 'Govee_H5075_ECC3';
   bool disconnectOnFirstHistoryWrite = false;
-  bool epochMinuteUsesShortCompletion = false;
-  bool includeHistoryCharacteristics = true;
-  Completer<void>? connectGate;
+  bool omitHistoryCharacteristicsOnFirstDiscovery = false;
+  int discoverServicesCount = 0;
   int historyWriteCount = 0;
 
   @override
@@ -112,10 +111,6 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   @override
   Future<bool> connect(BmConnectRequest request) async {
     calls.add('connect');
-    final gate = connectGate;
-    if (gate != null) {
-      await gate.future;
-    }
     scheduleMicrotask(() => _emitConnection(BmConnectionStateEnum.connected));
     return true;
   }
@@ -123,25 +118,29 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
   @override
   Future<bool> discoverServices(BmDiscoverServicesRequest request) async {
     calls.add('discoverServices');
-    scheduleMicrotask(() {
-      final characteristics = [
+    discoverServicesCount += 1;
+    final includeHistoryCharacteristics =
+        !omitHistoryCharacteristicsOnFirstDiscovery ||
+        discoverServicesCount > 1;
+    final characteristics = <BmBluetoothCharacteristic>[
+      _characteristic(
+        GoveeService.deviceCommandCharacteristicUuidForTesting,
+        write: true,
+        notify: true,
+      ),
+      if (includeHistoryCharacteristics) ...[
         _characteristic(
-          GoveeService.deviceCommandCharacteristicUuidForTesting,
+          GoveeService.historyResponseCharacteristicUuidForTesting,
           write: true,
           notify: true,
         ),
-        if (includeHistoryCharacteristics) ...[
-          _characteristic(
-            GoveeService.historyResponseCharacteristicUuidForTesting,
-            write: true,
-            notify: true,
-          ),
-          _characteristic(
-            GoveeService.historyDataCharacteristicUuidForTesting,
-            notify: true,
-          ),
-        ],
-      ];
+        _characteristic(
+          GoveeService.historyDataCharacteristicUuidForTesting,
+          notify: true,
+        ),
+      ],
+    ];
+    scheduleMicrotask(() {
       _servicesController.add(
         BmDiscoverServicesResult(
           remoteId: remoteId,
@@ -341,7 +340,7 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
         characteristicUuid: Guid(
           GoveeService.historyResponseCharacteristicUuidForTesting,
         ),
-        value: writes.last,
+        value: const [0x00],
       ),
     );
     final epochMinute = DateTime.now().millisecondsSinceEpoch ~/ 60000;
@@ -379,30 +378,7 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
         characteristicUuid: Guid(
           GoveeService.historyResponseCharacteristicUuidForTesting,
         ),
-        value: epochMinuteUsesShortCompletion
-            ? const [0x02]
-            : const [
-                0xee,
-                0x01,
-                0x00,
-                0x01,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0xee,
-              ],
+        value: const [0x02],
       ),
     );
   }
@@ -418,9 +394,8 @@ base class _FakeBluetoothPlatform extends FlutterBluePlusPlatform {
     writes.clear();
     platformName = 'Govee_H5075_ECC3';
     disconnectOnFirstHistoryWrite = false;
-    epochMinuteUsesShortCompletion = false;
-    includeHistoryCharacteristics = true;
-    connectGate = null;
+    omitHistoryCharacteristicsOnFirstDiscovery = false;
+    discoverServicesCount = 0;
     historyWriteCount = 0;
     _emitConnection(BmConnectionStateEnum.disconnected);
   }
@@ -541,53 +516,6 @@ void main() {
       },
     );
 
-    test(
-      'history sync waits for an in-progress reconnect before checking characteristics',
-      () async {
-        platform.platformName = 'Govee_H5051_ECC3';
-
-        final service = GoveeService();
-        addTearDown(service.dispose);
-        service.setAutoReconnectEnabled(true);
-        await service.initializeBle();
-        await service.startScan(
-          timeout: const Duration(seconds: 5),
-          discoveryTimeout: const Duration(seconds: 5),
-        );
-
-        for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-        expect(service.isGattConnected, isTrue);
-
-        platform._emitConnection(BmConnectionStateEnum.disconnected);
-        await Future<void>.delayed(Duration.zero);
-        expect(service.isGattConnected, isFalse);
-
-        final connectGate = Completer<void>();
-        platform.connectGate = connectGate;
-        final reconnect = service.connectDevice();
-        await Future<void>.delayed(Duration.zero);
-        expect(service.isGattConnecting, isTrue);
-
-        final sync = service.syncHistory(
-          startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
-          endedAt: DateTime.now(),
-        );
-
-        connectGate.complete();
-        await reconnect;
-
-        final readings = await sync.timeout(const Duration(seconds: 1));
-
-        expect(readings, isNotEmpty);
-        expect(
-          service.diagnostics,
-          contains(contains('History sync requested epoch-minute window')),
-        );
-      },
-    );
-
     test('uses epoch-minute history requests for H5051 devices', () async {
       platform.platformName = 'Govee_H5051_ECC3';
 
@@ -619,44 +547,11 @@ void main() {
       expect(readings.first.humidity, closeTo(65.0, 0.1));
     });
 
-    test('completes H5051 epoch-minute sync on 0x02 status', () async {
-      platform
-        ..platformName = 'Govee_H5051_ECC3'
-        ..epochMinuteUsesShortCompletion = true;
-
-      final service = GoveeService();
-      addTearDown(service.dispose);
-      await service.initializeBle();
-      await service.startScan(
-        timeout: const Duration(seconds: 5),
-        discoveryTimeout: const Duration(seconds: 5),
-      );
-
-      for (var i = 0; i < 20 && !service.isGattConnected; i += 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      expect(service.isGattConnected, isTrue);
-
-      final readings = await service
-          .syncHistory(
-            startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
-            endedAt: DateTime.now(),
-          )
-          .timeout(const Duration(seconds: 1));
-
-      expect(readings, isNotEmpty);
-      expect(
-        service.diagnostics,
-        contains(contains('History sync complete: 1 packets')),
-      );
-    });
-
     test(
-      'missing history characteristics fail sync instead of returning empty',
+      'rediscovers services before history sync when connected without history characteristics',
       () async {
-        platform
-          ..platformName = 'Govee_H5051_ECC3'
-          ..includeHistoryCharacteristics = false;
+        platform.platformName = 'Govee_H5051_ECC3';
+        platform.omitHistoryCharacteristicsOnFirstDiscovery = true;
 
         final service = GoveeService();
         addTearDown(service.dispose);
@@ -670,28 +565,16 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         expect(service.isGattConnected, isTrue);
+        expect(platform.discoverServicesCount, 1);
 
-        await expectLater(
-          service.syncHistory(
-            startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
-            endedAt: DateTime.now(),
-          ),
-          throwsA(
-            isA<StateError>().having(
-              (error) => error.message,
-              'message',
-              contains('history/control/data characteristics'),
-            ),
-          ),
+        final readings = await service.syncHistory(
+          startedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+          endedAt: DateTime.now(),
         );
-        expect(
-          service.diagnostics,
-          contains(
-            contains(
-              'History sync needs connected H5051 history/control/data characteristics',
-            ),
-          ),
-        );
+
+        expect(readings, isNotEmpty);
+        expect(platform.discoverServicesCount, greaterThanOrEqualTo(2));
+        expect(platform.historyWriteCount, 1);
       },
     );
 

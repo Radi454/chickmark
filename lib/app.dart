@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/debug/startup_timer.dart';
+import 'core/security/security_policy.dart';
 import 'core/theme/app_theme.dart';
 import 'features/audits/providers/audit_provider.dart';
 import 'features/audits/providers/audit_session_provider.dart';
@@ -16,39 +17,8 @@ import 'features/govee/widgets/govee_global_overlay.dart';
 import 'features/home/widgets/main_shell.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/sync/screens/startup_sync_screen.dart';
-import 'features/temperature/providers/temperature_rh_provider.dart';
 import 'providers/app_provider.dart';
 import 'providers/customers_provider.dart';
-
-const Set<String> _goveeLauncherRoutes = {'/main'};
-
-String _initialRouteForAuthState(AuthState state) {
-  switch (state) {
-    case AuthState.authenticated:
-      return '/main';
-    case AuthState.pendingApproval:
-      return '/pending-approval';
-    case AuthState.loading:
-      return '/login';
-    case AuthState.error:
-    case AuthState.unauthenticated:
-      return '/login';
-  }
-}
-
-bool shouldShowGoveeLauncher({
-  required AuthState state,
-  required bool hasObservedRoute,
-  required String? currentRoute,
-  required bool currentRouteIsPageRoute,
-}) {
-  if (state != AuthState.authenticated) return false;
-  if (hasObservedRoute && !currentRouteIsPageRoute) return false;
-  final routeName = hasObservedRoute
-      ? currentRoute ?? _initialRouteForAuthState(state)
-      : _initialRouteForAuthState(state);
-  return _goveeLauncherRoutes.contains(routeName);
-}
 
 class HatchAuditApp extends StatefulWidget {
   const HatchAuditApp({super.key});
@@ -58,21 +28,21 @@ class HatchAuditApp extends StatefulWidget {
 }
 
 class _HatchAuditAppState extends State<HatchAuditApp> {
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final AuthProvider _authProvider;
-  String? _currentRoute;
-  String? _pendingRoute;
-  bool _hasObservedRoute = false;
-  bool _currentRouteIsPageRoute = true;
-  bool _pendingRouteIsPageRoute = true;
-  bool _routeUpdateScheduled = false;
+  late final bool _authBypassEnabled;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  bool _showGlobalLauncher = false;
 
   @override
   void initState() {
     super.initState();
-    _authProvider = AuthProvider();
+    _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
+    _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StartupTimer.lap('first_frame_rendered');
+      if (mounted) {
+        setState(() => _showGlobalLauncher = true);
+      }
       _authProvider.checkCachedToken().then((_) {
         StartupTimer.lap('auth_check_complete');
       });
@@ -88,7 +58,6 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => CustomersProvider()),
         ChangeNotifierProvider(create: (_) => AuditProvider()),
         ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
-        ChangeNotifierProvider(create: (_) => TemperatureRhProvider()),
         ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ChangeNotifierProvider(create: (_) => BmkProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
@@ -96,25 +65,35 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
+          final initialRoute = _getInitialRoute(authProvider.state);
+          final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
             navigatorKey: _navigatorKey,
-            navigatorObservers: [
-              _RouteNameObserver(onRouteChanged: _handleRouteChanged),
-            ],
             title: 'ChickMark',
             theme: AppTheme.light(),
-            initialRoute: _getInitialRoute(authProvider.state),
-            builder: (context, child) => GoveeGlobalOverlay(
-              showLauncher: _shouldShowGovee(authProvider.state),
-              panelContextBuilder: () => _navigatorKey.currentContext,
-              child: child ?? const SizedBox.shrink(),
-            ),
-            routes: {
-              '/login': (context) => const LoginScreen(),
-              '/register': (context) => const RegisterScreen(),
-              '/pending-approval': (context) => const PendingApprovalScreen(),
-              '/startup-sync': (context) => const StartupSyncScreen(),
-              '/main': (context) => const MainShell(),
+            initialRoute: initialRoute,
+            onGenerateInitialRoutes: (initialRouteName) {
+              final routeName = routes.containsKey(initialRouteName)
+                  ? initialRouteName
+                  : initialRoute;
+              return [_buildInitialRoute(routeName, routes)];
+            },
+            routes: routes,
+            builder: (context, child) {
+              final showGoveeLauncher =
+                  _showGlobalLauncher &&
+                  (_authBypassEnabled ||
+                      authProvider.state == AuthState.authenticated);
+              final isGoveeRecording = context
+                  .select<GoveeCaptureProvider, bool>(
+                    (provider) => provider.isRecording,
+                  );
+              return GoveeGlobalOverlay(
+                showLauncher: showGoveeLauncher,
+                isRecording: isGoveeRecording,
+                panelContextBuilder: () => _navigatorKey.currentContext,
+                child: child ?? const SizedBox.shrink(),
+              );
             },
           );
         },
@@ -123,71 +102,48 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   }
 
   String _getInitialRoute(AuthState state) {
-    return _initialRouteForAuthState(state);
+    switch (state) {
+      case AuthState.authenticated:
+        return '/main';
+      case AuthState.pendingApproval:
+        return '/pending-approval';
+      case AuthState.loading:
+        return '/login';
+      case AuthState.error:
+      case AuthState.unauthenticated:
+        return '/login';
+    }
   }
 
-  bool _shouldShowGovee(AuthState state) {
-    return shouldShowGoveeLauncher(
-      state: state,
-      hasObservedRoute: _hasObservedRoute,
-      currentRoute: _currentRoute,
-      currentRouteIsPageRoute: _currentRouteIsPageRoute,
-    );
-  }
-
-  void _handleRouteChanged(Route<dynamic>? route) {
-    final routeName = route?.settings.name;
-    final isPageRoute = route == null || route is PageRoute<dynamic>;
-    if (_hasObservedRoute &&
-        _currentRoute == routeName &&
-        _currentRouteIsPageRoute == isPageRoute) {
-      return;
+  Map<String, WidgetBuilder> _buildRoutes(bool authBypassEnabled) {
+    if (authBypassEnabled) {
+      return {
+        '/login': (context) => const MainShell(),
+        '/register': (context) => const MainShell(),
+        '/pending-approval': (context) => const MainShell(),
+        '/startup-sync': (context) => const MainShell(),
+        '/main': (context) => const MainShell(),
+      };
     }
 
-    _pendingRoute = routeName;
-    _pendingRouteIsPageRoute = isPageRoute;
-    if (_routeUpdateScheduled) return;
-
-    _routeUpdateScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _routeUpdateScheduled = false;
-      if (!mounted) return;
-
-      final nextRoute = _pendingRoute;
-      final nextIsPageRoute = _pendingRouteIsPageRoute;
-      _pendingRoute = null;
-      if (_hasObservedRoute &&
-          _currentRoute == nextRoute &&
-          _currentRouteIsPageRoute == nextIsPageRoute) {
-        return;
-      }
-
-      setState(() {
-        _hasObservedRoute = true;
-        _currentRoute = nextRoute;
-        _currentRouteIsPageRoute = nextIsPageRoute;
-      });
-    });
-  }
-}
-
-class _RouteNameObserver extends NavigatorObserver {
-  final ValueChanged<Route<dynamic>?> onRouteChanged;
-
-  _RouteNameObserver({required this.onRouteChanged});
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    onRouteChanged(route);
+    return {
+      '/login': (context) => const LoginScreen(),
+      '/register': (context) => const RegisterScreen(),
+      '/pending-approval': (context) => const PendingApprovalScreen(),
+      '/startup-sync': (context) => const StartupSyncScreen(),
+      '/main': (context) => const MainShell(),
+    };
   }
 
-  @override
-  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    onRouteChanged(newRoute);
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    onRouteChanged(previousRoute);
+  Route<dynamic> _buildInitialRoute(
+    String routeName,
+    Map<String, WidgetBuilder> routes,
+  ) {
+    final builder =
+        routes[routeName] ?? routes['/login'] ?? routes.values.first;
+    return MaterialPageRoute<void>(
+      settings: RouteSettings(name: routeName),
+      builder: builder,
+    );
   }
 }
