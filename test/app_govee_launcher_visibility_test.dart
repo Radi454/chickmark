@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/features/govee/widgets/govee_global_overlay.dart';
 
 void main() {
@@ -20,6 +21,13 @@ void main() {
         find.byKey(const ValueKey('govee-global-launcher')),
         findsOneWidget,
       );
+      final launcherTapTarget = tester.widget<InkWell>(
+        find.descendant(
+          of: find.byKey(const ValueKey('govee-global-launcher')),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(launcherTapTarget.canRequestFocus, isFalse);
     });
 
     testWidgets('hides the floating launcher when disabled', (tester) async {
@@ -35,6 +43,86 @@ void main() {
 
       expect(find.text('Home'), findsOneWidget);
       expect(find.byKey(const ValueKey('govee-global-launcher')), findsNothing);
+    });
+
+    testWidgets('keeps the launcher visible above pushed audit routes', (
+      tester,
+    ) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          builder: (context, child) {
+            return GoveeGlobalOverlay(
+              showLauncher: true,
+              panelContextBuilder: () => navigatorKey.currentContext,
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) {
+                            return const Scaffold(
+                              body: Center(child: Text('Audit station')),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                    child: const Text('Open audit'),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('govee-global-launcher')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Open audit'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Audit station'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('govee-global-launcher')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('uses recording colors and shape while capture is active', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: GoveeGlobalOverlay(
+            showLauncher: true,
+            isRecording: true,
+            panelContextBuilder: _nullPanelContext,
+            child: Scaffold(body: Text('Home')),
+          ),
+        ),
+      );
+
+      final material = tester.widget<Material>(
+        find.byKey(const ValueKey('govee-global-launcher')),
+      );
+      final icon = tester.widget<Icon>(find.byIcon(Icons.stop_rounded));
+
+      expect(material.color, AppColors.statusError);
+      expect(material.shape, isA<RoundedRectangleBorder>());
+      expect(material.shape, isNot(isA<CircleBorder>()));
+      expect(icon.color, AppColors.statusErrorBg);
     });
   });
 }

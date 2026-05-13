@@ -1,6 +1,9 @@
 import 'dart:convert';
 
+import '../../core/utils/bmk_age_calculator.dart';
+import '../../core/utils/calculation_utils.dart';
 import '../models/audit_model.dart';
+import '../models/station_sample_model.dart';
 import '../database/database_helper.dart';
 import 'package:sqflite/sqflite.dart';
 import '../../features/dashboard/models/dashboard_filter.dart';
@@ -9,6 +12,7 @@ import '../../features/dashboard/models/egg_breakout_models.dart';
 import '../../features/dashboard/models/chick_quality_models.dart';
 import '../../features/dashboard/models/egg_storage_models.dart';
 import '../../features/audits/models/audit_filter.dart';
+import 'sync_tombstone_repository.dart';
 
 class AuditRepository {
   final DatabaseHelper dbHelper;
@@ -73,6 +77,7 @@ class AuditRepository {
   Future<void> deleteAudit(String id) async {
     final db = await dbHelper.db;
     await db.transaction((txn) async {
+      await _queueAuditCascadeDeletes(txn, [id]);
       await txn.delete('photos', where: 'auditId = ?', whereArgs: [id]);
       await txn.delete('audits', where: 'id = ?', whereArgs: [id]);
     });
@@ -81,6 +86,16 @@ class AuditRepository {
   Future<void> deleteAuditsByCustomer(String customerId) async {
     final db = await dbHelper.db;
     await db.transaction((txn) async {
+      final auditRows = await txn.query(
+        'audits',
+        columns: ['id'],
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+      );
+      await _queueAuditCascadeDeletes(
+        txn,
+        auditRows.map((row) => row['id']?.toString()).whereType<String>(),
+      );
       await txn.delete(
         'photos',
         where: 'auditId IN (SELECT id FROM audits WHERE customerId = ?)',
@@ -92,6 +107,55 @@ class AuditRepository {
         whereArgs: [customerId],
       );
     });
+  }
+
+  Future<void> _queueAuditCascadeDeletes(
+    Transaction txn,
+    Iterable<String> auditIds,
+  ) async {
+    final ids = auditIds.where((id) => id.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final sampleRows = await txn.query(
+      'sample_records',
+      columns: ['id'],
+      where: 'legacyAuditId IN ($placeholders)',
+      whereArgs: ids,
+    );
+    final sampleIds = sampleRows
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList();
+    for (final detailTable in const [
+      'sample_house_details',
+      'sample_machine_details',
+      'sample_batch_details',
+      'sample_timing_details',
+    ]) {
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        detailTable,
+        sampleIds,
+      );
+    }
+    await SyncTombstoneRepository.queueDeletesWithExecutor(
+      txn,
+      'sample_records',
+      sampleIds,
+    );
+
+    final photoRows = await txn.query(
+      'photos',
+      columns: ['id'],
+      where: 'auditId IN ($placeholders)',
+      whereArgs: ids,
+    );
+    await SyncTombstoneRepository.queueDeletesWithExecutor(
+      txn,
+      'photos',
+      photoRows.map((row) => row['id']),
+    );
+    await SyncTombstoneRepository.queueDeletesWithExecutor(txn, 'audits', ids);
   }
 
   Future<List<AuditModel>> getAuditsByCustomer(
@@ -464,18 +528,18 @@ class AuditRepository {
         AVG(ebExposedBrainCount) as exposedBrainCount,
         AVG(ebCrossedBeakCount) as crossedBeakCount,
         AVG(ebCulledDeadCount) as culledDeadCount,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebInfertileCount * 100.0 / ebTraySize END) as infertilePct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebEarlyDeadCount * 100.0 / ebTraySize END) as earlyDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebMidDeadCount * 100.0 / ebTraySize END) as midDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebLateDeadCount * 100.0 / ebTraySize END) as lateDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebInternalPipCount * 100.0 / ebTraySize END) as internalPipPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebExternalPipCount * 100.0 / ebTraySize END) as externalPipPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCrackedCount * 100.0 / ebTraySize END) as crackedPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebContaminatedCount * 100.0 / ebTraySize END) as contamPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebMalpositionCount * 100.0 / ebTraySize END) as malpositionPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebExposedBrainCount * 100.0 / ebTraySize END) as exposedBrainPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCrossedBeakCount * 100.0 / ebTraySize END) as crossedBeakPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCulledDeadCount * 100.0 / ebTraySize END) as cullPct
+        ${_eggBreakoutPctSql('ebInfertileCount', 'infertilePct')},
+        ${_eggBreakoutPctSql('ebEarlyDeadCount', 'earlyDeadPct')},
+        ${_eggBreakoutPctSql('ebMidDeadCount', 'midDeadPct')},
+        ${_eggBreakoutPctSql('ebLateDeadCount', 'lateDeadPct')},
+        ${_eggBreakoutPctSql('ebInternalPipCount', 'internalPipPct')},
+        ${_eggBreakoutPctSql('ebExternalPipCount', 'externalPipPct')},
+        ${_eggBreakoutPctSql('ebCrackedCount', 'crackedPct')},
+        ${_eggBreakoutPctSql('ebContaminatedCount', 'contamPct')},
+        ${_eggBreakoutPctSql('ebMalpositionCount', 'malpositionPct')},
+        ${_eggBreakoutPctSql('ebExposedBrainCount', 'exposedBrainPct')},
+        ${_eggBreakoutPctSql('ebCrossedBeakCount', 'crossedBeakPct')},
+        ${_eggBreakoutPctSql('ebCulledDeadCount', 'cullPct')}
       FROM audits
       $clause
         AND ebTraySize IS NOT NULL
@@ -502,18 +566,18 @@ class AuditRepository {
       '''
       SELECT
         date,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebInfertileCount * 100.0 / ebTraySize END) as infertilePct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebEarlyDeadCount * 100.0 / ebTraySize END) as earlyDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebMidDeadCount * 100.0 / ebTraySize END) as midDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebLateDeadCount * 100.0 / ebTraySize END) as lateDeadPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebInternalPipCount * 100.0 / ebTraySize END) as internalPipPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebExternalPipCount * 100.0 / ebTraySize END) as externalPipPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCrackedCount * 100.0 / ebTraySize END) as crackedPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebContaminatedCount * 100.0 / ebTraySize END) as contamPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebMalpositionCount * 100.0 / ebTraySize END) as malpositionPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebExposedBrainCount * 100.0 / ebTraySize END) as exposedBrainPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCrossedBeakCount * 100.0 / ebTraySize END) as crossedBeakPct,
-        AVG(CASE WHEN ebTraySize > 0 THEN ebCulledDeadCount * 100.0 / ebTraySize END) as cullPct
+        ${_eggBreakoutPctSql('ebInfertileCount', 'infertilePct')},
+        ${_eggBreakoutPctSql('ebEarlyDeadCount', 'earlyDeadPct')},
+        ${_eggBreakoutPctSql('ebMidDeadCount', 'midDeadPct')},
+        ${_eggBreakoutPctSql('ebLateDeadCount', 'lateDeadPct')},
+        ${_eggBreakoutPctSql('ebInternalPipCount', 'internalPipPct')},
+        ${_eggBreakoutPctSql('ebExternalPipCount', 'externalPipPct')},
+        ${_eggBreakoutPctSql('ebCrackedCount', 'crackedPct')},
+        ${_eggBreakoutPctSql('ebContaminatedCount', 'contamPct')},
+        ${_eggBreakoutPctSql('ebMalpositionCount', 'malpositionPct')},
+        ${_eggBreakoutPctSql('ebExposedBrainCount', 'exposedBrainPct')},
+        ${_eggBreakoutPctSql('ebCrossedBeakCount', 'crossedBeakPct')},
+        ${_eggBreakoutPctSql('ebCulledDeadCount', 'cullPct')}
       FROM audits
       $clause
         AND ebTraySize IS NOT NULL
@@ -581,13 +645,107 @@ class AuditRepository {
     DashboardFilter filter,
   ) async {
     final db = await dbHelper.db;
-    final (:clause, :args) = _buildWhereWithArgs(filter, 'chicks');
-    final result = await db.rawQuery(
-      'SELECT date, AVG(chickAvgWeight) as avgWeightG, AVG(chickUniformityPct) as uniformityPct, AVG(chickCvPct) as cvPct FROM audits $clause GROUP BY date ORDER BY date ASC',
-      args,
-    );
+    final parts = <String>[
+      'r.stationType = ?',
+      'r.sectorType = ?',
+      'r.resultSummaryJson IS NOT NULL',
+    ];
+    final args = <Object?>['chicks', StationSampleModel.sectorChickWeights];
+    if (filter.customerId != null) {
+      parts.add('COALESCE(s.customerId, a.customerId) = ?');
+      args.add(filter.customerId);
+    }
+    if (filter.flockId != null) {
+      parts.add('COALESCE(s.flockId, a.flockId) = ?');
+      args.add(filter.flockId);
+    }
+    final result = await db.rawQuery('''
+      SELECT
+        COALESCE(substr(s.date, 1, 10), substr(a.date, 1, 10)) as date,
+        r.resultSummaryJson,
+        r.calculatedBmkAgeDays,
+        COALESCE(a.chickBmkAge, s.flockAgeWeeks) as legacyBmkAge
+      FROM sample_records r
+      LEFT JOIN audit_sessions s ON s.id = r.auditSessionId
+      LEFT JOIN audits a ON a.id = r.legacyAuditId
+      WHERE ${parts.join(' AND ')}
+      ORDER BY date ASC, r.sampleIndex ASC, r.createdAt ASC
+      ''', args);
     if (result.isEmpty) return null;
-    return result.map((r) => ChickWeightTrend.fromMap(r)).toList();
+    final weightsByDate = <String, List<double>>{};
+    for (final row in result) {
+      if (!_matchesBmkAge(row, filter.bmkAge)) continue;
+      final date = row['date']?.toString().trim();
+      if (date == null || date.isEmpty) continue;
+      final weights = _chickWeightsFromSummary(row['resultSummaryJson']);
+      if (weights.isEmpty) continue;
+      weightsByDate.putIfAbsent(date, () => <double>[]).addAll(weights);
+    }
+    if (weightsByDate.isEmpty) return null;
+    final entries = weightsByDate.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return [
+      for (final entry in entries) _chickWeightTrendFor(entry.key, entry.value),
+    ];
+  }
+
+  ChickWeightTrend _chickWeightTrendFor(String date, List<double> weights) {
+    final avgWeight = CalculationUtils.average(weights);
+    final minRange = avgWeight * 0.9;
+    final maxRange = avgWeight * 1.1;
+    return ChickWeightTrend(
+      date: date,
+      avgWeightG: avgWeight,
+      uniformityPct: CalculationUtils.uniformityPercent(
+        weights,
+        minRange,
+        maxRange,
+      ),
+      cvPct: CalculationUtils.cvPercent(weights),
+    );
+  }
+
+  List<double> _chickWeightsFromSummary(Object? rawJson) {
+    if (rawJson == null) return [];
+    try {
+      final decoded = jsonDecode(rawJson.toString());
+      if (decoded is! Map) return [];
+      final rawWeights = decoded['chickWeights'];
+      if (rawWeights is List) {
+        return rawWeights
+            .map(_asDouble)
+            .where((weight) => weight != null && weight > 0)
+            .cast<double>()
+            .toList();
+      }
+      final avg = _asDouble(decoded['chickAvgWeight']);
+      return avg == null || avg <= 0 ? [] : [avg];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  bool _matchesBmkAge(Map<String, Object?> row, int? selectedWeek) {
+    if (selectedWeek == null) return true;
+    final calculatedDays = _asInt(row['calculatedBmkAgeDays']);
+    if (calculatedDays != null) {
+      return BmkAgeCalculator.benchmarkWeekForDays(calculatedDays) ==
+          selectedWeek;
+    }
+    return _asInt(row['legacyBmkAge']) == selectedWeek;
+  }
+
+  double? _asDouble(Object? raw) {
+    if (raw == null) return null;
+    if (raw is num) return raw.toDouble();
+    return double.tryParse(raw.toString());
+  }
+
+  int? _asInt(Object? raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.round();
+    return int.tryParse(raw.toString());
   }
 
   Future<PasgarAvg?> getPasgarAvg(DashboardFilter filter) async {
@@ -596,12 +754,12 @@ class AuditRepository {
     final result = await db.rawQuery('''
       SELECT
         AVG(pasgarFinalScore) as score,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarReflexes * 100.0 / pasgarSampleSize END) as reflexesPct,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarBeak * 100.0 / pasgarSampleSize END) as beakPct,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarNavel * 100.0 / pasgarSampleSize END) as navelPct,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarBelly * 100.0 / pasgarSampleSize END) as bellyPct,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarLeg * 100.0 / pasgarSampleSize END) as legPct,
-        AVG(CASE WHEN pasgarSampleSize > 0 THEN pasgarFeatherDev * 100.0 / pasgarSampleSize END) as featherDevPct
+        ${_pasgarPctSql('pasgarReflexes', 'reflexesPct')},
+        ${_pasgarPctSql('pasgarBeak', 'beakPct')},
+        ${_pasgarPctSql('pasgarNavel', 'navelPct')},
+        ${_pasgarPctSql('pasgarBelly', 'bellyPct')},
+        ${_pasgarPctSql('pasgarLeg', 'legPct')},
+        ${_pasgarPctSql('pasgarFeatherDev', 'featherDevPct')}
       FROM audits
       $clause
       ''', args);
@@ -887,6 +1045,14 @@ class AuditRepository {
           'AND ebBreakoutType IN (${List.filled(types.length, '?').join(', ')})',
       args: types,
     );
+  }
+
+  String _eggBreakoutPctSql(String column, String alias) {
+    return 'AVG(CASE WHEN ebTraySize > 0 AND $column BETWEEN 0 AND ebTraySize THEN $column * 100.0 / ebTraySize END) as $alias';
+  }
+
+  String _pasgarPctSql(String column, String alias) {
+    return 'AVG(CASE WHEN pasgarSampleSize > 0 AND $column BETWEEN 0 AND pasgarSampleSize THEN $column * 100.0 / pasgarSampleSize END) as $alias';
   }
 
   void _copyAlias(

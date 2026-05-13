@@ -1,3 +1,5 @@
+import '../../core/utils/calculation_utils.dart';
+
 class YfbmEntry {
   final double? chickWeight;
   final double? yolkWeight;
@@ -6,10 +8,7 @@ class YfbmEntry {
 
   // Calculate yolk percentage
   double? get yolkPct {
-    if (chickWeight == null || chickWeight == 0 || yolkWeight == null) {
-      return null;
-    }
-    return (yolkWeight! / chickWeight!) * 100;
+    return CalculationUtils.percentOf(yolkWeight, chickWeight);
   }
 
   factory YfbmEntry.fromMap(Map<String, dynamic> map) {

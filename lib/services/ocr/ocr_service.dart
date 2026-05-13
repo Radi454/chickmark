@@ -118,6 +118,9 @@ class OcrService {
       _isAvailable = !kIsWeb;
     } catch (e) {
       _isAvailable = false;
+      if (kDebugMode) {
+        debugPrint('OCR availability check failed: $e');
+      }
     }
   }
 
@@ -137,7 +140,9 @@ class OcrService {
         await textRecognizer.close();
       }
     } catch (e) {
-      // Silent error logging
+      if (kDebugMode) {
+        debugPrint('OCR text recognition failed for $imagePath: $e');
+      }
       return null;
     }
   }
@@ -501,11 +506,14 @@ Future<Map<String, Object?>> _preprocessThermoScanImageForOcr(
       outputPath: outputPath,
       qualityChecksRan: enableQualityChecks,
     );
-  } catch (_) {
+  } catch (e) {
     try {
       await File(outputPath).delete();
     } catch (_) {
       // Best-effort cleanup only.
+    }
+    if (kDebugMode) {
+      debugPrint('ThermoScan OCR preprocessing failed for $sourcePath: $e');
     }
     return _preprocessResult(
       prepared: false,

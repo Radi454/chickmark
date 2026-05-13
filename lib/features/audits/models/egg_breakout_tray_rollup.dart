@@ -58,8 +58,7 @@ class EggBreakoutTrayRollup {
               _readCount(counts, 'early24h') +
               _readCount(counts, 'early48h') +
               _readCount(counts, 'early72hBloodRing'),
-          midDead:
-              _readCount(counts, 'midDead') + _readCount(counts, 'blackEye'),
+          midDead: _readCount(counts, 'midDead'),
           lateDead: _readCount(counts, 'lateDead'),
           internalPip: _readCount(counts, 'internalPip'),
           externalPip: _readCount(counts, 'externalPip'),

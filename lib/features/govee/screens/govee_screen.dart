@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/gradient_app_bar.dart';
+import '../../../core/utils/calculation_utils.dart';
 import '../../dashboard/models/govee_capture_summary.dart';
 import '../../dashboard/widgets/govee_capture_chart.dart';
 import '../../../services/govee/govee_service.dart';
@@ -39,6 +39,7 @@ class _GoveeScreenState extends State<GoveeScreen> {
       appBar: const GradientAppBar(title: 'Govee'),
       body: Consumer<GoveeCaptureProvider>(
         builder: (context, provider, _) {
+          final selectedSavedSummary = provider.selectedSavedSummary;
           return ListView(
             padding: const EdgeInsets.all(AppSizes.cardPadding),
             children: [
@@ -61,14 +62,9 @@ class _GoveeScreenState extends State<GoveeScreen> {
                   machineId: provider.machineId,
                 ),
               ],
-              if (provider.finishedCapture != null) ...[
+              if (selectedSavedSummary != null) ...[
                 const SizedBox(height: 12),
-                GoveeCaptureChart(
-                  summary: GoveeCaptureSummary(
-                    capture: provider.finishedCapture!,
-                    readings: provider.finishedReadings,
-                  ),
-                ),
+                GoveeCaptureChart(summary: selectedSavedSummary),
               ],
               if (provider.phase == GoveeCapturePhase.saved) ...[
                 const SizedBox(height: 12),
@@ -76,6 +72,12 @@ class _GoveeScreenState extends State<GoveeScreen> {
               ],
             ],
           );
+        },
+      ),
+      bottomNavigationBar: Consumer<GoveeCaptureProvider>(
+        builder: (context, provider, _) {
+          if (provider.savedSummaries.isEmpty) return const SizedBox.shrink();
+          return _SavedStationStrip(provider: provider);
         },
       ),
     );
@@ -278,6 +280,12 @@ class GoveeChartPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final points = _previewPoints();
     if (points.isEmpty) return const SizedBox.shrink();
+    final tempValues = points
+        .map((point) => point.temperatureFahrenheit)
+        .toList(growable: false);
+    final rhValues = points
+        .map((point) => point.humidity)
+        .toList(growable: false);
 
     return Container(
       padding: const EdgeInsets.all(AppSizes.cardPadding),
@@ -300,22 +308,30 @@ class GoveeChartPreview extends StatelessWidget {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 12),
-          _PreviewChart(
-            key: const ValueKey('govee-temperature-preview-chart'),
+          GoveeMetricChart(
+            chartKey: const ValueKey('govee-temperature-preview-chart'),
             title: 'Temperature preview',
             points: points,
-            valueFor: (point) => point.reading.temperatureFahrenheit,
-            valueSuffix: ' F',
+            valueFor: (point) => point.temperatureFahrenheit,
+            unit: 'F',
             color: AppColors.chart1,
+            average: _average(tempValues),
+            minimum: _min(tempValues),
+            maximum: _max(tempValues),
+            tooltipTextFor: _tooltipText,
           ),
           const SizedBox(height: 16),
-          _PreviewChart(
-            key: const ValueKey('govee-rh-preview-chart'),
+          GoveeMetricChart(
+            chartKey: const ValueKey('govee-rh-preview-chart'),
             title: 'Relative Humidity preview',
             points: points,
-            valueFor: (point) => point.reading.humidity,
-            valueSuffix: '%',
+            valueFor: (point) => point.humidity,
+            unit: '%',
             color: AppColors.chart2,
+            average: _average(rhValues),
+            minimum: _min(rhValues),
+            maximum: _max(rhValues),
+            tooltipTextFor: _tooltipText,
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -331,175 +347,41 @@ class GoveeChartPreview extends StatelessWidget {
     );
   }
 
-  List<_PreviewPoint> _previewPoints() {
-    final points = <_PreviewPoint>[];
+  List<GoveeChartPoint> _previewPoints() {
+    final points = <GoveeChartPoint>[];
     for (var i = 0; i < readings.length; i += 1) {
       final reading = readings[i];
       if (reading.temperatureFahrenheit == null || reading.humidity == null) {
         continue;
       }
-      points.add(_PreviewPoint(x: i, reading: reading, machineId: machineId));
+      points.add(
+        GoveeChartPoint(
+          x: reading.timestamp.millisecondsSinceEpoch.toDouble(),
+          temperatureFahrenheit: reading.temperatureFahrenheit!,
+          humidity: reading.humidity!,
+          recordedAt: reading.timestamp,
+        ),
+      );
     }
     return points;
   }
-}
 
-class _PreviewChart extends StatelessWidget {
-  final String title;
-  final List<_PreviewPoint> points;
-  final double? Function(_PreviewPoint point) valueFor;
-  final String valueSuffix;
-  final Color color;
-
-  const _PreviewChart({
-    super.key,
-    required this.title,
-    required this.points,
-    required this.valueFor,
-    required this.valueSuffix,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final chartPoints = points
-        .where((point) => valueFor(point) != null)
-        .map((point) => FlSpot(point.x.toDouble(), valueFor(point)!))
-        .toList();
-    final yValues = chartPoints.map((spot) => spot.y).toList();
-    final minY = yValues.reduce((a, b) => a < b ? a : b) - 1;
-    final maxY = yValues.reduce((a, b) => a > b ? a : b) + 1;
-    final bottomInterval = (chartPoints.length / 3)
-        .ceil()
-        .clamp(1, 999)
-        .toInt();
-    final maxX = chartPoints.last.x == 0 ? 1.0 : chartPoints.last.x;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 180,
-          child: LineChart(
-            LineChartData(
-              minX: 0,
-              maxX: maxX,
-              minY: minY,
-              maxY: maxY,
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                getDrawingHorizontalLine: (_) =>
-                    const FlLine(color: AppColors.chartGridH, strokeWidth: 1),
-              ),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 38,
-                    getTitlesWidget: (value, meta) => Text(
-                      value.toStringAsFixed(0),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 26,
-                    getTitlesWidget: (value, meta) {
-                      final index = value.round();
-                      if (index < 0 || index >= points.length) {
-                        return const SizedBox.shrink();
-                      }
-                      if (index != 0 &&
-                          index != points.length - 1 &&
-                          index % bottomInterval != 0) {
-                        return const SizedBox.shrink();
-                      }
-                      return Text(
-                        _timeLabel(points[index].reading.timestamp),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.textSecondary,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                topTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                rightTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-              ),
-              borderData: FlBorderData(show: false),
-              lineTouchData: LineTouchData(
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipColor: (_) => AppColors.textPrimary,
-                  getTooltipItems: (touchedSpots) {
-                    return touchedSpots.map((spot) {
-                      final index = spot.x
-                          .round()
-                          .clamp(0, points.length - 1)
-                          .toInt();
-                      final point = points[index];
-                      final reading = point.reading;
-                      final temp = reading.temperatureFahrenheit!
-                          .toStringAsFixed(1);
-                      final rh = reading.humidity!.toStringAsFixed(1);
-                      final details = [
-                        _exactTimestamp(reading.timestamp),
-                        'Temp $temp F',
-                        'RH $rh%',
-                        if (point.machineId != null) point.machineId!,
-                      ].join('\n');
-                      return LineTooltipItem(
-                        details,
-                        const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      );
-                    }).toList();
-                  },
-                ),
-              ),
-              lineBarsData: [
-                LineChartBarData(
-                  spots: chartPoints,
-                  isCurved: true,
-                  color: color,
-                  barWidth: 3,
-                  dotData: const FlDotData(show: false),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    color: color.withValues(alpha: 0.12),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-          ),
-        ),
-      ],
-    );
+  String _tooltipText(GoveeChartPoint point) {
+    return [
+      _exactTimestamp(point.recordedAt),
+      'Temp ${point.temperatureFahrenheit.toStringAsFixed(1)} F',
+      'RH ${point.humidity.toStringAsFixed(1)}%',
+      ?machineId,
+    ].join('\n');
   }
 
-  String _timeLabel(DateTime timestamp) {
-    final local = timestamp.toLocal();
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
+  double _average(List<double> values) {
+    return CalculationUtils.average(values);
   }
+
+  double _min(List<double> values) => CalculationUtils.minValue(values)!;
+
+  double _max(List<double> values) => CalculationUtils.maxValue(values)!;
 
   String _exactTimestamp(DateTime timestamp) {
     final local = timestamp.toLocal();
@@ -509,14 +391,6 @@ class _PreviewChart extends StatelessWidget {
         '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
     return '$date $time';
   }
-}
-
-class _PreviewPoint {
-  final int x;
-  final GoveeSensorReading reading;
-  final String? machineId;
-
-  const _PreviewPoint({required this.x, required this.reading, this.machineId});
 }
 
 class _PreviewPill extends StatelessWidget {
@@ -535,6 +409,169 @@ class _PreviewPill extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+class _SavedStationStrip extends StatelessWidget {
+  final GoveeCaptureProvider provider;
+
+  const _SavedStationStrip({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedId = provider.selectedSavedSummary?.capture.id;
+    return SafeArea(
+      top: false,
+      child: Container(
+        key: const ValueKey('govee-saved-station-strip'),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.borderDefault)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.cardShadow,
+              blurRadius: 18,
+              offset: Offset(0, -6),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.check_circle_outline,
+                  color: AppColors.statusGood,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Saved stations',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${provider.savedSummaries.length}',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 68,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: provider.savedSummaries.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final summary = provider.savedSummaries[index];
+                  final capture = summary.capture;
+                  final selected = capture.id == selectedId;
+                  return _SavedStationChip(
+                    captureId: capture.id,
+                    title: capture.place.label,
+                    subtitle: '${capture.readingCount} readings',
+                    selected: selected,
+                    onTap: () => context
+                        .read<GoveeCaptureProvider>()
+                        .selectSavedCapture(capture.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedStationChip extends StatelessWidget {
+  final String captureId;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SavedStationChip({
+    required this.captureId,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.statusActiveBg : AppColors.surfaceVariant,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        key: ValueKey('govee-saved-station-$captureId'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 168,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.circle_outlined,
+                color: selected ? AppColors.primary : AppColors.textTertiary,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -12,9 +12,9 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../providers/audit_provider.dart';
+import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
-import '../widgets/sample_mode_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/weight_grid_widget.dart';
 import '../widgets/tabs/cvt_tab.dart';
@@ -100,7 +100,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
-    _syncWeightControllers(audit);
+    _syncWeightControllers(auditProvider, audit);
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
@@ -110,8 +110,9 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
             ? null
             : GradientAppBar(
                 title: 'Chicks',
-                toolbarHeight: 88,
+                toolbarHeight: 76,
                 actions: [
+                  const AuditAutosaveStatus(onDark: true),
                   if (auditProvider.isReadOnly)
                     IconButton(
                       icon: const Icon(Icons.edit),
@@ -126,7 +127,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                 Expanded(
                   child: SingleChildScrollView(
                     key: const ValueKey('chick-quality-scroll'),
-                    padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1240),
@@ -157,6 +158,16 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
   ) {
     final leftColumn = Column(
       children: [
+        _StationPanel(
+          key: const ValueKey('chick-quality-machine-sampling'),
+          mark: 'CQ',
+          title: 'Chick Quality',
+          meta: 'Machine-level sample scope',
+          status: provider.isCompareMode ? 'Compare' : 'Single',
+          statusKind: _StatusKind.good,
+          child: _MachineSampleControls(provider: provider),
+        ),
+        const SizedBox(height: 16),
         _StationPanel(
           key: const ValueKey('chick-quality-panel-pasgar'),
           mark: 'PG',
@@ -267,8 +278,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        final title = provider.isCompareMode
-            ? '${provider.activeStationSample.sampleLabel} Chick Weight Sheet'
+        final title = provider.isChickWeightCompareMode
+            ? '${provider.activeChickWeightSample.sampleLabel} Chick Weight Sheet'
             : 'Chick Weight Sheet';
         return FractionallySizedBox(
           heightFactor: 0.86,
@@ -333,16 +344,30 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     );
   }
 
-  void _syncWeightControllers(AuditModel audit) {
-    if (_loadedWeightsAuditId == audit.id) return;
+  void _syncWeightControllers(AuditProvider provider, AuditModel audit) {
+    final weightSampleId = provider.chickWeightSamples.isEmpty
+        ? audit.id
+        : provider.activeChickWeightSample.id;
+    if (_loadedWeightsAuditId == weightSampleId) return;
     for (final controller in _weightControllers) {
       controller.text = '';
     }
 
-    final weightsJson = audit.chickWeights;
-    if (weightsJson != null && weightsJson.isNotEmpty) {
+    final sampleWeights = provider.chickWeightSamples.isEmpty
+        ? null
+        : _weightsFromSample(provider.activeChickWeightSample);
+    if (sampleWeights != null) {
+      for (
+        var i = 0;
+        i < sampleWeights.length && i < _weightControllers.length;
+        i++
+      ) {
+        final value = sampleWeights[i];
+        _weightControllers[i].text = value == null ? '' : value.toString();
+      }
+    } else if (audit.chickWeights != null && audit.chickWeights!.isNotEmpty) {
       try {
-        final decoded = jsonDecode(weightsJson);
+        final decoded = jsonDecode(audit.chickWeights!);
         if (decoded is List) {
           for (
             var i = 0;
@@ -357,7 +382,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         // Keep an empty editable grid when legacy JSON is malformed.
       }
     }
-    _loadedWeightsAuditId = audit.id;
+    _loadedWeightsAuditId = weightSampleId;
   }
 
   void _updateWeightCalculations() {
@@ -371,12 +396,11 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     final allWeights = _weightControllers
         .map((controller) => double.tryParse(controller.text))
         .toList();
-    provider.updateField('chickWeights', jsonEncode(allWeights));
 
     if (weights.isEmpty) {
-      provider.updateField('chickAvgWeight', null);
-      provider.updateField('chickUniformityPct', null);
-      provider.updateField('chickCvPct', null);
+      provider.updateChickWeightSampleResult(
+        weightsJson: jsonEncode(allWeights),
+      );
       return;
     }
 
@@ -390,9 +414,26 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       maxRange,
     );
 
-    provider.updateField('chickAvgWeight', avg);
-    provider.updateField('chickUniformityPct', uniformity);
-    provider.updateField('chickCvPct', cv);
+    provider.updateChickWeightSampleResult(
+      weightsJson: jsonEncode(allWeights),
+      avgWeight: avg,
+      uniformityPct: uniformity,
+      cvPct: cv,
+    );
+  }
+
+  List<dynamic>? _weightsFromSample(StationSampleModel sample) {
+    final summaryJson = sample.resultSummaryJson;
+    if (summaryJson == null || summaryJson.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(summaryJson);
+      if (decoded is Map && decoded['chickWeights'] is List) {
+        return decoded['chickWeights'] as List<dynamic>;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   String _pasgarStatus(AuditModel audit) {
@@ -428,10 +469,10 @@ class _HeaderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: const ValueKey('chick-quality-header-card'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: AppColors.brandGradient,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
             color: Color(0x14111827),
@@ -448,7 +489,7 @@ class _HeaderCard extends StatelessWidget {
             style: AppTextStyles.caption.copyWith(
               color: Colors.white.withValues(alpha: 0.78),
               fontWeight: FontWeight.w900,
-              letterSpacing: 0.8,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 6),
@@ -456,11 +497,11 @@ class _HeaderCard extends StatelessWidget {
             'Chick quality',
             style: AppTextStyles.heading.copyWith(
               color: Colors.white,
-              fontSize: 30,
+              fontSize: 26,
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _HeaderContextTile(
             label: 'Hatchery',
             value: contextData.hatcheryId?.isNotEmpty == true
@@ -483,7 +524,7 @@ class _HeaderContextTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(9),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(8),
@@ -497,7 +538,7 @@ class _HeaderContextTile extends StatelessWidget {
             style: AppTextStyles.caption.copyWith(
               color: Colors.white.withValues(alpha: 0.72),
               fontWeight: FontWeight.w800,
-              letterSpacing: 0.6,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 5),
@@ -539,6 +580,8 @@ class _StationPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final panelPadding = MediaQuery.sizeOf(context).width < 560 ? 14.0 : 16.0;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -559,7 +602,7 @@ class _StationPanel extends StatelessWidget {
         children: [
           if (showHeader) ...[
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(panelPadding),
               child: Row(
                 children: [
                   _SectionMark(mark: mark),
@@ -585,7 +628,7 @@ class _StationPanel extends StatelessWidget {
             ),
             const Divider(height: 1),
           ],
-          Padding(padding: const EdgeInsets.all(16), child: child),
+          Padding(padding: EdgeInsets.all(panelPadding), child: child),
         ],
       ),
     );
@@ -600,8 +643,8 @@ class _SectionMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 34,
-      height: 34,
+      width: 32,
+      height: 32,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: AppColors.infoBg,
@@ -610,8 +653,10 @@ class _SectionMark extends StatelessWidget {
       ),
       child: Text(
         mark,
+        textAlign: TextAlign.center,
         style: AppTextStyles.caption.copyWith(
           color: AppColors.primary,
+          fontSize: mark.length > 2 ? 11 : 12,
           fontWeight: FontWeight.w900,
         ),
       ),
@@ -629,8 +674,8 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isGood = kind == _StatusKind.good;
     return Container(
-      constraints: const BoxConstraints(minHeight: 30),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 9),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: isGood ? AppColors.statusGoodBg : AppColors.statusWarningBg,
@@ -673,28 +718,17 @@ class _ChickWeightsPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _FlockCard(contextData: contextData, audit: audit, stats: stats),
-        const SizedBox(height: 14),
-        StationSampleModeControls(
-          provider: provider,
-          padding: EdgeInsets.zero,
-          title: 'Chick Sample Mode',
-          comparisonLabel: 'Multi House Samples',
-        ),
-        if (provider.isCompareMode) ...[
-          const SizedBox(height: 14),
-          Text(
-            'House Samples',
-            style: AppTextStyles.title.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ],
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
+        _HouseWeightSampleControls(provider: provider),
+        const SizedBox(height: 12),
         _MetricGrid(audit: audit, stats: stats),
         const SizedBox(height: 14),
         Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton(
+          child: OutlinedButton.icon(
             onPressed: onOpenWeightSheet,
-            child: const Text('Enter Weights'),
+            icon: const Icon(Icons.scale_outlined, size: 18),
+            label: const Text('Enter Weights'),
           ),
         ),
       ],
@@ -716,10 +750,10 @@ class _FlockCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: AppColors.brandGradient,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -735,7 +769,7 @@ class _FlockCard extends StatelessWidget {
                       'Chick Weights & Uniformity',
                       style: AppTextStyles.heading.copyWith(
                         color: Colors.white,
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -764,7 +798,7 @@ class _FlockCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 420;
@@ -846,6 +880,582 @@ class _FlockTile extends StatelessWidget {
   }
 }
 
+class _HouseWeightSampleControls extends StatelessWidget {
+  final AuditProvider provider;
+
+  const _HouseWeightSampleControls({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSampleControlCard(
+          title: 'House scope',
+          note: 'Record one house or compare houses',
+          child: _buildHouseScopeSelector(),
+        ),
+        if (provider.isChickWeightCompareMode) ...[
+          const SizedBox(height: 10),
+          _buildSampleControlCard(
+            title: 'House Samples',
+            note: 'Compare chick weights by house',
+            child: _buildHouseSampleChips(),
+          ),
+        ],
+        const SizedBox(height: 10),
+        _buildSampleControlCard(
+          title: 'Active house',
+          note: 'Weight sample source',
+          child: _buildHouseFields(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSampleControlCard({
+    required String title,
+    required String note,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  note,
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.caption,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHouseScopeSelector() {
+    return SizedBox(
+      width: double.infinity,
+      child: SegmentedButton<bool>(
+        showSelectedIcon: true,
+        segments: const [
+          ButtonSegment<bool>(
+            value: false,
+            icon: Icon(Icons.home_outlined),
+            label: Text('One house'),
+          ),
+          ButtonSegment<bool>(
+            value: true,
+            icon: Icon(Icons.compare_arrows),
+            label: Text('Compare houses'),
+          ),
+        ],
+        selected: {provider.isChickWeightCompareMode},
+        onSelectionChanged: provider.isReadOnly
+            ? null
+            : (values) {
+                final compare = values.first;
+                if (compare == provider.isChickWeightCompareMode) return;
+                provider.setChickWeightSampleMode(
+                  compare
+                      ? StationSampleModel.sampleModeComparison
+                      : StationSampleModel.sampleModePooled,
+                );
+              },
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          side: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return BorderSide(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+            );
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            return states.contains(WidgetState.selected)
+                ? AppColors.primary
+                : AppColors.textBody;
+          }),
+          textStyle: WidgetStateProperty.all(
+            AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHouseSampleChips() {
+    final chips = [
+      for (final entry in provider.chickWeightSamples.asMap().entries)
+        ChoiceChip(
+          label: Text(entry.value.sampleLabel),
+          selected: entry.key == provider.activeChickWeightSampleIndex,
+          onSelected: provider.isReadOnly
+              ? null
+              : (_) => provider.switchChickWeightSample(entry.key),
+          selectedColor: AppColors.primary.withAlpha(30),
+          checkmarkColor: AppColors.primary,
+          labelStyle: AppTextStyles.body.copyWith(
+            color: entry.key == provider.activeChickWeightSampleIndex
+                ? AppColors.primary
+                : AppColors.textBody,
+            fontWeight: FontWeight.w800,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: entry.key == provider.activeChickWeightSampleIndex
+                  ? AppColors.primary
+                  : AppColors.borderDefault,
+            ),
+          ),
+        ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHouseSampleActionButton(
+          tooltip: 'Add house sample',
+          icon: Icons.add,
+          onPressed: provider.isReadOnly ? null : provider.addChickWeightSample,
+        ),
+        if (provider.chickWeightSamples.length > 1) ...[
+          const SizedBox(width: 8),
+          _buildHouseSampleActionButton(
+            tooltip: 'Remove active house sample',
+            icon: Icons.remove,
+            onPressed: provider.isReadOnly
+                ? null
+                : provider.removeActiveChickWeightSample,
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
+            ),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHouseSampleActionButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton.filledTonal(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
+      ),
+    );
+  }
+
+  Widget _buildHouseFields(BuildContext context) {
+    final sample = provider.activeChickWeightSample;
+    final fields = [
+      TextFormField(
+        key: ValueKey('chick-weight-house-${sample.id}'),
+        initialValue: sample.houseNo ?? '',
+        enabled: !provider.isReadOnly,
+        textInputAction: TextInputAction.next,
+        decoration: _houseInputDecoration('House'),
+        onChanged: (value) {
+          provider.updateChickWeightSampleMetadata({'houseNo': value.trim()});
+        },
+      ),
+      TextFormField(
+        key: ValueKey('chick-weight-house-label-${sample.id}'),
+        initialValue: sample.houseLabel ?? '',
+        enabled: !provider.isReadOnly,
+        textInputAction: TextInputAction.done,
+        decoration: _houseInputDecoration('Label'),
+        onChanged: (value) {
+          provider.updateChickWeightSampleMetadata({
+            'houseLabel': value.trim(),
+          });
+        },
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 420) {
+          return Column(
+            children: [fields[0], const SizedBox(height: 10), fields[1]],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: fields[0]),
+            const SizedBox(width: 10),
+            Expanded(child: fields[1]),
+          ],
+        );
+      },
+    );
+  }
+
+  InputDecoration _houseInputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+      ),
+    );
+  }
+}
+
+class _MachineSampleControls extends StatelessWidget {
+  final AuditProvider provider;
+
+  const _MachineSampleControls({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSampleControlCard(
+          title: 'Quality sampling',
+          note: 'Record one machine pair or compare machines',
+          child: _buildMachineScopeSelector(),
+        ),
+        if (provider.isCompareMode) ...[
+          const SizedBox(height: 10),
+          _buildSampleControlCard(
+            title: 'Machine Samples',
+            note: 'Compare setter and hatcher pairs',
+            child: _buildMachineSampleChips(),
+          ),
+        ],
+        const SizedBox(height: 10),
+        _buildSampleControlCard(
+          title: 'Active machine',
+          note: 'Setter and hatcher pair',
+          child: _buildMachineFields(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSampleControlCard({
+    required String title,
+    required String note,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  note,
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.caption,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMachineScopeSelector() {
+    return SizedBox(
+      width: double.infinity,
+      child: SegmentedButton<bool>(
+        showSelectedIcon: true,
+        segments: const [
+          ButtonSegment<bool>(
+            value: false,
+            icon: Icon(Icons.precision_manufacturing_outlined),
+            label: Text('One machine'),
+          ),
+          ButtonSegment<bool>(
+            value: true,
+            icon: Icon(Icons.compare_arrows),
+            label: Text('Compare machines'),
+          ),
+        ],
+        selected: {provider.isCompareMode},
+        onSelectionChanged: provider.isReadOnly
+            ? null
+            : (values) {
+                final compare = values.first;
+                if (compare == provider.isCompareMode) return;
+                provider.setStationSampleMode(
+                  compare
+                      ? StationSampleModel.sampleModeComparison
+                      : StationSampleModel.sampleModePooled,
+                );
+              },
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          side: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return BorderSide(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+            );
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            return states.contains(WidgetState.selected)
+                ? AppColors.primary
+                : AppColors.textBody;
+          }),
+          textStyle: WidgetStateProperty.all(
+            AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMachineSampleChips() {
+    final chips = [
+      for (final entry in provider.stationSamples.asMap().entries)
+        ChoiceChip(
+          label: Text(entry.value.sampleLabel),
+          selected: entry.key == provider.activeSampleIndex,
+          onSelected: provider.isReadOnly
+              ? null
+              : (_) => provider.switchSample(entry.key),
+          selectedColor: AppColors.primary.withAlpha(30),
+          checkmarkColor: AppColors.primary,
+          labelStyle: AppTextStyles.body.copyWith(
+            color: entry.key == provider.activeSampleIndex
+                ? AppColors.primary
+                : AppColors.textBody,
+            fontWeight: FontWeight.w800,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: entry.key == provider.activeSampleIndex
+                  ? AppColors.primary
+                  : AppColors.borderDefault,
+            ),
+          ),
+        ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildMachineSampleActionButton(
+          tooltip: 'Add machine sample',
+          icon: Icons.add,
+          onPressed: provider.isReadOnly ? null : provider.addSample,
+        ),
+        if (provider.sampleCount > 1) ...[
+          const SizedBox(width: 8),
+          _buildMachineSampleActionButton(
+            tooltip: 'Remove active machine sample',
+            icon: Icons.remove,
+            onPressed: provider.isReadOnly ? null : provider.removeActiveSample,
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
+            ),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMachineSampleActionButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton.filledTonal(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
+      ),
+    );
+  }
+
+  Widget _buildMachineFields(BuildContext context) {
+    final sample = provider.activeStationSample;
+    final fields = [
+      TextFormField(
+        key: ValueKey('chick-machine-setter-${sample.id}'),
+        initialValue: sample.setterNo ?? '',
+        enabled: !provider.isReadOnly,
+        textInputAction: TextInputAction.next,
+        decoration: _machineInputDecoration('Setter'),
+        onChanged: (value) {
+          provider.updateSampleMetadata({'setterNo': value.trim()});
+        },
+      ),
+      TextFormField(
+        key: ValueKey('chick-machine-hatcher-${sample.id}'),
+        initialValue: sample.hatcherNo ?? '',
+        enabled: !provider.isReadOnly,
+        textInputAction: TextInputAction.done,
+        decoration: _machineInputDecoration('Hatcher'),
+        onChanged: (value) {
+          provider.updateSampleMetadata({'hatcherNo': value.trim()});
+        },
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 420) {
+          return Column(
+            children: [fields[0], const SizedBox(height: 10), fields[1]],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: fields[0]),
+            const SizedBox(width: 10),
+            Expanded(child: fields[1]),
+          ],
+        );
+      },
+    );
+  }
+
+  InputDecoration _machineInputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+      ),
+    );
+  }
+}
+
 class _MetricGrid extends StatelessWidget {
   final AuditModel audit;
   final _WeightStats stats;
@@ -873,7 +1483,6 @@ class _MetricGrid extends StatelessWidget {
         value: '${stats.count}/100',
         kind: _MetricKind.info,
       ),
-      const _MetricTile.empty(),
       _MetricTile(
         label: 'Low Margin',
         value: stats.low == null ? '--' : '${stats.low!.toStringAsFixed(1)}g',
@@ -920,24 +1529,15 @@ class _MetricTile extends StatelessWidget {
   final String label;
   final String value;
   final _MetricKind kind;
-  final bool hidden;
 
   const _MetricTile({
     required this.label,
     required this.value,
     this.kind = _MetricKind.normal,
-  }) : hidden = false;
-
-  const _MetricTile.empty()
-    : label = '',
-      value = '',
-      kind = _MetricKind.normal,
-      hidden = true;
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (hidden) return const SizedBox.shrink();
-
     final color = switch (kind) {
       _MetricKind.info => AppColors.primary,
       _MetricKind.good => AppColors.statusGood,

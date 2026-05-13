@@ -83,6 +83,25 @@ void main() {
   });
 
   group('checkCachedToken', () {
+    test(
+      'auth bypass request is ignored without explicit compile-time flag',
+      () async {
+        provider = AuthProvider(
+          userRepository: mockRepo,
+          activityLogRepository: mockActivityLog,
+          supabaseService: mockSupabase,
+          bypassAuth: true,
+        );
+        when(() => mockRepo.getCachedUser()).thenAnswer((_) async => null);
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+        verify(() => mockRepo.getCachedUser()).called(1);
+      },
+    );
+
     test('authenticated when valid cached user exists', () async {
       when(
         () => mockRepo.getCachedUser(),
@@ -170,7 +189,7 @@ void main() {
       when(
         () => mockRepo.getCachedUserByEmail(email),
       ).thenAnswer((_) async => null);
-      final hash = provider.hashPasswordForTesting(password);
+      final hash = provider.hashPasswordForTesting(password, iterations: 1000);
       final localUser = localUserFixture(hash);
       when(
         () => mockRepo.getUserByEmail(email),
@@ -202,7 +221,10 @@ void main() {
       when(
         () => mockRepo.getCachedUserByEmail(email),
       ).thenAnswer((_) async => null);
-      final wrongHash = provider.hashPasswordForTesting('wrong-password');
+      final wrongHash = provider.hashPasswordForTesting(
+        'wrong-password',
+        iterations: 1000,
+      );
       when(
         () => mockRepo.getUserByEmail(email),
       ).thenAnswer((_) async => localUserFixture(wrongHash));
@@ -256,18 +278,17 @@ void main() {
   });
 
   group('password hashing', () {
-    test('v2 hash verifies correctly', () {
-      final hash = provider.hashPasswordForTesting(password);
+    test('v3 PBKDF2 hash includes algorithm and iteration metadata', () {
+      final hash = provider.hashPasswordForTesting(password, iterations: 1000);
 
-      expect(hash, startsWith('v2:'));
-      // Verify via a second login with correct password succeeds
+      expect(hash, startsWith('v3:pbkdf2-sha256:1000:'));
       final parts = hash.split(':');
-      expect(parts.length, 3);
+      expect(parts.length, 5);
     });
 
     test('same password produces different hashes (salted)', () {
-      final hash1 = provider.hashPasswordForTesting(password);
-      final hash2 = provider.hashPasswordForTesting(password);
+      final hash1 = provider.hashPasswordForTesting(password, iterations: 1000);
+      final hash2 = provider.hashPasswordForTesting(password, iterations: 1000);
 
       expect(hash1, isNot(equals(hash2)));
     });

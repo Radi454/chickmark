@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/debug/startup_timer.dart';
+import 'core/security/security_policy.dart';
 import 'core/theme/app_theme.dart';
 import 'features/audits/providers/audit_provider.dart';
 import 'features/audits/providers/audit_session_provider.dart';
@@ -12,10 +13,10 @@ import 'features/auth/screens/register_screen.dart';
 import 'features/bmk/providers/bmk_provider.dart';
 import 'features/dashboard/providers/dashboard_provider.dart';
 import 'features/govee/providers/govee_capture_provider.dart';
+import 'features/govee/widgets/govee_global_overlay.dart';
 import 'features/home/widgets/main_shell.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/sync/screens/startup_sync_screen.dart';
-import 'features/temperature/providers/temperature_rh_provider.dart';
 import 'providers/app_provider.dart';
 import 'providers/customers_provider.dart';
 
@@ -28,13 +29,20 @@ class HatchAuditApp extends StatefulWidget {
 
 class _HatchAuditAppState extends State<HatchAuditApp> {
   late final AuthProvider _authProvider;
+  late final bool _authBypassEnabled;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  bool _showGlobalLauncher = false;
 
   @override
   void initState() {
     super.initState();
-    _authProvider = AuthProvider();
+    _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
+    _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StartupTimer.lap('first_frame_rendered');
+      if (mounted) {
+        setState(() => _showGlobalLauncher = true);
+      }
       _authProvider.checkCachedToken().then((_) {
         StartupTimer.lap('auth_check_complete');
       });
@@ -50,7 +58,6 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => CustomersProvider()),
         ChangeNotifierProvider(create: (_) => AuditProvider()),
         ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
-        ChangeNotifierProvider(create: (_) => TemperatureRhProvider()),
         ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ChangeNotifierProvider(create: (_) => BmkProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
@@ -58,16 +65,35 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
+          final initialRoute = _getInitialRoute(authProvider.state);
+          final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
+            navigatorKey: _navigatorKey,
             title: 'ChickMark',
             theme: AppTheme.light(),
-            initialRoute: _getInitialRoute(authProvider.state),
-            routes: {
-              '/login': (context) => const LoginScreen(),
-              '/register': (context) => const RegisterScreen(),
-              '/pending-approval': (context) => const PendingApprovalScreen(),
-              '/startup-sync': (context) => const StartupSyncScreen(),
-              '/main': (context) => const MainShell(),
+            initialRoute: initialRoute,
+            onGenerateInitialRoutes: (initialRouteName) {
+              final routeName = routes.containsKey(initialRouteName)
+                  ? initialRouteName
+                  : initialRoute;
+              return [_buildInitialRoute(routeName, routes)];
+            },
+            routes: routes,
+            builder: (context, child) {
+              final showGoveeLauncher =
+                  _showGlobalLauncher &&
+                  (_authBypassEnabled ||
+                      authProvider.state == AuthState.authenticated);
+              final isGoveeRecording = context
+                  .select<GoveeCaptureProvider, bool>(
+                    (provider) => provider.isRecording,
+                  );
+              return GoveeGlobalOverlay(
+                showLauncher: showGoveeLauncher,
+                isRecording: isGoveeRecording,
+                panelContextBuilder: () => _navigatorKey.currentContext,
+                child: child ?? const SizedBox.shrink(),
+              );
             },
           );
         },
@@ -87,5 +113,37 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
       case AuthState.unauthenticated:
         return '/login';
     }
+  }
+
+  Map<String, WidgetBuilder> _buildRoutes(bool authBypassEnabled) {
+    if (authBypassEnabled) {
+      return {
+        '/login': (context) => const MainShell(),
+        '/register': (context) => const MainShell(),
+        '/pending-approval': (context) => const MainShell(),
+        '/startup-sync': (context) => const MainShell(),
+        '/main': (context) => const MainShell(),
+      };
+    }
+
+    return {
+      '/login': (context) => const LoginScreen(),
+      '/register': (context) => const RegisterScreen(),
+      '/pending-approval': (context) => const PendingApprovalScreen(),
+      '/startup-sync': (context) => const StartupSyncScreen(),
+      '/main': (context) => const MainShell(),
+    };
+  }
+
+  Route<dynamic> _buildInitialRoute(
+    String routeName,
+    Map<String, WidgetBuilder> routes,
+  ) {
+    final builder =
+        routes[routeName] ?? routes['/login'] ?? routes.values.first;
+    return MaterialPageRoute<void>(
+      settings: RouteSettings(name: routeName),
+      builder: builder,
+    );
   }
 }

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../core/utils/calculation_utils.dart';
+
 class HatchResultsTray {
   final String trayId;
   final String position;
@@ -16,7 +18,7 @@ class HatchResultsTray {
   // Calculate fertility percentage
   double get fertilityPct {
     if (traySize == 0) return 0.0;
-    return ((traySize - infertile) / traySize) * 100;
+    return CalculationUtils.percentOf(traySize - infertile, traySize) ?? 0.0;
   }
 
   factory HatchResultsTray.fromMap(Map<String, dynamic> map) {

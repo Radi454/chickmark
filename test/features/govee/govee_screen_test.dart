@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
@@ -40,6 +41,8 @@ Future<GoveeCaptureProvider> _configuredProvider({
   required _MockGoveeService govee,
   GoveeCaptureTarget target = GoveeCaptureTarget.room,
   _FakeClock? clock,
+  List<GoveeDailyCaptureModel> savedCaptures = const [],
+  Map<String, List<GoveePlaceReadingModel>> savedReadings = const {},
 }) async {
   final repo = _MockGoveeCaptureRepository();
   when(
@@ -52,6 +55,17 @@ Future<GoveeCaptureProvider> _configuredProvider({
       captureDate: any(named: 'captureDate'),
     ),
   ).thenAnswer((_) async => null);
+  when(
+    () => repo.getCapturesForDashboard(
+      customerId: any(named: 'customerId'),
+      hatcheryId: any(named: 'hatcheryId'),
+      captureDate: any(named: 'captureDate'),
+    ),
+  ).thenAnswer((_) async => savedCaptures);
+  when(() => repo.getReadingsForCapture(any())).thenAnswer((invocation) async {
+    final captureId = invocation.positionalArguments.first as String;
+    return savedReadings[captureId] ?? const [];
+  });
 
   final provider = GoveeCaptureProvider(
     repository: repo,
@@ -91,6 +105,58 @@ void _stubLiveGovee(
   when(
     () => govee.readings,
   ).thenAnswer((_) => readings ?? const Stream.empty());
+}
+
+GoveeDailyCaptureModel _savedCapture({
+  required String id,
+  required TemperaturePlace place,
+  String stationKey = 'egg',
+}) {
+  final now = DateTime.parse('2026-05-06T08:00:00');
+  return GoveeDailyCaptureModel(
+    id: id,
+    customerId: 'customer-1',
+    hatcheryId: 'hatchery-1',
+    stationKey: stationKey,
+    place: place,
+    captureDate: '2026-05-06',
+    startedAt: now,
+    endedAt: now.add(const Duration(minutes: 5)),
+    status: 'completed',
+    tempAvg: 72,
+    tempMin: 71,
+    tempMax: 73,
+    rhAvg: 56,
+    rhMin: 55,
+    rhMax: 57,
+    readingCount: 2,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+List<GoveePlaceReadingModel> _savedReadings(String captureId) {
+  final now = DateTime.parse('2026-05-06T08:00:00');
+  return [
+    GoveePlaceReadingModel(
+      id: '$captureId-reading-1',
+      captureId: captureId,
+      readingIndex: 0,
+      recordedAt: now,
+      temperatureFahrenheit: 71,
+      humidity: 55,
+      createdAt: now,
+    ),
+    GoveePlaceReadingModel(
+      id: '$captureId-reading-2',
+      captureId: captureId,
+      readingIndex: 1,
+      recordedAt: now.add(const Duration(minutes: 1)),
+      temperatureFahrenheit: 73,
+      humidity: 57,
+      createdAt: now,
+    ),
+  ];
 }
 
 void main() {
@@ -198,6 +264,44 @@ void main() {
     expect(find.textContaining('History sync timed out'), findsOneWidget);
   });
 
+  testWidgets('saved station strip remains after starting the next recording', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee);
+    final capture = _savedCapture(
+      id: 'egg-storage-capture',
+      place: TemperaturePlace.eggStorageRoom,
+      stationKey: 'egg',
+    );
+    final provider = await _configuredProvider(
+      govee: govee,
+      savedCaptures: [capture],
+      savedReadings: {capture.id: _savedReadings(capture.id)},
+    );
+
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    expect(find.text('Saved stations'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('govee-saved-station-strip')),
+      findsOneWidget,
+    );
+    expect(find.text('Egg storage room'), findsWidgets);
+    expect(find.text('2 readings'), findsWidgets);
+
+    await provider.startRecording();
+    await tester.pump();
+
+    expect(find.text('Saved stations'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('govee-saved-station-strip')),
+      findsOneWidget,
+    );
+    expect(find.text('Egg storage room'), findsWidgets);
+    expect(find.text('2 readings'), findsWidgets);
+  });
+
   testWidgets('live chart preview renders temperature and RH charts', (
     tester,
   ) async {
@@ -206,20 +310,22 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: GoveeChartPreview(
-            machineId: 'Setter 7',
-            readings: [
-              GoveeSensorReading(
-                temperatureFahrenheit: 98,
-                humidity: 50,
-                timestamp: startedAt,
-              ),
-              GoveeSensorReading(
-                temperatureFahrenheit: 99,
-                humidity: 51,
-                timestamp: startedAt.add(const Duration(minutes: 1)),
-              ),
-            ],
+          body: SingleChildScrollView(
+            child: GoveeChartPreview(
+              machineId: 'Setter 7',
+              readings: [
+                GoveeSensorReading(
+                  temperatureFahrenheit: 98,
+                  humidity: 50,
+                  timestamp: startedAt,
+                ),
+                GoveeSensorReading(
+                  temperatureFahrenheit: 99,
+                  humidity: 51,
+                  timestamp: startedAt.add(const Duration(minutes: 1)),
+                ),
+              ],
+            ),
           ),
         ),
       ),

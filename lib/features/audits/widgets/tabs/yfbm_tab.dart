@@ -71,13 +71,8 @@ class _YfbmTabState extends State<YfbmTab> {
 
   void _updateCalculations() {
     final percentages = _entries
-        .where(
-          (e) =>
-              e.chickWeight != null &&
-              e.yolkWeight != null &&
-              e.chickWeight! > 0,
-        )
-        .map((e) => (e.yolkWeight! / e.chickWeight!) * 100)
+        .map((e) => CalculationUtils.percentOf(e.yolkWeight, e.chickWeight))
+        .whereType<double>()
         .toList();
 
     if (percentages.isEmpty) {
@@ -201,43 +196,38 @@ class _YfbmTabState extends State<YfbmTab> {
           ],
         ),
         const SizedBox(height: 16),
-        Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
+        Container(
+          padding: const EdgeInsets.all(AppSizes.cardPadding),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceRaised,
             borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+            border: Border.all(color: AppColors.borderDefault),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.photo_camera,
-                      color: AppColors.primary,
-                      size: 20,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.photo_camera, color: AppColors.primary, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Photo',
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Photo',
-                      style: AppTextStyles.body.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                PhotoButton(
-                  photoPath: _photoPath,
-                  enabled: !widget.isReadOnly,
-                  onPhotoCaptured: (path) {
-                    setState(() => _photoPath = path);
-                    widget.onFieldChanged('yfbmPhoto', path);
-                  },
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              PhotoButton(
+                photoPath: _photoPath,
+                enabled: !widget.isReadOnly,
+                onPhotoCaptured: (path) {
+                  setState(() => _photoPath = path);
+                  widget.onFieldChanged('yfbmPhoto', path);
+                },
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
@@ -259,37 +249,58 @@ class _YfbmTabState extends State<YfbmTab> {
     final completedRows = _entries
         .where((e) => e.chickWeight != null && e.yolkWeight != null)
         .length;
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
+    return Container(
+      padding: const EdgeInsets.all(AppSizes.cardPadding),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                completedRows == 0
-                    ? 'No YFBM rows entered yet'
-                    : '$completedRows YFBM rows entered',
-                style: AppTextStyles.body.copyWith(
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 390;
+          final status = Text(
+            completedRows == 0
+                ? 'No YFBM rows entered yet'
+                : '$completedRows YFBM rows entered',
+            style: AppTextStyles.body.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          );
+          final button = ElevatedButton.icon(
+            onPressed: _openEntriesSheet,
+            icon: const Icon(Icons.table_rows, size: 18),
+            label: const Text('Enter YFBM Entries'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: _openEntriesSheet,
-              icon: const Icon(Icons.table_rows, size: 18),
-              label: const Text('Enter YFBM Entries'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        ),
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                status,
+                const SizedBox(height: 12),
+                SizedBox(width: double.infinity, child: button),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: status),
+              const SizedBox(width: 12),
+              button,
+            ],
+          );
+        },
       ),
     );
   }
@@ -340,12 +351,10 @@ class _YfbmTabState extends State<YfbmTab> {
               ),
               ...List.generate(_entries.length, (index) {
                 final entry = _entries[index];
-                final pct =
-                    entry.chickWeight != null &&
-                        entry.yolkWeight != null &&
-                        entry.chickWeight! > 0
-                    ? (entry.yolkWeight! / entry.chickWeight!) * 100
-                    : null;
+                final pct = CalculationUtils.percentOf(
+                  entry.yolkWeight,
+                  entry.chickWeight,
+                );
                 final isGood =
                     pct != null &&
                     pct >= AppThresholds.yfbmMin &&
@@ -389,27 +398,42 @@ class _YfbmTabState extends State<YfbmTab> {
   }
 
   Widget _buildStatCard(String label, TextEditingController controller) {
-    final value = double.tryParse(controller.text) ?? 0.0;
+    final parsed = double.tryParse(controller.text);
+    final hasValue = parsed != null;
+    final value = parsed ?? 0.0;
     final isGood = label.contains('AVG')
         ? value >= AppThresholds.yfbmMin && value <= AppThresholds.yfbmMax
         : value <= AppThresholds.cvAlertPct;
-    final color = label.contains('AVG')
-        ? (isGood ? AppColors.greenTab : Colors.red)
-        : (isGood ? AppColors.greenTab : Colors.red);
+    final color = !hasValue
+        ? AppColors.textSecondary
+        : isGood
+        ? AppColors.statusGood
+        : AppColors.statusError;
     return Container(
+      constraints: const BoxConstraints(minHeight: 82),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withAlpha(25),
+        color: hasValue
+            ? color.withValues(alpha: 0.08)
+            : AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color),
+        border: Border.all(
+          color: hasValue
+              ? color.withValues(alpha: 0.8)
+              : AppColors.borderDefault,
+        ),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: AppTextStyles.caption),
+          Text(
+            label,
+            style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: 4),
           Text(
-            controller.text,
-            style: AppTextStyles.heading.copyWith(fontSize: 24, color: color),
+            hasValue ? controller.text : '--',
+            style: AppTextStyles.heading.copyWith(fontSize: 22, color: color),
           ),
         ],
       ),

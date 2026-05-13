@@ -21,7 +21,48 @@ void main() {
       updatedAt: DateTime(2026, 4, 27),
     );
 
-    test('maps Chicks compare audit to batch comparison sample', () {
+    StationSampleModel sampleForPatch({
+      required String stationType,
+      String? sectorType,
+      String? sampleType,
+      String? breakoutType,
+      int? storageDays = 5,
+      int? incubationDay,
+    }) {
+      return StationSampleModel(
+        id: 'sample-$stationType',
+        auditSessionId: 'session-1',
+        legacyAuditId: 'audit-1',
+        stationType: stationType,
+        sectorType: sectorType,
+        sampleKind: StationSampleModel.sampleKindBatch,
+        sampleMode: StationSampleModel.sampleModeComparison,
+        comparisonType: StationSampleModel.comparisonTypeBatch,
+        sampleIndex: 1,
+        sampleLabel: 'Sample 1',
+        hatchNo: '1',
+        batchNo: '1',
+        sampleType: sampleType,
+        breakoutType: breakoutType,
+        storageDays: storageDays,
+        incubationDay: incubationDay,
+        calculatedBmkAgeDays: 280,
+        createdAt: DateTime(2026, 4, 27),
+        updatedAt: DateTime(2026, 4, 27),
+      );
+    }
+
+    void expectAbsent(Map<String, dynamic> patch, Iterable<String> keys) {
+      for (final key in keys) {
+        expect(
+          patch.containsKey(key),
+          isFalse,
+          reason: '$key must be unchanged',
+        );
+      }
+    }
+
+    test('maps Chicks compare audit to machine comparison sample', () {
       final row = makeStationAudit(
         id: 'audit-1',
         auditType: 'Chicks',
@@ -43,13 +84,14 @@ void main() {
       expect(sample.legacyAuditId, 'audit-1');
       expect(sample.stationType, 'chicks');
       expect(sample.sampleMode, StationSampleModel.sampleModeComparison);
-      expect(sample.comparisonType, StationSampleModel.comparisonTypeBatch);
+      expect(sample.comparisonType, StationSampleModel.comparisonTypeMachine);
       expect(
         sample.sampleType,
         StationSampleModel.sampleTypeChickQualityHatchedBatch,
       );
       expect(sample.sampleIndex, 2);
-      expect(sample.sampleLabel, 'Sample 2');
+      expect(sample.sampleLabel, 'M2');
+      expect(sample.groupLabel, 'Machine comparison');
       expect(sample.hatchNo, '2');
       expect(sample.batchNo, '2');
       expect(sample.houseNo, isNull);
@@ -120,6 +162,139 @@ void main() {
       expect(patch.containsKey('houseNo'), isFalse);
       expect(patch.containsKey('houseLabel'), isFalse);
       expect(patch.containsKey('trayNo'), isFalse);
+    });
+
+    test('legacy patch writes egg storage metadata only to egg fields', () {
+      final patch = StationSampleMapper.legacyAuditPatchForSample(
+        sampleForPatch(
+          stationType: 'egg',
+          sectorType: StationSampleModel.sectorEggQuality,
+        ),
+      );
+
+      expect(patch['esEggStorageDays'], 5);
+      expect(patch['esEggBmkAge'], 40);
+      expectAbsent(patch, const [
+        'chickStorageDays',
+        'haStorageDays',
+        'ebStorageDays',
+        'chickBmkAge',
+        'haBmkAge',
+        'ebBmkAge',
+      ]);
+    });
+
+    test('legacy patch writes chick quality metadata only to chick fields', () {
+      final patch = StationSampleMapper.legacyAuditPatchForSample(
+        sampleForPatch(
+          stationType: 'chicks',
+          sectorType: StationSampleModel.sectorChickQuality,
+        ),
+      );
+
+      expect(patch['chickStorageDays'], 5);
+      expect(patch['chickBmkAge'], 40);
+      expectAbsent(patch, const [
+        'esEggStorageDays',
+        'haStorageDays',
+        'ebStorageDays',
+        'esEggBmkAge',
+        'haBmkAge',
+        'ebBmkAge',
+      ]);
+    });
+
+    test('legacy patch writes hatch analysis metadata only to HA fields', () {
+      final patch = StationSampleMapper.legacyAuditPatchForSample(
+        sampleForPatch(
+          stationType: 'hatch_analysis_egg_breakouts',
+          sectorType: StationSampleModel.sectorHatchBreakout,
+        ),
+      );
+
+      expect(patch['haStorageDays'], 5);
+      expect(patch['haBmkAge'], 40);
+      expectAbsent(patch, const [
+        'esEggStorageDays',
+        'chickStorageDays',
+        'ebStorageDays',
+        'esEggBmkAge',
+        'chickBmkAge',
+        'ebBmkAge',
+      ]);
+    });
+
+    test(
+      'legacy patch writes egg breakout metadata only to breakout fields',
+      () {
+        final patch = StationSampleMapper.legacyAuditPatchForSample(
+          sampleForPatch(
+            stationType: 'hatch_analysis_egg_breakouts',
+            sectorType: StationSampleModel.sectorHatchBreakout,
+            sampleType: StationSampleModel.sampleTypeBreakoutResidue21d,
+            breakoutType: StationSampleModel.breakoutTypeResidue21d,
+          ),
+        );
+
+        expect(patch['ebStorageDays'], 5);
+        expect(patch['ebBmkAge'], 40);
+        expectAbsent(patch, const [
+          'esEggStorageDays',
+          'chickStorageDays',
+          'haStorageDays',
+          'esEggBmkAge',
+          'chickBmkAge',
+          'haBmkAge',
+        ]);
+      },
+    );
+
+    test('legacy patch writes setter incubation only to setter fields', () {
+      final patch = StationSampleMapper.legacyAuditPatchForSample(
+        sampleForPatch(
+          stationType: 'setters',
+          sectorType: StationSampleModel.sectorSetterOptimizing,
+          storageDays: null,
+          incubationDay: 12,
+        ),
+      );
+
+      expect(patch['soIncubationAge'], 12);
+      expectAbsent(patch, const [
+        'hoIncubationAge',
+        'esEggStorageDays',
+        'chickStorageDays',
+        'haStorageDays',
+        'ebStorageDays',
+        'esEggBmkAge',
+        'chickBmkAge',
+        'haBmkAge',
+        'ebBmkAge',
+      ]);
+    });
+
+    test('legacy patch writes hatcher incubation only to hatcher fields', () {
+      final patch = StationSampleMapper.legacyAuditPatchForSample(
+        sampleForPatch(
+          stationType: 'hatchers',
+          sectorType: StationSampleModel.sectorHatcherOptimizing,
+          storageDays: null,
+          incubationDay: 18,
+        ),
+      );
+
+      expect(patch['hoIncubationAge'], 18);
+      expectAbsent(patch, const [
+        'soIncubationAge',
+        'esEggStorageDays',
+        'chickStorageDays',
+        'haStorageDays',
+        'ebStorageDays',
+        'esEggBmkAge',
+        'chickBmkAge',
+        'haBmkAge',
+        'ebBmkAge',
+      ]);
     });
   });
 }

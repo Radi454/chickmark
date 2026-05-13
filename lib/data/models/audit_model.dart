@@ -20,7 +20,6 @@ class AuditModel {
   final String? compareGroupKey;
 
   // --- Chicks: CHA Environmental ---
-  final bool? chaGoveeConnected;
   final double? chaCo2;
   final String? chaCo2Photo;
   final double? chaPm10;
@@ -180,9 +179,7 @@ class AuditModel {
   final String? soBreed;
   final String? soSetterId;
   final int? soIncubationAge;
-  final bool? soGoveeConnected;
-  final double? soGoveeTemp;
-  final double? soGoveeHumidity;
+  final int? soIncubationHours;
   final double? soCo2;
   final String? soCo2Photo;
   final String? soEstReadings;
@@ -196,9 +193,7 @@ class AuditModel {
   final String? hoBreed;
   final String? hoHatcherId;
   final int? hoIncubationAge;
-  final bool? hoGoveeConnected;
-  final double? hoGoveeTemp;
-  final double? hoGoveeHumidity;
+  final int? hoIncubationHours;
   final double? hoCo2;
   final String? hoCo2Photo;
   final String? hoCvtReadings;
@@ -211,9 +206,6 @@ class AuditModel {
   final int? hoTransferDay;
 
   // --- Egg ---
-  final bool? esGoveeConnected;
-  final double? esGoveeTemp;
-  final double? esGoveeHumidity;
   final double? esCo2;
   final String? esCo2Photo;
   final double? esShellTemp;
@@ -270,7 +262,6 @@ class AuditModel {
     String? sampleMode,
     this.compareGroupKey,
     // --- Chicks: CHA Environmental ---
-    this.chaGoveeConnected,
     this.chaCo2,
     this.chaCo2Photo,
     this.chaPm10,
@@ -422,9 +413,7 @@ class AuditModel {
     this.soBreed,
     this.soSetterId,
     this.soIncubationAge,
-    this.soGoveeConnected,
-    this.soGoveeTemp,
-    this.soGoveeHumidity,
+    this.soIncubationHours,
     this.soCo2,
     this.soCo2Photo,
     this.soEstReadings,
@@ -437,9 +426,7 @@ class AuditModel {
     this.hoBreed,
     this.hoHatcherId,
     this.hoIncubationAge,
-    this.hoGoveeConnected,
-    this.hoGoveeTemp,
-    this.hoGoveeHumidity,
+    this.hoIncubationHours,
     this.hoCo2,
     this.hoCo2Photo,
     this.hoCvtReadings,
@@ -451,9 +438,6 @@ class AuditModel {
     this.hoMeconium,
     this.hoTransferDay,
     // --- Egg ---
-    this.esGoveeConnected,
-    this.esGoveeTemp,
-    this.esGoveeHumidity,
     this.esCo2,
     this.esCo2Photo,
     this.esShellTemp,
@@ -512,7 +496,6 @@ class AuditModel {
       sampleMode: map['sampleMode'],
       compareGroupKey: map['compareGroupKey'],
       // --- Chicks: CHA Environmental ---
-      chaGoveeConnected: map['chaGoveeConnected'] == 1,
       chaCo2: map['chaCo2']?.toDouble(),
       chaCo2Photo: map['chaCo2Photo'],
       chaPm10: map['chaPm10']?.toDouble(),
@@ -664,9 +647,7 @@ class AuditModel {
       soBreed: map['soBreed'],
       soSetterId: map['soSetterId'],
       soIncubationAge: map['soIncubationAge'],
-      soGoveeConnected: map['soGoveeConnected'] == 1,
-      soGoveeTemp: map['soGoveeTemp']?.toDouble(),
-      soGoveeHumidity: map['soGoveeHumidity']?.toDouble(),
+      soIncubationHours: map['soIncubationHours'],
       soCo2: map['soCo2']?.toDouble(),
       soCo2Photo: map['soCo2Photo'],
       soEstReadings: map['soEstReadings'],
@@ -679,9 +660,7 @@ class AuditModel {
       hoBreed: map['hoBreed'],
       hoHatcherId: map['hoHatcherId'],
       hoIncubationAge: map['hoIncubationAge'],
-      hoGoveeConnected: map['hoGoveeConnected'] == 1,
-      hoGoveeTemp: map['hoGoveeTemp']?.toDouble(),
-      hoGoveeHumidity: map['hoGoveeHumidity']?.toDouble(),
+      hoIncubationHours: map['hoIncubationHours'],
       hoCo2: map['hoCo2']?.toDouble(),
       hoCo2Photo: map['hoCo2Photo'],
       hoCvtReadings: map['hoCvtReadings'],
@@ -693,9 +672,6 @@ class AuditModel {
       hoMeconium: map['ho_meconium'],
       hoTransferDay: map['ho_transferDay'],
       // --- Egg ---
-      esGoveeConnected: map['esGoveeConnected'] == 1,
-      esGoveeTemp: map['esGoveeTemp']?.toDouble(),
-      esGoveeHumidity: map['esGoveeHumidity']?.toDouble(),
       esCo2: map['esCo2']?.toDouble(),
       esCo2Photo: map['esCo2Photo'],
       esShellTemp: map['esShellTemp']?.toDouble(),
@@ -755,9 +731,6 @@ class AuditModel {
       'sampleMode': sampleMode,
       'compareGroupKey': compareGroupKey,
       // --- Chicks: CHA Environmental ---
-      'chaGoveeConnected': chaGoveeConnected == null
-          ? null
-          : (chaGoveeConnected! ? 1 : 0),
       'chaCo2': chaCo2,
       'chaCo2Photo': chaCo2Photo,
       'chaPm10': chaPm10,
@@ -911,11 +884,7 @@ class AuditModel {
       'soBreed': soBreed,
       'soSetterId': soSetterId,
       'soIncubationAge': soIncubationAge,
-      'soGoveeConnected': soGoveeConnected == null
-          ? null
-          : (soGoveeConnected! ? 1 : 0),
-      'soGoveeTemp': soGoveeTemp,
-      'soGoveeHumidity': soGoveeHumidity,
+      'soIncubationHours': soIncubationHours,
       'soCo2': soCo2,
       'soCo2Photo': soCo2Photo,
       'soEstReadings': soEstReadings,
@@ -928,11 +897,7 @@ class AuditModel {
       'hoBreed': hoBreed,
       'hoHatcherId': hoHatcherId,
       'hoIncubationAge': hoIncubationAge,
-      'hoGoveeConnected': hoGoveeConnected == null
-          ? null
-          : (hoGoveeConnected! ? 1 : 0),
-      'hoGoveeTemp': hoGoveeTemp,
-      'hoGoveeHumidity': hoGoveeHumidity,
+      'hoIncubationHours': hoIncubationHours,
       'hoCo2': hoCo2,
       'hoCo2Photo': hoCo2Photo,
       'hoCvtReadings': hoCvtReadings,
@@ -946,11 +911,6 @@ class AuditModel {
       'ho_meconium': hoMeconium,
       'ho_transferDay': hoTransferDay,
       // --- Egg ---
-      'esGoveeConnected': esGoveeConnected == null
-          ? null
-          : (esGoveeConnected! ? 1 : 0),
-      'esGoveeTemp': esGoveeTemp,
-      'esGoveeHumidity': esGoveeHumidity,
       'esCo2': esCo2,
       'esCo2Photo': esCo2Photo,
       'esShellTemp': esShellTemp,

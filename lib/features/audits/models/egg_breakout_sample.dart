@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import '../../../core/utils/bmk_age_calculator.dart';
+import '../../../core/utils/calculation_utils.dart';
+
 enum EggBreakoutType {
   freshEggBreakout('freshEggBreakout', 'Fresh Egg'),
   candledEggBreakout('candledEggBreakout', 'Candled Egg'),
@@ -33,8 +36,11 @@ enum EggBreakoutType {
       EggBreakoutType.residueHatchDay => 21,
     };
     if (extraDays < 0) return null;
-    final ageDays = currentFlockAgeDays - storageDays - extraDays;
-    return ageDays < 0 ? 0 : ageDays;
+    return BmkAgeCalculator.calculateDaysFromFlockAge(
+      currentFlockAgeDays: currentFlockAgeDays,
+      storageDays: storageDays,
+      incubationOffsetDays: extraDays,
+    );
   }
 
   static EggBreakoutType fromStorageValue(String? value) {
@@ -96,28 +102,24 @@ class EggBreakoutCountField {
 
 const List<EggBreakoutCountField> freshCountFields = [
   EggBreakoutCountField('Infertile', 'infertile'),
-  EggBreakoutCountField('Early 24h', 'early24h'),
-  EggBreakoutCountField('Early 48h', 'early48h'),
-  EggBreakoutCountField('Early 72h / Blood ring', 'early72hBloodRing'),
+  EggBreakoutCountField('24 hours', 'early24h'),
+  EggBreakoutCountField('48 hours', 'early48h'),
+  EggBreakoutCountField('Blood Ring', 'early72hBloodRing'),
 ];
 
 const List<EggBreakoutCountField> candledCountFields = [
   ...freshCountFields,
-  EggBreakoutCountField('Black eye', 'blackEye'),
-  EggBreakoutCountField('Mid dead', 'midDead'),
+  EggBreakoutCountField('Black Eye', 'blackEye'),
 ];
 
 const List<EggBreakoutCountField> residueCountFields = [
-  ...candledCountFields,
-  EggBreakoutCountField('Late dead', 'lateDead'),
-  EggBreakoutCountField('Internal pip', 'internalPip'),
-  EggBreakoutCountField('External pip', 'externalPip'),
+  EggBreakoutCountField('Infertile', 'infertile'),
+  EggBreakoutCountField('Early Dead', 'earlyDead'),
+  EggBreakoutCountField('Mid Dead', 'midDead'),
+  EggBreakoutCountField('Late Dead', 'lateDead'),
+  EggBreakoutCountField('External Pip', 'externalPip'),
   EggBreakoutCountField('Cracked', 'cracked'),
   EggBreakoutCountField('Contaminated', 'contaminated'),
-  EggBreakoutCountField('Malposition', 'malposition'),
-  EggBreakoutCountField('Exposed brain', 'exposedBrain'),
-  EggBreakoutCountField('Crossed beak', 'crossedBeak'),
-  EggBreakoutCountField('Culled/Dead', 'culledDead'),
 ];
 
 class EggBreakoutSampleEntry {
@@ -192,6 +194,7 @@ class EggBreakoutSampleEntry {
         ? fallbackBreakoutType ?? EggBreakoutType.fromStorageValue(null)
         : EggBreakoutType.fromStorageValue(rawBreakoutType);
     final label = (json['label'] as String?)?.trim();
+    final counts = _normalizeCountsForType(type, _readCounts(json['counts']));
     return EggBreakoutSampleEntry(
       id: (json['id'] as String?) ?? 'sample-$index',
       sampleMode: mode,
@@ -204,7 +207,7 @@ class EggBreakoutSampleEntry {
       traySize: _readNullableInt(json['traySize']) ?? 150,
       numberOfTrays: _readNullableInt(json['numberOfTrays']) ?? 1,
       breakoutType: type,
-      counts: _readCounts(json['counts']),
+      counts: counts,
     );
   }
 
@@ -220,7 +223,7 @@ class EggBreakoutSampleEntry {
   double? percentageFor(String countKey) {
     final total = totalSample;
     if (total == null || total <= 0) return null;
-    return ((counts[countKey] ?? 0) / total) * 100;
+    return CalculationUtils.percentOf(counts[countKey] ?? 0, total);
   }
 
   EggBreakoutSampleEntry copyWith({
@@ -292,11 +295,27 @@ class EggBreakoutSampleEntry {
   static Map<String, int> _readCounts(Object? raw) {
     if (raw is! Map) return {};
     return Map<String, int>.fromEntries(
-      raw.entries.map(
-        (entry) =>
-            MapEntry(entry.key.toString(), _readNullableInt(entry.value) ?? 0),
-      ),
+      raw.entries.expand((entry) {
+        final count = _readNullableInt(entry.value);
+        if (count == null || count <= 0) return const <MapEntry<String, int>>[];
+        return [MapEntry(entry.key.toString(), count)];
+      }),
     );
+  }
+
+  static Map<String, int> _normalizeCountsForType(
+    EggBreakoutType type,
+    Map<String, int> counts,
+  ) {
+    if (type != EggBreakoutType.residueHatchDay) return counts;
+    final normalized = Map<String, int>.from(counts);
+    if (normalized.containsKey('earlyDead')) return normalized;
+    final legacyEarlyDead =
+        (counts['early24h'] ?? 0) +
+        (counts['early48h'] ?? 0) +
+        (counts['early72hBloodRing'] ?? 0);
+    if (legacyEarlyDead > 0) normalized['earlyDead'] = legacyEarlyDead;
+    return normalized;
   }
 
   static int? _readNullableInt(Object? value) {

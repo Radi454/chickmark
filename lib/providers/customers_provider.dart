@@ -14,7 +14,6 @@ import '../data/repositories/hatchery_repository.dart';
 import '../data/repositories/audit_repository.dart';
 import '../data/repositories/bmk_repository.dart';
 import '../data/repositories/photo_repository.dart';
-import '../data/repositories/temperature_rh_repository.dart';
 import '../services/photo/photo_service.dart';
 import '../services/supabase/supabase_service.dart';
 import '../features/dashboard/models/visit_session_summary.dart';
@@ -30,7 +29,6 @@ class CustomersProvider extends ChangeNotifier {
   final PhotoRepository _photoRepository = PhotoRepository();
   final PhotoService _photoService = PhotoService();
   final SupabaseService _supabaseService = SupabaseService();
-  final TemperatureRhRepository _tempRepository = TemperatureRhRepository();
 
   bool _isLoadingCustomers = false;
 
@@ -132,8 +130,6 @@ class CustomersProvider extends ChangeNotifier {
           upsertBmkEggBreakout: (row) =>
               _bmkRepository.upsertBmkEggBreakout(row),
           upsertAuditSession: (row) => _sessionRepository.upsertSessionRow(row),
-          upsertTemperatureSession: (row) =>
-              _tempRepository.upsertSessionRow(row),
         );
       }
       final customers = await _customerRepository.getAllCustomers();

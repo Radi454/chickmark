@@ -13,6 +13,8 @@ class MockDatabase extends Mock implements Database {}
 
 class MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
+class MockTransaction extends Mock implements Transaction {}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(
@@ -562,8 +564,38 @@ void main() {
 
   group('AuditSessionRepository - deleteSession', () {
     test('deleteSession calls database delete', () async {
+      final txn = MockTransaction();
+      when(() => mockDb.transaction<void>(any())).thenAnswer((invocation) {
+        final action =
+            invocation.positionalArguments.single
+                as Future<void> Function(Transaction);
+        return action(txn);
+      });
       when(
-        () => mockDb.delete(
+        () => txn.query(
+          any(),
+          columns: any(named: 'columns'),
+          where: any(named: 'where'),
+          whereArgs: any(named: 'whereArgs'),
+        ),
+      ).thenAnswer((_) async => <Map<String, Object?>>[]);
+      when(
+        () => txn.insert(
+          any(),
+          any(),
+          conflictAlgorithm: any(named: 'conflictAlgorithm'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => txn.update(
+          'audits',
+          any(),
+          where: 'sessionId = ?',
+          whereArgs: [testSession.id],
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => txn.delete(
           'audit_sessions',
           where: 'id = ?',
           whereArgs: [testSession.id],
@@ -573,7 +605,15 @@ void main() {
       await repository.deleteSession(testSession.id);
 
       verify(
-        () => mockDb.delete(
+        () => txn.update(
+          'audits',
+          {'sessionId': null},
+          where: 'sessionId = ?',
+          whereArgs: [testSession.id],
+        ),
+      ).called(1);
+      verify(
+        () => txn.delete(
           'audit_sessions',
           where: 'id = ?',
           whereArgs: [testSession.id],

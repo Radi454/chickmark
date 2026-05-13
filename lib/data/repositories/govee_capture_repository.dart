@@ -66,16 +66,12 @@ class GoveeCaptureRepository {
 
       await txn.insert(
         'govee_daily_captures',
-        _captureToStorageMap(capture),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+        _captureToStorageMap(
+          capture.copyWith(
+            chartPointsJson: GoveePlaceReadingModel.listToJson(readings),
+          ),
+        ),
       );
-      for (final reading in readings) {
-        await txn.insert(
-          'govee_place_readings',
-          reading.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
     });
   }
 
@@ -106,12 +102,13 @@ class GoveeCaptureRepository {
   ) async {
     final db = await _dbHelper.db;
     final rows = await db.query(
-      'govee_place_readings',
-      where: 'captureId = ?',
+      'govee_daily_captures',
+      where: 'id = ?',
       whereArgs: [captureId],
-      orderBy: 'readingIndex ASC, recordedAt ASC',
+      limit: 1,
     );
-    return rows.map(GoveePlaceReadingModel.fromMap).toList();
+    if (rows.isEmpty) return const [];
+    return GoveeDailyCaptureModel.fromMap(rows.first).chartReadings;
   }
 
   Future<List<GoveeDailyCaptureModel>> getAllCaptures() async {
@@ -123,23 +120,21 @@ class GoveeCaptureRepository {
     return rows.map(GoveeDailyCaptureModel.fromMap).toList();
   }
 
-  Future<List<GoveePlaceReadingModel>> getAllReadings() async {
-    final db = await _dbHelper.db;
-    final rows = await db.query(
-      'govee_place_readings',
-      orderBy: 'captureId ASC, readingIndex ASC',
-    );
-    return rows.map(GoveePlaceReadingModel.fromMap).toList();
-  }
-
   Future<void> upsertCaptureRow(Map<String, dynamic> row) async {
     final db = await _dbHelper.db;
     await _upsertFilteredRow(db, 'govee_daily_captures', row);
   }
 
-  Future<void> upsertReadingRow(Map<String, dynamic> row) async {
+  Future<Map<String, dynamic>?> getCaptureRowById(String id) async {
     final db = await _dbHelper.db;
-    await _upsertFilteredRow(db, 'govee_place_readings', row);
+    final rows = await db.query(
+      'govee_daily_captures',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
   }
 
   Future<void> _upsertFilteredRow(
@@ -152,11 +147,21 @@ class GoveeCaptureRepository {
     if (table == 'govee_daily_captures') {
       _normalizeCaptureStorageRow(normalized);
     }
-    await db.insert(
+    await _upsertById(db, table, _filterColumns(normalized, columns));
+  }
+
+  Future<void> _upsertById(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final inserted = await db.insert(
       table,
-      _filterColumns(normalized, columns),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    if (inserted != 0) return;
+    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
   Future<Set<String>> _tableColumns(Database db, String table) async {

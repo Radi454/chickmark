@@ -119,64 +119,68 @@ void main() {
     });
   });
 
-  test('saveReplacement writes only daily capture and place readings', () async {
-    when(
-      () => txn.query(
-        'govee_daily_captures',
-        where:
-            'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
-        whereArgs: [
-          newCapture.customerId,
-          newCapture.hatcheryId,
-          newCapture.place.name,
-          '',
-          newCapture.captureDate,
-        ],
-        limit: 1,
-      ),
-    ).thenAnswer((_) async => [oldCapture.toMap()]);
+  test(
+    'saveReplacement writes one daily capture row with chart point JSON',
+    () async {
+      when(
+        () => txn.query(
+          'govee_daily_captures',
+          where:
+              'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
+          whereArgs: [
+            newCapture.customerId,
+            newCapture.hatcheryId,
+            newCapture.place.name,
+            '',
+            newCapture.captureDate,
+          ],
+          limit: 1,
+        ),
+      ).thenAnswer((_) async => [oldCapture.toMap()]);
 
-    await repository.saveReplacement(
-      capture: newCapture,
-      readings: newReadings,
-    );
+      await repository.saveReplacement(
+        capture: newCapture,
+        readings: newReadings,
+      );
 
-    verify(() => db.transaction<void>(any())).called(1);
-    verify(
-      () => txn.delete(
-        'govee_daily_captures',
-        where: 'id = ?',
-        whereArgs: [oldCapture.id],
-      ),
-    ).called(1);
-    verify(
-      () => txn.insert('govee_daily_captures', {
-        ...newCapture.toMap(),
-        'machineId': '',
-      }, conflictAlgorithm: ConflictAlgorithm.replace),
-    ).called(1);
-    verifyNever(
-      () => txn.insert(
-        'govee_spot_captures',
-        any(),
-        conflictAlgorithm: any(named: 'conflictAlgorithm'),
-      ),
-    );
-    verifyNever(
-      () => txn.insert(
-        'govee_spot_readings',
-        any(),
-        conflictAlgorithm: any(named: 'conflictAlgorithm'),
-      ),
-    );
-    verify(
-      () => txn.insert(
-        'govee_place_readings',
-        newReadings.first.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      ),
-    ).called(1);
-  });
+      verify(() => db.transaction<void>(any())).called(1);
+      verify(
+        () => txn.delete(
+          'govee_daily_captures',
+          where: 'id = ?',
+          whereArgs: [oldCapture.id],
+        ),
+      ).called(1);
+      verify(
+        () => txn.insert('govee_daily_captures', {
+          ...newCapture.toMap(),
+          'machineId': '',
+          'chartPointsJson': GoveePlaceReadingModel.listToJson(newReadings),
+        }),
+      ).called(1);
+      verifyNever(
+        () => txn.insert(
+          'govee_spot_captures',
+          any(),
+          conflictAlgorithm: any(named: 'conflictAlgorithm'),
+        ),
+      );
+      verifyNever(
+        () => txn.insert(
+          'govee_spot_readings',
+          any(),
+          conflictAlgorithm: any(named: 'conflictAlgorithm'),
+        ),
+      );
+      verifyNever(
+        () => txn.insert(
+          'govee_place_readings',
+          any(),
+          conflictAlgorithm: any(named: 'conflictAlgorithm'),
+        ),
+      );
+    },
+  );
 
   test(
     'getCaptureForScope queries one machine-aware place date capture',
@@ -232,20 +236,26 @@ void main() {
     expect(result.single.id, newCapture.id);
   });
 
-  test('getReadingsForCapture returns ordered place readings', () async {
-    when(
-      () => db.query(
-        'govee_place_readings',
-        where: 'captureId = ?',
-        whereArgs: [newCapture.id],
-        orderBy: 'readingIndex ASC, recordedAt ASC',
-      ),
-    ).thenAnswer((_) async => newReadings.map((r) => r.toMap()).toList());
+  test(
+    'getReadingsForCapture returns chart points from capture JSON',
+    () async {
+      final captureWithChartPoints = newCapture.copyWith(
+        chartPointsJson: GoveePlaceReadingModel.listToJson(newReadings),
+      );
+      when(
+        () => db.query(
+          'govee_daily_captures',
+          where: 'id = ?',
+          whereArgs: [newCapture.id],
+          limit: 1,
+        ),
+      ).thenAnswer((_) async => [captureWithChartPoints.toMap()]);
 
-    final result = await repository.getReadingsForCapture(newCapture.id);
+      final result = await repository.getReadingsForCapture(newCapture.id);
 
-    expect(result, hasLength(100));
-    expect(result.first.id, newReadings.first.id);
-    expect(result.last.readingIndex, 99);
-  });
+      expect(result, hasLength(100));
+      expect(result.first.id, '${newCapture.id}-0');
+      expect(result.last.readingIndex, 99);
+    },
+  );
 }

@@ -18,6 +18,20 @@ class MockBenchmarkLookup extends Mock implements BenchmarkLookup {}
 MockBenchmarkLookup mockBenchmarkLookup() {
   final lookup = MockBenchmarkLookup();
   when(
+    () => lookup.nearestBreedBenchmark(
+      calculatedBmkAgeDays: any(named: 'calculatedBmkAgeDays'),
+      breed: any(named: 'breed'),
+    ),
+  ).thenAnswer(
+    (_) async => {
+      'ageWeek': 38,
+      'breed': 'Ross 308',
+      'hatchabilityPct': 90.0,
+      'fertilityPct': 88.0,
+      'hofPct': 96.0,
+    },
+  );
+  when(
     () => lookup.nearestBreakoutBenchmark(
       calculatedBmkAgeDays: any(named: 'calculatedBmkAgeDays'),
     ),
@@ -29,15 +43,12 @@ MockBenchmarkLookup mockBenchmarkLookup() {
       'early48hPct': 1.5,
       'bloodRingPct': 2.5,
       'blackEyePct': 0.5,
+      'earlyDeadPct': 3.5,
       'midDeadPct': 1.3,
       'lateDeadPct': 1.8,
-      'internalPipPct': 0.8,
       'externalPipPct': 0.7,
       'crackedPct': 0.4,
       'contamPct': 0.2,
-      'cullPct': 0.6,
-      'exposedBrainPct': 0.1,
-      'crossedBeakPct': 0.1,
     },
   );
   return lookup;
@@ -62,23 +73,30 @@ void main() {
         .setMockMethodCallHandler(connectivityChannel, null);
   });
 
-  AuditContextData contextData() => AuditContextData(
+  AuditContextData contextData({
+    int? flockAgeWeeks = 42,
+    DateTime? flockEntryDate,
+    String date = '2026-04-27',
+  }) => AuditContextData(
     auditType: 'Hatch Analysis & Egg Breakouts',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
-    flockAgeWeeks: 42,
-    date: '2026-04-27',
+    flockEntryDate: flockEntryDate,
+    flockAgeWeeks: flockAgeWeeks,
+    date: date,
   );
 
   Future<AuditProvider> pumpScreen(
     WidgetTester tester, {
     required EggBreakoutType breakoutType,
-    int storageDays = 5,
+    int? storageDays = 5,
     int? candlingDay,
+    AuditContextData? contextOverride,
     BenchmarkLookup? benchmarkLookup,
   }) async {
-    final provider = AuditProvider();
+    final provider = AuditProvider(autosaveEnabled: false);
+    addTearDown(provider.dispose);
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -89,7 +107,7 @@ void main() {
         ],
         child: MaterialApp(
           home: HatchAnalysisScreen(
-            context: contextData(),
+            context: contextOverride ?? contextData(),
             benchmarkLookup: benchmarkLookup ?? mockBenchmarkLookup(),
           ),
         ),
@@ -97,8 +115,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     provider.updateHatchField(0, 'ebBreakoutType', breakoutType.storageValue);
-    provider.updateHatchField(0, 'haStorageDays', storageDays);
-    provider.updateHatchField(0, 'ebStorageDays', storageDays);
+    if (storageDays != null) {
+      provider.updateHatchField(0, 'haStorageDays', storageDays);
+      provider.updateHatchField(0, 'ebStorageDays', storageDays);
+    }
     provider.updateHatchField(0, 'haTotalEggsSet', 100);
     if (candlingDay != null) {
       provider.updateHatchField(0, 'ebBreakoutAgeDays', candlingDay);
@@ -158,6 +178,11 @@ void main() {
     return editable.focusNode.hasFocus;
   }
 
+  String editableNumberText(WidgetTester tester, Key key) {
+    final editable = tester.widget<EditableText>(numericEditableFinder(key));
+    return editable.controller.text;
+  }
+
   String numericFieldText(WidgetTester tester, Key key) {
     final textField = find.descendant(
       of: find.byKey(key),
@@ -188,11 +213,30 @@ void main() {
     expect(find.text('BMK Age 289 days'), findsNothing);
 
     expect(find.text('Infertile'), findsOneWidget);
-    expect(find.text('Early 24h'), findsOneWidget);
-    expect(find.text('Early 48h'), findsOneWidget);
-    expect(find.text('Early 72h / Blood ring'), findsOneWidget);
+    expect(find.text('24 hours'), findsOneWidget);
+    expect(find.text('48 hours'), findsOneWidget);
+    expect(find.text('Blood Ring'), findsOneWidget);
+    expect(find.text('Position'), findsNothing);
     expect(find.text('Black eye'), findsNothing);
     expect(find.text('Mid dead'), findsNothing);
+  });
+
+  testWidgets('fresh egg tray samples default tray size to thirty', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.freshEggBreakout,
+    );
+
+    await addVisibleSample(tester);
+
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.drafts.single.ebTrayBreakoutJson,
+      ).single.traySize,
+      30,
+    );
   });
 
   testWidgets('candled egg breakout shows candling day and candled items', (
@@ -206,23 +250,118 @@ void main() {
     expect(find.text('BMK Age 279 days'), findsNothing);
 
     expect(find.text('Infertile'), findsOneWidget);
-    expect(find.text('Early 24h'), findsOneWidget);
-    expect(find.text('Early 48h'), findsOneWidget);
-    expect(find.text('Early 72h / Blood ring'), findsOneWidget);
-    expect(find.text('Black eye'), findsOneWidget);
-    expect(find.text('Mid dead'), findsOneWidget);
+    expect(find.text('24 hours'), findsOneWidget);
+    expect(find.text('48 hours'), findsOneWidget);
+    expect(find.text('Blood Ring'), findsOneWidget);
+    expect(find.text('Position'), findsOneWidget);
+    expect(find.text('Black Eye'), findsOneWidget);
+    expect(find.text('Mid dead'), findsNothing);
   });
 
   testWidgets('residue hatch day shows hatchability and breakout samples', (
     tester,
   ) async {
     await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
+    await addVisibleSample(tester);
 
-    expect(find.text('Hatchability Results'), findsNothing);
-    expect(find.text('Healthy Hatched'), findsNothing);
+    expect(find.text('Batch Results'), findsOneWidget);
+    expect(find.text('Hatched chicks'), findsOneWidget);
+    expect(find.text('Hatchability'), findsOneWidget);
+    expect(find.text('Fertility'), findsOneWidget);
+    expect(find.text('HOF'), findsOneWidget);
     expect(find.text('Breakout Samples'), findsOneWidget);
     expect(find.byKey(const ValueKey('breakout-add-sample')), findsOneWidget);
     expect(find.text('BMK Age 268 days'), findsNothing);
+    expect(find.text('Infertile'), findsOneWidget);
+    expect(find.text('Early Dead'), findsOneWidget);
+    expect(find.text('Mid Dead'), findsOneWidget);
+    expect(find.text('Late Dead'), findsOneWidget);
+    expect(find.text('External Pip'), findsOneWidget);
+    expect(find.text('Cracked'), findsOneWidget);
+    expect(find.text('Contaminated'), findsOneWidget);
+    expect(find.text('Internal pip'), findsNothing);
+    expect(find.text('Malposition'), findsNothing);
+    expect(find.text('Exposed brain'), findsNothing);
+    expect(find.text('Crossed beak'), findsNothing);
+    expect(find.text('Culled %'), findsOneWidget);
+    expect(find.text('Dead %'), findsOneWidget);
+  });
+
+  testWidgets('residue batches use automatic setter hatcher tabs and metrics', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    provider.updateHatchField(0, 'setterId', '1');
+    provider.updateHatchField(0, 'hatcherId', '1');
+    provider.updateHatchField(0, 'haTotalEggsSet', 19200);
+    provider.updateHatchField(0, 'haHatched', 16500);
+    provider.updateHatchField(0, 'haCulled', 120);
+    provider.updateHatchField(0, 'haDead', 30);
+    provider.updateHatchField(
+      0,
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([
+        EggBreakoutSampleEntry.tray(
+          id: 'tray-1',
+          label: 'Tray 1',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          counts: const {'infertile': 15},
+        ),
+        EggBreakoutSampleEntry.tray(
+          id: 'tray-2',
+          label: 'Tray 2',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          counts: const {'infertile': 30},
+        ),
+      ]),
+    );
+    provider.addHatch();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('residue-batch-tabs')), findsOneWidget);
+    expect(find.text('S1H1'), findsOneWidget);
+    expect(find.text('S2H2'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('residue-batch-results-card')),
+      findsOneWidget,
+    );
+    final entryBottom = tester
+        .getBottomLeft(
+          find.byKey(const ValueKey('hatch-analysis-required-entry-card')),
+        )
+        .dy;
+    final tabsTop = tester
+        .getTopLeft(find.byKey(const ValueKey('residue-batch-tabs')))
+        .dy;
+    final resultsTop = tester
+        .getTopLeft(find.byKey(const ValueKey('residue-batch-results-card')))
+        .dy;
+    expect(tabsTop, greaterThan(entryBottom));
+    expect(resultsTop, greaterThan(tabsTop));
+
+    await tapVisibleKey(tester, const ValueKey('residue-batch-tab-0'));
+
+    expect(find.text('85.9%'), findsOneWidget);
+    expect(find.text('85.0%'), findsOneWidget);
+    expect(find.text('101.1%'), findsOneWidget);
+    expect(find.text('0.6%'), findsOneWidget);
+    expect(find.text('0.2%'), findsWidgets);
+
+    await tapVisibleKey(tester, const ValueKey('residue-batch-tab-1'));
+    provider.updateHatchField(1, 'setterId', '4');
+    provider.updateHatchField(1, 'hatcherId', '7');
+    await tester.pumpAndSettle();
+
+    expect(provider.activeDraft.setterId, '4');
+    expect(provider.activeDraft.hatcherId, '7');
+    expect(find.text('S4H7'), findsOneWidget);
   });
 
   testWidgets('uses breakout type as the main card and removes old regions', (
@@ -241,7 +380,7 @@ void main() {
     expect(find.text('Batch / hatch group'), findsNothing);
     expect(find.text('Batch / Hatch Group 1'), findsNothing);
     expect(find.text('Batch Info'), findsNothing);
-    expect(find.text('Hatchability Results'), findsNothing);
+    expect(find.text('Batch Results'), findsOneWidget);
     expect(find.text('100% Budget Categories'), findsNothing);
   });
 
@@ -303,6 +442,121 @@ void main() {
     expect(
       find.descendant(of: bmkDisplayCard, matching: find.text('STORAGE DAYS')),
       findsNothing,
+    );
+  });
+
+  testWidgets('storage days defaults to zero and calculates bmk age', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      storageDays: null,
+      contextOverride: contextData(flockAgeWeeks: 40),
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    expect(provider.drafts.single.haStorageDays, 0);
+    expect(provider.drafts.single.ebStorageDays, 0);
+    expect(
+      editableNumberText(tester, const ValueKey('breakout-storage-days')),
+      '0',
+    );
+
+    final bmkDisplayCard = find.byKey(
+      const ValueKey('breakout-bmk-age-display-card'),
+    );
+    expect(
+      find.descendant(of: bmkDisplayCard, matching: find.text('37 wks')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('storage days is a separate entry card that clears zero', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      storageDays: null,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    final contextCard = find.byKey(
+      const ValueKey('hatch-analysis-context-card'),
+    );
+    final requiredCard = find.byKey(
+      const ValueKey('hatch-analysis-required-entry-card'),
+    );
+    final storageEntryCard = find.byKey(
+      const ValueKey('breakout-storage-days-entry-card'),
+    );
+
+    expect(requiredCard, findsOneWidget);
+    expect(
+      find.descendant(of: contextCard, matching: storageEntryCard),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: requiredCard, matching: storageEntryCard),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: requiredCard, matching: find.text('REQUIRED')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      numericEditableFinder(const ValueKey('breakout-storage-days')),
+    );
+    await tester.pump();
+
+    expect(
+      editableNumberText(tester, const ValueKey('breakout-storage-days')),
+      isEmpty,
+    );
+    expect(provider.drafts.single.haStorageDays, 0);
+    expect(provider.drafts.single.ebStorageDays, 0);
+  });
+
+  testWidgets('falls back to flock entry date when stored age is zero', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      storageDays: 0,
+      contextOverride: contextData(
+        flockAgeWeeks: 0,
+        flockEntryDate: DateTime(2025, 8, 1),
+        date: '2026-05-08',
+      ),
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    final bmkDisplayCard = find.byKey(
+      const ValueKey('breakout-bmk-age-display-card'),
+    );
+    expect(
+      find.descendant(of: bmkDisplayCard, matching: find.text('37 wks')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows dash when bmk age cannot be calculated', (tester) async {
+    await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      contextOverride: contextData(flockAgeWeeks: null),
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    final bmkDisplayCard = find.byKey(
+      const ValueKey('breakout-bmk-age-display-card'),
+    );
+    expect(
+      find.descendant(of: bmkDisplayCard, matching: find.text('--')),
+      findsOneWidget,
     );
   });
 

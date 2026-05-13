@@ -39,7 +39,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => AuditProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuditProvider(autosaveEnabled: false),
+          ),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
           ),
@@ -63,16 +65,19 @@ void main() {
     expect(find.text('19.0-21.0°C'), findsOneWidget);
     expect(find.text('Upside Down Score'), findsOneWidget);
     expect(find.text('Storage Checklist'), findsOneWidget);
-    expect(find.text('Egg Quality Assessment'), findsOneWidget);
-    expect(find.text('EQ'), findsNothing);
-    expect(find.text('Weight uniformity and benchmark context'), findsNothing);
+    expect(find.text('Egg Quality'), findsOneWidget);
+    expect(find.text('EQ'), findsOneWidget);
+    expect(find.text('Sampling scope and 100-egg uniformity'), findsOneWidget);
+    expect(find.text('Sample setup'), findsOneWidget);
     expect(find.text('39 wks'), findsWidgets);
-    expect(find.text('Egg Sample Mode'), findsOneWidget);
-    expect(find.text('Multi House Samples'), findsOneWidget);
+    expect(find.text('Sampling scope'), findsOneWidget);
+    expect(find.text('Record one house or compare houses'), findsOneWidget);
+    expect(find.text('One house'), findsOneWidget);
+    expect(find.text('Compare houses'), findsOneWidget);
 
     final multiHouseChip = find.widgetWithText(
-      ChoiceChip,
-      'Multi House Samples',
+      SegmentedButton<bool>,
+      'Compare houses',
     );
     await tester.ensureVisible(multiHouseChip);
     await tester.pump();
@@ -99,5 +104,19 @@ void main() {
       greaterThan(tester.getCenter(addHouse).dx),
     );
     expect(tester.getTopLeft(addHouse).dy, tester.getTopLeft(removeHouse).dy);
+
+    final storageDaysField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Storage Days',
+    );
+    expect(storageDaysField, findsOneWidget);
+    await tester.ensureVisible(storageDaysField);
+    await tester.pump();
+    expect(tester.widget<TextField>(storageDaysField).controller?.text, '0');
+
+    await tester.tap(storageDaysField);
+    await tester.pump();
+
+    expect(tester.widget<TextField>(storageDaysField).controller?.text, '');
   });
 }

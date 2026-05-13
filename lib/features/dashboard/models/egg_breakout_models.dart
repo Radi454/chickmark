@@ -1,3 +1,5 @@
+import '../../../core/utils/calculation_utils.dart';
+
 class EggBreakoutAvg {
   final String breakoutType;
   final double traySize;
@@ -98,8 +100,8 @@ class EggBreakoutAvg {
     final earlyDead = (map['haEarlyDead'] as int? ?? 0).toDouble();
     final midDead = (map['haMidDead'] as int? ?? 0).toDouble();
     final lateDead = (map['haLateDead'] as int? ?? 0).toDouble();
-    final contaminated =
-        (map['haContaminatedExploders'] as int? ?? 0).toDouble();
+    final contaminated = (map['haContaminatedExploders'] as int? ?? 0)
+        .toDouble();
     final culled = (map['haCulled'] as int? ?? 0).toDouble();
 
     return EggBreakoutAvg(
@@ -117,18 +119,18 @@ class EggBreakoutAvg {
       exposedBrainCount: 0.0,
       crossedBeakCount: 0.0,
       culledDeadCount: culled,
-      infertilePct: (infertile / total) * 100,
-      earlyDeadPct: (earlyDead / total) * 100,
-      midDeadPct: (midDead / total) * 100,
-      lateDeadPct: (lateDead / total) * 100,
-      internalPipPct: (pipped / 2 / total) * 100,
-      externalPipPct: (pipped / 2 / total) * 100,
+      infertilePct: _pct(infertile, total),
+      earlyDeadPct: _pct(earlyDead, total),
+      midDeadPct: _pct(midDead, total),
+      lateDeadPct: _pct(lateDead, total),
+      internalPipPct: _pct(pipped / 2, total),
+      externalPipPct: _pct(pipped / 2, total),
       crackedPct: 0.0,
-      contamPct: (contaminated / total) * 100,
+      contamPct: _pct(contaminated, total),
       malpositionPct: 0.0,
       exposedBrainPct: 0.0,
       crossedBeakPct: 0.0,
-      cullPct: (culled / total) * 100,
+      cullPct: _pct(culled, total),
     );
   }
 }
@@ -171,7 +173,11 @@ class EggBreakoutTrend {
   ) {
     final total = (map['haTotalEggsSet'] as int? ?? 0).toDouble();
     if (total <= 0) {
-      return EggBreakoutTrend(date: map['date'] ?? '', breakoutType: type, percentages: {});
+      return EggBreakoutTrend(
+        date: map['date'] ?? '',
+        breakoutType: type,
+        percentages: {},
+      );
     }
 
     final pipped = (map['haPipped'] as int? ?? 0).toDouble();
@@ -179,27 +185,31 @@ class EggBreakoutTrend {
     final earlyDead = (map['haEarlyDead'] as int? ?? 0).toDouble();
     final midDead = (map['haMidDead'] as int? ?? 0).toDouble();
     final lateDead = (map['haLateDead'] as int? ?? 0).toDouble();
-    final contaminated =
-        (map['haContaminatedExploders'] as int? ?? 0).toDouble();
+    final contaminated = (map['haContaminatedExploders'] as int? ?? 0)
+        .toDouble();
     final culled = (map['haCulled'] as int? ?? 0).toDouble();
 
     return EggBreakoutTrend(
       date: map['date'] ?? '',
       breakoutType: type,
       percentages: {
-        'infertile': (infertile / total) * 100,
-        'early_dead': (earlyDead / total) * 100,
-        'mid_dead': (midDead / total) * 100,
-        'late_dead': (lateDead / total) * 100,
-        'internal_pip': (pipped / 2 / total) * 100,
-        'external_pip': (pipped / 2 / total) * 100,
+        'infertile': _pct(infertile, total),
+        'early_dead': _pct(earlyDead, total),
+        'mid_dead': _pct(midDead, total),
+        'late_dead': _pct(lateDead, total),
+        'internal_pip': _pct(pipped / 2, total),
+        'external_pip': _pct(pipped / 2, total),
         'cracked': 0.0,
-        'contam': (contaminated / total) * 100,
+        'contam': _pct(contaminated, total),
         'malposition': 0.0,
         'exposed_brain': 0.0,
         'crossed_beak': 0.0,
-        'cull': (culled / total) * 100,
+        'cull': _pct(culled, total),
       },
     );
   }
+}
+
+double _pct(num count, num total) {
+  return CalculationUtils.percentOf(count, total) ?? 0.0;
 }

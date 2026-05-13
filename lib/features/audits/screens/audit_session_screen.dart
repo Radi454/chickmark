@@ -16,10 +16,12 @@ import '../../audits/screens/hatch_analysis_screen.dart';
 import '../../audits/screens/hatcher_optimizing_screen.dart';
 import '../../audits/screens/setter_optimizing_screen.dart';
 import '../../audits/utils/audit_govee_spots.dart';
+import '../../audits/widgets/audit_autosave_status.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
 import '../../govee/providers/govee_capture_provider.dart';
 import '../../govee/screens/govee_screen.dart';
 import '../../../core/navigation/shell_navigation_scope.dart';
+import '../../../providers/customers_provider.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -42,12 +44,22 @@ class AuditSessionScreen extends StatefulWidget {
 class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
+  final Set<String> _mountedStationKeys = <String>{};
   late final AuditRepository _auditRepository =
       widget.auditRepository ?? AuditRepository();
   late final StationSampleRepository _stationSampleRepository =
       widget.stationSampleRepository ?? StationSampleRepository();
+  String? _mountedSessionId;
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
+
+  @override
+  void dispose() {
+    for (final provider in _stationAuditProviders.values) {
+      provider.dispose();
+    }
+    super.dispose();
+  }
 
   AuditProvider? get _currentStationProvider {
     final sessionProvider = context.read<AuditSessionProvider>();
@@ -77,9 +89,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           final currentStationKey = stationKeys.isEmpty
               ? null
               : stationKeys[sessionProvider.currentStationIndex];
+          _syncMountedStations(
+            sessionProvider.currentSession!.id,
+            stationKeys,
+            currentStationKey,
+          );
           final showProgress =
-              currentStationKey != 'hatch_analysis_egg_breakouts' &&
-              currentStationKey != 'chicks';
+              currentStationKey != 'hatch_analysis_egg_breakouts';
 
           return Stack(
             children: [
@@ -97,19 +113,9 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                         stationKeys,
                       ),
                       Expanded(
-                        child: Stack(
-                          children: List.generate(
-                            stationKeys.length,
-                            (i) => Offstage(
-                              offstage:
-                                  i != sessionProvider.currentStationIndex,
-                              child: _buildStationWidget(
-                                sessionProvider,
-                                stationKeys,
-                                i,
-                              ),
-                            ),
-                          ),
+                        child: _buildMountedStationStack(
+                          sessionProvider,
+                          stationKeys,
                         ),
                       ),
                       _buildNavigationFooter(sessionProvider, stationKeys),
@@ -122,6 +128,38 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           );
         },
       ),
+    );
+  }
+
+  void _syncMountedStations(
+    String sessionId,
+    List<String> stationKeys,
+    String? currentStationKey,
+  ) {
+    if (_mountedSessionId != sessionId) {
+      _mountedStationKeys.clear();
+      _mountedSessionId = sessionId;
+    }
+
+    _mountedStationKeys.removeWhere((key) => !stationKeys.contains(key));
+    if (currentStationKey != null) {
+      _mountedStationKeys.add(currentStationKey);
+    }
+  }
+
+  Widget _buildMountedStationStack(
+    AuditSessionProvider provider,
+    List<String> stationKeys,
+  ) {
+    return Stack(
+      children: [
+        for (var i = 0; i < stationKeys.length; i++)
+          if (_mountedStationKeys.contains(stationKeys[i]))
+            Offstage(
+              offstage: i != provider.currentStationIndex,
+              child: _buildStationWidget(provider, stationKeys, i),
+            ),
+      ],
     );
   }
 
@@ -270,6 +308,19 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) {
     final session = provider.currentSession!;
     final stationKey = stationKeys[index];
+    CustomersProvider? customersProvider;
+    try {
+      customersProvider = context.read<CustomersProvider>();
+    } on ProviderNotFoundException {
+      customersProvider = null;
+    }
+    final flock = customersProvider?.flockById(session.flockId);
+    final sessionFlockAgeWeeks = session.flockAgeWeeks;
+    final resolvedFlockAgeWeeks =
+        sessionFlockAgeWeeks != null && sessionFlockAgeWeeks > 0
+        ? sessionFlockAgeWeeks
+        : flock?.currentAgeWeeks.toInt();
+    final sessionBreed = session.breed;
 
     final auditContext = AuditContextData(
       auditType:
@@ -278,11 +329,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       flockId: session.flockId,
       hatcheryId: session.hatcheryId,
       sessionId: session.id,
-      breed: session.breed,
+      breed: sessionBreed != null && sessionBreed.trim().isNotEmpty
+          ? sessionBreed
+          : flock?.breed,
       setterId: null,
       hatcherId: null,
-      flockEntryDate: null,
-      flockAgeWeeks: session.flockAgeWeeks,
+      flockEntryDate: flock?.entryDate,
+      flockAgeWeeks: resolvedFlockAgeWeeks,
       date: session.date.toIso8601String().split('T')[0],
     );
 
@@ -317,6 +370,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final index = provider.currentStationIndex;
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
+    final stationProvider = _currentStationProvider;
 
     return Container(
       key: const ValueKey('audit-session-navigation-footer'),
@@ -355,6 +409,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 ),
               ),
             if (!isFirst) const SizedBox(width: 12),
+            if (stationProvider != null) ...[
+              ChangeNotifierProvider<AuditProvider>.value(
+                value: stationProvider,
+                child: const AuditAutosaveStatus(),
+              ),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: ElevatedButton.icon(
                 key: const ValueKey('audit-session-next-action'),
@@ -415,35 +476,72 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final spot = goveeSpotForStationKey(stationKey);
     if (spot == null) return const SizedBox.shrink();
 
-    return Container(
-      color: const Color(0xFFF5F7FB),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      alignment: Alignment.centerLeft,
-      child: TextButton.icon(
-        key: const ValueKey('audit-open-govee-readings'),
-        onPressed: () async {
-          final goveeProvider = context.read<GoveeCaptureProvider>();
-          final shell = ShellNavigationScope.maybeOf(context);
-          final navigator = Navigator.of(context);
-          final machineId = _machineIdForStation(stationKey);
-          await goveeProvider.configure(
-            customerId: session.customerId,
-            hatcheryId: session.hatcheryId,
-            place: spot.place,
-            stationKey: stationKey,
-            machineId: machineId,
-          );
-          if (shell != null) {
-            shell.switchTab(4);
-            return;
-          }
-          if (!navigator.mounted) return;
-          await navigator.push(
-            MaterialPageRoute<void>(builder: (_) => const GoveeScreen()),
-          );
-        },
-        icon: const Icon(Icons.device_thermostat_outlined),
-        label: const Text('Govee readings'),
+    return Material(
+      color: AppColors.background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: InkWell(
+          key: const ValueKey('audit-open-govee-readings'),
+          onTap: () async {
+            final goveeProvider = context.read<GoveeCaptureProvider>();
+            final shell = ShellNavigationScope.maybeOf(context);
+            final navigator = Navigator.of(context);
+            final machineId = _machineIdForStation(stationKey);
+            await goveeProvider.configure(
+              customerId: session.customerId,
+              hatcheryId: session.hatcheryId,
+              place: spot.place,
+              stationKey: stationKey,
+              machineId: machineId,
+            );
+            if (shell != null) {
+              shell.switchTab(4);
+              return;
+            }
+            if (!navigator.mounted) return;
+            await navigator.push(
+              MaterialPageRoute<void>(builder: (_) => const GoveeScreen()),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.borderDefault),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.infoBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.device_thermostat_outlined,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Govee readings',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -462,10 +560,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handleBackNavigation(BuildContext context) async {
-    final shouldLeave = await _confirmStationExit(
-      title: 'Leave visit?',
-      actionLabel: 'Save and leave',
-    );
+    final shouldLeave = await _confirmStationExit();
     if (!shouldLeave) return;
     if (!mounted) return;
 
@@ -481,10 +576,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
     if (_isSavingStation) return;
-    final shouldContinue = await _confirmStationExit(
-      title: 'Leave station?',
-      actionLabel: 'Save and continue',
-    );
+    final shouldContinue = await _confirmStationExit();
     if (!shouldContinue) return;
 
     await provider.markCurrentStationCompleted();
@@ -508,10 +600,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
-    final shouldMove = await _confirmStationExit(
-      title: 'Go back to previous station?',
-      actionLabel: 'Save and go back',
-    );
+    final shouldMove = await _confirmStationExit();
     if (!shouldMove) return;
 
     provider.goToPreviousStation();
@@ -527,10 +616,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) async {
     if (stationIndex == provider.currentStationIndex) return;
 
-    final shouldMove = await _confirmStationExit(
-      title: 'Switch stations?',
-      actionLabel: 'Save and switch',
-    );
+    final shouldMove = await _confirmStationExit();
     if (!shouldMove) return;
 
     provider.goToStation(stationIndex);
@@ -539,37 +625,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     });
   }
 
-  Future<bool> _confirmStationExit({
-    required String title,
-    required String actionLabel,
-  }) async {
+  Future<bool> _confirmStationExit() async {
     final stationAuditProvider = _currentStationProvider;
     if (stationAuditProvider == null) return true;
 
     if (!mounted) return false;
-    if (stationAuditProvider.isDirty) {
-      final shouldSave = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: const Text(
-            'This station has unsaved changes. Save before leaving this screen.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Stay'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(actionLabel),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldSave != true) return false;
-    }
 
     setState(() => _isSavingStation = true);
     var saved = false;
@@ -750,6 +810,8 @@ class _StationFrameState extends State<_StationFrame> {
         return SetterOptimizingScreen(
           context: widget.context,
           initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
         );
       case 'hatchers':
         return HatcherOptimizingScreen(

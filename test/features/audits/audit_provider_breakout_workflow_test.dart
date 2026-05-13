@@ -47,32 +47,49 @@ void main() {
   });
 
   test(
-    'residue keeps hatchability validation but ignores breakout sample totals',
+    'residue skips old hatch budget and calculates batch metrics from tray fertility average',
     () {
       final provider = providerFor(EggBreakoutType.residueHatchDay);
-      provider.updateHatchField(0, 'haTotalEggsSet', 100);
-      provider.updateHatchField(0, 'haHatched', 80);
-      provider.updateHatchField(0, 'haCulled', 10);
-      provider.updateHatchField(0, 'haDead', 10);
+      provider.updateHatchField(0, 'haTotalEggsSet', 19200);
+      provider.updateHatchField(0, 'haHatched', 16500);
+      provider.updateHatchField(0, 'haCulled', 120);
+      provider.updateHatchField(0, 'haDead', 30);
       provider.updateHatchField(
         0,
         'ebTrayBreakoutJson',
         jsonEncode([
-          EggBreakoutSampleEntry.pool(
-            id: 'pool-1',
-            label: 'Pool 1',
-            numberOfTrays: 3,
+          EggBreakoutSampleEntry.tray(
+            id: 'tray-1',
+            label: 'Tray 1',
             traySize: 150,
-            counts: {'infertile': 12},
+            breakoutType: EggBreakoutType.residueHatchDay,
+            counts: {'infertile': 15},
+          ).toJson(),
+          EggBreakoutSampleEntry.tray(
+            id: 'tray-2',
+            label: 'Tray 2',
+            traySize: 150,
+            breakoutType: EggBreakoutType.residueHatchDay,
+            counts: {'infertile': 30},
           ).toJson(),
         ]),
       );
 
       expect(provider.validateHatchBudget(0), isNull);
+      expect(provider.activeDraft.haHatchability, 85.9);
+      expect(provider.activeDraft.haFertility, 85.0);
+      expect(provider.activeDraft.haHof, 101.1);
 
-      provider.updateHatchField(0, 'haDead', 9);
+      provider.updateHatchField(0, 'haDead', 29);
 
-      expect(provider.validateHatchBudget(0), contains('Unallocated eggs'));
+      expect(provider.validateHatchBudget(0), isNull);
+
+      provider.addHatch();
+
+      expect(
+        provider.activeDraft.ebBreakoutType,
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
     },
   );
 

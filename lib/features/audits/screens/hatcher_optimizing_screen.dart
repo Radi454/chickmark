@@ -9,10 +9,10 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../../../data/models/audit_model.dart';
 import '../providers/audit_provider.dart';
+import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/photo_button.dart';
-import '../widgets/sample_mode_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'audit_context_screen.dart';
@@ -50,6 +50,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final TextEditingController _incubationAgeController = TextEditingController(
     text: '18',
   );
+  final TextEditingController _incubationHoursController =
+      TextEditingController(text: '0');
   late final TextEditingController _hatcherIdController;
   bool _chickPanting = false;
   String? _meconium;
@@ -68,6 +70,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     );
     _incubationAgeController.text = (widget.initialAudit?.hoIncubationAge ?? 18)
         .toString();
+    _incubationHoursController.text =
+        (widget.initialAudit?.hoIncubationHours ?? 0).toString();
     _chickPanting = widget.initialAudit?.hoChickPanting ?? false;
     _meconium = widget.initialAudit?.hoMeconium;
     _transferDayController.text =
@@ -114,6 +118,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _activeAuditId = audit.id;
     _hatcherIdController.text = audit.hatcherId ?? audit.hoHatcherId ?? '';
     _incubationAgeController.text = (audit.hoIncubationAge ?? 18).toString();
+    _incubationHoursController.text = (audit.hoIncubationHours ?? 0).toString();
     _chickPanting = audit.hoChickPanting ?? false;
     _meconium = audit.hoMeconium;
     _transferDayController.text = audit.hoTransferDay?.toString() ?? '';
@@ -169,6 +174,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _avgController.dispose();
     _cvController.dispose();
     _incubationAgeController.dispose();
+    _incubationHoursController.dispose();
     _hatcherIdController.dispose();
     _transferDayController.dispose();
     super.dispose();
@@ -216,6 +222,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
             : GradientAppBar(
                 title: 'Hatchers',
                 actions: [
+                  const AuditAutosaveStatus(onDark: true),
                   if (auditProvider.isReadOnly)
                     IconButton(
                       icon: const Icon(Icons.edit),
@@ -231,11 +238,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  StationSampleModeControls(
-                    provider: auditProvider,
-                    padding: EdgeInsets.zero,
-                  ),
-                  const SizedBox(height: 16),
                   Card(
                     key: _sectionKeys[0],
                     elevation: 2,
@@ -308,6 +310,37 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                                     auditProvider.updateField(
                                       'hoIncubationAge',
                                       age,
+                                    );
+                                  },
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Incubation Hours: ${_incubationHoursController.text} hours',
+                            style: AppTextStyles.body,
+                          ),
+                          Slider(
+                            key: const ValueKey(
+                              'hatcher-incubation-hours-slider',
+                            ),
+                            value:
+                                double.tryParse(
+                                  _incubationHoursController.text,
+                                ) ??
+                                0,
+                            min: 0,
+                            max: 23,
+                            divisions: 23,
+                            onChanged: auditProvider.isReadOnly
+                                ? null
+                                : (v) {
+                                    final hours = v.toInt();
+                                    setState(() {
+                                      _incubationHoursController.text = hours
+                                          .toString();
+                                    });
+                                    auditProvider.updateField(
+                                      'hoIncubationHours',
+                                      hours,
                                     );
                                   },
                           ),

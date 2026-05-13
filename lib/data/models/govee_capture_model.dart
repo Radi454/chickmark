@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'temperature_rh_model.dart';
 
 class GoveeDailyCaptureModel {
@@ -24,6 +26,7 @@ class GoveeDailyCaptureModel {
   final double? rhSd;
   final double? rhCvPct;
   final int readingCount;
+  final String chartPointsJson;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -51,10 +54,12 @@ class GoveeDailyCaptureModel {
     this.rhSd,
     this.rhCvPct,
     required this.readingCount,
+    String? chartPointsJson,
     required this.createdAt,
     required this.updatedAt,
   }) : stationKey = _normalizedStationKey(stationKey, place),
-       machineId = _asNullableString(machineId);
+       machineId = _asNullableString(machineId),
+       chartPointsJson = _normalizedChartPointsJson(chartPointsJson);
 
   factory GoveeDailyCaptureModel.fromMap(Map<String, dynamic> map) {
     final place = temperaturePlaceFromName(map['place'] as String?);
@@ -82,6 +87,7 @@ class GoveeDailyCaptureModel {
       rhSd: _asDouble(map['rhSd']),
       rhCvPct: _asDouble(map['rhCvPct']),
       readingCount: _asInt(map['readingCount']) ?? 0,
+      chartPointsJson: map['chartPointsJson'] as String?,
       createdAt: _parseDate(map['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(map['updatedAt']) ?? DateTime.now(),
     );
@@ -112,6 +118,7 @@ class GoveeDailyCaptureModel {
       'rhSd': rhSd,
       'rhCvPct': rhCvPct,
       'readingCount': readingCount,
+      'chartPointsJson': chartPointsJson,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -141,6 +148,7 @@ class GoveeDailyCaptureModel {
     double? rhSd,
     double? rhCvPct,
     int? readingCount,
+    String? chartPointsJson,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -179,8 +187,17 @@ class GoveeDailyCaptureModel {
       rhSd: rhSd ?? this.rhSd,
       rhCvPct: rhCvPct ?? this.rhCvPct,
       readingCount: readingCount ?? this.readingCount,
+      chartPointsJson: chartPointsJson ?? this.chartPointsJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  List<GoveePlaceReadingModel> get chartReadings {
+    return GoveePlaceReadingModel.listFromJson(
+      chartPointsJson,
+      captureId: id,
+      createdAt: createdAt,
     );
   }
 }
@@ -226,6 +243,52 @@ class GoveePlaceReadingModel {
       'humidity': humidity,
       'createdAt': createdAt.toIso8601String(),
     };
+  }
+
+  Map<String, dynamic> toChartPointJson() {
+    return {
+      't': recordedAt.toIso8601String(),
+      'temp': temperatureFahrenheit,
+      'rh': humidity,
+    };
+  }
+
+  static String listToJson(List<GoveePlaceReadingModel> readings) {
+    if (readings.isEmpty) return '[]';
+    return jsonEncode(
+      readings.map((reading) => reading.toChartPointJson()).toList(),
+    );
+  }
+
+  static List<GoveePlaceReadingModel> listFromJson(
+    String? json, {
+    required String captureId,
+    required DateTime createdAt,
+  }) {
+    if (json == null || json.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is! List) return const [];
+      return decoded
+          .asMap()
+          .entries
+          .map((entry) {
+            final point = entry.value as Map<String, dynamic>;
+            final recordedAt = _parseDate(point['t']) ?? createdAt;
+            return GoveePlaceReadingModel(
+              id: '$captureId-${entry.key}',
+              captureId: captureId,
+              readingIndex: entry.key,
+              recordedAt: recordedAt,
+              temperatureFahrenheit: _asDouble(point['temp']) ?? 0,
+              humidity: _asDouble(point['rh']) ?? 0,
+              createdAt: createdAt,
+            );
+          })
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   GoveePlaceReadingModel copyWith({
@@ -280,4 +343,10 @@ int? _asInt(dynamic value) {
 DateTime? _parseDate(dynamic value) {
   if (value == null) return null;
   return DateTime.tryParse(value.toString());
+}
+
+String _normalizedChartPointsJson(String? json) {
+  final trimmed = json?.trim();
+  if (trimmed == null || trimmed.isEmpty) return '[]';
+  return trimmed;
 }

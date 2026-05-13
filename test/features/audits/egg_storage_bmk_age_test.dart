@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/utils/bmk_age_calculator.dart';
 import 'package:hatchaudit/features/audits/utils/egg_storage_bmk_age.dart';
 
 void main() {
@@ -31,6 +32,17 @@ void main() {
     );
 
     expect(result, 39);
+  });
+
+  test('uses centralized display week conversion for partial BMK weeks', () {
+    final result = EggStorageBmkAge.calculateWeeks(
+      flockEntryDate: null,
+      flockAgeWeeks: 43,
+      auditDate: DateTime(2026, 4, 27),
+      storageDays: 0,
+    );
+
+    expect(result, BmkAgeCalculator.displayWeekForDays(280));
   });
 
   test('returns null without flock age data', () {

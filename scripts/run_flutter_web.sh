@@ -7,6 +7,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
 WEB_PORT="${WEB_PORT:-57863}"
 RESTART="${RESTART:-0}"
+FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
+DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS:-true}"
 APP_URL="http://${WEB_HOST}:${WEB_PORT}/#/main"
 
 is_port_in_use() {
@@ -94,8 +96,9 @@ LOG_FILE="$(mktemp -t chickmark_flutter_web.XXXXXX.log)"
 trap 'rm -f "${LOG_FILE}"' EXIT
 
 set +e
-flutter run \
+"${FLUTTER_BIN}" run \
   --dart-define-from-file=.env \
+  --dart-define=CHICKMARK_DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS}" \
   -d web-server \
   --web-hostname="${WEB_HOST}" \
   --web-port="${WEB_PORT}" 2>&1 | tee "${LOG_FILE}"

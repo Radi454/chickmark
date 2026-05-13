@@ -213,6 +213,43 @@ void main() {
       expect(provider.error, 'Session not found');
       expect(provider.currentSession, isNull);
     });
+
+    test(
+      'ignores stale resume results when a newer resume finishes first',
+      () async {
+        final slowSession = AuditSessionModel.fromMap(
+          makeAuditSessionRow(id: 'slow-session', stationsCompleted: ['egg']),
+        );
+        final latestSession = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: 'latest-session',
+            selectedStationKeys: ['setters', 'hatchers'],
+            stationsCompleted: ['setters'],
+          ),
+        );
+        final slowLoad = Future<AuditSessionModel?>.delayed(
+          const Duration(milliseconds: 20),
+          () => slowSession,
+        );
+
+        when(
+          () => mockRepo.getSessionById('slow-session'),
+        ).thenAnswer((_) => slowLoad);
+        when(
+          () => mockRepo.getSessionById('latest-session'),
+        ).thenAnswer((_) async => latestSession);
+
+        final first = provider.resumeSession('slow-session');
+        final second = provider.resumeSession('latest-session');
+
+        await second;
+        await first;
+
+        expect(provider.currentSession?.id, 'latest-session');
+        expect(provider.stationKeys, ['setters', 'hatchers']);
+        expect(provider.currentStationIndex, 1);
+      },
+    );
   });
 
   group('AuditSessionProvider - navigation', () {
@@ -340,6 +377,27 @@ void main() {
       await provider.markCurrentStationCompleted();
 
       verify(() => mockSupabase.syncAuditSession(any())).called(greaterThan(0));
+    });
+
+    test('coalesces duplicate station completion requests', () async {
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
+      final updatedSession = AuditSessionModel.fromMap(updatedRow);
+      final gate = Future<void>.delayed(const Duration(milliseconds: 20));
+
+      when(
+        () => mockRepo.markStationCompleted(any(), 'egg'),
+      ).thenAnswer((_) => gate);
+      when(
+        () => mockRepo.getSessionById(any()),
+      ).thenAnswer((_) async => updatedSession);
+
+      final first = provider.markCurrentStationCompleted();
+      final second = provider.markCurrentStationCompleted();
+
+      await Future.wait([first, second]);
+
+      verify(() => mockRepo.markStationCompleted(any(), 'egg')).called(1);
+      expect(provider.currentSession!.stationsCompleted, ['egg']);
     });
   });
 

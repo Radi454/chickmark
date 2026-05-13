@@ -5,7 +5,35 @@ class BmkAgeCalculator {
 
   static int? currentFlockAgeDaysFromWeeks(int? flockAgeWeeks) {
     if (flockAgeWeeks == null) return null;
-    return (flockAgeWeeks * 7).round();
+    return _clamp((flockAgeWeeks * 7).round());
+  }
+
+  static int? currentFlockAgeDays({
+    int? flockAgeWeeks,
+    DateTime? flockEntryDate,
+    required DateTime auditDate,
+  }) {
+    final fromWeeks = currentFlockAgeDaysFromWeeks(flockAgeWeeks);
+    if (fromWeeks != null && fromWeeks > 0) return fromWeeks;
+    if (flockEntryDate != null) {
+      return _clamp(
+        HatchDateUtils.flockAgeDays(flockEntryDate, now: auditDate),
+      );
+    }
+    return fromWeeks;
+  }
+
+  static int? calculateDaysFromFlockAge({
+    required int? currentFlockAgeDays,
+    int? storageDays,
+    int incubationOffsetDays = 21,
+  }) {
+    if (currentFlockAgeDays == null) return null;
+    if (storageDays != null && storageDays < 0) return null;
+    if (incubationOffsetDays < 0) return null;
+    return _clamp(
+      currentFlockAgeDays - (storageDays ?? 0) - incubationOffsetDays,
+    );
   }
 
   static int? calculateDays({
@@ -30,14 +58,19 @@ class BmkAgeCalculator {
     }
 
     if (currentFlockAgeDays != null) {
-      return _clamp(currentFlockAgeDays - 21 - (storageDays ?? 0));
+      return calculateDaysFromFlockAge(
+        currentFlockAgeDays: currentFlockAgeDays,
+        storageDays: storageDays,
+      );
     }
 
     if (flockEntryDate != null) {
-      return _clamp(
-        HatchDateUtils.flockAgeDays(flockEntryDate, now: auditDate) -
-            21 -
-            (storageDays ?? 0),
+      return calculateDaysFromFlockAge(
+        currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDays(
+          flockEntryDate: flockEntryDate,
+          auditDate: auditDate,
+        ),
+        storageDays: storageDays,
       );
     }
 
@@ -47,6 +80,12 @@ class BmkAgeCalculator {
   static int? benchmarkWeekForDays(int? calculatedBmkAgeDays) {
     if (calculatedBmkAgeDays == null) return null;
     return (calculatedBmkAgeDays / 7.0).round();
+  }
+
+  static int? displayWeekForDays(int? calculatedBmkAgeDays) {
+    if (calculatedBmkAgeDays == null) return null;
+    if (calculatedBmkAgeDays <= 0) return 0;
+    return (calculatedBmkAgeDays / 7.0).ceil();
   }
 
   static DateTime _dateOnly(DateTime date) {

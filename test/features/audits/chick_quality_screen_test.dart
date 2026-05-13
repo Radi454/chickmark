@@ -61,7 +61,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider<AuditProvider>(
-            create: (_) => provider ?? AuditProvider(),
+            create: (_) => provider ?? AuditProvider(autosaveEnabled: false),
           ),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
@@ -152,7 +152,7 @@ void main() {
   testWidgets('YFBM entries are edited from a modal entry sheet', (
     tester,
   ) async {
-    final provider = AuditProvider();
+    final provider = AuditProvider(autosaveEnabled: false);
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -191,7 +191,7 @@ void main() {
   testWidgets('CVT uses an EST-style grid with target and unit controls', (
     tester,
   ) async {
-    final provider = AuditProvider();
+    final provider = AuditProvider(autosaveEnabled: false);
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -220,10 +220,18 @@ void main() {
     expect(readings['front_top'], 104.0);
   });
 
-  testWidgets('keeps sample controls inside the chick weights panel', (
+  testWidgets('separates machine quality scope from house weight scope', (
     tester,
   ) async {
     await pumpScreen(tester);
+
+    expect(
+      find.byKey(const ValueKey('chick-quality-machine-sampling')),
+      findsOneWidget,
+    );
+    expect(find.text('Quality sampling'), findsOneWidget);
+    expect(find.text('One machine'), findsOneWidget);
+    expect(find.text('Compare machines'), findsOneWidget);
 
     await tester.ensureVisible(
       find.byKey(const ValueKey('chick-quality-panel-weights')),
@@ -231,11 +239,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Sample Mode'), findsNothing);
-    expect(find.text('Chick Sample Mode'), findsOneWidget);
-    expect(find.text('Single Sample'), findsOneWidget);
-    expect(find.text('Multi House Samples'), findsOneWidget);
+    expect(find.text('Chick Sample Mode'), findsNothing);
+    expect(find.text('House scope'), findsOneWidget);
+    expect(find.text('One house'), findsOneWidget);
+    expect(find.text('Compare houses'), findsOneWidget);
 
-    final modeTop = tester.getTopLeft(find.text('Chick Sample Mode')).dy;
+    final modeTop = tester.getTopLeft(find.text('House scope')).dy;
     final panelTop = tester
         .getTopLeft(find.byKey(const ValueKey('chick-quality-panel-weights')))
         .dy;
@@ -243,7 +252,7 @@ void main() {
   });
 
   testWidgets(
-    'comparison mode shows house chips and add/remove controls in weights panel',
+    'weight comparison mode shows house chips and add/remove controls',
     (tester) async {
       await pumpScreen(tester);
 
@@ -252,18 +261,19 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Multi House Samples'));
+      await tester.tap(find.text('Compare houses'));
       await tester.pumpAndSettle();
 
       expect(find.text('House Samples'), findsOneWidget);
-      expect(find.text('Sample 1'), findsOneWidget);
-      expect(find.byTooltip('Add sample'), findsOneWidget);
-      expect(find.byTooltip('Remove active sample'), findsOneWidget);
+      expect(find.text('H1'), findsWidgets);
+      expect(find.byTooltip('Add house sample'), findsOneWidget);
+      expect(find.byTooltip('Remove active house sample'), findsNothing);
 
-      await tester.tap(find.byTooltip('Add sample'));
+      await tester.tap(find.byTooltip('Add house sample'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Sample 2'), findsOneWidget);
+      expect(find.text('H2'), findsWidgets);
+      expect(find.byTooltip('Remove active house sample'), findsOneWidget);
     },
   );
 

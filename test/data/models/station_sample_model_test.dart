@@ -12,6 +12,8 @@ void main() {
         auditSessionId: 'session-1',
         legacyAuditId: 'audit-1',
         stationType: 'chicks',
+        sectorType: StationSampleModel.sectorChickWeights,
+        sampleKind: StationSampleModel.sampleKindHouse,
         sampleMode: StationSampleModel.sampleModeComparison,
         comparisonType: StationSampleModel.comparisonTypeBatch,
         sampleIndex: 2,
@@ -48,6 +50,8 @@ void main() {
       expect(restored.auditSessionId, sample.auditSessionId);
       expect(restored.legacyAuditId, sample.legacyAuditId);
       expect(restored.stationType, sample.stationType);
+      expect(restored.sectorType, StationSampleModel.sectorChickWeights);
+      expect(restored.sampleKind, StationSampleModel.sampleKindHouse);
       expect(restored.sampleMode, sample.sampleMode);
       expect(restored.comparisonType, sample.comparisonType);
       expect(restored.sampleIndex, sample.sampleIndex);
@@ -81,6 +85,8 @@ void main() {
       final restored = StationSampleModel.fromMap(map);
 
       expect(restored.sampleMode, StationSampleModel.sampleModePooled);
+      expect(restored.sectorType, StationSampleModel.sectorDefault);
+      expect(restored.sampleKind, StationSampleModel.sampleKindPooled);
       expect(restored.sampleType, StationSampleModel.sampleTypeDefault);
       expect(restored.sampleLabel, 'Sample 1');
       expect(restored.legacyAuditId, isNull);
