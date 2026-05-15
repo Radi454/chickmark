@@ -232,13 +232,22 @@ this embedded workbench. When opened from a resumed visit session, Chicks
 restores all saved comparison sample rows and linked normalized samples before
 rendering the workbench.
 
-The left workbench column starts with Chick Quality machine sampling controls,
-then contains Pasgar Score, YFBM, Chick Vent Temperature, and PM Necropsy
-panels. Machine scope offers One machine and Compare machines. Chicks quality
-comparison samples persist as `sectorType = chick_quality`,
-`sampleKind = machine`, `comparisonType = machine_comparison`, generated `M1`,
-`M2`, etc. labels, `groupLabel = Machine comparison`, and setter/hatcher ids in
-`sample_machine_details`. Pasgar captures sample size, six tracked defect
+The left workbench column starts directly with Chick Quality sampling controls
+without a separate panel header, then contains expandable Pasgar Score, YFBM,
+Chick Vent Temperature, and PM Necropsy panels so each optional chick-quality
+test can be opened only when needed. The quality sampling control offers One
+sample and Multisamples with blue gradient icons matching the station-card
+language. The icons render inside small brand-gradient blue frames. Optional
+chick-quality tests are followers of the selected quality sample scope: One
+sample mode has no per-card sample subtitle and saves one pooled sample row for
+Pasgar, YFBM, Chick Vent Temperature, and PM Necropsy, while Multisamples mode
+shows the active setter/hatcher label, such as `S1H1 setter/hatcher sample`,
+and saves one follower row per setter/hatcher sample for each of those panels.
+Chicks quality comparison samples persist as `sectorType = chick_quality`,
+`sampleKind = machine`,
+`comparisonType = machine_comparison`, generated setter/hatcher labels such as
+`S1H1`, `S2H2`, etc., `groupLabel = Machine comparison`, and setter/hatcher ids
+in `sample_machine_details`. Pasgar captures sample size, six tracked defect
 counts/photos, and the final score. The final score uses the first five scored
 defect categories; feather development remains a tracked/displayed category but
 does not reduce the score. Defect percentages are treated as invalid when a
@@ -262,16 +271,19 @@ with required severity when count is positive, gasping fields, deformity
 counts, suspected cause, and PM photos.
 
 The right workbench column contains Chick Weights & Uniformity. Its embedded
-blue flock card shows flock, breed, and BMK age. Sampling scope lives inside
-this panel and offers One house or Compare houses. Weight comparison samples are
+blue flock card shows flock, breed, and BMK age inside one compact translucent
+context strip; edit flows fall back to the selected flock breed when a Chicks
+audit row does not carry a legacy breed field. Sampling scope lives inside this
+panel and offers One sample or Multisamples. Weight comparison samples are
 house samples: they persist as `sectorType = chick_weights`,
 `sampleKind = house`, `comparisonType = house_comparison`, generated `H1`,
 `H2`, etc. labels, `groupLabel = House comparison`, and house metadata in
-`sample_house_details`. Compare houses mode shows house sample chips plus
-add/remove controls. The panel shows average weight, BMK chick weight, sample
-count, low/high margins, CV%, and uniformity.
-The weight metric grid flows without spacer-only tiles, and the 100-chick
-weight entry grid opens from an icon-labeled Enter Weights modal sheet and
+`sample_house_details`. Multisamples mode shows house sample chips plus
+add/remove controls, while the active house editor shows only the house field.
+The panel shows average weight, BMK chick weight, sample count, low/high
+margins, CV%, and uniformity. The weight metric grid flows without spacer-only
+tiles, and the 100-chick weight entry grid opens from an egg-weight-style
+draggable Enter Weights modal sheet and
 persists per active house sample in `resultSummaryJson` while backfilling the
 existing `chickWeights`, `chickAvgWeight`, `chickUniformityPct`, and
 `chickCvPct` audit fields only for older detail views and compatibility.

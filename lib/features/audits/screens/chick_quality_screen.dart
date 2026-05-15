@@ -66,6 +66,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       auditType: widget.context.auditType,
       customerId: widget.context.customerId,
       flockId: widget.context.flockId,
+      hatcheryId: widget.context.hatcheryId,
       breed: widget.context.breed,
       setterId: widget.context.setterId,
       hatcherId: widget.context.hatcherId,
@@ -156,15 +157,19 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     AuditProvider provider,
     AuditModel audit,
   ) {
+    final activeQualitySampleMeta = provider.isCompareMode
+        ? '${provider.activeStationSample.sampleLabel} setter/hatcher sample'
+        : '';
     final leftColumn = Column(
       children: [
         _StationPanel(
           key: const ValueKey('chick-quality-machine-sampling'),
           mark: 'CQ',
           title: 'Chick Quality',
-          meta: 'Machine-level sample scope',
+          meta: 'Setter/hatcher sample scope',
           status: provider.isCompareMode ? 'Compare' : 'Single',
           statusKind: _StatusKind.good,
+          showHeader: false,
           child: _MachineSampleControls(provider: provider),
         ),
         const SizedBox(height: 16),
@@ -172,9 +177,10 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           key: const ValueKey('chick-quality-panel-pasgar'),
           mark: 'PG',
           title: 'Pasgar Score',
-          meta: 'Sample defects and final score',
+          meta: activeQualitySampleMeta,
           status: _pasgarStatus(audit),
           statusKind: _StatusKind.good,
+          collapsible: true,
           child: PasgarTab(
             audit: audit,
             isReadOnly: provider.isReadOnly,
@@ -187,9 +193,10 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           key: const ValueKey('chick-quality-panel-yfbm'),
           mark: 'YF',
           title: 'YFBM',
-          meta: 'Yolk-free body mass check',
+          meta: activeQualitySampleMeta,
           status: _yfbmStatus(audit),
           statusKind: _StatusKind.good,
+          collapsible: true,
           child: YfbmTab(
             audit: audit,
             isReadOnly: provider.isReadOnly,
@@ -202,9 +209,10 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           key: const ValueKey('chick-quality-panel-cvt'),
           mark: 'CVT',
           title: 'Chick Vent Temperature',
-          meta: 'Basket position measurements',
+          meta: activeQualitySampleMeta,
           status: _cvtStatus(audit),
           statusKind: _cvtStatusKind(audit),
+          collapsible: true,
           child: CvtTab(
             audit: audit,
             isReadOnly: provider.isReadOnly,
@@ -217,9 +225,10 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           key: const ValueKey('chick-quality-panel-pm'),
           mark: 'PM',
           title: 'PM Necropsy',
-          meta: 'Hatchery-side pathology sample',
+          meta: activeQualitySampleMeta,
           status: 'Review',
           statusKind: _StatusKind.warn,
+          collapsible: true,
           child: PmNecropsyTab(
             audit: audit,
             isReadOnly: provider.isReadOnly,
@@ -276,72 +285,98 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
       builder: (sheetContext) {
-        final title = provider.isChickWeightCompareMode
-            ? '${provider.activeChickWeightSample.sampleLabel} Chick Weight Sheet'
-            : 'Chick Weight Sheet';
-        return FractionallySizedBox(
-          heightFactor: 0.86,
-          child: Container(
-            key: const ValueKey('chick-quality-weight-sheet'),
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.borderDefault),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x3D111827),
-                  blurRadius: 32,
-                  offset: Offset(0, 18),
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return AuditKeyboardDismiss(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
                 ),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: AppTextStyles.sectionTitle.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                child: DraggableScrollableSheet(
+                  expand: false,
+                  initialChildSize: 0.9,
+                  minChildSize: 0.55,
+                  maxChildSize: 0.95,
+                  builder: (context, scrollController) {
+                    return Container(
+                      key: const ValueKey('chick-quality-weight-sheet'),
+                      clipBehavior: Clip.antiAlias,
+                      decoration: const BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(18),
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Close weight sheet',
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        icon: const Icon(Icons.close),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _chickWeightSheetTitle(provider),
+                                    style: AppTextStyles.heading.copyWith(
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Close',
+                                  onPressed: () =>
+                                      Navigator.of(sheetContext).pop(),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              controller: scrollController,
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              child: KeyedSubtree(
+                                key: const ValueKey('weight-grid-widget'),
+                                child: WeightGridWidget(
+                                  controllers: _weightControllers,
+                                  focusNodes: _weightFocusNodes,
+                                  enabled: !provider.isReadOnly,
+                                  mode: WeightsMode.egg,
+                                  onChanged: () {
+                                    if (!mounted || !sheetContext.mounted) {
+                                      return;
+                                    }
+                                    _updateWeightCalculations();
+                                    setSheetState(() {});
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-                const Divider(height: 1),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: KeyedSubtree(
-                      key: const ValueKey('weight-grid-widget'),
-                      child: WeightGridWidget(
-                        controllers: _weightControllers,
-                        focusNodes: _weightFocusNodes,
-                        enabled: !provider.isReadOnly,
-                        onChanged: _updateWeightCalculations,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
+  }
+
+  String _chickWeightSheetTitle(AuditProvider provider) {
+    if (!provider.isChickWeightCompareMode) return 'Chick Weight Sheet';
+    final sample = provider.activeChickWeightSample;
+    final label = sample.houseNo ?? sample.sampleLabel;
+    return '$label Chick Weight Sheet';
   }
 
   void _syncWeightControllers(AuditProvider provider, AuditModel audit) {
@@ -566,6 +601,7 @@ class _StationPanel extends StatelessWidget {
   final _StatusKind statusKind;
   final Widget child;
   final bool showHeader;
+  final bool collapsible;
 
   const _StationPanel({
     super.key,
@@ -576,26 +612,73 @@ class _StationPanel extends StatelessWidget {
     this.statusKind = _StatusKind.good,
     required this.child,
     this.showHeader = true,
+    this.collapsible = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final panelPadding = MediaQuery.sizeOf(context).width < 560 ? 14.0 : 16.0;
+    final decoration = BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: AppColors.borderDefault),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0F111827),
+          blurRadius: 24,
+          offset: Offset(0, 10),
+        ),
+      ],
+    );
+
+    if (showHeader && collapsible) {
+      return Container(
+        width: double.infinity,
+        decoration: decoration,
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.all(panelPadding),
+            childrenPadding: EdgeInsets.fromLTRB(
+              panelPadding,
+              0,
+              panelPadding,
+              panelPadding,
+            ),
+            leading: _SectionMark(mark: mark),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.title.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (meta.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(meta, style: AppTextStyles.caption),
+                ],
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _StatusPill(label: status, kind: statusKind),
+                const SizedBox(width: 8),
+                const Icon(Icons.expand_more),
+              ],
+            ),
+            children: [child],
+          ),
+        ),
+      );
+    }
 
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderDefault),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F111827),
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
+      decoration: decoration,
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -617,8 +700,10 @@ class _StationPanel extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(meta, style: AppTextStyles.caption),
+                        if (meta.trim().isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(meta, style: AppTextStyles.caption),
+                        ],
                       ],
                     ),
                   ),
@@ -674,7 +759,7 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isGood = kind == _StatusKind.good;
     return Container(
-      constraints: const BoxConstraints(minHeight: 28),
+      height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 9),
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -688,6 +773,48 @@ class _StatusPill extends StatelessWidget {
           fontWeight: FontWeight.w800,
         ),
       ),
+    );
+  }
+}
+
+class _GradientIcon extends StatelessWidget {
+  final IconData icon;
+  final double size;
+  final bool framed;
+
+  const _GradientIcon(
+    this.icon, {
+    super.key,
+    this.size = 18,
+    this.framed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (framed) {
+      return Container(
+        width: size + 10,
+        height: size + 10,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          gradient: AppColors.brandGradient,
+          borderRadius: BorderRadius.circular(7),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.18),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Icon(icon, size: size, color: Colors.white),
+      );
+    }
+
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: AppColors.brandGradient.createShader,
+      child: Icon(icon, size: size, color: Colors.white),
     );
   }
 }
@@ -773,14 +900,6 @@ class _FlockCard extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Flock-linked sample results',
-                      style: AppTextStyles.caption.copyWith(
-                        color: Colors.white.withValues(alpha: 0.78),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -803,32 +922,30 @@ class _FlockCard extends StatelessWidget {
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 420;
               final tiles = [
-                _FlockTile(label: 'Flock', value: contextData.flockId),
-                _FlockTile(label: 'Breed', value: contextData.breed ?? '--'),
-                _FlockTile(
-                  label: 'BMK Age',
-                  value: audit.chickBmkAge == null
-                      ? contextData.flockAgeWeeks == null
-                            ? '--'
-                            : '${contextData.flockAgeWeeks} wks'
-                      : '${audit.chickBmkAge} wks',
+                _FlockInfo(label: 'Flock', value: contextData.flockId),
+                _FlockInfo(
+                  label: 'Breed',
+                  value:
+                      _firstText(
+                        contextData.breed,
+                        audit.soBreed,
+                        audit.hoBreed,
+                      ) ??
+                      '--',
                 ),
+                _FlockInfo(label: 'BMK Age', value: _bmkAgeLabel),
               ];
               if (!isWide) {
-                return Column(
-                  children: [
-                    for (final tile in tiles) ...[
-                      tile,
-                      if (tile != tiles.last) const SizedBox(height: 10),
-                    ],
-                  ],
+                return _FlockContextStrip(
+                  vertical: true,
+                  children: [for (final tile in tiles) tile],
                 );
               }
-              return Row(
+              return _FlockContextStrip(
                 children: [
                   for (var i = 0; i < tiles.length; i++) ...[
                     Expanded(child: tiles[i]),
-                    if (i < tiles.length - 1) const SizedBox(width: 10),
+                    if (i < tiles.length - 1) const _FlockContextDivider(),
                   ],
                 ],
               );
@@ -838,44 +955,98 @@ class _FlockCard extends StatelessWidget {
       ),
     );
   }
+
+  String get _bmkAgeLabel {
+    final bmkAge = audit.chickBmkAge ?? contextData.flockAgeWeeks;
+    return bmkAge == null ? '--' : '$bmkAge wks';
+  }
+
+  String? _firstText(String? first, String? second, String? third) {
+    for (final value in [first, second, third]) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
+  }
 }
 
-class _FlockTile extends StatelessWidget {
-  final String label;
-  final String value;
+class _FlockContextStrip extends StatelessWidget {
+  final List<Widget> children;
+  final bool vertical;
 
-  const _FlockTile({required this.label, required this.value});
+  const _FlockContextStrip({required this.children, this.vertical = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      key: const ValueKey('chick-weight-context-strip'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.caption.copyWith(
-              color: Colors.white.withValues(alpha: 0.72),
-              fontWeight: FontWeight.w800,
+      child: vertical
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  children[i],
+                  if (i < children.length - 1) const SizedBox(height: 10),
+                ],
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
             ),
+    );
+  }
+}
+
+class _FlockContextDivider extends StatelessWidget {
+  const _FlockContextDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 40,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      color: Colors.white.withValues(alpha: 0.16),
+    );
+  }
+}
+
+class _FlockInfo extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _FlockInfo({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: AppTextStyles.caption.copyWith(
+            color: Colors.white.withValues(alpha: 0.72),
+            fontWeight: FontWeight.w800,
           ),
-          const SizedBox(height: 5),
-          Text(
-            value,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.body.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.body.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -892,7 +1063,6 @@ class _HouseWeightSampleControls extends StatelessWidget {
       children: [
         _buildSampleControlCard(
           title: 'House scope',
-          note: 'Record one house or compare houses',
           child: _buildHouseScopeSelector(),
         ),
         if (provider.isChickWeightCompareMode) ...[
@@ -914,10 +1084,11 @@ class _HouseWeightSampleControls extends StatelessWidget {
   }
 
   Widget _buildSampleControlCard({
-    required String title,
-    required String note,
+    String? title,
+    String? note,
     required Widget child,
   }) {
+    final hasHeader = title != null || note != null;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -929,28 +1100,35 @@ class _HouseWeightSampleControls extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w800,
+          if (hasHeader) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null)
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                if (note != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      note,
+                      textAlign: TextAlign.end,
+                      style: AppTextStyles.caption,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  note,
-                  textAlign: TextAlign.end,
-                  style: AppTextStyles.caption,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+                ],
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
           child,
         ],
       ),
@@ -962,16 +1140,32 @@ class _HouseWeightSampleControls extends StatelessWidget {
       width: double.infinity,
       child: SegmentedButton<bool>(
         showSelectedIcon: true,
+        selectedIcon: const _GradientIcon(
+          Icons.check,
+          key: ValueKey('house-scope-selected-icon'),
+          size: 14,
+          framed: true,
+        ),
         segments: const [
           ButtonSegment<bool>(
             value: false,
-            icon: Icon(Icons.home_outlined),
-            label: Text('One house'),
+            icon: _GradientIcon(
+              Icons.home_outlined,
+              key: ValueKey('house-scope-one-icon'),
+              size: 14,
+              framed: true,
+            ),
+            label: Text('One sample'),
           ),
           ButtonSegment<bool>(
             value: true,
-            icon: Icon(Icons.compare_arrows),
-            label: Text('Compare houses'),
+            icon: _GradientIcon(
+              Icons.compare_arrows,
+              key: ValueKey('house-scope-multi-icon'),
+              size: 14,
+              framed: true,
+            ),
+            label: Text('Multisamples'),
           ),
         ],
         selected: {provider.isChickWeightCompareMode},
@@ -1094,7 +1288,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
     return IconButton.filledTonal(
       tooltip: tooltip,
       onPressed: onPressed,
-      icon: Icon(icon),
+      icon: _GradientIcon(icon, size: 24),
       style: IconButton.styleFrom(
         fixedSize: const Size(44, 44),
         shape: const CircleBorder(),
@@ -1104,45 +1298,14 @@ class _HouseWeightSampleControls extends StatelessWidget {
 
   Widget _buildHouseFields(BuildContext context) {
     final sample = provider.activeChickWeightSample;
-    final fields = [
-      TextFormField(
-        key: ValueKey('chick-weight-house-${sample.id}'),
-        initialValue: sample.houseNo ?? '',
-        enabled: !provider.isReadOnly,
-        textInputAction: TextInputAction.next,
-        decoration: _houseInputDecoration('House'),
-        onChanged: (value) {
-          provider.updateChickWeightSampleMetadata({'houseNo': value.trim()});
-        },
-      ),
-      TextFormField(
-        key: ValueKey('chick-weight-house-label-${sample.id}'),
-        initialValue: sample.houseLabel ?? '',
-        enabled: !provider.isReadOnly,
-        textInputAction: TextInputAction.done,
-        decoration: _houseInputDecoration('Label'),
-        onChanged: (value) {
-          provider.updateChickWeightSampleMetadata({
-            'houseLabel': value.trim(),
-          });
-        },
-      ),
-    ];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 420) {
-          return Column(
-            children: [fields[0], const SizedBox(height: 10), fields[1]],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: fields[0]),
-            const SizedBox(width: 10),
-            Expanded(child: fields[1]),
-          ],
-        );
+    return TextFormField(
+      key: ValueKey('chick-weight-house-${sample.id}'),
+      initialValue: sample.houseNo ?? '',
+      enabled: !provider.isReadOnly,
+      textInputAction: TextInputAction.done,
+      decoration: _houseInputDecoration('House'),
+      onChanged: (value) {
+        provider.updateChickWeightSampleMetadata({'houseNo': value.trim()});
       },
     );
   }
@@ -1182,16 +1345,11 @@ class _MachineSampleControls extends StatelessWidget {
       children: [
         _buildSampleControlCard(
           title: 'Quality sampling',
-          note: 'Record one machine pair or compare machines',
           child: _buildMachineScopeSelector(),
         ),
         if (provider.isCompareMode) ...[
           const SizedBox(height: 10),
-          _buildSampleControlCard(
-            title: 'Machine Samples',
-            note: 'Compare setter and hatcher pairs',
-            child: _buildMachineSampleChips(),
-          ),
+          _buildSampleControlCard(child: _buildMachineSampleChips()),
         ],
         const SizedBox(height: 10),
         _buildSampleControlCard(
@@ -1204,10 +1362,11 @@ class _MachineSampleControls extends StatelessWidget {
   }
 
   Widget _buildSampleControlCard({
-    required String title,
-    required String note,
+    String? title,
+    String? note,
     required Widget child,
   }) {
+    final hasHeader = title != null || note != null;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -1219,28 +1378,35 @@ class _MachineSampleControls extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w800,
+          if (hasHeader) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null)
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                if (note != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      note,
+                      textAlign: TextAlign.end,
+                      style: AppTextStyles.caption,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  note,
-                  textAlign: TextAlign.end,
-                  style: AppTextStyles.caption,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+                ],
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
           child,
         ],
       ),
@@ -1252,16 +1418,32 @@ class _MachineSampleControls extends StatelessWidget {
       width: double.infinity,
       child: SegmentedButton<bool>(
         showSelectedIcon: true,
+        selectedIcon: const _GradientIcon(
+          Icons.check,
+          key: ValueKey('quality-scope-selected-icon'),
+          size: 14,
+          framed: true,
+        ),
         segments: const [
           ButtonSegment<bool>(
             value: false,
-            icon: Icon(Icons.precision_manufacturing_outlined),
-            label: Text('One machine'),
+            icon: _GradientIcon(
+              Icons.precision_manufacturing_outlined,
+              key: ValueKey('quality-scope-one-icon'),
+              size: 14,
+              framed: true,
+            ),
+            label: Text('One sample'),
           ),
           ButtonSegment<bool>(
             value: true,
-            icon: Icon(Icons.compare_arrows),
-            label: Text('Compare machines'),
+            icon: _GradientIcon(
+              Icons.compare_arrows,
+              key: ValueKey('quality-scope-multi-icon'),
+              size: 14,
+              framed: true,
+            ),
+            label: Text('Multisamples'),
           ),
         ],
         selected: {provider.isCompareMode},
@@ -1382,7 +1564,7 @@ class _MachineSampleControls extends StatelessWidget {
     return IconButton.filledTonal(
       tooltip: tooltip,
       onPressed: onPressed,
-      icon: Icon(icon),
+      icon: _GradientIcon(icon, size: 24),
       style: IconButton.styleFrom(
         fixedSize: const Size(44, 44),
         shape: const CircleBorder(),

@@ -29,7 +29,7 @@ Future<void> openAuditEditor(
     auditType: audit.auditType,
     customerId: audit.customerId,
     flockId: audit.flockId ?? '',
-    breed: audit.soBreed ?? audit.hoBreed,
+    breed: audit.soBreed ?? audit.hoBreed ?? flock?.breed,
     setterId: audit.setterId ?? audit.soSetterId,
     hatcherId: audit.hatcherId ?? audit.hoHatcherId,
     flockEntryDate: flock?.entryDate,

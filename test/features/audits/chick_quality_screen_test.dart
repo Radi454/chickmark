@@ -46,16 +46,20 @@ void main() {
         });
   });
 
-  AuditContextData contextData() => AuditContextData(
-    auditType: 'Chicks',
-    customerId: 'customer-1',
-    flockId: 'flock-1',
-    date: '2026-04-27',
-  );
+  AuditContextData contextData({String? breed, int? flockAgeWeeks}) =>
+      AuditContextData(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        breed: breed,
+        flockAgeWeeks: flockAgeWeeks,
+        date: '2026-04-27',
+      );
 
   Future<void> pumpScreen(
     WidgetTester tester, {
     AuditProvider? provider,
+    AuditContextData? contextOverride,
   }) async {
     await tester.pumpWidget(
       MultiProvider(
@@ -68,7 +72,9 @@ void main() {
           ),
           ChangeNotifierProvider(create: (_) => AppProvider()),
         ],
-        child: MaterialApp(home: ChickQualityScreen(context: contextData())),
+        child: MaterialApp(
+          home: ChickQualityScreen(context: contextOverride ?? contextData()),
+        ),
       ),
     );
     await tester.pump();
@@ -132,6 +138,17 @@ void main() {
       find.byKey(const ValueKey('chick-quality-panel-cvt')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('pasgar-sample-size-card')), findsNothing);
+
+    await tester.ensureVisible(find.text('Pasgar Score'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pasgar Score'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('pasgar-sample-size-card')),
+      findsOneWidget,
+    );
 
     await tester.drag(
       find.byKey(const ValueKey('chick-quality-scroll')),
@@ -158,6 +175,8 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('chick-quality-panel-yfbm')),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('YFBM'));
     await tester.pumpAndSettle();
 
     expect(find.text('YFBM Entries'), findsNothing);
@@ -198,6 +217,8 @@ void main() {
       find.byKey(const ValueKey('chick-quality-panel-cvt')),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Chick Vent Temperature'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Guided CVT capture'), findsOneWidget);
     expect(find.text('103-105°F / 39.4-40.6°C'), findsOneWidget);
@@ -229,9 +250,30 @@ void main() {
       find.byKey(const ValueKey('chick-quality-machine-sampling')),
       findsOneWidget,
     );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.text('Chick Quality'),
+      ),
+      findsNothing,
+    );
     expect(find.text('Quality sampling'), findsOneWidget);
-    expect(find.text('One machine'), findsOneWidget);
-    expect(find.text('Compare machines'), findsOneWidget);
+    expect(find.text('One sample'), findsWidgets);
+    expect(find.text('Multisamples'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.byKey(const ValueKey('quality-scope-selected-icon')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.byKey(const ValueKey('quality-scope-multi-icon')),
+      ),
+      findsWidgets,
+    );
 
     await tester.ensureVisible(
       find.byKey(const ValueKey('chick-quality-panel-weights')),
@@ -241,8 +283,8 @@ void main() {
     expect(find.text('Sample Mode'), findsNothing);
     expect(find.text('Chick Sample Mode'), findsNothing);
     expect(find.text('House scope'), findsOneWidget);
-    expect(find.text('One house'), findsOneWidget);
-    expect(find.text('Compare houses'), findsOneWidget);
+    expect(find.text('One house'), findsNothing);
+    expect(find.text('Compare houses'), findsNothing);
 
     final modeTop = tester.getTopLeft(find.text('House scope')).dy;
     final panelTop = tester
@@ -261,11 +303,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Compare houses'));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('chick-quality-panel-weights')),
+          matching: find.text('Multisamples'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('House Samples'), findsOneWidget);
       expect(find.text('H1'), findsWidgets);
+      expect(find.text('Label'), findsNothing);
       expect(find.byTooltip('Add house sample'), findsOneWidget);
       expect(find.byTooltip('Remove active house sample'), findsNothing);
 
@@ -296,6 +344,81 @@ void main() {
     );
     expect(find.text('Chick Weight Sheet'), findsOneWidget);
     expect(find.byKey(const ValueKey('weight-grid-widget')), findsOneWidget);
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+  });
+
+  testWidgets('weight hero renders flock context as a compact strip', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      contextOverride: contextData(breed: 'Ross308', flockAgeWeeks: 41),
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('chick-weight-context-strip')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('chick-weight-flock-tile')), findsNothing);
+    expect(find.text('flock-1'), findsWidgets);
+    expect(find.text('Ross308'), findsOneWidget);
+    expect(find.text('41 wks'), findsWidgets);
+  });
+
+  testWidgets('quality multisamples use setter and hatcher chip labels', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.text('Multisamples'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Machine Samples'), findsNothing);
+    expect(find.text('Compare setter and hatcher pairs'), findsNothing);
+    expect(find.text('S1H1'), findsWidgets);
+    expect(find.byTooltip('Add machine sample'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Add machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('S2H2'), findsWidgets);
+  });
+
+  testWidgets('optional test cards follow the selected quality sample type', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    expect(find.text('One shared sample'), findsNothing);
+    expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.text('Multisamples'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('S1H1 setter/hatcher sample'), findsWidgets);
+
+    await tester.tap(find.byTooltip('Add machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('S2H2 setter/hatcher sample'), findsWidgets);
+    expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
   });
 
   testWidgets('does not render its own sticky save footer', (tester) async {
