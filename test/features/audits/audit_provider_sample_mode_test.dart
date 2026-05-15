@@ -84,8 +84,8 @@ void main() {
     });
     expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
     expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'M1',
-      'M2',
+      'S1H1',
+      'S2H2',
     ]);
   });
 
@@ -140,8 +140,8 @@ void main() {
       provider.drafts.first.compareGroupKey,
     });
     expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'M1',
-      'M2',
+      'S1H1',
+      'S2H2',
     ]);
   });
 
@@ -236,6 +236,48 @@ void main() {
     expect(provider.drafts.map((draft) => draft.soSetterId), ['5', '7']);
   });
 
+  test('hatcher comparison samples are labeled by hatcher number', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Hatchers',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        hatcherId: 'H-01',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.addSample();
+    provider.updateField('hatcherId', '3');
+    provider.updateField('hoHatcherId', '3');
+
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeMachine,
+      StationSampleModel.comparisonTypeMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindMachine,
+      StationSampleModel.sampleKindMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'H01',
+      'H3',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
+      'H-01',
+      '3',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.groupLabel), [
+      'Hatcher comparison',
+      'Hatcher comparison',
+    ]);
+    expect(provider.drafts.map((draft) => draft.hatcherId), ['H-01', '3']);
+    expect(provider.drafts.map((draft) => draft.hoHatcherId), ['H-01', '3']);
+  });
+
   test(
     'chick quality samples stay machine scoped while weights use houses',
     () {
@@ -265,8 +307,8 @@ void main() {
         StationSampleModel.comparisonTypeMachine,
       ]);
       expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-        'M1',
-        'M2',
+        'S1H1',
+        'S2H2',
       ]);
       expect(provider.stationSamples.map((sample) => sample.groupLabel), [
         'Machine comparison',

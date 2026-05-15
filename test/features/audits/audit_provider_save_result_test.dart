@@ -5,11 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_model.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
@@ -23,11 +25,14 @@ class MockSupabaseService extends Mock implements SupabaseService {}
 class MockStationSampleRepository extends Mock
     implements StationSampleRepository {}
 
+class MockPanelSampleRepository extends Mock implements PanelSampleRepository {}
+
 void main() {
   late MockAuditRepository auditRepository;
   late MockActivityLogRepository activityLogRepository;
   late MockSupabaseService supabaseService;
   late MockStationSampleRepository stationSampleRepository;
+  late MockPanelSampleRepository panelSampleRepository;
   late AuditProvider provider;
 
   final user = UserModel(
@@ -64,6 +69,16 @@ void main() {
         updatedAt: DateTime(2026, 1, 1),
       ),
     );
+    registerFallbackValue(
+      PanelRecord(
+        id: 'fallback-panel',
+        tableName: 'egg_storage',
+        sessionId: 'session-1',
+        customerId: 'customer-1',
+        date: DateTime(2026, 1, 1),
+      ),
+    );
+    registerFallbackValue(<PanelSampleRecord>[]);
   });
 
   setUp(() {
@@ -71,6 +86,7 @@ void main() {
     activityLogRepository = MockActivityLogRepository();
     supabaseService = MockSupabaseService();
     stationSampleRepository = MockStationSampleRepository();
+    panelSampleRepository = MockPanelSampleRepository();
 
     when(
       () => activityLogRepository.log(
@@ -89,12 +105,19 @@ void main() {
       () => stationSampleRepository.deleteSample(any()),
     ).thenAnswer((_) async {});
     when(() => auditRepository.deleteAudit(any())).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.savePanelWithSamples(
+        panel: any(named: 'panel'),
+        samples: any(named: 'samples'),
+      ),
+    ).thenAnswer((_) async {});
 
     provider = AuditProvider(
       repository: auditRepository,
       activityLogRepository: activityLogRepository,
       supabaseService: supabaseService,
       stationSampleRepository: stationSampleRepository,
+      panelSampleRepository: panelSampleRepository,
     );
     provider.initialize(
       AuditContext(
@@ -117,6 +140,7 @@ void main() {
       activityLogRepository: activityLogRepository,
       supabaseService: supabaseService,
       stationSampleRepository: stationSampleRepository,
+      panelSampleRepository: panelSampleRepository,
       autosaveDebounceDuration: const Duration(milliseconds: 10),
     );
     autosaveProvider.initialize(
@@ -131,6 +155,23 @@ void main() {
       notify: false,
     );
     return autosaveProvider;
+  }
+
+  List<({PanelRecord panel, List<PanelSampleRecord> samples})>
+  capturedPanelCalls() {
+    final captured = verify(
+      () => panelSampleRepository.savePanelWithSamples(
+        panel: captureAny(named: 'panel'),
+        samples: captureAny(named: 'samples'),
+      ),
+    ).captured;
+    return [
+      for (var i = 0; i < captured.length; i += 2)
+        (
+          panel: captured[i] as PanelRecord,
+          samples: captured[i + 1] as List<PanelSampleRecord>,
+        ),
+    ];
   }
 
   test('saveTabWithResult returns true after successful save', () async {
@@ -184,6 +225,201 @@ void main() {
   );
 
   test(
+    'saveSamplesWithResult writes station data into panel-owned tables',
+    () async {
+      provider.setActiveSessionId('session-1');
+      provider.updateField('esEggStorageDays', 4);
+      when(
+        () => auditRepository.getAuditById(any()),
+      ).thenAnswer((_) async => null);
+      when(() => auditRepository.insertAudit(any())).thenAnswer((_) async {});
+
+      final result = await provider.saveSamplesWithResult();
+
+      expect(result, isTrue);
+      final calls = capturedPanelCalls();
+      final eggStorage = calls.singleWhere(
+        (call) => call.panel.tableName == 'egg_storage',
+      );
+      expect(
+        eggStorage.panel.id,
+        'session-1:egg_storage:${provider.activeDraft.id}',
+      );
+      expect(eggStorage.panel.sessionId, 'session-1');
+      expect(eggStorage.panel.customerId, 'customer-1');
+      expect(eggStorage.panel.flockId, 'flock-1');
+      expect(eggStorage.panel.auditId, provider.activeDraft.id);
+      expect(eggStorage.panel.mode, PanelRecord.modePool);
+      expect(eggStorage.panel.metricsJson, contains('esEggStorageDays'));
+      expect(eggStorage.samples, hasLength(1));
+      expect(eggStorage.samples.single.panelId, eggStorage.panel.id);
+      expect(eggStorage.samples.single.scopeType.dbValue, 'pool');
+    },
+  );
+
+  test(
+    'chick quality follower panels save one pooled row for one sample',
+    () async {
+      provider = AuditProvider(
+        repository: auditRepository,
+        activityLogRepository: activityLogRepository,
+        supabaseService: supabaseService,
+        stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
+      );
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          setterId: 'S1',
+          hatcherId: 'H1',
+          date: '2026-04-27',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('pasgarSampleSize', 40);
+      provider.updateField('pasgarReflexes', 1);
+      provider.updateField(
+        'yfbmEntries',
+        jsonEncode([
+          {'chickWeight': 40.0, 'yolkWeight': 4.0},
+        ]),
+      );
+      provider.updateField('cvtAvg', 103.2);
+      when(
+        () => auditRepository.getAuditById(any()),
+      ).thenAnswer((_) async => null);
+      when(() => auditRepository.insertAudit(any())).thenAnswer((_) async {});
+
+      final result = await provider.saveSamplesWithResult();
+
+      expect(result, isTrue);
+      final savedSamples = verify(
+        () => stationSampleRepository.upsertSample(captureAny()),
+      ).captured.cast<StationSampleModel>();
+      final qualitySamples = savedSamples
+          .where(
+            (sample) =>
+                sample.sectorType == StationSampleModel.sectorChickQuality,
+          )
+          .toList();
+      expect(qualitySamples, hasLength(1));
+      expect(
+        qualitySamples.single.sampleMode,
+        StationSampleModel.sampleModePooled,
+      );
+
+      final panelRowsByTable = <String, List<PanelSampleRecord>>{};
+      for (final call in capturedPanelCalls()) {
+        panelRowsByTable
+            .putIfAbsent(call.panel.tableName, () => [])
+            .addAll(call.samples);
+      }
+      for (final tableName in [
+        'chick_pasgar',
+        'chick_yfbm',
+        'chick_cvt',
+        'chick_pm',
+      ]) {
+        final rows = panelRowsByTable[tableName]!;
+        expect(rows, hasLength(1), reason: tableName);
+        expect(rows.single.scopeType.dbValue, 'pool', reason: tableName);
+        expect(rows.single.setterId, isNull, reason: tableName);
+        expect(rows.single.hatcherId, isNull, reason: tableName);
+      }
+      expect(panelRowsByTable['chick_pasgar']!.single.sampleSize, 40);
+    },
+  );
+
+  test(
+    'chick quality follower panels save rows per setter hatcher sample',
+    () async {
+      provider = AuditProvider(
+        repository: auditRepository,
+        activityLogRepository: activityLogRepository,
+        supabaseService: supabaseService,
+        stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
+      );
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          setterId: 'S1',
+          hatcherId: 'H1',
+          date: '2026-04-27',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('pasgarSampleSize', 40);
+      provider.addSample();
+      provider.updateSampleMetadata({'setterNo': 'S2', 'hatcherNo': 'H2'});
+      provider.updateField('pasgarSampleSize', 35);
+      when(
+        () => auditRepository.getAuditById(any()),
+      ).thenAnswer((_) async => null);
+      when(() => auditRepository.insertAudit(any())).thenAnswer((_) async {});
+
+      final result = await provider.saveSamplesWithResult();
+
+      expect(result, isTrue);
+      final savedSamples = verify(
+        () => stationSampleRepository.upsertSample(captureAny()),
+      ).captured.cast<StationSampleModel>();
+      final qualitySamples = savedSamples
+          .where(
+            (sample) =>
+                sample.sectorType == StationSampleModel.sectorChickQuality,
+          )
+          .toList();
+      expect(qualitySamples, hasLength(2));
+      expect(qualitySamples.map((sample) => sample.sampleMode), [
+        StationSampleModel.sampleModeComparison,
+        StationSampleModel.sampleModeComparison,
+      ]);
+      expect(qualitySamples.map((sample) => sample.sampleLabel), [
+        'S1H1',
+        'S2H2',
+      ]);
+      expect(qualitySamples.map((sample) => sample.setterNo), ['S1', 'S2']);
+      expect(qualitySamples.map((sample) => sample.hatcherNo), ['H1', 'H2']);
+
+      final panelRowsByTable = <String, List<PanelSampleRecord>>{};
+      for (final call in capturedPanelCalls()) {
+        panelRowsByTable
+            .putIfAbsent(call.panel.tableName, () => [])
+            .addAll(call.samples);
+      }
+      for (final tableName in [
+        'chick_pasgar',
+        'chick_yfbm',
+        'chick_cvt',
+        'chick_pm',
+      ]) {
+        final rows = panelRowsByTable[tableName]!;
+        expect(rows, hasLength(2), reason: tableName);
+        expect(rows.map((row) => row.scopeType.dbValue), [
+          'setter_hatcher',
+          'setter_hatcher',
+        ], reason: tableName);
+        expect(rows.map((row) => row.setterId), ['S1', 'S2']);
+        expect(rows.map((row) => row.hatcherId), ['H1', 'H2']);
+      }
+      expect(panelRowsByTable['chick_pasgar']!.map((row) => row.sampleSize), [
+        40,
+        35,
+      ]);
+    },
+  );
+
+  test(
     'saveSamplesWithResult persists compare chick weight samples independently',
     () async {
       provider = AuditProvider(
@@ -191,6 +427,7 @@ void main() {
         activityLogRepository: activityLogRepository,
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
       );
       provider.initialize(
         AuditContext(
@@ -329,6 +566,7 @@ void main() {
         activityLogRepository: activityLogRepository,
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
       );
 
       await editProvider.loadForEdit('audit-1');
@@ -686,6 +924,7 @@ void main() {
         activityLogRepository: activityLogRepository,
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
       );
       provider.initialize(
         AuditContext(
@@ -736,6 +975,7 @@ void main() {
         activityLogRepository: activityLogRepository,
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
       );
       provider.initialize(
         AuditContext(
@@ -778,6 +1018,7 @@ void main() {
         activityLogRepository: activityLogRepository,
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
+        panelSampleRepository: panelSampleRepository,
       );
       provider.initialize(
         AuditContext(
@@ -825,7 +1066,7 @@ void main() {
         qualitySample.comparisonType,
         StationSampleModel.comparisonTypeMachine,
       );
-      expect(qualitySample.sampleLabel, 'M1');
+      expect(qualitySample.sampleLabel, 'S1H1');
       expect(qualitySample.groupLabel, 'Machine comparison');
       expect(qualitySample.setterNo, 'S1');
       expect(qualitySample.hatcherNo, 'H1');

@@ -6,11 +6,14 @@ import '../../../core/security/safe_debug_log.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/mappers/station_sample_mapper.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/panel_sample_model.dart';
+import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/panel_sample_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
@@ -24,6 +27,7 @@ class AuditContext {
   final String auditType;
   final String customerId;
   final String flockId;
+  final String? hatcheryId;
   final String? breed;
   final String? setterId;
   final String? hatcherId;
@@ -35,6 +39,7 @@ class AuditContext {
     required this.auditType,
     required this.customerId,
     required this.flockId,
+    this.hatcheryId,
     this.breed,
     this.setterId,
     this.hatcherId,
@@ -48,6 +53,7 @@ class AuditProvider extends ChangeNotifier {
   AuditProvider({
     AuditRepository? repository,
     StationSampleRepository? stationSampleRepository,
+    PanelSampleRepository? panelSampleRepository,
     ActivityLogRepository? activityLogRepository,
     SupabaseService? supabaseService,
     Duration autosaveDebounceDuration = defaultAutosaveDebounceDuration,
@@ -55,6 +61,8 @@ class AuditProvider extends ChangeNotifier {
   }) : _repository = repository ?? AuditRepository(),
        _stationSampleRepository =
            stationSampleRepository ?? StationSampleRepository(),
+       _panelSampleRepository =
+           panelSampleRepository ?? PanelSampleRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _supabaseService = supabaseService ?? SupabaseService(),
@@ -65,6 +73,7 @@ class AuditProvider extends ChangeNotifier {
 
   final AuditRepository _repository;
   final StationSampleRepository _stationSampleRepository;
+  final PanelSampleRepository _panelSampleRepository;
   final ActivityLogRepository _activityLogRepository;
   final SupabaseService _supabaseService;
   final Duration _autosaveDebounceDuration;
@@ -390,7 +399,14 @@ class AuditProvider extends ChangeNotifier {
           flockEntryDate: _context?.flockEntryDate,
         );
     sample = sample.copyWith(
-      sampleLabel: fields['sampleLabel'] as String? ?? sample.sampleLabel,
+      sampleLabel:
+          fields['sampleLabel'] as String? ??
+          _sampleLabelForMetadataUpdate(
+            draft: draft,
+            sample: sample,
+            setterNo: fields['setterNo'] as String? ?? sample.setterNo,
+            hatcherNo: fields['hatcherNo'] as String? ?? sample.hatcherNo,
+          ),
       batchNo: fields['batchNo'] as String? ?? sample.batchNo,
       houseNo: fields['houseNo'] as String? ?? sample.houseNo,
       houseLabel: fields['houseLabel'] as String? ?? sample.houseLabel,
@@ -551,10 +567,12 @@ class AuditProvider extends ChangeNotifier {
       );
       final removedLegacyAuditIds = List<String>.from(_removedLegacyAuditIds);
       final finalSaveSideEffects = <({AuditModel audit, String action})>[];
+      final savedDrafts = <AuditModel>[];
       for (var i = 0; i < draftsToSave.length; i++) {
         final draft = runFinalSaveSideEffects
             ? _asStatus(draftsToSave[i], 'active')
             : _asStatus(draftsToSave[i], 'draft');
+        savedDrafts.add(draft);
         final existing = runFinalSaveSideEffects
             ? await _repository.getAuditById(draft.id)
             : null;
@@ -575,6 +593,7 @@ class AuditProvider extends ChangeNotifier {
         final sample = samplesToSave[i];
         if (sample != null) {
           await _stationSampleRepository.upsertSample(sample);
+          await _savePanelTablesForSample(draft, sample);
           if (i < _stationSamples.length) {
             _stationSamples[i] = sample;
           }
@@ -586,6 +605,13 @@ class AuditProvider extends ChangeNotifier {
         if (i < _chickWeightSamples.length) {
           _chickWeightSamples[i] = sample;
         }
+      }
+      if (savedDrafts.isNotEmpty && chickWeightSamplesToSave.isNotEmpty) {
+        await _savePanelTableWithSamples(
+          'chick_weights',
+          savedDrafts.first,
+          chickWeightSamplesToSave,
+        );
       }
       for (final id in removedStationSampleIds) {
         await _stationSampleRepository.deleteSample(id);
@@ -847,6 +873,7 @@ class AuditProvider extends ChangeNotifier {
           auditType: audit.auditType,
           customerId: audit.customerId,
           flockId: audit.flockId ?? '',
+          hatcheryId: _context?.hatcheryId,
           breed: audit.soBreed ?? audit.hoBreed,
           setterId: audit.setterId ?? audit.soSetterId,
           hatcherId: audit.hatcherId ?? audit.hoHatcherId,
@@ -1489,11 +1516,27 @@ class AuditProvider extends ChangeNotifier {
       return 'H${index + 1}';
     }
     if (draft.auditType == 'Chicks' && SampleMode.isCompare(draft.sampleMode)) {
-      return 'M${index + 1}';
+      return _chickMachineSampleLabel(
+        setterNo: draft.setterId ?? draft.soSetterId,
+        hatcherNo: draft.hatcherId ?? draft.hoHatcherId,
+        fallbackIndex: index + 1,
+      );
     }
     if (draft.auditType == 'Setters' &&
         SampleMode.isCompare(draft.sampleMode)) {
-      return _setterSampleLabel(draft, index);
+      return _machineSampleLabel(
+        draft.setterId ?? draft.soSetterId,
+        prefix: 'S',
+        fallbackIndex: index + 1,
+      );
+    }
+    if (draft.auditType == 'Hatchers' &&
+        SampleMode.isCompare(draft.sampleMode)) {
+      return _machineSampleLabel(
+        draft.hatcherId ?? draft.hoHatcherId,
+        prefix: 'H',
+        fallbackIndex: index + 1,
+      );
     }
     return 'Sample ${index + 1}';
   }
@@ -1503,18 +1546,58 @@ class AuditProvider extends ChangeNotifier {
     if (draft.auditType == 'Egg') return 'House comparison';
     if (draft.auditType == 'Chicks') return 'Machine comparison';
     if (draft.auditType == 'Setters') return 'Setter comparison';
+    if (draft.auditType == 'Hatchers') return 'Hatcher comparison';
     return 'Comparison';
   }
 
-  String _setterSampleLabel(AuditModel draft, int index) {
-    final raw = (draft.setterId ?? draft.soSetterId ?? '').trim();
-    if (raw.isEmpty) return 'S${index + 1}';
+  String _machineSampleLabel(
+    String? rawValue, {
+    required String prefix,
+    required int fallbackIndex,
+  }) {
+    final raw = (rawValue ?? '').trim();
+    if (raw.isEmpty) return '$prefix$fallbackIndex';
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
-    if (digits.isNotEmpty) return 'S$digits';
-    final withoutPrefix = raw.toLowerCase().startsWith('s')
+    if (digits.isNotEmpty) return '$prefix$digits';
+    final withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
         ? raw.substring(1).trim()
         : raw;
-    return 'S$withoutPrefix';
+    return '$prefix$withoutPrefix';
+  }
+
+  String _chickMachineSampleLabel({
+    required String? setterNo,
+    required String? hatcherNo,
+    required int fallbackIndex,
+  }) {
+    final setterLabel = _machineSampleLabel(
+      setterNo,
+      prefix: 'S',
+      fallbackIndex: fallbackIndex,
+    );
+    final hatcherLabel = _machineSampleLabel(
+      hatcherNo,
+      prefix: 'H',
+      fallbackIndex: fallbackIndex,
+    );
+    return '$setterLabel$hatcherLabel';
+  }
+
+  String _sampleLabelForMetadataUpdate({
+    required AuditModel draft,
+    required StationSampleModel sample,
+    required String? setterNo,
+    required String? hatcherNo,
+  }) {
+    final isChickMachineComparison =
+        draft.auditType == 'Chicks' &&
+        sample.sampleMode == StationSampleModel.sampleModeComparison;
+    if (!isChickMachineComparison) return sample.sampleLabel;
+    return _chickMachineSampleLabel(
+      setterNo: setterNo,
+      hatcherNo: hatcherNo,
+      fallbackIndex: sample.sampleIndex,
+    );
   }
 
   String? _houseNoForDraft(AuditModel draft, int index) {
@@ -1564,6 +1647,208 @@ class AuditProvider extends ChangeNotifier {
         draft.chickBmkAge ??
         draft.haBmkAge ??
         draft.ebBmkAge;
+  }
+
+  Future<void> _savePanelTablesForSample(
+    AuditModel draft,
+    StationSampleModel sample,
+  ) async {
+    for (final tableName in _panelTablesForDraft(draft)) {
+      await _savePanelTableWithSamples(tableName, draft, [sample]);
+    }
+  }
+
+  Future<void> _savePanelTableWithSamples(
+    String tableName,
+    AuditModel draft,
+    List<StationSampleModel> samples,
+  ) async {
+    if (samples.isEmpty) return;
+    final panel = _panelRecordForSamples(tableName, draft, samples);
+    final panelSamples = [
+      for (final sample in samples)
+        _panelSampleRecordForStationSample(
+          tableName: tableName,
+          panelId: panel.id,
+          draft: draft,
+          sample: sample,
+        ),
+    ];
+    await _panelSampleRepository.savePanelWithSamples(
+      panel: panel,
+      samples: panelSamples,
+    );
+  }
+
+  List<String> _panelTablesForDraft(AuditModel draft) {
+    return switch (draft.auditType) {
+      'Egg' => const ['egg_storage', 'egg_quality', 'egg_weights'],
+      'Chicks' => const ['chick_pasgar', 'chick_yfbm', 'chick_cvt', 'chick_pm'],
+      'Hatch Analysis & Egg Breakouts' => [
+        switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
+          EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+          EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+          EggBreakoutType.residueHatchDay => 'residue_breakout',
+        },
+      ],
+      'Setters' => const ['setter_optimizing'],
+      'Hatchers' => const ['hatcher_optimizing'],
+      _ => const [],
+    };
+  }
+
+  PanelRecord _panelRecordForSamples(
+    String tableName,
+    AuditModel draft,
+    List<StationSampleModel> samples,
+  ) {
+    final compareLayer = _compareLayerForPanel(tableName, samples);
+    final mode = compareLayer == null
+        ? PanelRecord.modePool
+        : PanelRecord.modeCompare;
+    return PanelRecord(
+      id: '${samples.first.auditSessionId}:$tableName:${draft.id}',
+      tableName: tableName,
+      sessionId: samples.first.auditSessionId,
+      auditId: draft.id,
+      customerId: draft.customerId,
+      flockId: _blankToNull(draft.flockId),
+      date: draft.date,
+      hatcheryId: _blankToNull(_context?.hatcheryId),
+      breed: _context?.breed ?? draft.soBreed ?? draft.hoBreed,
+      flockAgeWeeks: _context?.flockAgeWeeks,
+      mode: mode,
+      compareLayer: compareLayer,
+      notes: draft.notes,
+      metricsJson: _compactJson(draft.toMap()),
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+    );
+  }
+
+  PanelSampleRecord _panelSampleRecordForStationSample({
+    required String tableName,
+    required String panelId,
+    required AuditModel draft,
+    required StationSampleModel sample,
+  }) {
+    final scopeType = _scopeTypeForPanel(tableName, sample);
+    return PanelSampleRecord(
+      id: '$panelId:${sample.id}',
+      panelId: panelId,
+      scopeType: scopeType,
+      scopeLabel: _scopeLabelForSample(scopeType, sample),
+      sampleIndex: sample.sampleIndex,
+      houseId: scopeType == SamplingLayer.house
+          ? _blankToNull(sample.houseNo)
+          : null,
+      houseName: scopeType == SamplingLayer.house
+          ? _blankToNull(sample.houseLabel)
+          : null,
+      setterId:
+          scopeType == SamplingLayer.setter ||
+              scopeType == SamplingLayer.setterHatcher
+          ? _blankToNull(sample.setterNo)
+          : null,
+      hatcherId:
+          scopeType == SamplingLayer.hatcher ||
+              scopeType == SamplingLayer.setterHatcher
+          ? _blankToNull(sample.hatcherNo)
+          : null,
+      sampleSize: _sampleSizeForPanel(tableName, draft),
+      summaryJson: sample.resultSummaryJson,
+      rawJson: _compactJson(sample.toMap()),
+      notes: sample.notes,
+      createdAt: sample.createdAt,
+      updatedAt: sample.updatedAt,
+    );
+  }
+
+  SamplingLayer? _compareLayerForPanel(
+    String tableName,
+    List<StationSampleModel> samples,
+  ) {
+    for (final sample in samples) {
+      if (sample.sampleMode != StationSampleModel.sampleModeComparison) {
+        continue;
+      }
+      final scope = _scopeTypeForPanel(tableName, sample);
+      if (scope != SamplingLayer.pool) return scope;
+    }
+    return null;
+  }
+
+  SamplingLayer _scopeTypeForPanel(
+    String tableName,
+    StationSampleModel sample,
+  ) {
+    final allowed = PanelSampleSchema.byTable(tableName).allowedLayers;
+    if (sample.sampleMode != StationSampleModel.sampleModeComparison) {
+      return SamplingLayer.pool;
+    }
+    if (allowed.contains(SamplingLayer.house) && _hasText(sample.houseNo)) {
+      return SamplingLayer.house;
+    }
+    if (allowed.contains(SamplingLayer.setterHatcher) &&
+        _hasText(sample.setterNo) &&
+        _hasText(sample.hatcherNo)) {
+      return SamplingLayer.setterHatcher;
+    }
+    if (allowed.contains(SamplingLayer.setter) && _hasText(sample.setterNo)) {
+      return SamplingLayer.setter;
+    }
+    if (allowed.contains(SamplingLayer.hatcher) && _hasText(sample.hatcherNo)) {
+      return SamplingLayer.hatcher;
+    }
+    return SamplingLayer.pool;
+  }
+
+  String _scopeLabelForSample(
+    SamplingLayer scopeType,
+    StationSampleModel sample,
+  ) {
+    return switch (scopeType) {
+      SamplingLayer.house =>
+        _blankToNull(sample.houseLabel) ??
+            _blankToNull(sample.houseNo) ??
+            sample.sampleLabel,
+      SamplingLayer.setterHatcher =>
+        '${sample.setterNo ?? ''}/${sample.hatcherNo ?? ''}',
+      SamplingLayer.setter =>
+        _blankToNull(sample.setterNo) ?? sample.sampleLabel,
+      SamplingLayer.hatcher =>
+        _blankToNull(sample.hatcherNo) ?? sample.sampleLabel,
+      SamplingLayer.tray || SamplingLayer.trolley => sample.sampleLabel,
+      SamplingLayer.pool => 'Random',
+    };
+  }
+
+  int? _sampleSizeForPanel(String tableName, AuditModel draft) {
+    return switch (tableName) {
+      'egg_quality' => draft.esUvSampleSize,
+      'egg_weights' => draft.esEggSampleSize,
+      'chick_pasgar' => draft.pasgarSampleSize,
+      'chick_weights' => draft.chickSampleSize,
+      'chick_cvt' => draft.cvtSampleSize,
+      'chick_pm' => draft.pmSampleSize,
+      'fresh_egg_breakout' ||
+      'candled_egg_breakout' ||
+      'residue_breakout' => draft.ebTraySize ?? draft.haTotalEggsSet,
+      _ => null,
+    };
+  }
+
+  String _compactJson(Map<String, Object?> value) {
+    final compact = Map<String, Object?>.from(value)
+      ..removeWhere((_, entry) => entry == null);
+    return jsonEncode(compact);
+  }
+
+  bool _hasText(String? value) => _blankToNull(value) != null;
+
+  String? _blankToNull(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
   // Set temperature unit

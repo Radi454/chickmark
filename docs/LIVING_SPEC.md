@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-13
+2026-05-15
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -126,14 +126,20 @@ Station save behavior:
 
 - Station value changes schedule a quiet local draft autosave after the user
   pauses briefly. Draft autosave writes the same stable `audits` and
-  normalized sample rows with audit status `draft`, but it does not write
-  activity-log entries, trigger threshold notifications, or start Supabase audit
-  sync.
+  normalized sample rows plus panel-owned sample rows with audit status
+  `draft`, but it does not write activity-log entries, trigger threshold
+  notifications, or start Supabase audit sync.
 - Hatch Analysis & Egg Breakouts saves all samples and marks all tab indices saved.
 - Other stations save through `AuditProvider.saveSamplesWithResult(tabIndex: 0)`.
 - Saving persists legacy audit rows in `audits`.
 - When a visit session id exists, saving also upserts linked normalized sample
   rows.
+- Saving also upserts the corresponding panel-owned main/sample tables for the
+  station. Current saves write Egg panels (`egg_storage`, `egg_quality`,
+  `egg_weights`), Chicks panels (`chick_pasgar`, `chick_yfbm`, `chick_cvt`,
+  `chick_pm`, and `chick_weights`), the selected breakout panel, Setter
+  optimizing, or Hatcher optimizing while keeping `audits` as the compatibility
+  row.
 - Save/Next remains the final confirmation path. It retries any pending or
   failed autosave work, writes the audit row back as `active`, runs the existing
   log/threshold/sync side effects, and then allows station navigation or session
