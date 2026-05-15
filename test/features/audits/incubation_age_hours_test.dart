@@ -139,6 +139,51 @@ void main() {
     expect(find.text('S2'), findsOneWidget);
   });
 
+  testWidgets('Hatcher screen uses setter-style hatcher hierarchy', (
+    tester,
+  ) async {
+    final provider = await pumpHatcherScreen(tester);
+
+    expect(find.text('Hatchers'), findsWidgets);
+    expect(find.text('H01'), findsOneWidget);
+    expect(find.text('Hatcher settings'), findsOneWidget);
+    expect(find.text('Hatcher number'), findsOneWidget);
+    expect(find.text('CVT sample 1'), findsNothing);
+    expect(find.text('Add hatcher'), findsOneWidget);
+    expect(find.text('Add sample'), findsNothing);
+    expect(find.text('Guided CVT capture'), findsOneWidget);
+    expect(find.text('Hatcher type'), findsNothing);
+    expect(find.text('Turning Angle (°)'), findsNothing);
+    expect(find.text('Transfer Day'), findsNothing);
+    expect(find.text('Dark greenish'), findsOneWidget);
+    expect(find.text('Water'), findsOneWidget);
+    expect(find.text('Greenish'), findsNothing);
+    expect(find.text('Watery'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('H01')).dy,
+      lessThan(tester.getTopLeft(find.text('Hatcher settings')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Hatcher settings')).dy,
+      lessThan(tester.getTopLeft(find.text('Guided CVT capture')).dy),
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('hatcher-add-sample-button')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('hatcher-add-sample-button')));
+    await tester.pump();
+
+    expect(provider.sampleCount, 2);
+    expect(
+      provider.stationSampleMode,
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(find.text('H01'), findsOneWidget);
+    expect(find.text('H2'), findsOneWidget);
+  });
+
   testWidgets('Hatchers do not show sample mode controls', (tester) async {
     await pumpHatcherScreen(tester);
 

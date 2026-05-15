@@ -389,17 +389,28 @@ selector; the dedicated setter row is the comparison control.
 
 Hatchers captures:
 
-- Breed from flock.
-- Hatcher ID.
-- Incubation age slider from 18 to 21 days plus a separate 0-23 hour slider.
+- A dedicated hatcher chip row. The first hatcher uses the selected visit
+  hatcher id when present; Add hatcher creates another hatcher in the same audit
+  session. Hatcher tabs are labeled from the hatcher number as `H5`, `H7`, etc.,
+  and fall back to the sample sequence when no hatcher id is available.
+- A Hatcher settings card for the active hatcher sample, containing the hatcher
+  number, incubation age slider from 18 to 21 days, and a separate 0-23 hour
+  slider.
 - CO2 level and photo.
-- CVT average/CV summary and CVT grid/photos.
+- CVT (Chick Vent Temp.) average/CV summary and guided grid/photos. The grid
+  uses the same guided OCR capture, inline/native camera fallback, evidence
+  thumbnails, missing-photo attach, and saved-photo highlighting as the setter
+  EST/CVT grid flow. CVT benchmark highlighting uses 103-105°F.
 - Chick panting yes/no with photo.
-- Meconium assessment: Normal, Greenish, Watery, or Excessive.
-- Transfer day.
+- Meconium assessment: Normal, Dark greenish, Water, or Excessive.
 
-Hatchers does not expose Sample Mode, sample tabs, or compare-sample controls;
-it is entered as one machine record for the selected visit context.
+Hatchers does not expose the generic Sample Mode selector, a hatcher type
+selector, turning-angle fields, or Transfer Day. The dedicated hatcher row is
+shown at the top level, above the Hatcher settings card, and is the comparison
+control. Hatcher comparison samples persist as machine samples with
+`sectorType = hatcher_optimizing`, `sampleKind = machine`,
+`comparisonType = machine_comparison`, generated hatcher labels,
+`groupLabel = Hatcher comparison`, and hatcher ids in `sample_machine_details`.
 
 Govee is a standalone daily capture workflow. It is independent from audit
 sessions and is keyed by `customerId`, `hatcheryId`, place, nullable machine id,

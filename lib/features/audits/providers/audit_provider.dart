@@ -245,6 +245,7 @@ class AuditProvider extends ChangeNotifier {
     final isHatchBreakout =
         _context!.auditType == 'Hatch Analysis & Egg Breakouts';
     final isSetterOptimizing = _context!.auditType == 'Setters';
+    final isHatcherOptimizing = _context!.auditType == 'Hatchers';
     final setterId = isHatchBreakout
         ? '$hatchNumber'
         : isSetterOptimizing
@@ -252,11 +253,18 @@ class AuditProvider extends ChangeNotifier {
               ? _context!.setterId
               : '$hatchNumber')
         : _context!.setterId;
+    final hatcherId = isHatchBreakout
+        ? '$hatchNumber'
+        : isHatcherOptimizing
+        ? (hatchNumber == 1 && _context!.hatcherId?.trim().isNotEmpty == true
+              ? _context!.hatcherId
+              : '$hatchNumber')
+        : _context!.hatcherId;
     return AuditModel(
       id: _uuid.v4(),
       auditType: _context!.auditType,
       customerId: _context!.customerId,
-      flockId: _context!.flockId,
+      flockId: isHatcherOptimizing ? null : _context!.flockId,
       date: DateTime.parse(_context!.date),
       hatchNumber: hatchNumber,
       status: 'active',
@@ -264,7 +272,7 @@ class AuditProvider extends ChangeNotifier {
       createdAt: now,
       updatedAt: now,
       setterId: setterId,
-      hatcherId: isHatchBreakout ? '$hatchNumber' : _context!.hatcherId,
+      hatcherId: hatcherId,
       sessionId: _activeSessionId,
       sampleMode: SampleMode.pool,
       esEggStorageDays: _context!.auditType == 'Egg' ? 0 : null,
@@ -275,10 +283,8 @@ class AuditProvider extends ChangeNotifier {
       soSetterId: isSetterOptimizing ? setterId : null,
       soIncubationAge: _context!.auditType == 'Setters' ? 1 : null,
       soIncubationHours: _context!.auditType == 'Setters' ? 0 : null,
-      hoBreed: _context!.auditType == 'Hatchers' ? _context!.breed : null,
-      hoHatcherId: _context!.auditType == 'Hatchers'
-          ? _context!.hatcherId
-          : null,
+      hoBreed: null,
+      hoHatcherId: isHatcherOptimizing ? hatcherId : null,
       hoIncubationAge: _context!.auditType == 'Hatchers' ? 18 : null,
       hoIncubationHours: _context!.auditType == 'Hatchers' ? 0 : null,
     );
@@ -1352,6 +1358,7 @@ class AuditProvider extends ChangeNotifier {
 
   StationSampleModel _createSampleForDraft(AuditModel draft, int index) {
     final now = DateTime.now();
+    final isHatcherOptimizing = draft.auditType == 'Hatchers';
     return StationSampleModel(
       id: _uuid.v4(),
       auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
@@ -1377,16 +1384,21 @@ class AuditProvider extends ChangeNotifier {
       incubationDay: draft.soIncubationAge ?? draft.hoIncubationAge,
       setterNo: draft.setterId ?? draft.soSetterId,
       hatcherNo: draft.hatcherId ?? draft.hoHatcherId,
-      calculatedBmkAgeDays: BmkAgeCalculator.calculateDays(
-        currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
-          _context?.flockAgeWeeks,
-        ),
-        auditDate: draft.date,
-        legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
-        storageDays: _storageDaysForDraft(draft),
-        flockEntryDate: _context?.flockEntryDate,
-      ),
-      benchmarkBreed: _context?.breed ?? draft.soBreed ?? draft.hoBreed,
+      calculatedBmkAgeDays: isHatcherOptimizing
+          ? null
+          : BmkAgeCalculator.calculateDays(
+              currentFlockAgeDays:
+                  BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
+                    _context?.flockAgeWeeks,
+                  ),
+              auditDate: draft.date,
+              legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+              storageDays: _storageDaysForDraft(draft),
+              flockEntryDate: _context?.flockEntryDate,
+            ),
+      benchmarkBreed: isHatcherOptimizing
+          ? null
+          : _context?.breed ?? draft.soBreed ?? draft.hoBreed,
       resultSummaryJson: StationSampleMapper.resultSummaryJsonForAudit(draft),
       createdAt: draft.createdAt,
       updatedAt: now,
@@ -1410,10 +1422,14 @@ class AuditProvider extends ChangeNotifier {
     final keepGeneratedSetterMetadata =
         _drafts[index].auditType == 'Setters' &&
         SampleMode.isCompare(_drafts[index].sampleMode);
+    final keepGeneratedHatcherMetadata =
+        _drafts[index].auditType == 'Hatchers' &&
+        SampleMode.isCompare(_drafts[index].sampleMode);
     final keepGeneratedSampleMetadata =
         keepGeneratedHouseMetadata ||
         keepGeneratedMachineMetadata ||
-        keepGeneratedSetterMetadata;
+        keepGeneratedSetterMetadata ||
+        keepGeneratedHatcherMetadata;
     final next = fresh.copyWith(
       id: existing.id,
       auditSessionId: _activeSessionId ?? existing.auditSessionId,
@@ -1444,6 +1460,9 @@ class AuditProvider extends ChangeNotifier {
       setterNo: keepGeneratedSetterMetadata
           ? fresh.setterNo
           : existing.setterNo,
+      hatcherNo: keepGeneratedHatcherMetadata
+          ? fresh.hatcherNo
+          : existing.hatcherNo,
       notes: existing.notes,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),
