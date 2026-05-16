@@ -13,12 +13,27 @@ class PhotoRepository {
     return rows.map(PhotoModel.fromMap).toList();
   }
 
-  Future<List<PhotoModel>> getByAuditId(String auditId) async {
+  Future<List<PhotoModel>> getByPanelRow({
+    required String sessionId,
+    required String panelName,
+    required String panelRowId,
+  }) async {
     final db = await dbHelper.db;
     final rows = await db.query(
       'photos',
-      where: 'auditId = ?',
-      whereArgs: [auditId],
+      where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
+      whereArgs: [sessionId, panelName, panelRowId],
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(PhotoModel.fromMap).toList();
+  }
+
+  Future<List<PhotoModel>> getBySessionId(String sessionId) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      'photos',
+      where: 'sessionId = ?',
+      whereArgs: [sessionId],
       orderBy: 'createdAt DESC',
     );
     return rows.map(PhotoModel.fromMap).toList();
@@ -67,21 +82,29 @@ class PhotoRepository {
     );
   }
 
-  Future<void> deleteByAuditId(String auditId) async {
+  Future<void> deleteByPanelRow({
+    required String sessionId,
+    required String panelName,
+    required String panelRowId,
+  }) async {
     final db = await dbHelper.db;
     await db.transaction<void>((txn) async {
       final rows = await txn.query(
         'photos',
         columns: ['id'],
-        where: 'auditId = ?',
-        whereArgs: [auditId],
+        where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
+        whereArgs: [sessionId, panelName, panelRowId],
       );
       await SyncTombstoneRepository.queueDeletesWithExecutor(
         txn,
         'photos',
         rows.map((row) => row['id']),
       );
-      await txn.delete('photos', where: 'auditId = ?', whereArgs: [auditId]);
+      await txn.delete(
+        'photos',
+        where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
+        whereArgs: [sessionId, panelName, panelRowId],
+      );
     });
   }
 

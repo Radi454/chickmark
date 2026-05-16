@@ -3,31 +3,68 @@ import 'package:hatchaudit/data/models/panel_sample_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 
 void main() {
-  test(
-    'panel schema exposes one main table and one sample table per panel',
-    () {
-      expect(PanelSampleSchema.panels.length, 13);
-      expect(
-        PanelSampleSchema.panels.map((panel) => panel.tableName),
-        containsAll([
-          'egg_quality',
-          'egg_weights',
-          'chick_pasgar',
-          'chick_weights',
-          'fresh_egg_breakout',
-          'candled_egg_breakout',
-          'residue_breakout',
-          'setter_optimizing',
-          'hatcher_optimizing',
-        ]),
-      );
+  test('panel schema exposes one storage table per panel', () {
+    expect(PanelSampleSchema.panels.length, 12);
+    expect(
+      PanelSampleSchema.panels.map((panel) => panel.tableName),
+      containsAll([
+        'egg_quality',
+        'chick_pasgar',
+        'chick_weights',
+        'fresh_egg_breakout',
+        'candled_egg_breakout',
+        'residue_breakout',
+        'setter_optimizing',
+        'hatcher_optimizing',
+      ]),
+    );
+    expect(
+      PanelSampleSchema.panels.map((panel) => panel.tableName),
+      isNot(contains('egg_weights')),
+    );
 
-      for (final panel in PanelSampleSchema.panels) {
-        expect(panel.sampleTableName, '${panel.tableName}_samples');
-        expect(panel.allowedLayers.first, SamplingLayer.pool);
-      }
-    },
-  );
+    for (final panel in PanelSampleSchema.panels) {
+      expect(panel.allowedLayers.first, SamplingLayer.pool);
+      expect(panel.measurementColumns, isNotEmpty);
+    }
+  });
+
+  test('egg quality schema consolidates shell UV and weight metrics', () {
+    final panel = PanelSampleSchema.byTable('egg_quality');
+
+    expect(
+      panel.measurementColumns,
+      containsAll([
+        'uvTrayEggCount INTEGER',
+        'uvCuticleDamageCount INTEGER',
+        'uvWashedCount INTEGER',
+        'uvDirtyCount INTEGER',
+        'uvAffectedCount INTEGER',
+        'uvAffectedPct REAL',
+        'eggWeightsJson TEXT',
+        'eggSampleSize INTEGER',
+        'eggAvgWeight REAL',
+        'eggUniformityPct REAL',
+        'eggCvPct REAL',
+        'eggBmkAgeWeeks INTEGER',
+        'eggBmkWeight REAL',
+      ]),
+    );
+    expect(
+      panel.measurementColumns,
+      isNot(contains('upsideDownCount INTEGER')),
+    );
+    expect(panel.measurementColumns, isNot(contains('upsideDownPct REAL')));
+  });
+
+  test('egg storage schema owns upside-down score fields', () {
+    final panel = PanelSampleSchema.byTable('egg_storage');
+
+    expect(
+      panel.measurementColumns,
+      containsAll(['upsideDownCount INTEGER', 'upsideDownPct REAL']),
+    );
+  });
 
   test('only approved panels expose tray comparison', () {
     final trayPanels = PanelSampleSchema.panels
@@ -56,6 +93,24 @@ void main() {
     }
   });
 
+  test('chick PM schema includes the revised lesion backend fields', () {
+    final panel = PanelSampleSchema.byTable('chick_pm');
+
+    expect(
+      panel.measurementColumns,
+      containsAll([
+        'gizzardErosionsCount INTEGER',
+        'gizzardErosionsSeverity TEXT',
+        'airSacCaseationsCount INTEGER',
+        'airSacCaseationsSeverity TEXT',
+        'nephritisCount INTEGER',
+        'nephritisSeverity TEXT',
+        'generalSepticemiaCount INTEGER',
+        'generalSepticemiaSeverity TEXT',
+      ]),
+    );
+  });
+
   test(
     'panel and sample records serialize dashboard context and scope identity',
     () {
@@ -63,7 +118,6 @@ void main() {
         id: 'panel-1',
         tableName: 'chick_pasgar',
         sessionId: 'session-1',
-        auditId: 'audit-1',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: DateTime.utc(2026, 5, 13),
@@ -71,12 +125,15 @@ void main() {
         breed: 'Ross308',
         flockAgeWeeks: 40,
         mode: PanelRecord.modeCompare,
-        compareLayer: SamplingLayer.setterHatcher,
-        metricsJson: '{"score":97.5}',
+        scopeType: SamplingLayer.setterHatcher,
+        scopeLabel: 'S01 + H02',
+        values: const {'finalScore': 97.5},
       );
 
-      expect(panel.toMap()['compareLayer'], 'setter_hatcher');
-      expect(panel.toMap()['date'], '2026-05-13T00:00:00.000Z');
+      expect(panel.toMap()['mode'], 'comparison');
+      expect(panel.toMap()['scopeType'], 'setter_hatcher');
+      expect(panel.toMap()['date'], '2026-05-13');
+      expect(panel.toMap()['finalScore'], 97.5);
 
       final sample = PanelSampleRecord(
         id: 'sample-1',

@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/troubleshooting_repository.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
@@ -18,7 +18,8 @@ import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart'
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
 
 class DashboardProvider extends ChangeNotifier {
-  final AuditRepository _auditRepo = AuditRepository();
+  final PanelDashboardRepository _panelDashboardRepo =
+      PanelDashboardRepository();
   final AuditSessionRepository _sessionRepo = AuditSessionRepository();
   final CustomerRepository _customerRepo = CustomerRepository();
   final FlockRepository _flockRepo = FlockRepository();
@@ -187,7 +188,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> _loadBmkAges() async {
-    _availableBmkAges = await _auditRepo.getDistinctBmkAges(
+    _availableBmkAges = await _panelDashboardRepo.getDistinctBmkAges(
       customerId: _selectedCustomerId,
       flockId: _selectedFlockId,
     );
@@ -198,11 +199,11 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> _loadEquipmentIds() async {
-    final setters = await _auditRepo.getDistinctSetterIds(
+    final setters = await _panelDashboardRepo.getDistinctSetterIds(
       customerId: _selectedCustomerId,
       flockId: _selectedFlockId,
     );
-    final hatchers = await _auditRepo.getDistinctHatcherIds(
+    final hatchers = await _panelDashboardRepo.getDistinctHatcherIds(
       customerId: _selectedCustomerId,
       flockId: _selectedFlockId,
     );
@@ -310,7 +311,7 @@ class DashboardProvider extends ChangeNotifier {
 
       _bmkReference = null;
       if (_selectedBmkAge != null) {
-        _bmkReference = await _auditRepo.getBmkReferenceForAge(
+        _bmkReference = await _panelDashboardRepo.getBmkReferenceForAge(
           _selectedBmkAge!,
         );
       }
@@ -323,28 +324,33 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> _loadHatchAnalysis(DashboardFilter filter) async {
-    _hatchAnalysisAvg = await _auditRepo.getHatchAnalysisAvg(filter);
-    _hatchAnalysisTrend = await _auditRepo.getHatchAnalysisTrend(filter) ?? [];
+    _hatchAnalysisAvg = await _panelDashboardRepo.getHatchAnalysisAvg(filter);
+    _hatchAnalysisTrend =
+        await _panelDashboardRepo.getHatchAnalysisTrend(filter) ?? [];
   }
 
   Future<void> _loadEggBreakout(DashboardFilter filter) async {
-    _eggBreakoutAvg = await _auditRepo.getEggBreakoutAvg(
+    _eggBreakoutAvg = await _panelDashboardRepo.getEggBreakoutAvg(
       filter,
       _selectedBreakoutType,
     );
     _eggBreakoutTrend =
-        await _auditRepo.getEggBreakoutTrend(filter, _selectedBreakoutType) ??
+        await _panelDashboardRepo.getEggBreakoutTrend(
+          filter,
+          _selectedBreakoutType,
+        ) ??
         [];
-    _eggBreakoutPhotos = await _auditRepo.getPhotoPaths(
+    _eggBreakoutPhotos = await _panelDashboardRepo.getPhotoPaths(
       filter,
-      'hatch_analysis_egg_breakouts',
+      _breakoutPanelName(_selectedBreakoutType),
       'egg_breakout',
     );
   }
 
   Future<void> _loadChickQuality(DashboardFilter filter) async {
-    _chickWeightTrend = await _auditRepo.getChickWeightTrend(filter) ?? [];
-    _pasgarAvg = await _auditRepo.getPasgarAvg(filter);
+    _chickWeightTrend =
+        await _panelDashboardRepo.getChickWeightTrend(filter) ?? [];
+    _pasgarAvg = await _panelDashboardRepo.getPasgarAvg(filter);
     _pasgarReferences = await _troubleshootingRepo.getByParameters([
       'pasgar_final_score',
       'pasgar_reflexes',
@@ -354,21 +360,40 @@ class DashboardProvider extends ChangeNotifier {
       'pasgar_leg',
       'pasgar_feather_dev',
     ]);
-    _cvtAvg = await _auditRepo.getCvtAvg(filter);
-    _yfbmTrend = await _auditRepo.getYfbmTrend(filter) ?? [];
-    _chaTrend = await _auditRepo.getChaEnvironmentalTrend(filter) ?? [];
-    _cvtPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'cvt');
-    _yfbmPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'yfbm');
-    _chaPhotos = await _auditRepo.getPhotoPaths(filter, 'chicks', 'cha_env');
+    _cvtAvg = await _panelDashboardRepo.getCvtAvg(filter);
+    _yfbmTrend = await _panelDashboardRepo.getYfbmTrend(filter) ?? [];
+    _chaTrend =
+        await _panelDashboardRepo.getChaEnvironmentalTrend(filter) ?? [];
+    _cvtPhotos = await _panelDashboardRepo.getPhotoPaths(
+      filter,
+      'chick_cvt',
+      'cvt',
+    );
+    _yfbmPhotos = await _panelDashboardRepo.getPhotoPaths(
+      filter,
+      'chick_yfbm',
+      'yfbm',
+    );
+    _chaPhotos = await _panelDashboardRepo.getPhotoPaths(
+      filter,
+      'chick_pm',
+      'cha_env',
+    );
   }
 
   Future<void> _loadEggStorage(DashboardFilter filter) async {
-    _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter) ?? [];
-    _eggStorageEstEvidence = await _auditRepo.getLatestEggStorageEstEvidence(
+    _eggStorageTrend =
+        await _panelDashboardRepo.getEggStorageTrend(filter) ?? [];
+    _eggStorageEstEvidence = await _panelDashboardRepo
+        .getLatestEggStorageEstEvidence(filter);
+    _shellTempPhotos = await _panelDashboardRepo.getEggStorageEstPhotoPaths(
       filter,
     );
-    _shellTempPhotos = await _auditRepo.getEggStorageEstPhotoPaths(filter);
-    _uvPhotos = await _auditRepo.getPhotoPaths(filter, 'egg', 'uv_inspection');
+    _uvPhotos = await _panelDashboardRepo.getPhotoPaths(
+      filter,
+      'egg_quality',
+      'uv_inspection',
+    );
   }
 
   Future<void> _loadSetterComparison(DashboardFilter filter) async {
@@ -377,7 +402,7 @@ class DashboardProvider extends ChangeNotifier {
       return;
     }
     _setterComparisons =
-        await _auditRepo.getSetterComparisons(
+        await _panelDashboardRepo.getSetterComparisons(
           filter,
           _selectedSetterIds.toList(),
         ) ??
@@ -390,7 +415,7 @@ class DashboardProvider extends ChangeNotifier {
       return;
     }
     _hatcherComparisons =
-        await _auditRepo.getHatcherComparisons(
+        await _panelDashboardRepo.getHatcherComparisons(
           filter,
           _selectedHatcherIds.toList(),
         ) ??
@@ -405,11 +430,13 @@ class DashboardProvider extends ChangeNotifier {
       );
       final summaries = <VisitSessionSummary>[];
       for (final session in sessions) {
-        final audits = await _auditRepo.getAuditsBySessionId(session.id);
+        final panelRows = await _panelDashboardRepo.getPanelRowsBySession(
+          session.id,
+        );
         summaries.add(
-          VisitSessionSummary.fromSession(
+          VisitSessionSummary.fromPanelRows(
             session: session,
-            stationAudits: audits,
+            panelRowsByTable: panelRows,
           ),
         );
       }
@@ -472,5 +499,13 @@ class DashboardProvider extends ChangeNotifier {
     final customerId = user.customerId;
     if (customerId == null || customerId.isEmpty) return [];
     return flocks.where((flock) => flock.customerId == customerId).toList();
+  }
+
+  String _breakoutPanelName(String breakoutType) {
+    return switch (breakoutType) {
+      'fresh' || 'freshEggBreakout' => 'fresh_egg_breakout',
+      'candled' || 'candledEggBreakout' => 'candled_egg_breakout',
+      _ => 'residue_breakout',
+    };
   }
 }

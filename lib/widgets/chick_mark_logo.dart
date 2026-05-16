@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class ChickMarkLogo extends StatelessWidget {
-  static const String assetPath = 'assets/branding/chickmark-logo.png';
+  static const String assetPath = 'assets/branding/chickmark-icon.png';
 
   final double? logoSize;
   final bool showWordmark;

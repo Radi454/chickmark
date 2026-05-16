@@ -8,7 +8,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../features/audits/providers/audit_session_provider.dart';
-import '../../../features/temperature/providers/temperature_rh_provider.dart';
 import '../providers/govee_capture_provider.dart';
 import 'govee_active_capture_content.dart';
 
@@ -26,6 +25,82 @@ class GoveeFloatingLauncher extends StatefulWidget {
 
   @override
   State<GoveeFloatingLauncher> createState() => _GoveeFloatingLauncherState();
+}
+
+Future<void> openGoveeFloatingCapturePanel(
+  BuildContext context, {
+  BuildContext? panelContext,
+  ValueChanged<bool>? onPanelVisibilityChanged,
+  bool initializeLiveCardOnOpen = true,
+}) async {
+  if (initializeLiveCardOnOpen) {
+    await _tryInitializeLiveCard(context);
+  }
+  if (!context.mounted) return;
+  await _seedFirstScopeFromAudit(context);
+  if (!context.mounted) return;
+  await showGoveeFloatingCapturePanel(
+    panelContext ?? context,
+    onPanelVisibilityChanged: onPanelVisibilityChanged,
+  );
+}
+
+Future<void> showGoveeFloatingCapturePanel(
+  BuildContext context, {
+  ValueChanged<bool>? onPanelVisibilityChanged,
+}) async {
+  onPanelVisibilityChanged?.call(true);
+  final width = MediaQuery.sizeOf(context).width;
+  try {
+    if (width >= 900) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          alignment: Alignment.centerRight,
+          insetPadding: const EdgeInsets.all(24),
+          child: SizedBox(
+            width: 520,
+            height: MediaQuery.sizeOf(context).height - 80,
+            child: const GoveeFloatingCapturePanel(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.92,
+        child: const GoveeFloatingCapturePanel(),
+      ),
+    );
+  } finally {
+    onPanelVisibilityChanged?.call(false);
+  }
+}
+
+Future<void> _tryInitializeLiveCard(BuildContext context) async {
+  try {
+    await context.read<GoveeCaptureProvider>().ensureBleReady();
+  } catch (_) {
+    // BLE plugins may be unavailable in tests or on unsupported platforms.
+    // The live card still renders and offers scan/retry controls.
+  }
+}
+
+Future<void> _seedFirstScopeFromAudit(BuildContext context) async {
+  final govee = context.read<GoveeCaptureProvider>();
+  if (govee.customerId != null || govee.hatcheryId != null) return;
+  final auditSession = context.read<AuditSessionProvider>().currentSession;
+  if (auditSession == null) return;
+  await govee.configure(
+    customerId: auditSession.customerId,
+    hatcheryId: auditSession.hatcheryId,
+    place: govee.place ?? TemperaturePlace.eggStorageRoom,
+  );
 }
 
 class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
@@ -159,73 +234,17 @@ class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
   }
 
   Future<void> _openPanel(BuildContext context) async {
-    if (widget.initializeLiveCardOnOpen) {
-      await _tryInitializeLiveCard(context);
-    }
-    if (!context.mounted) return;
-    await _seedFirstScopeFromAudit(context);
-    if (!context.mounted) return;
-    await _showPanel(widget.panelContextBuilder?.call() ?? context);
-  }
-
-  Future<void> _tryInitializeLiveCard(BuildContext context) async {
-    try {
-      await context.read<TemperatureRhProvider>().ensureInitialized();
-    } catch (_) {
-      // BLE plugins may be unavailable in tests or on unsupported platforms.
-      // The live card still renders and offers scan/retry controls.
-    }
-  }
-
-  Future<void> _seedFirstScopeFromAudit(BuildContext context) async {
-    final govee = context.read<GoveeCaptureProvider>();
-    if (govee.customerId != null || govee.hatcheryId != null) return;
-    final auditSession = context.read<AuditSessionProvider>().currentSession;
-    if (auditSession == null) return;
-    await govee.configure(
-      customerId: auditSession.customerId,
-      hatcheryId: auditSession.hatcheryId,
-      place: govee.place ?? TemperaturePlace.eggStorageRoom,
+    await openGoveeFloatingCapturePanel(
+      context,
+      panelContext: widget.panelContextBuilder?.call(),
+      onPanelVisibilityChanged: widget.onPanelVisibilityChanged,
+      initializeLiveCardOnOpen: widget.initializeLiveCardOnOpen,
     );
-  }
-
-  Future<void> _showPanel(BuildContext context) async {
-    widget.onPanelVisibilityChanged?.call(true);
-    final width = MediaQuery.sizeOf(context).width;
-    try {
-      if (width >= 900) {
-        await showDialog<void>(
-          context: context,
-          builder: (context) => Dialog(
-            alignment: Alignment.centerRight,
-            insetPadding: const EdgeInsets.all(24),
-            child: SizedBox(
-              width: 520,
-              height: MediaQuery.sizeOf(context).height - 80,
-              child: const _GoveeOverlayPanel(),
-            ),
-          ),
-        );
-        return;
-      }
-
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        builder: (context) => SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.92,
-          child: const _GoveeOverlayPanel(),
-        ),
-      );
-    } finally {
-      widget.onPanelVisibilityChanged?.call(false);
-    }
   }
 }
 
-class _GoveeOverlayPanel extends StatelessWidget {
-  const _GoveeOverlayPanel();
+class GoveeFloatingCapturePanel extends StatelessWidget {
+  const GoveeFloatingCapturePanel({super.key});
 
   @override
   Widget build(BuildContext context) {

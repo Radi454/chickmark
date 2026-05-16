@@ -13,7 +13,6 @@ import '../../home/screens/home_screen.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
-import '../../govee/screens/govee_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -50,11 +49,6 @@ class _MainShellState extends State<MainShell> {
       label: AppStrings.auditsTab,
       icon: Icons.assignment_outlined,
       selectedIcon: Icons.assignment,
-    ),
-    _ShellDestination(
-      label: AppStrings.temperatureTab,
-      icon: Icons.device_thermostat_outlined,
-      selectedIcon: Icons.device_thermostat,
     ),
     _ShellDestination(
       label: AppStrings.bmkTab,
@@ -146,10 +140,8 @@ class _MainShellState extends State<MainShell> {
       case 3:
         return const AuditsScreen();
       case 4:
-        return const GoveeScreen();
-      case 5:
         return const BmkScreen();
-      case 6:
+      case 5:
         return const SettingsScreen();
       default:
         return const HomeScreen();
@@ -164,7 +156,6 @@ class _MainShellState extends State<MainShell> {
           'dashboard',
           'customers',
           'audits',
-          'govee',
           'bmk',
           'settings',
         ];

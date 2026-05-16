@@ -8,6 +8,36 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
+Future<void> _createPanelTable(
+  Database db,
+  String tableName,
+  List<String> extraColumns,
+) async {
+  final extra = extraColumns.isEmpty ? '' : ', ${extraColumns.join(', ')}';
+  await db.execute('''CREATE TABLE $tableName (
+    id TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT,
+    hatcheryId TEXT,
+    date TEXT NOT NULL,
+    breed TEXT,
+    flockAgeWeeks INTEGER,
+    mode TEXT NOT NULL DEFAULT 'pool',
+    scopeType TEXT NOT NULL DEFAULT 'pool',
+    scopeLabel TEXT NOT NULL DEFAULT 'Random',
+    sampleIndex INTEGER NOT NULL DEFAULT 0,
+    groupKey TEXT,
+    groupLabel TEXT,
+    notes TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    lastSyncedAt TEXT,
+    syncError TEXT$extra
+  )''');
+}
+
 void main() {
   late Database db;
   late MockDatabaseHelper dbHelper;
@@ -21,26 +51,29 @@ void main() {
     await database.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
     await database.execute('''CREATE TABLE flocks (
       id TEXT PRIMARY KEY,
-      customerId TEXT,
-      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+      customerId TEXT
     )''');
     await database.execute('''CREATE TABLE hatcheries (
       id TEXT PRIMARY KEY,
       customerId TEXT NOT NULL,
-      name TEXT NOT NULL,
-      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+      name TEXT NOT NULL
     )''');
     await database.execute('''CREATE TABLE audit_sessions (
       id TEXT PRIMARY KEY,
       customerId TEXT NOT NULL,
       flockId TEXT NOT NULL,
       hatcheryId TEXT NOT NULL,
-      date TEXT NOT NULL,
-      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
-      FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
-      FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
+      date TEXT NOT NULL
     )''');
-    await database.execute('CREATE TABLE audits (id TEXT PRIMARY KEY)');
+    await _createPanelTable(database, 'egg_quality', const [
+      'sampleSize INTEGER',
+    ]);
+    await _createPanelTable(database, 'chick_pasgar', const [
+      'sampleSize INTEGER',
+    ]);
+    await _createPanelTable(database, 'chick_weights', const [
+      'sampleSize INTEGER',
+    ]);
     await database.insert('customers', {'id': 'customer-1'});
     await database.insert('flocks', {
       'id': 'flock-1',
@@ -58,11 +91,12 @@ void main() {
       'hatcheryId': 'hatchery-1',
       'date': '2026-05-13',
     });
-    await DatabaseHelper().applyV32UpgradeForTest(database);
     return database;
   }
 
-  setUpAll(sqfliteFfiInit);
+  setUpAll(() {
+    sqfliteFfiInit();
+  });
 
   setUp(() async {
     db = await openPanelDatabase();
@@ -97,17 +131,14 @@ void main() {
 
     await repository.savePanelWithSamples(panel: panel, samples: [sample]);
 
-    final panels = await db.query('egg_quality');
-    final samples = await db.query('egg_quality_samples');
+    final rows = await db.query('egg_quality');
 
-    expect(panels, hasLength(1));
-    expect(panels.single['mode'], PanelRecord.modePool);
-    expect(panels.single['customerId'], 'customer-1');
-    expect(panels.single['flockId'], 'flock-1');
-    expect(samples, hasLength(1));
-    expect(samples.single['scopeType'], 'pool');
-    expect(samples.single['scopeLabel'], 'Random');
-    expect(samples.single['sampleSize'], 100);
+    expect(rows, hasLength(1));
+    expect(rows.single['mode'], PanelRecord.modePool);
+    expect(rows.single['customerId'], 'customer-1');
+    expect(rows.single['flockId'], 'flock-1');
+    expect(rows.single['scopeType'], 'pool');
+    expect(rows.single['scopeLabel'], 'Random');
   });
 
   test(
@@ -138,14 +169,13 @@ void main() {
 
       await repository.savePanelWithSamples(panel: panel, samples: [sample]);
 
-      final panels = await db.query('chick_pasgar');
-      final samples = await db.query('chick_pasgar_samples');
+      final rows = await db.query('chick_pasgar');
 
-      expect(panels.single['mode'], PanelRecord.modeCompare);
-      expect(panels.single['compareLayer'], 'setter_hatcher');
-      expect(samples.single['scopeType'], 'setter_hatcher');
-      expect(samples.single['setterId'], 'S01');
-      expect(samples.single['hatcherId'], 'H02');
+      expect(rows, hasLength(1));
+      expect(rows.single['mode'], PanelRecord.modeCompare);
+      expect(rows.single['scopeType'], 'setter_hatcher');
+      expect(rows.single['scopeLabel'], 'S01 + H02');
+      expect(rows.single['sampleSize'], 100);
     },
   );
 

@@ -164,16 +164,31 @@ void main() {
 
     test('Setters expanded machine type and turning angle round-trip', () {
       final original = fromMapWith(baseSetter(), {
-        'so_machineType': 'Single Stage',
+        'so_machineType': 'Single',
         'so_turningAngle': 45.0,
+        'so_setpointF': 100.0,
+        'so_actualF': 100.4,
+        'so_machineScreenPhoto': '/photos/setter-screen.jpg',
+        'so_batchSize': 19200,
+        'so_batchCount': 3,
+        'so_totalEggsSet': 57600,
+        'so_estSamplesJson':
+            '[{"id":"sample-1","breed":"Ross308","incubationAge":7,"incubationHours":4,"estReadings":{"front_top":100.5},"estPhotos":{"front_top":"/photos/front.jpg"},"estAvg":100.5,"estCv":0.0}]',
         'soEstAvg': 100.5,
         'soEstCv': 0.3,
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
-      expect(restored.soMachineType, 'Single Stage');
+      expect(restored.soMachineType, 'Single');
       expect(restored.soTurningAngle, 45.0);
+      expect(restored.soSetpointF, 100.0);
+      expect(restored.soActualF, 100.4);
+      expect(restored.soMachineScreenPhoto, '/photos/setter-screen.jpg');
+      expect(restored.soBatchSize, 19200);
+      expect(restored.soBatchCount, 3);
+      expect(restored.soTotalEggsSet, 57600);
+      expect(restored.soEstSamplesJson, contains('"breed":"Ross308"'));
       expect(restored.soEstAvg, 100.5);
       expect(restored.soEstCv, 0.3);
     });
@@ -216,6 +231,14 @@ void main() {
         'pm_stuntedOrgansCount': 0,
         'pm_pulmonaryHemorrhageCount': 2,
         'pm_pulmonaryHemorrhageSeverity': 'Moderate',
+        'pm_gizzardErosionsCount': 4,
+        'pm_gizzardErosionsSeverity': 'Severe',
+        'pm_airSacCaseationsCount': 5,
+        'pm_airSacCaseationsSeverity': 'Moderate',
+        'pm_nephritisCount': 6,
+        'pm_nephritisSeverity': 'Mild',
+        'pm_generalSepticemiaCount': 7,
+        'pm_generalSepticemiaSeverity': 'Severe',
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
@@ -229,6 +252,14 @@ void main() {
       expect(restored.pmUnabsorbedYolkCount, 5);
       expect(restored.pmPericarditisCount, 2);
       expect(restored.pmPericarditisSeverity, 'Severe');
+      expect(restored.pmGizzardErosionsCount, 4);
+      expect(restored.pmGizzardErosionsSeverity, 'Severe');
+      expect(restored.pmAirSacCaseationsCount, 5);
+      expect(restored.pmAirSacCaseationsSeverity, 'Moderate');
+      expect(restored.pmNephritisCount, 6);
+      expect(restored.pmNephritisSeverity, 'Mild');
+      expect(restored.pmGeneralSepticemiaCount, 7);
+      expect(restored.pmGeneralSepticemiaSeverity, 'Severe');
     });
 
     test('PM Necropsy gasping and deformity fields round-trip', () {
@@ -268,14 +299,14 @@ void main() {
 
     test('PM Necropsy cause and photo fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
-        'pm_suspectedCauseAuto': 'Omphalitis + Unabsorbed Yolk',
+        'pm_suspectedCauseAuto': 'Omphalitis + Gizzard Erosions',
         'pm_suspectedCauseManual': 'Poor sanitation',
         'pm_photosJson': '["pm_photo1.jpg","pm_photo2.jpg"]',
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
-      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Unabsorbed Yolk');
+      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Gizzard Erosions');
       expect(restored.pmSuspectedCauseManual, 'Poor sanitation');
       expect(restored.pmPhotosJson, '["pm_photo1.jpg","pm_photo2.jpg"]');
     });

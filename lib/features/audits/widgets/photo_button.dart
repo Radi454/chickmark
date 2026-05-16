@@ -15,6 +15,9 @@ class PhotoButton extends StatefulWidget {
   final bool enabled;
   final double size;
   final bool cameraFirst;
+  final String? panelName;
+  final String? panelRowId;
+  final String? fieldKey;
 
   const PhotoButton({
     super.key,
@@ -23,6 +26,9 @@ class PhotoButton extends StatefulWidget {
     this.enabled = true,
     this.size = 40,
     this.cameraFirst = false,
+    this.panelName,
+    this.panelRowId,
+    this.fieldKey,
   });
 
   @override
@@ -275,22 +281,37 @@ class _PhotoButtonState extends State<PhotoButton> {
   }
 
   Future<void> _saveLocalPhotoRecord(String path) async {
-    final auditId = _currentAuditId();
-    if (auditId == null || auditId.isEmpty) return;
+    final identity = _currentPanelPhotoIdentity();
+    if (identity == null) return;
 
     final photo = PhotoModel(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       filePath: path,
       createdAt: DateTime.now(),
-      auditId: auditId,
+      sessionId: identity.sessionId,
+      panelName: identity.panelName,
+      panelRowId: identity.panelRowId,
+      fieldKey: identity.fieldKey,
       uploadStatus: 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
   }
 
-  String? _currentAuditId() {
+  _PanelPhotoIdentity? _currentPanelPhotoIdentity() {
     try {
-      return context.read<AuditProvider>().activeDraft.id;
+      final draft = context.read<AuditProvider>().activeDraft;
+      final sessionId = draft.sessionId;
+      final panelName = widget.panelName ?? _defaultPanelName(draft.auditType);
+      if (sessionId == null || sessionId.isEmpty || panelName == null) {
+        return null;
+      }
+      return _PanelPhotoIdentity(
+        sessionId: sessionId,
+        panelName: panelName,
+        panelRowId:
+            widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        fieldKey: widget.fieldKey ?? 'photo',
+      );
     } catch (_) {
       return null;
     }
@@ -467,6 +488,9 @@ class MultiPhotoButton extends StatefulWidget {
   final Function(int index)? onPhotoRemoved;
   final bool enabled;
   final int maxPhotos;
+  final String? panelName;
+  final String? panelRowId;
+  final String? fieldKey;
 
   const MultiPhotoButton({
     super.key,
@@ -475,6 +499,9 @@ class MultiPhotoButton extends StatefulWidget {
     this.onPhotoRemoved,
     this.enabled = true,
     this.maxPhotos = 6,
+    this.panelName,
+    this.panelRowId,
+    this.fieldKey,
   });
 
   @override
@@ -610,24 +637,64 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
   }
 
   Future<void> _saveLocalPhotoRecord(String path) async {
-    final auditId = _currentAuditId();
-    if (auditId == null || auditId.isEmpty) return;
+    final identity = _currentPanelPhotoIdentity();
+    if (identity == null) return;
 
     final photo = PhotoModel(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       filePath: path,
       createdAt: DateTime.now(),
-      auditId: auditId,
+      sessionId: identity.sessionId,
+      panelName: identity.panelName,
+      panelRowId: identity.panelRowId,
+      fieldKey: identity.fieldKey,
       uploadStatus: 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
   }
 
-  String? _currentAuditId() {
+  _PanelPhotoIdentity? _currentPanelPhotoIdentity() {
     try {
-      return context.read<AuditProvider>().activeDraft.id;
+      final draft = context.read<AuditProvider>().activeDraft;
+      final sessionId = draft.sessionId;
+      final panelName = widget.panelName ?? _defaultPanelName(draft.auditType);
+      if (sessionId == null || sessionId.isEmpty || panelName == null) {
+        return null;
+      }
+      return _PanelPhotoIdentity(
+        sessionId: sessionId,
+        panelName: panelName,
+        panelRowId:
+            widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        fieldKey: widget.fieldKey ?? 'photo',
+      );
     } catch (_) {
       return null;
     }
   }
+}
+
+class _PanelPhotoIdentity {
+  const _PanelPhotoIdentity({
+    required this.sessionId,
+    required this.panelName,
+    required this.panelRowId,
+    required this.fieldKey,
+  });
+
+  final String sessionId;
+  final String panelName;
+  final String panelRowId;
+  final String fieldKey;
+}
+
+String? _defaultPanelName(String auditType) {
+  return switch (auditType) {
+    'Egg' => 'egg_storage',
+    'Chicks' => 'chick_cvt',
+    'Hatch Analysis & Egg Breakouts' => 'residue_breakout',
+    'Setters' => 'setter_optimizing',
+    'Hatchers' => 'hatcher_optimizing',
+    _ => null,
+  };
 }

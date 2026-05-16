@@ -106,7 +106,6 @@ class _PasgarTabState extends State<PasgarTab> {
         _referenceCard(
           key: const ValueKey('pasgar-sample-size-card'),
           title: 'Sample Size',
-          icon: Icons.numbers,
           children: [
             AuditNumericField(
               controller: _sampleSizeController,
@@ -136,19 +135,18 @@ class _PasgarTabState extends State<PasgarTab> {
         _referenceCard(
           key: const ValueKey('pasgar-defect-counts-card'),
           title: 'Defect Counts',
-          icon: Icons.warning,
           children: [
-            _buildDefectInput(0, 'Reflexes', Icons.accessibility_new),
+            _buildDefectInput(0, 'Reflexes'),
             const SizedBox(height: 18),
-            _buildDefectInput(1, 'Beak', Icons.pets),
+            _buildDefectInput(1, 'Beak'),
             const SizedBox(height: 18),
-            _buildDefectInput(2, 'Navel', Icons.healing),
+            _buildDefectInput(2, 'Navel'),
             const SizedBox(height: 18),
-            _buildDefectInput(3, 'Belly', Icons.circle_outlined),
+            _buildDefectInput(3, 'Belly'),
             const SizedBox(height: 18),
-            _buildDefectInput(4, 'Leg', Icons.directions_walk),
+            _buildDefectInput(4, 'Leg'),
             const SizedBox(height: 18),
-            _buildDefectInput(5, 'Feather Dev', Icons.air),
+            _buildDefectInput(5, 'Feather Dev'),
           ],
         ),
         const SizedBox(height: 24),
@@ -182,7 +180,6 @@ class _PasgarTabState extends State<PasgarTab> {
   Widget _referenceCard({
     required Key key,
     required String title,
-    required IconData icon,
     required List<Widget> children,
   }) {
     final compact = widget.embedded;
@@ -205,7 +202,7 @@ class _PasgarTabState extends State<PasgarTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle(title, icon),
+          _cardTitle(title),
           SizedBox(height: compact ? 16 : 24),
           ...children,
         ],
@@ -213,24 +210,16 @@ class _PasgarTabState extends State<PasgarTab> {
     );
   }
 
-  Widget _cardTitle(String title, IconData icon) {
+  Widget _cardTitle(String title) {
     final compact = widget.embedded;
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.primary, size: compact ? 24 : 32),
-        SizedBox(width: compact ? 12 : 20),
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.heading.copyWith(
-              fontSize: compact ? 21 : 28,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      ],
+    return Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTextStyles.heading.copyWith(
+        fontSize: compact ? 21 : 28,
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 
@@ -281,37 +270,27 @@ class _PasgarTabState extends State<PasgarTab> {
             ? Border.all(color: AppColors.borderDefault)
             : null,
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PASGAR Score',
-                style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${pasgarScore.toStringAsFixed(1)}/10',
-                style: AppTextStyles.heading.copyWith(
-                  fontSize: widget.embedded ? 28 : 32,
-                  color: scoreColor,
-                ),
-              ),
-            ],
+          Text(
+            'PASGAR Score',
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
           ),
-          Icon(
-            Icons.assessment,
-            size: widget.embedded ? 38 : 48,
-            color: scoreColor,
+          const SizedBox(height: 4),
+          Text(
+            '${pasgarScore.toStringAsFixed(1)}/10',
+            style: AppTextStyles.heading.copyWith(
+              fontSize: widget.embedded ? 28 : 32,
+              color: scoreColor,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDefectInput(int index, String label, IconData icon) {
+  Widget _buildDefectInput(int index, String label) {
     final sampleSize = _sampleSize;
     final count = int.tryParse(_controllers[index].text) ?? 0;
     final canDecrease = !widget.isReadOnly && count > 0;
@@ -382,8 +361,6 @@ class _PasgarTabState extends State<PasgarTab> {
     Widget labelBlock({required bool compactLayout}) {
       return Row(
         children: [
-          Icon(icon, color: AppColors.primary, size: compactLayout ? 22 : 30),
-          SizedBox(width: compactLayout ? 10 : 22),
           Expanded(
             child: Text(
               label,

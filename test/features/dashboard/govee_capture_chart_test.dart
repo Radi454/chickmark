@@ -5,8 +5,15 @@ import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   test('GoveeCaptureSummary combines place readings in timestamp order', () {
     final summary = _makeSummary();
     final firstTimestamp = DateTime(2026, 5, 2, 12);
@@ -50,9 +57,6 @@ void main() {
     expect(find.text('60.2%'), findsOneWidget);
     expect(find.text('57.2%'), findsOneWidget);
     expect(find.text('55.1%'), findsOneWidget);
-    expect(find.byTooltip('Zoom in Temperature'), findsOneWidget);
-    expect(find.byTooltip('Zoom out Temperature'), findsOneWidget);
-    expect(find.byTooltip('Fit Temperature'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('govee-temperature-chart-capture-1')),
       findsOneWidget,
@@ -67,8 +71,90 @@ void main() {
     );
     expect(chart.transformationConfig.scaleAxis, FlScaleAxis.horizontal);
     expect(chart.transformationConfig.maxScale, greaterThan(1));
+    final title = tester.widget<Text>(find.text('Temperature'));
+    expect(title.style?.color, const Color(0xFF111827));
+    expect(title.style?.fontSize, lessThanOrEqualTo(18));
+    final railLabel = tester.widget<Text>(find.text('Max').first);
+    expect(railLabel.style?.fontSize, lessThanOrEqualTo(14));
+    final railValue = tester.widget<Text>(find.text('73.8F'));
+    expect(railValue.style?.fontSize, lessThanOrEqualTo(14));
+    final temperatureLine = chart.data.lineBarsData.single;
+    expect(temperatureLine.color, const Color(0xFF12B7F5));
+    final verticalGridLine = chart.data.gridData.getDrawingVerticalLine(0);
+    expect(verticalGridLine.color, const Color(0xFFE3E8EF));
+    expect(verticalGridLine.dashArray, [3, 6]);
+    expect(chart.data.titlesData.bottomTitles.sideTitles.showTitles, isTrue);
+    expect(
+      chart.data.titlesData.bottomTitles.sideTitles.reservedSize,
+      allOf(greaterThanOrEqualTo(24), lessThanOrEqualTo(30)),
+    );
+    expect(find.byTooltip('Zoom in Temperature'), findsNothing);
+    expect(find.byTooltip('Zoom out Temperature'), findsNothing);
+    expect(find.byTooltip('Fit Temperature'), findsNothing);
+    expect(
+      chart.data.extraLinesData.horizontalLines.single.color,
+      const Color(0xFF12B7F5),
+    );
     expect(chart.data.extraLinesData.horizontalLines.single.y, 72.4);
-    expect(chart.data.extraLinesData.horizontalLines.single.dashArray, [6, 4]);
+    expect(chart.data.extraLinesData.horizontalLines.single.dashArray, [3, 6]);
+  });
+
+  testWidgets('GoveeCaptureChart keeps narrow metric ranges visually calm', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 5, 2, 12);
+    final summary = _makeSummary(
+      readingCount: 6,
+      rhAvg: 53.0,
+      rhMin: 52.9,
+      rhMax: 53.0,
+      readings: [
+        for (var i = 0; i < 6; i++)
+          GoveePlaceReadingModel(
+            id: 'reading-$i',
+            captureId: 'capture-1',
+            readingIndex: i,
+            recordedAt: now.add(Duration(seconds: i)),
+            temperatureFahrenheit: 72 + (i.isEven ? 0.02 : -0.02),
+            humidity: i.isEven ? 52.94 : 53.0,
+            createdAt: now,
+          ),
+      ],
+    );
+
+    await tester.pumpWidget(_chartHarness(summary));
+
+    final chart = tester.widget<LineChart>(
+      find.byKey(const ValueKey('govee-rh-chart-capture-1')),
+    );
+    final ySpan = chart.data.maxY - chart.data.minY;
+    expect(ySpan, greaterThanOrEqualTo(5));
+    expect(chart.data.lineBarsData.single.isCurved, isFalse);
+    expect(chart.data.lineBarsData.single.dotData.show, isFalse);
+  });
+
+  testWidgets('GoveeCaptureChart follows the selected Celsius unit', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'temp_unit': TempUnit.celsius.index,
+    });
+
+    await tester.pumpWidget(_chartHarness(_makeSummary()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('22.4°C avg'), findsOneWidget);
+    expect(find.text('23.2°C'), findsOneWidget);
+    expect(find.text('22.4°C'), findsOneWidget);
+    expect(find.text('21.6°C'), findsOneWidget);
+    final chart = tester.widget<LineChart>(
+      find.byKey(const ValueKey('govee-temperature-chart-capture-1')),
+    );
+    expect(chart.data.lineBarsData.single.spots.first.y, closeTo(21.7, 0.1));
+    expect(
+      chart.data.extraLinesData.horizontalLines.single.y,
+      closeTo(22.4, 0.1),
+    );
   });
 
   testWidgets(
@@ -135,8 +221,11 @@ void main() {
 
 Widget _chartHarness(GoveeCaptureSummary summary) {
   return MaterialApp(
-    home: Scaffold(
-      body: SingleChildScrollView(child: GoveeCaptureChart(summary: summary)),
+    home: ChangeNotifierProvider(
+      create: (_) => AppProvider(),
+      child: Scaffold(
+        body: SingleChildScrollView(child: GoveeCaptureChart(summary: summary)),
+      ),
     ),
   );
 }
@@ -144,6 +233,12 @@ Widget _chartHarness(GoveeCaptureSummary summary) {
 GoveeCaptureSummary _makeSummary({
   int readingCount = 100,
   List<GoveePlaceReadingModel>? readings,
+  double tempAvg = 72.4,
+  double tempMin = 70.9,
+  double tempMax = 73.8,
+  double rhAvg = 57.2,
+  double rhMin = 55.1,
+  double rhMax = 60.2,
 }) {
   final now = DateTime(2026, 5, 2, 12);
   final capture = GoveeDailyCaptureModel(
@@ -156,14 +251,14 @@ GoveeCaptureSummary _makeSummary({
     startedAt: now,
     endedAt: now.add(const Duration(minutes: 4)),
     status: 'completed',
-    tempAvg: 72.4,
-    tempMin: 70.9,
-    tempMax: 73.8,
+    tempAvg: tempAvg,
+    tempMin: tempMin,
+    tempMax: tempMax,
     tempSd: 1.2,
     tempCvPct: 1.7,
-    rhAvg: 57.2,
-    rhMin: 55.1,
-    rhMax: 60.2,
+    rhAvg: rhAvg,
+    rhMin: rhMin,
+    rhMax: rhMax,
     rhSd: 2.1,
     rhCvPct: 3.7,
     readingCount: readingCount,

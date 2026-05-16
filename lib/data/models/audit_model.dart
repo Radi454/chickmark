@@ -112,6 +112,14 @@ class AuditModel {
   final String? pmStuntedOrgansSeverity;
   final int? pmPulmonaryHemorrhageCount;
   final String? pmPulmonaryHemorrhageSeverity;
+  final int? pmGizzardErosionsCount;
+  final String? pmGizzardErosionsSeverity;
+  final int? pmAirSacCaseationsCount;
+  final String? pmAirSacCaseationsSeverity;
+  final int? pmNephritisCount;
+  final String? pmNephritisSeverity;
+  final int? pmGeneralSepticemiaCount;
+  final String? pmGeneralSepticemiaSeverity;
   final bool? pmGaspingPresent;
   final String? pmGaspingType;
   final int? pmExposedBrainCount;
@@ -188,6 +196,13 @@ class AuditModel {
   final double? soEstCv;
   final String? soMachineType;
   final double? soTurningAngle;
+  final double? soSetpointF;
+  final double? soActualF;
+  final String? soMachineScreenPhoto;
+  final int? soBatchSize;
+  final int? soBatchCount;
+  final int? soTotalEggsSet;
+  final String? soEstSamplesJson;
 
   // --- Hatchers ---
   final String? hoBreed;
@@ -349,6 +364,14 @@ class AuditModel {
     this.pmStuntedOrgansSeverity,
     this.pmPulmonaryHemorrhageCount,
     this.pmPulmonaryHemorrhageSeverity,
+    this.pmGizzardErosionsCount,
+    this.pmGizzardErosionsSeverity,
+    this.pmAirSacCaseationsCount,
+    this.pmAirSacCaseationsSeverity,
+    this.pmNephritisCount,
+    this.pmNephritisSeverity,
+    this.pmGeneralSepticemiaCount,
+    this.pmGeneralSepticemiaSeverity,
     this.pmGaspingPresent,
     this.pmGaspingType,
     this.pmExposedBrainCount,
@@ -422,6 +445,13 @@ class AuditModel {
     this.soEstCv,
     this.soMachineType,
     this.soTurningAngle,
+    this.soSetpointF,
+    this.soActualF,
+    this.soMachineScreenPhoto,
+    this.soBatchSize,
+    this.soBatchCount,
+    this.soTotalEggsSet,
+    this.soEstSamplesJson,
     // --- Hatchers ---
     this.hoBreed,
     this.hoHatcherId,
@@ -583,6 +613,14 @@ class AuditModel {
       pmStuntedOrgansSeverity: map['pm_stuntedOrgansSeverity'],
       pmPulmonaryHemorrhageCount: map['pm_pulmonaryHemorrhageCount'],
       pmPulmonaryHemorrhageSeverity: map['pm_pulmonaryHemorrhageSeverity'],
+      pmGizzardErosionsCount: map['pm_gizzardErosionsCount'],
+      pmGizzardErosionsSeverity: map['pm_gizzardErosionsSeverity'],
+      pmAirSacCaseationsCount: map['pm_airSacCaseationsCount'],
+      pmAirSacCaseationsSeverity: map['pm_airSacCaseationsSeverity'],
+      pmNephritisCount: map['pm_nephritisCount'],
+      pmNephritisSeverity: map['pm_nephritisSeverity'],
+      pmGeneralSepticemiaCount: map['pm_generalSepticemiaCount'],
+      pmGeneralSepticemiaSeverity: map['pm_generalSepticemiaSeverity'],
       pmGaspingPresent: map['pm_gaspingPresent'] == 1,
       pmGaspingType: map['pm_gaspingType'],
       pmExposedBrainCount: map['pm_exposedBrainCount'],
@@ -656,6 +694,13 @@ class AuditModel {
       soEstCv: map['soEstCv']?.toDouble(),
       soMachineType: map['so_machineType'],
       soTurningAngle: map['so_turningAngle']?.toDouble(),
+      soSetpointF: map['so_setpointF']?.toDouble(),
+      soActualF: map['so_actualF']?.toDouble(),
+      soMachineScreenPhoto: map['so_machineScreenPhoto'],
+      soBatchSize: (map['so_batchSize'] as num?)?.toInt(),
+      soBatchCount: (map['so_batchCount'] as num?)?.toInt(),
+      soTotalEggsSet: (map['so_totalEggsSet'] as num?)?.toInt(),
+      soEstSamplesJson: map['so_estSamplesJson'],
       // --- Hatchers ---
       hoBreed: map['hoBreed'],
       hoHatcherId: map['hoHatcherId'],
@@ -818,6 +863,14 @@ class AuditModel {
       'pm_stuntedOrgansSeverity': pmStuntedOrgansSeverity,
       'pm_pulmonaryHemorrhageCount': pmPulmonaryHemorrhageCount,
       'pm_pulmonaryHemorrhageSeverity': pmPulmonaryHemorrhageSeverity,
+      'pm_gizzardErosionsCount': pmGizzardErosionsCount,
+      'pm_gizzardErosionsSeverity': pmGizzardErosionsSeverity,
+      'pm_airSacCaseationsCount': pmAirSacCaseationsCount,
+      'pm_airSacCaseationsSeverity': pmAirSacCaseationsSeverity,
+      'pm_nephritisCount': pmNephritisCount,
+      'pm_nephritisSeverity': pmNephritisSeverity,
+      'pm_generalSepticemiaCount': pmGeneralSepticemiaCount,
+      'pm_generalSepticemiaSeverity': pmGeneralSepticemiaSeverity,
       'pm_gaspingPresent': pmGaspingPresent == null
           ? null
           : (pmGaspingPresent! ? 1 : 0),
@@ -893,6 +946,13 @@ class AuditModel {
       'soEstCv': soEstCv,
       'so_machineType': soMachineType,
       'so_turningAngle': soTurningAngle,
+      'so_setpointF': soSetpointF,
+      'so_actualF': soActualF,
+      'so_machineScreenPhoto': soMachineScreenPhoto,
+      'so_batchSize': soBatchSize,
+      'so_batchCount': soBatchCount,
+      'so_totalEggsSet': soTotalEggsSet,
+      'so_estSamplesJson': soEstSamplesJson,
       // --- Hatchers ---
       'hoBreed': hoBreed,
       'hoHatcherId': hoHatcherId,

@@ -242,10 +242,24 @@ class StationSampleMapper {
     AuditModel audit,
   ) {
     if (stationType == 'egg') return 'H$sampleIndex';
-    if (stationType == 'chicks') return 'M$sampleIndex';
+    if (stationType == 'chicks') {
+      return _chickMachineSampleLabel(
+        setterNo: audit.setterId ?? audit.soSetterId,
+        hatcherNo: audit.hatcherId ?? audit.hoHatcherId,
+        fallbackIndex: sampleIndex,
+      );
+    }
     if (stationType == 'setters') {
-      return _setterSampleLabel(
+      return _machineSampleLabel(
         audit.setterId ?? audit.soSetterId,
+        prefix: 'S',
+        fallbackIndex: sampleIndex,
+      );
+    }
+    if (stationType == 'hatchers') {
+      return _machineSampleLabel(
+        audit.hatcherId ?? audit.hoHatcherId,
+        prefix: 'H',
         fallbackIndex: sampleIndex,
       );
     }
@@ -257,20 +271,43 @@ class StationSampleMapper {
     if (stationType == 'egg') return 'House comparison';
     if (stationType == 'chicks') return 'Machine comparison';
     if (stationType == 'setters') return 'Setter comparison';
+    if (stationType == 'hatchers') return 'Hatcher comparison';
     return 'Comparison';
   }
 
-  static String _setterSampleLabel(String? raw, {required int fallbackIndex}) {
+  static String _machineSampleLabel(
+    String? raw, {
+    required String prefix,
+    required int fallbackIndex,
+  }) {
     final trimmed = raw?.trim() ?? '';
-    if (trimmed.isEmpty) return 'S$fallbackIndex';
+    if (trimmed.isEmpty) return '$prefix$fallbackIndex';
     final digits = RegExp(
       r'\d+',
     ).allMatches(trimmed).map((match) => match.group(0)).join();
-    if (digits.isNotEmpty) return 'S$digits';
-    final withoutPrefix = trimmed.toLowerCase().startsWith('s')
+    if (digits.isNotEmpty) return '$prefix$digits';
+    final withoutPrefix = trimmed.toLowerCase().startsWith(prefix.toLowerCase())
         ? trimmed.substring(1).trim()
         : trimmed;
-    return 'S$withoutPrefix';
+    return '$prefix$withoutPrefix';
+  }
+
+  static String _chickMachineSampleLabel({
+    required String? setterNo,
+    required String? hatcherNo,
+    required int fallbackIndex,
+  }) {
+    final setterLabel = _machineSampleLabel(
+      setterNo,
+      prefix: 'S',
+      fallbackIndex: fallbackIndex,
+    );
+    final hatcherLabel = _machineSampleLabel(
+      hatcherNo,
+      prefix: 'H',
+      fallbackIndex: fallbackIndex,
+    );
+    return '$setterLabel$hatcherLabel';
   }
 
   static String? _houseNo(String stationType, int sampleIndex) {

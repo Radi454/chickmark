@@ -180,7 +180,7 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
   Widget _buildLesionCard() {
     final lesions = [
       {
-        'label': 'Omphalitis',
+        'label': 'Omphalitis (Yolk Sacculitis)',
         'field': 'pm_omphalitis',
         'count': widget.audit.pmOmphalitisCount,
         'severity': widget.audit.pmOmphalitisSeverity,
@@ -192,34 +192,16 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
         'severity': widget.audit.pmGaseousCecaSeverity,
       },
       {
-        'label': 'Unabsorbed Yolk',
-        'field': 'pm_unabsorbedYolk',
-        'count': widget.audit.pmUnabsorbedYolkCount,
-        'severity': widget.audit.pmUnabsorbedYolkSeverity,
+        'label': 'Gizzard Erosions',
+        'field': 'pm_gizzardErosions',
+        'count': widget.audit.pmGizzardErosionsCount,
+        'severity': widget.audit.pmGizzardErosionsSeverity,
       },
       {
-        'label': 'Perihepatitis',
-        'field': 'pm_perihepatitis',
-        'count': widget.audit.pmPerihepatitisCount,
-        'severity': widget.audit.pmPerihepatitisSeverity,
-      },
-      {
-        'label': 'Pericarditis',
-        'field': 'pm_pericarditis',
-        'count': widget.audit.pmPericarditisCount,
-        'severity': widget.audit.pmPericarditisSeverity,
-      },
-      {
-        'label': 'Airsac Acute',
-        'field': 'pm_airsacAcute',
-        'count': widget.audit.pmAirsacAcuteCount,
-        'severity': widget.audit.pmAirsacAcuteSeverity,
-      },
-      {
-        'label': 'Airsac Chronic',
-        'field': 'pm_airsacChronic',
-        'count': widget.audit.pmAirsacChronicCount,
-        'severity': widget.audit.pmAirsacChronicSeverity,
+        'label': 'Air Sac Caseations',
+        'field': 'pm_airSacCaseations',
+        'count': widget.audit.pmAirSacCaseationsCount,
+        'severity': widget.audit.pmAirSacCaseationsSeverity,
       },
       {
         'label': 'Pulmonary Granuloma',
@@ -240,10 +222,16 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
         'severity': widget.audit.pmStuntedOrgansSeverity,
       },
       {
-        'label': 'Pulmonary Hemorrhage',
-        'field': 'pm_pulmonaryHemorrhage',
-        'count': widget.audit.pmPulmonaryHemorrhageCount,
-        'severity': widget.audit.pmPulmonaryHemorrhageSeverity,
+        'label': 'Nephritis',
+        'field': 'pm_nephritis',
+        'count': widget.audit.pmNephritisCount,
+        'severity': widget.audit.pmNephritisSeverity,
+      },
+      {
+        'label': 'General Septicemia',
+        'field': 'pm_generalSepticemia',
+        'count': widget.audit.pmGeneralSepticemiaCount,
+        'severity': widget.audit.pmGeneralSepticemiaSeverity,
       },
     ];
 

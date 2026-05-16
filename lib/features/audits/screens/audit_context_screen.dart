@@ -3,14 +3,18 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../core/security/security_policy.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../providers/customers_provider.dart';
+import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../../data/models/hatchery_model.dart';
+import '../../customers/widgets/add_customer_sheet.dart';
 import '../../customers/widgets/flock_management_sheet.dart';
 import '../../customers/widgets/hatchery_management_sheet.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
+import '../widgets/chick_icon.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import 'chick_quality_screen.dart';
 import 'hatch_analysis_screen.dart';
@@ -49,7 +53,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = context.read<AuthProvider>();
-      if (!(auth.user?.canEditAudits ?? false)) {
+      final canEdit =
+          AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+          (auth.user?.canEditAudits ?? false);
+      if (!canEdit) {
         Navigator.of(context).pop();
         return;
       }
@@ -100,7 +107,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
             children: [
               // Customer
               _buildSummaryCard(
-                icon: Icons.business_outlined,
+                icon: Icons.person_outline_rounded,
                 label: 'Customer',
                 displayValue: selectedCustomer?.name,
                 placeholder: 'Select customer',
@@ -116,7 +123,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
               // Hatchery
               _buildSummaryCard(
-                icon: Icons.factory_outlined,
+                icon: Icons.warehouse_outlined,
                 label: 'Hatchery',
                 displayValue: selectedHatchery == null
                     ? null
@@ -134,7 +141,10 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
               // Flock
               _buildSummaryCard(
-                icon: Icons.pets,
+                iconBuilder: (color) => ChickIcon(
+                  key: const ValueKey('flock-chick-icon'),
+                  color: color,
+                ),
                 label: 'Flock',
                 displayValue: selectedFlock == null
                     ? null
@@ -210,7 +220,8 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
   }
 
   Widget _buildSummaryCard({
-    required IconData icon,
+    IconData? icon,
+    Widget Function(Color color)? iconBuilder,
     required String label,
     required String? displayValue,
     required String placeholder,
@@ -240,10 +251,15 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                   color: isSelected ? AppColors.primary : AppColors.infoBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  color: isSelected ? Colors.white : AppColors.primary,
-                  size: 20,
+                child: Builder(
+                  builder: (context) {
+                    final iconColor = isSelected
+                        ? Colors.white
+                        : AppColors.primary;
+                    final customIcon = iconBuilder?.call(iconColor);
+                    if (customIcon != null) return customIcon;
+                    return Icon(icon, color: iconColor, size: 20);
+                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -371,6 +387,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
         initialChildSize: 0.5,
         maxChildSize: 0.9,
         minChildSize: 0.3,
@@ -391,12 +408,51 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'Select Customer',
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: SizedBox(
+                  height: 40,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Text(
+                        'Select Customer',
+                        style: AppTextStyles.body.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () async {
+                            final customer =
+                                await showModalBottomSheet<CustomerModel>(
+                                  context: ctx,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => const AddCustomerSheet(),
+                                );
+                            if (!ctx.mounted || customer == null) return;
+                            Navigator.pop(
+                              ctx,
+                              _CustomerOption(
+                                id: customer.id,
+                                name: customer.name,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add_business_outlined),
+                          label: const Text('Add'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

@@ -138,6 +138,10 @@ void main() {
       find.byKey(const ValueKey('chick-quality-panel-cvt')),
       findsOneWidget,
     );
+    expect(find.text('PG'), findsNothing);
+    expect(find.text('YF'), findsNothing);
+    expect(find.text('CVT'), findsNothing);
+    expect(find.text('PM'), findsNothing);
     expect(find.byKey(const ValueKey('pasgar-sample-size-card')), findsNothing);
 
     await tester.ensureVisible(find.text('Pasgar Score'));
@@ -166,6 +170,39 @@ void main() {
     );
   });
 
+  testWidgets('collapsible chick panels hide result badges', (tester) async {
+    await pumpScreen(tester);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-pasgar')),
+        matching: find.text('--'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-yfbm')),
+        matching: find.text('Stable'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-cvt')),
+        matching: find.text('--'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-pm')),
+        matching: find.text('Review'),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('YFBM entries are edited from a modal entry sheet', (
     tester,
   ) async {
@@ -187,6 +224,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('yfbm-entries-sheet')), findsOneWidget);
     expect(find.text('YFBM Entries'), findsOneWidget);
+    expect(find.text('0 of 10 rows complete'), findsOneWidget);
+    expect(find.text('Target 8-10%'), findsOneWidget);
 
     await enterAuditNumber(
       tester,
@@ -241,6 +280,31 @@ void main() {
     expect(readings['front_top'], 104.0);
   });
 
+  testWidgets('PM Necropsy shows the revised lesion checklist', (tester) async {
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-pm')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('PM Necropsy'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Omphalitis (Yolk Sacculitis)'), findsOneWidget);
+    expect(find.text('Gaseous Ceca'), findsOneWidget);
+    expect(find.text('Gizzard Erosions'), findsOneWidget);
+    expect(find.text('Air Sac Caseations'), findsOneWidget);
+    expect(find.text('Nephritis'), findsOneWidget);
+    expect(find.text('General Septicemia'), findsOneWidget);
+
+    expect(find.text('Unabsorbed Yolk'), findsNothing);
+    expect(find.text('Perihepatitis'), findsNothing);
+    expect(find.text('Pericarditis'), findsNothing);
+    expect(find.text('Airsac Acute'), findsNothing);
+    expect(find.text('Airsac Chronic'), findsNothing);
+    expect(find.text('Pulmonary Hemorrhage'), findsNothing);
+  });
+
   testWidgets('separates machine quality scope from house weight scope', (
     tester,
   ) async {
@@ -258,21 +322,39 @@ void main() {
       findsNothing,
     );
     expect(find.text('Quality sampling'), findsOneWidget);
+    expect(find.text('Machine ID'), findsOneWidget);
+    expect(find.text('Active machine'), findsNothing);
+    expect(find.text('Setter and hatcher pair'), findsNothing);
     expect(find.text('One sample'), findsWidgets);
     expect(find.text('Multisamples'), findsWidgets);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.byType(SegmentedButton<bool>),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
         matching: find.byKey(const ValueKey('quality-scope-selected-icon')),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
         matching: find.byKey(const ValueKey('quality-scope-multi-icon')),
       ),
-      findsWidgets,
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('quality-scope-segment-single')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('quality-scope-segment-multiple')),
+      findsOneWidget,
     );
 
     await tester.ensureVisible(
@@ -285,6 +367,37 @@ void main() {
     expect(find.text('House scope'), findsOneWidget);
     expect(find.text('One house'), findsNothing);
     expect(find.text('Compare houses'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
+        matching: find.byType(SegmentedButton<bool>),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('house-scope-selected-icon')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('house-scope-multi-icon')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('house-scope-segment-single')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('house-scope-segment-multiple')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chick-weight-metric-summary')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
+        matching: find.byType(GridView),
+      ),
+      findsNothing,
+    );
 
     final modeTop = tester.getTopLeft(find.text('House scope')).dy;
     final panelTop = tester
@@ -347,6 +460,40 @@ void main() {
     expect(find.byType(DraggableScrollableSheet), findsOneWidget);
   });
 
+  testWidgets('chick weight metric summary follows reviewer order', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-weight-metric-summary')),
+    );
+    await tester.pumpAndSettle();
+
+    final summary = find.byKey(const ValueKey('chick-weight-metric-summary'));
+    final orderedLabels = [
+      'Sample Size',
+      'BMK Chick Weight',
+      'Avg Weight',
+      'Low Margin',
+      'High Margin',
+      'Uniformity',
+      'C.V',
+    ];
+
+    var previousTop = double.negativeInfinity;
+    for (final label in orderedLabels) {
+      final labelFinder = find.descendant(
+        of: summary,
+        matching: find.text(label),
+      );
+      expect(labelFinder, findsOneWidget);
+      final top = tester.getTopLeft(labelFinder).dy;
+      expect(top, greaterThan(previousTop));
+      previousTop = top;
+    }
+  });
+
   testWidgets('weight hero renders flock context as a compact strip', (
     tester,
   ) async {
@@ -368,6 +515,34 @@ void main() {
     expect(find.text('flock-1'), findsWidgets);
     expect(find.text('Ross308'), findsOneWidget);
     expect(find.text('41 wks'), findsWidgets);
+  });
+
+  testWidgets('weight hero hides uniform result pill', (tester) async {
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
+
+    final weightsPanel = find.byKey(
+      const ValueKey('chick-quality-panel-weights'),
+    );
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('Uniform')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('Review')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: weightsPanel,
+        matching: find.text('Chick Weights & Uniformity'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('quality multisamples use setter and hatcher chip labels', (
@@ -393,6 +568,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('S2H2'), findsWidgets);
+  });
+
+  testWidgets('active machine fields stay aligned on phone widths', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+
+    final setterField = find.widgetWithText(TextFormField, 'Setter');
+    final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
+
+    expect(setterField, findsOneWidget);
+    expect(hatcherField, findsOneWidget);
+
+    final setterRect = tester.getRect(setterField);
+    final hatcherRect = tester.getRect(hatcherField);
+
+    expect(hatcherRect.top, setterRect.top);
+    expect(hatcherRect.width, setterRect.width);
+    expect(hatcherRect.height, setterRect.height);
   });
 
   testWidgets('optional test cards follow the selected quality sample type', (

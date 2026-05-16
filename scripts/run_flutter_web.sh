@@ -9,7 +9,17 @@ WEB_PORT="${WEB_PORT:-57863}"
 RESTART="${RESTART:-0}"
 FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
 DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS:-true}"
+WEB_BUILD_MODE="${WEB_BUILD_MODE:-profile}"
 APP_URL="http://${WEB_HOST}:${WEB_PORT}/#/main"
+
+case "${WEB_BUILD_MODE}" in
+  debug | profile | release)
+    ;;
+  *)
+    echo "WEB_BUILD_MODE must be debug, profile, or release."
+    exit 2
+    ;;
+esac
 
 is_port_in_use() {
   if command -v nc >/dev/null 2>&1 &&
@@ -88,6 +98,7 @@ fi
 
 echo
 echo "Starting ChickMark..."
+echo "Using ${WEB_BUILD_MODE} web-server build with local Flutter web resources."
 echo "Open this in the Codex side browser when Flutter is ready:"
 echo "${APP_URL}"
 echo
@@ -97,6 +108,8 @@ trap 'rm -f "${LOG_FILE}"' EXIT
 
 set +e
 "${FLUTTER_BIN}" run \
+  --"${WEB_BUILD_MODE}" \
+  --no-web-resources-cdn \
   --dart-define-from-file=.env \
   --dart-define=CHICKMARK_DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS}" \
   -d web-server \

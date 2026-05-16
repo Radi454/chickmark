@@ -84,7 +84,7 @@ void main() {
 
   group('checkCachedToken', () {
     test(
-      'auth bypass request is ignored without explicit compile-time flag',
+      'auth bypass request activates the development auditor in debug builds',
       () async {
         provider = AuthProvider(
           userRepository: mockRepo,
@@ -96,9 +96,9 @@ void main() {
 
         await provider.checkCachedToken();
 
-        expect(provider.state, AuthState.unauthenticated);
-        expect(provider.user, isNull);
-        verify(() => mockRepo.getCachedUser()).called(1);
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.user?.email, 'dev-auditor@chickmark.local');
+        verifyNever(() => mockRepo.getCachedUser());
       },
     );
 

@@ -3,12 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
+import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_station_selection_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
@@ -16,6 +19,7 @@ import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
+import 'package:hatchaudit/services/govee/govee_service.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
@@ -34,6 +38,11 @@ class MockActivityLogRepository extends Mock implements ActivityLogRepository {}
 
 class MockSupabaseService extends Mock implements SupabaseService {}
 
+class MockGoveeCaptureRepository extends Mock
+    implements GoveeCaptureRepository {}
+
+class MockGoveeService extends Mock implements GoveeService {}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(
@@ -47,6 +56,7 @@ void main() {
         updatedAt: DateTime(2026),
       ),
     );
+    registerFallbackValue(TemperaturePlace.eggStorageRoom);
   });
 
   testWidgets('completion navigation keeps unnamed root route available', (
@@ -162,6 +172,36 @@ void main() {
     },
   );
 
+  testWidgets('station selection uses a chick icon for Chicks', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuditStationSelectionScreen(
+          customerId: SessionTestFixtures.testCustomerId,
+          flockId: SessionTestFixtures.testFlockId,
+          hatcheryId: SessionTestFixtures.testHatcheryId,
+          selectedFlock: FlockModel(
+            id: SessionTestFixtures.testFlockId,
+            customerId: SessionTestFixtures.testCustomerId,
+            flockId: SessionTestFixtures.testFlockId,
+            breed: SessionTestFixtures.testBreed,
+            entryDate: SessionTestFixtures.testVisitDate.subtract(
+              const Duration(days: 42 * 7),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('station-chick-icon')), findsOneWidget);
+    expect(find.byIcon(Icons.cruelty_free), findsNothing);
+
+    await tester.tap(find.text('Chicks'));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('station-chick-icon')), findsOneWidget);
+    expect(find.byIcon(Icons.cruelty_free), findsNothing);
+  });
+
   testWidgets('session shell uses reference progress and footer structure', (
     tester,
   ) async {
@@ -236,11 +276,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Next Station'), findsOneWidget);
-    expect(find.text('Hatch Analysis'), findsOneWidget);
-
-    final hatchAnalysisLabel = tester.widget<Text>(find.text('Hatch Analysis'));
-    expect(hatchAnalysisLabel.maxLines, 2);
-    expect(hatchAnalysisLabel.overflow, isNot(TextOverflow.ellipsis));
 
     final appBar = tester.widget<AppBar>(find.byType(AppBar).first);
     expect(appBar.toolbarHeight, kToolbarHeight);
@@ -249,11 +284,124 @@ void main() {
       find.byKey(const ValueKey('audit-session-progress-shell')),
     );
     expect(progressSize.height, lessThanOrEqualTo(82));
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('audit-session-progress-shell')),
+        matching: find.text('Hatch'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('audit-session-progress-shell')),
+        matching: find.text('Hatch Analysis'),
+      ),
+      findsNothing,
+    );
+    final firstNodeCenter = tester.getCenter(
+      find.byKey(const ValueKey('audit-session-progress-node-0')),
+    );
+    for (var i = 1; i < 5; i++) {
+      expect(
+        tester
+            .getCenter(find.byKey(ValueKey('audit-session-progress-node-$i')))
+            .dy,
+        closeTo(firstNodeCenter.dy, 0.1),
+      );
+    }
+    for (var i = 0; i < 4; i++) {
+      final connectorRect = tester.getRect(
+        find.byKey(ValueKey('audit-session-progress-connector-$i')),
+      );
+      final currentNodeRect = tester.getRect(
+        find.byKey(ValueKey('audit-session-progress-node-$i')),
+      );
+      final nextNodeRect = tester.getRect(
+        find.byKey(ValueKey('audit-session-progress-node-${i + 1}')),
+      );
+      expect(connectorRect.left, closeTo(currentNodeRect.right, 1));
+      expect(connectorRect.right, closeTo(nextNodeRect.left, 1));
+    }
 
     final footerSize = tester.getSize(
       find.byKey(const ValueKey('audit-session-navigation-footer')),
     );
     expect(footerSize.height, lessThanOrEqualTo(78));
+  });
+
+  testWidgets('non-final station save does not show completion check overlay', (
+    tester,
+  ) async {
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => repository.markStationCompleted(any(), any()),
+    ).thenAnswer((_) async => makeAuditSessionRow(stationsCompleted: ['egg']));
+    when(() => repository.getSessionById(any())).thenAnswer(
+      (_) async => AuditSessionModel.fromMap(
+        makeAuditSessionRow(
+          selectedStationKeys: ['egg', 'chicks'],
+          stationsCompleted: ['egg'],
+        ),
+      ),
+    );
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['egg', 'chicks'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: const MaterialApp(home: AuditSessionScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final stationProvider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+    stationProvider.setEditMode(false);
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(_completionCheckOverlayFinder(), findsNothing);
   });
 
   testWidgets('session shell only hydrates the visible station initially', (
@@ -666,6 +814,15 @@ void main() {
       find.byKey(const ValueKey('audit-session-progress-shell')),
       findsOneWidget,
     );
+    final progressCheckIcon = find.descendant(
+      of: find.byKey(const ValueKey('audit-session-progress-shell')),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Icon && widget.icon == Icons.check && widget.size == 12,
+        description: 'compact station progress check icon',
+      ),
+    );
+    expect(progressCheckIcon, findsOneWidget);
     expect(
       find.byKey(const ValueKey('chick-quality-workbench')),
       findsOneWidget,
@@ -794,6 +951,82 @@ void main() {
       find.byKey(const ValueKey('audit-open-govee-readings')),
       findsOneWidget,
     );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('audit-open-govee-readings')),
+        matching: find.byIcon(Icons.device_thermostat_outlined),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Govee readings button opens the floating capture panel', (
+    tester,
+  ) async {
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final goveeRepository = MockGoveeCaptureRepository();
+    final goveeService = MockGoveeService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+    _stubEmptyGoveeRepository(goveeRepository);
+    _stubIdleGoveeService(goveeService);
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['egg'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(
+            create: (_) => GoveeCaptureProvider(
+              repository: goveeRepository,
+              goveeService: goveeService,
+              enablePhaseTimer: false,
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: AuditSessionScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('audit-open-govee-readings')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Govee capture'), findsOneWidget);
+    expect(find.text('Egg storage room'), findsWidgets);
+    expect(find.text('Govee'), findsNothing);
   });
 
   testWidgets('unsupported audit station does not show Govee readings button', (
@@ -853,4 +1086,49 @@ void main() {
       findsNothing,
     );
   });
+}
+
+Finder _completionCheckOverlayFinder() {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is Icon && widget.icon == Icons.check && widget.size == 48,
+    description: 'large completion check overlay',
+  );
+}
+
+void _stubEmptyGoveeRepository(MockGoveeCaptureRepository repository) {
+  when(
+    () => repository.getCaptureForScope(
+      customerId: any(named: 'customerId'),
+      hatcheryId: any(named: 'hatcheryId'),
+      stationKey: any(named: 'stationKey'),
+      place: any(named: 'place'),
+      machineId: any(named: 'machineId'),
+      captureDate: any(named: 'captureDate'),
+    ),
+  ).thenAnswer((_) async => null);
+  when(
+    () => repository.getCapturesForDashboard(
+      customerId: any(named: 'customerId'),
+      hatcheryId: any(named: 'hatcheryId'),
+      captureDate: any(named: 'captureDate'),
+    ),
+  ).thenAnswer((_) async => const []);
+}
+
+void _stubIdleGoveeService(MockGoveeService service) {
+  when(() => service.initializeBle()).thenAnswer((_) async {});
+  when(() => service.setAutoReconnectEnabled(any())).thenReturn(null);
+  when(() => service.isAvailable).thenReturn(false);
+  when(() => service.isConnected).thenReturn(false);
+  when(() => service.isGattConnected).thenReturn(false);
+  when(() => service.isGattConnecting).thenReturn(false);
+  when(() => service.isScanning).thenReturn(false);
+  when(() => service.deviceName).thenReturn(null);
+  when(() => service.deviceId).thenReturn(null);
+  when(() => service.signalStrength).thenReturn(null);
+  when(() => service.latestReading).thenReturn(null);
+  when(() => service.lastSeenAt).thenReturn(null);
+  when(() => service.diagnostics).thenReturn(const []);
+  when(() => service.readings).thenAnswer((_) => const Stream.empty());
 }

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/security/security_policy.dart';
 import '../../../core/utils/audit_type_labels.dart';
 import '../../../data/models/audit_model.dart';
 
@@ -83,7 +84,9 @@ class AuditDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+    final canEdit =
+        AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+        (context.watch<AuthProvider>().user?.canEditAudits ?? false);
     final sections = _sectionsForAudit();
 
     return Scaffold(

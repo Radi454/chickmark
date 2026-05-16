@@ -51,6 +51,9 @@ This project is a starting point for a Flutter application.
   already running.
 - `make restart-web` forces the stable Flutter web preview to restart with the
   current code.
+- The web shortcut defaults to a profile web-server build with local Flutter web
+  resources so the Codex side browser can run it without the Dart Debug Chrome
+  extension. Set `WEB_BUILD_MODE=debug` when you explicitly need debug web mode.
 - `scripts/run_flutter_web.command` can be double-clicked to restart the same
   Flutter web preview.
 

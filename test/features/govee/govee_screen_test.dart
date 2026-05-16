@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/features/govee/providers/govee_capture_provider.dart';
 import 'package:hatchaudit/features/govee/screens/govee_screen.dart';
+import 'package:hatchaudit/features/govee/widgets/govee_chart_preview.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/govee/govee_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _MockGoveeCaptureRepository extends Mock
     implements GoveeCaptureRepository {}
@@ -30,6 +34,7 @@ class _FakeClock {
 Widget buildGoveeTestApp({GoveeCaptureProvider? provider}) {
   return MultiProvider(
     providers: [
+      ChangeNotifierProvider(create: (_) => AppProvider()),
       ChangeNotifierProvider(create: (_) => provider ?? GoveeCaptureProvider()),
       ChangeNotifierProvider(create: (_) => CustomersProvider()),
     ],
@@ -41,6 +46,9 @@ Future<GoveeCaptureProvider> _configuredProvider({
   required _MockGoveeService govee,
   GoveeCaptureTarget target = GoveeCaptureTarget.room,
   _FakeClock? clock,
+  TemperaturePlace place = TemperaturePlace.setterRoom,
+  String? stationKey = 'setters',
+  String? machineId = 'Setter 7',
   List<GoveeDailyCaptureModel> savedCaptures = const [],
   Map<String, List<GoveePlaceReadingModel>> savedReadings = const {},
 }) async {
@@ -76,10 +84,10 @@ Future<GoveeCaptureProvider> _configuredProvider({
   await provider.configure(
     customerId: 'customer-1',
     hatcheryId: 'hatchery-1',
-    place: TemperaturePlace.setterRoom,
+    place: place,
     captureDate: '2026-05-06',
-    stationKey: 'setters',
-    machineId: 'Setter 7',
+    stationKey: stationKey,
+    machineId: machineId,
     captureTarget: target,
   );
   return provider;
@@ -102,6 +110,8 @@ void _stubLiveGovee(
   when(() => govee.latestReading).thenReturn(latest);
   when(() => govee.lastSeenAt).thenReturn(latest?.timestamp);
   when(() => govee.diagnostics).thenReturn(const []);
+  when(() => govee.discoveredGoveeDevices).thenReturn(const []);
+  when(() => govee.disconnectDevice()).thenAnswer((_) async {});
   when(
     () => govee.readings,
   ).thenAnswer((_) => readings ?? const Stream.empty());
@@ -164,6 +174,10 @@ void main() {
     registerFallbackValue(TemperaturePlace.eggStorageRoom);
   });
 
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('Govee screen shows capture controls instead of saved history', (
     tester,
   ) async {
@@ -194,11 +208,73 @@ void main() {
 
     expect(find.byKey(const ValueKey('govee-live-header')), findsOneWidget);
     expect(find.text('Govee H5051'), findsOneWidget);
-    expect(find.text('Connected'), findsOneWidget);
-    expect(find.text('99.5 F'), findsOneWidget);
-    expect(find.text('58.2%'), findsOneWidget);
-    expect(find.textContaining('Updated at'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Read'), findsOneWidget);
+    expect(find.text('Status: Connected'), findsOneWidget);
+    expect(find.text('99.5°F'), findsOneWidget);
+    expect(find.text('58.2%'), findsWidgets);
+    expect(find.text('RSSI -61'), findsOneWidget);
+    expect(find.text('Battery 88%'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('govee-temperature-preview-chart')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('govee-rh-preview-chart')),
+      findsOneWidget,
+    );
+    expect(find.text('°F'), findsOneWidget);
+    expect(find.text('°C'), findsOneWidget);
+    expect(find.textContaining('Updated'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Read'), findsOneWidget);
+
+    var temperatureChart = tester.widget<LineChart>(
+      find.byKey(const ValueKey('govee-temperature-preview-chart')),
+    );
+    expect(temperatureChart.data.lineBarsData.single.spots.single.y, 99.5);
+
+    await tester.tap(find.text('°C'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('37.5°C'), findsWidgets);
+    temperatureChart = tester.widget<LineChart>(
+      find.byKey(const ValueKey('govee-temperature-preview-chart')),
+    );
+    expect(
+      temperatureChart.data.lineBarsData.single.spots.single.y,
+      closeTo(37.5, 0.1),
+    );
+  });
+
+  testWidgets('Govee main card opens settings with connection controls', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(
+      govee,
+      latest: GoveeSensorReading(
+        temperatureFahrenheit: 99.5,
+        humidity: 58.2,
+        batteryPercent: 88,
+        timestamp: DateTime.parse('2026-05-06T07:45:00'),
+      ),
+    );
+    final provider = await _configuredProvider(govee: govee);
+
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    await tester.tap(find.byKey(const ValueKey('govee-settings-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Govee settings'), findsOneWidget);
+    expect(find.text('Connection details'), findsOneWidget);
+    expect(find.text('Device ID'), findsOneWidget);
+    expect(find.text('device-1'), findsOneWidget);
+    expect(find.text('Available devices'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Disconnect'));
+    await tester.pumpAndSettle();
+
+    verify(() => govee.disconnectDevice()).called(1);
   });
 
   testWidgets('Setters entry offers room and inside-machine choices', (
@@ -226,6 +302,39 @@ void main() {
 
     expect(provider.place, TemperaturePlace.insideSetter);
     expect(provider.machineId, 'Setter 7');
+  });
+
+  testWidgets('Egg capture date is displayed read-only', (tester) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee, connected: false);
+    final provider = await _configuredProvider(
+      govee: govee,
+      place: TemperaturePlace.eggStorageRoom,
+      stationKey: 'egg',
+      machineId: null,
+    );
+
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    final dateButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '2026-05-06'),
+    );
+    expect(dateButton.onPressed, isNull);
+    expect(provider.captureDate, '2026-05-06');
+  });
+
+  testWidgets('station capture date is displayed read-only', (tester) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee, connected: false);
+    final provider = await _configuredProvider(govee: govee);
+
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    final dateButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '2026-05-06'),
+    );
+    expect(dateButton.onPressed, isNull);
+    expect(provider.captureDate, '2026-05-06');
   });
 
   testWidgets('failed history sync shows retry as the primary action', (
@@ -264,7 +373,50 @@ void main() {
     expect(find.textContaining('History sync timed out'), findsOneWidget);
   });
 
-  testWidgets('saved station strip remains after starting the next recording', (
+  testWidgets('recording shows elapsed length and enabled stop action', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee);
+    final clock = _FakeClock(DateTime.parse('2026-05-06T08:00:00'));
+    final provider = await _configuredProvider(govee: govee, clock: clock);
+
+    await provider.startRecording();
+    clock.elapse(const Duration(minutes: 5, seconds: 7));
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    final stopButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Stop and save'),
+    );
+    expect(stopButton.onPressed, isNotNull);
+    expect(find.textContaining('Warmup'), findsNothing);
+    expect(find.textContaining('Recording length 05:07'), findsOneWidget);
+  });
+
+  testWidgets('recording preview chart uses the latest live reading', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    final clock = _FakeClock(DateTime.parse('2026-05-06T08:00:00'));
+    _stubLiveGovee(
+      govee,
+      latest: GoveeSensorReading(
+        temperatureFahrenheit: 69.7,
+        humidity: 66.1,
+        batteryPercent: 100,
+        timestamp: clock.now().add(const Duration(seconds: 5)),
+      ),
+    );
+    final provider = await _configuredProvider(govee: govee, clock: clock);
+
+    await provider.startRecording();
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    expect(find.text('Temperature'), findsWidgets);
+    expect(find.text('Relative Humidity'), findsWidgets);
+  });
+
+  testWidgets('saved captures stay available in an expandable card', (
     tester,
   ) async {
     final govee = _MockGoveeService();
@@ -282,20 +434,34 @@ void main() {
 
     await tester.pumpWidget(buildGoveeTestApp(provider: provider));
 
-    expect(find.text('Saved stations'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('govee-saved-captures-card')),
+      260,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('govee-saved-captures-card')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved captures'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('govee-saved-station-strip')),
+      find.byKey(const ValueKey('govee-saved-captures-card')),
       findsOneWidget,
     );
+    expect(find.text('1 saved'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('govee-saved-captures-card')));
+    await tester.pumpAndSettle();
+
     expect(find.text('Egg storage room'), findsWidgets);
     expect(find.text('2 readings'), findsWidgets);
 
     await provider.startRecording();
     await tester.pump();
 
-    expect(find.text('Saved stations'), findsOneWidget);
+    expect(find.text('Saved captures'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('govee-saved-station-strip')),
+      find.byKey(const ValueKey('govee-saved-captures-card')),
       findsOneWidget,
     );
     expect(find.text('Egg storage room'), findsWidgets);
@@ -309,30 +475,33 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: GoveeChartPreview(
-              machineId: 'Setter 7',
-              readings: [
-                GoveeSensorReading(
-                  temperatureFahrenheit: 98,
-                  humidity: 50,
-                  timestamp: startedAt,
-                ),
-                GoveeSensorReading(
-                  temperatureFahrenheit: 99,
-                  humidity: 51,
-                  timestamp: startedAt.add(const Duration(minutes: 1)),
-                ),
-              ],
+        home: ChangeNotifierProvider(
+          create: (_) => AppProvider(),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: GoveeChartPreview(
+                machineId: 'Setter 7',
+                readings: [
+                  GoveeSensorReading(
+                    temperatureFahrenheit: 98,
+                    humidity: 50,
+                    timestamp: startedAt,
+                  ),
+                  GoveeSensorReading(
+                    temperatureFahrenheit: 99,
+                    humidity: 51,
+                    timestamp: startedAt.add(const Duration(minutes: 1)),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
 
-    expect(find.text('Temperature preview'), findsOneWidget);
-    expect(find.text('Relative Humidity preview'), findsOneWidget);
+    expect(find.text('Temperature'), findsOneWidget);
+    expect(find.text('Relative Humidity'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('govee-temperature-preview-chart')),
       findsOneWidget,
@@ -341,6 +510,11 @@ void main() {
       find.byKey(const ValueKey('govee-rh-preview-chart')),
       findsOneWidget,
     );
+    final liveChart = tester.widget<LineChart>(
+      find.byKey(const ValueKey('govee-temperature-preview-chart')),
+    );
+    expect(liveChart.transformationConfig.panEnabled, isFalse);
+    expect(liveChart.transformationConfig.scaleEnabled, isFalse);
     expect(find.textContaining('live readings'), findsOneWidget);
     expect(find.textContaining('Setter 7'), findsWidgets);
   });

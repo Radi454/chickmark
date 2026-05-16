@@ -11,8 +11,8 @@ import '../data/repositories/audit_session_repository.dart';
 import '../data/repositories/customer_repository.dart';
 import '../data/repositories/flock_repository.dart';
 import '../data/repositories/hatchery_repository.dart';
-import '../data/repositories/audit_repository.dart';
 import '../data/repositories/bmk_repository.dart';
+import '../data/repositories/panel_dashboard_repository.dart';
 import '../data/repositories/photo_repository.dart';
 import '../services/photo/photo_service.dart';
 import '../services/supabase/supabase_service.dart';
@@ -23,8 +23,9 @@ class CustomersProvider extends ChangeNotifier {
   final FlockRepository _flockRepository = FlockRepository();
   final HatcheryRepository _hatcheryRepository = HatcheryRepository();
   final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
-  final AuditRepository _auditRepository = AuditRepository();
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
+  final PanelDashboardRepository _panelDashboardRepository =
+      PanelDashboardRepository();
   final BmkRepository _bmkRepository = BmkRepository();
   final PhotoRepository _photoRepository = PhotoRepository();
   final PhotoService _photoService = PhotoService();
@@ -124,7 +125,6 @@ class CustomersProvider extends ChangeNotifier {
           upsertCustomer: (row) => _customerRepository.upsertCustomer(row),
           upsertFlock: (row) => _flockRepository.upsertFlock(row),
           upsertHatchery: (row) => _hatcheryRepository.upsertHatchery(row),
-          upsertAudit: (row) => _auditRepository.upsertAudit(row),
           upsertPhoto: (row) => _photoRepository.upsertPhoto(row),
           upsertBmkBreed: (row) => _bmkRepository.upsertBmkBreed(row),
           upsertBmkEggBreakout: (row) =>
@@ -133,12 +133,11 @@ class CustomersProvider extends ChangeNotifier {
         );
       }
       final customers = await _customerRepository.getAllCustomers();
-      final audits = await _auditRepository.getAllAudits(limit: 100000);
       final allFlocks = await _flockRepository.getAllFlocks();
       final allHatcheries = await _hatcheryRepository.getAllHatcheries();
 
       _allCustomers = _scopeCustomers(customers);
-      _audits = _scopeAudits(audits);
+      _audits = const [];
       final visibleFlocks = _scopeFlocks(allFlocks);
       final visibleHatcheries = _scopeHatcheries(allHatcheries);
       _customersById
@@ -236,12 +235,7 @@ class CustomersProvider extends ChangeNotifier {
           ? _flocks.first
           : null;
 
-      // Load audits for this customer, sorted newest-first
-      final audits = await _auditRepository.getAuditsByCustomer(
-        customer.id,
-        limit: 100000,
-      );
-      _audits = audits..sort((a, b) => b.date.compareTo(a.date));
+      _audits = const [];
 
       // Load visit sessions for this customer (US6)
       await _loadVisitSessions(customer.id);
@@ -261,11 +255,13 @@ class CustomersProvider extends ChangeNotifier {
       );
       final summaries = <VisitSessionSummary>[];
       for (final session in sessions) {
-        final audits = await _auditRepository.getAuditsBySessionId(session.id);
+        final panelRows = await _panelDashboardRepository.getPanelRowsBySession(
+          session.id,
+        );
         summaries.add(
-          VisitSessionSummary.fromSession(
+          VisitSessionSummary.fromPanelRows(
             session: session,
-            stationAudits: audits,
+            panelRowsByTable: panelRows,
           ),
         );
       }
@@ -414,20 +410,18 @@ class CustomersProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteAudit(String auditId) async {
+  Future<void> deleteAudit(String rowId) async {
     _ensureCanEdit();
     try {
-      await _auditRepository.deleteAudit(auditId);
-      _audits.removeWhere((audit) => audit.id == auditId);
+      _audits.removeWhere((audit) => audit.id == rowId);
       if (_currentUser != null) {
         await _activityLogRepository.log(
           _currentUser!.id,
           'delete',
           entityType: 'audit',
-          entityId: auditId,
+          entityId: rowId,
         );
       }
-      unawaited(_supabaseService.syncDeleteAudit(auditId));
       await loadCustomers(currentUser: _currentUser);
     } catch (e) {
       debugPrint('Error deleting audit: $e');
@@ -438,17 +432,18 @@ class CustomersProvider extends ChangeNotifier {
   Future<void> deleteCustomer(String customerId) async {
     _ensureCanEdit();
     try {
-      final audits = (await _auditRepository.getAllAudits(
+      final sessions = await _sessionRepository.getSessionsByCustomer(
+        customerId,
         limit: 100000,
-      )).where((audit) => audit.customerId == customerId).toList();
-      for (final audit in audits) {
-        final photos = await _photoRepository.getByAuditId(audit.id);
+      );
+      for (final session in sessions) {
+        final photos = await _photoRepository.getBySessionId(session.id);
         for (final photo in photos) {
           await _photoService.deletePhoto(photo.filePath);
         }
+        await _sessionRepository.deleteSession(session.id);
       }
 
-      await _auditRepository.deleteAuditsByCustomer(customerId);
       await _flockRepository.deleteFlocksByCustomer(customerId);
       await _hatcheryRepository.deleteHatcheriesByCustomer(customerId);
       await _customerRepository.deleteCustomer(customerId);
@@ -491,14 +486,6 @@ class CustomersProvider extends ChangeNotifier {
     return hatcheries
         .where((hatchery) => hatchery.customerId == customerId)
         .toList();
-  }
-
-  List<AuditModel> _scopeAudits(List<AuditModel> audits) {
-    final user = _currentUser;
-    if (user == null || !user.isCustomer) return audits;
-    final customerId = user.customerId;
-    if (customerId == null || customerId.isEmpty) return [];
-    return audits.where((audit) => audit.customerId == customerId).toList();
   }
 
   void _ensureCanEdit() {

@@ -94,6 +94,8 @@ class GoveeService extends ChangeNotifier {
   static const int _goveeManufacturerId = 0xEC88;
   static const int _appleManufacturerId = 0x004C;
   static const int _microsoftManufacturerId = 0x0006;
+  static const String _goveeServiceUuid =
+      '494e5445-4c4c-495f-524f-434b535f2000';
   static const String _goveeDeviceCharacteristicUuid =
       '494e5445-4c4c-495f-524f-434b535f2011';
   static const String _goveeCommandCharacteristicUuid =
@@ -126,6 +128,7 @@ class GoveeService extends ChangeNotifier {
   final List<StreamSubscription<List<int>>> _gattNotificationSubscriptions =
       <StreamSubscription<List<int>>>[];
   Timer? _discoveryTimeoutTimer;
+  Duration _activeDiscoveryTimeout = _discoveryTimeout;
   Timer? _gattPollTimer;
   Timer? _reconnectScanTimer;
   int _gattPollCount = 0;
@@ -410,20 +413,24 @@ class GoveeService extends ChangeNotifier {
     return platform != TargetPlatform.iOS && platform != TargetPlatform.macOS;
   }
 
-  Future<void> restartScan() async {
+  Future<void> restartScan({
+    Duration timeout = _scanTimeout,
+    Duration discoveryTimeout = _discoveryTimeout,
+  }) async {
     _ensureBleInitialized();
     if (kIsWeb) {
       unawaited(stopScan());
-      await startScan();
+      await startScan(timeout: timeout, discoveryTimeout: discoveryTimeout);
       return;
     }
 
     await stopScan();
-    await startScan();
+    await startScan(timeout: timeout, discoveryTimeout: discoveryTimeout);
   }
 
   void _startDiscoveryTimeout(Duration discoveryTimeout) {
     _discoveryTimeoutTimer?.cancel();
+    _activeDiscoveryTimeout = discoveryTimeout;
     _discoveryTimeoutTimer = Timer(discoveryTimeout, () {
       unawaited(_handleDiscoveryTimeout());
     });
@@ -431,10 +438,13 @@ class GoveeService extends ChangeNotifier {
 
   Future<void> _handleDiscoveryTimeout() async {
     if (!_isScanning || _isConnected || _device != null) return;
+    final timeout = _activeDiscoveryTimeout;
     if (kDebugMode) {
-      debugPrint('Govee discovery timed out after $_discoveryTimeout');
+      debugPrint('Govee discovery timed out after $timeout');
     }
-    _addDiagnostic('Discovery timed out after ${_discoveryTimeout.inSeconds}s');
+    _addDiagnostic(
+      'Discovery timed out after ${_formatDurationBrief(timeout)}',
+    );
     await stopScan();
   }
 
@@ -848,16 +858,13 @@ class GoveeService extends ChangeNotifier {
     final names = <String>[
       result.device.platformName,
       result.advertisementData.advName,
-    ].where((name) => name.isNotEmpty).map((name) => name.toLowerCase());
+    ].where((name) => name.isNotEmpty);
 
-    if (names.any(
-      (name) =>
-          name.startsWith('govee') ||
-          name.startsWith('h5051') ||
-          name.startsWith('gvh') ||
-          name.contains('govee') ||
-          name.contains('h50'),
-    )) {
+    if (names.any(_isGoveeName)) {
+      return true;
+    }
+
+    if (_hasGoveeBleIdentity(result)) {
       return true;
     }
 
@@ -883,10 +890,7 @@ class GoveeService extends ChangeNotifier {
   }
 
   bool _hasGoveeAdvertisement(ScanResult result) {
-    final localName = [
-      result.device.platformName,
-      result.advertisementData.advName,
-    ].where((name) => name.isNotEmpty).join(' ');
+    final localName = _advertisedLocalName(result);
 
     for (final entry in result.advertisementData.manufacturerData.entries) {
       final manufacturerId = entry.key;
@@ -896,8 +900,13 @@ class GoveeService extends ChangeNotifier {
       }
 
       final data = entry.value;
-      if (_parseH5051(data) != null ||
-          _parseH5051ShortAdvert(data) != null ||
+      final hasGoveeIdentity = _hasGoveeIdentity(
+        manufacturerId: manufacturerId,
+        localName: localName,
+      );
+      if ((hasGoveeIdentity &&
+              (_parseH5051(data) != null ||
+                  _parseH5051ShortAdvert(data) != null)) ||
           _parseLegacyGoveeAdvertisement(
                 data,
                 manufacturerId: manufacturerId,
@@ -920,8 +929,13 @@ class GoveeService extends ChangeNotifier {
       final manufacturerId = serviceId.contains('ec88')
           ? _goveeManufacturerId
           : 0;
-      if (_parseH5051(data) != null ||
-          _parseH5051ShortAdvert(data) != null ||
+      final hasGoveeIdentity = _hasGoveeIdentity(
+        manufacturerId: manufacturerId,
+        localName: localName,
+      );
+      if ((hasGoveeIdentity &&
+              (_parseH5051(data) != null ||
+                  _parseH5051ShortAdvert(data) != null)) ||
           _parseGoveeCombinedAdvert(
                 data,
                 manufacturerId: manufacturerId,
@@ -940,11 +954,29 @@ class GoveeService extends ChangeNotifier {
     return false;
   }
 
+  bool _hasGoveeBleIdentity(ScanResult result) {
+    if (result.advertisementData.manufacturerData.keys.any(
+      (manufacturerId) => manufacturerId == _goveeManufacturerId,
+    )) {
+      return true;
+    }
+
+    if (result.advertisementData.serviceData.keys.any(
+      (uuid) => _isGoveeAdvertisedUuid(uuid.str),
+    )) {
+      return true;
+    }
+
+    return result.advertisementData.serviceUuids.any(
+      (uuid) => _isGoveeAdvertisedUuid(uuid.str),
+    );
+  }
+
   GoveeSensorReading? _parseGoveeAdvertisement(ScanResult result) {
     try {
       _logAdvertisement(result);
 
-      final localName = _displayName(result);
+      final localName = _advertisedLocalName(result);
       for (final entry in result.advertisementData.manufacturerData.entries) {
         final manufacturerId = entry.key;
         final data = entry.value;
@@ -953,16 +985,24 @@ class GoveeService extends ChangeNotifier {
           continue;
         }
 
-        final h5051 = _parseH5051(data);
-        if (h5051 != null) return h5051;
+        final hasGoveeIdentity = _hasGoveeIdentity(
+          manufacturerId: manufacturerId,
+          localName: localName,
+        );
+        if (hasGoveeIdentity) {
+          final h5051 = _parseH5051(data);
+          if (h5051 != null) return h5051;
+        }
         final combined = _parseGoveeCombinedAdvert(
           data,
           manufacturerId: manufacturerId,
           localName: localName,
         );
         if (combined != null) return combined;
-        final shortAdvert = _parseH5051ShortAdvert(data);
-        if (shortAdvert != null) return shortAdvert;
+        if (hasGoveeIdentity) {
+          final shortAdvert = _parseH5051ShortAdvert(data);
+          if (shortAdvert != null) return shortAdvert;
+        }
         final legacy = _parseLegacyGoveeAdvertisement(
           data,
           manufacturerId: manufacturerId,
@@ -978,16 +1018,24 @@ class GoveeService extends ChangeNotifier {
             : 0;
         final data = entry.value;
 
-        final h5051 = _parseH5051(data);
-        if (h5051 != null) return h5051;
+        final hasGoveeIdentity = _hasGoveeIdentity(
+          manufacturerId: manufacturerId,
+          localName: localName,
+        );
+        if (hasGoveeIdentity) {
+          final h5051 = _parseH5051(data);
+          if (h5051 != null) return h5051;
+        }
         final combined = _parseGoveeCombinedAdvert(
           data,
           manufacturerId: manufacturerId,
           localName: localName,
         );
         if (combined != null) return combined;
-        final shortAdvert = _parseH5051ShortAdvert(data);
-        if (shortAdvert != null) return shortAdvert;
+        if (hasGoveeIdentity) {
+          final shortAdvert = _parseH5051ShortAdvert(data);
+          if (shortAdvert != null) return shortAdvert;
+        }
         final legacy = _parseLegacyGoveeAdvertisement(
           data,
           manufacturerId: manufacturerId,
@@ -999,6 +1047,34 @@ class GoveeService extends ChangeNotifier {
       if (kDebugMode) debugPrint('Govee advertisement parse failed: $e');
     }
     return null;
+  }
+
+  bool _isGoveeName(String name) {
+    final lower = name.toLowerCase();
+    return lower.startsWith('govee') ||
+        lower.startsWith('h5051') ||
+        lower.startsWith('gvh') ||
+        lower.contains('govee') ||
+        lower.contains('h50');
+  }
+
+  String _advertisedLocalName(ScanResult result) {
+    return [
+      result.device.platformName,
+      result.advertisementData.advName,
+    ].where((name) => name.isNotEmpty).join(' ');
+  }
+
+  bool _hasGoveeIdentity({
+    required int manufacturerId,
+    required String localName,
+  }) {
+    return manufacturerId == _goveeManufacturerId || _isGoveeName(localName);
+  }
+
+  bool _isGoveeAdvertisedUuid(String uuid) {
+    final lower = uuid.toLowerCase();
+    return lower.contains('ec88') || lower == _goveeServiceUuid;
   }
 
   GoveeSensorReading? _parseH5051ShortAdvert(List<int> data) {
@@ -1182,11 +1258,31 @@ class GoveeService extends ChangeNotifier {
   }
 
   @visibleForTesting
+  static List<int> buildGoveeEpochMinuteHistoryRequestForTesting({
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required DateTime now,
+  }) {
+    return _buildHistorySyncRequest(
+      protocol: _GoveeHistoryProtocol.epochMinute,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      now: now,
+    ).payload;
+  }
+
+  @visibleForTesting
   static List<GoveeSensorReading> parseGoveeHistoryDataPacketForTesting(
     List<int> data, {
     required DateTime syncBaseMinute,
   }) {
     return _parseGoveeHistoryDataPacket(data, syncBaseMinute: syncBaseMinute);
+  }
+
+  @visibleForTesting
+  static List<GoveeSensorReading>
+  parseGoveeEpochMinuteHistoryDataPacketForTesting(List<int> data) {
+    return _parseGoveeEpochMinuteHistoryDataPacket(data);
   }
 
   @visibleForTesting
@@ -1283,14 +1379,19 @@ class GoveeService extends ChangeNotifier {
     required DateTime endedAt,
     required DateTime now,
   }) {
-    final latestSafeEnd = now.subtract(const Duration(minutes: 1));
-    final safeEndedAt = endedAt.isBefore(latestSafeEnd)
-        ? endedAt
-        : latestSafeEnd;
+    final latestCompletedMinute =
+        now.subtract(const Duration(minutes: 1)).millisecondsSinceEpoch ~/
+        60000;
     final requestedStartMinute = startedAt.millisecondsSinceEpoch ~/ 60000;
-    final requestedEndMinute = safeEndedAt.millisecondsSinceEpoch ~/ 60000;
-    final startEpochMinute = math.min(requestedStartMinute, requestedEndMinute);
-    final endEpochMinute = math.max(requestedStartMinute, requestedEndMinute);
+    final requestedEndMinute = endedAt.millisecondsSinceEpoch ~/ 60000;
+    var startEpochMinute = math.min(requestedStartMinute, requestedEndMinute);
+    var endEpochMinute = math.min(
+      math.max(requestedStartMinute, requestedEndMinute),
+      latestCompletedMinute,
+    );
+    if (endEpochMinute < startEpochMinute) {
+      startEpochMinute = endEpochMinute;
+    }
     return _GoveeHistorySyncRequest(
       protocol: _GoveeHistoryProtocol.epochMinute,
       payload: _buildGoveeEpochMinuteHistoryRequest(
@@ -1363,13 +1464,16 @@ class GoveeService extends ChangeNotifier {
         final tempF = _celsiusToFahrenheit(decoded.temperatureCelsius);
         final humidity = decoded.humidity;
         if (_isValidReading(tempF, humidity)) {
+          final bucketStartedAt = syncBaseMinute.subtract(
+            Duration(minutes: minutesBack),
+          );
           readings.add(
             GoveeSensorReading(
               temperatureFahrenheit: tempF,
               humidity: humidity,
-              timestamp: syncBaseMinute.subtract(
-                Duration(minutes: minutesBack),
-              ),
+              timestamp: bucketStartedAt,
+              bucketStartedAt: bucketStartedAt,
+              bucketEndedAt: bucketStartedAt.add(const Duration(minutes: 1)),
             ),
           );
         }
@@ -1414,11 +1518,16 @@ class GoveeService extends ChangeNotifier {
       final tempF = _celsiusToFahrenheit(tempRaw / 100.0);
       final humidity = humidityRaw / 100.0;
       if (_isValidReading(tempF, humidity)) {
+        final bucketStartedAt = DateTime.fromMillisecondsSinceEpoch(
+          epochMinute * 60000,
+        );
         readings.add(
           GoveeSensorReading(
             temperatureFahrenheit: tempF,
             humidity: humidity,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(epochMinute * 60000),
+            timestamp: bucketStartedAt,
+            bucketStartedAt: bucketStartedAt,
+            bucketEndedAt: bucketStartedAt.add(const Duration(minutes: 1)),
           ),
         );
       }
@@ -1634,19 +1743,21 @@ class GoveeService extends ChangeNotifier {
       throw StateError('Govee history sync is already in progress');
     }
 
-    await _ensureHistoryCharacteristicsReady();
+    final historyCharacteristicsReady =
+        await _ensureHistoryCharacteristicsReady();
     final writeCharacteristic = _goveeHistoryControlCharacteristic;
     final responseCharacteristic = _goveeHistoryControlCharacteristic;
     final dataCharacteristic = _goveeHistoryDataCharacteristic;
-    if (!_isGattConnected ||
+    if (!historyCharacteristicsReady ||
+        !_isGattConnected ||
         writeCharacteristic == null ||
         responseCharacteristic == null ||
         dataCharacteristic == null ||
         !_canWrite(writeCharacteristic)) {
-      _addDiagnostic(
-        'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.',
-      );
-      return const [];
+      const message =
+          'History sync needs connected H5051 history/control/data characteristics. Keep the device near the app and reconnect Govee.';
+      _addDiagnostic(message);
+      throw StateError(message);
     }
 
     final now = DateTime.now();
@@ -1740,9 +1851,17 @@ class GoveeService extends ChangeNotifier {
     _historySyncReadings = <GoveeSensorReading>[];
     _historySyncBaseMinute = resolvedSyncRequest.baseMinute;
     _historySyncPacketCount = 0;
-    await _ensureHistoryNotifications(resolvedResponse, resolvedData);
-    await _writeGoveeHistoryRequest(resolvedWrite, resolvedSyncRequest);
-    _addDiagnostic(resolvedSyncRequest.diagnostic(retry: retry));
+    try {
+      await _ensureHistoryNotifications(resolvedResponse, resolvedData);
+      await _writeGoveeHistoryRequest(resolvedWrite, resolvedSyncRequest);
+      _addDiagnostic(resolvedSyncRequest.diagnostic(retry: retry));
+    } catch (e) {
+      if (_canRetryActiveHistorySyncAfterGattFailure(e)) {
+        _prepareHistorySyncRetryAfterGattFailure(e);
+        return;
+      }
+      rethrow;
+    }
   }
 
   Future<void> _writeGoveeCommand(
@@ -1823,6 +1942,30 @@ class GoveeService extends ChangeNotifier {
         rethrow;
       }
     }
+  }
+
+  bool _canRetryActiveHistorySyncAfterGattFailure(Object error) {
+    if (!_historySyncActive || !_shouldRetryHistorySyncAfterGattDisconnect()) {
+      return false;
+    }
+    final message = error.toString().toLowerCase();
+    return message.contains('disconnect') || message.contains('not connected');
+  }
+
+  void _prepareHistorySyncRetryAfterGattFailure(Object error) {
+    _historySyncReadings = <GoveeSensorReading>[];
+    _historySyncBaseMinute = null;
+    _historySyncPacketCount = 0;
+    _isGattConnected = false;
+    _stopGattPolling();
+    unawaited(_cancelGattNotificationSubscriptions());
+    _clearGattCharacteristics();
+    _addDiagnostic(
+      'History sync waiting for reconnect after GATT failure: $error',
+      notify: false,
+    );
+    _scheduleReconnectScan();
+    notifyListeners();
   }
 
   Future<bool> _ensureHistoryCharacteristicsReady() async {
@@ -2066,8 +2209,24 @@ class GoveeService extends ChangeNotifier {
 
     final id = result.device.remoteId.str;
     if (!_debugLoggedScanIds.add(id)) return;
-    final name = _displayName(result);
-    debugPrint('BLE scan candidate ignored name=$name rssi=${result.rssi}');
+    final advertisedName = _advertisedLocalName(result).trim();
+    final name = advertisedName.isEmpty ? '(unnamed)' : advertisedName;
+    debugPrint(
+      'BLE scan candidate ignored name=$name rssi=${result.rssi}'
+      '${_advertisementIdentitySummary(result)}',
+    );
+  }
+
+  String _advertisementIdentitySummary(ScanResult result) {
+    final manufacturerIds = result.advertisementData.manufacturerData.keys
+        .map((id) => '0x${id.toRadixString(16).padLeft(4, '0')}')
+        .join(',');
+    final serviceIds = [
+      ...result.advertisementData.serviceData.keys.map((uuid) => uuid.str),
+      ...result.advertisementData.serviceUuids.map((uuid) => uuid.str),
+    ].take(3).join(',');
+    if (manufacturerIds.isEmpty && serviceIds.isEmpty) return '';
+    return ' manufacturers=[$manufacturerIds] services=[$serviceIds]';
   }
 
   static bool _isValidReading(double tempF, double humidity) {
@@ -2126,6 +2285,17 @@ class GoveeService extends ChangeNotifier {
     if (battery != null) parts.add('$battery% battery');
     if (parts.isEmpty) return 'no temp/RH payload';
     return parts.join(', ');
+  }
+
+  String _formatDurationBrief(Duration duration) {
+    if (duration.inSeconds >= 1 &&
+        duration.inMilliseconds % Duration.millisecondsPerSecond == 0) {
+      return '${duration.inSeconds}s';
+    }
+    if (duration.inMilliseconds >= 1) {
+      return '${duration.inMilliseconds}ms';
+    }
+    return duration.toString();
   }
 
   @override

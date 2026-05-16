@@ -5,39 +5,62 @@ class PanelRecord {
     required this.id,
     required this.tableName,
     required this.sessionId,
-    this.auditId,
     required this.customerId,
     this.flockId,
-    required this.date,
     this.hatcheryId,
+    required this.date,
     this.breed,
     this.flockAgeWeeks,
     this.mode = modePool,
-    this.compareLayer,
+    SamplingLayer? scopeType,
+    SamplingLayer? compareLayer,
+    String? scopeLabel,
+    this.sampleIndex = 0,
+    this.groupKey,
+    this.groupLabel,
     this.notes,
-    this.metricsJson,
+    String? metricsJson,
+    this.syncStatus = 'pending',
+    this.lastSyncedAt,
+    this.syncError,
+    Map<String, Object?>? values,
     DateTime? createdAt,
     DateTime? updatedAt,
-  }) : createdAt = createdAt ?? DateTime.now(),
+  }) : scopeType = scopeType ?? compareLayer ?? SamplingLayer.pool,
+       scopeLabel = scopeLabel ?? 'Random',
+       values = {
+         ...(metricsJson == null
+             ? const <String, Object?>{}
+             : {'metricsJson': metricsJson}),
+         ...?values,
+       },
+       createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
 
   static const modePool = 'pool';
-  static const modeCompare = 'compare';
+  static const modeComparison = 'comparison';
+  static const modeCompare = modeComparison;
 
   final String id;
   final String tableName;
   final String sessionId;
-  final String? auditId;
   final String customerId;
   final String? flockId;
-  final DateTime date;
   final String? hatcheryId;
+  final DateTime date;
   final String? breed;
   final int? flockAgeWeeks;
   final String mode;
-  final SamplingLayer? compareLayer;
+  final SamplingLayer scopeType;
+  final String scopeLabel;
+  final int sampleIndex;
+  final String? groupKey;
+  final String? groupLabel;
   final String? notes;
-  final String? metricsJson;
+  final String syncStatus;
+  final DateTime? lastSyncedAt;
+  final String? syncError;
+  final Map<String, Object?> values;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -45,29 +68,55 @@ class PanelRecord {
     return {
       'id': id,
       'sessionId': sessionId,
-      'auditId': auditId,
       'customerId': customerId,
       'flockId': flockId,
-      'date': date.toUtc().toIso8601String(),
       'hatcheryId': hatcheryId,
+      'date': _dateOnly(date),
       'breed': breed,
       'flockAgeWeeks': flockAgeWeeks,
       'mode': mode,
-      'compareLayer': compareLayer?.dbValue,
+      'scopeType': scopeType.dbValue,
+      'scopeLabel': scopeLabel,
+      'sampleIndex': sampleIndex,
+      'groupKey': groupKey,
+      'groupLabel': groupLabel,
       'notes': notes,
-      'metricsJson': metricsJson,
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
+      'syncStatus': syncStatus,
+      'lastSyncedAt': lastSyncedAt?.toUtc().toIso8601String(),
+      'syncError': syncError,
+      ...values,
     };
   }
 
   factory PanelRecord.fromMap(String tableName, Map<String, Object?> map) {
-    final compareLayer = map['compareLayer'] as String?;
+    final knownKeys = {
+      'id',
+      'sessionId',
+      'customerId',
+      'flockId',
+      'hatcheryId',
+      'date',
+      'breed',
+      'flockAgeWeeks',
+      'mode',
+      'scopeType',
+      'scopeLabel',
+      'sampleIndex',
+      'groupKey',
+      'groupLabel',
+      'notes',
+      'createdAt',
+      'updatedAt',
+      'syncStatus',
+      'lastSyncedAt',
+      'syncError',
+    };
     return PanelRecord(
       id: map['id'] as String,
       tableName: tableName,
       sessionId: map['sessionId'] as String,
-      auditId: map['auditId'] as String?,
       customerId: map['customerId'] as String,
       flockId: map['flockId'] as String?,
       date: DateTime.parse(map['date'] as String),
@@ -75,14 +124,37 @@ class PanelRecord {
       breed: map['breed'] as String?,
       flockAgeWeeks: map['flockAgeWeeks'] as int?,
       mode: map['mode'] as String? ?? modePool,
-      compareLayer: compareLayer == null
-          ? null
-          : SamplingLayer.fromDbValue(compareLayer),
+      scopeType: SamplingLayer.fromDbValue(
+        map['scopeType'] as String? ?? SamplingLayer.pool.dbValue,
+      ),
+      scopeLabel: map['scopeLabel'] as String?,
+      sampleIndex: map['sampleIndex'] as int? ?? 0,
+      groupKey: map['groupKey'] as String?,
+      groupLabel: map['groupLabel'] as String?,
       notes: map['notes'] as String?,
-      metricsJson: map['metricsJson'] as String?,
+      syncStatus: map['syncStatus'] as String? ?? 'synced',
+      lastSyncedAt: _parseDate(map['lastSyncedAt']),
+      syncError: map['syncError'] as String?,
+      values: Map.fromEntries(
+        map.entries.where((entry) => !knownKeys.contains(entry.key)),
+      ),
       createdAt: DateTime.parse(map['createdAt'] as String),
       updatedAt: DateTime.parse(map['updatedAt'] as String),
     );
+  }
+
+  static DateTime? _parseDate(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  static String _dateOnly(DateTime value) {
+    final utc = value.toUtc();
+    final year = utc.year.toString().padLeft(4, '0');
+    final month = utc.month.toString().padLeft(2, '0');
+    final day = utc.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 }
 

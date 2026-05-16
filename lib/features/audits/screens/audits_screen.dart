@@ -6,7 +6,6 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
-import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/core/utils/audit_type_labels.dart';
 
@@ -27,9 +26,6 @@ class AuditsScreen extends StatefulWidget {
 }
 
 class _AuditsScreenState extends State<AuditsScreen> {
-  static const int _pageSize = 50;
-
-  final AuditRepository _auditRepository = AuditRepository();
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
   final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
@@ -37,9 +33,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
   List<AuditModel> _loadedAudits = [];
   List<AuditSessionModel> _loadedSessions = [];
   bool _isInitialLoading = true;
-  bool _isLoadingMore = false;
   bool _hasMore = true;
-  int _page = 0;
 
   @override
   void initState() {
@@ -517,7 +511,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
         _isInitialLoading = true;
         _loadedAudits = [];
         _loadedSessions = [];
-        _page = 0;
         _hasMore = true;
       });
     }
@@ -527,7 +520,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
       currentUser: currentUser,
     );
 
-    final auditsFuture = _fetchPage(page: 0);
     final sessionsFuture =
         currentUser?.isCustomer == true && currentUser?.customerId != null
         ? _sessionRepository.getSessionsByCustomer(
@@ -536,51 +528,19 @@ class _AuditsScreenState extends State<AuditsScreen> {
           )
         : _sessionRepository.getAllSessions(limit: 50);
 
-    final results = await Future.wait([auditsFuture, sessionsFuture]);
+    final sessions = await sessionsFuture;
 
     if (!mounted) return;
     setState(() {
-      _loadedAudits = results[0] as List<AuditModel>;
-      _loadedSessions = results[1] as List<AuditSessionModel>;
-      _page = 1;
-      _hasMore = _loadedAudits.length == _pageSize;
+      _loadedAudits = const [];
+      _loadedSessions = sessions;
+      _hasMore = false;
       _isInitialLoading = false;
     });
   }
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
-    setState(() => _isLoadingMore = true);
-    final rows = await _fetchPage(page: _page);
-    if (!mounted) return;
-    setState(() {
-      _loadedAudits.addAll(rows);
-      _page += 1;
-      _hasMore = rows.length == _pageSize;
-      _isLoadingMore = false;
-    });
-  }
-
-  Future<List<AuditModel>> _fetchPage({required int page}) {
-    final currentUser = context.read<AuthProvider>().user;
-    final customerId = currentUser?.isCustomer == true
-        ? currentUser?.customerId
-        : null;
-    final effectiveFilter = customerId == null
-        ? _filter
-        : _filter.copyWith(customerId: customerId);
-    if (effectiveFilter.hasFilters) {
-      return _auditRepository.getFilteredAudits(
-        effectiveFilter,
-        limit: _pageSize,
-        offset: page * _pageSize,
-      );
-    }
-    return _auditRepository.getAllAudits(
-      limit: _pageSize,
-      offset: page * _pageSize,
-      customerId: customerId,
-    );
+    return;
   }
 
   int get _activeFilterCount {
@@ -613,12 +573,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
   }
 
   Widget _buildPaginationFooter() {
-    if (_isLoadingMore) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
     if (!_hasMore && _loadedAudits.isNotEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 16),

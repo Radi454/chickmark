@@ -124,6 +124,61 @@ void main() {
       expect(material.shape, isNot(isA<CircleBorder>()));
       expect(icon.color, AppColors.statusErrorBg);
     });
+
+    testWidgets('moves and tucks into the left screen edge', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: GoveeGlobalOverlay(
+            showLauncher: true,
+            panelContextBuilder: _nullPanelContext,
+            child: Scaffold(body: Text('Home')),
+          ),
+        ),
+      );
+
+      final launcherFinder = find.byKey(
+        const ValueKey('govee-global-launcher'),
+      );
+      final initialTopLeft = tester.getTopLeft(launcherFinder);
+
+      await tester.drag(launcherFinder, const Offset(-500, -120));
+      await tester.pumpAndSettle();
+
+      final tuckedRect = tester.getRect(launcherFinder);
+      expect(tuckedRect.left, lessThan(0));
+      expect(tuckedRect.right, greaterThan(0));
+      expect(tuckedRect.top, lessThan(initialTopLeft.dy));
+    });
+
+    testWidgets('tucks into the right screen edge', (tester) async {
+      const surfaceSize = Size(390, 844);
+      await tester.binding.setSurfaceSize(surfaceSize);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: GoveeGlobalOverlay(
+            showLauncher: true,
+            panelContextBuilder: _nullPanelContext,
+            child: Scaffold(body: Text('Home')),
+          ),
+        ),
+      );
+
+      final launcherFinder = find.byKey(
+        const ValueKey('govee-global-launcher'),
+      );
+
+      await tester.drag(launcherFinder, const Offset(160, -80));
+      await tester.pumpAndSettle();
+
+      final tuckedRect = tester.getRect(launcherFinder);
+      expect(tuckedRect.left, lessThan(surfaceSize.width));
+      expect(tuckedRect.right, greaterThan(surfaceSize.width));
+    });
   });
 }
 

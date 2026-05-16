@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/repositories/activity_log_repository.dart';
-import '../../data/repositories/audit_repository.dart';
 import '../../data/repositories/audit_session_repository.dart';
 import '../../data/repositories/bmk_repository.dart';
 import '../../data/repositories/customer_repository.dart';
@@ -10,7 +9,6 @@ import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
 import '../../data/repositories/photo_repository.dart';
-import '../../data/repositories/station_sample_repository.dart';
 import '../../data/repositories/sync_tombstone_repository.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../photo/photo_sync_service.dart';
@@ -28,17 +26,14 @@ class StartupSyncService {
   final CustomerRepository _customerRepository;
   final FlockRepository _flockRepository;
   final HatcheryRepository _hatcheryRepository;
-  final AuditRepository _auditRepository;
   final ActivityLogRepository _activityLogRepository;
   final PhotoRepository _photoRepository;
   final BmkRepository _bmkRepository;
   final AuditSessionRepository _auditSessionRepository;
   final GoveeCaptureRepository _goveeCaptureRepository;
-  final StationSampleRepository _stationSampleRepository;
   final PanelSampleRepository _panelSampleRepository;
   final SyncTombstoneRepository _syncTombstoneRepository;
   final PhotoSyncService _photoSyncService;
-  final Set<String> _preservedLocalSampleIds = {};
   final Set<String> _pendingLocalDeleteTargets = {};
 
   StartupSyncService({
@@ -46,13 +41,11 @@ class StartupSyncService {
     CustomerRepository? customerRepository,
     FlockRepository? flockRepository,
     HatcheryRepository? hatcheryRepository,
-    AuditRepository? auditRepository,
     ActivityLogRepository? activityLogRepository,
     PhotoRepository? photoRepository,
     BmkRepository? bmkRepository,
     AuditSessionRepository? auditSessionRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
-    StationSampleRepository? stationSampleRepository,
     PanelSampleRepository? panelSampleRepository,
     SyncTombstoneRepository? syncTombstoneRepository,
     PhotoSyncService? photoSyncService,
@@ -60,7 +53,6 @@ class StartupSyncService {
        _customerRepository = customerRepository ?? CustomerRepository(),
        _flockRepository = flockRepository ?? FlockRepository(),
        _hatcheryRepository = hatcheryRepository ?? HatcheryRepository(),
-       _auditRepository = auditRepository ?? AuditRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _photoRepository = photoRepository ?? PhotoRepository(),
@@ -69,8 +61,6 @@ class StartupSyncService {
            auditSessionRepository ?? AuditSessionRepository(),
        _goveeCaptureRepository =
            goveeCaptureRepository ?? GoveeCaptureRepository(),
-       _stationSampleRepository =
-           stationSampleRepository ?? StationSampleRepository(),
        _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
        _syncTombstoneRepository =
@@ -145,43 +135,13 @@ class StartupSyncService {
     );
     pushed += auditSessions.length;
 
-    progress(0.47, 'Uploading audits');
-    final audits = await _auditRepository.getAllAudits(limit: 100000);
-    final syncableAudits = audits
-        .where((audit) => audit.status.toLowerCase() != 'draft')
-        .toList();
-    await _supabaseService.upsertRows(
-      'audits',
-      syncableAudits.map((audit) => audit.toMap()).toList(),
-    );
-    pushed += syncableAudits.length;
-
-    progress(0.52, 'Uploading sample records');
-    final sampleRecords = await _stationSampleRepository
-        .getAllSampleRecordRows();
-    await _supabaseService.upsertRows('sample_records', sampleRecords);
-    pushed += sampleRecords.length;
-
-    progress(0.56, 'Uploading sample details');
-    for (final table in StationSampleRepository.detailTables) {
-      final rows = await _stationSampleRepository.getAllDetailRows(table);
-      await _supabaseService.upsertRows(table, rows);
-      pushed += rows.length;
-    }
-
-    progress(0.60, 'Uploading panel samples');
+    progress(0.52, 'Uploading panel rows');
     for (final panel in PanelSampleSchema.panels) {
       final panelRows = await _panelSampleRepository.getAllPanelRows(
         panel.tableName,
       );
       await _supabaseService.upsertRows(panel.tableName, panelRows);
       pushed += panelRows.length;
-
-      final sampleRows = await _panelSampleRepository.getAllPanelSampleRows(
-        panel.tableName,
-      );
-      await _supabaseService.upsertRows(panel.sampleTableName, sampleRows);
-      pushed += sampleRows.length;
     }
 
     progress(0.64, 'Uploading Govee captures');
@@ -240,7 +200,6 @@ class StartupSyncService {
     void Function(double value, String message) progress,
   ) async {
     progress(0.72, 'Downloading shared data');
-    _preservedLocalSampleIds.clear();
     _pendingLocalDeleteTargets
       ..clear()
       ..addAll(
@@ -264,7 +223,6 @@ class StartupSyncService {
         row,
         (value) => _hatcheryRepository.upsertHatchery(value),
       ),
-      upsertAudit: (row) => _upsertAuditWithConflictCheck(row),
       upsertPhoto: (row) => _upsertRemoteRow(
         'photos',
         row,
@@ -274,42 +232,14 @@ class StartupSyncService {
       upsertBmkEggBreakout: (row) => _bmkRepository.upsertBmkEggBreakout(row),
       upsertAuditSession: (row) => _upsertSessionWithConflictCheck(row),
       upsertGoveeDailyCapture: (row) => _upsertGoveeWithConflictCheck(row),
-      upsertSampleRecord: (row) => _upsertSampleWithConflictCheck(row),
-      upsertSampleHouseDetail: (row) =>
-          _upsertSampleDetailUnlessParentPreserved('sample_house_details', row),
-      upsertSampleMachineDetail: (row) =>
-          _upsertSampleDetailUnlessParentPreserved(
-            'sample_machine_details',
-            row,
-          ),
-      upsertSampleBatchDetail: (row) =>
-          _upsertSampleDetailUnlessParentPreserved('sample_batch_details', row),
-      upsertSampleTimingDetail: (row) =>
-          _upsertSampleDetailUnlessParentPreserved(
-            'sample_timing_details',
-            row,
-          ),
       upsertPanelRow: (table, row) =>
-          _upsertPanelWithConflictCheck(table, row, isSampleRow: false),
-      upsertPanelSampleRow: (table, row) =>
-          _upsertPanelWithConflictCheck(table, row, isSampleRow: true),
+          _upsertPanelWithConflictCheck(table, row),
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
     );
     await _syncTombstoneRepository.applyRemoteDeletes();
     progress(0.92, 'Preparing workspace');
     return summary.total;
-  }
-
-  Future<void> _upsertAuditWithConflictCheck(
-    Map<String, dynamic> remoteRow,
-  ) async {
-    if (_hasPendingLocalDelete('audits', remoteRow)) return;
-    await _upsertWithConflictCheck(
-      remoteRow,
-      getLocal: (id) => _auditRepository.getAuditRowById(id),
-      upsert: (row) => _auditRepository.upsertAudit(row),
-    );
   }
 
   Future<void> _upsertSessionWithConflictCheck(
@@ -334,48 +264,15 @@ class StartupSyncService {
     );
   }
 
-  Future<void> _upsertSampleWithConflictCheck(
-    Map<String, dynamic> remoteRow,
-  ) async {
-    if (_hasPendingLocalDelete('sample_records', remoteRow)) return;
-    final applied = await _upsertWithConflictCheck(
-      remoteRow,
-      getLocal: (id) => _stationSampleRepository.getSampleRecordRowById(id),
-      upsert: (row) => _stationSampleRepository.upsertSampleRow(row),
-    );
-    final id = _rowId(remoteRow);
-    if (!applied && id != null) {
-      _preservedLocalSampleIds.add(id);
-    }
-  }
-
-  Future<void> _upsertSampleDetailUnlessParentPreserved(
-    String table,
-    Map<String, dynamic> remoteRow,
-  ) async {
-    if (_hasPendingLocalDelete(table, remoteRow)) return;
-    final sampleId = _sampleRecordId(remoteRow);
-    if (sampleId != null && _preservedLocalSampleIds.contains(sampleId)) {
-      debugPrint(
-        '[SYNC CONFLICT] sample=$sampleId detail=$table -> keeping local',
-      );
-      return;
-    }
-    await _stationSampleRepository.upsertDetailRow(table, remoteRow);
-  }
-
   Future<void> _upsertPanelWithConflictCheck(
     String table,
-    Map<String, dynamic> remoteRow, {
-    required bool isSampleRow,
-  }) async {
+    Map<String, dynamic> remoteRow,
+  ) async {
     if (_hasPendingLocalDelete(table, remoteRow)) return;
     await _upsertWithConflictCheck(
       remoteRow,
       getLocal: (id) => _panelSampleRepository.getRowById(table, id),
-      upsert: (row) => isSampleRow
-          ? _panelSampleRepository.upsertPanelSampleRow(table, row)
-          : _panelSampleRepository.upsertPanelRow(table, row),
+      upsert: (row) => _panelSampleRepository.upsertPanelRow(table, row),
     );
   }
 
@@ -449,13 +346,6 @@ class StartupSyncService {
                   : part[0].toUpperCase() + part.substring(1),
             )
             .join();
-  }
-
-  String? _sampleRecordId(Map<String, dynamic> row) {
-    final id = row['sampleRecordId'] ?? row['sample_record_id'];
-    final value = id?.toString();
-    if (value == null || value.isEmpty) return null;
-    return value;
   }
 
   DateTime? _parseUpdatedAt(Map<String, dynamic> row) {

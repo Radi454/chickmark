@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/panel_sample_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
 import '../../audits/providers/audit_provider.dart';
 import '../../audits/providers/audit_session_provider.dart';
@@ -19,8 +22,7 @@ import '../../audits/utils/audit_govee_spots.dart';
 import '../../audits/widgets/audit_autosave_status.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
 import '../../govee/providers/govee_capture_provider.dart';
-import '../../govee/screens/govee_screen.dart';
-import '../../../core/navigation/shell_navigation_scope.dart';
+import '../../govee/widgets/govee_floating_launcher.dart';
 import '../../../providers/customers_provider.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
@@ -45,10 +47,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
   final Set<String> _mountedStationKeys = <String>{};
-  late final AuditRepository _auditRepository =
-      widget.auditRepository ?? AuditRepository();
-  late final StationSampleRepository _stationSampleRepository =
-      widget.stationSampleRepository ?? StationSampleRepository();
+  final PanelSampleRepository _panelSampleRepository = PanelSampleRepository();
   String? _mountedSessionId;
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
@@ -217,86 +216,106 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       key: const ValueKey('audit-session-progress-shell'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       color: Colors.white,
-      child: Row(
-        children: List.generate(stationKeys.length, (index) {
-          final isCompleted = completed.contains(stationKeys[index]);
-          final isCurrent = index == provider.currentStationIndex;
-          final isPast = index < provider.currentStationIndex;
-          final isReached = isCompleted || isCurrent || isPast;
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const nodeSize = 36.0;
+          const connectorHeight = 2.0;
+          final stationCount = stationKeys.length;
+          final stationCellWidth = constraints.maxWidth / stationCount;
+          final connectorTop = (nodeSize - connectorHeight) / 2;
 
-          return Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: isPast || isCompleted || isCurrent
-                        ? () => _handleStationTap(provider, index, stationKeys)
-                        : null,
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isReached
-                                ? AppColors.completedText
-                                : Colors.grey.shade300,
-                          ),
-                          child: Center(
-                            child: isReached
-                                ? const Icon(
-                                    Icons.check,
-                                    size: 18,
-                                    color: Colors.white,
-                                  )
-                                : Text(
-                                    '${index + 1}',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _shortStationLabel(displayLabels[index]),
-                          maxLines: 2,
-                          overflow: TextOverflow.visible,
-                          softWrap: true,
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.05,
-                            fontWeight: isReached
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: isReached
-                                ? AppColors.completedText
-                                : Colors.grey.shade600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+          return Stack(
+            children: [
+              for (var index = 0; index < stationCount - 1; index++)
+                Positioned(
+                  left: stationCellWidth * (index + 0.5) + nodeSize / 2,
+                  right:
+                      constraints.maxWidth -
+                      (stationCellWidth * (index + 1.5) - nodeSize / 2),
+                  top: connectorTop,
+                  child: Container(
+                    key: ValueKey('audit-session-progress-connector-$index'),
+                    height: connectorHeight,
+                    color:
+                        completed.contains(stationKeys[index]) ||
+                            index == provider.currentStationIndex ||
+                            index < provider.currentStationIndex
+                        ? AppColors.completedText
+                        : Colors.grey.shade300,
                   ),
                 ),
-                if (index < stationKeys.length - 1)
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      margin: const EdgeInsets.only(top: 18),
-                      color: isReached
-                          ? AppColors.completedText
-                          : Colors.grey.shade300,
+              Row(
+                children: List.generate(stationCount, (index) {
+                  final isCompleted = completed.contains(stationKeys[index]);
+                  final isCurrent = index == provider.currentStationIndex;
+                  final isPast = index < provider.currentStationIndex;
+                  final isReached = isCompleted || isCurrent || isPast;
+
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: isPast || isCompleted || isCurrent
+                          ? () =>
+                                _handleStationTap(provider, index, stationKeys)
+                          : null,
+                      child: Column(
+                        children: [
+                          Container(
+                            key: ValueKey('audit-session-progress-node-$index'),
+                            width: nodeSize,
+                            height: nodeSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isReached
+                                  ? AppColors.completedText
+                                  : Colors.grey.shade300,
+                            ),
+                            child: Center(
+                              child: isReached
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 12,
+                                      color: Colors.white,
+                                    )
+                                  : Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _progressStationLabel(
+                              stationKeys[index],
+                              displayLabels[index],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: true,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.05,
+                              fontWeight: isReached
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: isReached
+                                  ? AppColors.completedText
+                                  : Colors.grey.shade600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-              ],
-            ),
+                  );
+                }),
+              ),
+            ],
           );
-        }),
+        },
       ),
     );
   }
@@ -351,8 +370,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
-        auditRepository: _auditRepository,
-        stationSampleRepository: _stationSampleRepository,
+        panelSampleRepository: _panelSampleRepository,
         eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
@@ -484,8 +502,6 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           key: const ValueKey('audit-open-govee-readings'),
           onTap: () async {
             final goveeProvider = context.read<GoveeCaptureProvider>();
-            final shell = ShellNavigationScope.maybeOf(context);
-            final navigator = Navigator.of(context);
             final machineId = _machineIdForStation(stationKey);
             await goveeProvider.configure(
               customerId: session.customerId,
@@ -494,14 +510,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               stationKey: stationKey,
               machineId: machineId,
             );
-            if (shell != null) {
-              shell.switchTab(4);
-              return;
-            }
-            if (!navigator.mounted) return;
-            await navigator.push(
-              MaterialPageRoute<void>(builder: (_) => const GoveeScreen()),
-            );
+            if (!mounted) return;
+            await openGoveeFloatingCapturePanel(context);
           },
           borderRadius: BorderRadius.circular(12),
           child: Container(
@@ -513,21 +523,6 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppColors.infoBg,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.device_thermostat_outlined,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Govee readings',
@@ -637,9 +632,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       final prepared = await _prepareCurrentStationForExit();
       saved = prepared ? await _saveCurrentStation() : false;
       if (!mounted) return false;
-      if (saved) {
-        await _showStationSavedPulse();
-      } else {
+      if (!saved) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not save station. Try again.')),
         );
@@ -667,14 +660,6 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         Future.value(true);
   }
 
-  Future<void> _showStationSavedPulse() async {
-    if (!mounted) return;
-    setState(() => _showSavedAnimation = true);
-    await Future.delayed(const Duration(milliseconds: 520));
-    if (!mounted) return;
-    setState(() => _showSavedAnimation = false);
-  }
-
   Future<bool> _saveCurrentStation() async {
     final stationAuditProvider = _currentStationProvider;
     if (stationAuditProvider == null) return true;
@@ -697,22 +682,25 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     if (parts.length <= 2) return label;
     return parts.take(2).join(' ');
   }
+
+  String _progressStationLabel(String stationKey, String label) {
+    if (stationKey == 'hatch_analysis_egg_breakouts') return 'Hatch';
+    return _shortStationLabel(label);
+  }
 }
 
 class _StationFrame extends StatefulWidget {
   final String stationKey;
   final AuditContextData context;
   final String sessionId;
-  final AuditRepository auditRepository;
-  final StationSampleRepository stationSampleRepository;
+  final PanelSampleRepository panelSampleRepository;
   final EggStorageStationController? eggStorageController;
 
   const _StationFrame({
     required this.stationKey,
     required this.context,
     required this.sessionId,
-    required this.auditRepository,
-    required this.stationSampleRepository,
+    required this.panelSampleRepository,
     this.eggStorageController,
   });
 
@@ -740,18 +728,14 @@ class _StationFrameState extends State<_StationFrame> {
 
   Future<_StationInitialData> _loadInitialData() async {
     try {
-      final audits = await widget.auditRepository.getAuditsBySessionId(
-        widget.sessionId,
-      );
-      final stationAudits =
-          audits
-              .where((audit) => audit.auditType == widget.context.auditType)
-              .toList()
-            ..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
-      final samples = await widget.stationSampleRepository.getSamplesForStation(
-        widget.sessionId,
-        widget.stationKey,
-      );
+      final rowsByPanel = <String, List<Map<String, dynamic>>>{};
+      for (final table in _panelTablesForStation(widget.stationKey)) {
+        rowsByPanel[table] = await widget.panelSampleRepository
+            .getRowsBySessionId(table, widget.sessionId);
+      }
+      final stationAudits = _auditDraftsFromPanelRows(rowsByPanel)
+        ..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
+      final samples = _stationSamplesFromPanelRows(rowsByPanel);
       return _StationInitialData(
         stationAudits: stationAudits,
         stationSamples: samples,
@@ -760,6 +744,452 @@ class _StationFrameState extends State<_StationFrame> {
       return const _StationInitialData();
     }
   }
+
+  List<String> _panelTablesForStation(String stationKey) {
+    return switch (stationKey) {
+      'egg' => const ['egg_storage', 'egg_quality'],
+      'chicks' => const [
+        'chick_pasgar',
+        'chick_weights',
+        'chick_yfbm',
+        'chick_cvt',
+        'chick_pm',
+      ],
+      'hatch_analysis_egg_breakouts' => const [
+        'fresh_egg_breakout',
+        'candled_egg_breakout',
+        'residue_breakout',
+      ],
+      'setters' => const ['setter_optimizing'],
+      'hatchers' => const ['hatcher_optimizing'],
+      _ => const [],
+    };
+  }
+
+  List<AuditModel> _auditDraftsFromPanelRows(
+    Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  ) {
+    final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
+    for (final entry in rowsByPanel.entries) {
+      for (final row in entry.value) {
+        final index = _asInt(row['sampleIndex']) ?? 0;
+        grouped
+            .putIfAbsent(
+              index,
+              () => <({String table, Map<String, dynamic> row})>[],
+            )
+            .add((table: entry.key, row: row));
+      }
+    }
+    return [
+      for (final entry in grouped.entries)
+        AuditModel.fromMap(_auditMapFromPanelRows(entry.key, entry.value)),
+    ];
+  }
+
+  Map<String, dynamic> _auditMapFromPanelRows(
+    int sampleIndex,
+    List<({String table, Map<String, dynamic> row})> records,
+  ) {
+    final first = records.first.row;
+    final createdAt =
+        first['createdAt']?.toString() ?? DateTime.now().toIso8601String();
+    final updatedAt = records
+        .map((record) => record.row['updatedAt']?.toString())
+        .where((value) => value != null && value.isNotEmpty)
+        .cast<String>()
+        .fold<String>(createdAt, (latest, value) {
+          return value.compareTo(latest) > 0 ? value : latest;
+        });
+    final mode = first['mode']?.toString() == 'comparison'
+        ? 'comparison'
+        : 'pool';
+    final map = <String, dynamic>{
+      'id': '${widget.sessionId}:${widget.stationKey}:$sampleIndex',
+      'auditType': widget.context.auditType,
+      'customerId': first['customerId'] ?? widget.context.customerId,
+      'flockId': first['flockId'] ?? widget.context.flockId,
+      'date': first['date'] ?? widget.context.date,
+      'status': 'completed',
+      'createdBy': 'panel',
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+      'sessionId': widget.sessionId,
+      'sampleMode': mode,
+      'compareGroupKey': first['groupKey'],
+      'hatchNumber': sampleIndex + 1,
+      'notes': first['notes'],
+    };
+
+    for (final record in records) {
+      _mergePanelRowIntoAuditMap(map, record.table, record.row);
+    }
+    return map;
+  }
+
+  void _mergePanelRowIntoAuditMap(
+    Map<String, dynamic> map,
+    String table,
+    Map<String, dynamic> row,
+  ) {
+    void copy(String target, String source) {
+      final value = row[source];
+      if (value != null) map[target] = value;
+    }
+
+    switch (table) {
+      case 'egg_storage':
+        copy('esEggStorageDays', 'storageDays');
+        copy('es_estReadingsJson', 'estReadingsJson');
+        copy('es_estAvg', 'estAvg');
+        copy('es_estCv', 'estCvPct');
+        copy('esShellTemp', 'shellTemp');
+        copy('esTurningTimes', 'turningTimes');
+        copy('es_traySpacing', 'traySpacing');
+        copy('es_coolerProximity', 'coolerProximity');
+        copy('es_condensation', 'condensationPresent');
+        _mergeEggTraySummary(map, {'upsideDown': row['upsideDownCount']});
+        break;
+      case 'egg_quality':
+        copy('es_uvSampleSize', 'uvTrayEggCount');
+        copy('es_uvCuticleDamageCount', 'uvCuticleDamageCount');
+        copy('es_uvWashingEvidenceCount', 'uvWashedCount');
+        copy('es_uvFecalCount', 'uvDirtyCount');
+        _mergeEggTraySummary(map, {
+          'totalEggs': row['uvTrayEggCount'],
+          'cuticleDamage': row['uvCuticleDamageCount'],
+          'washed': row['uvWashedCount'],
+          'dirty': row['uvDirtyCount'],
+        });
+        copy('esEggWeights', 'eggWeightsJson');
+        copy('esEggSampleSize', 'eggSampleSize');
+        copy('esEggAvgWeight', 'eggAvgWeight');
+        copy('esEggUniformityPct', 'eggUniformityPct');
+        copy('esEggCvPct', 'eggCvPct');
+        copy('esEggBmkAge', 'eggBmkAgeWeeks');
+        copy('esEggBmkWeight', 'eggBmkWeight');
+        break;
+      case 'chick_pasgar':
+        copy('pasgarSampleSize', 'sampleSize');
+        copy('pasgarReflexes', 'reflexesCount');
+        copy('pasgarBeak', 'beakCount');
+        copy('pasgarNavel', 'navelCount');
+        copy('pasgarBelly', 'bellyCount');
+        copy('pasgarLeg', 'legCount');
+        copy('pasgarFeatherDev', 'featherDevCount');
+        copy('pasgarFinalScore', 'finalScore');
+        break;
+      case 'chick_weights':
+        copy('chickWeights', 'weightsJson');
+        copy('chickSampleSize', 'sampleSize');
+        copy('chickAvgWeight', 'avgWeight');
+        copy('chickUniformityPct', 'uniformityPct');
+        copy('chickCvPct', 'cvPct');
+        copy('chickBmkAge', 'bmkAgeWeeks');
+        copy('chickBmkWeight', 'bmkWeight');
+        break;
+      case 'chick_yfbm':
+        copy('yfbmEntries', 'entriesJson');
+        copy('yfbmAvgPct', 'avgPct');
+        copy('yfbmCvPct', 'cvPct');
+        break;
+      case 'chick_cvt':
+        copy('cvtReadingsJson', 'readingsJson');
+        copy('cvtSampleSize', 'sampleSize');
+        copy('cvtAvg', 'avgTemp');
+        copy('cvtCvPct', 'cvPct');
+        break;
+      case 'chick_pm':
+        for (final key in row.keys) {
+          if (_pmKeys.contains(key)) map['pm_$key'] = row[key];
+        }
+        break;
+      case 'fresh_egg_breakout':
+        _mergeBreakoutRow(map, row, 'freshEggBreakout');
+        break;
+      case 'candled_egg_breakout':
+        _mergeBreakoutRow(map, row, 'candledEggBreakout');
+        break;
+      case 'residue_breakout':
+        _mergeBreakoutRow(map, row, 'residueHatchDay');
+        copy('setterId', 'setterId');
+        copy('hatcherId', 'hatcherId');
+        copy('haTotalEggsSet', 'totalEggsSet');
+        copy('haHatched', 'hatchedCount');
+        copy('haCulled', 'culledCount');
+        copy('haDead', 'deadCount');
+        copy('haHatchability', 'hatchabilityPct');
+        copy('haFertility', 'fertilityPct');
+        copy('haHof', 'hofPct');
+        break;
+      case 'setter_optimizing':
+        copy('setterId', 'setterId');
+        copy('soSetterId', 'setterId');
+        copy('so_machineType', 'machineType');
+        copy('so_setpointF', 'setpointF');
+        copy('so_actualF', 'actualF');
+        copy('so_batchSize', 'batchSize');
+        copy('so_batchCount', 'batchCount');
+        copy('so_totalEggsSet', 'totalEggsSet');
+        copy('so_turningAngle', 'turningAngle');
+        copy('soCo2', 'co2Ppm');
+        copy('soBreed', 'estBreed');
+        copy('soIncubationAge', 'incubationAgeDays');
+        copy('soIncubationHours', 'incubationHours');
+        copy('soEstReadings', 'estReadingsJson');
+        copy('soEstAvg', 'estAvg');
+        copy('soEstCv', 'estCvPct');
+        break;
+      case 'hatcher_optimizing':
+        copy('hatcherId', 'hatcherId');
+        copy('hoHatcherId', 'hatcherId');
+        copy('hoIncubationAge', 'incubationAgeDays');
+        copy('hoIncubationHours', 'incubationHours');
+        copy('hoCo2', 'co2Ppm');
+        copy('hoCvtReadings', 'cvtReadingsJson');
+        copy('hoCvtAvg', 'cvtAvg');
+        copy('hoCvtCv', 'cvtCvPct');
+        copy('hoChickPanting', 'chickPanting');
+        copy('ho_meconium', 'meconium');
+        break;
+    }
+  }
+
+  void _mergeEggTraySummary(
+    Map<String, dynamic> auditMap,
+    Map<String, Object?> values,
+  ) {
+    final merged = <String, Object?>{
+      ..._firstEggTraySummary(auditMap['esUvTrays']),
+      ...values,
+    }..removeWhere((_, value) => value == null);
+    if (merged.isEmpty) return;
+    auditMap['esUvTrays'] = jsonEncode([merged]);
+  }
+
+  Map<String, Object?> _firstEggTraySummary(Object? raw) {
+    if (raw == null) return const {};
+    try {
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+        return Map<String, Object?>.from(decoded.first as Map);
+      }
+    } catch (_) {
+      return const {};
+    }
+    return const {};
+  }
+
+  void _mergeBreakoutRow(
+    Map<String, dynamic> map,
+    Map<String, dynamic> row,
+    String breakoutType,
+  ) {
+    void copy(String target, String source) {
+      final value = row[source];
+      if (value != null) map[target] = value;
+    }
+
+    map['ebBreakoutType'] = breakoutType;
+    copy('ebStorageDays', 'storageDays');
+    copy('ebBreakoutAgeDays', 'bmkAgeDays');
+    copy('ebBmkAge', 'bmkAgeWeeks');
+    copy('ebTraySize', 'traySize');
+    copy('ebInfertileCount', 'infertileCount');
+    copy('ebEarlyDeadCount', 'earlyDeadCount');
+    copy('ebMidDeadCount', 'midDeadCount');
+    copy('ebLateDeadCount', 'lateDeadCount');
+    copy('ebExternalPipCount', 'externalPipCount');
+    copy('ebCrackedCount', 'crackedCount');
+    copy('ebContaminatedCount', 'contaminatedCount');
+    if (row['early24hCount'] != null || row['early48hCount'] != null) {
+      map['ebEarlyDeadCount'] = row['early24hCount'];
+      map['ebMidDeadCount'] = row['early48hCount'];
+      map['ebLateDeadCount'] = row['bloodRingCount'];
+    }
+  }
+
+  List<StationSampleModel> _stationSamplesFromPanelRows(
+    Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  ) {
+    final primaryEntry = rowsByPanel.entries.firstWhere(
+      (entry) => entry.value.isNotEmpty,
+      orElse: () => const MapEntry('', []),
+    );
+    if (primaryEntry.value.isEmpty) return const [];
+    return [
+      for (final row in primaryEntry.value)
+        _sampleFromPanelRow(primaryEntry.key, row),
+    ];
+  }
+
+  StationSampleModel _sampleFromPanelRow(
+    String table,
+    Map<String, dynamic> row,
+  ) {
+    final scopeType = row['scopeType']?.toString() ?? 'pool';
+    final sampleMode = row['mode']?.toString() == 'comparison'
+        ? StationSampleModel.sampleModeComparison
+        : StationSampleModel.sampleModePooled;
+    return StationSampleModel(
+      id:
+          row['id']?.toString() ??
+          '${widget.sessionId}:$table:${row['sampleIndex']}',
+      auditSessionId: widget.sessionId,
+      stationType: widget.stationKey,
+      sectorType: _sectorTypeForTable(table),
+      sampleKind: _sampleKindForScope(scopeType),
+      sampleMode: sampleMode,
+      comparisonType: _comparisonTypeForScope(scopeType),
+      sampleIndex: _asInt(row['sampleIndex']) ?? 0,
+      sampleLabel: row['scopeLabel']?.toString(),
+      sampleType: _sampleTypeForTable(table),
+      breakoutType: _breakoutTypeForTable(table),
+      groupKey: row['groupKey']?.toString(),
+      groupLabel: row['groupLabel']?.toString(),
+      houseNo: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
+      houseLabel: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
+      storageDays: _asInt(row['storageDays']),
+      incubationDay: _asInt(row['incubationAgeDays'] ?? row['bmkAgeDays']),
+      setterNo: row['setterId']?.toString(),
+      hatcherNo: row['hatcherId']?.toString(),
+      notes: row['notes']?.toString(),
+      createdAt: _parseDate(row['createdAt']) ?? DateTime.now(),
+      updatedAt: _parseDate(row['updatedAt']) ?? DateTime.now(),
+    );
+  }
+
+  String _sectorTypeForTable(String table) {
+    return switch (table) {
+      'egg_quality' => StationSampleModel.sectorEggQuality,
+      'chick_weights' => StationSampleModel.sectorChickWeights,
+      'fresh_egg_breakout' ||
+      'candled_egg_breakout' ||
+      'residue_breakout' => StationSampleModel.sectorHatchBreakout,
+      'setter_optimizing' => StationSampleModel.sectorSetterOptimizing,
+      'hatcher_optimizing' => StationSampleModel.sectorHatcherOptimizing,
+      'chick_pasgar' ||
+      'chick_yfbm' ||
+      'chick_cvt' ||
+      'chick_pm' => StationSampleModel.sectorChickQuality,
+      _ => StationSampleModel.sectorDefault,
+    };
+  }
+
+  String _sampleKindForScope(String scopeType) {
+    return switch (scopeType) {
+      'house' => StationSampleModel.sampleKindHouse,
+      'setter' ||
+      'hatcher' ||
+      'setter_hatcher' => StationSampleModel.sampleKindMachine,
+      'tray' => StationSampleModel.sampleKindTray,
+      'batch' => StationSampleModel.sampleKindBatch,
+      _ => StationSampleModel.sampleKindPooled,
+    };
+  }
+
+  String? _comparisonTypeForScope(String scopeType) {
+    return switch (scopeType) {
+      'house' => StationSampleModel.comparisonTypeHouse,
+      'setter' ||
+      'hatcher' ||
+      'setter_hatcher' => StationSampleModel.comparisonTypeMachine,
+      'tray' => StationSampleModel.comparisonTypeTray,
+      'batch' => StationSampleModel.comparisonTypeBatch,
+      _ => null,
+    };
+  }
+
+  String? _sampleTypeForTable(String table) {
+    return switch (table) {
+      'chick_pasgar' ||
+      'chick_weights' ||
+      'chick_yfbm' ||
+      'chick_cvt' ||
+      'chick_pm' => StationSampleModel.sampleTypeChickQualityHatchedBatch,
+      'fresh_egg_breakout' => StationSampleModel.sampleTypeBreakoutFresh,
+      'candled_egg_breakout' => StationSampleModel.sampleTypeBreakoutCandled10d,
+      'residue_breakout' => StationSampleModel.sampleTypeBreakoutResidue21d,
+      _ => StationSampleModel.sampleTypeDefault,
+    };
+  }
+
+  String? _breakoutTypeForTable(String table) {
+    return switch (table) {
+      'fresh_egg_breakout' => StationSampleModel.breakoutTypeFresh,
+      'candled_egg_breakout' => StationSampleModel.breakoutTypeCandled10d,
+      'residue_breakout' => StationSampleModel.breakoutTypeResidue21d,
+      _ => null,
+    };
+  }
+
+  DateTime? _parseDate(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  int? _asInt(Object? value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value.toString());
+  }
+
+  static const _pmKeys = {
+    'sampleSize',
+    'collectionPoint',
+    'omphalitisCount',
+    'omphalitisSeverity',
+    'gaseousCecaCount',
+    'gaseousCecaSeverity',
+    'unabsorbedYolkCount',
+    'unabsorbedYolkSeverity',
+    'perihepatitisCount',
+    'perihepatitisSeverity',
+    'pericarditisCount',
+    'pericarditisSeverity',
+    'airsacAcuteCount',
+    'airsacAcuteSeverity',
+    'airsacChronicCount',
+    'airsacChronicSeverity',
+    'pulmonaryGranulomaCount',
+    'pulmonaryGranulomaSeverity',
+    'swollenJointsCount',
+    'swollenJointsSeverity',
+    'stuntedOrgansCount',
+    'stuntedOrgansSeverity',
+    'pulmonaryHemorrhageCount',
+    'pulmonaryHemorrhageSeverity',
+    'gizzardErosionsCount',
+    'gizzardErosionsSeverity',
+    'airSacCaseationsCount',
+    'airSacCaseationsSeverity',
+    'nephritisCount',
+    'nephritisSeverity',
+    'generalSepticemiaCount',
+    'generalSepticemiaSeverity',
+    'gaspingPresent',
+    'gaspingType',
+    'exposedBrainCount',
+    'ectopicVisceraCount',
+    'extraLegsCount',
+    'crossedBeakCount',
+    'absentEyeBothCount',
+    'absentEyeOneCount',
+    'smallEyeCount',
+    'hydrocephalyCount',
+    'starGazerCount',
+    'curledToesCount',
+    'shortLegsCount',
+    'spinalDeformityCount',
+    'cardiacAnomalyCount',
+    'conjoinedCount',
+    'otherDeformityCount',
+    'otherDeformityText',
+    'suspectedCauseAuto',
+    'suspectedCauseManual',
+  };
 
   @override
   Widget build(BuildContext context) {

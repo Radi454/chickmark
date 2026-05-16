@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
@@ -74,14 +75,16 @@ void main() {
   });
 
   AuditContextData contextData({
+    String flockId = 'flock-1',
+    String? breed = 'Ross 308',
     int? flockAgeWeeks = 42,
     DateTime? flockEntryDate,
     String date = '2026-04-27',
   }) => AuditContextData(
     auditType: 'Hatch Analysis & Egg Breakouts',
     customerId: 'customer-1',
-    flockId: 'flock-1',
-    breed: 'Ross 308',
+    flockId: flockId,
+    breed: breed,
     flockEntryDate: flockEntryDate,
     flockAgeWeeks: flockAgeWeeks,
     date: date,
@@ -191,6 +194,42 @@ void main() {
     return tester.widget<TextField>(textField).controller?.text ?? '';
   }
 
+  RenderBox smallestDecoratedAncestorBox(WidgetTester tester, Finder finder) {
+    final boxes =
+        find
+            .ancestor(
+              of: finder,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Container && widget.decoration is BoxDecoration,
+              ),
+            )
+            .evaluate()
+            .map((element) => element.renderObject)
+            .whereType<RenderBox>()
+            .where((box) => box.hasSize)
+            .toList()
+          ..sort((a, b) {
+            final aArea = a.size.width * a.size.height;
+            final bArea = b.size.width * b.size.height;
+            return aArea.compareTo(bArea);
+          });
+
+    return boxes.first;
+  }
+
+  BoxDecoration containerDecoration(WidgetTester tester, Key key) {
+    final container = tester.widget<Container>(find.byKey(key));
+    return container.decoration! as BoxDecoration;
+  }
+
+  EggBreakoutSampleEntry activeBreakoutSample(AuditProvider provider) {
+    return EggBreakoutSampleEntry.decodeList(
+      provider.drafts.single.ebTrayBreakoutJson,
+      fallbackBreakoutType: EggBreakoutType.residueHatchDay,
+    ).single;
+  }
+
   Future<void> tapVisibleText(WidgetTester tester, String text) async {
     final finder = find.text(text);
     await tester.ensureVisible(finder);
@@ -264,13 +303,26 @@ void main() {
     await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
     await addVisibleSample(tester);
 
-    expect(find.text('Batch Results'), findsOneWidget);
+    expect(find.text('Hatch Results'), findsOneWidget);
+    final resultsCard = find.byKey(
+      const ValueKey('residue-batch-results-card'),
+    );
+    expect(
+      find.descendant(
+        of: resultsCard,
+        matching: find.byIcon(Icons.analytics_outlined),
+      ),
+      findsNothing,
+    );
+    expect(find.text('Batch Results'), findsNothing);
     expect(find.text('Hatched chicks'), findsOneWidget);
     expect(find.text('Hatchability'), findsOneWidget);
     expect(find.text('Fertility'), findsOneWidget);
     expect(find.text('HOF'), findsOneWidget);
     expect(find.text('Breakout Samples'), findsOneWidget);
     expect(find.byKey(const ValueKey('breakout-add-sample')), findsOneWidget);
+    expect(find.text('Delta --'), findsNothing);
+    expect(find.text('Gap --'), findsWidgets);
     expect(find.text('BMK Age 268 days'), findsNothing);
     expect(find.text('Infertile'), findsOneWidget);
     expect(find.text('Early Dead'), findsOneWidget);
@@ -285,6 +337,53 @@ void main() {
     expect(find.text('Crossed beak'), findsNothing);
     expect(find.text('Culled %'), findsOneWidget);
     expect(find.text('Dead %'), findsOneWidget);
+  });
+
+  testWidgets('residue performance metrics render as one summary card', (
+    tester,
+  ) async {
+    await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
+
+    final performanceCard = find.byKey(
+      const ValueKey('hatch-performance-summary-card'),
+    );
+    expect(performanceCard, findsOneWidget);
+
+    final metricLabels = [
+      'Hatchability',
+      'Fertility',
+      'HOF',
+      'Culled %',
+      'Dead %',
+    ];
+    double previousTop = -1;
+    for (final label in metricLabels) {
+      final labelFinder = find.descendant(
+        of: performanceCard,
+        matching: find.text(label),
+      );
+      expect(labelFinder, findsOneWidget);
+      final top = tester.getTopLeft(labelFinder).dy;
+      expect(top, greaterThan(previousTop));
+      previousTop = top;
+    }
+
+    for (final text in [
+      'BMK 90.0%',
+      'BMK 88.0%',
+      'BMK 96.0%',
+      'Limit 1.0%',
+      'Limit 0.2%',
+    ]) {
+      expect(
+        find.descendant(of: performanceCard, matching: find.text(text)),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(of: performanceCard, matching: find.text('Gap --')),
+      findsNWidgets(5),
+    );
   });
 
   testWidgets('residue batches use automatic setter hatcher tabs and metrics', (
@@ -332,6 +431,7 @@ void main() {
       find.byKey(const ValueKey('residue-batch-results-card')),
       findsOneWidget,
     );
+    expect(find.text('Hatch totals'), findsOneWidget);
     final entryBottom = tester
         .getBottomLeft(
           find.byKey(const ValueKey('hatch-analysis-required-entry-card')),
@@ -348,6 +448,9 @@ void main() {
 
     await tapVisibleKey(tester, const ValueKey('residue-batch-tab-0'));
 
+    expect(find.text('Hatch S1H1'), findsOneWidget);
+    expect(find.text('Batch S1H1'), findsNothing);
+    expect(find.text('Batch totals'), findsNothing);
     expect(find.text('85.9%'), findsOneWidget);
     expect(find.text('85.0%'), findsOneWidget);
     expect(find.text('101.1%'), findsOneWidget);
@@ -380,7 +483,8 @@ void main() {
     expect(find.text('Batch / hatch group'), findsNothing);
     expect(find.text('Batch / Hatch Group 1'), findsNothing);
     expect(find.text('Batch Info'), findsNothing);
-    expect(find.text('Batch Results'), findsOneWidget);
+    expect(find.text('Hatch Results'), findsOneWidget);
+    expect(find.text('Batch Results'), findsNothing);
     expect(find.text('100% Budget Categories'), findsNothing);
   });
 
@@ -445,6 +549,62 @@ void main() {
     );
   });
 
+  testWidgets(
+    'breakout metadata tiles stay one equal row with wrapped values',
+    (tester) async {
+      tester.view.physicalSize = const Size(500, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const longFlockName = 'flock-demo-all-sections-ross308-long-name';
+      await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        contextOverride: contextData(flockId: longFlockName, flockAgeWeeks: 38),
+      );
+
+      final breakoutTypeCard = find.byKey(
+        const ValueKey('hatch-analysis-breakout-header'),
+      );
+      final contextCard = find.byKey(
+        const ValueKey('hatch-analysis-context-card'),
+      );
+      final flockTile = smallestDecoratedAncestorBox(
+        tester,
+        find.text('FLOCK'),
+      );
+      final breedTile = smallestDecoratedAncestorBox(
+        tester,
+        find.text('BREED'),
+      );
+      final bmkTile = smallestDecoratedAncestorBox(
+        tester,
+        find.text('BMK AGE'),
+      );
+
+      expect(
+        tester.getTopLeft(find.text('FLOCK')).dy,
+        tester.getTopLeft(find.text('BREED')).dy,
+      );
+      expect(
+        tester.getTopLeft(find.text('FLOCK')).dy,
+        tester.getTopLeft(find.text('BMK AGE')).dy,
+      );
+      expect(
+        tester.getSize(breakoutTypeCard).height,
+        closeTo(tester.getSize(contextCard).height, 0.1),
+      );
+      expect(flockTile.size.width, closeTo(breedTile.size.width, 0.1));
+      expect(flockTile.size.width, closeTo(bmkTile.size.width, 0.1));
+      expect(flockTile.size.height, closeTo(breedTile.size.height, 0.1));
+      expect(flockTile.size.height, closeTo(bmkTile.size.height, 0.1));
+
+      final flockValueText = tester.widget<Text>(find.text(longFlockName));
+      expect(flockValueText.maxLines, greaterThanOrEqualTo(2));
+    },
+  );
+
   testWidgets('storage days defaults to zero and calculates bmk age', (
     tester,
   ) async {
@@ -485,6 +645,9 @@ void main() {
     final contextCard = find.byKey(
       const ValueKey('hatch-analysis-context-card'),
     );
+    final breakoutTypeCard = find.byKey(
+      const ValueKey('hatch-analysis-breakout-header'),
+    );
     final requiredCard = find.byKey(
       const ValueKey('hatch-analysis-required-entry-card'),
     );
@@ -493,6 +656,7 @@ void main() {
     );
 
     expect(requiredCard, findsOneWidget);
+    expect(find.text('Entry Fields'), findsNothing);
     expect(
       find.descendant(of: contextCard, matching: storageEntryCard),
       findsNothing,
@@ -505,6 +669,33 @@ void main() {
       find.descendant(of: requiredCard, matching: find.text('REQUIRED')),
       findsNothing,
     );
+    expect(
+      tester.getSize(requiredCard).height,
+      lessThan(tester.getSize(contextCard).height),
+    );
+    expect(
+      tester.getSize(contextCard).height,
+      closeTo(tester.getSize(breakoutTypeCard).height, 0.1),
+    );
+    final requiredDecoration = containerDecoration(
+      tester,
+      const ValueKey('hatch-analysis-required-entry-card'),
+    );
+    expect(requiredDecoration.gradient, isNull);
+    expect(requiredDecoration.color, AppColors.surfaceRaised);
+
+    final storageTileDecoration = containerDecoration(
+      tester,
+      const ValueKey('breakout-storage-days-entry-card'),
+    );
+    expect(storageTileDecoration.color, AppColors.surface);
+    final storageLabel = tester.widget<Text>(
+      find.descendant(
+        of: storageEntryCard,
+        matching: find.text('STORAGE DAYS'),
+      ),
+    );
+    expect(storageLabel.style?.color, AppColors.textSecondary);
 
     await tester.tap(
       numericEditableFinder(const ValueKey('breakout-storage-days')),
@@ -659,17 +850,66 @@ void main() {
     expect(find.byKey(const ValueKey('breakout-sample-tab-1')), findsNothing);
   });
 
-  testWidgets('sample card removes pool toggle and total tile', (tester) async {
-    await pumpScreen(
+  testWidgets('sample card keeps header fields in one balanced row', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(540, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final provider = await pumpScreen(
       tester,
       breakoutType: EggBreakoutType.residueHatchDay,
       benchmarkLookup: mockBenchmarkLookup(),
     );
     await addVisibleSample(tester);
+    final sample = activeBreakoutSample(provider);
 
+    final labelField = find.byKey(ValueKey('${sample.id}-label'));
+    final positionField = find.byKey(ValueKey('${sample.id}-position'));
+    final traySizeField = find.byKey(ValueKey('${sample.id}-Tray size'));
+
+    expect(find.text('Tray 1'), findsNWidgets(2));
     expect(find.text('Tray sample'), findsNothing);
     expect(find.text('Pool sample'), findsNothing);
     expect(find.text('Total sample'), findsNothing);
+    expect(labelField, findsOneWidget);
+    expect(positionField, findsOneWidget);
+    expect(traySizeField, findsOneWidget);
+    final randomPositionText = tester.widget<Text>(
+      find.descendant(of: positionField, matching: find.text('Random')),
+    );
+    expect(randomPositionText.style?.fontWeight, FontWeight.w400);
+    expect(randomPositionText.style?.color, AppColors.textPrimary);
+    expect(
+      tester.getTopLeft(labelField).dy,
+      closeTo(tester.getTopLeft(positionField).dy, 0.1),
+    );
+    expect(
+      tester.getTopLeft(labelField).dy,
+      closeTo(tester.getTopLeft(traySizeField).dy, 0.1),
+    );
+    expect(
+      tester.getSize(positionField).width,
+      greaterThan(tester.getSize(labelField).width),
+    );
+    expect(
+      tester.getSize(positionField).width,
+      greaterThan(tester.getSize(traySizeField).width),
+    );
+    expect(
+      tester.getTopRight(find.text('Random')).dx,
+      lessThan(tester.getTopRight(positionField).dx - 36),
+    );
+    expect(
+      tester.getSize(labelField).height,
+      closeTo(tester.getSize(positionField).height, 0.1),
+    );
+    expect(
+      tester.getSize(labelField).height,
+      closeTo(tester.getSize(traySizeField).height, 0.1),
+    );
   });
 
   testWidgets('breakout rows show count calculated percent and bmk target', (

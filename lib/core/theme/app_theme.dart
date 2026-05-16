@@ -28,7 +28,7 @@ class AppTheme {
       appBarTheme: const AppBarTheme(
         titleTextStyle: TextStyle(
           color: Colors.white,
-          fontSize: 18,
+          fontSize: 17,
           fontWeight: FontWeight.w700,
           height: 1.2,
         ),
@@ -36,8 +36,7 @@ class AppTheme {
       cardTheme: CardThemeData(
         color: AppColors.surface,
         shape: RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.all(Radius.circular(AppSizes.cardRadius)),
+          borderRadius: BorderRadius.all(Radius.circular(AppSizes.cardRadius)),
         ),
         elevation: 0,
         shadowColor: AppColors.cardShadow,
@@ -103,7 +102,9 @@ class AppTheme {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.inputRadius),
           borderSide: const BorderSide(
-              color: AppColors.borderFocused, width: 1.5),
+            color: AppColors.borderFocused,
+            width: 1.5,
+          ),
         ),
       ),
       chipTheme: ChipThemeData(

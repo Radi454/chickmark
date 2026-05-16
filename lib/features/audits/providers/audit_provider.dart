@@ -58,24 +58,17 @@ class AuditProvider extends ChangeNotifier {
     SupabaseService? supabaseService,
     Duration autosaveDebounceDuration = defaultAutosaveDebounceDuration,
     bool autosaveEnabled = true,
-  }) : _repository = repository ?? AuditRepository(),
-       _stationSampleRepository =
-           stationSampleRepository ?? StationSampleRepository(),
-       _panelSampleRepository =
+  }) : _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
-       _supabaseService = supabaseService ?? SupabaseService(),
        _autosaveDebounceDuration = autosaveDebounceDuration,
        _autosaveEnabled = autosaveEnabled;
 
   static const Duration defaultAutosaveDebounceDuration = Duration(seconds: 1);
 
-  final AuditRepository _repository;
-  final StationSampleRepository _stationSampleRepository;
   final PanelSampleRepository _panelSampleRepository;
   final ActivityLogRepository _activityLogRepository;
-  final SupabaseService _supabaseService;
   final Duration _autosaveDebounceDuration;
   final bool _autosaveEnabled;
   final Uuid _uuid = const Uuid();
@@ -246,6 +239,8 @@ class AuditProvider extends ChangeNotifier {
         _context!.auditType == 'Hatch Analysis & Egg Breakouts';
     final isSetterOptimizing = _context!.auditType == 'Setters';
     final isHatcherOptimizing = _context!.auditType == 'Hatchers';
+    final isMachineStation =
+        _context!.auditType == 'Setters' || _context!.auditType == 'Hatchers';
     final setterId = isHatchBreakout
         ? '$hatchNumber'
         : isSetterOptimizing
@@ -264,7 +259,7 @@ class AuditProvider extends ChangeNotifier {
       id: _uuid.v4(),
       auditType: _context!.auditType,
       customerId: _context!.customerId,
-      flockId: isHatcherOptimizing ? null : _context!.flockId,
+      flockId: isMachineStation ? null : _context!.flockId,
       date: DateTime.parse(_context!.date),
       hatchNumber: hatchNumber,
       status: 'active',
@@ -279,15 +274,37 @@ class AuditProvider extends ChangeNotifier {
       haTotalEggsSet: isHatchBreakout ? 19200 : null,
       haStorageDays: isHatchBreakout ? 0 : null,
       ebStorageDays: isHatchBreakout ? 0 : null,
-      soBreed: isSetterOptimizing ? _context!.breed : null,
+      soBreed: null,
       soSetterId: isSetterOptimizing ? setterId : null,
       soIncubationAge: _context!.auditType == 'Setters' ? 1 : null,
       soIncubationHours: _context!.auditType == 'Setters' ? 0 : null,
+      soMachineType: isSetterOptimizing ? 'Multi' : null,
+      soBatchSize: isSetterOptimizing ? 19200 : null,
+      soBatchCount: isSetterOptimizing ? 1 : null,
+      soTotalEggsSet: isSetterOptimizing ? 19200 : null,
+      soEstSamplesJson: isSetterOptimizing
+          ? _defaultSetterEstSamplesJson()
+          : null,
       hoBreed: null,
       hoHatcherId: isHatcherOptimizing ? hatcherId : null,
       hoIncubationAge: _context!.auditType == 'Hatchers' ? 18 : null,
       hoIncubationHours: _context!.auditType == 'Hatchers' ? 0 : null,
     );
+  }
+
+  String _defaultSetterEstSamplesJson() {
+    return jsonEncode([
+      {
+        'id': _uuid.v4(),
+        'breed': 'Ross308',
+        'incubationAge': 1,
+        'incubationHours': 0,
+        'estReadings': <String, double>{},
+        'estPhotos': <String, String>{},
+        'estAvg': null,
+        'estCv': null,
+      },
+    ]);
   }
 
   // Update a field in the active draft
@@ -579,26 +596,17 @@ class AuditProvider extends ChangeNotifier {
             ? _asStatus(draftsToSave[i], 'active')
             : _asStatus(draftsToSave[i], 'draft');
         savedDrafts.add(draft);
-        final existing = runFinalSaveSideEffects
-            ? await _repository.getAuditById(draft.id)
-            : null;
-        await _repository.insertAudit(draft);
         if (runFinalSaveSideEffects) {
           if (markAllTabsSaved) {
             _savedTabs[i] = {0, 1, 2, 3, 4};
           } else if (tabIndex != null) {
             _savedTabs.putIfAbsent(i, () => {}).add(tabIndex);
           }
-          final action =
-              existing == null || existing.status.toLowerCase() == 'draft'
-              ? 'create'
-              : 'update';
-          finalSaveSideEffects.add((audit: draft, action: action));
+          finalSaveSideEffects.add((audit: draft, action: 'save'));
         }
 
         final sample = samplesToSave[i];
         if (sample != null) {
-          await _stationSampleRepository.upsertSample(sample);
           await _savePanelTablesForSample(draft, sample);
           if (i < _stationSamples.length) {
             _stationSamples[i] = sample;
@@ -607,23 +615,15 @@ class AuditProvider extends ChangeNotifier {
       }
       for (var i = 0; i < chickWeightSamplesToSave.length; i++) {
         final sample = chickWeightSamplesToSave[i];
-        await _stationSampleRepository.upsertSample(sample);
         if (i < _chickWeightSamples.length) {
           _chickWeightSamples[i] = sample;
         }
       }
       if (savedDrafts.isNotEmpty && chickWeightSamplesToSave.isNotEmpty) {
-        await _savePanelTableWithSamples(
-          'chick_weights',
+        await _saveChickWeightPanelSamples(
           savedDrafts.first,
           chickWeightSamplesToSave,
         );
-      }
-      for (final id in removedStationSampleIds) {
-        await _stationSampleRepository.deleteSample(id);
-      }
-      for (final id in removedLegacyAuditIds) {
-        await _repository.deleteAudit(id);
       }
       for (final sideEffect in finalSaveSideEffects) {
         await _runFinalSaveSideEffects(sideEffect.audit, sideEffect.action);
@@ -662,7 +662,7 @@ class AuditProvider extends ChangeNotifier {
 
     final lesionPairs = <Map<String, dynamic>>[
       {
-        'label': 'Omphalitis',
+        'label': 'Omphalitis (Yolk Sacculitis)',
         'count': a.pmOmphalitisCount,
         'severity': a.pmOmphalitisSeverity,
       },
@@ -672,29 +672,14 @@ class AuditProvider extends ChangeNotifier {
         'severity': a.pmGaseousCecaSeverity,
       },
       {
-        'label': 'Unabsorbed Yolk',
-        'count': a.pmUnabsorbedYolkCount,
-        'severity': a.pmUnabsorbedYolkSeverity,
+        'label': 'Gizzard Erosions',
+        'count': a.pmGizzardErosionsCount,
+        'severity': a.pmGizzardErosionsSeverity,
       },
       {
-        'label': 'Perihepatitis',
-        'count': a.pmPerihepatitisCount,
-        'severity': a.pmPerihepatitisSeverity,
-      },
-      {
-        'label': 'Pericarditis',
-        'count': a.pmPericarditisCount,
-        'severity': a.pmPericarditisSeverity,
-      },
-      {
-        'label': 'Airsac Acute',
-        'count': a.pmAirsacAcuteCount,
-        'severity': a.pmAirsacAcuteSeverity,
-      },
-      {
-        'label': 'Airsac Chronic',
-        'count': a.pmAirsacChronicCount,
-        'severity': a.pmAirsacChronicSeverity,
+        'label': 'Air Sac Caseations',
+        'count': a.pmAirSacCaseationsCount,
+        'severity': a.pmAirSacCaseationsSeverity,
       },
       {
         'label': 'Pulmonary Granuloma',
@@ -712,9 +697,14 @@ class AuditProvider extends ChangeNotifier {
         'severity': a.pmStuntedOrgansSeverity,
       },
       {
-        'label': 'Pulmonary Hemorrhage',
-        'count': a.pmPulmonaryHemorrhageCount,
-        'severity': a.pmPulmonaryHemorrhageSeverity,
+        'label': 'Nephritis',
+        'count': a.pmNephritisCount,
+        'severity': a.pmNephritisSeverity,
+      },
+      {
+        'label': 'General Septicemia',
+        'count': a.pmGeneralSepticemiaCount,
+        'severity': a.pmGeneralSepticemiaSeverity,
       },
     ];
 
@@ -782,13 +772,18 @@ class AuditProvider extends ChangeNotifier {
     _drafts.removeAt(removedIndex);
     _stationSamples.removeAt(removedIndex);
     _activeHatchIndex = _activeHatchIndex.clamp(0, _drafts.length - 1).toInt();
-    final compareGroupKey = _activeCompareGroupKey();
+    final legacyMode = _drafts.length == 1
+        ? SampleMode.pool
+        : SampleMode.compare;
+    final compareGroupKey = legacyMode == SampleMode.compare
+        ? _activeCompareGroupKey()
+        : null;
 
     for (var i = 0; i < _drafts.length; i++) {
       final map = _drafts[i].toMap();
-      map['sampleMode'] = SampleMode.compare;
+      map['sampleMode'] = legacyMode;
       map['compareGroupKey'] = compareGroupKey;
-      map['hatchNumber'] = i + 1;
+      map['hatchNumber'] = legacyMode == SampleMode.pool ? 1 : i + 1;
       map['updatedAt'] = DateTime.now().toIso8601String();
       _drafts[i] = AuditModel.fromMap(map);
       _syncStationSampleFromDraft(i);
@@ -872,76 +867,16 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final audit = await _repository.getAuditById(auditId);
-      if (audit != null) {
-        _activeSessionId = audit.sessionId;
-        _context ??= AuditContext(
-          auditType: audit.auditType,
-          customerId: audit.customerId,
-          flockId: audit.flockId ?? '',
-          hatcheryId: _context?.hatcheryId,
-          breed: audit.soBreed ?? audit.hoBreed,
-          setterId: audit.setterId ?? audit.soSetterId,
-          hatcherId: audit.hatcherId ?? audit.hoHatcherId,
-          flockEntryDate: _context?.flockEntryDate,
-          flockAgeWeeks: _context?.flockAgeWeeks,
-          date: audit.date.toIso8601String().split('T')[0],
-        );
-        // Load all hatches for this session
-        final sessionAudits = await _repository.getAuditsBySession(
-          audit.customerId,
-          audit.flockId ?? '',
-          audit.date.toIso8601String().split('T')[0],
-          audit.auditType,
-        );
-
-        _drafts = sessionAudits;
-        if (_drafts.isEmpty) {
-          _drafts = [audit];
-        }
-        final loadedMode = _drafts.length > 1
-            ? SampleMode.compare
-            : _drafts.first.sampleMode;
-        final compareGroupKey = loadedMode == SampleMode.compare
-            ? _activeCompareGroupKey()
-            : null;
-        for (var i = 0; i < _drafts.length; i++) {
-          final map = _drafts[i].toMap();
-          map['sampleMode'] = loadedMode;
-          map['compareGroupKey'] = compareGroupKey;
-          _drafts[i] = AuditModel.fromMap(map);
-        }
-        final loadedSamples = await _loadSavedSamplesForEdit(audit);
-        _stationSamples = _buildSamplesForDrafts(
-          existingStationSamples: _primarySamplesForContext(loadedSamples),
-        );
-        _chickWeightSamples = _buildChickWeightSamplesForContext(loadedSamples);
-        _activeHatchIndex = (audit.hatchNumber - 1)
-            .clamp(0, _drafts.length - 1)
-            .toInt();
-        _isReadOnly = true;
-
-        // Mark all tabs as saved
-        for (var i = 0; i < _drafts.length; i++) {
-          _savedTabs[i] = {0, 1, 2, 3, 4};
-        }
-      }
+      safeDebugLog(
+        'Legacy audit edit requested after panel-only cutover',
+        error: auditId,
+      );
     } catch (e) {
       safeDebugLog('Error loading audit', error: e);
     } finally {
       _isLoading = false;
       notifyListeners();
     }
-  }
-
-  Future<List<StationSampleModel>> _loadSavedSamplesForEdit(
-    AuditModel audit,
-  ) async {
-    final sessionId = _activeSessionId ?? audit.sessionId;
-    if (sessionId != null && sessionId.isNotEmpty) {
-      return _stationSampleRepository.getSamplesBySessionId(sessionId);
-    }
-    return _stationSampleRepository.getSamplesByLegacyAuditId(audit.id);
   }
 
   // Toggle edit mode
@@ -1044,10 +979,17 @@ class AuditProvider extends ChangeNotifier {
   void updateChickWeightSampleMetadata(Map<String, dynamic> fields) {
     if (_isReadOnly || !_isChicksContext || _chickWeightSamples.isEmpty) return;
     final sample = activeChickWeightSample;
+    final hasHouseNo = fields.containsKey('houseNo');
+    final houseNo = fields['houseNo'] as String? ?? sample.houseNo;
+    final houseLabel =
+        fields['houseLabel'] as String? ??
+        (hasHouseNo ? houseNo : sample.houseLabel);
     _chickWeightSamples[_activeChickWeightSampleIndex] = sample.copyWith(
-      sampleLabel: fields['sampleLabel'] as String? ?? sample.sampleLabel,
-      houseNo: fields['houseNo'] as String? ?? sample.houseNo,
-      houseLabel: fields['houseLabel'] as String? ?? sample.houseLabel,
+      sampleLabel:
+          fields['sampleLabel'] as String? ??
+          (hasHouseNo ? houseNo : sample.sampleLabel),
+      houseNo: houseNo,
+      houseLabel: houseLabel,
       notes: fields['notes'] as String? ?? sample.notes,
       updatedAt: DateTime.now(),
     );
@@ -1067,6 +1009,7 @@ class AuditProvider extends ChangeNotifier {
       'sectorType': StationSampleModel.sectorChickWeights,
       'sampleLabel': activeChickWeightSample.sampleLabel,
       'chickWeights': _decodedWeights(weightsJson),
+      'chickSampleSize': _weightSampleSizeFromWeightsJson(weightsJson),
       'chickAvgWeight': avgWeight,
       'chickUniformityPct': uniformityPct,
       'chickCvPct': cvPct,
@@ -1079,6 +1022,7 @@ class AuditProvider extends ChangeNotifier {
 
     final map = activeDraft.toMap();
     map['chickWeights'] = weightsJson;
+    map['chickSampleSize'] = _weightSampleSizeFromWeightsJson(weightsJson);
     map['chickAvgWeight'] = avgWeight;
     map['chickUniformityPct'] = uniformityPct;
     map['chickCvPct'] = cvPct;
@@ -1155,8 +1099,8 @@ class AuditProvider extends ChangeNotifier {
       sampleType: StationSampleModel.sampleTypeDefault,
       groupKey: isComparison ? groupKey : null,
       groupLabel: isComparison ? 'House comparison' : null,
-      houseNo: 'H${index + 1}',
-      houseLabel: 'House ${index + 1}',
+      houseNo: _defaultChickWeightHouseNo(index),
+      houseLabel: _defaultChickWeightHouseLabel(index),
       calculatedBmkAgeDays: BmkAgeCalculator.calculateDays(
         currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDaysFromWeeks(
           _context?.flockAgeWeeks,
@@ -1180,6 +1124,17 @@ class AuditProvider extends ChangeNotifier {
     required String? groupKey,
   }) {
     final isComparison = sampleMode == StationSampleModel.sampleModeComparison;
+    final defaultHouseNo = _defaultChickWeightHouseNo(index);
+    final defaultHouseLabel = _defaultChickWeightHouseLabel(index);
+    final houseNo = _defaultOrBlankHouseNo(sample.houseNo)
+        ? defaultHouseNo
+        : sample.houseNo;
+    final houseLabel = _defaultOrBlankHouseLabel(sample.houseLabel)
+        ? defaultHouseLabel
+        : sample.houseLabel;
+    final sampleLabel = _defaultOrBlankHouseNo(sample.sampleLabel)
+        ? defaultHouseNo
+        : sample.sampleLabel;
     return StationSampleModel(
       id: sample.id,
       auditSessionId: _activeSessionId ?? sample.auditSessionId,
@@ -1192,14 +1147,14 @@ class AuditProvider extends ChangeNotifier {
           ? StationSampleModel.comparisonTypeHouse
           : null,
       sampleIndex: index + 1,
-      sampleLabel: 'H${index + 1}',
+      sampleLabel: sampleLabel,
       sampleType: sample.sampleType,
       breakoutType: sample.breakoutType,
       groupKey: isComparison ? groupKey : null,
       groupLabel: isComparison ? 'House comparison' : null,
       batchNo: sample.batchNo,
-      houseNo: 'H${index + 1}',
-      houseLabel: 'House ${index + 1}',
+      houseNo: houseNo ?? defaultHouseNo,
+      houseLabel: houseLabel ?? defaultHouseLabel,
       hatchNo: sample.hatchNo,
       eggProductionDate: sample.eggProductionDate,
       settingDate: sample.settingDate,
@@ -1240,6 +1195,22 @@ class AuditProvider extends ChangeNotifier {
       if (key != null && key.isNotEmpty) return key;
     }
     return _uuid.v4();
+  }
+
+  String _defaultChickWeightHouseNo(int index) => 'H${index + 1}';
+
+  String _defaultChickWeightHouseLabel(int index) => 'House ${index + 1}';
+
+  bool _defaultOrBlankHouseNo(String? value) {
+    final trimmed = _blankToNull(value);
+    if (trimmed == null) return true;
+    return RegExp(r'^H\d+$').hasMatch(trimmed);
+  }
+
+  bool _defaultOrBlankHouseLabel(String? value) {
+    final trimmed = _blankToNull(value);
+    if (trimmed == null) return true;
+    return RegExp(r'^House \d+$').hasMatch(trimmed);
   }
 
   List<StationSampleModel> _chickWeightSamplesForSave() {
@@ -1358,7 +1329,8 @@ class AuditProvider extends ChangeNotifier {
 
   StationSampleModel _createSampleForDraft(AuditModel draft, int index) {
     final now = DateTime.now();
-    final isHatcherOptimizing = draft.auditType == 'Hatchers';
+    final isMachineStation =
+        draft.auditType == 'Setters' || draft.auditType == 'Hatchers';
     return StationSampleModel(
       id: _uuid.v4(),
       auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
@@ -1382,9 +1354,9 @@ class AuditProvider extends ChangeNotifier {
       hatchNo: draft.hatchNumber.toString(),
       storageDays: _storageDaysForDraft(draft),
       incubationDay: draft.soIncubationAge ?? draft.hoIncubationAge,
-      setterNo: draft.setterId ?? draft.soSetterId,
-      hatcherNo: draft.hatcherId ?? draft.hoHatcherId,
-      calculatedBmkAgeDays: isHatcherOptimizing
+      setterNo: _setterNoForDraft(draft),
+      hatcherNo: _hatcherNoForDraft(draft),
+      calculatedBmkAgeDays: isMachineStation
           ? null
           : BmkAgeCalculator.calculateDays(
               currentFlockAgeDays:
@@ -1396,7 +1368,7 @@ class AuditProvider extends ChangeNotifier {
               storageDays: _storageDaysForDraft(draft),
               flockEntryDate: _context?.flockEntryDate,
             ),
-      benchmarkBreed: isHatcherOptimizing
+      benchmarkBreed: isMachineStation
           ? null
           : _context?.breed ?? draft.soBreed ?? draft.hoBreed,
       resultSummaryJson: StationSampleMapper.resultSummaryJsonForAudit(draft),
@@ -1413,18 +1385,18 @@ class AuditProvider extends ChangeNotifier {
     }
     final existing = _stationSamples[index];
     final fresh = _createSampleForDraft(_drafts[index], index);
+    final isComparisonDraft = SampleMode.isCompare(_drafts[index].sampleMode);
+    final leavingComparison =
+        !isComparisonDraft &&
+        existing.sampleMode == StationSampleModel.sampleModeComparison;
     final keepGeneratedHouseMetadata =
-        _drafts[index].auditType == 'Egg' &&
-        SampleMode.isCompare(_drafts[index].sampleMode);
+        _drafts[index].auditType == 'Egg' && isComparisonDraft;
     final keepGeneratedMachineMetadata =
-        _drafts[index].auditType == 'Chicks' &&
-        SampleMode.isCompare(_drafts[index].sampleMode);
+        _drafts[index].auditType == 'Chicks' && isComparisonDraft;
     final keepGeneratedSetterMetadata =
-        _drafts[index].auditType == 'Setters' &&
-        SampleMode.isCompare(_drafts[index].sampleMode);
+        _drafts[index].auditType == 'Setters' && isComparisonDraft;
     final keepGeneratedHatcherMetadata =
-        _drafts[index].auditType == 'Hatchers' &&
-        SampleMode.isCompare(_drafts[index].sampleMode);
+        _drafts[index].auditType == 'Hatchers' && isComparisonDraft;
     final keepGeneratedSampleMetadata =
         keepGeneratedHouseMetadata ||
         keepGeneratedMachineMetadata ||
@@ -1434,33 +1406,45 @@ class AuditProvider extends ChangeNotifier {
       id: existing.id,
       auditSessionId: _activeSessionId ?? existing.auditSessionId,
       legacyAuditId: _drafts[index].id,
+      stationType: fresh.stationType,
       sectorType: fresh.sectorType,
       sampleKind: fresh.sampleKind,
-      comparisonType: keepGeneratedSampleMetadata
-          ? fresh.comparisonType
-          : existing.comparisonType ?? fresh.comparisonType,
-      sampleLabel: keepGeneratedSampleMetadata
+      sampleMode: fresh.sampleMode,
+      comparisonType: isComparisonDraft
+          ? (keepGeneratedSampleMetadata
+                ? fresh.comparisonType
+                : existing.comparisonType ?? fresh.comparisonType)
+          : fresh.comparisonType,
+      sampleLabel: keepGeneratedSampleMetadata || leavingComparison
           ? fresh.sampleLabel
           : existing.sampleLabel,
       sampleType: existing.sampleType,
       breakoutType: existing.breakoutType,
-      groupKey: _drafts[index].compareGroupKey ?? existing.groupKey,
-      groupLabel: keepGeneratedSampleMetadata
-          ? fresh.groupLabel
-          : existing.groupLabel,
+      groupKey: isComparisonDraft
+          ? _drafts[index].compareGroupKey ?? existing.groupKey
+          : fresh.groupKey,
+      groupLabel: isComparisonDraft
+          ? (keepGeneratedSampleMetadata
+                ? fresh.groupLabel
+                : existing.groupLabel)
+          : fresh.groupLabel,
       batchNo: existing.batchNo,
-      houseNo: keepGeneratedHouseMetadata ? fresh.houseNo : existing.houseNo,
-      houseLabel: keepGeneratedHouseMetadata
+      houseNo: keepGeneratedHouseMetadata || leavingComparison
+          ? fresh.houseNo
+          : existing.houseNo,
+      houseLabel: keepGeneratedHouseMetadata || leavingComparison
           ? fresh.houseLabel
           : existing.houseLabel,
       hatchNo: existing.hatchNo,
       eggProductionDate: existing.eggProductionDate,
       settingDate: existing.settingDate,
       hatchDate: existing.hatchDate,
-      setterNo: keepGeneratedSetterMetadata
+      setterNo:
+          keepGeneratedSetterMetadata || _drafts[index].auditType == 'Setters'
           ? fresh.setterNo
           : existing.setterNo,
-      hatcherNo: keepGeneratedHatcherMetadata
+      hatcherNo:
+          keepGeneratedHatcherMetadata || _drafts[index].auditType == 'Hatchers'
           ? fresh.hatcherNo
           : existing.hatcherNo,
       notes: existing.notes,
@@ -1536,15 +1520,15 @@ class AuditProvider extends ChangeNotifier {
     }
     if (draft.auditType == 'Chicks' && SampleMode.isCompare(draft.sampleMode)) {
       return _chickMachineSampleLabel(
-        setterNo: draft.setterId ?? draft.soSetterId,
-        hatcherNo: draft.hatcherId ?? draft.hoHatcherId,
+        setterNo: _setterNoForDraft(draft),
+        hatcherNo: _hatcherNoForDraft(draft),
         fallbackIndex: index + 1,
       );
     }
     if (draft.auditType == 'Setters' &&
         SampleMode.isCompare(draft.sampleMode)) {
       return _machineSampleLabel(
-        draft.setterId ?? draft.soSetterId,
+        _setterNoForDraft(draft),
         prefix: 'S',
         fallbackIndex: index + 1,
       );
@@ -1552,12 +1536,26 @@ class AuditProvider extends ChangeNotifier {
     if (draft.auditType == 'Hatchers' &&
         SampleMode.isCompare(draft.sampleMode)) {
       return _machineSampleLabel(
-        draft.hatcherId ?? draft.hoHatcherId,
+        _hatcherNoForDraft(draft),
         prefix: 'H',
         fallbackIndex: index + 1,
       );
     }
     return 'Sample ${index + 1}';
+  }
+
+  String? _setterNoForDraft(AuditModel draft) {
+    if (draft.auditType == 'Setters') {
+      return draft.soSetterId ?? draft.setterId;
+    }
+    return draft.setterId ?? draft.soSetterId;
+  }
+
+  String? _hatcherNoForDraft(AuditModel draft) {
+    if (draft.auditType == 'Hatchers') {
+      return draft.hoHatcherId ?? draft.hatcherId;
+    }
+    return draft.hatcherId ?? draft.hoHatcherId;
   }
 
   String? _groupLabelForDraft(AuditModel draft) {
@@ -1699,9 +1697,22 @@ class AuditProvider extends ChangeNotifier {
     );
   }
 
+  Future<void> _saveChickWeightPanelSamples(
+    AuditModel draft,
+    List<StationSampleModel> samples,
+  ) async {
+    for (final sample in samples) {
+      await _savePanelTableWithSamples(
+        'chick_weights',
+        _draftWithChickWeightSampleValues(draft, sample),
+        [sample],
+      );
+    }
+  }
+
   List<String> _panelTablesForDraft(AuditModel draft) {
     return switch (draft.auditType) {
-      'Egg' => const ['egg_storage', 'egg_quality', 'egg_weights'],
+      'Egg' => const ['egg_storage', 'egg_quality'],
       'Chicks' => const ['chick_pasgar', 'chick_yfbm', 'chick_cvt', 'chick_pm'],
       'Hatch Analysis & Egg Breakouts' => [
         switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
@@ -1729,7 +1740,6 @@ class AuditProvider extends ChangeNotifier {
       id: '${samples.first.auditSessionId}:$tableName:${draft.id}',
       tableName: tableName,
       sessionId: samples.first.auditSessionId,
-      auditId: draft.id,
       customerId: draft.customerId,
       flockId: _blankToNull(draft.flockId),
       date: draft.date,
@@ -1737,12 +1747,488 @@ class AuditProvider extends ChangeNotifier {
       breed: _context?.breed ?? draft.soBreed ?? draft.hoBreed,
       flockAgeWeeks: _context?.flockAgeWeeks,
       mode: mode,
-      compareLayer: compareLayer,
+      scopeType: compareLayer ?? SamplingLayer.pool,
       notes: draft.notes,
-      metricsJson: _compactJson(draft.toMap()),
+      values: _panelValuesForDraft(tableName, draft),
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
     );
+  }
+
+  Map<String, Object?> _panelValuesForDraft(
+    String tableName,
+    AuditModel draft,
+  ) {
+    return switch (tableName) {
+      'egg_storage' => _eggStorageValues(draft),
+      'egg_quality' => _eggQualityValues(draft),
+      'chick_pasgar' => _chickPasgarValues(draft),
+      'chick_weights' => _chickWeightValues(draft),
+      'chick_yfbm' => {
+        'entriesJson': draft.yfbmEntries,
+        'entryCount': _decodedListLength(draft.yfbmEntries),
+        'avgPct': draft.yfbmAvgPct,
+        'cvPct': draft.yfbmCvPct,
+      },
+      'chick_cvt' => {
+        'readingsJson': draft.cvtReadingsJson,
+        'sampleSize': draft.cvtSampleSize,
+        'avgTemp': draft.cvtAvg,
+        'cvPct': draft.cvtCvPct,
+      },
+      'chick_pm' => _chickPmValues(draft),
+      'fresh_egg_breakout' => _freshBreakoutValues(draft),
+      'candled_egg_breakout' => _candledBreakoutValues(draft),
+      'residue_breakout' => _residueBreakoutValues(draft),
+      'setter_optimizing' => {
+        'setterId': draft.soSetterId ?? draft.setterId,
+        'machineType': draft.soMachineType,
+        'setpointF': draft.soSetpointF,
+        'actualF': draft.soActualF,
+        'batchSize': draft.soBatchSize,
+        'batchCount': draft.soBatchCount,
+        'totalEggsSet': draft.soTotalEggsSet,
+        'turningAngle': draft.soTurningAngle,
+        'co2Ppm': draft.soCo2,
+        'estBreed': draft.soBreed,
+        'incubationAgeDays': draft.soIncubationAge,
+        'incubationHours': draft.soIncubationHours,
+        'estReadingsJson': draft.soEstReadings,
+        'estSampleSize': _decodedReadingCount(draft.soEstReadings),
+        'estAvg': draft.soEstAvg,
+        'estCvPct': draft.soEstCv,
+      },
+      'hatcher_optimizing' => {
+        'hatcherId': draft.hoHatcherId ?? draft.hatcherId,
+        'incubationAgeDays': draft.hoIncubationAge,
+        'incubationHours': draft.hoIncubationHours,
+        'co2Ppm': draft.hoCo2,
+        'cvtReadingsJson': draft.hoCvtReadings,
+        'cvtSampleSize': _decodedReadingCount(draft.hoCvtReadings),
+        'cvtAvg': draft.hoCvtAvg,
+        'cvtCvPct': draft.hoCvtCv,
+        'chickPanting': _boolToInt(draft.hoChickPanting),
+        'meconium': draft.hoMeconium,
+      },
+      _ => const <String, Object?>{},
+    };
+  }
+
+  Map<String, Object?> _eggStorageValues(AuditModel draft) {
+    final trays = _decodedMaps(draft.esUvTrays);
+    var trayEggCount = 0;
+    var upsideDown = 0;
+    for (final tray in trays) {
+      trayEggCount += _asInt(tray['totalEggs']) ?? 0;
+      upsideDown += _asInt(tray['upsideDown']) ?? 0;
+    }
+    return {
+      'storageDays': draft.esEggStorageDays,
+      'estReadingsJson': draft.esEstReadingsJson,
+      'estAvg': draft.esEstAvg,
+      'estCvPct': draft.esEstCv,
+      'shellTemp': draft.esShellTemp,
+      'turningTimes': draft.esTurningTimes,
+      'traySpacing': draft.esTraySpacing,
+      'coolerProximity': draft.esCoolerProximity,
+      'condensationPresent': _boolToInt(draft.esCondensation),
+      'upsideDownCount': upsideDown,
+      'upsideDownPct': _pct(upsideDown, trayEggCount),
+    };
+  }
+
+  Map<String, Object?> _eggQualityValues(AuditModel draft) {
+    final trays = _decodedMaps(draft.esUvTrays);
+    var trayEggCount = 0;
+    var cuticleDamage = 0;
+    var washed = 0;
+    var dirty = 0;
+    for (final tray in trays) {
+      trayEggCount += _asInt(tray['totalEggs']) ?? 0;
+      cuticleDamage += _asInt(tray['cuticleDamage']) ?? 0;
+      washed += _asInt(tray['washed']) ?? 0;
+      dirty += _asInt(tray['dirty']) ?? 0;
+    }
+    final affected = cuticleDamage + washed + dirty;
+    return {
+      'uvTrayEggCount': trayEggCount == 0 ? draft.esUvSampleSize : trayEggCount,
+      'uvCuticleDamageCount': cuticleDamage,
+      'uvWashedCount': washed,
+      'uvDirtyCount': dirty,
+      'uvAffectedCount': affected,
+      'uvAffectedPct': _pct(affected, trayEggCount),
+      'eggWeightsJson': draft.esEggWeights,
+      'eggSampleSize': draft.esEggSampleSize,
+      'eggAvgWeight': draft.esEggAvgWeight,
+      'eggUniformityPct': draft.esEggUniformityPct,
+      'eggCvPct': draft.esEggCvPct,
+      'eggBmkAgeWeeks': draft.esEggBmkAge,
+      'eggBmkWeight': draft.esEggBmkWeight,
+    };
+  }
+
+  Map<String, Object?> _chickPasgarValues(AuditModel draft) {
+    final size = draft.pasgarSampleSize;
+    return {
+      'sampleSize': size,
+      'reflexesCount': draft.pasgarReflexes,
+      'beakCount': draft.pasgarBeak,
+      'navelCount': draft.pasgarNavel,
+      'bellyCount': draft.pasgarBelly,
+      'legCount': draft.pasgarLeg,
+      'featherDevCount': draft.pasgarFeatherDev,
+      'reflexesPct': _pct(draft.pasgarReflexes, size),
+      'beakPct': _pct(draft.pasgarBeak, size),
+      'navelPct': _pct(draft.pasgarNavel, size),
+      'bellyPct': _pct(draft.pasgarBelly, size),
+      'legPct': _pct(draft.pasgarLeg, size),
+      'featherDevPct': _pct(draft.pasgarFeatherDev, size),
+      'finalScore': draft.pasgarFinalScore,
+    };
+  }
+
+  Map<String, Object?> _chickWeightValues(AuditModel draft) {
+    return {
+      'weightsJson': draft.chickWeights,
+      'sampleSize': draft.chickSampleSize,
+      'avgWeight': draft.chickAvgWeight,
+      'uniformityPct': draft.chickUniformityPct,
+      'cvPct': draft.chickCvPct,
+      'bmkAgeWeeks': draft.chickBmkAge,
+      'bmkWeight': draft.chickBmkWeight,
+    };
+  }
+
+  AuditModel _draftWithChickWeightSampleValues(
+    AuditModel draft,
+    StationSampleModel sample,
+  ) {
+    final values = _chickWeightValuesForSample(sample, fallback: draft);
+    final map = draft.toMap()
+      ..['chickWeights'] = values['weightsJson']
+      ..['chickSampleSize'] = values['sampleSize']
+      ..['chickAvgWeight'] = values['avgWeight']
+      ..['chickUniformityPct'] = values['uniformityPct']
+      ..['chickCvPct'] = values['cvPct']
+      ..['chickBmkAge'] = values['bmkAgeWeeks']
+      ..['chickBmkWeight'] = values['bmkWeight'];
+    return AuditModel.fromMap(map);
+  }
+
+  Map<String, Object?> _chickWeightValuesForSample(
+    StationSampleModel sample, {
+    required AuditModel fallback,
+  }) {
+    final summary = _decodedMap(sample.resultSummaryJson);
+    if (summary == null) return _chickWeightValues(fallback);
+
+    final weights = summary['chickWeights'];
+    return {
+      'weightsJson': weights is List ? jsonEncode(weights) : null,
+      'sampleSize': weights is List
+          ? _weightSampleSizeFromDecoded(weights)
+          : null,
+      'avgWeight': _asDouble(summary['chickAvgWeight']),
+      'uniformityPct': _asDouble(summary['chickUniformityPct']),
+      'cvPct': _asDouble(summary['chickCvPct']),
+      'bmkAgeWeeks': fallback.chickBmkAge,
+      'bmkWeight': fallback.chickBmkWeight,
+    };
+  }
+
+  Map<String, Object?> _chickPmValues(AuditModel draft) {
+    return {
+      'sampleSize': draft.pmSampleSize,
+      'collectionPoint': draft.pmCollectionPoint,
+      'omphalitisCount': draft.pmOmphalitisCount,
+      'omphalitisSeverity': draft.pmOmphalitisSeverity,
+      'gaseousCecaCount': draft.pmGaseousCecaCount,
+      'gaseousCecaSeverity': draft.pmGaseousCecaSeverity,
+      'unabsorbedYolkCount': draft.pmUnabsorbedYolkCount,
+      'unabsorbedYolkSeverity': draft.pmUnabsorbedYolkSeverity,
+      'perihepatitisCount': draft.pmPerihepatitisCount,
+      'perihepatitisSeverity': draft.pmPerihepatitisSeverity,
+      'pericarditisCount': draft.pmPericarditisCount,
+      'pericarditisSeverity': draft.pmPericarditisSeverity,
+      'airsacAcuteCount': draft.pmAirsacAcuteCount,
+      'airsacAcuteSeverity': draft.pmAirsacAcuteSeverity,
+      'airsacChronicCount': draft.pmAirsacChronicCount,
+      'airsacChronicSeverity': draft.pmAirsacChronicSeverity,
+      'pulmonaryGranulomaCount': draft.pmPulmonaryGranulomaCount,
+      'pulmonaryGranulomaSeverity': draft.pmPulmonaryGranulomaSeverity,
+      'swollenJointsCount': draft.pmSwollenJointsCount,
+      'swollenJointsSeverity': draft.pmSwollenJointsSeverity,
+      'stuntedOrgansCount': draft.pmStuntedOrgansCount,
+      'stuntedOrgansSeverity': draft.pmStuntedOrgansSeverity,
+      'pulmonaryHemorrhageCount': draft.pmPulmonaryHemorrhageCount,
+      'pulmonaryHemorrhageSeverity': draft.pmPulmonaryHemorrhageSeverity,
+      'gizzardErosionsCount': draft.pmGizzardErosionsCount,
+      'gizzardErosionsSeverity': draft.pmGizzardErosionsSeverity,
+      'airSacCaseationsCount': draft.pmAirSacCaseationsCount,
+      'airSacCaseationsSeverity': draft.pmAirSacCaseationsSeverity,
+      'nephritisCount': draft.pmNephritisCount,
+      'nephritisSeverity': draft.pmNephritisSeverity,
+      'generalSepticemiaCount': draft.pmGeneralSepticemiaCount,
+      'generalSepticemiaSeverity': draft.pmGeneralSepticemiaSeverity,
+      'gaspingPresent': _boolToInt(draft.pmGaspingPresent),
+      'gaspingType': draft.pmGaspingType,
+      'exposedBrainCount': draft.pmExposedBrainCount,
+      'ectopicVisceraCount': draft.pmEctopicVisceraCount,
+      'extraLegsCount': draft.pmExtraLegsCount,
+      'crossedBeakCount': draft.pmCrossedBeakCount,
+      'absentEyeBothCount': draft.pmAbsentEyeBothCount,
+      'absentEyeOneCount': draft.pmAbsentEyeOneCount,
+      'smallEyeCount': draft.pmSmallEyeCount,
+      'hydrocephalyCount': draft.pmHydrocephalyCount,
+      'starGazerCount': draft.pmStarGazerCount,
+      'curledToesCount': draft.pmCurledToesCount,
+      'shortLegsCount': draft.pmShortLegsCount,
+      'spinalDeformityCount': draft.pmSpinalDeformityCount,
+      'cardiacAnomalyCount': draft.pmCardiacAnomalyCount,
+      'conjoinedCount': draft.pmConjoinedCount,
+      'otherDeformityCount': draft.pmOtherDeformityCount,
+      'otherDeformityText': draft.pmOtherDeformityText,
+      'suspectedCauseAuto': draft.pmSuspectedCauseAuto,
+      'suspectedCauseManual': draft.pmSuspectedCauseManual,
+    };
+  }
+
+  Map<String, Object?> _freshBreakoutValues(
+    AuditModel draft, {
+    EggBreakoutType breakoutType = EggBreakoutType.freshEggBreakout,
+  }) {
+    final rollup = _breakoutRollup(draft, breakoutType: breakoutType);
+    return {
+      'storageDays': draft.ebStorageDays ?? draft.haStorageDays,
+      'bmkAgeDays': draft.ebBreakoutAgeDays,
+      'bmkAgeWeeks': draft.ebBmkAge ?? draft.haBmkAge,
+      'traySize': rollup.totalSample ?? draft.ebTraySize,
+      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
+      'early24hCount': rollup.counts['early24h'],
+      'early48hCount': rollup.counts['early48h'],
+      'bloodRingCount': rollup.counts['early72hBloodRing'],
+      'infertilePct': _pct(rollup.counts['infertile'], rollup.totalSample),
+      'early24hPct': _pct(rollup.counts['early24h'], rollup.totalSample),
+      'early48hPct': _pct(rollup.counts['early48h'], rollup.totalSample),
+      'bloodRingPct': _pct(
+        rollup.counts['early72hBloodRing'],
+        rollup.totalSample,
+      ),
+    };
+  }
+
+  Map<String, Object?> _candledBreakoutValues(AuditModel draft) {
+    final values = _freshBreakoutValues(
+      draft,
+      breakoutType: EggBreakoutType.candledEggBreakout,
+    );
+    final rollup = _breakoutRollup(
+      draft,
+      breakoutType: EggBreakoutType.candledEggBreakout,
+    );
+    return {
+      ...values,
+      'candlingDay': draft.ebBreakoutAgeDays,
+      'position': _firstBreakoutPosition(
+        draft,
+        breakoutType: EggBreakoutType.candledEggBreakout,
+      ),
+      'blackEyeCount': rollup.counts['blackEye'],
+      'blackEyePct': _pct(rollup.counts['blackEye'], rollup.totalSample),
+    };
+  }
+
+  Map<String, Object?> _residueBreakoutValues(AuditModel draft) {
+    final rollup = _breakoutRollup(
+      draft,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    return {
+      'setterId': draft.setterId,
+      'hatcherId': draft.hatcherId,
+      'storageDays': draft.ebStorageDays ?? draft.haStorageDays,
+      'bmkAgeDays': draft.ebBreakoutAgeDays,
+      'bmkAgeWeeks': draft.ebBmkAge ?? draft.haBmkAge,
+      'position': _firstBreakoutPosition(
+        draft,
+        breakoutType: EggBreakoutType.residueHatchDay,
+      ),
+      'traySize': rollup.totalSample ?? draft.ebTraySize,
+      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
+      'earlyDeadCount': rollup.counts['earlyDead'] ?? draft.ebEarlyDeadCount,
+      'midDeadCount': rollup.counts['midDead'] ?? draft.ebMidDeadCount,
+      'lateDeadCount': rollup.counts['lateDead'] ?? draft.ebLateDeadCount,
+      'externalPipCount':
+          rollup.counts['externalPip'] ?? draft.ebExternalPipCount,
+      'crackedCount': rollup.counts['cracked'] ?? draft.ebCrackedCount,
+      'contaminatedCount':
+          rollup.counts['contaminated'] ?? draft.ebContaminatedCount,
+      'infertilePct': _pct(rollup.counts['infertile'], rollup.totalSample),
+      'earlyDeadPct': _pct(rollup.counts['earlyDead'], rollup.totalSample),
+      'midDeadPct': _pct(rollup.counts['midDead'], rollup.totalSample),
+      'lateDeadPct': _pct(rollup.counts['lateDead'], rollup.totalSample),
+      'externalPipPct': _pct(rollup.counts['externalPip'], rollup.totalSample),
+      'crackedPct': _pct(rollup.counts['cracked'], rollup.totalSample),
+      'contaminatedPct': _pct(
+        rollup.counts['contaminated'],
+        rollup.totalSample,
+      ),
+      'totalEggsSet': draft.haTotalEggsSet,
+      'hatchedCount': draft.haHatched,
+      'culledCount': draft.haCulled,
+      'deadCount': draft.haDead,
+      'hatchabilityPct': draft.haHatchability,
+      'fertilityPct': draft.haFertility,
+      'hofPct': draft.haHof,
+      'culledPct': _pct(draft.haCulled, draft.haTotalEggsSet),
+      'deadPct': _pct(draft.haDead, draft.haTotalEggsSet),
+    };
+  }
+
+  ({Map<String, int> counts, int? totalSample}) _breakoutRollup(
+    AuditModel draft, {
+    EggBreakoutType? breakoutType,
+  }) {
+    final allEntries = EggBreakoutSampleEntry.decodeList(
+      draft.ebTrayBreakoutJson,
+      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
+        draft.ebBreakoutType,
+      ),
+    );
+    final entries = breakoutType == null
+        ? allEntries
+        : allEntries
+              .where((entry) => entry.breakoutType == breakoutType)
+              .toList();
+    final counts = <String, int>{};
+    var total = 0;
+    for (final entry in entries) {
+      total += entry.totalSample ?? 0;
+      for (final item in entry.counts.entries) {
+        counts[item.key] = (counts[item.key] ?? 0) + item.value;
+      }
+    }
+    if (counts.isEmpty && allEntries.isEmpty) {
+      counts.addAll({
+        if (draft.ebInfertileCount != null)
+          'infertile': draft.ebInfertileCount!,
+        if (draft.ebEarlyDeadCount != null)
+          'earlyDead': draft.ebEarlyDeadCount!,
+        if (draft.ebMidDeadCount != null) 'midDead': draft.ebMidDeadCount!,
+        if (draft.ebLateDeadCount != null) 'lateDead': draft.ebLateDeadCount!,
+        if (draft.ebExternalPipCount != null)
+          'externalPip': draft.ebExternalPipCount!,
+        if (draft.ebCrackedCount != null) 'cracked': draft.ebCrackedCount!,
+        if (draft.ebContaminatedCount != null)
+          'contaminated': draft.ebContaminatedCount!,
+      });
+    }
+    return (
+      counts: counts,
+      totalSample: total == 0
+          ? (allEntries.isEmpty ? draft.ebTraySize : null)
+          : total,
+    );
+  }
+
+  String? _firstBreakoutPosition(
+    AuditModel draft, {
+    EggBreakoutType? breakoutType,
+  }) {
+    final allEntries = EggBreakoutSampleEntry.decodeList(
+      draft.ebTrayBreakoutJson,
+      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
+        draft.ebBreakoutType,
+      ),
+    );
+    final entries = breakoutType == null
+        ? allEntries
+        : allEntries.where((entry) => entry.breakoutType == breakoutType);
+    for (final entry in entries) {
+      final position = entry.position?.trim();
+      if (position != null && position.isNotEmpty) return position;
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _decodedMaps(String? source) {
+    if (source == null || source.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  int _decodedListLength(String? source) => _decodedMaps(source).length;
+
+  int? _decodedReadingCount(String? source) {
+    if (source == null || source.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is List) return decoded.length;
+      if (decoded is Map) return decoded.length;
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  int? _asInt(Object? value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value.toString());
+  }
+
+  double? _asDouble(Object? value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  Map<String, Object?>? _decodedMap(String? source) {
+    if (source == null || source.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! Map) return null;
+      return Map<String, Object?>.from(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _weightSampleSizeFromWeightsJson(String weightsJson) {
+    final decoded = _decodedWeights(weightsJson);
+    return _weightSampleSizeFromDecoded(decoded);
+  }
+
+  int? _weightSampleSizeFromDecoded(Object? decoded) {
+    if (decoded is! List) return null;
+    final count = decoded
+        .map(_asDouble)
+        .where((weight) => weight != null && weight > 0)
+        .length;
+    return count == 0 ? null : count;
+  }
+
+  double? _pct(Object? count, Object? total) {
+    final numerator = _asInt(count);
+    final denominator = _asInt(total);
+    if (numerator == null || denominator == null || denominator <= 0) {
+      return null;
+    }
+    return numerator * 100 / denominator;
+  }
+
+  int? _boolToInt(bool? value) {
+    if (value == null) return null;
+    return value ? 1 : 0;
   }
 
   PanelSampleRecord _panelSampleRecordForStationSample({
@@ -1751,7 +2237,7 @@ class AuditProvider extends ChangeNotifier {
     required AuditModel draft,
     required StationSampleModel sample,
   }) {
-    final scopeType = _scopeTypeForPanel(tableName, sample);
+    final scopeType = _scopeTypeForPanel(tableName, sample, draft);
     return PanelSampleRecord(
       id: '$panelId:${sample.id}',
       panelId: panelId,
@@ -1799,13 +2285,18 @@ class AuditProvider extends ChangeNotifier {
 
   SamplingLayer _scopeTypeForPanel(
     String tableName,
-    StationSampleModel sample,
-  ) {
+    StationSampleModel sample, [
+    AuditModel? draft,
+  ]) {
     final allowed = PanelSampleSchema.byTable(tableName).allowedLayers;
-    if (sample.sampleMode != StationSampleModel.sampleModeComparison) {
+    final isComparison =
+        sample.sampleMode == StationSampleModel.sampleModeComparison ||
+        (draft != null && SampleMode.isCompare(draft.sampleMode)) ||
+        isCompareMode;
+    if (!isComparison) {
       return SamplingLayer.pool;
     }
-    if (allowed.contains(SamplingLayer.house) && _hasText(sample.houseNo)) {
+    if (allowed.contains(SamplingLayer.house)) {
       return SamplingLayer.house;
     }
     if (allowed.contains(SamplingLayer.setterHatcher) &&
@@ -1838,14 +2329,14 @@ class AuditProvider extends ChangeNotifier {
       SamplingLayer.hatcher =>
         _blankToNull(sample.hatcherNo) ?? sample.sampleLabel,
       SamplingLayer.tray || SamplingLayer.trolley => sample.sampleLabel,
+      SamplingLayer.batch => sample.groupLabel ?? sample.sampleLabel,
       SamplingLayer.pool => 'Random',
     };
   }
 
   int? _sampleSizeForPanel(String tableName, AuditModel draft) {
     return switch (tableName) {
-      'egg_quality' => draft.esUvSampleSize,
-      'egg_weights' => draft.esEggSampleSize,
+      'egg_quality' => draft.esEggSampleSize,
       'chick_pasgar' => draft.pasgarSampleSize,
       'chick_weights' => draft.chickSampleSize,
       'chick_cvt' => draft.cvtSampleSize,
@@ -1900,12 +2391,6 @@ class AuditProvider extends ChangeNotifier {
     } catch (e) {
       safeDebugLog('Error checking audit thresholds', error: e);
     }
-
-    unawaited(
-      _supabaseService.syncAudit(audit.toMap()).catchError((Object e) {
-        safeDebugLog('Error syncing audit', error: e);
-      }),
-    );
   }
 
   Future<void> _checkThresholdsAndAlert(AuditModel audit) async {

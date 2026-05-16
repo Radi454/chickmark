@@ -64,10 +64,8 @@ class GoveePlaceRecorder extends StatelessWidget {
               ),
             ),
           ],
-          if ((provider.phase == GoveeCapturePhase.syncFailed ||
-                  provider.phase == GoveeCapturePhase.saveFailed) &&
-              (provider.syncFailureDetails != null ||
-                  provider.syncFailureDiagnostics.isNotEmpty)) ...[
+          if (provider.syncFailureDetails != null ||
+              provider.syncFailureDiagnostics.isNotEmpty) ...[
             const SizedBox(height: 12),
             _SyncDiagnostics(provider: provider),
           ],
@@ -273,7 +271,7 @@ class _RecordingState extends StatelessWidget {
         border: Border.all(color: AppColors.borderDefault),
       ),
       child: Text(
-        _stateText(provider.phase),
+        _stateText(provider),
         style: const TextStyle(
           color: AppColors.textSecondary,
           fontWeight: FontWeight.w700,
@@ -282,10 +280,10 @@ class _RecordingState extends StatelessWidget {
     );
   }
 
-  String _stateText(GoveeCapturePhase phase) {
-    return switch (phase) {
+  String _stateText(GoveeCaptureProvider provider) {
+    return switch (provider.phase) {
       GoveeCapturePhase.validRecording =>
-        'Live readings are preview only. Stop will sync the full Govee history window.',
+        'Recording length ${_formatElapsed(provider.recordingElapsedSeconds)}. Live readings are preview only. Stop will sync the full Govee history window.',
       GoveeCapturePhase.syncing =>
         'Syncing saved history from the Govee device.',
       GoveeCapturePhase.syncFailed =>
@@ -298,5 +296,11 @@ class _RecordingState extends StatelessWidget {
       _ =>
         'Start once for this place, then stop when the place window is complete.',
     };
+  }
+
+  String _formatElapsed(int seconds) {
+    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
+    final remainingSeconds = (seconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$remainingSeconds';
   }
 }

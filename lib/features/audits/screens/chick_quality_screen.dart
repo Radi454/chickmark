@@ -164,22 +164,17 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       children: [
         _StationPanel(
           key: const ValueKey('chick-quality-machine-sampling'),
-          mark: 'CQ',
           title: 'Chick Quality',
           meta: 'Setter/hatcher sample scope',
           status: provider.isCompareMode ? 'Compare' : 'Single',
-          statusKind: _StatusKind.good,
           showHeader: false,
           child: _MachineSampleControls(provider: provider),
         ),
         const SizedBox(height: 16),
         _StationPanel(
           key: const ValueKey('chick-quality-panel-pasgar'),
-          mark: 'PG',
           title: 'Pasgar Score',
           meta: activeQualitySampleMeta,
-          status: _pasgarStatus(audit),
-          statusKind: _StatusKind.good,
           collapsible: true,
           child: PasgarTab(
             audit: audit,
@@ -191,11 +186,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         const SizedBox(height: 16),
         _StationPanel(
           key: const ValueKey('chick-quality-panel-yfbm'),
-          mark: 'YF',
           title: 'YFBM',
           meta: activeQualitySampleMeta,
-          status: _yfbmStatus(audit),
-          statusKind: _StatusKind.good,
           collapsible: true,
           child: YfbmTab(
             audit: audit,
@@ -207,11 +199,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         const SizedBox(height: 16),
         _StationPanel(
           key: const ValueKey('chick-quality-panel-cvt'),
-          mark: 'CVT',
           title: 'Chick Vent Temperature',
           meta: activeQualitySampleMeta,
-          status: _cvtStatus(audit),
-          statusKind: _cvtStatusKind(audit),
           collapsible: true,
           child: CvtTab(
             audit: audit,
@@ -223,11 +212,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         const SizedBox(height: 16),
         _StationPanel(
           key: const ValueKey('chick-quality-panel-pm'),
-          mark: 'PM',
           title: 'PM Necropsy',
           meta: activeQualitySampleMeta,
-          status: 'Review',
-          statusKind: _StatusKind.warn,
           collapsible: true,
           child: PmNecropsyTab(
             audit: audit,
@@ -470,29 +456,6 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     }
     return null;
   }
-
-  String _pasgarStatus(AuditModel audit) {
-    final score = audit.pasgarFinalScore;
-    return score == null ? '--' : '${score.toStringAsFixed(1)}/10';
-  }
-
-  String _yfbmStatus(AuditModel audit) {
-    final avg = audit.yfbmAvgPct;
-    return avg == null ? 'Stable' : '${avg.toStringAsFixed(1)}%';
-  }
-
-  String _cvtStatus(AuditModel audit) {
-    final avg = audit.cvtAvg;
-    return avg == null ? '--' : '${avg.toStringAsFixed(1)}F';
-  }
-
-  _StatusKind _cvtStatusKind(AuditModel audit) {
-    final avg = audit.cvtAvg;
-    if (avg == null) return _StatusKind.good;
-    return avg >= AppThresholds.cvtMin && avg <= AppThresholds.cvtMax
-        ? _StatusKind.good
-        : _StatusKind.warn;
-  }
 }
 
 class _HeaderCard extends StatelessWidget {
@@ -532,7 +495,7 @@ class _HeaderCard extends StatelessWidget {
             'Chick quality',
             style: AppTextStyles.heading.copyWith(
               color: Colors.white,
-              fontSize: 26,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -591,25 +554,19 @@ class _HeaderContextTile extends StatelessWidget {
   }
 }
 
-enum _StatusKind { good, warn }
-
 class _StationPanel extends StatelessWidget {
-  final String mark;
   final String title;
   final String meta;
   final String status;
-  final _StatusKind statusKind;
   final Widget child;
   final bool showHeader;
   final bool collapsible;
 
   const _StationPanel({
     super.key,
-    this.mark = '',
     this.title = '',
     this.meta = '',
     this.status = '',
-    this.statusKind = _StatusKind.good,
     required this.child,
     this.showHeader = true,
     this.collapsible = false,
@@ -646,7 +603,6 @@ class _StationPanel extends StatelessWidget {
               panelPadding,
               panelPadding,
             ),
-            leading: _SectionMark(mark: mark),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -662,14 +618,7 @@ class _StationPanel extends StatelessWidget {
                 ],
               ],
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _StatusPill(label: status, kind: statusKind),
-                const SizedBox(width: 8),
-                const Icon(Icons.expand_more),
-              ],
-            ),
+            trailing: const Icon(Icons.expand_more),
             children: [child],
           ),
         ),
@@ -688,8 +637,6 @@ class _StationPanel extends StatelessWidget {
               padding: EdgeInsets.all(panelPadding),
               child: Row(
                 children: [
-                  _SectionMark(mark: mark),
-                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -707,7 +654,7 @@ class _StationPanel extends StatelessWidget {
                       ],
                     ),
                   ),
-                  _StatusPill(label: status, kind: statusKind),
+                  _StatusPill(label: status),
                 ],
               ),
             ),
@@ -720,56 +667,25 @@ class _StationPanel extends StatelessWidget {
   }
 }
 
-class _SectionMark extends StatelessWidget {
-  final String mark;
-
-  const _SectionMark({required this.mark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: AppColors.infoBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
-      ),
-      child: Text(
-        mark,
-        textAlign: TextAlign.center,
-        style: AppTextStyles.caption.copyWith(
-          color: AppColors.primary,
-          fontSize: mark.length > 2 ? 11 : 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
 class _StatusPill extends StatelessWidget {
   final String label;
-  final _StatusKind kind;
 
-  const _StatusPill({required this.label, required this.kind});
+  const _StatusPill({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    final isGood = kind == _StatusKind.good;
     return Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 9),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: isGood ? AppColors.statusGoodBg : AppColors.statusWarningBg,
+        color: AppColors.statusGoodBg,
         borderRadius: BorderRadius.circular(AppSizes.pillRadius),
       ),
       child: Text(
         label,
         style: AppTextStyles.caption.copyWith(
-          color: isGood ? AppColors.statusGood : AppColors.statusWarning,
+          color: AppColors.statusGood,
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -780,41 +696,142 @@ class _StatusPill extends StatelessWidget {
 class _GradientIcon extends StatelessWidget {
   final IconData icon;
   final double size;
-  final bool framed;
 
-  const _GradientIcon(
-    this.icon, {
-    super.key,
-    this.size = 18,
-    this.framed = false,
-  });
+  const _GradientIcon(this.icon, {this.size = 18});
 
   @override
   Widget build(BuildContext context) {
-    if (framed) {
-      return Container(
-        width: size + 10,
-        height: size + 10,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          gradient: AppColors.brandGradient,
-          borderRadius: BorderRadius.circular(7),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.18),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Icon(icon, size: size, color: Colors.white),
-      );
-    }
-
     return ShaderMask(
       blendMode: BlendMode.srcIn,
       shaderCallback: AppColors.brandGradient.createShader,
       child: Icon(icon, size: size, color: Colors.white),
+    );
+  }
+}
+
+class _ChickScopeSelector extends StatelessWidget {
+  final Key singleKey;
+  final Key multipleKey;
+  final bool isMultipleSelected;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _ChickScopeSelector({
+    required this.singleKey,
+    required this.multipleKey,
+    required this.isMultipleSelected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : 0.62,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.borderDefault),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _ChickScopeOption(
+                key: singleKey,
+                label: 'One sample',
+                selected: !isMultipleSelected,
+                enabled: enabled,
+                onTap: () => onChanged(false),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: _ChickScopeOption(
+                key: multipleKey,
+                label: 'Multisamples',
+                selected: isMultipleSelected,
+                enabled: enabled,
+                onTap: () => onChanged(true),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChickScopeOption extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ChickScopeOption({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = !enabled
+        ? AppColors.textDisabled
+        : selected
+        ? AppColors.primary
+        : AppColors.textBody;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      enabled: enabled,
+      label: label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(11),
+          onTap: enabled ? onTap : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            constraints: const BoxConstraints(minHeight: 48),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.surface : Colors.transparent,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: selected
+                    ? AppColors.primary.withAlpha(72)
+                    : Colors.transparent,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(10),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -885,37 +902,13 @@ class _FlockCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Chick Weights & Uniformity',
-                      style: AppTextStyles.heading.copyWith(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _StatusPill(
-                label: stats.uniformity == null
-                    ? 'Uniform'
-                    : stats.uniformity! >= AppThresholds.uniformityGood
-                    ? 'Uniform'
-                    : 'Review',
-                kind:
-                    stats.uniformity == null ||
-                        stats.uniformity! >= AppThresholds.uniformityGood
-                    ? _StatusKind.good
-                    : _StatusKind.warn,
-              ),
-            ],
+          Text(
+            'Chick Weights & Uniformity',
+            style: AppTextStyles.heading.copyWith(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 14),
           LayoutBuilder(
@@ -1136,68 +1129,19 @@ class _HouseWeightSampleControls extends StatelessWidget {
   }
 
   Widget _buildHouseScopeSelector() {
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<bool>(
-        showSelectedIcon: true,
-        selectedIcon: const _GradientIcon(
-          Icons.check,
-          key: ValueKey('house-scope-selected-icon'),
-          size: 14,
-          framed: true,
-        ),
-        segments: const [
-          ButtonSegment<bool>(
-            value: false,
-            icon: _GradientIcon(
-              Icons.home_outlined,
-              key: ValueKey('house-scope-one-icon'),
-              size: 14,
-              framed: true,
-            ),
-            label: Text('One sample'),
-          ),
-          ButtonSegment<bool>(
-            value: true,
-            icon: _GradientIcon(
-              Icons.compare_arrows,
-              key: ValueKey('house-scope-multi-icon'),
-              size: 14,
-              framed: true,
-            ),
-            label: Text('Multisamples'),
-          ),
-        ],
-        selected: {provider.isChickWeightCompareMode},
-        onSelectionChanged: provider.isReadOnly
-            ? null
-            : (values) {
-                final compare = values.first;
-                if (compare == provider.isChickWeightCompareMode) return;
-                provider.setChickWeightSampleMode(
-                  compare
-                      ? StationSampleModel.sampleModeComparison
-                      : StationSampleModel.sampleModePooled,
-                );
-              },
-        style: ButtonStyle(
-          visualDensity: VisualDensity.compact,
-          side: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return BorderSide(
-              color: selected ? AppColors.primary : AppColors.borderDefault,
-            );
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            return states.contains(WidgetState.selected)
-                ? AppColors.primary
-                : AppColors.textBody;
-          }),
-          textStyle: WidgetStateProperty.all(
-            AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ),
-      ),
+    return _ChickScopeSelector(
+      singleKey: const ValueKey('house-scope-segment-single'),
+      multipleKey: const ValueKey('house-scope-segment-multiple'),
+      isMultipleSelected: provider.isChickWeightCompareMode,
+      enabled: !provider.isReadOnly,
+      onChanged: (compare) {
+        if (compare == provider.isChickWeightCompareMode) return;
+        provider.setChickWeightSampleMode(
+          compare
+              ? StationSampleModel.sampleModeComparison
+              : StationSampleModel.sampleModePooled,
+        );
+      },
     );
   }
 
@@ -1353,8 +1297,7 @@ class _MachineSampleControls extends StatelessWidget {
         ],
         const SizedBox(height: 10),
         _buildSampleControlCard(
-          title: 'Active machine',
-          note: 'Setter and hatcher pair',
+          title: 'Machine ID',
           child: _buildMachineFields(context),
         ),
       ],
@@ -1414,68 +1357,19 @@ class _MachineSampleControls extends StatelessWidget {
   }
 
   Widget _buildMachineScopeSelector() {
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<bool>(
-        showSelectedIcon: true,
-        selectedIcon: const _GradientIcon(
-          Icons.check,
-          key: ValueKey('quality-scope-selected-icon'),
-          size: 14,
-          framed: true,
-        ),
-        segments: const [
-          ButtonSegment<bool>(
-            value: false,
-            icon: _GradientIcon(
-              Icons.precision_manufacturing_outlined,
-              key: ValueKey('quality-scope-one-icon'),
-              size: 14,
-              framed: true,
-            ),
-            label: Text('One sample'),
-          ),
-          ButtonSegment<bool>(
-            value: true,
-            icon: _GradientIcon(
-              Icons.compare_arrows,
-              key: ValueKey('quality-scope-multi-icon'),
-              size: 14,
-              framed: true,
-            ),
-            label: Text('Multisamples'),
-          ),
-        ],
-        selected: {provider.isCompareMode},
-        onSelectionChanged: provider.isReadOnly
-            ? null
-            : (values) {
-                final compare = values.first;
-                if (compare == provider.isCompareMode) return;
-                provider.setStationSampleMode(
-                  compare
-                      ? StationSampleModel.sampleModeComparison
-                      : StationSampleModel.sampleModePooled,
-                );
-              },
-        style: ButtonStyle(
-          visualDensity: VisualDensity.compact,
-          side: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return BorderSide(
-              color: selected ? AppColors.primary : AppColors.borderDefault,
-            );
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            return states.contains(WidgetState.selected)
-                ? AppColors.primary
-                : AppColors.textBody;
-          }),
-          textStyle: WidgetStateProperty.all(
-            AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ),
-      ),
+    return _ChickScopeSelector(
+      singleKey: const ValueKey('quality-scope-segment-single'),
+      multipleKey: const ValueKey('quality-scope-segment-multiple'),
+      isMultipleSelected: provider.isCompareMode,
+      enabled: !provider.isReadOnly,
+      onChanged: (compare) {
+        if (compare == provider.isCompareMode) return;
+        provider.setStationSampleMode(
+          compare
+              ? StationSampleModel.sampleModeComparison
+              : StationSampleModel.sampleModePooled,
+        );
+      },
     );
   }
 
@@ -1597,21 +1491,12 @@ class _MachineSampleControls extends StatelessWidget {
       ),
     ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 420) {
-          return Column(
-            children: [fields[0], const SizedBox(height: 10), fields[1]],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: fields[0]),
-            const SizedBox(width: 10),
-            Expanded(child: fields[1]),
-          ],
-        );
-      },
+    return Row(
+      children: [
+        Expanded(child: fields[0]),
+        const SizedBox(width: 10),
+        Expanded(child: fields[1]),
+      ],
     );
   }
 
@@ -1647,40 +1532,33 @@ class _MetricGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final metrics = [
-      _MetricTile(
+      _MetricSummaryItem(
+        label: 'Sample Size',
+        value: '${stats.count}/100',
+        kind: _MetricKind.info,
+      ),
+      _MetricSummaryItem(
+        label: 'BMK Chick Weight',
+        value: audit.chickBmkWeight == null
+            ? '--'
+            : '${audit.chickBmkWeight!.toStringAsFixed(1)}g',
+      ),
+      _MetricSummaryItem(
         label: 'Avg Weight',
         value: stats.average == null
             ? '--'
             : '${stats.average!.toStringAsFixed(1)}g',
         kind: _MetricKind.info,
       ),
-      _MetricTile(
-        label: 'BMK Chick Weight',
-        value: audit.chickBmkWeight == null
-            ? '--'
-            : '${audit.chickBmkWeight!.toStringAsFixed(1)}g',
-      ),
-      _MetricTile(
-        label: 'Sample Size',
-        value: '${stats.count}/100',
-        kind: _MetricKind.info,
-      ),
-      _MetricTile(
+      _MetricSummaryItem(
         label: 'Low Margin',
         value: stats.low == null ? '--' : '${stats.low!.toStringAsFixed(1)}g',
       ),
-      _MetricTile(
+      _MetricSummaryItem(
         label: 'High Margin',
         value: stats.high == null ? '--' : '${stats.high!.toStringAsFixed(1)}g',
       ),
-      _MetricTile(
-        label: 'C.V',
-        value: stats.cv == null ? '--' : '${stats.cv!.toStringAsFixed(1)}%',
-        kind: stats.cv == null || stats.cv! <= AppThresholds.cvAlertPct
-            ? _MetricKind.good
-            : _MetricKind.warn,
-      ),
-      _MetricTile(
+      _MetricSummaryItem(
         label: 'Uniformity',
         value: stats.uniformity == null
             ? '--'
@@ -1691,67 +1569,92 @@ class _MetricGrid extends StatelessWidget {
             ? _MetricKind.good
             : _MetricKind.warn,
       ),
+      _MetricSummaryItem(
+        label: 'C.V',
+        value: stats.cv == null ? '--' : '${stats.cv!.toStringAsFixed(1)}%',
+        kind: stats.cv == null || stats.cv! <= AppThresholds.cvAlertPct
+            ? _MetricKind.good
+            : _MetricKind.warn,
+      ),
     ];
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.15,
-      children: metrics,
+    return Container(
+      key: const ValueKey('chick-weight-metric-summary'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < metrics.length; i++) ...[
+            if (i > 0)
+              Divider(height: 1, color: AppColors.borderDefault.withAlpha(170)),
+            _MetricRow(item: metrics[i]),
+          ],
+        ],
+      ),
     );
   }
 }
 
 enum _MetricKind { normal, info, good, warn }
 
-class _MetricTile extends StatelessWidget {
+class _MetricSummaryItem {
   final String label;
   final String value;
   final _MetricKind kind;
 
-  const _MetricTile({
+  const _MetricSummaryItem({
     required this.label,
     required this.value,
     this.kind = _MetricKind.normal,
   });
+}
+
+class _MetricRow extends StatelessWidget {
+  final _MetricSummaryItem item;
+
+  const _MetricRow({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (kind) {
+    final color = switch (item.kind) {
       _MetricKind.info => AppColors.primary,
       _MetricKind.good => AppColors.statusGood,
       _MetricKind.warn => AppColors.statusWarning,
       _MetricKind.normal => AppColors.textPrimary,
     };
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
+          Expanded(
+            child: Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.sectionTitle.copyWith(
-              color: color,
-              fontWeight: FontWeight.w900,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              item.value,
+              textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: color,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],

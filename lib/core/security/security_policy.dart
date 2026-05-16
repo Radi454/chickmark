@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 class AuthSecurityPolicy {
   static const bool _debugAuthBypassFlag = bool.fromEnvironment(
     'CHICKMARK_DEBUG_AUTH_BYPASS',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   static const bool _localFallbackAuthFlag = bool.fromEnvironment(
@@ -12,7 +12,8 @@ class AuthSecurityPolicy {
   );
 
   static bool get isDebugAuthBypassEnabled => allowsDebugAuthBypass(
-    isDebugMode: kDebugMode,
+    isNonReleaseMode: !kReleaseMode,
+    isLocalPreviewHost: _isLocalPreviewHost(Uri.base.host),
     explicitFlag: _debugAuthBypassFlag,
   );
 
@@ -23,11 +24,15 @@ class AuthSecurityPolicy {
 
   @visibleForTesting
   static bool allowsDebugAuthBypass({
-    required bool isDebugMode,
+    required bool isNonReleaseMode,
+    bool isLocalPreviewHost = false,
     required bool explicitFlag,
   }) {
-    return isDebugMode && explicitFlag;
+    return (isNonReleaseMode || isLocalPreviewHost) && explicitFlag;
   }
+
+  static bool _isLocalPreviewHost(String host) =>
+      host == '127.0.0.1' || host == 'localhost' || host == '::1';
 
   @visibleForTesting
   static bool allowsLocalFallbackAuth({

@@ -1,0 +1,83 @@
+<h2>Hatch Analysis Sampling Model</h2>
+<p class="subtitle">Default is always Pool. Comparison is optional and configured per sector/panel.</p>
+
+<div class="section">
+  <div class="label">Global rule</div>
+  <div class="mockup">
+    <div class="mockup-header">Every sector starts simple</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:stretch">
+        <div class="placeholder" style="min-height:90px">
+          <strong>1. Pool sample</strong><br>
+          One random/default row is saved first.
+        </div>
+        <div class="placeholder" style="min-height:90px">
+          <strong>2. Compare toggle</strong><br>
+          User enables comparison only when needed.
+        </div>
+        <div class="placeholder" style="min-height:90px">
+          <strong>3. Layer slider</strong><br>
+          Valid layers appear for that sector only.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Hatch Analysis hierarchy</div>
+  <div class="mockup">
+    <div class="mockup-header">House is compact and defaults to Random</div>
+    <div class="mockup-body">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px">
+        <button class="mock-button">House: Random</button>
+        <span style="color:#64748b">Expands only when house grouping/comparison is needed</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <div class="placeholder" style="text-align:left;min-height:270px">
+          <h3>Fresh Egg</h3>
+          <p><strong>Default:</strong> Pool</p>
+          <p><strong>Valid compare:</strong> House, Tray</p>
+          <p><strong>Deepest path:</strong><br>House → Tray</p>
+          <p><strong>Tray card top:</strong><br>House, Label, Tray size</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:270px">
+          <h3>Candled Egg</h3>
+          <p><strong>Default:</strong> Pool</p>
+          <p><strong>Valid compare:</strong> House, Setter, Trolley, Tray</p>
+          <p><strong>Deepest path:</strong><br>House → Setter → Trolley → Tray</p>
+          <p><strong>Tray card top:</strong><br>House, Setter ID, Position, Tray size</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:270px">
+          <h3>Residue / Hatch Day</h3>
+          <p><strong>Default:</strong> Pool</p>
+          <p><strong>Valid compare:</strong> House, Setter+Hatcher, Trolley, Tray</p>
+          <p><strong>Deepest path:</strong><br>House → Setter+Hatcher → Trolley → Tray</p>
+          <p><strong>Tray card top:</strong><br>House, Setter ID, Hatcher ID, Position, Tray size</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Storage pattern</div>
+  <div class="mockup">
+    <div class="mockup-header">Summary row + sample rows</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="placeholder" style="text-align:left">
+          <h3>Main sector table</h3>
+          <p>One saved summary row for Pool, or one summary row per compared group.</p>
+          <p>Stores totals and percentages for dashboard speed.</p>
+        </div>
+        <div class="placeholder" style="text-align:left">
+          <h3>Sample/tray table</h3>
+          <p>Stores raw counts and percentages for each sample or tray.</p>
+          <p>Links to the summary row and carries the relevant identity layer.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -12,7 +12,6 @@ import '../../../../core/utils/calculation_utils.dart';
 import '../../../../core/utils/temp_converter.dart';
 import '../../../../data/models/audit_model.dart';
 import '../../../../data/models/photo_model.dart';
-import '../../../../data/repositories/audit_repository.dart';
 import '../../../../data/repositories/photo_repository.dart';
 import '../../../../providers/app_provider.dart';
 import '../../../../services/ocr/ocr_service.dart';
@@ -58,7 +57,6 @@ class _CvtTabState extends State<CvtTab> {
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
-  final AuditRepository _auditRepository = AuditRepository();
 
   static const Duration _autoScanInterval = Duration(milliseconds: 1200);
 
@@ -1004,15 +1002,24 @@ class _CvtTabState extends State<CvtTab> {
     );
   }
 
-  Future<void> _saveEvidencePhotoRecord(String auditId, String path) async {
-    if (auditId.isEmpty || path.trim().isEmpty) return;
+  Future<void> _saveEvidencePhotoRecord(String draftId, String path) async {
+    final sessionId = widget.audit.sessionId;
+    if (draftId.isEmpty ||
+        sessionId == null ||
+        sessionId.isEmpty ||
+        path.trim().isEmpty) {
+      return;
+    }
     final existing = await _photoRepository.getByFilePath(path);
     final photo = PhotoModel(
       id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       filePath: path,
       description: 'cvt',
       createdAt: existing?.createdAt ?? DateTime.now(),
-      auditId: auditId,
+      sessionId: sessionId,
+      panelName: 'chick_cvt',
+      panelRowId: '$sessionId:chick_cvt:$draftId',
+      fieldKey: 'cvt',
       uploadStatus: existing?.uploadStatus ?? 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
@@ -1020,8 +1027,7 @@ class _CvtTabState extends State<CvtTab> {
 
   Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
     try {
-      await _auditRepository.updateAudit(provider.activeDraft);
-      return true;
+      return provider.saveSamplesWithResult(tabIndex: 0);
     } catch (_) {
       return false;
     }

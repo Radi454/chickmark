@@ -13,7 +13,6 @@ import '../../../core/utils/temp_converter.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
-import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
@@ -56,6 +55,14 @@ enum _EstScanAction { confirm, retake, skip }
 class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     with WidgetsBindingObserver {
   static const Duration _estAutoScanInterval = Duration(milliseconds: 1000);
+  static const List<String> _setterBreeds = [
+    'Ross308',
+    'Arbo',
+    'Avian',
+    'Cobb500',
+    'Hubbard',
+    'IR',
+  ];
 
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
@@ -68,7 +75,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   final Map<String, String?> _estPhotos = {};
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
-  final AuditRepository _auditRepository = AuditRepository();
   final PhotoRepository _photoRepository = PhotoRepository();
   final GlobalKey<InlineCameraCaptureState> _estCameraKey = GlobalKey();
 
@@ -82,10 +88,16 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   final TextEditingController _incubationHoursController =
       TextEditingController(text: '0');
   late final TextEditingController _setterIdController;
+  final TextEditingController _setpointController = TextEditingController();
+  final TextEditingController _actualController = TextEditingController();
+  final TextEditingController _batchSizeController = TextEditingController();
+  final TextEditingController _batchCountController = TextEditingController();
   final TextEditingController _turningAngleController = TextEditingController();
   final TextEditingController _co2Controller = TextEditingController();
 
-  String? _machineType;
+  String _machineType = 'Multi';
+  int _activeEstSampleIndex = 0;
+  String _activeEstBreed = 'Ross308';
   String? _activeAuditId;
   EstGuidedCaptureState? _estCaptureState;
   String? _estHighlightedKey;
@@ -115,6 +127,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         auditType: widget.context.auditType,
         customerId: widget.context.customerId,
         flockId: widget.context.flockId,
+        hatcheryId: widget.context.hatcheryId,
         breed: widget.context.breed,
         setterId: widget.context.setterId,
         hatcherId: widget.context.hatcherId,
@@ -158,27 +171,54 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
 
   void _initializeFormState(AuditModel audit) {
     _setterIdController.text = audit.setterId ?? audit.soSetterId ?? '';
-    _incubationAgeController.text = (audit.soIncubationAge ?? 1).toString();
-    _incubationHoursController.text = (audit.soIncubationHours ?? 0).toString();
-    _machineType = audit.soMachineType;
+    _machineType = _normalizeSetterType(audit.soMachineType);
+    _setpointController.text = audit.soSetpointF != null
+        ? audit.soSetpointF!.toStringAsFixed(1)
+        : '';
+    _actualController.text = audit.soActualF != null
+        ? audit.soActualF!.toStringAsFixed(1)
+        : '';
+    _batchSizeController.text = (audit.soBatchSize ?? 19200).toString();
+    _batchCountController.text = (audit.soBatchCount ?? 1).toString();
     _turningAngleController.text = audit.soTurningAngle != null
         ? audit.soTurningAngle!.toStringAsFixed(1)
         : '';
     _co2Controller.text = audit.soCo2 != null
         ? audit.soCo2!.toStringAsFixed(1)
         : '';
+    final estSamples = _setterEstSamples(audit);
+    if (_activeEstSampleIndex >= estSamples.length) {
+      _activeEstSampleIndex = estSamples.length - 1;
+    }
+    if (_activeEstSampleIndex < 0) _activeEstSampleIndex = 0;
+    final activeEstSample = estSamples[_activeEstSampleIndex];
+    _activeEstBreed = _normalizeBreed(activeEstSample['breed']);
+    _incubationAgeController.text =
+        ((activeEstSample['incubationAge'] as num?)?.toInt() ??
+                audit.soIncubationAge ??
+                1)
+            .toString();
+    _incubationHoursController.text =
+        ((activeEstSample['incubationHours'] as num?)?.toInt() ??
+                audit.soIncubationHours ??
+                0)
+            .toString();
     for (final controller in _estControllers.values) {
       controller.clear();
     }
     _estPhotos.clear();
-    _estAvgController.text = audit.soEstAvg != null
-        ? audit.soEstAvg!.toStringAsFixed(1)
+    final sampleAvg = (activeEstSample['estAvg'] as num?)?.toDouble();
+    final sampleCv = (activeEstSample['estCv'] as num?)?.toDouble();
+    _estAvgController.text = sampleAvg != null
+        ? sampleAvg.toStringAsFixed(1)
         : '';
-    _estCvController.text = audit.soEstCv != null
-        ? audit.soEstCv!.toStringAsFixed(1)
-        : '';
-    _loadEstReadings(audit.soEstReadings);
-    _loadEstPhotos(audit.soEstPhotos);
+    _estCvController.text = sampleCv != null ? sampleCv.toStringAsFixed(1) : '';
+    _loadEstReadings(
+      _encodedStringMap(activeEstSample['estReadings']) ?? audit.soEstReadings,
+    );
+    _loadEstPhotos(
+      _encodedStringMap(activeEstSample['estPhotos']) ?? audit.soEstPhotos,
+    );
   }
 
   void _syncActiveSampleForm(AuditModel audit) {
@@ -191,7 +231,99 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _estGuidedValueController.clear();
     _estHighlightedKey = null;
     _isConfirmingEstCapture = false;
+    _activeEstSampleIndex = 0;
     _initializeFormState(audit);
+  }
+
+  String _normalizeSetterType(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    if (normalized == 'single' || normalized == 'single stage') {
+      return 'Single';
+    }
+    return 'Multi';
+  }
+
+  String _normalizeBreed(Object? value) {
+    final text = value?.toString().trim();
+    if (text != null && _setterBreeds.contains(text)) return text;
+    return 'Ross308';
+  }
+
+  String? _encodedStringMap(Object? value) {
+    if (value == null) return null;
+    if (value is Map && value.isNotEmpty) return jsonEncode(value);
+    return null;
+  }
+
+  List<Map<String, dynamic>> _setterEstSamples(AuditModel audit) {
+    final samples = <Map<String, dynamic>>[];
+    final raw = audit.soEstSamplesJson;
+    if (raw != null && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              samples.add(_normalizeEstSample(Map<String, dynamic>.from(item)));
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back to the legacy flat EST fields below.
+      }
+    }
+    if (samples.isNotEmpty) return samples;
+    return [
+      _normalizeEstSample({
+        'id': audit.id,
+        'breed': audit.soBreed,
+        'incubationAge': audit.soIncubationAge ?? 1,
+        'incubationHours': audit.soIncubationHours ?? 0,
+        'estReadings': _decodeMap(audit.soEstReadings),
+        'estPhotos': _decodeMap(audit.soEstPhotos),
+        'estAvg': audit.soEstAvg,
+        'estCv': audit.soEstCv,
+      }),
+    ];
+  }
+
+  Map<String, dynamic> _normalizeEstSample(Map<String, dynamic> sample) {
+    final sampleId = sample['id']?.toString().trim();
+    return {
+      'id': sampleId != null && sampleId.isNotEmpty
+          ? sampleId
+          : DateTime.now().microsecondsSinceEpoch.toString(),
+      'breed': _normalizeBreed(sample['breed']),
+      'incubationAge': _clampInt(sample['incubationAge'], min: 1, max: 18),
+      'incubationHours': _clampInt(sample['incubationHours'], min: 0, max: 23),
+      'estReadings': _mapFromObject(sample['estReadings']),
+      'estPhotos': _mapFromObject(sample['estPhotos']),
+      'estAvg': (sample['estAvg'] as num?)?.toDouble(),
+      'estCv': (sample['estCv'] as num?)?.toDouble(),
+    };
+  }
+
+  Map<String, dynamic> _decodeMap(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      return _mapFromObject(decoded);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Map<String, dynamic> _mapFromObject(Object? value) {
+    if (value is! Map) return {};
+    return {
+      for (final entry in value.entries)
+        if (entry.key != null) entry.key.toString(): entry.value,
+    };
+  }
+
+  int _clampInt(Object? value, {required int min, required int max}) {
+    final parsed = value is num ? value.toInt() : int.tryParse('$value');
+    return (parsed ?? min).clamp(min, max).toInt();
   }
 
   void _loadEstReadings(String? readingsJson) {
@@ -248,6 +380,10 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _incubationAgeController.dispose();
     _incubationHoursController.dispose();
     _setterIdController.dispose();
+    _setpointController.dispose();
+    _actualController.dispose();
+    _batchSizeController.dispose();
+    _batchCountController.dispose();
     _turningAngleController.dispose();
     _co2Controller.dispose();
     super.dispose();
@@ -291,11 +427,11 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                   const SizedBox(height: 16),
                   _buildIdentityCard(auditProvider, audit),
                   const SizedBox(height: 16),
-                  _buildIncubationCard(auditProvider),
-                  const SizedBox(height: 16),
                   _buildMachineCard(auditProvider),
                   const SizedBox(height: 16),
                   _buildCo2Card(auditProvider, audit),
+                  const SizedBox(height: 16),
+                  _buildEstSampleCard(auditProvider, audit),
                   const SizedBox(height: 16),
                   Card(
                     key: _sectionKeys[3],
@@ -370,6 +506,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                 ChoiceChip(
                   label: Text(_setterTabLabel(provider.drafts[i], i)),
                   selected: provider.activeSampleIndex == i,
+                  showCheckmark: false,
                   onSelected: (_) {
                     provider.switchSample(i);
                     if (!mounted) return;
@@ -404,6 +541,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   }
 
   Widget _buildIdentityCard(AuditProvider auditProvider, AuditModel audit) {
+    final totalEggs = audit.soTotalEggsSet ?? _currentTotalEggsSet();
     return Card(
       key: _sectionKeys[0],
       elevation: 2,
@@ -413,20 +551,48 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       child: Padding(
         padding: const EdgeInsets.all(AppSizes.cardPadding),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Breed from flock',
-                border: OutlineInputBorder(),
-              ),
-              child: Text(audit.soBreed ?? widget.context.breed ?? 'Unknown'),
+            Text(
+              'Setter type',
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: ['Multi', 'Single'].map((type) {
+                final selected = _machineType == type;
+                return ChoiceChip(
+                  key: ValueKey('setter-type-${type.toLowerCase()}'),
+                  label: Text(type),
+                  selected: selected,
+                  showCheckmark: false,
+                  onSelected: auditProvider.isReadOnly
+                      ? null
+                      : (_) => _updateSetterType(auditProvider, type),
+                  selectedColor: AppColors.primary.withAlpha(30),
+                  checkmarkColor: AppColors.primary,
+                  labelStyle: AppTextStyles.body.copyWith(
+                    color: selected ? AppColors.primary : AppColors.textBody,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(
+                      color: selected
+                          ? AppColors.primary
+                          : AppColors.borderDefault,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _setterIdController,
               enabled: !auditProvider.isReadOnly,
               decoration: const InputDecoration(
-                labelText: 'Setter ID',
+                labelText: 'Setter number',
                 border: OutlineInputBorder(),
               ),
               onChanged: (value) {
@@ -435,13 +601,198 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                 if (mounted) setState(() {});
               },
             ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    controller: _setpointController,
+                    enabled: !auditProvider.isReadOnly,
+                    allowDecimal: true,
+                    maxDecimalPlaces: 1,
+                    decoration: const InputDecoration(
+                      labelText: 'Setpoint (°F)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => auditProvider.updateField(
+                      'so_setpointF',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AuditNumericField(
+                    controller: _actualController,
+                    enabled: !auditProvider.isReadOnly,
+                    allowDecimal: true,
+                    maxDecimalPlaces: 1,
+                    decoration: const InputDecoration(
+                      labelText: 'Actual (°F)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => auditProvider.updateField(
+                      'so_actualF',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PhotoButton(
+                  photoPath: audit.soMachineScreenPhoto,
+                  enabled: !auditProvider.isReadOnly,
+                  onPhotoCaptured: (path) =>
+                      auditProvider.updateField('so_machineScreenPhoto', path),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    controller: _batchSizeController,
+                    enabled: !auditProvider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Batch size',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => _updateBatchTotals(auditProvider),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('setter-batch-count-field'),
+                    controller: _batchCountController,
+                    enabled: !auditProvider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Batches (max 6)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => _updateBatchTotals(auditProvider),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Total set eggs: $totalEggs',
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildIncubationCard(AuditProvider auditProvider) {
+  void _updateSetterType(AuditProvider provider, String type) {
+    final normalized = _normalizeSetterType(type);
+    setState(() {
+      _machineType = normalized;
+      if (normalized == 'Single') _activeEstSampleIndex = 0;
+    });
+    provider.updateField('so_machineType', normalized);
+    if (normalized == 'Single') {
+      final samples = [_activeEstSampleFromForm(provider.activeDraft)];
+      _writeSetterEstSamples(provider, samples);
+    }
+  }
+
+  int _currentTotalEggsSet() {
+    final batchSize = int.tryParse(_batchSizeController.text) ?? 19200;
+    final batchCount = (int.tryParse(_batchCountController.text) ?? 1)
+        .clamp(1, 6)
+        .toInt();
+    return batchSize * batchCount;
+  }
+
+  void _updateBatchTotals(AuditProvider provider) {
+    final batchSize = int.tryParse(_batchSizeController.text) ?? 19200;
+    final batchCount = (int.tryParse(_batchCountController.text) ?? 1)
+        .clamp(1, 6)
+        .toInt();
+    if (_batchCountController.text != batchCount.toString()) {
+      _batchCountController.text = batchCount.toString();
+    }
+    final total = batchSize * batchCount;
+    provider.updateField('so_batchSize', batchSize);
+    provider.updateField('so_batchCount', batchCount);
+    provider.updateField('so_totalEggsSet', total);
+    if (mounted) setState(() {});
+  }
+
+  void _addEstSample(AuditProvider provider) {
+    _syncActiveEstSampleToDraft(provider);
+    final samples = _setterEstSamples(provider.activeDraft);
+    final base = samples[_activeEstSampleIndex.clamp(0, samples.length - 1)];
+    samples.add(
+      _normalizeEstSample({
+        'id': DateTime.now().microsecondsSinceEpoch.toString(),
+        'breed': base['breed'],
+        'incubationAge': base['incubationAge'],
+        'incubationHours': base['incubationHours'],
+        'estReadings': <String, double>{},
+        'estPhotos': <String, String>{},
+        'estAvg': null,
+        'estCv': null,
+      }),
+    );
+    _writeSetterEstSamples(provider, samples);
+    setState(() {
+      _activeEstSampleIndex = samples.length - 1;
+      _initializeFormState(provider.activeDraft);
+    });
+  }
+
+  void _switchEstSample(AuditProvider provider, int index) {
+    _syncActiveEstSampleToDraft(provider);
+    final samples = _setterEstSamples(provider.activeDraft);
+    if (index < 0 || index >= samples.length) return;
+    setState(() {
+      _activeEstSampleIndex = index;
+      _initializeFormState(provider.activeDraft);
+    });
+  }
+
+  Map<String, dynamic> _activeEstSampleFromForm(AuditModel audit) {
+    final samples = _setterEstSamples(audit);
+    final index = _activeEstSampleIndex.clamp(0, samples.length - 1).toInt();
+    final existing = Map<String, dynamic>.from(samples[index]);
+    final avg = double.tryParse(_estAvgController.text);
+    final cv = double.tryParse(_estCvController.text);
+    return _normalizeEstSample({
+      ...existing,
+      'breed': _activeEstBreed,
+      'incubationAge': int.tryParse(_incubationAgeController.text) ?? 1,
+      'incubationHours': int.tryParse(_incubationHoursController.text) ?? 0,
+      'estReadings': _currentEstReadings(),
+      'estPhotos': _currentEstPhotoPaths(),
+      'estAvg': avg,
+      'estCv': cv,
+    });
+  }
+
+  void _syncActiveEstSampleToDraft(AuditProvider provider) {
+    final samples = _setterEstSamples(provider.activeDraft);
+    final index = _activeEstSampleIndex.clamp(0, samples.length - 1).toInt();
+    samples[index] = _activeEstSampleFromForm(provider.activeDraft);
+    _writeSetterEstSamples(provider, samples);
+  }
+
+  void _writeSetterEstSamples(
+    AuditProvider provider,
+    List<Map<String, dynamic>> samples,
+  ) {
+    provider.updateField('so_estSamplesJson', jsonEncode(samples));
+  }
+
+  Widget _buildEstSampleCard(AuditProvider auditProvider, AuditModel audit) {
+    final samples = _setterEstSamples(audit);
+    final showSampleTabs = _machineType == 'Multi';
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -450,7 +801,73 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       child: Padding(
         padding: const EdgeInsets.all(AppSizes.cardPadding),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'EST sample ${_activeEstSampleIndex + 1}',
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (showSampleTabs)
+                  OutlinedButton.icon(
+                    key: const ValueKey('setter-est-sample-add-button'),
+                    onPressed: auditProvider.isReadOnly
+                        ? null
+                        : () => _addEstSample(auditProvider),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add sample'),
+                  ),
+              ],
+            ),
+            if (showSampleTabs && samples.length > 1) ...[
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < samples.length; i++) ...[
+                      ChoiceChip(
+                        label: Text('EST sample ${i + 1}'),
+                        selected: i == _activeEstSampleIndex,
+                        showCheckmark: false,
+                        onSelected: (_) => _switchEstSample(auditProvider, i),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: const ValueKey('setter-est-breed-dropdown'),
+              initialValue: _setterBreeds.contains(_activeEstBreed)
+                  ? _activeEstBreed
+                  : 'Ross308',
+              decoration: const InputDecoration(
+                labelText: 'Breed',
+                border: OutlineInputBorder(),
+              ),
+              items: _setterBreeds
+                  .map(
+                    (breed) =>
+                        DropdownMenuItem(value: breed, child: Text(breed)),
+                  )
+                  .toList(),
+              onChanged: auditProvider.isReadOnly
+                  ? null
+                  : (breed) {
+                      if (breed == null) return;
+                      setState(() => _activeEstBreed = breed);
+                      _syncActiveEstSampleToDraft(auditProvider);
+                    },
+            ),
+            const SizedBox(height: 12),
             Text(
               'Incubation Age: ${_incubationAgeController.text} days',
               style: AppTextStyles.body,
@@ -468,6 +885,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                         _incubationAgeController.text = age.toString();
                       });
                       auditProvider.updateField('soIncubationAge', age);
+                      _syncActiveEstSampleToDraft(auditProvider);
                     },
             ),
             const SizedBox(height: 12),
@@ -489,6 +907,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                         _incubationHoursController.text = hours.toString();
                       });
                       auditProvider.updateField('soIncubationHours', hours);
+                      _syncActiveEstSampleToDraft(auditProvider);
                     },
             ),
           ],
@@ -510,40 +929,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Machine Type',
+              'Setter settings',
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: ['Single Stage', 'Multi Stage'].map((type) {
-                final selected = _machineType == type;
-                return ChoiceChip(
-                  label: Text(type),
-                  selected: selected,
-                  onSelected: auditProvider.isReadOnly
-                      ? null
-                      : (_) {
-                          setState(() => _machineType = type);
-                          auditProvider.updateField('so_machineType', type);
-                        },
-                  selectedColor: AppColors.primary.withAlpha(30),
-                  checkmarkColor: AppColors.primary,
-                  labelStyle: AppTextStyles.body.copyWith(
-                    color: selected ? AppColors.primary : Colors.black87,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: selected
-                          ? AppColors.primary
-                          : AppColors.borderDefault,
-                    ),
-                  ),
-                );
-              }).toList(),
             ),
             const SizedBox(height: 12),
             AuditNumericField(
@@ -577,25 +964,33 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         padding: const EdgeInsets.all(AppSizes.cardPadding),
         child: Column(
           children: [
-            AuditNumericField(
-              controller: _co2Controller,
-              enabled: !auditProvider.isReadOnly,
-              allowDecimal: true,
-              decoration: const InputDecoration(
-                labelText: 'CO2 Level (ppm)',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) => auditProvider.updateField(
-                'soCo2',
-                double.tryParse(value),
-              ),
-            ),
-            const SizedBox(height: 8),
-            PhotoButton(
-              photoPath: audit.soCo2Photo,
-              enabled: !auditProvider.isReadOnly,
-              onPhotoCaptured: (path) =>
-                  auditProvider.updateField('soCo2Photo', path),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    controller: _co2Controller,
+                    enabled: !auditProvider.isReadOnly,
+                    allowDecimal: true,
+                    decoration: const InputDecoration(
+                      labelText: 'CO2 Level (ppm)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => auditProvider.updateField(
+                      'soCo2',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                PhotoButton(
+                  key: const ValueKey('setter-co2-photo-button'),
+                  photoPath: audit.soCo2Photo,
+                  enabled: !auditProvider.isReadOnly,
+                  onPhotoCaptured: (path) =>
+                      auditProvider.updateField('soCo2Photo', path),
+                ),
+              ],
             ),
           ],
         ),
@@ -607,8 +1002,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSetterEstTargetCard(),
-        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
@@ -666,7 +1059,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                 _estAvgController.text.isEmpty
                     ? '--'
                     : '${_estAvgController.text}°F',
-                Colors.blue,
+                _estAverageColor(),
               ),
             ),
             const SizedBox(width: 8),
@@ -682,40 +1075,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
           ],
         ),
       ],
-    );
-  }
-
-  Widget _buildSetterEstTargetCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.infoBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.primary.withAlpha(80)),
-      ),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Icon(Icons.thermostat_outlined, color: AppColors.primary, size: 20),
-          Text(
-            'Allowed 99.5-102°F',
-            style: AppTextStyles.body.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          Text(
-            'Optimum 100-101°F',
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1169,14 +1528,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       _estHighlightedKey = key;
     });
     _updateEstPhotos(provider);
-    await _saveEstEvidencePhotoRecord(provider.activeDraft.id, key, path);
+    await _saveEstEvidencePhotoRecord(provider, key, path);
     await _persistActiveAuditRow(provider);
   }
 
   Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
     try {
-      await _auditRepository.updateAudit(provider.activeDraft);
-      return true;
+      return provider.saveSamplesWithResult(tabIndex: 0);
     } catch (_) {
       // Keep the active draft updated; normal tab save can persist if row is new.
       return false;
@@ -1346,7 +1704,9 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     }
   }
 
-  Future<double?> _recognizeThermoScanReadingFahrenheit(String imagePath) async {
+  Future<double?> _recognizeThermoScanReadingFahrenheit(
+    String imagePath,
+  ) async {
     final celsius = await _ocrService.recognizeThermoScanReadingCelsius(
       imagePath,
     );
@@ -1366,22 +1726,27 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     });
     _updateEstPhotos(provider);
     _updateEstCalculations(provider);
-    unawaited(_saveEstEvidencePhotoRecord(provider.activeDraft.id, key, path));
+    unawaited(_saveEstEvidencePhotoRecord(provider, key, path));
   }
 
   Future<void> _saveEstEvidencePhotoRecord(
-    String auditId,
+    AuditProvider provider,
     String key,
     String path,
   ) async {
-    if (auditId.isEmpty || path.trim().isEmpty) return;
+    final draft = provider.activeDraft;
+    final sessionId = draft.sessionId;
+    if (sessionId == null || sessionId.isEmpty || path.trim().isEmpty) return;
     final existing = await _photoRepository.getByFilePath(path);
     final photo = PhotoModel(
       id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       filePath: path,
       description: 'setter_est',
       createdAt: existing?.createdAt ?? DateTime.now(),
-      auditId: auditId,
+      sessionId: sessionId,
+      panelName: 'setter_optimizing',
+      panelRowId: '$sessionId:setter_optimizing:${draft.id}',
+      fieldKey: 'setter_est_$key',
       uploadStatus: existing?.uploadStatus ?? 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
@@ -1429,6 +1794,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       'soEstPhotos',
       photos.isEmpty ? null : jsonEncode(photos),
     );
+    _syncActiveEstSampleToDraft(provider);
   }
 
   void _updateEstCalculations(AuditProvider provider) {
@@ -1459,6 +1825,17 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       'soEstReadings',
       readings.isEmpty ? null : jsonEncode(readings),
     );
+    _syncActiveEstSampleToDraft(provider);
+  }
+
+  Color _estAverageColor() {
+    final avg = double.tryParse(_estAvgController.text);
+    if (avg == null) return Colors.blueGrey;
+    return switch (CalculationUtils.setterEstStatus(avg)) {
+      TemperatureStatus.optimal => AppColors.statusGood,
+      TemperatureStatus.low ||
+      TemperatureStatus.high => AppColors.statusWarning,
+    };
   }
 
   Widget _summCard(String label, String value, Color color) => Container(

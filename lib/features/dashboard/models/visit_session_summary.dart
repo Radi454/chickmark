@@ -54,6 +54,28 @@ class VisitSessionSummary {
     );
   }
 
+  factory VisitSessionSummary.fromPanelRows({
+    required AuditSessionModel session,
+    required Map<String, List<Map<String, dynamic>>> panelRowsByTable,
+  }) {
+    final scorecards = _computePanelScorecards(session, panelRowsByTable);
+    final findings = _parseFindings(session.findingsJson);
+    final pm = PmScoreSummary.fromPanelRows(
+      panelRowsByTable['chick_pm'] ?? const [],
+    );
+    final hatch = HatchBudgetSummary.fromPanelRows(
+      panelRowsByTable['residue_breakout'] ?? const [],
+    );
+
+    return VisitSessionSummary(
+      session: session,
+      scorecards: scorecards,
+      findingsSummary: findings,
+      pmScoreSummary: pm,
+      hatchBudgetSummary: hatch,
+    );
+  }
+
   static List<StationScorecard> _computeScorecards(
     AuditSessionModel session,
     List<AuditModel> audits,
@@ -88,6 +110,34 @@ class VisitSessionSummary {
         stationKey: key,
         isCompleted: completed.contains(key),
         audit: audit,
+      );
+    }).toList();
+  }
+
+  static List<StationScorecard> _computePanelScorecards(
+    AuditSessionModel session,
+    Map<String, List<Map<String, dynamic>>> panelRowsByTable,
+  ) {
+    final persisted = _parseScorecards(session.scorecardJson);
+    final selected = session.selectedStationKeys;
+    if (persisted.isNotEmpty) {
+      return persisted
+          .where((scorecard) => selected.contains(scorecard.stationKey))
+          .toList();
+    }
+
+    final completed = session.stationsCompleted.toSet();
+    return selected.map((key) {
+      final alert = completed.contains(key)
+          ? StationScorecard._hasPanelCriticalAlert(key, panelRowsByTable)
+          : null;
+      return StationScorecard(
+        stationKey: key,
+        stationLabel: StationScorecard._stationLabel(key),
+        status: completed.contains(key) ? alert ?? 'green' : 'unknown',
+        detail: completed.contains(key)
+            ? (alert == null ? 'No alerts' : 'Review required')
+            : 'Not completed',
       );
     }).toList();
   }
@@ -273,6 +323,54 @@ class StationScorecard {
     }
     return null;
   }
+
+  static String? _hasPanelCriticalAlert(
+    String stationKey,
+    Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  ) {
+    switch (stationKey) {
+      case 'egg':
+        final temp = _lastDouble(rowsByPanel['egg_storage'], 'shellTemp');
+        if (temp != null) {
+          if (temp > 21) return 'red';
+          if (temp < 19) return 'amber';
+        }
+        break;
+      case 'chicks':
+        final pasgar = _lastDouble(rowsByPanel['chick_pasgar'], 'finalScore');
+        if (pasgar != null && pasgar < 7) return 'amber';
+        final cv = _lastDouble(rowsByPanel['chick_weights'], 'cvPct');
+        if (cv != null && cv > 8) return 'red';
+        break;
+      case 'hatch_analysis_egg_breakouts':
+        final hatchability = _lastDouble(
+          rowsByPanel['residue_breakout'],
+          'hatchabilityPct',
+        );
+        if (hatchability != null && hatchability < 75) return 'red';
+        break;
+      case 'setters':
+        final estAvg = _lastDouble(rowsByPanel['setter_optimizing'], 'estAvg');
+        if (estAvg != null && (estAvg < 100 || estAvg > 101)) return 'amber';
+        break;
+      case 'hatchers':
+        final cvtAvg = _lastDouble(rowsByPanel['hatcher_optimizing'], 'cvtAvg');
+        if (cvtAvg != null && (cvtAvg < 103 || cvtAvg > 105)) return 'amber';
+        break;
+    }
+    return null;
+  }
+
+  static double? _lastDouble(List<Map<String, dynamic>>? rows, String key) {
+    if (rows == null || rows.isEmpty) return null;
+    for (final row in rows.reversed) {
+      final value = row[key];
+      if (value is num) return value.toDouble();
+      final parsed = double.tryParse(value?.toString() ?? '');
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
 }
 
 /// A session-level findings summary.
@@ -382,6 +480,10 @@ class PmScoreSummary {
     lesions += audit.pmSwollenJointsCount ?? 0;
     lesions += audit.pmStuntedOrgansCount ?? 0;
     lesions += audit.pmPulmonaryHemorrhageCount ?? 0;
+    lesions += audit.pmGizzardErosionsCount ?? 0;
+    lesions += audit.pmAirSacCaseationsCount ?? 0;
+    lesions += audit.pmNephritisCount ?? 0;
+    lesions += audit.pmGeneralSepticemiaCount ?? 0;
 
     int deformities = 0;
     deformities += audit.pmExposedBrainCount ?? 0;
@@ -419,6 +521,67 @@ class PmScoreSummary {
       overallSeverity: severity,
     );
   }
+
+  factory PmScoreSummary.fromPanelRows(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return nullPm;
+    int sum(String key) =>
+        rows.fold<int>(0, (total, row) => total + (_asInt(row[key]) ?? 0));
+
+    final lesions =
+        sum('omphalitisCount') +
+        sum('gaseousCecaCount') +
+        sum('unabsorbedYolkCount') +
+        sum('perihepatitisCount') +
+        sum('pericarditisCount') +
+        sum('airsacAcuteCount') +
+        sum('airsacChronicCount') +
+        sum('pulmonaryGranulomaCount') +
+        sum('swollenJointsCount') +
+        sum('stuntedOrgansCount') +
+        sum('pulmonaryHemorrhageCount') +
+        sum('gizzardErosionsCount') +
+        sum('airSacCaseationsCount') +
+        sum('nephritisCount') +
+        sum('generalSepticemiaCount');
+    final deformities =
+        sum('exposedBrainCount') +
+        sum('ectopicVisceraCount') +
+        sum('extraLegsCount') +
+        sum('crossedBeakCount') +
+        sum('absentEyeBothCount') +
+        sum('absentEyeOneCount') +
+        sum('smallEyeCount') +
+        sum('hydrocephalyCount') +
+        sum('starGazerCount') +
+        sum('curledToesCount') +
+        sum('shortLegsCount') +
+        sum('spinalDeformityCount') +
+        sum('cardiacAnomalyCount') +
+        sum('conjoinedCount') +
+        sum('otherDeformityCount');
+    final gaspingPresent = rows.any((row) => row['gaspingPresent'] == 1);
+    final gaspingType = rows
+        .map((row) => row['gaspingType']?.toString())
+        .firstWhere(
+          (value) => value != null && value.isNotEmpty,
+          orElse: () => null,
+        );
+    final severity = lesions == 0 && deformities == 0 && !gaspingPresent
+        ? 'green'
+        : lesions > 5 || deformities > 3
+        ? 'red'
+        : 'amber';
+
+    return PmScoreSummary(
+      totalLesions: lesions,
+      totalDeformities: deformities,
+      gaspingPresent: gaspingPresent,
+      gaspingType: gaspingType,
+      overallSeverity: severity,
+    );
+  }
+
+  static const nullPm = PmScoreSummary();
 }
 
 /// A simplified hatch budget summary for dashboard display.
@@ -452,4 +615,31 @@ class HatchBudgetSummary {
       hofPct: audit.haHof,
     );
   }
+
+  factory HatchBudgetSummary.fromPanelRows(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return const HatchBudgetSummary();
+    final row = rows.last;
+    return HatchBudgetSummary(
+      totalEggsSet: _asInt(row['totalEggsSet']) ?? 0,
+      healthyHatched: _asInt(row['hatchedCount']) ?? 0,
+      culled: _asInt(row['culledCount']) ?? 0,
+      deadAtHatch: _asInt(row['deadCount']) ?? 0,
+      hatchabilityPct: _asDouble(row['hatchabilityPct']),
+      fertilityPct: _asDouble(row['fertilityPct']),
+      hofPct: _asDouble(row['hofPct']),
+    );
+  }
+}
+
+int? _asInt(Object? raw) {
+  if (raw == null) return null;
+  if (raw is int) return raw;
+  if (raw is num) return raw.round();
+  return int.tryParse(raw.toString());
+}
+
+double? _asDouble(Object? raw) {
+  if (raw == null) return null;
+  if (raw is num) return raw.toDouble();
+  return double.tryParse(raw.toString());
 }

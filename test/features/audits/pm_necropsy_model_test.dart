@@ -8,24 +8,21 @@ List<String> validatePmConditionalRules(AuditModel audit) {
 
   // Rule: When a lesion count > 0, severity is required.
   final lesionPairs = <List<dynamic>>[
-    ['Omphalitis', audit.pmOmphalitisCount, audit.pmOmphalitisSeverity],
+    [
+      'Omphalitis (Yolk Sacculitis)',
+      audit.pmOmphalitisCount,
+      audit.pmOmphalitisSeverity,
+    ],
     ['Gaseous Ceca', audit.pmGaseousCecaCount, audit.pmGaseousCecaSeverity],
     [
-      'Unabsorbed Yolk',
-      audit.pmUnabsorbedYolkCount,
-      audit.pmUnabsorbedYolkSeverity,
+      'Gizzard Erosions',
+      audit.pmGizzardErosionsCount,
+      audit.pmGizzardErosionsSeverity,
     ],
     [
-      'Perihepatitis',
-      audit.pmPerihepatitisCount,
-      audit.pmPerihepatitisSeverity,
-    ],
-    ['Pericarditis', audit.pmPericarditisCount, audit.pmPericarditisSeverity],
-    ['Airsac Acute', audit.pmAirsacAcuteCount, audit.pmAirsacAcuteSeverity],
-    [
-      'Airsac Chronic',
-      audit.pmAirsacChronicCount,
-      audit.pmAirsacChronicSeverity,
+      'Air Sac Caseations',
+      audit.pmAirSacCaseationsCount,
+      audit.pmAirSacCaseationsSeverity,
     ],
     [
       'Pulmonary Granuloma',
@@ -42,10 +39,11 @@ List<String> validatePmConditionalRules(AuditModel audit) {
       audit.pmStuntedOrgansCount,
       audit.pmStuntedOrgansSeverity,
     ],
+    ['Nephritis', audit.pmNephritisCount, audit.pmNephritisSeverity],
     [
-      'Pulmonary Hemorrhage',
-      audit.pmPulmonaryHemorrhageCount,
-      audit.pmPulmonaryHemorrhageSeverity,
+      'General Septicemia',
+      audit.pmGeneralSepticemiaCount,
+      audit.pmGeneralSepticemiaSeverity,
     ],
   ];
 
@@ -111,8 +109,8 @@ void main() {
         'pm_omphalitisSeverity': 'Moderate',
         'pm_gaseousCecaCount': 1,
         'pm_gaseousCecaSeverity': 'Mild',
-        'pm_unabsorbedYolkCount': 2,
-        'pm_unabsorbedYolkSeverity': 'Severe',
+        'pm_gizzardErosionsCount': 2,
+        'pm_gizzardErosionsSeverity': 'Severe',
       });
 
       final errors = validatePmConditionalRules(audit);
@@ -144,15 +142,15 @@ void main() {
     test('returns multiple errors for multiple lesions missing severity', () {
       final audit = _buildPmAudit({
         'pm_omphalitisCount': 3,
-        'pm_pericarditisCount': 2,
-        'pm_airsacAcuteCount': 1,
-        'pm_airsacAcuteSeverity': 'Mild',
+        'pm_gizzardErosionsCount': 2,
+        'pm_airSacCaseationsCount': 1,
+        'pm_airSacCaseationsSeverity': 'Mild',
       });
 
       final errors = validatePmConditionalRules(audit);
       expect(errors.length, 2);
       expect(errors.any((e) => e.contains('Omphalitis')), true);
-      expect(errors.any((e) => e.contains('Pericarditis')), true);
+      expect(errors.any((e) => e.contains('Gizzard Erosions')), true);
     });
 
     test('no error when lesion count is 0 and severity is null', () {
@@ -232,13 +230,13 @@ void main() {
     test('compound: gasping missing subtype AND lesion missing severity', () {
       final audit = _buildPmAudit({
         'pm_gaspingPresent': 1,
-        'pm_pericarditisCount': 5,
+        'pm_nephritisCount': 5,
       });
 
       final errors = validatePmConditionalRules(audit);
       expect(errors.length, 2);
       expect(errors.any((e) => e.contains('Gasping')), true);
-      expect(errors.any((e) => e.contains('Pericarditis')), true);
+      expect(errors.any((e) => e.contains('Nephritis')), true);
     });
   });
 
@@ -251,20 +249,22 @@ void main() {
         'pm_omphalitisSeverity': 'Moderate',
         'pm_gaseousCecaCount': 1,
         'pm_gaseousCecaSeverity': 'Mild',
-        'pm_unabsorbedYolkCount': 5,
-        'pm_unabsorbedYolkSeverity': 'Moderate',
+        'pm_gizzardErosionsCount': 5,
+        'pm_gizzardErosionsSeverity': 'Moderate',
         'pm_perihepatitisCount': 0,
         'pm_pericarditisCount': 2,
         'pm_pericarditisSeverity': 'Severe',
-        'pm_airsacAcuteCount': 1,
-        'pm_airsacAcuteSeverity': 'Mild',
+        'pm_airSacCaseationsCount': 1,
+        'pm_airSacCaseationsSeverity': 'Mild',
         'pm_airsacChronicCount': 0,
         'pm_pulmonaryGranulomaCount': 0,
         'pm_swollenJointsCount': 1,
         'pm_swollenJointsSeverity': 'Mild',
         'pm_stuntedOrgansCount': 0,
-        'pm_pulmonaryHemorrhageCount': 2,
-        'pm_pulmonaryHemorrhageSeverity': 'Moderate',
+        'pm_nephritisCount': 2,
+        'pm_nephritisSeverity': 'Moderate',
+        'pm_generalSepticemiaCount': 4,
+        'pm_generalSepticemiaSeverity': 'Severe',
         'pm_gaspingPresent': 1,
         'pm_gaspingType': 'Abdominal',
         'pm_exposedBrainCount': 1,
@@ -283,7 +283,7 @@ void main() {
         'pm_conjoinedCount': 0,
         'pm_otherDeformityCount': 3,
         'pm_otherDeformityText': 'Missing wing feather',
-        'pm_suspectedCauseAuto': 'Omphalitis + Unabsorbed Yolk',
+        'pm_suspectedCauseAuto': 'Omphalitis + Gizzard Erosions',
         'pm_suspectedCauseManual': 'Poor hatchery sanitation',
         'pm_photosJson': '["pm_photo1.jpg","pm_photo2.jpg"]',
       });
@@ -297,12 +297,16 @@ void main() {
       expect(restored.pmOmphalitisSeverity, 'Moderate');
       expect(restored.pmGaseousCecaCount, 1);
       expect(restored.pmGaseousCecaSeverity, 'Mild');
-      expect(restored.pmUnabsorbedYolkCount, 5);
-      expect(restored.pmUnabsorbedYolkSeverity, 'Moderate');
+      expect(restored.pmGizzardErosionsCount, 5);
+      expect(restored.pmGizzardErosionsSeverity, 'Moderate');
       expect(restored.pmPericarditisCount, 2);
       expect(restored.pmPericarditisSeverity, 'Severe');
-      expect(restored.pmAirsacAcuteCount, 1);
-      expect(restored.pmAirsacAcuteSeverity, 'Mild');
+      expect(restored.pmAirSacCaseationsCount, 1);
+      expect(restored.pmAirSacCaseationsSeverity, 'Mild');
+      expect(restored.pmNephritisCount, 2);
+      expect(restored.pmNephritisSeverity, 'Moderate');
+      expect(restored.pmGeneralSepticemiaCount, 4);
+      expect(restored.pmGeneralSepticemiaSeverity, 'Severe');
       expect(restored.pmGaspingPresent, true);
       expect(restored.pmGaspingType, 'Abdominal');
       expect(restored.pmExposedBrainCount, 1);
@@ -312,7 +316,7 @@ void main() {
       expect(restored.pmCurledToesCount, 1);
       expect(restored.pmOtherDeformityCount, 3);
       expect(restored.pmOtherDeformityText, 'Missing wing feather');
-      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Unabsorbed Yolk');
+      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Gizzard Erosions');
       expect(restored.pmSuspectedCauseManual, 'Poor hatchery sanitation');
       expect(restored.pmPhotosJson, '["pm_photo1.jpg","pm_photo2.jpg"]');
     });

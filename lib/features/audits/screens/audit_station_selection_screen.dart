@@ -9,6 +9,7 @@ import '../../../core/utils/audit_type_labels.dart';
 import '../../../data/models/flock_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_session_provider.dart';
+import '../widgets/chick_icon.dart';
 import 'audit_session_screen.dart';
 
 class AuditStationSelectionScreen extends StatefulWidget {
@@ -131,7 +132,6 @@ class _AuditStationSelectionScreenState
       (s) => s['key'] == stationKey,
       orElse: () => {'key': '', 'name': '', 'icon': Icons.help},
     );
-    final icon = station['icon'] as IconData;
     final name = station['name'] as String;
 
     return Material(
@@ -164,7 +164,7 @@ class _AuditStationSelectionScreenState
                   ),
                 ),
                 const SizedBox(width: 12),
-                Icon(icon, color: AppColors.primary, size: 20),
+                _buildStationIcon(stationKey, AppColors.primary),
                 const SizedBox(width: 10),
                 Expanded(child: Text(name, style: AppTextStyles.body)),
                 IconButton(
@@ -222,7 +222,6 @@ class _AuditStationSelectionScreenState
   }
 
   Widget _buildAvailableTile(Map<String, dynamic> station) {
-    final icon = station['icon'] as IconData;
     final name = station['name'] as String;
     final stationKey = station['key'] as String;
 
@@ -243,13 +242,25 @@ class _AuditStationSelectionScreenState
               child: const Icon(Icons.add, size: 16, color: Colors.grey),
             ),
             const SizedBox(width: 12),
-            Icon(icon, color: Colors.grey, size: 20),
+            _buildStationIcon(stationKey, Colors.grey),
             const SizedBox(width: 10),
             Text(name, style: AppTextStyles.body.copyWith(color: Colors.grey)),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildStationIcon(String stationKey, Color color) {
+    if (stationKey == 'chicks') {
+      return ChickIcon(key: const ValueKey('station-chick-icon'), color: color);
+    }
+
+    final station = _allStations.firstWhere(
+      (s) => s['key'] == stationKey,
+      orElse: () => {'icon': Icons.help},
+    );
+    return Icon(station['icon'] as IconData, color: color, size: 20);
   }
 
   Widget _buildStartVisitButton() {

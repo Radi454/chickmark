@@ -13,27 +13,19 @@ class SyncTombstoneRepository {
   static const tableName = 'sync_tombstones';
 
   static const baseDeleteOrder = [
-    'sample_house_details',
-    'sample_machine_details',
-    'sample_batch_details',
-    'sample_timing_details',
-    'sample_records',
     'photos',
-    'audits',
     'audit_sessions',
+    'govee_daily_captures',
     'flocks',
     'hatcheries',
     'customers',
   ];
 
   static List<String> get deleteOrder {
-    final panelSamples = PanelSampleSchema.panels
-        .map((panel) => panel.sampleTableName)
-        .toList();
     final panels = PanelSampleSchema.panels
         .map((panel) => panel.tableName)
         .toList();
-    return [...panelSamples, ...panels, ...baseDeleteOrder];
+    return [...panels, ...baseDeleteOrder];
   }
 
   Future<List<SyncTombstone>> getPendingDeletes() async {
@@ -161,14 +153,7 @@ class SyncTombstoneRepository {
     );
   }
 
-  static String idColumnForTable(String deletedTableName) {
-    if (deletedTableName.startsWith('sample_') &&
-        deletedTableName.endsWith('_details')) {
-      return 'sampleRecordId';
-    }
-    if (deletedTableName.endsWith('_samples')) return 'id';
-    return 'id';
-  }
+  static String idColumnForTable(String _) => 'id';
 
   static Future<bool> _tableExists(
     DatabaseExecutor executor,

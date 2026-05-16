@@ -142,29 +142,8 @@ class _DatePlaceControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateButton = OutlinedButton.icon(
-      onPressed: () async {
-        final current =
-            DateTime.tryParse(govee.captureDate ?? '') ?? DateTime.now();
-        final selected = await showDatePicker(
-          context: context,
-          initialDate: current,
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2035),
-        );
-        if (selected == null || !context.mounted) return;
-        await configure(
-          context,
-          govee.customerId,
-          govee.hatcheryId,
-          captureDate: _formatDate(selected),
-        );
-      },
-      icon: const Icon(Icons.calendar_today_outlined),
-      label: Text(
-        govee.captureDate ?? _formatDate(DateTime.now()),
-        overflow: TextOverflow.ellipsis,
-      ),
+    final dateButton = _ReadOnlyCaptureDate(
+      date: govee.captureDate ?? _formatDate(DateTime.now()),
     );
 
     final placeDropdown = DropdownButtonFormField<TemperaturePlace>(
@@ -277,31 +256,8 @@ class _StationScopeCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final current =
-                    DateTime.tryParse(govee.captureDate ?? '') ??
-                    DateTime.now();
-                final selected = await showDatePicker(
-                  context: context,
-                  initialDate: current,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2035),
-                );
-                if (selected == null || !context.mounted) return;
-                await context.read<GoveeCaptureProvider>().configure(
-                  customerId: govee.customerId!,
-                  hatcheryId: govee.hatcheryId!,
-                  place:
-                      govee.place ?? roomPlace ?? TemperaturePlace.hatcherRoom,
-                  captureDate: _formatDate(selected),
-                  stationKey: govee.stationKey,
-                  machineId: govee.availableMachineId,
-                  captureTarget: govee.captureTarget,
-                );
-              },
-              icon: const Icon(Icons.calendar_today_outlined),
-              label: Text(govee.captureDate ?? _formatDate(DateTime.now())),
+            _ReadOnlyCaptureDate(
+              date: govee.captureDate ?? _formatDate(DateTime.now()),
             ),
           ],
         ),
@@ -313,6 +269,21 @@ class _StationScopeCard extends StatelessWidget {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '${date.year}-$month-$day';
+  }
+}
+
+class _ReadOnlyCaptureDate extends StatelessWidget {
+  final String date;
+
+  const _ReadOnlyCaptureDate({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: null,
+      icon: const Icon(Icons.calendar_today_outlined),
+      label: Text(date, overflow: TextOverflow.ellipsis),
+    );
   }
 }
 

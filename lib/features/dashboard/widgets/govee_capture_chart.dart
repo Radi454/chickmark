@@ -3,8 +3,28 @@ import 'package:flutter/material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
+import 'package:hatchaudit/core/utils/temp_converter.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
+import 'package:provider/provider.dart';
+
+const _goveeChartCardColor = Colors.white;
+const _goveeChartLineColor = Color(0xFF12B7F5);
+const _goveeChartGridColor = Color(0xFFE3E8EF);
+const _goveeChartRailLabelColor = Color(0xFF9CA3AF);
+const _goveeChartRailValueColor = Color(0xFF111827);
+const _goveeChartTooltipColor = Color(0xFF111827);
+const _goveeChartPlotHeight = 220.0;
+const _goveeChartBottomTitleHeight = 28.0;
+const _goveeChartRailWidth = 58.0;
+const _goveeChartRailGap = 8.0;
+const _goveeChartRailOffset = _goveeChartRailWidth + _goveeChartRailGap;
+const _goveeEndpointTextStyle = TextStyle(
+  color: AppColors.textPrimary,
+  fontSize: 12,
+  fontWeight: FontWeight.w600,
+);
 
 class GoveeCaptureChart extends StatelessWidget {
   final GoveeCaptureSummary summary;
@@ -18,6 +38,9 @@ class GoveeCaptureChart extends StatelessWidget {
     final machineLabel = capture.machineId;
     final startedAt = summary.recordingStartedAt;
     final endedAt = summary.recordingEndedAt;
+    final showCelsius =
+        context.watch<AppProvider>().tempUnit == TempUnit.celsius;
+    final tempUnit = _temperatureUnit(showCelsius);
 
     return Container(
       padding: const EdgeInsets.all(AppSizes.spaceMd),
@@ -67,9 +90,10 @@ class GoveeCaptureChart extends StatelessWidget {
               Expanded(
                 child: _MetricSummaryTile(
                   label: 'Temp',
-                  average: '${_formatMetric(capture.tempAvg)}F avg',
+                  average:
+                      '${_formatMetric(_temperatureValue(capture.tempAvg, showCelsius))}$tempUnit avg',
                   range:
-                      '${_formatMetric(capture.tempMin)} - ${_formatMetric(capture.tempMax)}F',
+                      '${_formatMetric(_temperatureValue(capture.tempMin, showCelsius))} - ${_formatMetric(_temperatureValue(capture.tempMax, showCelsius))}$tempUnit',
                   variability:
                       'SD ${_formatMetric(capture.tempSd)} / CV ${_formatMetric(capture.tempCvPct)}%',
                 ),
@@ -97,14 +121,16 @@ class GoveeCaptureChart extends StatelessWidget {
             GoveeMetricChart(
               chartKey: ValueKey('govee-temperature-chart-${capture.id}'),
               title: 'Temperature',
-              unit: 'F',
+              unit: tempUnit,
               color: AppColors.chart1,
               points: points,
-              average: capture.tempAvg,
-              minimum: capture.tempMin,
-              maximum: capture.tempMax,
-              valueFor: (point) => point.temperatureFahrenheit,
-              tooltipTextFor: (point) => _tooltipText(point, capture),
+              average: _temperatureValue(capture.tempAvg, showCelsius),
+              minimum: _temperatureValue(capture.tempMin, showCelsius),
+              maximum: _temperatureValue(capture.tempMax, showCelsius),
+              valueFor: (point) =>
+                  _temperatureValue(point.temperatureFahrenheit, showCelsius)!,
+              tooltipTextFor: (point) =>
+                  _tooltipText(point, capture, showCelsius: showCelsius),
             ),
             const SizedBox(height: AppSizes.spaceLg),
             GoveeMetricChart(
@@ -117,7 +143,8 @@ class GoveeCaptureChart extends StatelessWidget {
               minimum: capture.rhMin,
               maximum: capture.rhMax,
               valueFor: (point) => point.humidity,
-              tooltipTextFor: (point) => _tooltipText(point, capture),
+              tooltipTextFor: (point) =>
+                  _tooltipText(point, capture, showCelsius: showCelsius),
             ),
           ],
         ],
@@ -137,6 +164,7 @@ class GoveeMetricChart extends StatefulWidget {
   final double? maximum;
   final double Function(GoveeChartPoint point) valueFor;
   final String Function(GoveeChartPoint point) tooltipTextFor;
+  final bool interactionEnabled;
 
   const GoveeMetricChart({
     super.key,
@@ -150,6 +178,7 @@ class GoveeMetricChart extends StatefulWidget {
     required this.maximum,
     required this.valueFor,
     required this.tooltipTextFor,
+    this.interactionEnabled = true,
   });
 
   @override
@@ -192,177 +221,189 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
     final displayMax = widget.maximum ?? computedMax;
     final displayAvg =
         widget.average ?? yValues.reduce((a, b) => a + b) / yValues.length;
-    final yPadding = _axisPadding(displayMin, displayMax);
-    final minY = displayMin - yPadding;
-    final maxY = displayMax + yPadding;
+    final yBounds = _axisBounds(displayMin, displayMax);
+    final minY = yBounds.min;
+    final maxY = yBounds.max;
     final minX = chartPoints.first.x;
     final maxX = chartPoints.last.x == minX
         ? minX + const Duration(minutes: 1).inMilliseconds
         : chartPoints.last.x;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          widget.title,
-          textAlign: TextAlign.center,
-          style: AppTextStyles.title.copyWith(fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: AppSizes.spaceSm),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 72,
-              height: 230,
-              child: _ChartValueRail(
-                unit: widget.unit,
-                max: displayMax,
-                avg: displayAvg,
-                min: displayMin,
-              ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
+      decoration: BoxDecoration(
+        color: _goveeChartCardColor,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.cardShadow,
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            widget.title,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.title.copyWith(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
             ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: SizedBox(
-                height: 230,
-                child: LineChart(
-                  key: widget.chartKey,
-                  transformationConfig: FlTransformationConfig(
-                    scaleAxis: FlScaleAxis.horizontal,
-                    minScale: 1,
-                    maxScale: _maxScale,
-                    panEnabled: true,
-                    scaleEnabled: true,
-                    trackpadScrollCausesScale: true,
-                    transformationController: _transformationController,
-                  ),
-                  LineChartData(
-                    minX: minX,
-                    maxX: maxX,
-                    minY: minY,
-                    maxY: maxY,
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: true,
-                      getDrawingHorizontalLine: (_) => FlLine(
-                        color: AppColors.borderDefault,
-                        strokeWidth: 1,
-                        dashArray: const [6, 4],
-                      ),
-                      getDrawingVerticalLine: (_) => FlLine(
-                        color: AppColors.borderDefault,
-                        strokeWidth: 1,
-                        dashArray: const [6, 4],
-                      ),
+          ),
+          const SizedBox(height: AppSizes.spaceMd),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: _goveeChartRailWidth,
+                height: _goveeChartPlotHeight,
+                child: _ChartValueRail(
+                  unit: widget.unit,
+                  max: displayMax,
+                  avg: displayAvg,
+                  min: displayMin,
+                ),
+              ),
+              const SizedBox(width: _goveeChartRailGap),
+              Expanded(
+                child: SizedBox(
+                  height: _goveeChartPlotHeight + _goveeChartBottomTitleHeight,
+                  child: LineChart(
+                    key: widget.chartKey,
+                    transformationConfig: FlTransformationConfig(
+                      scaleAxis: FlScaleAxis.horizontal,
+                      minScale: 1,
+                      maxScale: widget.interactionEnabled ? _maxScale : 1,
+                      panEnabled: widget.interactionEnabled,
+                      scaleEnabled: widget.interactionEnabled,
+                      trackpadScrollCausesScale: widget.interactionEnabled,
+                      transformationController: _transformationController,
                     ),
-                    titlesData: const FlTitlesData(
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
+                    LineChartData(
+                      minX: minX,
+                      maxX: maxX,
+                      minY: minY,
+                      maxY: maxY,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: true,
+                        horizontalInterval: _gridInterval(minY, maxY, lines: 3),
+                        verticalInterval: _gridInterval(minX, maxX, lines: 8),
+                        getDrawingHorizontalLine: (_) => FlLine(
+                          color: _goveeChartGridColor,
+                          strokeWidth: 1,
+                          dashArray: const [3, 6],
+                        ),
+                        getDrawingVerticalLine: (_) => FlLine(
+                          color: _goveeChartGridColor,
+                          strokeWidth: 1,
+                          dashArray: const [3, 6],
+                        ),
                       ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        leftTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: _goveeChartBottomTitleHeight,
+                            interval: _bottomTickInterval(minX, maxX),
+                            getTitlesWidget: (value, meta) =>
+                                _bottomTitle(value, minX, maxX),
+                          ),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                       ),
-                      topTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
+                      extraLinesData: ExtraLinesData(
+                        horizontalLines: [
+                          HorizontalLine(
+                            y: displayAvg,
+                            color: _goveeChartLineColor,
+                            strokeWidth: 2,
+                            dashArray: const [3, 6],
+                          ),
+                        ],
                       ),
-                      rightTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
+                      lineTouchData: LineTouchData(
+                        enabled: true,
+                        handleBuiltInTouches: true,
+                        touchTooltipData: LineTouchTooltipData(
+                          maxContentWidth: 260,
+                          getTooltipColor: (_) => _goveeChartTooltipColor,
+                          getTooltipItems: (touchedSpots) => touchedSpots
+                              .map((spot) => _tooltipForPoint(spot))
+                              .toList(growable: false),
+                        ),
                       ),
-                    ),
-                    borderData: FlBorderData(
-                      show: true,
-                      border: const Border(
-                        top: BorderSide(color: AppColors.borderDefault),
-                        bottom: BorderSide(color: AppColors.borderDefault),
-                      ),
-                    ),
-                    extraLinesData: ExtraLinesData(
-                      horizontalLines: [
-                        HorizontalLine(
-                          y: displayAvg,
-                          color: widget.color,
-                          strokeWidth: 2,
-                          dashArray: const [6, 4],
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: chartPoints,
+                          isCurved: false,
+                          color: _goveeChartLineColor,
+                          barWidth: 2.0,
+                          dotData: FlDotData(show: chartPoints.length == 1),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            color: _goveeChartLineColor.withValues(alpha: 0.12),
+                          ),
                         ),
                       ],
                     ),
-                    lineTouchData: LineTouchData(
-                      enabled: true,
-                      handleBuiltInTouches: true,
-                      touchTooltipData: LineTouchTooltipData(
-                        maxContentWidth: 260,
-                        getTooltipColor: (_) => AppColors.textPrimary,
-                        getTooltipItems: (touchedSpots) => touchedSpots
-                            .map((spot) => _tooltipForPoint(spot))
-                            .toList(growable: false),
-                      ),
-                    ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: chartPoints,
-                        isCurved: chartPoints.length > 1,
-                        color: widget.color,
-                        barWidth: 3,
-                        dotData: FlDotData(show: chartPoints.length == 1),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          color: widget.color.withValues(alpha: 0.12),
-                        ),
-                      ),
-                    ],
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOutCubic,
                   ),
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSizes.spaceSm),
-        Padding(
-          padding: const EdgeInsets.only(left: 84),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(_endpointLabel(widget.points.first.recordedAt)),
-              ),
-              const SizedBox(width: AppSizes.spaceSm),
-              Flexible(
-                child: Text(
-                  _endpointLabel(widget.points.last.recordedAt),
-                  textAlign: TextAlign.end,
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: AppSizes.spaceSm),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _ZoomButton(
-              tooltip: 'Zoom out ${widget.title}',
-              icon: Icons.remove,
-              onPressed: () => _zoomBy(0.75),
+          const SizedBox(height: AppSizes.spaceSm),
+          Padding(
+            padding: const EdgeInsets.only(left: _goveeChartRailOffset),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _endpointLabel(widget.points.first.recordedAt),
+                        style: _goveeEndpointTextStyle,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSizes.spaceSm),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _endpointLabel(widget.points.last.recordedAt),
+                        textAlign: TextAlign.end,
+                        style: _goveeEndpointTextStyle,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: AppSizes.spaceXs),
-            _ZoomButton(
-              tooltip: 'Fit ${widget.title}',
-              icon: Icons.fit_screen,
-              label: 'Fit',
-              onPressed: _fit,
-            ),
-            const SizedBox(width: AppSizes.spaceXs),
-            _ZoomButton(
-              tooltip: 'Zoom in ${widget.title}',
-              icon: Icons.add,
-              onPressed: () => _zoomBy(1.35),
-            ),
-          ],
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -392,28 +433,68 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
     return closest;
   }
 
-  double _axisPadding(double min, double max) {
+  ({double min, double max}) _axisBounds(double min, double max) {
+    final low = min < max ? min : max;
+    final high = max > min ? max : min;
+    final span = (high - low).abs();
+    final targetSpan = span == 0
+        ? _minimumVisualYSpan
+        : (span * 1.24).clamp(_minimumVisualYSpan, double.infinity);
+    final midpoint = (low + high) / 2;
+    var visualMin = midpoint - (targetSpan / 2);
+    var visualMax = midpoint + (targetSpan / 2);
+
+    if (widget.unit == '%') {
+      if (visualMin < 0) {
+        visualMax = (visualMax - visualMin).clamp(0, 100);
+        visualMin = 0;
+      }
+      if (visualMax > 100) {
+        visualMin = (visualMin - (visualMax - 100)).clamp(0, 100);
+        visualMax = 100;
+      }
+    }
+
+    return (min: visualMin, max: visualMax);
+  }
+
+  double get _minimumVisualYSpan {
+    return widget.unit == '%' ? 5.0 : 2.0;
+  }
+
+  double _gridInterval(double min, double max, {required int lines}) {
     final span = (max - min).abs();
-    if (span == 0) return widget.unit == '%' ? 2 : 1;
-    return span * 0.12;
+    if (!span.isFinite || span <= 0) return 1;
+    return span / lines;
   }
 
-  void _zoomBy(double factor) {
-    final currentScale = _transformationController.value.getMaxScaleOnAxis();
-    final nextScale = (currentScale * factor).clamp(1.0, _maxScale);
-    setState(() {
-      _transformationController.value = Matrix4.diagonal3Values(
-        nextScale,
-        1.0,
-        1.0,
-      );
-    });
+  double _bottomTickInterval(double minX, double maxX) {
+    final spanMs = (maxX - minX).abs();
+    final minuteMs = const Duration(minutes: 1).inMilliseconds.toDouble();
+    if (spanMs <= minuteMs * 10) return minuteMs * 2;
+    if (spanMs <= minuteMs * 30) return minuteMs * 5;
+    if (spanMs <= minuteMs * 90) return minuteMs * 15;
+    if (spanMs <= minuteMs * 180) return minuteMs * 30;
+    if (spanMs <= minuteMs * 720) return minuteMs * 60;
+    return spanMs / 4;
   }
 
-  void _fit() {
-    setState(() {
-      _transformationController.value = Matrix4.identity();
-    });
+  Widget _bottomTitle(double value, double minX, double maxX) {
+    if (value < minX || value > maxX) return const SizedBox.shrink();
+    final timestamp = DateTime.fromMillisecondsSinceEpoch(
+      value.round(),
+    ).toLocal();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Text(
+        _clockLabel(timestamp),
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
   }
 }
 
@@ -464,14 +545,19 @@ class _RailValue extends StatelessWidget {
         Text(
           label,
           style: AppTextStyles.caption.copyWith(
-            color: AppColors.textTertiary,
-            fontSize: 16,
+            color: _goveeChartRailLabelColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           '${_formatMetric(value)}$unit',
-          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+          style: AppTextStyles.body.copyWith(
+            color: _goveeChartRailValueColor,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -548,50 +634,15 @@ class _Badge extends StatelessWidget {
   }
 }
 
-class _ZoomButton extends StatelessWidget {
-  final String tooltip;
-  final IconData icon;
-  final String? label;
-  final VoidCallback onPressed;
-
-  const _ZoomButton({
-    required this.tooltip,
-    required this.icon,
-    this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final child = label == null
-        ? Icon(icon, size: 18)
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16),
-              const SizedBox(width: 4),
-              Text(label!),
-            ],
-          );
-    return Tooltip(
-      message: tooltip,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(42, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          visualDensity: VisualDensity.compact,
-        ),
-        child: child,
-      ),
-    );
-  }
-}
-
-String _tooltipText(GoveeChartPoint point, GoveeDailyCaptureModel capture) {
+String _tooltipText(
+  GoveeChartPoint point,
+  GoveeDailyCaptureModel capture, {
+  required bool showCelsius,
+}) {
+  final tempUnit = _temperatureUnit(showCelsius);
   final lines = [
     _formatTimestamp(point.recordedAt),
-    'Temp ${point.temperatureFahrenheit.toStringAsFixed(1)}F',
+    'Temp ${_formatMetric(_temperatureValue(point.temperatureFahrenheit, showCelsius))}$tempUnit',
     'RH ${point.humidity.toStringAsFixed(1)}%',
     capture.place.label,
     if (capture.machineId != null) capture.machineId!,
@@ -604,12 +655,25 @@ String _formatMetric(double? value) {
   return value.toStringAsFixed(1);
 }
 
+double? _temperatureValue(double? fahrenheit, bool showCelsius) {
+  if (fahrenheit == null) return null;
+  return showCelsius ? TempConverter.toCelsius(fahrenheit) : fahrenheit;
+}
+
+String _temperatureUnit(bool showCelsius) => showCelsius ? '°C' : 'F';
+
 String _formatClock(DateTime dateTime) {
   final hour = dateTime.hour;
   final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
   final minute = dateTime.minute.toString().padLeft(2, '0');
   final suffix = hour >= 12 ? 'PM' : 'AM';
   return '$displayHour:$minute $suffix';
+}
+
+String _clockLabel(DateTime dateTime) {
+  final hour = dateTime.hour.toString().padLeft(2, '0');
+  final minute = dateTime.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 String _formatTimestamp(DateTime dateTime) {

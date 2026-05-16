@@ -24,38 +24,24 @@ class SupabasePullSummary {
   final int customers;
   final int flocks;
   final int hatcheries;
-  final int audits;
   final int auditSessions;
   final int photos;
   final int bmkBreeds;
   final int bmkEggBreakout;
   final int goveeDailyCaptures;
-  final int sampleRecords;
-  final int sampleHouseDetails;
-  final int sampleMachineDetails;
-  final int sampleBatchDetails;
-  final int sampleTimingDetails;
   final int panelRows;
-  final int panelSampleRows;
   final int syncTombstones;
 
   const SupabasePullSummary({
     this.customers = 0,
     this.flocks = 0,
     this.hatcheries = 0,
-    this.audits = 0,
     this.auditSessions = 0,
     this.photos = 0,
     this.bmkBreeds = 0,
     this.bmkEggBreakout = 0,
     this.goveeDailyCaptures = 0,
-    this.sampleRecords = 0,
-    this.sampleHouseDetails = 0,
-    this.sampleMachineDetails = 0,
-    this.sampleBatchDetails = 0,
-    this.sampleTimingDetails = 0,
     this.panelRows = 0,
-    this.panelSampleRows = 0,
     this.syncTombstones = 0,
   });
 
@@ -63,68 +49,42 @@ class SupabasePullSummary {
       customers +
       flocks +
       hatcheries +
-      audits +
       auditSessions +
       photos +
       bmkBreeds +
       bmkEggBreakout +
       goveeDailyCaptures +
-      sampleRecords +
-      sampleHouseDetails +
-      sampleMachineDetails +
-      sampleBatchDetails +
-      sampleTimingDetails +
       panelRows +
-      panelSampleRows +
       syncTombstones;
 
   SupabasePullSummary copyWith({
     int? customers,
     int? flocks,
     int? hatcheries,
-    int? audits,
     int? auditSessions,
     int? photos,
     int? bmkBreeds,
     int? bmkEggBreakout,
     int? goveeDailyCaptures,
-    int? sampleRecords,
-    int? sampleHouseDetails,
-    int? sampleMachineDetails,
-    int? sampleBatchDetails,
-    int? sampleTimingDetails,
     int? panelRows,
-    int? panelSampleRows,
     int? syncTombstones,
   }) {
     return SupabasePullSummary(
       customers: customers ?? this.customers,
       flocks: flocks ?? this.flocks,
       hatcheries: hatcheries ?? this.hatcheries,
-      audits: audits ?? this.audits,
       auditSessions: auditSessions ?? this.auditSessions,
       photos: photos ?? this.photos,
       bmkBreeds: bmkBreeds ?? this.bmkBreeds,
       bmkEggBreakout: bmkEggBreakout ?? this.bmkEggBreakout,
       goveeDailyCaptures: goveeDailyCaptures ?? this.goveeDailyCaptures,
-      sampleRecords: sampleRecords ?? this.sampleRecords,
-      sampleHouseDetails: sampleHouseDetails ?? this.sampleHouseDetails,
-      sampleMachineDetails: sampleMachineDetails ?? this.sampleMachineDetails,
-      sampleBatchDetails: sampleBatchDetails ?? this.sampleBatchDetails,
-      sampleTimingDetails: sampleTimingDetails ?? this.sampleTimingDetails,
       panelRows: panelRows ?? this.panelRows,
-      panelSampleRows: panelSampleRows ?? this.panelSampleRows,
       syncTombstones: syncTombstones ?? this.syncTombstones,
     );
   }
 }
 
 class SupabaseService {
-  static const Set<String> _localOnlyAuditColumns = {
-    'cvtReadingsJson',
-    'cvtPhotosJson',
-  };
-
   final UserRepository _userRepo;
   final bool Function() _isConfigured;
   final Future<bool> Function() _initializeSupabase;
@@ -346,30 +306,12 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  Future<void> syncAudit(Map<String, dynamic> audit) async {
-    try {
-      if (!await _prepareRemoteAccess()) return;
-      await _upsertWithFallback('audits', audit);
-    } catch (e) {
-      safeDebugLog('Supabase audit sync failed', error: e);
-    }
-  }
-
   Future<void> syncAuditSession(Map<String, dynamic> session) async {
     try {
       if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('audit_sessions', session);
     } catch (e) {
       safeDebugLog('Supabase audit session sync failed', error: e);
-    }
-  }
-
-  Future<void> syncDeleteAudit(String id) async {
-    try {
-      if (!await _prepareRemoteAccess()) return;
-      await _client.from('audits').delete().eq('id', id);
-    } catch (e) {
-      safeDebugLog('Supabase audit delete sync failed', error: e);
     }
   }
 
@@ -455,7 +397,8 @@ class SupabaseService {
     final file = File(photo.filePath);
     final bytes = await file.readAsBytes();
     final extension = _fileExtension(photo.filePath);
-    final storagePath = '${photo.auditId}/${photo.id}.$extension';
+    final storagePath =
+        '${photo.sessionId}/${photo.panelName}/${photo.panelRowId}/${photo.id}.$extension';
 
     await _client.storage
         .from('photos')
@@ -476,7 +419,10 @@ class SupabaseService {
       'filePath': remotePhotoPath,
       'description': photo.description,
       'createdAt': photo.createdAt.toIso8601String(),
-      'auditId': photo.auditId,
+      'sessionId': photo.sessionId,
+      'panelName': photo.panelName,
+      'panelRowId': photo.panelRowId,
+      'fieldKey': photo.fieldKey,
       'uploadStatus': 'synced',
     });
   }
@@ -484,22 +430,14 @@ class SupabaseService {
   Future<SupabasePullSummary> pullFromSupabase({
     required Future<void> Function(Map<String, dynamic>) upsertCustomer,
     required Future<void> Function(Map<String, dynamic>) upsertFlock,
-    required Future<void> Function(Map<String, dynamic>) upsertAudit,
     Future<void> Function(Map<String, dynamic>)? upsertHatchery,
     Future<void> Function(Map<String, dynamic>)? upsertAuditSession,
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
     Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
-    Future<void> Function(Map<String, dynamic>)? upsertSampleRecord,
-    Future<void> Function(Map<String, dynamic>)? upsertSampleHouseDetail,
-    Future<void> Function(Map<String, dynamic>)? upsertSampleMachineDetail,
-    Future<void> Function(Map<String, dynamic>)? upsertSampleBatchDetail,
-    Future<void> Function(Map<String, dynamic>)? upsertSampleTimingDetail,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
-    Future<void> Function(String table, Map<String, dynamic> row)?
-    upsertPanelSampleRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     var summary = const SupabasePullSummary();
@@ -543,46 +481,6 @@ class SupabaseService {
           auditSessions: await pullTable('audit_sessions', upsertAuditSession),
         );
       }
-      summary = summary.copyWith(
-        audits: await pullTable('audits', upsertAudit, required: true),
-      );
-      if (upsertSampleRecord != null) {
-        summary = summary.copyWith(
-          sampleRecords: await pullTable('sample_records', upsertSampleRecord),
-        );
-      }
-      if (upsertSampleHouseDetail != null) {
-        summary = summary.copyWith(
-          sampleHouseDetails: await pullTable(
-            'sample_house_details',
-            upsertSampleHouseDetail,
-          ),
-        );
-      }
-      if (upsertSampleMachineDetail != null) {
-        summary = summary.copyWith(
-          sampleMachineDetails: await pullTable(
-            'sample_machine_details',
-            upsertSampleMachineDetail,
-          ),
-        );
-      }
-      if (upsertSampleBatchDetail != null) {
-        summary = summary.copyWith(
-          sampleBatchDetails: await pullTable(
-            'sample_batch_details',
-            upsertSampleBatchDetail,
-          ),
-        );
-      }
-      if (upsertSampleTimingDetail != null) {
-        summary = summary.copyWith(
-          sampleTimingDetails: await pullTable(
-            'sample_timing_details',
-            upsertSampleTimingDetail,
-          ),
-        );
-      }
       if (upsertPhoto != null) {
         summary = summary.copyWith(
           photos: await pullTable('photos', upsertPhoto),
@@ -617,15 +515,6 @@ class SupabaseService {
           });
         }
         summary = summary.copyWith(panelRows: count);
-      }
-      if (upsertPanelSampleRow != null) {
-        var count = 0;
-        for (final panel in PanelSampleSchema.panels) {
-          count += await pullTable(panel.sampleTableName, (row) {
-            return upsertPanelSampleRow(panel.sampleTableName, row);
-          });
-        }
-        summary = summary.copyWith(panelSampleRows: count);
       }
       if (upsertSyncTombstone != null) {
         summary = summary.copyWith(
@@ -669,12 +558,7 @@ class SupabaseService {
     String table,
     Map<String, dynamic> row,
   ) {
-    if (table != 'audits') return row;
-    final sanitized = Map<String, dynamic>.from(row);
-    for (final column in _localOnlyAuditColumns) {
-      sanitized.remove(column);
-    }
-    return sanitized;
+    return row;
   }
 
   Map<String, dynamic> _snakeCaseKeys(Map<String, dynamic> row) {

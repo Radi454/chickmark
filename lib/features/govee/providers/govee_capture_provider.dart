@@ -25,13 +25,30 @@ enum GoveeCapturePhase {
 
 enum GoveeCaptureTarget { room, insideMachine }
 
+class GoveeAvailableDevice {
+  final String remoteId;
+  final String name;
+  final int? rssi;
+  final DateTime lastSeen;
+  final bool selected;
+
+  const GoveeAvailableDevice({
+    required this.remoteId,
+    required this.name,
+    this.rssi,
+    required this.lastSeen,
+    required this.selected,
+  });
+}
+
 class GoveeCaptureProvider extends ChangeNotifier {
-  static const Duration warmupDuration = Duration(seconds: 60);
   static const int maxLivePreviewReadings = 500;
+  static const Duration _manualScanDiscoveryTimeout = Duration(seconds: 30);
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
   final DateTime Function() _clock;
+  final bool _enablePhaseTimer;
   final Uuid _uuid = const Uuid();
 
   String? _customerId;
@@ -59,6 +76,9 @@ class GoveeCaptureProvider extends ChangeNotifier {
   TemperaturePlace? _suggestedNextPlace;
   bool _goveeListenersAttached = false;
   StreamSubscription<GoveeSensorReading>? _liveSubscription;
+  Timer? _phaseTimer;
+  int _recordingElapsedSeconds = 0;
+  final List<GoveeSensorReading> _livePreviewBufferedReadings = [];
   final List<GoveeSensorReading> _liveRecordingReadings = [];
 
   GoveeCaptureProvider({
@@ -68,6 +88,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     bool enablePhaseTimer = true,
   }) : _repository = repository ?? GoveeCaptureRepository(),
        _goveeService = goveeService ?? GoveeService(),
+       _enablePhaseTimer = enablePhaseTimer,
        _clock = clock ?? DateTime.now;
 
   String? get customerId => _customerId;
@@ -119,6 +140,14 @@ class GoveeCaptureProvider extends ChangeNotifier {
   TemperaturePlace? get suggestedNextPlace => _suggestedNextPlace;
   GoveeCapturePhase get phase => _phase;
   bool get isRecording => _phase == GoveeCapturePhase.validRecording;
+  int get recordingElapsedSeconds {
+    final startedAt = _recordingStartedAt;
+    if (_phase == GoveeCapturePhase.validRecording && startedAt != null) {
+      return _elapsedSecondsSince(startedAt, _clock());
+    }
+    return _recordingElapsedSeconds;
+  }
+
   bool get canStartRecording =>
       _customerId != null &&
       _hatcheryId != null &&
@@ -135,6 +164,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   bool get isGattConnecting => _goveeService.isGattConnecting;
   bool get isScanning => _goveeService.isScanning;
   String? get deviceName => _goveeService.deviceName;
+  String? get deviceId => _goveeService.deviceId;
   int? get signalStrength => _goveeService.signalStrength;
   DateTime? get liveUpdatedAt =>
       _goveeService.latestReading?.timestamp ?? _goveeService.lastSeenAt;
@@ -143,8 +173,57 @@ class GoveeCaptureProvider extends ChangeNotifier {
   double? get liveHumidity => _goveeService.latestReading?.humidity;
   int? get batteryPercent => _goveeService.latestReading?.batteryPercent;
   List<String> get bleDiagnostics => _goveeService.diagnostics;
+  List<GoveeAvailableDevice> get availableDevices {
+    final selectedId = _goveeService.deviceId;
+    final devices = _goveeService.discoveredGoveeDevices
+        .map(
+          (device) => GoveeAvailableDevice(
+            remoteId: device.remoteId,
+            name: device.name.trim().isEmpty ? 'Govee sensor' : device.name,
+            rssi: device.rssi,
+            lastSeen: device.lastSeen,
+            selected: device.remoteId == selectedId,
+          ),
+        )
+        .toList(growable: false);
+    final sorted = List<GoveeAvailableDevice>.from(devices)
+      ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+    return List.unmodifiable(sorted);
+  }
+
   List<GoveeSensorReading> get liveRecordingReadings =>
       List.unmodifiable(_liveRecordingReadings);
+  List<GoveeSensorReading> get livePreviewReadings {
+    if (isRecording) {
+      if (_liveRecordingReadings.isNotEmpty) {
+        return List.unmodifiable(_liveRecordingReadings);
+      }
+      final latest = _goveeService.latestReading;
+      if (latest == null ||
+          latest.temperatureFahrenheit == null ||
+          latest.humidity == null) {
+        return const [];
+      }
+      final startedAt = _recordingStartedAt;
+      if (startedAt != null && latest.timestamp.isBefore(startedAt)) {
+        return const [];
+      }
+      return List.unmodifiable([latest]);
+    }
+    if (_livePreviewBufferedReadings.isNotEmpty) {
+      return List.unmodifiable(_livePreviewBufferedReadings);
+    }
+    if (_liveRecordingReadings.isNotEmpty) {
+      return List.unmodifiable(_liveRecordingReadings);
+    }
+    final latest = _goveeService.latestReading;
+    if (latest == null ||
+        latest.temperatureFahrenheit == null ||
+        latest.humidity == null) {
+      return const [];
+    }
+    return List.unmodifiable([latest]);
+  }
 
   Future<void> configure({
     required String customerId,
@@ -166,6 +245,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _place = _resolvedPlaceForTarget(place, resolvedStationKey, captureTarget);
     _captureDate = captureDate ?? _formatDate(_clock());
     _phase = GoveeCapturePhase.idle;
+    _stopPhaseTimer(reset: true);
     _recordingStartedAt = null;
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
@@ -173,6 +253,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
+    _livePreviewBufferedReadings.clear();
     _liveRecordingReadings.clear();
     _suggestedNextPlace = null;
     try {
@@ -230,14 +311,45 @@ class GoveeCaptureProvider extends ChangeNotifier {
       if (_goveeService.isConnected) {
         await _goveeService.connectDevice();
       } else if (_goveeService.isScanning) {
-        await _goveeService.restartScan();
+        await _goveeService.restartScan(
+          discoveryTimeout: _manualScanDiscoveryTimeout,
+        );
       } else {
-        await _goveeService.startScan();
+        await _goveeService.startScan(
+          discoveryTimeout: _manualScanDiscoveryTimeout,
+        );
       }
     } catch (e) {
       _error = 'Could not scan for the Govee sensor';
       if (kDebugMode) debugPrint('Govee capture scan failed: $e');
       notifyListeners();
+    }
+  }
+
+  Future<bool> _connectSensorForRecording() async {
+    _attachGoveeListeners();
+    _goveeService.setAutoReconnectEnabled(true);
+    try {
+      if (_goveeService.isGattConnected) {
+        return true;
+      }
+      if (_goveeService.isConnected) {
+        await _goveeService.connectDevice();
+      } else if (_goveeService.isScanning) {
+        await _goveeService.restartScan(
+          discoveryTimeout: _manualScanDiscoveryTimeout,
+        );
+      } else {
+        await _goveeService.startScan(
+          discoveryTimeout: _manualScanDiscoveryTimeout,
+        );
+      }
+      return true;
+    } catch (e) {
+      _error = 'Could not scan for the Govee sensor';
+      if (kDebugMode) debugPrint('Govee capture scan failed: $e');
+      notifyListeners();
+      return false;
     }
   }
 
@@ -248,6 +360,30 @@ class GoveeCaptureProvider extends ChangeNotifier {
     } catch (e) {
       _error = 'Could not request a live Govee reading';
       if (kDebugMode) debugPrint('Govee capture live read failed: $e');
+      notifyListeners();
+    }
+  }
+
+  Future<void> disconnectSensor() async {
+    try {
+      _goveeService.setAutoReconnectEnabled(false);
+      await _goveeService.disconnectDevice();
+    } catch (e) {
+      _error = 'Could not disconnect the Govee sensor';
+      if (kDebugMode) debugPrint('Govee capture disconnect failed: $e');
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> selectSensorDevice(String remoteId) async {
+    _attachGoveeListeners();
+    try {
+      _goveeService.setAutoReconnectEnabled(true);
+      await _goveeService.selectDevice(remoteId);
+    } catch (e) {
+      _error = 'Could not connect to the selected Govee sensor';
+      if (kDebugMode) debugPrint('Govee capture device select failed: $e');
       notifyListeners();
     }
   }
@@ -265,16 +401,19 @@ class GoveeCaptureProvider extends ChangeNotifier {
       return;
     }
 
-    _attachGoveeListeners();
+    if (!await _connectSensorForRecording()) return;
     _recordingStartedAt = _clock();
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
     _clearPendingSave();
+    _livePreviewBufferedReadings.clear();
     _liveRecordingReadings.clear();
     _phase = GoveeCapturePhase.validRecording;
+    _recordingElapsedSeconds = 0;
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
+    _startPhaseTimer();
     notifyListeners();
   }
 
@@ -304,12 +443,17 @@ class GoveeCaptureProvider extends ChangeNotifier {
     }
 
     late final List<GoveeSensorReading> valid;
+    List<GoveeSensorReading>? syncedForDiagnostics;
+    final liveFallbackReadings = List<GoveeSensorReading>.from(
+      _liveRecordingReadings,
+    );
     if (isRetryingSave && _pendingSaveReadings.isNotEmpty) {
       valid = _pendingSaveReadings;
       _error = null;
       _syncFailureDetails = null;
       _syncFailureDiagnostics = const [];
     } else {
+      _stopPhaseTimer();
       _phase = GoveeCapturePhase.syncing;
       _error = null;
       _syncFailureDetails = null;
@@ -322,6 +466,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
           startedAt: startedAt,
           endedAt: endedAt,
         );
+        syncedForDiagnostics = synced;
       } catch (e) {
         _failedRecordingStartedAt = startedAt;
         _failedRecordingEndedAt = endedAt;
@@ -337,13 +482,38 @@ class GoveeCaptureProvider extends ChangeNotifier {
         return;
       }
 
-      final validStartedAt = startedAt.add(warmupDuration);
-      valid = _filterValidSyncedReadings(synced, validStartedAt, endedAt);
+      final syncedValid = _filterValidSyncedReadings(
+        synced,
+        startedAt,
+        endedAt,
+      );
+      valid = syncedValid.isNotEmpty
+          ? syncedValid
+          : _filterValidSyncedReadings(
+              liveFallbackReadings,
+              startedAt,
+              endedAt,
+            );
     }
 
     if (valid.isEmpty) {
-      _error = 'No valid synced Govee readings were found after warmup';
-      _phase = GoveeCapturePhase.validRecording;
+      _error =
+          'No valid synced Govee readings were found inside this recording window.';
+      if (syncedForDiagnostics != null) {
+        _syncFailureDetails =
+            'History sync returned ${syncedForDiagnostics.length} readings, but none matched the recording window.';
+        _syncFailureDiagnostics = _buildNoValidReadingsDiagnostics(
+          startedAt: startedAt,
+          endedAt: endedAt,
+          syncedReadings: syncedForDiagnostics,
+        );
+      }
+      _phase = GoveeCapturePhase.idle;
+      _recordingStartedAt = null;
+      _failedRecordingStartedAt = null;
+      _failedRecordingEndedAt = null;
+      _clearPendingSave();
+      _liveRecordingReadings.clear();
       notifyListeners();
       return;
     }
@@ -470,6 +640,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   void clearAfterSaveAndSuggestNextPlace() {
     _liveRecordingReadings.clear();
     _recordingStartedAt = null;
+    _stopPhaseTimer(reset: true);
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
     _clearPendingSave();
@@ -501,27 +672,77 @@ class GoveeCaptureProvider extends ChangeNotifier {
   }
 
   void _handleLiveReading(GoveeSensorReading reading) {
-    if (_phase != GoveeCapturePhase.validRecording) return;
     if (reading.temperatureFahrenheit == null || reading.humidity == null) {
       return;
     }
-    final startedAt = _recordingStartedAt;
-    if (startedAt != null && reading.timestamp.isBefore(startedAt)) return;
-    _liveRecordingReadings.add(reading);
-    final overflow = _liveRecordingReadings.length - maxLivePreviewReadings;
-    if (overflow > 0) {
-      _liveRecordingReadings.removeRange(0, overflow);
+    if (!isRecording) {
+      if (_phase != GoveeCapturePhase.idle &&
+          _phase != GoveeCapturePhase.saved) {
+        return;
+      }
+      _appendLiveReading(_livePreviewBufferedReadings, reading);
+      notifyListeners();
+      return;
     }
-    notifyListeners();
+    final startedAt = _recordingStartedAt;
+    if (startedAt == null || !reading.timestamp.isBefore(startedAt)) {
+      _appendLiveReading(_liveRecordingReadings, reading);
+      notifyListeners();
+    }
+  }
+
+  void _appendLiveReading(
+    List<GoveeSensorReading> readings,
+    GoveeSensorReading reading,
+  ) {
+    readings.add(reading);
+    final overflow = readings.length - maxLivePreviewReadings;
+    if (overflow > 0) {
+      readings.removeRange(0, overflow);
+    }
   }
 
   @override
   void dispose() {
+    _phaseTimer?.cancel();
     unawaited(_liveSubscription?.cancel());
     if (_goveeListenersAttached) {
       _goveeService.removeListener(_handleGoveeServiceChanged);
     }
     super.dispose();
+  }
+
+  void _startPhaseTimer() {
+    _phaseTimer?.cancel();
+    if (!_enablePhaseTimer) return;
+    _phaseTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final startedAt = _recordingStartedAt;
+      if (_phase != GoveeCapturePhase.validRecording || startedAt == null) {
+        _stopPhaseTimer();
+        return;
+      }
+      final elapsed = _elapsedSecondsSince(startedAt, _clock());
+      if (elapsed == _recordingElapsedSeconds) return;
+      _recordingElapsedSeconds = elapsed;
+      notifyListeners();
+    });
+  }
+
+  void _stopPhaseTimer({bool reset = false}) {
+    _phaseTimer?.cancel();
+    _phaseTimer = null;
+    if (reset) {
+      _recordingElapsedSeconds = 0;
+      return;
+    }
+    final startedAt = _recordingStartedAt;
+    if (startedAt != null) {
+      _recordingElapsedSeconds = _elapsedSecondsSince(startedAt, _clock());
+    }
+  }
+
+  int _elapsedSecondsSince(DateTime startedAt, DateTime now) {
+    return math.max(0, now.difference(startedAt).inSeconds);
   }
 
   List<GoveeSensorReading> _filterValidSyncedReadings(
@@ -536,12 +757,26 @@ class GoveeCaptureProvider extends ChangeNotifier {
       if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
         return false;
       }
-      if (reading.timestamp.isBefore(startedAt) ||
-          reading.timestamp.isAfter(endedAt)) {
+      if (!_readingOverlapsWindow(reading, startedAt, endedAt)) {
         return false;
       }
       return true;
     }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  bool _readingOverlapsWindow(
+    GoveeSensorReading reading,
+    DateTime startedAt,
+    DateTime endedAt,
+  ) {
+    final bucketStartedAt = reading.bucketStartedAt;
+    final bucketEndedAt = reading.bucketEndedAt;
+    if (bucketStartedAt == null || bucketEndedAt == null) {
+      return !reading.timestamp.isBefore(startedAt) &&
+          !reading.timestamp.isAfter(endedAt);
+    }
+    return bucketEndedAt.isAfter(startedAt) &&
+        !bucketStartedAt.isAfter(endedAt);
   }
 
   List<String> _buildSyncFailureDiagnostics({
@@ -564,6 +799,49 @@ class GoveeCaptureProvider extends ChangeNotifier {
     return [
       _syncContextLine(startedAt: startedAt, endedAt: endedAt),
       'Prepared $readingCount representative readings for local save.',
+    ];
+  }
+
+  List<String> _buildNoValidReadingsDiagnostics({
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required List<GoveeSensorReading> syncedReadings,
+  }) {
+    var missingValues = 0;
+    var invalidValues = 0;
+    var beforeValidWindow = 0;
+    var afterStop = 0;
+    for (final reading in syncedReadings) {
+      final temp = reading.temperatureFahrenheit;
+      final humidity = reading.humidity;
+      if (temp == null || humidity == null) {
+        missingValues += 1;
+      } else if (temp < -40 || temp > 160 || humidity < 0 || humidity > 100) {
+        invalidValues += 1;
+      } else if (!_readingOverlapsWindow(reading, startedAt, endedAt)) {
+        final bucketStartedAt = reading.bucketStartedAt ?? reading.timestamp;
+        final bucketEndedAt = reading.bucketEndedAt ?? reading.timestamp;
+        if (!bucketEndedAt.isAfter(startedAt)) {
+          beforeValidWindow += 1;
+        } else if (bucketStartedAt.isAfter(endedAt)) {
+          afterStop += 1;
+        }
+      }
+    }
+
+    final sorted = List<GoveeSensorReading>.from(syncedReadings)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final span = sorted.isEmpty
+        ? 'Synced timestamp span: none'
+        : 'Synced timestamp span: ${sorted.first.timestamp.toIso8601String()} to ${sorted.last.timestamp.toIso8601String()}';
+    final diagnostics = _goveeService.diagnostics;
+    final start = math.max(0, diagnostics.length - 6);
+    return [
+      _syncContextLine(startedAt: startedAt, endedAt: endedAt),
+      'Recording window: ${startedAt.toIso8601String()} to ${endedAt.toIso8601String()}',
+      'Synced readings: ${syncedReadings.length}; before valid window: $beforeValidWindow; after stop: $afterStop; missing Temp/RH: $missingValues; invalid values: $invalidValues.',
+      span,
+      ...diagnostics.sublist(start),
     ];
   }
 

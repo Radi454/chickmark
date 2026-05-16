@@ -85,127 +85,67 @@ Future<void> _createAuditSessionTables(Database db) async {
   );
 }
 
-Future<void> _createStationSamplesTable(Database db) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS sample_records (
-    id TEXT PRIMARY KEY,
-    auditSessionId TEXT NOT NULL,
-    legacyAuditId TEXT,
-    stationType TEXT NOT NULL,
-    sectorType TEXT NOT NULL DEFAULT 'station',
-    sampleKind TEXT NOT NULL DEFAULT 'pooled',
-    sampleMode TEXT NOT NULL DEFAULT 'pooled',
-    comparisonType TEXT,
-    sampleIndex INTEGER NOT NULL DEFAULT 1,
-    sampleLabel TEXT,
-    sampleType TEXT,
-    breakoutType TEXT,
-    groupKey TEXT,
-    groupLabel TEXT,
-    calculatedBmkAgeDays INTEGER,
-    benchmarkBreed TEXT,
-    benchmarkAgeDays INTEGER,
-    benchmarkSource TEXT,
-    benchmarkSnapshotJson TEXT,
-    resultSummaryJson TEXT,
-    notes TEXT,
-    createdAt TEXT NOT NULL,
-    updatedAt TEXT NOT NULL,
-    FOREIGN KEY (auditSessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (legacyAuditId) REFERENCES audits(id) ON DELETE CASCADE
-  )''');
-  await db.execute('''CREATE TABLE IF NOT EXISTS sample_house_details (
-    sampleRecordId TEXT PRIMARY KEY,
-    houseNo TEXT,
-    houseLabel TEXT,
-    FOREIGN KEY (sampleRecordId) REFERENCES sample_records(id) ON DELETE CASCADE
-  )''');
-  await db.execute('''CREATE TABLE IF NOT EXISTS sample_machine_details (
-    sampleRecordId TEXT PRIMARY KEY,
-    setterNo TEXT,
-    hatcherNo TEXT,
-    FOREIGN KEY (sampleRecordId) REFERENCES sample_records(id) ON DELETE CASCADE
-  )''');
-  await db.execute('''CREATE TABLE IF NOT EXISTS sample_batch_details (
-    sampleRecordId TEXT PRIMARY KEY,
-    batchNo TEXT,
-    hatchNo TEXT,
-    storageDays INTEGER,
-    incubationDay INTEGER,
-    FOREIGN KEY (sampleRecordId) REFERENCES sample_records(id) ON DELETE CASCADE
-  )''');
-  await db.execute('''CREATE TABLE IF NOT EXISTS sample_timing_details (
-    sampleRecordId TEXT PRIMARY KEY,
-    eggProductionDate TEXT,
-    settingDate TEXT,
-    hatchDate TEXT,
-    FOREIGN KEY (sampleRecordId) REFERENCES sample_records(id) ON DELETE CASCADE
-  )''');
-  await _createStationSamplesIndexes(db);
-}
-
-Future<void> _createStationSamplesIndexes(DatabaseExecutor db) async {
-  Set<String>? columns;
-  try {
-    columns = _columnNames(
-      await db.rawQuery("PRAGMA table_info('sample_records')"),
-    );
-  } catch (_) {
-    columns = null;
-  }
-  final hasColumns =
-      columns == null ||
-      columns.containsAll({'auditSessionId', 'stationType', 'sectorType'});
-  if (hasColumns) {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sample_records_session_station ON sample_records (auditSessionId, stationType, sectorType)',
-    );
-  }
-  if (columns == null || columns.containsAll({'auditSessionId', 'groupKey'})) {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sample_records_group ON sample_records (auditSessionId, groupKey)',
-    );
-  }
-  if (columns == null || columns.contains('legacyAuditId')) {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sample_records_legacy_audit ON sample_records (legacyAuditId)',
-    );
-  }
-  if (columns == null || columns.contains('calculatedBmkAgeDays')) {
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sample_records_bmk_age ON sample_records (calculatedBmkAgeDays)',
-    );
-  }
-}
-
 Future<void> _createPanelSampleSchemaTables(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
-    await _createPanelTable(db, panel.tableName);
-    await _createPanelSampleTable(db, panel.tableName, panel.sampleTableName);
+    await _createPanelTable(db, panel);
   }
 }
 
-Future<void> _createPanelTable(DatabaseExecutor db, String tableName) async {
+Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    final columns = _columnNames(
+      await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
+    );
+    for (final columnDefinition in panel.measurementColumns) {
+      final columnName = _columnNameFromDefinition(columnDefinition);
+      if (columns.contains(columnName)) continue;
+      await db.execute(
+        'ALTER TABLE ${panel.tableName} ADD COLUMN $columnDefinition',
+      );
+    }
+  }
+}
+
+String _columnNameFromDefinition(String definition) {
+  return definition.trim().split(RegExp(r'\s+')).first;
+}
+
+Future<void> _createPanelTable(
+  DatabaseExecutor db,
+  PanelSampleDefinition panel,
+) async {
+  final tableName = panel.tableName;
+  final extraColumns = panel.measurementColumns.isEmpty
+      ? ''
+      : ',\n    ${panel.measurementColumns.join(',\n    ')}';
   await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
     id TEXT PRIMARY KEY,
     sessionId TEXT NOT NULL,
-    auditId TEXT,
     customerId TEXT NOT NULL,
     flockId TEXT,
-    date TEXT NOT NULL,
     hatcheryId TEXT,
+    date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
     mode TEXT NOT NULL DEFAULT 'pool',
-    compareLayer TEXT,
+    scopeType TEXT NOT NULL DEFAULT 'pool',
+    scopeLabel TEXT NOT NULL DEFAULT 'Random',
+    sampleIndex INTEGER NOT NULL DEFAULT 0,
+    groupKey TEXT,
+    groupLabel TEXT,
     notes TEXT,
-    metricsJson TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    lastSyncedAt TEXT,
+    syncError TEXT$extraColumns,
     FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (auditId) REFERENCES audits(id) ON DELETE SET NULL,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
-    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE,
+    CHECK (mode IN ('pool', 'comparison')),
+    CHECK (scopeType IN ('pool', 'house', 'setter', 'hatcher', 'setter_hatcher', 'trolley', 'tray', 'batch'))
   )''');
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_session ON $tableName (sessionId)',
@@ -213,44 +153,11 @@ Future<void> _createPanelTable(DatabaseExecutor db, String tableName) async {
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
   );
-}
-
-Future<void> _createPanelSampleTable(
-  DatabaseExecutor db,
-  String panelTableName,
-  String sampleTableName,
-) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS $sampleTableName (
-    id TEXT PRIMARY KEY,
-    panelId TEXT NOT NULL,
-    scopeType TEXT NOT NULL,
-    scopeLabel TEXT NOT NULL,
-    sampleIndex INTEGER NOT NULL DEFAULT 0,
-    houseId TEXT,
-    houseName TEXT,
-    setterId TEXT,
-    hatcherId TEXT,
-    trolleyId TEXT,
-    trolleyLabel TEXT,
-    trayId TEXT,
-    trayLabel TEXT,
-    position TEXT,
-    sampleSize INTEGER,
-    metricType TEXT,
-    value REAL,
-    unit TEXT,
-    summaryJson TEXT,
-    rawJson TEXT,
-    notes TEXT,
-    createdAt TEXT NOT NULL,
-    updatedAt TEXT NOT NULL,
-    FOREIGN KEY (panelId) REFERENCES $panelTableName(id) ON DELETE CASCADE
-  )''');
   await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${sampleTableName}_panel ON $sampleTableName (panelId)',
+    'CREATE INDEX IF NOT EXISTS idx_${tableName}_mode ON $tableName (sessionId, mode)',
   );
   await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${sampleTableName}_scope ON $sampleTableName (scopeType, scopeLabel)',
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName (sessionId, mode, scopeType, scopeLabel, sampleIndex, IFNULL(groupKey, ''))",
   );
 }
 
@@ -269,21 +176,6 @@ Future<void> _createSyncTombstoneTable(DatabaseExecutor db) async {
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_sync_tombstones_target ON sync_tombstones (tableName, rowId)',
-  );
-}
-
-Future<void> _createLegacyStationSamplesIndexes(DatabaseExecutor db) async {
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_station_samples_session_station ON station_samples (auditSessionId, stationType)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_station_samples_group ON station_samples (auditSessionId, groupKey)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_station_samples_legacy_audit ON station_samples (legacyAuditId)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_station_samples_bmk_age ON station_samples (calculatedBmkAgeDays)',
   );
 }
 
@@ -335,28 +227,7 @@ Future<void> _createGoveeCaptureTables(Database db) async {
 
 Future<void> _createOperationalIndexes(Database db) async {
   await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_customer ON audits (customerId)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_flock ON audits (flockId)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_date ON audits (date DESC)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_type ON audits (auditType)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_customer_type ON audits (customerId, auditType)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_customer_date ON audits (customerId, date DESC)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_audits_session ON audits (sessionId)',
-  );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_photos_audit ON photos (auditId)',
+    'CREATE INDEX IF NOT EXISTS idx_photos_panel ON photos (sessionId, panelName, panelRowId)',
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_flocks_customer ON flocks (customerId, status)',

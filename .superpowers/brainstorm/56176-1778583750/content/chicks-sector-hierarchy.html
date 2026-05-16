@@ -1,0 +1,87 @@
+<h2>Chicks Sampling Model</h2>
+<p class="subtitle">Default is always Pool / Random. Compare is optional per sector.</p>
+
+<div class="section">
+  <div class="label">Core split</div>
+  <div class="mockup">
+    <div class="mockup-header">Farm-related vs hatchery-condition sectors</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="placeholder" style="text-align:left;min-height:170px">
+          <h3>Farm / flock performance</h3>
+          <p><strong>Chick Weights & Uniformity</strong></p>
+          <p>Flock context always saved.</p>
+          <p>Pool = Random. Compare = House.</p>
+          <p>Raw weights JSON + avg, CV, uniformity, min, max.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:170px">
+          <h3>Hatchery / machine condition</h3>
+          <p><strong>PASGAR, YFBM, CVT, PM Necropsy</strong></p>
+          <p>Pool = Random machine flow.</p>
+          <p>Compare = Setter+Hatcher pair where relevant.</p>
+          <p>Summary count/percent fields stay as columns.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Sector draft</div>
+  <div class="mockup">
+    <div class="mockup-header">Valid comparison layers per Chicks sector</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+        <div class="placeholder" style="text-align:left;min-height:220px">
+          <h3>PASGAR</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Compare:</strong> Setter+Hatcher</p>
+          <p>Machine pair is required when comparing.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:220px">
+          <h3>Weights</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Compare:</strong> House</p>
+          <p>House-related, like egg weights.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:220px">
+          <h3>YFBM</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Compare:</strong> Setter+Hatcher</p>
+          <p>Hatchery-condition sector.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:220px">
+          <h3>CVT</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Compare:</strong> Setter+Hatcher</p>
+          <p>Hatchery-condition sector.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:220px">
+          <h3>PM</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Compare:</strong> Setter+Hatcher</p>
+          <p>Could also support collection point as metadata.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Storage draft</div>
+  <div class="mockup">
+    <div class="mockup-header">Panel table rows are dashboard-ready</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="placeholder" style="text-align:left">
+          <h3>Pool mode</h3>
+          <p>Each sector saves one row with <code>scopeType = pool</code> and <code>scopeLabel = Random</code>.</p>
+        </div>
+        <div class="placeholder" style="text-align:left">
+          <h3>Compare mode</h3>
+          <p>Each sector saves one row per compared group: each house for weights, each setter+hatcher pair for hatchery-condition sectors.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

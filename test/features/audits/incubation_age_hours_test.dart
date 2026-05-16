@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -131,12 +134,113 @@ void main() {
     await tester.pump();
 
     expect(provider.sampleCount, 2);
-    expect(
-      provider.stationSampleMode,
-      StationSampleModel.sampleModeComparison,
-    );
+    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
     expect(find.text('S5'), findsOneWidget);
     expect(find.text('S2'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Setter machine fields default to multi and calculate total eggs',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final provider = await pumpSetterScreen(tester);
+
+        expect(provider.activeDraft.flockId, isNull);
+        expect(provider.activeDraft.soBreed, isNull);
+        expect(find.text('Breed from flock'), findsNothing);
+        expect(find.text('Setter type'), findsOneWidget);
+        expect(find.byKey(const ValueKey('setter-type-multi')), findsOneWidget);
+        expect(provider.activeDraft.soMachineType, 'Multi');
+        expect(
+          tester.getTopLeft(find.text('Setter settings')).dy,
+          lessThan(tester.getTopLeft(find.text('EST sample 1')).dy),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey('setter-batch-count-field')),
+          '3',
+        );
+        await tester.pump();
+
+        expect(find.text('Total set eggs: 57600'), findsOneWidget);
+        expect(provider.activeDraft.soBatchSize, 19200);
+        expect(provider.activeDraft.soBatchCount, 3);
+        expect(provider.activeDraft.soTotalEggsSet, 57600);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets('Setter controls use clean selectors and inline media actions', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpSetterScreen(tester);
+
+      final setterTab = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'S5'),
+      );
+      expect(setterTab.showCheckmark, isFalse);
+
+      final multiType = tester.widget<ChoiceChip>(
+        find.byKey(const ValueKey('setter-type-multi')),
+      );
+      expect(multiType.showCheckmark, isFalse);
+
+      expect(find.text('Allowed 99.5-102°F'), findsNothing);
+      expect(find.text('Optimum 100-101°F'), findsNothing);
+
+      final co2Field = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'CO2 Level (ppm)',
+      );
+      final co2PhotoButton = find.byKey(
+        const ValueKey('setter-co2-photo-button'),
+      );
+      expect(co2Field, findsOneWidget);
+      expect(co2PhotoButton, findsOneWidget);
+      expect(
+        (tester.getCenter(co2Field).dy - tester.getCenter(co2PhotoButton).dy)
+            .abs(),
+        lessThan(2),
+      );
+
+      final frontTopField = find.byKey(
+        const ValueKey('est-grid-input-front_top'),
+      );
+      await tester.ensureVisible(frontTopField);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(frontTopField, '100');
+      await tester.enterText(
+        find.byKey(const ValueKey('est-grid-input-middle_top')),
+        '102',
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('AVG'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('AVG'), findsOneWidget);
+      expect(provider.activeDraft.soEstAvg, closeTo(101.0, 0.01));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Hatcher machine draft clears flock-scoped identity', (
+    tester,
+  ) async {
+    final provider = await pumpHatcherScreen(tester);
+
+    expect(provider.activeDraft.flockId, isNull);
+    expect(provider.activeDraft.hoBreed, isNull);
+    expect(find.text('Breed from flock'), findsNothing);
   });
 
   testWidgets('Hatcher screen uses setter-style hatcher hierarchy', (
@@ -152,6 +256,8 @@ void main() {
     expect(find.text('Add hatcher'), findsOneWidget);
     expect(find.text('Add sample'), findsNothing);
     expect(find.text('Guided CVT capture'), findsOneWidget);
+    expect(find.text('CVT BMK 103-105°F'), findsNothing);
+    expect(find.text('Chick vent temp.'), findsNothing);
     expect(find.text('Hatcher type'), findsNothing);
     expect(find.text('Turning Angle (°)'), findsNothing);
     expect(find.text('Transfer Day'), findsNothing);
@@ -168,6 +274,23 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Guided CVT capture')).dy),
     );
 
+    final co2Field = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'CO2 Level (ppm)',
+    );
+    await tester.ensureVisible(co2Field);
+    await tester.pumpAndSettle();
+
+    final co2FieldCenterY = tester.getCenter(co2Field).dy;
+    final inlineCameraIcons = find.byIcon(Icons.camera_alt).evaluate().where((
+      element,
+    ) {
+      final iconFinder = find.byWidget(element.widget);
+      return (tester.getCenter(iconFinder).dy - co2FieldCenterY).abs() < 2;
+    }).toList();
+    expect(inlineCameraIcons, hasLength(1));
+
     await tester.ensureVisible(
       find.byKey(const ValueKey('hatcher-add-sample-button')),
     );
@@ -176,12 +299,60 @@ void main() {
     await tester.pump();
 
     expect(provider.sampleCount, 2);
-    expect(
-      provider.stationSampleMode,
-      StationSampleModel.sampleModeComparison,
-    );
+    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
     expect(find.text('H01'), findsOneWidget);
     expect(find.text('H2'), findsOneWidget);
+  });
+
+  testWidgets('Hatcher meconium assessment includes a photo action', (
+    tester,
+  ) async {
+    await pumpHatcherScreen(tester);
+
+    await tester.ensureVisible(find.text('Meconium Assessment'));
+    await tester.pumpAndSettle();
+
+    final meconiumCard = find.byKey(const ValueKey('hatcher-meconium-card'));
+    expect(meconiumCard, findsOneWidget);
+    expect(
+      find.descendant(
+        of: meconiumCard,
+        matching: find.byKey(const ValueKey('hatcher-meconium-photo-button')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: meconiumCard,
+        matching: find.byIcon(Icons.camera_alt),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Multi setter adds independent age breed EST samples', (
+    tester,
+  ) async {
+    final provider = await pumpSetterScreen(tester);
+
+    expect(find.text('EST sample 1'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('setter-est-sample-add-button')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('setter-est-sample-add-button')),
+    );
+    await tester.pump();
+
+    expect(find.text('EST sample 2'), findsWidgets);
+    final samples =
+        jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
+    expect(samples, hasLength(2));
+    expect(samples.last['breed'], 'Ross308');
+    expect(samples.last['incubationAge'], 1);
+    expect(samples.last['incubationHours'], 0);
   });
 
   testWidgets('Hatchers do not show sample mode controls', (tester) async {

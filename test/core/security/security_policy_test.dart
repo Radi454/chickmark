@@ -3,27 +3,38 @@ import 'package:hatchaudit/core/security/security_policy.dart';
 
 void main() {
   group('AuthSecurityPolicy', () {
-    test('blocks debug auth bypass outside debug builds', () {
+    test('blocks debug auth bypass in release builds', () {
       expect(
         AuthSecurityPolicy.allowsDebugAuthBypass(
-          isDebugMode: false,
+          isNonReleaseMode: false,
           explicitFlag: true,
         ),
         isFalse,
       );
     });
 
-    test('requires an explicit compile-time flag for debug auth bypass', () {
+    test('allows debug auth bypass on localhost previews', () {
       expect(
         AuthSecurityPolicy.allowsDebugAuthBypass(
-          isDebugMode: true,
+          isNonReleaseMode: false,
+          isLocalPreviewHost: true,
+          explicitFlag: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('honors the debug auth bypass flag in non-release builds', () {
+      expect(
+        AuthSecurityPolicy.allowsDebugAuthBypass(
+          isNonReleaseMode: true,
           explicitFlag: false,
         ),
         isFalse,
       );
       expect(
         AuthSecurityPolicy.allowsDebugAuthBypass(
-          isDebugMode: true,
+          isNonReleaseMode: true,
           explicitFlag: true,
         ),
         isTrue,

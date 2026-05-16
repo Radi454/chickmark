@@ -6,6 +6,7 @@ import '../../../../core/constants/app_thresholds.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/calculation_utils.dart';
 import '../../../../data/models/audit_model.dart';
+import '../audit_keyboard_dismiss.dart';
 import '../audit_numeric_keyboard.dart';
 import '../photo_button.dart';
 
@@ -136,43 +137,40 @@ class _YfbmTabState extends State<YfbmTab> {
           builder: (sheetContext, setSheetState) {
             void refreshSheet() => setSheetState(() {});
 
-            return AuditNumericKeyboardScope(
-              child: Padding(
-                key: const ValueKey('yfbm-entries-sheet'),
-                padding: EdgeInsets.only(
-                  left: AppSizes.cardPadding,
-                  right: AppSizes.cardPadding,
-                  top: AppSizes.cardPadding,
-                  bottom:
-                      MediaQuery.viewInsetsOf(sheetContext).bottom +
-                      AppSizes.cardPadding,
-                ),
-                child: SizedBox(
-                  height: MediaQuery.sizeOf(sheetContext).height * 0.86,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'YFBM Entries',
-                              style: AppTextStyles.heading.copyWith(
-                                fontSize: 24,
+            return AuditKeyboardDismiss(
+              child: AuditNumericKeyboardScope(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                  ),
+                  child: DraggableScrollableSheet(
+                    expand: false,
+                    initialChildSize: 0.9,
+                    minChildSize: 0.56,
+                    maxChildSize: 0.96,
+                    builder: (context, scrollController) {
+                      return Container(
+                        key: const ValueKey('yfbm-entries-sheet'),
+                        clipBehavior: Clip.antiAlias,
+                        decoration: const BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(22),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            _buildSheetHeader(sheetContext, refreshSheet),
+                            Expanded(
+                              child: _buildEntriesList(
+                                scrollController,
+                                refreshSheet,
                               ),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: 'Close',
-                            onPressed: () => Navigator.pop(sheetContext),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Expanded(child: _buildEntriesTable(refreshSheet)),
-                    ],
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -305,94 +303,407 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _buildEntriesTable(VoidCallback refreshSheet) {
-    return SingleChildScrollView(
+  Widget _buildSheetHeader(
+    BuildContext sheetContext,
+    VoidCallback refreshSheet,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderDefault,
+                borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (!widget.isReadOnly)
-                ElevatedButton.icon(
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'YFBM Entries',
+                      style: AppTextStyles.heading.copyWith(fontSize: 22),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_completedRows()} of ${_entries.length} rows complete',
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!widget.isReadOnly) ...[
+                FilledButton.icon(
                   onPressed: () {
                     _addEntry();
                     refreshSheet();
                   },
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add Row'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                  ),
+                  label: const Text('Add row'),
                 ),
+                const SizedBox(width: 4),
+              ],
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.pop(sheetContext),
+                icon: const Icon(Icons.close),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          Table(
-            border: TableBorder.all(color: Colors.grey[300]!, width: 1),
-            columnWidths: const {
-              0: FixedColumnWidth(40),
-              1: FlexColumnWidth(),
-              2: FlexColumnWidth(),
-              3: FixedColumnWidth(80),
-              4: FixedColumnWidth(50),
-            },
-            children: [
-              TableRow(
-                decoration: BoxDecoration(color: Colors.grey[100]),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 520;
+              final pills = [
+                _summaryPill(
+                  icon: Icons.check_circle_outline,
+                  label: '${_completedRows()}/${_entries.length}',
+                  value: 'Rows',
+                  color: AppColors.primary,
+                ),
+                _summaryPill(
+                  icon: Icons.track_changes_outlined,
+                  label: _avgPercentController.text.isEmpty
+                      ? '--'
+                      : '${_avgPercentController.text}%',
+                  value: 'Average',
+                  color: _metricColor(_avgPercentController.text, true),
+                ),
+                _summaryPill(
+                  icon: Icons.show_chart,
+                  label: _cvPercentController.text.isEmpty
+                      ? '--'
+                      : '${_cvPercentController.text}%',
+                  value: 'CV',
+                  color: _metricColor(_cvPercentController.text, false),
+                ),
+                _summaryPill(
+                  icon: Icons.flag_outlined,
+                  label: _targetLabel,
+                  value: 'Range',
+                  color: AppColors.textSecondary,
+                ),
+              ];
+
+              if (compact) {
+                return Wrap(spacing: 8, runSpacing: 8, children: pills);
+              }
+
+              return Row(
                 children: [
-                  _cell('#', isHeader: true),
-                  _cell('Chick (g)', isHeader: true),
-                  _cell('Yolk (g)', isHeader: true),
-                  _cell('%', isHeader: true),
-                  _cell('', isHeader: true),
-                ],
-              ),
-              ...List.generate(_entries.length, (index) {
-                final entry = _entries[index];
-                final pct = CalculationUtils.percentOf(
-                  entry.yolkWeight,
-                  entry.chickWeight,
-                );
-                final isGood =
-                    pct != null &&
-                    pct >= AppThresholds.yfbmMin &&
-                    pct <= AppThresholds.yfbmMax;
-                return TableRow(
-                  children: [
-                    _cell('${index + 1}'),
-                    _weightCell(
-                      entry.chickController,
-                      (v) {
-                        _updateEntry(index, 'chickWeight', v);
-                        refreshSheet();
-                      },
-                      row: index,
-                      column: 0,
-                    ),
-                    _weightCell(
-                      entry.yolkController,
-                      (v) {
-                        _updateEntry(index, 'yolkWeight', v);
-                        refreshSheet();
-                      },
-                      row: index,
-                      column: 1,
-                    ),
-                    _cell(
-                      pct?.toStringAsFixed(1) ?? '--',
-                      textColor: isGood ? AppColors.greenTab : Colors.red,
-                    ),
-                    widget.isReadOnly
-                        ? _cell('')
-                        : _deleteCell(index, refreshSheet),
+                  for (var i = 0; i < pills.length; i++) ...[
+                    Expanded(child: pills[i]),
+                    if (i != pills.length - 1) const SizedBox(width: 8),
                   ],
-                );
-              }),
-            ],
+                ],
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEntriesList(
+    ScrollController? scrollController,
+    VoidCallback refreshSheet,
+  ) {
+    return ListView.separated(
+      controller: scrollController,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+      itemCount: _entries.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final entry = _entries[index];
+        final pct = CalculationUtils.percentOf(
+          entry.yolkWeight,
+          entry.chickWeight,
+        );
+        return _entryCard(index, entry, pct, refreshSheet);
+      },
+    );
+  }
+
+  Widget _entryCard(
+    int index,
+    _EntryData entry,
+    double? pct,
+    VoidCallback refreshSheet,
+  ) {
+    final pctColor = _percentageColor(pct);
+    final complete = entry.chickWeight != null && entry.yolkWeight != null;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: complete ? AppColors.surfaceRaised : AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: complete
+              ? pctColor.withValues(alpha: 0.45)
+              : AppColors.borderDefault,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 560;
+            final rowNumber = _rowNumber(index);
+            final fields = [
+              _fieldBlock(
+                label: 'Chick',
+                controller: entry.chickController,
+                suffix: 'g',
+                onChanged: (v) {
+                  _updateEntry(index, 'chickWeight', v);
+                  refreshSheet();
+                },
+                row: index,
+                column: 0,
+              ),
+              _fieldBlock(
+                label: 'Yolk',
+                controller: entry.yolkController,
+                suffix: 'g',
+                onChanged: (v) {
+                  _updateEntry(index, 'yolkWeight', v);
+                  refreshSheet();
+                },
+                row: index,
+                column: 1,
+              ),
+            ];
+            final result = _percentagePill(pct, pctColor);
+            final deleteButton = widget.isReadOnly
+                ? const SizedBox.shrink()
+                : _deleteButton(index, refreshSheet);
+
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      rowNumber,
+                      const SizedBox(width: 10),
+                      Expanded(child: result),
+                      deleteButton,
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: fields[0]),
+                      const SizedBox(width: 8),
+                      Expanded(child: fields[1]),
+                    ],
+                  ),
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                rowNumber,
+                const SizedBox(width: 12),
+                Expanded(child: fields[0]),
+                const SizedBox(width: 10),
+                Expanded(child: fields[1]),
+                const SizedBox(width: 10),
+                SizedBox(width: 104, child: result),
+                deleteButton,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryPill({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.body.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rowNumber(int index) {
+    return Container(
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Text(
+        '${index + 1}',
+        style: AppTextStyles.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _fieldBlock({
+    required String label,
+    required TextEditingController controller,
+    required String suffix,
+    required Function(double?) onChanged,
+    required int row,
+    required int column,
+  }) {
+    return AuditNumericField(
+      key: ValueKey(
+        column == 0 ? 'yfbm-entry-chick-$row' : 'yfbm-entry-yolk-$row',
+      ),
+      enabled: !widget.isReadOnly,
+      controller: controller,
+      allowDecimal: true,
+      maxDecimalPlaces: 1,
+      navigationGroup: _tableNavigationGroup,
+      navigationRow: row,
+      navigationColumn: column,
+      textAlign: TextAlign.center,
+      style: AppTextStyles.title.copyWith(fontWeight: FontWeight.w800),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: suffix,
+        filled: true,
+        fillColor: AppColors.surface,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.borderDefault),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: AppColors.borderFocused,
+            width: 2,
+          ),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.borderDefault),
+        ),
+      ),
+      onChanged: (v) => onChanged(double.tryParse(v)),
+    );
+  }
+
+  Widget _percentagePill(double? pct, Color color) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            pct == null ? '--' : '${pct.toStringAsFixed(1)}%',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.title.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'YFBM %',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _deleteButton(int index, VoidCallback refreshSheet) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: IconButton(
+        tooltip: 'Delete row',
+        icon: const Icon(Icons.delete_outline, size: 20),
+        color: AppColors.statusError,
+        style: IconButton.styleFrom(
+          backgroundColor: AppColors.statusErrorBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onPressed: () {
+          _removeEntry(index);
+          refreshSheet();
+        },
       ),
     );
   }
@@ -440,59 +751,28 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _cell(String text, {bool isHeader = false, Color? textColor}) {
-    return Padding(
-      padding: const EdgeInsets.all(8),
-      child: Text(
-        text,
-        style: AppTextStyles.body.copyWith(
-          fontWeight: isHeader ? FontWeight.w600 : null,
-          color: textColor,
-        ),
-        textAlign: TextAlign.center,
-      ),
-    );
+  int _completedRows() => _entries
+      .where((entry) => entry.chickWeight != null && entry.yolkWeight != null)
+      .length;
+
+  String get _targetLabel =>
+      'Target ${AppThresholds.yfbmMin.toStringAsFixed(0)}-'
+      '${AppThresholds.yfbmMax.toStringAsFixed(0)}%';
+
+  Color _metricColor(String text, bool average) {
+    final value = double.tryParse(text);
+    if (value == null) return AppColors.textSecondary;
+    if (average) return _percentageColor(value);
+    return value <= AppThresholds.cvAlertPct
+        ? AppColors.statusGood
+        : AppColors.statusError;
   }
 
-  Widget _weightCell(
-    TextEditingController controller,
-    Function(double?) onChanged, {
-    required int row,
-    required int column,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.all(4),
-      child: AuditNumericField(
-        key: ValueKey(
-          column == 0 ? 'yfbm-entry-chick-$row' : 'yfbm-entry-yolk-$row',
-        ),
-        enabled: !widget.isReadOnly,
-        controller: controller,
-        allowDecimal: true,
-        maxDecimalPlaces: 1,
-        navigationGroup: _tableNavigationGroup,
-        navigationRow: row,
-        navigationColumn: column,
-        textAlign: TextAlign.center,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
-        ),
-        onChanged: (v) => onChanged(double.tryParse(v)),
-      ),
-    );
-  }
-
-  Widget _deleteCell(int index, VoidCallback refreshSheet) {
-    return IconButton(
-      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-      onPressed: () {
-        _removeEntry(index);
-        refreshSheet();
-      },
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(),
-    );
+  Color _percentageColor(double? pct) {
+    if (pct == null) return AppColors.textSecondary;
+    return pct >= AppThresholds.yfbmMin && pct <= AppThresholds.yfbmMax
+        ? AppColors.statusGood
+        : AppColors.statusError;
   }
 
   @override

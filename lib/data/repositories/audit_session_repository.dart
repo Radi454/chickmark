@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import '../models/audit_session_model.dart';
+import '../models/panel_sample_schema.dart';
 import 'sync_tombstone_repository.dart';
 
 class AuditSessionRepository {
@@ -35,73 +36,40 @@ class AuditSessionRepository {
   Future<void> deleteSession(String id) async {
     final db = await _dbHelper.db;
     await db.transaction<void>((txn) async {
-      final sampleRows = await txn.query(
-        'sample_records',
-        columns: ['id'],
-        where: 'auditSessionId = ?',
-        whereArgs: [id],
-      );
-      final sampleIds = sampleRows
-          .map((row) => row['id']?.toString())
-          .whereType<String>()
-          .toList();
-      for (final detailTable in const [
-        'sample_house_details',
-        'sample_machine_details',
-        'sample_batch_details',
-        'sample_timing_details',
-      ]) {
+      for (final panel in PanelSampleSchema.panels) {
+        final rows = await txn.query(
+          panel.tableName,
+          columns: ['id'],
+          where: 'sessionId = ?',
+          whereArgs: [id],
+        );
         await SyncTombstoneRepository.queueDeletesWithExecutor(
           txn,
-          detailTable,
-          sampleIds,
+          panel.tableName,
+          rows.map((row) => row['id']),
+        );
+        await txn.delete(
+          panel.tableName,
+          where: 'sessionId = ?',
+          whereArgs: [id],
         );
       }
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
-        txn,
-        'sample_records',
-        sampleIds,
-      );
-
-      final auditRows = await txn.query(
-        'audits',
+      final photoRows = await txn.query(
+        'photos',
         columns: ['id'],
         where: 'sessionId = ?',
         whereArgs: [id],
       );
-      final auditIds = auditRows
-          .map((row) => row['id']?.toString())
-          .whereType<String>()
-          .toList();
-      if (auditIds.isNotEmpty) {
-        final placeholders = List.filled(auditIds.length, '?').join(',');
-        final photoRows = await txn.query(
-          'photos',
-          columns: ['id'],
-          where: 'auditId IN ($placeholders)',
-          whereArgs: auditIds,
-        );
-        await SyncTombstoneRepository.queueDeletesWithExecutor(
-          txn,
-          'photos',
-          photoRows.map((row) => row['id']),
-        );
-        await SyncTombstoneRepository.queueDeletesWithExecutor(
-          txn,
-          'audits',
-          auditIds,
-        );
-      }
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'photos',
+        photoRows.map((row) => row['id']),
+      );
+      await txn.delete('photos', where: 'sessionId = ?', whereArgs: [id]);
       await SyncTombstoneRepository.queueDeleteWithExecutor(
         txn,
         'audit_sessions',
         id,
-      );
-      await txn.update(
-        'audits',
-        {'sessionId': null},
-        where: 'sessionId = ?',
-        whereArgs: [id],
       );
       await txn.delete('audit_sessions', where: 'id = ?', whereArgs: [id]);
     });

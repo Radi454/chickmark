@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/panel_sample_schema.dart';
-import '../models/station_sample_model.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
 import 'seeds/dummy_data_seeds.dart';
 import 'seeds/troubleshooting_seeds.dart';
@@ -21,16 +20,48 @@ class DatabaseHelper {
 
   Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(
-      await _databasePath(),
-      version: 34,
+    final dbPath = await _databasePath();
+    _db = await _openDatabaseWithRecovery(dbPath);
+    return _db!;
+  }
+
+  Future<Database> _openDatabaseWithRecovery(String dbPath) async {
+    try {
+      return await _openAppDatabase(dbPath);
+    } catch (error) {
+      if (!_shouldRecreateLocalDatabase(error)) rethrow;
+      await deleteDatabase(dbPath);
+      return _openAppDatabase(dbPath);
+    }
+  }
+
+  Future<Database> _openAppDatabase(String dbPath) {
+    return openDatabase(
+      dbPath,
+      version: 39,
       onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
+        await db.execute('PRAGMA foreign_keys = OFF');
       },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: (db) async {
+        await _ensurePanelSampleSchemaColumns(db);
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
     );
-    return _db!;
+  }
+
+  bool _shouldRecreateLocalDatabase(Object error) {
+    if (kReleaseMode) return false;
+    if (error is DatabaseException) {
+      final resultCode = error.getResultCode();
+      if (resultCode == 11 || resultCode == 26) return true;
+    }
+
+    final message = error.toString().toLowerCase();
+    return message.contains('malformed database schema') ||
+        message.contains('database disk image is malformed') ||
+        message.contains('file is not a database');
   }
 
   Future<String> _databasePath() async {
@@ -78,239 +109,6 @@ class DatabaseHelper {
       soldAt TEXT,
       FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
     )''');
-    await db.execute('''CREATE TABLE audits (
-      id TEXT PRIMARY KEY,
-      customerId TEXT,
-      flockId TEXT,
-      auditType TEXT,
-      date TEXT,
-      hatchNumber INTEGER NOT NULL DEFAULT 1,
-      setterId TEXT,
-      hatcherId TEXT,
-      status TEXT,
-      createdBy TEXT,
-      createdAt TEXT,
-      updatedAt TEXT,
-      notes TEXT,
-      sessionId TEXT,
-      sampleMode TEXT NOT NULL DEFAULT 'pool',
-      compareGroupKey TEXT,
-      -- Chicks: CHA Environmental
-      chaCo2 REAL,
-      chaCo2Photo TEXT,
-      chaPm10 REAL,
-      chaPm10Photo TEXT,
-      chaPm25 REAL,
-      chaPm25Photo TEXT,
-      chaAirVelocitySpot1 REAL,
-      chaAirVelocitySpot1Photo TEXT,
-      chaAirVelocitySpot2 REAL,
-      chaAirVelocitySpot2Photo TEXT,
-      chaAirVelocitySpot3 REAL,
-      chaAirVelocitySpot3Photo TEXT,
-      chaAirInlet REAL,
-      chaAirInletPhoto TEXT,
-      chaAirOutlet REAL,
-      chaAirOutletPhoto TEXT,
-      chaNoiseLevel REAL,
-      chaNoiseLevelPhoto TEXT,
-      -- Chicks: Pasgar
-      pasgarSampleSize INTEGER,
-      pasgarReflexes INTEGER,
-      pasgarReflexesPhoto TEXT,
-      pasgarBeak INTEGER,
-      pasgarBeakPhoto TEXT,
-      pasgarNavel INTEGER,
-      pasgarNavelPhoto TEXT,
-      pasgarBelly INTEGER,
-      pasgarBellyPhoto TEXT,
-      pasgarLeg INTEGER,
-      pasgarLegPhoto TEXT,
-      pasgarFeatherDev INTEGER,
-      pasgarFeatherDevPhoto TEXT,
-      pasgarFinalScore REAL,
-      -- Chicks: Weights
-      chickStorageDays INTEGER,
-      chickSampleSize INTEGER,
-      chickWeights TEXT,
-      chickAvgWeight REAL,
-      chickUniformityPct REAL,
-      chickCvPct REAL,
-      chickBmkAge INTEGER,
-      chickBmkWeight REAL,
-      -- Chicks: YFBM
-      yfbmPhoto TEXT,
-      yfbmEntries TEXT,
-      yfbmAvgPct REAL,
-      yfbmCvPct REAL,
-      -- Chicks: CVT
-      cvtSampleSize INTEGER,
-      cvtTopBasket TEXT,
-      cvtTopTemp REAL,
-      cvtTopPhoto TEXT,
-      cvtMiddleBasket TEXT,
-      cvtMiddleTemp REAL,
-      cvtMiddlePhoto TEXT,
-      cvtBottomBasket TEXT,
-      cvtBottomTemp REAL,
-      cvtBottomPhoto TEXT,
-      cvtAvg REAL,
-      cvtCvPct REAL,
-      cvtReadingsJson TEXT,
-      cvtPhotosJson TEXT,
-      -- Hatch Analysis & Egg Breakouts: Hatch Results
-      haStorageDays INTEGER,
-      haTotalEggsSet INTEGER,
-      haHatched INTEGER,
-      haCulled INTEGER,
-      haDead INTEGER,
-      haHatchability REAL,
-      haFertility REAL,
-      haHof REAL,
-      haTrays TEXT,
-      haBmkAge INTEGER,
-      haPipped INTEGER,
-      haInfertileClear INTEGER,
-      haEarlyDead INTEGER,
-      haMidDead INTEGER,
-      haMidLateDead INTEGER,
-      haLateDead INTEGER,
-      haContaminatedExploders INTEGER,
-      haBenchmarkStatusesJson TEXT,
-      -- Hatch Analysis & Egg Breakouts: Egg Breakout
-      ebTraySize INTEGER,
-      ebBreakoutType TEXT,
-      ebBreakoutAgeDays INTEGER,
-      ebStorageDays INTEGER,
-      ebTrays TEXT,
-      ebTrayBreakoutJson TEXT,
-      ebBmkAge INTEGER,
-      ebInfertileCount INTEGER,
-      ebEarlyDeadCount INTEGER,
-      ebMidDeadCount INTEGER,
-      ebLateDeadCount INTEGER,
-      ebInternalPipCount INTEGER,
-      ebExternalPipCount INTEGER,
-      ebCrackedCount INTEGER,
-      ebContaminatedCount INTEGER,
-      ebMalpositionCount INTEGER,
-      ebExposedBrainCount INTEGER,
-      ebCrossedBeakCount INTEGER,
-      ebCulledDeadCount INTEGER,
-      -- Setters
-      soBreed TEXT,
-      soSetterId TEXT,
-      soIncubationAge INTEGER,
-      soIncubationHours INTEGER,
-      soCo2 REAL,
-      soCo2Photo TEXT,
-      soEstReadings TEXT,
-      soEstPhotos TEXT,
-      soEstAvg REAL,
-      soEstCv REAL,
-      -- Hatchers
-      hoBreed TEXT,
-      hoHatcherId TEXT,
-      hoIncubationAge INTEGER,
-      hoIncubationHours INTEGER,
-      hoCo2 REAL,
-      hoCo2Photo TEXT,
-      hoCvtReadings TEXT,
-      hoCvtPhotos TEXT,
-      hoCvtAvg REAL,
-      hoCvtCv REAL,
-      hoChickPanting INTEGER,
-      hoChickPantingPhoto TEXT,
-      ho_meconium TEXT,
-      ho_transferDay INTEGER,
-      -- Egg
-      esCo2 REAL,
-      esCo2Photo TEXT,
-      esShellTemp REAL,
-      esShellTempPhoto TEXT,
-      esTurningTimes INTEGER,
-      esUvTrays TEXT,
-      esEggStorageDays INTEGER,
-      esEggSampleSize INTEGER,
-      esEggWeights TEXT,
-      esEggAvgWeight REAL,
-      esEggUniformityPct REAL,
-      esEggCvPct REAL,
-      esEggBmkAge INTEGER,
-      esEggBmkWeight REAL,
-      es_estReadingsJson TEXT,
-      es_estPhotosJson TEXT,
-      es_estAvg REAL,
-      es_estCv REAL,
-      es_uvSampleSize INTEGER,
-      es_uvCuticleDamageCount INTEGER,
-      es_uvWashingEvidenceCount INTEGER,
-      es_uvFecalCount INTEGER,
-      es_uvMottledCount INTEGER,
-      es_uvOtherCount INTEGER,
-      es_uvPhotosJson TEXT,
-      es_crackPct REAL,
-      es_brokenPct REAL,
-      es_misshapedPct REAL,
-      es_paleShellPct REAL,
-      es_roughTexturePct REAL,
-      es_floorEggPct REAL,
-      es_eggColorDistJson TEXT,
-      es_eggOrientation TEXT,
-      es_traySpacing TEXT,
-      es_coolerProximity TEXT,
-      es_wallProximity TEXT,
-      es_condensation INTEGER,
-      pm_sampleSize INTEGER,
-      pm_collectionPoint TEXT,
-      pm_omphalitisCount INTEGER,
-      pm_omphalitisSeverity TEXT,
-      pm_gaseousCecaCount INTEGER,
-      pm_gaseousCecaSeverity TEXT,
-      pm_unabsorbedYolkCount INTEGER,
-      pm_unabsorbedYolkSeverity TEXT,
-      pm_perihepatitisCount INTEGER,
-      pm_perihepatitisSeverity TEXT,
-      pm_pericarditisCount INTEGER,
-      pm_pericarditisSeverity TEXT,
-      pm_airsacAcuteCount INTEGER,
-      pm_airsacAcuteSeverity TEXT,
-      pm_airsacChronicCount INTEGER,
-      pm_airsacChronicSeverity TEXT,
-      pm_pulmonaryGranulomaCount INTEGER,
-      pm_pulmonaryGranulomaSeverity TEXT,
-      pm_swollenJointsCount INTEGER,
-      pm_swollenJointsSeverity TEXT,
-      pm_stuntedOrgansCount INTEGER,
-      pm_stuntedOrgansSeverity TEXT,
-      pm_pulmonaryHemorrhageCount INTEGER,
-      pm_pulmonaryHemorrhageSeverity TEXT,
-      pm_gaspingPresent INTEGER,
-      pm_gaspingType TEXT,
-      pm_exposedBrainCount INTEGER,
-      pm_ectopicVisceraCount INTEGER,
-      pm_extraLegsCount INTEGER,
-      pm_crossedBeakCount INTEGER,
-      pm_absentEyeBothCount INTEGER,
-      pm_absentEyeOneCount INTEGER,
-      pm_smallEyeCount INTEGER,
-      pm_hydrocephalyCount INTEGER,
-      pm_starGazerCount INTEGER,
-      pm_curledToesCount INTEGER,
-      pm_shortLegsCount INTEGER,
-      pm_spinalDeformityCount INTEGER,
-      pm_cardiacAnomalyCount INTEGER,
-      pm_conjoinedCount INTEGER,
-      pm_otherDeformityCount INTEGER,
-      pm_otherDeformityText TEXT,
-      pm_suspectedCauseAuto TEXT,
-      pm_suspectedCauseManual TEXT,
-      pm_photosJson TEXT,
-      so_machineType TEXT,
-      so_turningAngle REAL,
-      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
-      FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
-    )''');
     await db.execute('''CREATE TABLE bmk_breeds (
       id TEXT PRIMARY KEY,
       breed TEXT NOT NULL,
@@ -336,9 +134,12 @@ class DatabaseHelper {
       filePath TEXT,
       description TEXT,
       createdAt TEXT,
-      auditId TEXT,
+      sessionId TEXT NOT NULL,
+      panelName TEXT NOT NULL,
+      panelRowId TEXT NOT NULL,
+      fieldKey TEXT NOT NULL,
       uploadStatus TEXT NOT NULL DEFAULT 'local',
-      FOREIGN KEY (auditId) REFERENCES audits(id) ON DELETE CASCADE
+      FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE
     )''');
     await db.execute('''CREATE TABLE activity_log (
       id TEXT PRIMARY KEY,
@@ -351,7 +152,6 @@ class DatabaseHelper {
     )''');
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
-    await _createStationSamplesTable(db);
     await _createPanelSampleSchemaTables(db);
     await _createSyncTombstoneTable(db);
     await _createGoveeCaptureTables(db);
@@ -380,235 +180,66 @@ class DatabaseHelper {
     await _backfillEggBreakoutAliases(db);
     await _seedTroubleshooting(db);
     await _ensureDummyTestData(db);
-    // Add UNIQUE constraint on audits
-    await db.execute(
-      'CREATE UNIQUE INDEX idx_audits_unique ON audits (customerId, flockId, date, auditType, hatchNumber, setterId, hatcherId)',
-    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute(
-        'ALTER TABLE audits ADD COLUMN hatchNumber INTEGER NOT NULL DEFAULT 1',
-      );
-      await db.execute('DROP INDEX IF EXISTS idx_audits_unique');
-      await db.execute(
-        'CREATE UNIQUE INDEX idx_audits_unique ON audits (customerId, flockId, date, auditType, hatchNumber, setterId, hatcherId)',
-      );
+    await _resetForPanelCutover(db, newVersion);
+  }
+
+  Future<void> _resetForPanelCutover(Database db, int newVersion) async {
+    await db.execute('PRAGMA foreign_keys = OFF');
+    const tables = [
+      'egg_storage',
+      'egg_storage_samples',
+      'egg_quality',
+      'egg_quality_samples',
+      'egg_weights',
+      'egg_weights_samples',
+      'chick_pasgar',
+      'chick_pasgar_samples',
+      'chick_weights',
+      'chick_weights_samples',
+      'chick_yfbm',
+      'chick_yfbm_samples',
+      'chick_cvt',
+      'chick_cvt_samples',
+      'chick_pm',
+      'chick_pm_samples',
+      'fresh_egg_breakout',
+      'fresh_egg_breakout_samples',
+      'candled_egg_breakout',
+      'candled_egg_breakout_samples',
+      'residue_breakout',
+      'residue_breakout_samples',
+      'setter_optimizing',
+      'setter_optimizing_samples',
+      'hatcher_optimizing',
+      'hatcher_optimizing_samples',
+      'sample_house_details',
+      'sample_machine_details',
+      'sample_batch_details',
+      'sample_timing_details',
+      'sample_records',
+      'station_samples',
+      'photos',
+      'govee_daily_captures',
+      'sync_tombstones',
+      'audits',
+      'audit_sessions',
+      'hatcheries',
+      'flocks',
+      'customers',
+      'users',
+      'activity_log',
+      'troubleshooting',
+      'bmk_egg_breakout',
+      'bmk_breeds',
+    ];
+    for (final table in tables) {
+      await db.execute('DROP TABLE IF EXISTS $table');
     }
-    if (oldVersion < 3) {
-      await db.execute('DROP TABLE IF EXISTS bmk_breeds');
-      await db.execute('''CREATE TABLE bmk_breeds (
-        id TEXT PRIMARY KEY,
-        breed TEXT NOT NULL,
-        ageWeek INTEGER NOT NULL,
-        hatchabilityPct REAL DEFAULT 0.0,
-        fertilityPct REAL DEFAULT 0.0,
-        hofPct REAL DEFAULT 0.0,
-        productionPct REAL DEFAULT 0.0,
-        eggWeightG REAL DEFAULT 0.0,
-        chickWeightG REAL DEFAULT 0.0
-      )''');
-      await db.execute('DROP TABLE IF EXISTS bmk_egg_breakout');
-      await _createCleanBmkEggBreakoutTable(db);
-      for (final seed in kBmkBreedSeeds) {
-        await db.insert('bmk_breeds', seed);
-      }
-      for (final seed in kBmkEggBreakoutSeeds) {
-        await db.insert('bmk_egg_breakout', _cleanBmkEggBreakoutSeed(seed));
-      }
-    }
-    if (oldVersion < 4) {
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'feathersPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'turnedPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'exposedBrainPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'crossedBeakPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'crackedPct',
-        'REAL DEFAULT 0.0',
-      );
-    }
-    if (oldVersion < 5) {
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'earlyDeadPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'midBlackEyePct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'internalPipPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _addColumnIfMissing(
-        db,
-        'bmk_egg_breakout',
-        'externalPipPct',
-        'REAL DEFAULT 0.0',
-      );
-      await _ensureCompleteBmkBreedSeedData(db);
-      await _backfillEggBreakoutAliases(db);
-    }
-    if (oldVersion < 6) {
-      await _addColumnIfMissing(db, 'audits', 'ebInfertileCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebEarlyDeadCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebMidDeadCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebLateDeadCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebInternalPipCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebExternalPipCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebCrackedCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebContaminatedCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebMalpositionCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebExposedBrainCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebCrossedBeakCount', 'INTEGER');
-      await _addColumnIfMissing(db, 'audits', 'ebCulledDeadCount', 'INTEGER');
-    }
-    if (oldVersion < 7) {
-      await _ensureUserAuthColumns(db);
-    }
-    if (oldVersion < 8) {
-      await _ensureDummyTestData(db);
-    }
-    if (oldVersion < 9) {
-      await _addColumnIfMissing(
-        db,
-        'flocks',
-        'isAgeEstimated',
-        'INTEGER NOT NULL DEFAULT 0',
-      );
-    }
-    if (oldVersion < 10) {
-      await _createHatcheryTables(db);
-    }
-    if (oldVersion < 11) {
-      await _addColumnIfMissing(
-        db,
-        'flocks',
-        'status',
-        "TEXT NOT NULL DEFAULT 'active'",
-      );
-      await _addColumnIfMissing(
-        db,
-        'flocks',
-        'depletionAgeWeeks',
-        'INTEGER NOT NULL DEFAULT 65',
-      );
-      await _addColumnIfMissing(db, 'flocks', 'soldAt', 'TEXT');
-    }
-    if (oldVersion < 12) {
-      await _addColumnIfMissing(
-        db,
-        'photos',
-        'uploadStatus',
-        "TEXT NOT NULL DEFAULT 'local'",
-      );
-      await db.execute("UPDATE photos SET uploadStatus = 'synced'");
-      await _seedTroubleshooting(db);
-    }
-    if (oldVersion < 13) {
-      await _createOperationalIndexes(db);
-    }
-    if (oldVersion < 14) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS activity_log (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        action TEXT NOT NULL,
-        entityType TEXT,
-        entityId TEXT,
-        details TEXT,
-        timestamp TEXT NOT NULL
-      )''');
-      await _createActivityLogIndexes(db);
-    }
-    if (oldVersion < 15) {
-      await _applyV15Upgrade(db);
-    }
-    if (oldVersion < 16) {
-      await _applyV16Upgrade(db);
-    }
-    if (oldVersion < 17) {
-      await _applyV17Upgrade(db);
-    }
-    if (oldVersion < 18) {
-      await _applyV18Upgrade(db);
-    }
-    if (oldVersion < 19) {
-      await _applyV19Upgrade(db);
-    }
-    if (oldVersion < 20) {
-      await _applyV20Upgrade(db);
-    }
-    if (oldVersion < 21) {
-      await _applyV21Upgrade(db);
-    }
-    if (oldVersion < 22) {
-      await _applyV22Upgrade(db);
-    }
-    if (oldVersion < 23) {
-      await _applyV23Upgrade(db);
-    }
-    if (oldVersion < 24) {
-      await _applyV24Upgrade(db);
-    }
-    if (oldVersion < 25) {
-      await _applyV25Upgrade(db);
-    }
-    if (oldVersion < 26) {
-      await _applyV26Upgrade(db);
-    }
-    if (oldVersion < 27) {
-      await _applyV27Upgrade(db);
-    }
-    if (oldVersion < 28) {
-      await _applyV28Upgrade(db);
-    }
-    if (oldVersion < 29) {
-      await _applyV29Upgrade(db);
-    }
-    if (oldVersion < 30) {
-      await _applyV30Upgrade(db);
-    }
-    if (oldVersion < 31) {
-      await _applyV31Upgrade(db);
-    }
-    if (oldVersion < 32) {
-      await _applyV32Upgrade(db);
-    }
-    if (oldVersion < 33) {
-      await _applyV33Upgrade(db);
-    }
-    if (oldVersion < 34) {
-      await _applyV34Upgrade(db);
-    }
+    await db.execute('PRAGMA foreign_keys = ON');
+    await _onCreate(db, newVersion);
   }
 
   @visibleForTesting
@@ -661,6 +292,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV34UpgradeForTest(Database db) => _applyV34Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV35UpgradeForTest(Database db) => _applyV35Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

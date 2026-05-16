@@ -11,7 +11,6 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../core/utils/temp_converter.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
-import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
@@ -62,6 +61,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final Map<String, String?> _photos = {
     for (final key in EstGridData.scanKeys) key: null,
   };
+  final Map<String, String?> _meconiumPhotos = {};
   final GlobalKey<InlineCameraCaptureState> _cvtCameraKey = GlobalKey();
   final TextEditingController _avgController = TextEditingController();
   final TextEditingController _cvController = TextEditingController();
@@ -70,7 +70,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
-  final AuditRepository _auditRepository = AuditRepository();
   final TextEditingController _incubationAgeController = TextEditingController(
     text: '18',
   );
@@ -373,15 +372,41 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                       borderRadius: BorderRadius.circular(AppSizes.cardRadius),
                     ),
                     child: Padding(
+                      key: const ValueKey('hatcher-meconium-card'),
                       padding: const EdgeInsets.all(AppSizes.cardPadding),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Meconium Assessment',
-                            style: AppTextStyles.body.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Meconium Assessment',
+                                  style: AppTextStyles.body.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              PhotoButton(
+                                key: const ValueKey(
+                                  'hatcher-meconium-photo-button',
+                                ),
+                                photoPath:
+                                    _meconiumPhotos[auditProvider
+                                        .activeDraft
+                                        .id],
+                                enabled: !auditProvider.isReadOnly,
+                                panelName: 'hatcher_optimizing',
+                                panelRowId:
+                                    '${audit.sessionId}:hatcher_optimizing:${audit.id}',
+                                fieldKey: 'meconium_photo',
+                                onPhotoCaptured: (path) {
+                                  setState(() {
+                                    _meconiumPhotos[audit.id] = path;
+                                  });
+                                },
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Wrap(
@@ -614,19 +639,22 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppSizes.cardPadding),
-        child: Column(
+        child: Row(
           children: [
-            TextField(
-              enabled: !provider.isReadOnly,
-              decoration: const InputDecoration(
-                labelText: 'CO2 Level (ppm)',
-                border: OutlineInputBorder(),
+            Expanded(
+              child: TextField(
+                enabled: !provider.isReadOnly,
+                decoration: const InputDecoration(
+                  labelText: 'CO2 Level (ppm)',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) =>
+                    provider.updateField('hoCo2', double.tryParse(value)),
               ),
-              onChanged: (value) =>
-                  provider.updateField('hoCo2', double.tryParse(value)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(width: 8),
             PhotoButton(
+              key: const ValueKey('hatcher-co2-photo-button'),
               photoPath: audit.hoCo2Photo,
               enabled: !provider.isReadOnly,
               onPhotoCaptured: (path) =>
@@ -650,8 +678,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildCvtTargetCard(),
-            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -734,40 +760,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCvtTargetCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.infoBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.primary.withAlpha(80)),
-      ),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Icon(Icons.thermostat_outlined, color: AppColors.primary, size: 20),
-          Text(
-            'CVT BMK 103-105°F',
-            style: AppTextStyles.body.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          Text(
-            'Chick vent temp.',
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1127,11 +1119,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     if (!_isCurrentCvtCaptureGeneration(generation)) return;
     _saveCvtPoint(confirmedKey, evidencePath, state.ocrValue!);
     unawaited(
-      _saveCvtEvidencePhotoRecord(
-        provider.activeDraft.id,
-        confirmedKey,
-        evidencePath,
-      ),
+      _saveCvtEvidencePhotoRecord(provider, confirmedKey, evidencePath),
     );
     unawaited(_persistActiveAuditRow(provider));
 
@@ -1178,7 +1166,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         _cvtHighlightedKey = key;
       });
       _updateCalculations();
-      await _saveCvtEvidencePhotoRecord(provider.activeDraft.id, key, path);
+      await _saveCvtEvidencePhotoRecord(provider, key, path);
       return;
     }
 
@@ -1218,7 +1206,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     valueController.dispose();
     if (!mounted || confirmed != true || parsed == null) return;
     _saveCvtPoint(key, path, parsed);
-    await _saveCvtEvidencePhotoRecord(provider.activeDraft.id, key, path);
+    await _saveCvtEvidencePhotoRecord(provider, key, path);
   }
 
   Future<void> _attachMissingCvtPhoto(
@@ -1236,7 +1224,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       _cvtHighlightedKey = key;
     });
     _updateCalculations();
-    await _saveCvtEvidencePhotoRecord(provider.activeDraft.id, key, path);
+    await _saveCvtEvidencePhotoRecord(provider, key, path);
   }
 
   Future<void> _clearCvtPoint(AuditProvider provider, String key) async {
@@ -1350,18 +1338,23 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   }
 
   Future<void> _saveCvtEvidencePhotoRecord(
-    String auditId,
+    AuditProvider provider,
     String key,
     String path,
   ) async {
-    if (auditId.isEmpty || path.trim().isEmpty) return;
+    final draft = provider.activeDraft;
+    final sessionId = draft.sessionId;
+    if (sessionId == null || sessionId.isEmpty || path.trim().isEmpty) return;
     final existing = await _photoRepository.getByFilePath(path);
     final photo = PhotoModel(
       id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       filePath: path,
       description: 'hatcher_cvt_$key',
       createdAt: existing?.createdAt ?? DateTime.now(),
-      auditId: auditId,
+      sessionId: sessionId,
+      panelName: 'hatcher_optimizing',
+      panelRowId: '$sessionId:hatcher_optimizing:${draft.id}',
+      fieldKey: 'hatcher_cvt_$key',
       uploadStatus: existing?.uploadStatus ?? 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
@@ -1369,8 +1362,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
 
   Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
     try {
-      await _auditRepository.updateAudit(provider.activeDraft);
-      return true;
+      return provider.saveSamplesWithResult(tabIndex: 0);
     } catch (_) {
       return false;
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/debug/startup_timer.dart';
+import 'core/navigation/modal_route_visibility_observer.dart';
 import 'core/security/security_policy.dart';
 import 'core/theme/app_theme.dart';
 import 'features/audits/providers/audit_provider.dart';
@@ -30,7 +31,9 @@ class HatchAuditApp extends StatefulWidget {
 class _HatchAuditAppState extends State<HatchAuditApp> {
   late final AuthProvider _authProvider;
   late final bool _authBypassEnabled;
+  late final ModalRouteVisibilityObserver _modalRouteObserver;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final ValueNotifier<bool> _hasModalRoute = ValueNotifier<bool>(false);
   bool _showGlobalLauncher = false;
 
   @override
@@ -38,6 +41,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
     super.initState();
     _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
     _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
+    _modalRouteObserver = ModalRouteVisibilityObserver(_hasModalRoute);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StartupTimer.lap('first_frame_rendered');
       if (mounted) {
@@ -47,6 +51,12 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         StartupTimer.lap('auth_check_complete');
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _hasModalRoute.dispose();
+    super.dispose();
   }
 
   @override
@@ -69,6 +79,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
           final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
             navigatorKey: _navigatorKey,
+            navigatorObservers: [_modalRouteObserver],
             title: 'ChickMark',
             theme: AppTheme.light(),
             initialRoute: initialRoute,
@@ -88,11 +99,17 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
                   .select<GoveeCaptureProvider, bool>(
                     (provider) => provider.isRecording,
                   );
-              return GoveeGlobalOverlay(
-                showLauncher: showGoveeLauncher,
-                isRecording: isGoveeRecording,
-                panelContextBuilder: () => _navigatorKey.currentContext,
+              return ValueListenableBuilder<bool>(
+                valueListenable: _hasModalRoute,
                 child: child ?? const SizedBox.shrink(),
+                builder: (context, hasModalRoute, navigatorChild) {
+                  return GoveeGlobalOverlay(
+                    showLauncher: showGoveeLauncher && !hasModalRoute,
+                    isRecording: isGoveeRecording,
+                    panelContextBuilder: () => _navigatorKey.currentContext,
+                    child: navigatorChild ?? const SizedBox.shrink(),
+                  );
+                },
               );
             },
           );
