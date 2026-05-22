@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
@@ -57,6 +58,7 @@ class SettingsScreen extends StatelessWidget {
 
     return SectionCard(
       title: 'Account',
+      icon: Icons.person_outline,
       child: Column(
         children: [
           Row(
@@ -68,7 +70,7 @@ class SettingsScreen extends StatelessWidget {
                   initials,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -80,17 +82,14 @@ class SettingsScreen extends StatelessWidget {
                   children: [
                     Text(
                       user?.fullName ?? 'Unknown',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: AppTextStyles.title,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: AppSizes.spaceXs),
                     Text(
                       user?.email ?? 'No email',
-                      style: TextStyle(color: Colors.grey[600]),
+                      style: AppTextStyles.caption,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: AppSizes.spaceXs),
                     if (user?.role != null) StatusBadge(status: user!.role),
                   ],
                 ),
@@ -122,13 +121,11 @@ class SettingsScreen extends StatelessWidget {
   ) {
     return SectionCard(
       title: 'Preferences',
+      icon: Icons.tune_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Temperature Unit',
-            style: TextStyle(fontWeight: FontWeight.w500),
-          ),
+          const Text('Temperature Unit', style: AppTextStyles.title),
           const SizedBox(height: 8),
           SegmentedButton<TempUnit>(
             segments: const [
@@ -177,7 +174,7 @@ class SettingsScreen extends StatelessWidget {
   ) {
     return Row(
       children: [
-        Expanded(flex: 2, child: Text(label)),
+        Expanded(flex: 2, child: Text(label, style: AppTextStyles.body)),
         Expanded(
           child: TextFormField(
             initialValue: '$value',
@@ -198,6 +195,7 @@ class SettingsScreen extends StatelessWidget {
   Widget _buildSyncSection(BuildContext context, SettingsProvider settings) {
     return SectionCard(
       title: 'Sync',
+      icon: Icons.cloud_sync_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -212,14 +210,14 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Text('Connected'),
+              const Text('Connected', style: AppTextStyles.title),
             ],
           ),
           const SizedBox(height: 12),
           if (settings.lastSyncTimestamp != null)
             Text(
               'Last synced: ${settings.lastSyncTimestamp}',
-              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              style: AppTextStyles.caption,
             ),
           const SizedBox(height: 12),
           SizedBox(
@@ -242,12 +240,13 @@ class SettingsScreen extends StatelessWidget {
   Widget _buildAppSection() {
     return SectionCard(
       title: 'App',
+      icon: Icons.info_outline,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Version: 1.0.0+1'),
-          const SizedBox(height: 8),
-          const Text('ChickMark - Hatchery Audit'),
+          const Text('Version: 1.0.0+1', style: AppTextStyles.body),
+          const SizedBox(height: AppSizes.spaceSm),
+          const Text('ChickMark - Hatchery Audit', style: AppTextStyles.body),
         ],
       ),
     );
@@ -256,6 +255,7 @@ class SettingsScreen extends StatelessWidget {
   Widget _buildAdminSection(BuildContext context) {
     return SectionCard(
       title: 'Admin Tools',
+      icon: Icons.admin_panel_settings_outlined,
       child: Column(
         children: [
           ListTile(
@@ -265,9 +265,7 @@ class SettingsScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const ActivityLogScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
               );
             },
           ),

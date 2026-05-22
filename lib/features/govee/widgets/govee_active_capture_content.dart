@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../dashboard/models/govee_capture_summary.dart';
 import '../../dashboard/widgets/govee_capture_chart.dart';
 import '../providers/govee_capture_provider.dart';
@@ -16,7 +18,7 @@ class GoveeActiveCaptureContent extends StatelessWidget {
 
   const GoveeActiveCaptureContent({
     super.key,
-    this.padding = const EdgeInsets.all(AppSizes.cardPadding),
+    this.padding = const EdgeInsets.all(AppSizes.spaceMd),
   });
 
   @override
@@ -30,25 +32,27 @@ class GoveeActiveCaptureContent extends StatelessWidget {
           children: [
             const GoveeLiveReadingCard(),
             if (previewReadings.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSizes.spaceSm),
               GoveeChartPreview(
                 readings: previewReadings,
                 machineId: provider.machineId,
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             const GoveeScopePicker(),
             if (provider.hasExistingCapture) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSizes.spaceSm),
               _ExistingCaptureNotice(
-                date: provider.captureDate ?? '',
+                date: HatchDateUtils.formatDisplayDateKey(
+                  provider.captureDate ?? '',
+                ),
                 placeLabel: provider.place?.label ?? 'Selected place',
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             const GoveePlaceRecorder(),
             if (provider.finishedCapture != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSizes.spaceSm),
               GoveeCaptureChart(
                 summary: GoveeCaptureSummary(
                   capture: provider.finishedCapture!,
@@ -57,7 +61,7 @@ class GoveeActiveCaptureContent extends StatelessWidget {
               ),
             ],
             if (provider.phase == GoveeCapturePhase.saved) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSizes.spaceSm),
               _SavedNotice(nextLabel: provider.suggestedNextPlace?.label),
             ],
           ],
@@ -88,7 +92,10 @@ class _ExistingCaptureNotice extends StatelessWidget {
           Expanded(
             child: Text(
               '$placeLabel already has a Govee capture for $date. Saving a new recording replaces the older records for this scope.',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textBody,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -120,7 +127,10 @@ class _SavedNotice extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textBody,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

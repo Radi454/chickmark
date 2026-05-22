@@ -29,8 +29,7 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius =
-        borderRadius ?? BorderRadius.circular(AppSizes.cardRadius);
+    final radius = borderRadius ?? BorderRadius.circular(AppSizes.cardRadius);
     final shadows = AppElevation.fromLevel(elevation);
 
     return Container(
@@ -39,7 +38,9 @@ class AppCard extends StatelessWidget {
         color: color ?? AppColors.surface,
         borderRadius: radius,
         boxShadow: shadows,
-        border: border,
+        border:
+            border ??
+            Border.all(color: AppColors.borderDefault.withValues(alpha: 0.78)),
       ),
       child: Material(
         color: Colors.transparent,
@@ -56,8 +57,7 @@ class AppCard extends StatelessWidget {
                 ),
               )
             : Padding(
-                padding:
-                    padding ?? const EdgeInsets.all(AppSizes.cardPadding),
+                padding: padding ?? const EdgeInsets.all(AppSizes.cardPadding),
                 child: child,
               ),
       ),

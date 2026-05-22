@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
+import 'package:hatchaudit/core/theme/app_elevation.dart';
+import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/data/models/bmk_breed_model.dart';
@@ -78,8 +80,11 @@ class _BmkScreenState extends State<BmkScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+
     return Scaffold(
-      appBar: const GradientAppBar(title: 'BMK'),
+      backgroundColor: AppColors.background,
+      appBar: GradientAppBar(title: 'BMK', toolbarHeight: isCompact ? 48 : 52),
       body: Consumer<BmkProvider>(
         builder: (context, bmk, child) {
           final user = context.watch<AuthProvider>().user;
@@ -92,24 +97,38 @@ class _BmkScreenState extends State<BmkScreen> {
           _syncAdminControllers(bmk);
 
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (canEditStandards) ...[
-                  _buildModeSelector(),
-                  const SizedBox(height: 20),
-                ],
-                if (_mode == _BmkMode.reference) ...[
-                  _buildBreedSection(context, bmk),
-                  const SizedBox(height: 24),
-                  _buildEggBreakoutSection(context, bmk),
-                ] else ...[
-                  _buildBreedAdminSection(context, bmk),
-                  const SizedBox(height: 24),
-                  _buildEggBreakoutAdminSection(context, bmk),
-                ],
-              ],
+            padding: EdgeInsets.fromLTRB(
+              isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+              isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+              isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+              AppSizes.spaceXl,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1180),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (canEditStandards) ...[
+                      _buildModeToolbar(),
+                      SizedBox(
+                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+                      ),
+                    ],
+                    if (_mode == _BmkMode.reference) ...[
+                      _buildBreedSection(context, bmk),
+                      SizedBox(
+                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+                      ),
+                      _buildEggBreakoutSection(context, bmk),
+                    ] else ...[
+                      _buildBreedAdminSection(context, bmk),
+                      const SizedBox(height: AppSizes.spaceLg),
+                      _buildEggBreakoutAdminSection(context, bmk),
+                    ],
+                  ],
+                ),
+              ),
             ),
           );
         },
@@ -118,70 +137,61 @@ class _BmkScreenState extends State<BmkScreen> {
   }
 
   Widget _buildBreedSection(BuildContext context, BmkProvider bmk) {
-    return SectionCard(
+    return _BmkSectorCard(
       title: 'Breed Benchmarks',
+      icon: Icons.analytics_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            children: [
-              _buildBreedRow(bmk, BmkProvider.breeds.take(3).toList()),
-              const SizedBox(height: 8),
-              _buildBreedRow(bmk, BmkProvider.breeds.skip(3).toList()),
-            ],
+          _buildControlShelf(
+            primary: _buildBreedSelectorBar(bmk),
+            secondary: _buildAgeControl(
+              label: 'Reference age',
+              value: bmk.breedAges.contains(bmk.selectedBreedAge)
+                  ? bmk.selectedBreedAge
+                  : null,
+              ages: bmk.breedAges,
+              onChanged: (age) {
+                if (age != null) bmk.setBreedAge(age);
+              },
+            ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Text(
-                'Age: ',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              DropdownButton<int>(
-                value: bmk.breedAges.contains(bmk.selectedBreedAge)
-                    ? bmk.selectedBreedAge
-                    : null,
-                items: bmk.breedAges.map((age) {
-                  return DropdownMenuItem(value: age, child: Text('${age}w'));
-                }).toList(),
-                onChanged: (age) {
-                  if (age != null) bmk.setBreedAge(age);
-                },
-              ),
-            ],
+          SizedBox(
+            height: MediaQuery.sizeOf(context).width < 520
+                ? AppSizes.spaceSm
+                : AppSizes.spaceLg,
           ),
-          const SizedBox(height: 16),
           if (bmk.breedRow == null)
             const Center(
               child: Text('No data', style: TextStyle(color: Colors.grey)),
             )
           else
-            GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.2,
-              children: [
-                _buildMetricTile(
-                  'Hatchability %',
-                  '${bmk.breedRow!.hatchabilityPct}%',
+            _buildMetricGrid(
+              key: const ValueKey('bmk-breed-metric-grid'),
+              metrics: [
+                _BmkMetric(
+                  label: 'Hatchability',
+                  value: '${_formatNumber(bmk.breedRow!.hatchabilityPct)}%',
                 ),
-                _buildMetricTile(
-                  'Fertility %',
-                  '${bmk.breedRow!.fertilityPct}%',
+                _BmkMetric(
+                  label: 'Fertility',
+                  value: '${_formatNumber(bmk.breedRow!.fertilityPct)}%',
                 ),
-                _buildMetricTile('HOF %', '${bmk.breedRow!.hofPct}%'),
-                _buildMetricTile(
-                  'Production %',
-                  '${bmk.breedRow!.productionPct}%',
+                _BmkMetric(
+                  label: 'HOF',
+                  value: '${_formatNumber(bmk.breedRow!.hofPct)}%',
                 ),
-                _buildMetricTile(
-                  'Egg Weight (g)',
-                  '${bmk.breedRow!.eggWeightG}',
+                _BmkMetric(
+                  label: 'Production',
+                  value: '${_formatNumber(bmk.breedRow!.productionPct)}%',
                 ),
-                _buildMetricTile(
-                  'Chick Weight (g)',
-                  '${bmk.breedRow!.chickWeightG}',
+                _BmkMetric(
+                  label: 'Egg weight',
+                  value: '${_formatNumber(bmk.breedRow!.eggWeightG)} g',
+                ),
+                _BmkMetric(
+                  label: 'Chick weight',
+                  value: '${_formatNumber(bmk.breedRow!.chickWeightG)} g',
                 ),
               ],
             ),
@@ -190,24 +200,154 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
-  Widget _buildMetricTile(String label, String value) {
+  Widget _buildModeToolbar() {
     return Container(
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      key: const ValueKey('bmk-reference-mode-toolbar'),
+      padding: const EdgeInsets.all(AppSizes.spaceXs),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildModeButton(
+            label: 'Reference',
+            icon: Icons.visibility_outlined,
+            selected: _mode == _BmkMode.reference,
+            onTap: () => setState(() => _mode = _BmkMode.reference),
+          ),
+          const SizedBox(width: AppSizes.spaceXs),
+          _buildModeButton(
+            label: 'Admin',
+            icon: Icons.admin_panel_settings_outlined,
+            selected: _mode == _BmkMode.admin,
+            onTap: () => setState(() => _mode = _BmkMode.admin),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeButton({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return _buildSelectablePill(
+      label: label,
+      icon: icon,
+      selected: selected,
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildControlShelf({
+    required Widget primary,
+    required Widget secondary,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 680) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              primary,
+              const SizedBox(height: AppSizes.spaceSm),
+              secondary,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: primary),
+            const SizedBox(width: AppSizes.spaceMd),
+            secondary,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBreedSelectorBar(BmkProvider bmk) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 900
+            ? 6
+            : width >= 620
+            ? 3
+            : width >= 300
+            ? 3
+            : 2;
+        const spacing = AppSizes.spaceXs;
+        final itemWidth = (width - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          key: const ValueKey('bmk-breed-selector-bar'),
+          spacing: spacing,
+          runSpacing: spacing,
+          children: BmkProvider.breeds.map((breed) {
+            return SizedBox(
+              width: itemWidth,
+              child: _buildSelectablePill(
+                label: breed,
+                icon: bmk.selectedBreed == breed ? Icons.check : null,
+                selected: bmk.selectedBreed == breed,
+                onTap: () => bmk.setBreed(breed),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildAgeControl({
+    required String label,
+    required int? value,
+    required List<int> ages,
+    required ValueChanged<int?> onChanged,
+  }) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+
+    return Container(
+      constraints: BoxConstraints(minHeight: isCompact ? 34 : 44),
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+        vertical: isCompact ? 2 : AppSizes.spaceXs,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-            textAlign: TextAlign.center,
+            style: AppTextStyles.caption.copyWith(
+              fontSize: isCompact ? 11 : null,
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.primary,
+          const SizedBox(width: AppSizes.spaceSm),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: value,
+              isDense: true,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+              style: AppTextStyles.title.copyWith(
+                fontSize: isCompact ? 14 : null,
+              ),
+              items: ages.map((age) {
+                return DropdownMenuItem(value: age, child: Text('${age}w'));
+              }).toList(),
+              onChanged: onChanged,
             ),
           ),
         ],
@@ -215,42 +355,129 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
-  Widget _buildModeSelector() {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: SegmentedButton<_BmkMode>(
-        segments: const [
-          ButtonSegment(
-            value: _BmkMode.reference,
-            icon: Icon(Icons.visibility_outlined),
-            label: Text('Reference'),
+  Widget _buildSelectablePill({
+    required String label,
+    IconData? icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+    final foreground = selected ? AppColors.textOnPrimary : AppColors.textBody;
+    final borderColor = selected ? AppColors.primary : AppColors.borderDefault;
+    final background = selected ? AppColors.primary : AppColors.surface;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          constraints: BoxConstraints(minHeight: isCompact ? 34 : 44),
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+            vertical: isCompact ? AppSizes.spaceXs : AppSizes.spaceSm,
           ),
-          ButtonSegment(
-            value: _BmkMode.admin,
-            icon: Icon(Icons.admin_panel_settings_outlined),
-            label: Text('Admin'),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: isCompact ? 15 : 18, color: foreground),
+                SizedBox(
+                  width: isCompact ? AppSizes.spaceXs : AppSizes.spaceSm,
+                ),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.title.copyWith(
+                    color: foreground,
+                    fontSize: isCompact ? 13 : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricGrid({
+    required Key key,
+    required List<_BmkMetric> metrics,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 820
+            ? 3
+            : width >= 300
+            ? 2
+            : 1;
+        final spacing = width < 520 ? AppSizes.spaceXs : AppSizes.spaceSm;
+        final itemWidth = (width - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          key: key,
+          spacing: spacing,
+          runSpacing: spacing,
+          children: metrics.map((metric) {
+            return SizedBox(width: itemWidth, child: _buildMetricTile(metric));
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildMetricTile(_BmkMetric metric) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+
+    return Container(
+      constraints: BoxConstraints(minHeight: isCompact ? 54 : 76),
+      padding: EdgeInsets.all(isCompact ? AppSizes.spaceSm : AppSizes.spaceMd),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  metric.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.caption.copyWith(
+                    fontSize: isCompact ? 11 : null,
+                  ),
+                ),
+                SizedBox(height: isCompact ? 1 : AppSizes.spaceXs),
+                Text(
+                  metric.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.metricLarge.copyWith(
+                    color: AppColors.primary,
+                    fontSize: isCompact ? 18 : 22,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-        selected: {_mode},
-        onSelectionChanged: (selected) {
-          setState(() {
-            _mode = selected.first;
-          });
-        },
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppColors.primary;
-            }
-            return null;
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return Colors.white;
-            }
-            return null;
-          }),
-        ),
       ),
     );
   }
@@ -258,6 +485,7 @@ class _BmkScreenState extends State<BmkScreen> {
   Widget _buildBreedAdminSection(BuildContext context, BmkProvider bmk) {
     return SectionCard(
       title: 'Breed BMK Admin',
+      icon: Icons.edit_note_outlined,
       child: Form(
         key: _breedFormKey,
         child: Column(
@@ -340,6 +568,7 @@ class _BmkScreenState extends State<BmkScreen> {
   Widget _buildEggBreakoutAdminSection(BuildContext context, BmkProvider bmk) {
     return SectionCard(
       title: 'Egg Breakout BMK Admin',
+      icon: Icons.edit_note_outlined,
       child: Form(
         key: _eggBreakoutFormKey,
         child: Column(
@@ -536,71 +765,30 @@ class _BmkScreenState extends State<BmkScreen> {
   }
 
   Widget _buildEggBreakoutSection(BuildContext context, BmkProvider bmk) {
-    return SectionCard(
+    return _BmkSectorCard(
       title: 'Egg Breakout BMK',
+      icon: Icons.egg_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              FilterChip(
-                label: const Text('🥚 Fresh'),
-                selected: bmk.selectedEbType == EbType.fresh,
-                selectedColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: bmk.selectedEbType == EbType.fresh
-                      ? Colors.white
-                      : Colors.black87,
-                ),
-                onSelected: (_) => bmk.setEbType(EbType.fresh),
-              ),
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('🔍 Candled'),
-                selected: bmk.selectedEbType == EbType.candled,
-                selectedColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: bmk.selectedEbType == EbType.candled
-                      ? Colors.white
-                      : Colors.black87,
-                ),
-                onSelected: (_) => bmk.setEbType(EbType.candled),
-              ),
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('🐣 Residue'),
-                selected: bmk.selectedEbType == EbType.residue,
-                selectedColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: bmk.selectedEbType == EbType.residue
-                      ? Colors.white
-                      : Colors.black87,
-                ),
-                onSelected: (_) => bmk.setEbType(EbType.residue),
-              ),
-            ],
+          _buildControlShelf(
+            primary: _buildBreakoutTypeSelector(bmk),
+            secondary: _buildAgeControl(
+              label: 'Benchmark age',
+              value: bmk.ebAges.contains(bmk.selectedEbAge)
+                  ? bmk.selectedEbAge
+                  : null,
+              ages: bmk.ebAges,
+              onChanged: (age) {
+                if (age != null) bmk.setEbAge(age);
+              },
+            ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Text(
-                'Age: ',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              DropdownButton<int>(
-                value: bmk.ebAges.contains(bmk.selectedEbAge)
-                    ? bmk.selectedEbAge
-                    : null,
-                items: bmk.ebAges.map((age) {
-                  return DropdownMenuItem(value: age, child: Text('${age}w'));
-                }).toList(),
-                onChanged: (age) {
-                  if (age != null) bmk.setEbAge(age);
-                },
-              ),
-            ],
+          SizedBox(
+            height: MediaQuery.sizeOf(context).width < 520
+                ? AppSizes.spaceSm
+                : AppSizes.spaceLg,
           ),
-          const SizedBox(height: 16),
           if (bmk.ebRow == null)
             const Center(
               child: Text('No data', style: TextStyle(color: Colors.grey)),
@@ -612,80 +800,80 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
+  Widget _buildBreakoutTypeSelector(BmkProvider bmk) {
+    final types = [
+      _BreakoutTypeOption(type: EbType.fresh, label: 'Fresh'),
+      _BreakoutTypeOption(type: EbType.candled, label: 'Candled'),
+      _BreakoutTypeOption(type: EbType.residue, label: 'Residue'),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 300 ? 3 : 1;
+        final spacing = width < 520 ? AppSizes.spaceXs : AppSizes.spaceSm;
+        final itemWidth = (width - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          key: const ValueKey('bmk-breakout-type-selector'),
+          spacing: spacing,
+          runSpacing: spacing,
+          children: types.map((option) {
+            final selected = bmk.selectedEbType == option.type;
+            return SizedBox(
+              width: itemWidth,
+              child: _buildSelectablePill(
+                label: option.label,
+                selected: selected,
+                onTap: () => bmk.setEbType(option.type),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
   Widget _buildEbParameters(BmkProvider bmk) {
     final eb = bmk.ebRow!;
     final type = bmk.selectedEbType;
 
-    final Map<String, double> params;
+    final List<_BmkMetric> metrics;
     if (type == EbType.fresh) {
-      params = {
-        'Infertile': eb.infertilePct,
-        '24 hours': eb.early24hPct,
-        '48 hours': eb.early48hPct,
-        'Blood Ring': eb.bloodRingPct,
-      };
+      metrics = [
+        _breakoutMetric('Infertile', eb.infertilePct),
+        _breakoutMetric('24 hours', eb.early24hPct),
+        _breakoutMetric('48 hours', eb.early48hPct),
+        _breakoutMetric('Blood ring', eb.bloodRingPct),
+      ];
     } else if (type == EbType.candled) {
-      params = {
-        'Infertile': eb.infertilePct,
-        '24 hours': eb.early24hPct,
-        '48 hours': eb.early48hPct,
-        'Blood Ring': eb.bloodRingPct,
-        'Black Eye': eb.blackEyePct,
-      };
+      metrics = [
+        _breakoutMetric('Infertile', eb.infertilePct),
+        _breakoutMetric('24 hours', eb.early24hPct),
+        _breakoutMetric('48 hours', eb.early48hPct),
+        _breakoutMetric('Blood ring', eb.bloodRingPct),
+        _breakoutMetric('Black eye', eb.blackEyePct),
+      ];
     } else {
-      params = {
-        'Infertile': eb.infertilePct,
-        'Early Dead': eb.earlyDeadPct,
-        'Mid Dead': eb.midDeadPct,
-        'Late Dead': eb.lateDeadPct,
-        'External Pip': eb.externalPipPct,
-        'Cracked': eb.crackedPct,
-        'Contaminated': eb.contamPct,
-      };
+      metrics = [
+        _breakoutMetric('Infertile', eb.infertilePct),
+        _breakoutMetric('Early dead', eb.earlyDeadPct),
+        _breakoutMetric('Mid dead', eb.midDeadPct),
+        _breakoutMetric('Late dead', eb.lateDeadPct),
+        _breakoutMetric('External pip', eb.externalPipPct),
+        _breakoutMetric('Cracked', eb.crackedPct),
+        _breakoutMetric('Contaminated', eb.contamPct),
+      ];
     }
 
-    final entries = params.entries.toList();
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1.5,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        return Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: AppColors.background,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                entry.key,
-                style: const TextStyle(fontSize: 10, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '${entry.value}%',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+    return _buildMetricGrid(
+      key: const ValueKey('bmk-breakout-metric-grid'),
+      metrics: metrics,
     );
+  }
+
+  _BmkMetric _breakoutMetric(String label, double value) {
+    return _BmkMetric(label: label, value: '${_formatNumber(value)}%');
   }
 
   void _syncAdminControllers(BmkProvider bmk) {
@@ -830,6 +1018,88 @@ class _BmkScreenState extends State<BmkScreen> {
       }).toList(),
     );
   }
+}
+
+class _BmkSectorCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  const _BmkSectorCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+    final padding = isCompact ? AppSizes.spaceSm : AppSizes.spaceLg;
+    final iconSize = isCompact ? 32.0 : AppSizes.iconContainerSm;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+        boxShadow: AppElevation.level1,
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(padding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: iconSize,
+                  height: iconSize,
+                  decoration: BoxDecoration(
+                    color: AppColors.activeBg,
+                    borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: AppColors.primary,
+                    size: isCompact ? 18 : AppSizes.iconSm,
+                  ),
+                ),
+                SizedBox(
+                  width: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+                ),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.sectionTitle.copyWith(
+                      fontSize: isCompact ? 16 : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BmkMetric {
+  final String label;
+  final String value;
+
+  const _BmkMetric({required this.label, required this.value});
+}
+
+class _BreakoutTypeOption {
+  final EbType type;
+  final String label;
+
+  const _BreakoutTypeOption({required this.type, required this.label});
 }
 
 class _AdminNumberField {

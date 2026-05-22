@@ -85,36 +85,107 @@ class EggStorageTrend {
   final double avgWeightG;
   final double uniformityPct;
   final double cvPct;
+  final int eggSampleSize;
+  final double eggBmkWeight;
   final double shellTempC;
   final double uvAffectedPct;
+  final int uvTrayEggCount;
+  final double uvCuticleDamagePct;
+  final double uvWashedPct;
+  final double uvDirtyPct;
   final double co2;
   final double estAvgF;
   final double estCvPct;
+  final int? storageDays;
+  final int? turningTimes;
+  final String? traySpacing;
+  final String? coolerProximity;
+  final bool? condensationPresent;
+  final int upsideDownCount;
+  final double upsideDownPct;
 
   EggStorageTrend({
     required this.date,
     this.avgWeightG = 0.0,
     this.uniformityPct = 0.0,
     this.cvPct = 0.0,
+    this.eggSampleSize = 0,
+    this.eggBmkWeight = 0.0,
     this.shellTempC = 0.0,
     this.uvAffectedPct = 0.0,
+    this.uvTrayEggCount = 0,
+    this.uvCuticleDamagePct = 0.0,
+    this.uvWashedPct = 0.0,
+    this.uvDirtyPct = 0.0,
     this.co2 = 0.0,
     this.estAvgF = 0.0,
     this.estCvPct = 0.0,
+    this.storageDays,
+    this.turningTimes,
+    this.traySpacing,
+    this.coolerProximity,
+    this.condensationPresent,
+    this.upsideDownCount = 0,
+    this.upsideDownPct = 0.0,
   });
 
   factory EggStorageTrend.fromMap(Map<String, dynamic> map) {
     return EggStorageTrend(
       date: map['date'] ?? '',
-      avgWeightG: map['avgWeightG']?.toDouble() ?? 0.0,
-      uniformityPct: map['uniformityPct']?.toDouble() ?? 0.0,
-      cvPct: map['cvPct']?.toDouble() ?? 0.0,
-      shellTempC: map['shellTempC']?.toDouble() ?? 0.0,
-      uvAffectedPct: map['uvAffectedPct']?.toDouble() ?? 0.0,
-      co2: map['co2']?.toDouble() ?? 0.0,
-      estAvgF: map['estAvgF']?.toDouble() ?? 0.0,
-      estCvPct: map['estCvPct']?.toDouble() ?? 0.0,
+      avgWeightG: _asDouble(map['avgWeightG']),
+      uniformityPct: _asDouble(map['uniformityPct']),
+      cvPct: _asDouble(map['cvPct']),
+      eggSampleSize: _asInt(map['eggSampleSize']) ?? 0,
+      eggBmkWeight: _asDouble(map['eggBmkWeight']),
+      shellTempC: _asDouble(map['shellTempC']),
+      uvAffectedPct: _asDouble(map['uvAffectedPct']),
+      uvTrayEggCount: _asInt(map['uvTrayEggCount']) ?? 0,
+      uvCuticleDamagePct: _asDouble(map['uvCuticleDamagePct']),
+      uvWashedPct: _asDouble(map['uvWashedPct']),
+      uvDirtyPct: _asDouble(map['uvDirtyPct']),
+      co2: _asDouble(map['co2']),
+      estAvgF: _asDouble(map['estAvgF']),
+      estCvPct: _asDouble(map['estCvPct']),
+      storageDays: _asInt(map['storageDays']),
+      turningTimes: _asInt(map['turningTimes']),
+      traySpacing: _asString(map['traySpacing']),
+      coolerProximity: _asString(map['coolerProximity']),
+      condensationPresent: _asBool(map['condensationPresent']),
+      upsideDownCount: _asInt(map['upsideDownCount']) ?? 0,
+      upsideDownPct: _asDouble(map['upsideDownPct']),
     );
+  }
+
+  static double _asDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static bool? _asBool(Object? value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == 'yes' || normalized == '1') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == 'no' || normalized == '0') {
+      return false;
+    }
+    return null;
+  }
+
+  static String? _asString(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 }
 

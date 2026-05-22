@@ -90,7 +90,7 @@ void main() {
         StationSampleModel.sampleTypeChickQualityHatchedBatch,
       );
       expect(sample.sampleIndex, 2);
-      expect(sample.sampleLabel, 'M2');
+      expect(sample.sampleLabel, 'S1H1');
       expect(sample.groupLabel, 'Machine comparison');
       expect(sample.hatchNo, '2');
       expect(sample.batchNo, '2');
@@ -129,6 +129,21 @@ void main() {
       },
     );
 
+    test('defaults missing legacy storage days to zero', () {
+      final audit = makeStationAudit(
+        id: 'audit-storage-blank',
+        auditType: 'Egg',
+      );
+
+      final sample = StationSampleMapper.fromLegacyAudit(
+        audit,
+        session: session,
+      );
+
+      expect(sample.storageDays, 0);
+      expect(sample.calculatedBmkAgeDays, 273);
+    });
+
     test('builds legacy audit patch from sample metadata', () {
       final sample = StationSampleModel(
         id: 'sample-1',
@@ -164,7 +179,7 @@ void main() {
       expect(patch.containsKey('trayNo'), isFalse);
     });
 
-    test('legacy patch writes egg storage metadata only to egg fields', () {
+    test('legacy patch writes egg quality storage to egg quality fields', () {
       final patch = StationSampleMapper.legacyAuditPatchForSample(
         sampleForPatch(
           stationType: 'egg',
@@ -172,9 +187,10 @@ void main() {
         ),
       );
 
-      expect(patch['esEggStorageDays'], 5);
+      expect(patch['esEggQualityStorageDays'], 5);
       expect(patch['esEggBmkAge'], 40);
       expectAbsent(patch, const [
+        'esEggStorageDays',
         'chickStorageDays',
         'haStorageDays',
         'ebStorageDays',

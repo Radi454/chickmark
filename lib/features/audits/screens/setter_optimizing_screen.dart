@@ -55,6 +55,12 @@ enum _EstScanAction { confirm, retake, skip }
 class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     with WidgetsBindingObserver {
   static const Duration _estAutoScanInterval = Duration(milliseconds: 1000);
+  static const TextStyle _prominentFloatingLabelStyle = TextStyle(
+    color: AppColors.primary,
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+  );
   static const List<String> _setterBreeds = [
     'Ross308',
     'Arbo',
@@ -90,6 +96,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   late final TextEditingController _setterIdController;
   final TextEditingController _setpointController = TextEditingController();
   final TextEditingController _actualController = TextEditingController();
+  final TextEditingController _setpointRhController = TextEditingController();
+  final TextEditingController _actualRhController = TextEditingController();
   final TextEditingController _batchSizeController = TextEditingController();
   final TextEditingController _batchCountController = TextEditingController();
   final TextEditingController _turningAngleController = TextEditingController();
@@ -177,6 +185,12 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         : '';
     _actualController.text = audit.soActualF != null
         ? audit.soActualF!.toStringAsFixed(1)
+        : '';
+    _setpointRhController.text = audit.soSetpointRh != null
+        ? audit.soSetpointRh!.toStringAsFixed(1)
+        : '';
+    _actualRhController.text = audit.soActualRh != null
+        ? audit.soActualRh!.toStringAsFixed(1)
         : '';
     _batchSizeController.text = (audit.soBatchSize ?? 19200).toString();
     _batchCountController.text = (audit.soBatchCount ?? 1).toString();
@@ -382,6 +396,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _setterIdController.dispose();
     _setpointController.dispose();
     _actualController.dispose();
+    _setpointRhController.dispose();
+    _actualRhController.dispose();
     _batchSizeController.dispose();
     _batchCountController.dispose();
     _turningAngleController.dispose();
@@ -602,47 +618,94 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
               },
             ),
             const SizedBox(height: 12),
-            Row(
+            Column(
               children: [
-                Expanded(
-                  child: AuditNumericField(
-                    controller: _setpointController,
-                    enabled: !auditProvider.isReadOnly,
-                    allowDecimal: true,
-                    maxDecimalPlaces: 1,
-                    decoration: const InputDecoration(
-                      labelText: 'Setpoint (°F)',
-                      border: OutlineInputBorder(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: AuditNumericField(
+                        controller: _setpointController,
+                        enabled: !auditProvider.isReadOnly,
+                        allowDecimal: true,
+                        maxDecimalPlaces: 1,
+                        decoration: const InputDecoration(
+                          labelText: 'Setpoint (°F)',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => auditProvider.updateField(
+                          'so_setpointF',
+                          double.tryParse(value),
+                        ),
+                      ),
                     ),
-                    onChanged: (value) => auditProvider.updateField(
-                      'so_setpointF',
-                      double.tryParse(value),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: AuditNumericField(
+                        controller: _actualController,
+                        enabled: !auditProvider.isReadOnly,
+                        allowDecimal: true,
+                        maxDecimalPlaces: 1,
+                        decoration: const InputDecoration(
+                          labelText: 'Actual (°F)',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => auditProvider.updateField(
+                          'so_actualF',
+                          double.tryParse(value),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    PhotoButton(
+                      photoPath: audit.soMachineScreenPhoto,
+                      enabled: !auditProvider.isReadOnly,
+                      onPhotoCaptured: (path) => auditProvider.updateField(
+                        'so_machineScreenPhoto',
+                        path,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: AuditNumericField(
-                    controller: _actualController,
-                    enabled: !auditProvider.isReadOnly,
-                    allowDecimal: true,
-                    maxDecimalPlaces: 1,
-                    decoration: const InputDecoration(
-                      labelText: 'Actual (°F)',
-                      border: OutlineInputBorder(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: AuditNumericField(
+                        key: const ValueKey('setter-setpoint-rh-field'),
+                        controller: _setpointRhController,
+                        enabled: !auditProvider.isReadOnly,
+                        allowDecimal: true,
+                        maxDecimalPlaces: 1,
+                        decoration: const InputDecoration(
+                          labelText: 'Setpoint RH (%)',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => auditProvider.updateField(
+                          'so_setpointRh',
+                          double.tryParse(value),
+                        ),
+                      ),
                     ),
-                    onChanged: (value) => auditProvider.updateField(
-                      'so_actualF',
-                      double.tryParse(value),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: AuditNumericField(
+                        key: const ValueKey('setter-actual-rh-field'),
+                        controller: _actualRhController,
+                        enabled: !auditProvider.isReadOnly,
+                        allowDecimal: true,
+                        maxDecimalPlaces: 1,
+                        decoration: const InputDecoration(
+                          labelText: 'Actual RH (%)',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => auditProvider.updateField(
+                          'so_actualRh',
+                          double.tryParse(value),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                PhotoButton(
-                  photoPath: audit.soMachineScreenPhoto,
-                  enabled: !auditProvider.isReadOnly,
-                  onPhotoCaptured: (path) =>
-                      auditProvider.updateField('so_machineScreenPhoto', path),
+                    const SizedBox(width: 48),
+                  ],
                 ),
               ],
             ),
@@ -928,19 +991,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Setter settings',
-              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
             AuditNumericField(
               controller: _turningAngleController,
               enabled: !auditProvider.isReadOnly,
               allowDecimal: true,
               maxDecimalPlaces: 1,
-              decoration: const InputDecoration(
-                labelText: 'Turning Angle (°)',
-                border: OutlineInputBorder(),
+              decoration: _prominentFloatingLabelDecoration(
+                'Turning Angle (°)',
               ),
               onChanged: (value) => auditProvider.updateField(
                 'so_turningAngle',
@@ -972,9 +1029,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                     controller: _co2Controller,
                     enabled: !auditProvider.isReadOnly,
                     allowDecimal: true,
-                    decoration: const InputDecoration(
-                      labelText: 'CO2 Level (ppm)',
-                      border: OutlineInputBorder(),
+                    decoration: _prominentFloatingLabelDecoration(
+                      'CO2 Level (ppm)',
                     ),
                     onChanged: (value) => auditProvider.updateField(
                       'soCo2',
@@ -996,6 +1052,15 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         ),
       ),
     );
+  }
+
+  InputDecoration _prominentFloatingLabelDecoration(String label) {
+    return const InputDecoration(
+      border: OutlineInputBorder(),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      floatingLabelStyle: _prominentFloatingLabelStyle,
+      labelStyle: _prominentFloatingLabelStyle,
+    ).copyWith(labelText: label);
   }
 
   Widget _buildEstGridSection(AuditProvider provider) {

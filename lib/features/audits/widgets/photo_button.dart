@@ -308,8 +308,7 @@ class _PhotoButtonState extends State<PhotoButton> {
       return _PanelPhotoIdentity(
         sessionId: sessionId,
         panelName: panelName,
-        panelRowId:
-            widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        panelRowId: widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
         fieldKey: widget.fieldKey ?? 'photo',
       );
     } catch (_) {
@@ -664,8 +663,7 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
       return _PanelPhotoIdentity(
         sessionId: sessionId,
         panelName: panelName,
-        panelRowId:
-            widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        panelRowId: widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
         fieldKey: widget.fieldKey ?? 'photo',
       );
     } catch (_) {
@@ -691,7 +689,7 @@ class _PanelPhotoIdentity {
 String? _defaultPanelName(String auditType) {
   return switch (auditType) {
     'Egg' => 'egg_storage',
-    'Chicks' => 'chick_cvt',
+    'Chicks' => 'chick_quality',
     'Hatch Analysis & Egg Breakouts' => 'residue_breakout',
     'Setters' => 'setter_optimizing',
     'Hatchers' => 'hatcher_optimizing',

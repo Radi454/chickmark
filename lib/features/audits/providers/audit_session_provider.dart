@@ -149,6 +149,7 @@ class AuditSessionProvider extends ChangeNotifier {
       if (!_isCurrentLoad(operation)) return;
       _currentSession = session;
       _currentStationIndex = 0;
+      _targetStationIndex = 0;
       _isResumed = false;
 
       await _safeLogActivity('session_start', session.id);
@@ -166,8 +167,102 @@ class AuditSessionProvider extends ChangeNotifier {
     }
   }
 
+  /// Start a visit, or resume the matching in-progress visit for this context.
+  Future<void> startOrResumeSession({
+    required AuditSessionContext context,
+    UserModel? currentUser,
+  }) async {
+    final operation = ++_loadOperation;
+    _currentUser = currentUser;
+    _selectedStationKeys = normalizeStationKeys(context.selectedStationKeys);
+    _isLoading = true;
+    _error = null;
+    _notifyListeners();
+
+    try {
+      final existing = await _repository.findInProgressSession(
+        customerId: context.customerId,
+        flockId: context.flockId,
+        hatcheryId: context.hatcheryId,
+        date: context.date,
+      );
+      if (!_isCurrentLoad(operation)) return;
+      if (existing != null) {
+        _currentSession = existing;
+        _selectedStationKeys = normalizeStationKeys(
+          existing.selectedStationKeys,
+        );
+        _isResumed = true;
+        _setResumeStationIndex(existing);
+        await _safeLogActivity('session_resume', existing.id);
+        return;
+      }
+    } catch (e) {
+      if (!_isCurrentLoad(operation)) return;
+      _error = 'Failed to resume visit session';
+      safeDebugLog('Error finding session to resume', error: e);
+      return;
+    } finally {
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
+    }
+
+    await startSession(context: context, currentUser: currentUser);
+  }
+
+  /// Load a matching in-progress session for Select Stations without creating.
+  Future<bool> loadMatchingSessionForStationSelection({
+    required AuditSessionContext context,
+    UserModel? currentUser,
+  }) async {
+    final operation = ++_loadOperation;
+    _currentUser = currentUser;
+    _isLoading = true;
+    _error = null;
+    _notifyListeners();
+
+    try {
+      final existing = await _repository.findInProgressSession(
+        customerId: context.customerId,
+        flockId: context.flockId,
+        hatcheryId: context.hatcheryId,
+        date: context.date,
+      );
+      if (!_isCurrentLoad(operation)) return false;
+      if (existing == null) {
+        _currentSession = null;
+        _currentStationIndex = 0;
+        _targetStationIndex = 0;
+        _isResumed = false;
+        return false;
+      }
+      _currentSession = existing;
+      _selectedStationKeys = normalizeStationKeys(existing.selectedStationKeys);
+      _isResumed = true;
+      _setResumeStationIndex(existing, initialStationIndex: 0);
+      await _safeLogActivity('session_resume', existing.id);
+      return true;
+    } catch (e) {
+      if (_isCurrentLoad(operation)) {
+        _error = 'Failed to resume visit session';
+        safeDebugLog('Error finding session to resume', error: e);
+      }
+      return false;
+    } finally {
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
+    }
+  }
+
   /// Resume an existing session from its last completed station.
-  Future<void> resumeSession(String sessionId) async {
+  Future<void> resumeSession(
+    String sessionId, {
+    int? initialStationIndex,
+  }) async {
     final operation = ++_loadOperation;
     _isLoading = true;
     _error = null;
@@ -184,19 +279,9 @@ class AuditSessionProvider extends ChangeNotifier {
       }
 
       _currentSession = session;
+      _selectedStationKeys = normalizeStationKeys(session.selectedStationKeys);
       _isResumed = true;
-
-      final completed = session.stationsCompleted;
-      if (completed.length >= stationKeys.length) {
-        _currentStationIndex = stationKeys.length - 1;
-      } else {
-        _currentStationIndex = stationKeys.indexWhere(
-          (stationKey) => !completed.contains(stationKey),
-        );
-        if (_currentStationIndex == -1) {
-          _currentStationIndex = 0;
-        }
-      }
+      _setResumeStationIndex(session, initialStationIndex: initialStationIndex);
 
       await _safeLogActivity('session_resume', sessionId);
     } catch (e) {
@@ -209,6 +294,59 @@ class AuditSessionProvider extends ChangeNotifier {
         _notifyListeners();
       }
     }
+  }
+
+  Future<void> updateSelectedStationKeys(
+    List<String> selectedStationKeys,
+  ) async {
+    if (_currentSession == null) return;
+
+    try {
+      await _repository.updateSelectedStationKeys(
+        _currentSession!.id,
+        selectedStationKeys,
+      );
+      final updated = await _repository.getSessionById(_currentSession!.id);
+      if (updated != null) {
+        _currentSession = updated;
+        _selectedStationKeys = normalizeStationKeys(
+          updated.selectedStationKeys,
+        );
+        _setResumeStationIndex(updated);
+        unawaited(_supabaseService.syncAuditSession(updated.toMap()));
+      }
+      _notifyListeners();
+    } catch (e) {
+      _error = 'Failed to update visit stations';
+      safeDebugLog('Error updating selected station keys', error: e);
+    }
+  }
+
+  void _setResumeStationIndex(
+    AuditSessionModel session, {
+    int? initialStationIndex,
+  }) {
+    final keys = normalizeStationKeys(session.selectedStationKeys);
+    if (initialStationIndex != null &&
+        initialStationIndex >= 0 &&
+        initialStationIndex < keys.length) {
+      _currentStationIndex = initialStationIndex;
+      _targetStationIndex = initialStationIndex;
+      return;
+    }
+
+    final completed = session.stationsCompleted;
+    if (completed.length >= keys.length) {
+      _currentStationIndex = 0;
+    } else {
+      _currentStationIndex = keys.indexWhere(
+        (stationKey) => !completed.contains(stationKey),
+      );
+      if (_currentStationIndex == -1) {
+        _currentStationIndex = 0;
+      }
+    }
+    _targetStationIndex = _currentStationIndex;
   }
 
   /// Navigate to the next station.

@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/panel_sample_model.dart';
-import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -23,19 +22,29 @@ Future<void> _createPanelTable(
     date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
-    mode TEXT NOT NULL DEFAULT 'pool',
-    scopeType TEXT NOT NULL DEFAULT 'pool',
-    scopeLabel TEXT NOT NULL DEFAULT 'Random',
-    sampleIndex INTEGER NOT NULL DEFAULT 0,
-    groupKey TEXT,
-    groupLabel TEXT,
+    house TEXT,
+    setter TEXT,
+    hatcher TEXT,
+    trolley TEXT,
+    tray TEXT,
+    position TEXT,
+    storagePeriodDays INTEGER,
+    bmkAgeDays INTEGER,
+    bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     lastSyncedAt TEXT,
-    syncError TEXT$extra
+    syncError TEXT$extra,
+    FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
   )''');
+  await db.execute(
+    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+  );
 }
 
 void main() {
@@ -65,10 +74,19 @@ void main() {
       hatcheryId TEXT NOT NULL,
       date TEXT NOT NULL
     )''');
+    await database.execute('''CREATE TABLE sync_tombstones (
+      id TEXT PRIMARY KEY,
+      tableName TEXT NOT NULL,
+      rowId TEXT NOT NULL,
+      deletedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncedAt TEXT,
+      lastError TEXT
+    )''');
     await _createPanelTable(database, 'egg_quality', const [
       'sampleSize INTEGER',
     ]);
-    await _createPanelTable(database, 'chick_pasgar', const [
+    await _createPanelTable(database, 'chick_quality', const [
       'sampleSize INTEGER',
     ]);
     await _createPanelTable(database, 'chick_weights', const [
@@ -134,76 +152,285 @@ void main() {
     final rows = await db.query('egg_quality');
 
     expect(rows, hasLength(1));
-    expect(rows.single['mode'], PanelRecord.modePool);
     expect(rows.single['customerId'], 'customer-1');
     expect(rows.single['flockId'], 'flock-1');
-    expect(rows.single['scopeType'], 'pool');
-    expect(rows.single['scopeLabel'], 'Random');
+    expect(rows.single['house'], isNull);
+    expect(rows.single['setter'], isNull);
+    expect(rows.single['hatcher'], isNull);
+    expect(rows.single['tray'], isNull);
+  });
+
+  test('savePanelWithSamples writes explicit hierarchy columns', () async {
+    final panel = PanelRecord(
+      id: 'pasgar-1',
+      tableName: 'chick_quality',
+      sessionId: 'session-1',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: DateTime.utc(2026, 5, 13),
+      hatcheryId: 'hatchery-1',
+      storagePeriodDays: 4,
+      bmkAgeDays: 276,
+      bmkAgeWeeks: 40,
+      metricsJson: '{"pasgarScore":97.5}',
+    );
+    final sample = PanelSampleRecord(
+      id: 'pasgar-sample-1',
+      panelId: panel.id,
+      houseId: 'House A',
+      setterId: 'S01',
+      hatcherId: 'H02',
+      trolleyId: 'T01',
+      trayId: 'Tray 03',
+      position: 'top',
+      sampleSize: 100,
+      summaryJson: '{"pasgarScore":97.5}',
+    );
+
+    await repository.savePanelWithSamples(panel: panel, samples: [sample]);
+
+    final rows = await db.query('chick_quality');
+
+    expect(rows, hasLength(1));
+    expect(rows.single['house'], 'House A');
+    expect(rows.single['setter'], 'S01');
+    expect(rows.single['hatcher'], 'H02');
+    expect(rows.single['trolley'], 'T01');
+    expect(rows.single['tray'], 'Tray 03');
+    expect(rows.single['position'], 'top');
+    expect(rows.single['storagePeriodDays'], 4);
+    expect(rows.single['bmkAgeDays'], 276);
+    expect(rows.single['bmkAgeWeeks'], 40);
+    expect(rows.single['sampleSize'], 100);
+  });
+
+  test('savePanelWithSamples writes one row per nested leaf scope', () async {
+    final panel = PanelRecord(
+      id: 'nested-scope-panel',
+      tableName: 'chick_quality',
+      sessionId: 'session-1',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: DateTime.utc(2026, 5, 13),
+      hatcheryId: 'hatchery-1',
+    );
+    final samples = <PanelSampleRecord>[];
+    var index = 0;
+
+    for (var house = 1; house <= 2; house++) {
+      for (var machine = 1; machine <= 2; machine++) {
+        final machineIndex = ((house - 1) * 2) + machine;
+        for (var trolley = 1; trolley <= 2; trolley++) {
+          for (var tray = 1; tray <= 2; tray++) {
+            index += 1;
+            samples.add(
+              PanelSampleRecord(
+                id: 'nested-scope-sample-$index',
+                panelId: panel.id,
+                houseId: 'H$house',
+                setterId: 'S$machineIndex',
+                hatcherId: 'H$machineIndex',
+                trolleyId: 'T$trolley',
+                trayId: 'Tray $tray',
+                sampleIndex: index,
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    await repository.savePanelWithSamples(panel: panel, samples: samples);
+
+    final rows = await db.query(
+      'chick_quality',
+      orderBy: 'house ASC, setter ASC, trolley ASC, tray ASC',
+    );
+
+    expect(rows, hasLength(16));
+    expect(rows.where((row) => row['house'] == 'H1'), hasLength(8));
+    expect(rows.where((row) => row['house'] == 'H2'), hasLength(8));
+    expect(rows.where((row) => row['setter'] == 'S1'), hasLength(4));
+    expect(rows.where((row) => row['setter'] == 'S4'), hasLength(4));
+    expect(rows.first['house'], 'H1');
+    expect(rows.first['setter'], 'S1');
+    expect(rows.first['hatcher'], 'H1');
+    expect(rows.first['trolley'], 'T1');
+    expect(rows.first['tray'], 'Tray 1');
   });
 
   test(
-    'savePanelWithSamples writes setter+hatcher comparison with both machine ids',
+    'savePanelWithSamples omits orphaned hatchery ids from nullable panel rows',
     () async {
+      await db.insert('audit_sessions', {
+        'id': 'session-orphan-hatchery',
+        'customerId': 'customer-1',
+        'flockId': 'flock-1',
+        'hatcheryId': 'missing-hatchery',
+        'date': '2026-05-13',
+      });
       final panel = PanelRecord(
-        id: 'pasgar-1',
-        tableName: 'chick_pasgar',
-        sessionId: 'session-1',
+        id: 'egg-quality-orphan-hatchery',
+        tableName: 'egg_quality',
+        sessionId: 'session-orphan-hatchery',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: DateTime.utc(2026, 5, 13),
-        hatcheryId: 'hatchery-1',
-        mode: PanelRecord.modeCompare,
-        compareLayer: SamplingLayer.setterHatcher,
-        metricsJson: '{"pasgarScore":97.5}',
+        hatcheryId: 'missing-hatchery',
       );
       final sample = PanelSampleRecord(
-        id: 'pasgar-sample-1',
+        id: 'egg-quality-orphan-hatchery-sample',
         panelId: panel.id,
-        scopeType: SamplingLayer.setterHatcher,
-        scopeLabel: 'S01 + H02',
-        setterId: 'S01',
-        hatcherId: 'H02',
         sampleSize: 100,
-        summaryJson: '{"pasgarScore":97.5}',
       );
 
       await repository.savePanelWithSamples(panel: panel, samples: [sample]);
 
-      final rows = await db.query('chick_pasgar');
+      final rows = await db.query(
+        'egg_quality',
+        where: 'id = ?',
+        whereArgs: [sample.id],
+      );
 
       expect(rows, hasLength(1));
-      expect(rows.single['mode'], PanelRecord.modeCompare);
-      expect(rows.single['scopeType'], 'setter_hatcher');
-      expect(rows.single['scopeLabel'], 'S01 + H02');
-      expect(rows.single['sampleSize'], 100);
+      expect(rows.single['sessionId'], 'session-orphan-hatchery');
+      expect(rows.single['hatcheryId'], isNull);
     },
   );
 
+  test('same hierarchy updates the existing row when row ids differ', () async {
+    final panel = PanelRecord(
+      id: 'weights-panel',
+      tableName: 'chick_weights',
+      sessionId: 'session-1',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: DateTime.utc(2026, 5, 13),
+    );
+    final first = PanelSampleRecord(
+      id: 'weights-sample-1',
+      panelId: panel.id,
+      houseId: 'House A',
+      sampleSize: 80,
+    );
+    final second = PanelSampleRecord(
+      id: 'weights-sample-2',
+      panelId: panel.id,
+      houseId: 'House A',
+      sampleSize: 90,
+    );
+
+    await repository.savePanelWithSamples(panel: panel, samples: [first]);
+    await repository.savePanelWithSamples(panel: panel, samples: [second]);
+
+    final rows = await db.query('chick_weights');
+    expect(rows, hasLength(1));
+    expect(rows.single['id'], 'weights-sample-1');
+    expect(rows.single['house'], 'House A');
+    expect(rows.single['sampleSize'], 90);
+  });
+
   test(
-    'savePanelWithSamples rejects disallowed tray comparison for chick weights',
-    () {
+    'moving an existing scoped row to pooled merges into pooled row',
+    () async {
       final panel = PanelRecord(
-        id: 'weights-1',
-        tableName: 'chick_weights',
+        id: 'quality-panel',
+        tableName: 'chick_quality',
         sessionId: 'session-1',
         customerId: 'customer-1',
         flockId: 'flock-1',
         date: DateTime.utc(2026, 5, 13),
-        mode: PanelRecord.modeCompare,
-        compareLayer: SamplingLayer.tray,
       );
-      final sample = PanelSampleRecord(
-        id: 'weights-sample-1',
+      final pooled = PanelSampleRecord(
+        id: 'quality-pooled-row',
         panelId: panel.id,
-        scopeType: SamplingLayer.tray,
-        scopeLabel: 'Tray 1',
-        trayId: 'tray-1',
+        sampleSize: 40,
+      );
+      final scoped = PanelSampleRecord(
+        id: 'quality-scoped-row',
+        panelId: panel.id,
+        houseId: 'H1',
+        setterId: 'S1',
+        hatcherId: 'H1',
+        sampleSize: 50,
       );
 
-      expect(
-        () => repository.savePanelWithSamples(panel: panel, samples: [sample]),
-        throwsArgumentError,
+      await repository.savePanelWithSamples(panel: panel, samples: [pooled]);
+      await repository.savePanelWithSamples(panel: panel, samples: [scoped]);
+
+      await repository.savePanelWithSamples(
+        panel: panel,
+        samples: [
+          PanelSampleRecord(id: scoped.id, panelId: panel.id, sampleSize: 60),
+        ],
       );
+
+      final rows = await db.query('chick_quality', orderBy: 'id ASC');
+      expect(rows, hasLength(1));
+      expect(rows.single['id'], pooled.id);
+      expect(rows.single['house'], isNull);
+      expect(rows.single['setter'], isNull);
+      expect(rows.single['hatcher'], isNull);
+      expect(rows.single['sampleSize'], 60);
+
+      final tombstones = await db.query('sync_tombstones');
+      expect(tombstones, hasLength(1));
+      expect(tombstones.single['tableName'], 'chick_quality');
+      expect(tombstones.single['rowId'], scoped.id);
+    },
+  );
+
+  test(
+    'deleteHierarchyRowsBySessionIdExcept prunes only stale scoped rows',
+    () async {
+      final panel = PanelRecord(
+        id: 'quality-panel',
+        tableName: 'egg_quality',
+        sessionId: 'session-1',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: DateTime.utc(2026, 5, 13),
+      );
+      final first = PanelSampleRecord(
+        id: 'quality-sample-1',
+        panelId: panel.id,
+        houseId: 'H1',
+        sampleSize: 100,
+      );
+      final second = PanelSampleRecord(
+        id: 'quality-sample-2',
+        panelId: panel.id,
+        houseId: 'H2',
+        sampleSize: 100,
+      );
+      final pooled = PanelSampleRecord(
+        id: 'quality-sample-pool',
+        panelId: panel.id,
+        sampleSize: 100,
+      );
+
+      await repository.savePanelWithSamples(panel: panel, samples: [first]);
+      await repository.savePanelWithSamples(panel: panel, samples: [second]);
+      await repository.savePanelWithSamples(panel: panel, samples: [pooled]);
+
+      await repository.deleteHierarchyRowsBySessionIdExcept(
+        'egg_quality',
+        'session-1',
+        [first.id],
+      );
+
+      final rows = await db.query('egg_quality', orderBy: 'id ASC');
+      expect(rows.map((row) => row['id']), [
+        'quality-sample-1',
+        'quality-sample-pool',
+      ]);
+      expect(rows.first['house'], 'H1');
+      expect(rows.last['house'], isNull);
+
+      final tombstones = await db.query('sync_tombstones');
+      expect(tombstones, hasLength(1));
+      expect(tombstones.single['tableName'], 'egg_quality');
+      expect(tombstones.single['rowId'], 'quality-sample-2');
     },
   );
 }

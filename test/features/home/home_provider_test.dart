@@ -45,7 +45,7 @@ void main() {
   test(
     'loads recent sessions and the latest audit date from audit_sessions',
     () async {
-      final now = DateTime.now();
+      final now = DateTime(2026, 5, 22, 12);
       final monthSession = session(id: 'month', date: now);
       final recentSession = session(
         id: 'recent',
@@ -84,7 +84,7 @@ void main() {
       expect(loaded.auditsThisMonth, 1);
       expect(loaded.recentSessions.map((item) => item.id), ['month', 'recent']);
       expect(loaded.activeSessions.map((item) => item.id), ['month']);
-      expect(loaded.lastAuditDate, now.toIso8601String().split('T').first);
+      expect(loaded.lastAuditDate, '22-05-2026');
       expect(loaded.activeFlocksCount, 1);
     },
   );

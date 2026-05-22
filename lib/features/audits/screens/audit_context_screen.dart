@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/security/security_policy.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
@@ -316,7 +317,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${flock.breed}  ·  ${flock.currentAgeWeeks.toStringAsFixed(1)}w  ·  Entry ${flock.entryDate.toIso8601String().split('T')[0]}',
+                '${flock.breed}  ·  ${flock.currentAgeWeeks.toStringAsFixed(1)}w  ·  Entry ${HatchDateUtils.formatDisplayDate(flock.entryDate)}',
                 style: AppTextStyles.caption.copyWith(
                   color: AppColors.primary,
                   fontWeight: FontWeight.w500,

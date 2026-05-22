@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'session_test_helpers.dart';
 
@@ -596,18 +597,17 @@ void main() {
       ).thenAnswer((_) async => 1);
       when(
         () => txn.delete(
-          'audit_sessions',
-          where: 'id = ?',
-          whereArgs: [testSession.id],
+          any(),
+          where: any(named: 'where'),
+          whereArgs: any(named: 'whereArgs'),
         ),
       ).thenAnswer((_) async => 1);
 
       await repository.deleteSession(testSession.id);
 
       verify(
-        () => txn.update(
-          'audits',
-          {'sessionId': null},
+        () => txn.delete(
+          PanelSampleSchema.panels.first.tableName,
           where: 'sessionId = ?',
           whereArgs: [testSession.id],
         ),

@@ -31,12 +31,15 @@ Future<void> _createPanelTable(
     date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
-    mode TEXT NOT NULL DEFAULT 'pool',
-    scopeType TEXT NOT NULL DEFAULT 'pool',
-    scopeLabel TEXT NOT NULL DEFAULT 'Random',
-    sampleIndex INTEGER NOT NULL DEFAULT 0,
-    groupKey TEXT,
-    groupLabel TEXT,
+    house TEXT,
+    setter TEXT,
+    hatcher TEXT,
+    trolley TEXT,
+    tray TEXT,
+    position TEXT,
+    storagePeriodDays INTEGER,
+    bmkAgeDays INTEGER,
+    bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -44,6 +47,9 @@ Future<void> _createPanelTable(
     lastSyncedAt TEXT,
     syncError TEXT$extra
   )''');
+  await db.execute(
+    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+  );
 }
 
 void main() {
@@ -95,6 +101,15 @@ void main() {
       flockId TEXT NOT NULL,
       hatcheryId TEXT NOT NULL,
       date TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE sync_tombstones (
+      id TEXT PRIMARY KEY,
+      tableName TEXT NOT NULL,
+      rowId TEXT NOT NULL,
+      deletedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncedAt TEXT,
+      lastError TEXT
     )''');
     for (final panel in PanelSampleSchema.panels.where(
       (panel) => {'egg_storage', 'egg_quality'}.contains(panel.tableName),
@@ -148,7 +163,11 @@ void main() {
   });
 
   Future<List<Map<String, Object?>>> rows(String table) {
-    return db.query(table, orderBy: 'sampleIndex ASC, scopeLabel ASC');
+    return db.query(
+      table,
+      orderBy:
+          'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC',
+    );
   }
 
   void fillEggDraft({
@@ -181,6 +200,34 @@ void main() {
     provider.updateField('esEggBmkAge', 40);
     provider.updateField('esEggBmkWeight', 62.5);
     provider.updateField('notes', notes);
+  }
+
+  test('blank Egg station save does not create egg panel rows', () async {
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    expect(await rows('egg_storage'), isEmpty);
+    expect(await rows('egg_quality'), isEmpty);
+  });
+
+  Future<void> insertStaleEggStorageHouseRows() async {
+    for (final house in ['H1', 'H2', 'H3']) {
+      await db.insert('egg_storage', {
+        'id': 'stale-egg-storage-$house',
+        'sessionId': 'session-egg-db',
+        'customerId': 'customer-egg-db',
+        'flockId': 'flock-egg-db',
+        'hatcheryId': 'hatchery-egg-db',
+        'date': '2026-05-15',
+        'breed': 'Ross 308',
+        'flockAgeWeeks': 42,
+        'house': house,
+        'storagePeriodDays': 99,
+        'notes': 'stale $house',
+        'createdAt': DateTime(2026, 5, 15).toUtc().toIso8601String(),
+        'updatedAt': DateTime(2026, 5, 15).toUtc().toIso8601String(),
+        'syncStatus': 'pending',
+      });
+    }
   }
 
   test(
@@ -230,9 +277,8 @@ void main() {
       expect(quality, hasLength(1));
       expect(tables, isEmpty);
 
-      expect(storage.single['mode'], 'pool');
-      expect(storage.single['scopeType'], 'pool');
-      expect(storage.single['storageDays'], 9);
+      expect(storage.single['house'], isNull);
+      expect(storage.single['storagePeriodDays'], 9);
       expect(storage.single['estReadingsJson'], contains('front_top'));
       expect(storage.single['estAvg'], 19.2);
       expect(storage.single['estCvPct'], 0.4);
@@ -247,8 +293,11 @@ void main() {
 
       expect(quality.single['uvTrayEggCount'], 180);
       expect(quality.single['uvCuticleDamageCount'], 4);
+      expect(quality.single['uvCuticleDamagePct'], closeTo(2.222, 0.001));
       expect(quality.single['uvWashedCount'], 2);
+      expect(quality.single['uvWashedPct'], closeTo(1.111, 0.001));
       expect(quality.single['uvDirtyCount'], 3);
+      expect(quality.single['uvDirtyPct'], closeTo(1.667, 0.001));
       expect(quality.single['uvAffectedCount'], 9);
       expect(quality.single['uvAffectedPct'], 5.0);
       expect(quality.single.containsKey('affectedCount'), isFalse);
@@ -271,83 +320,109 @@ void main() {
     },
   );
 
-  test('comparison Egg station save keeps each house row isolated', () async {
-    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
-    fillEggDraft(
-      storageDays: 4,
-      estReadings: const {'front_top': 19.0},
-      estAvg: 19.0,
-      estCv: 0,
-      uvTrays: const [
-        {
-          'totalEggs': 50,
-          'cuticleDamage': 1,
-          'washed': 1,
-          'dirty': 0,
-          'upsideDown': 2,
-        },
-      ],
-      weights: const [55, 56],
-      avgWeight: 55.5,
-      uniformityPct: 100,
-      cvPct: 1.27,
-      notes: 'egg-persist-probe H1',
-    );
+  test(
+    'comparison Egg station save keeps storage pooled and quality isolated',
+    () async {
+      await insertStaleEggStorageHouseRows();
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('esEggStorageDays', 4);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.0}),
+      );
+      provider.updateField('es_estAvg', 19.0);
+      provider.updateField('es_estCv', 0.0);
+      provider.updateField('esTurningTimes', 3);
+      provider.updateField('es_traySpacing', 'Tight');
+      provider.updateField('es_coolerProximity', 'Adjacent');
+      provider.updateField('es_condensation', 1);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 50,
+            'cuticleDamage': 1,
+            'washed': 1,
+            'dirty': 0,
+            'upsideDown': 2,
+          },
+        ]),
+      );
+      provider.updateField('esEggWeights', jsonEncode([55.0, 56.0]));
+      provider.updateField('esEggSampleSize', 2);
+      provider.updateField('esEggAvgWeight', 55.5);
+      provider.updateField('esEggUniformityPct', 100.0);
+      provider.updateField('esEggCvPct', 1.27);
+      provider.updateField('notes', 'egg-persist-probe H1');
 
-    provider.addSample();
-    fillEggDraft(
-      storageDays: 12,
-      estReadings: const {'front_top': 20.0, 'front_middle': 20.4},
-      estAvg: 20.2,
-      estCv: 1.4,
-      uvTrays: const [
-        {
-          'totalEggs': 60,
-          'cuticleDamage': 0,
-          'washed': 2,
-          'dirty': 3,
-          'upsideDown': 5,
-        },
-      ],
-      weights: const [65, 66, 67],
-      avgWeight: 66,
-      uniformityPct: 100,
-      cvPct: 1.24,
-      notes: 'egg-persist-probe H2',
-    );
+      provider.addSample();
+      provider.updateField('esShellTemp', 20.2);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 60,
+            'cuticleDamage': 0,
+            'washed': 2,
+            'dirty': 3,
+            'upsideDown': 0,
+          },
+        ]),
+      );
+      provider.updateField('esEggWeights', jsonEncode([65.0, 66.0, 67.0]));
+      provider.updateField('esEggSampleSize', 3);
+      provider.updateField('esEggAvgWeight', 66.0);
+      provider.updateField('esEggUniformityPct', 100.0);
+      provider.updateField('esEggCvPct', 1.24);
+      provider.updateField('notes', 'egg-persist-probe H2');
 
-    expect(await provider.saveSamplesWithResult(), isTrue);
+      expect(await provider.saveSamplesWithResult(), isTrue);
 
-    final storage = await rows('egg_storage');
-    final quality = await rows('egg_quality');
-    final tables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'egg_weights'",
-    );
+      final storage = await rows('egg_storage');
+      final quality = await rows('egg_quality');
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'egg_weights'",
+      );
 
-    expect(storage, hasLength(2));
-    expect(quality, hasLength(2));
-    expect(tables, isEmpty);
+      expect(storage, hasLength(1));
+      expect(quality, hasLength(2));
+      expect(tables, isEmpty);
 
-    expect(storage.map((row) => row['mode']), ['comparison', 'comparison']);
-    expect(storage.map((row) => row['scopeType']), ['house', 'house']);
-    expect(storage.map((row) => row['scopeLabel']), ['House 1', 'House 2']);
-    expect(storage.map((row) => row['storageDays']), [4, 12]);
-    expect(storage.map((row) => row['notes']), [
-      'egg-persist-probe H1',
-      'egg-persist-probe H2',
-    ]);
-    expect(storage[0]['estAvg'], 19.0);
-    expect(storage[1]['estAvg'], 20.2);
-    expect(storage.map((row) => row['upsideDownCount']), [2, 5]);
+      expect(storage.single['house'], isNull);
+      expect(storage.single['setter'], isNull);
+      expect(storage.single['hatcher'], isNull);
+      expect(storage.single['tray'], isNull);
+      expect(storage.single['storagePeriodDays'], 4);
+      expect(storage.single['estAvg'], 19.0);
+      expect(storage.single['shellTemp'], 20.2);
+      expect(storage.single['turningTimes'], 3);
+      expect(storage.single['traySpacing'], 'Tight');
+      expect(storage.single['coolerProximity'], 'Adjacent');
+      expect(storage.single['condensationPresent'], 1);
+      expect(storage.single['upsideDownCount'], 2);
+      expect(storage.single['notes'], 'egg-persist-probe H1');
 
-    expect(quality.map((row) => row['uvTrayEggCount']), [50, 60]);
-    expect(quality.map((row) => row['uvAffectedCount']), [2, 5]);
-    expect(quality.any((row) => row.containsKey('affectedCount')), isFalse);
-    expect(quality.any((row) => row.containsKey('upsideDownCount')), isFalse);
+      expect(quality.map((row) => row['uvTrayEggCount']), [50, 60]);
+      expect(quality.map((row) => row['uvAffectedCount']), [2, 5]);
+      expect(quality.map((row) => row['uvCuticleDamagePct']), [2.0, 0.0]);
+      expect(quality.map((row) => row['uvWashedPct']).toList()[0], 2.0);
+      expect(
+        quality.map((row) => row['uvWashedPct']).toList()[1],
+        closeTo(3.333, 0.001),
+      );
+      expect(quality.map((row) => row['uvDirtyPct']), [0.0, 5.0]);
+      expect(quality.map((row) => row['uvAffectedPct']).toList()[0], 4.0);
+      expect(
+        quality.map((row) => row['uvAffectedPct']).toList()[1],
+        closeTo(8.333, 0.001),
+      );
+      expect(quality.any((row) => row.containsKey('affectedCount')), isFalse);
+      expect(quality.any((row) => row.containsKey('upsideDownCount')), isFalse);
 
-    expect(quality.map((row) => row['eggSampleSize']), [2, 3]);
-    expect(quality.map((row) => row['eggAvgWeight']), [55.5, 66.0]);
-    expect(quality[0]['eggWeightsJson'], jsonEncode([55.0, 56.0]));
-    expect(quality[1]['eggWeightsJson'], jsonEncode([65.0, 66.0, 67.0]));
-  });
+      expect(quality.map((row) => row['eggSampleSize']), [2, 3]);
+      expect(quality.map((row) => row['eggAvgWeight']), [55.5, 66.0]);
+      expect(quality[0]['eggWeightsJson'], jsonEncode([55.0, 56.0]));
+      expect(quality[1]['eggWeightsJson'], jsonEncode([65.0, 66.0, 67.0]));
+    },
+  );
 }

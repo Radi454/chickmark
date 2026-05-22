@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../core/utils/calculation_utils.dart';
+import '../../features/audits/models/culled_chicks_analysis.dart';
 import '../../features/dashboard/models/chick_quality_models.dart';
 import '../../features/dashboard/models/dashboard_filter.dart';
 import '../../features/dashboard/models/egg_breakout_models.dart';
@@ -21,16 +22,8 @@ class PanelDashboardRepository {
   }) async {
     final db = await _dbHelper.db;
     final ages = <int>{};
-    for (final table in const [
-      'egg_quality',
-      'chick_weights',
-      'fresh_egg_breakout',
-      'candled_egg_breakout',
-      'residue_breakout',
-    ]) {
-      final bmkColumn = table == 'egg_quality'
-          ? 'eggBmkAgeWeeks'
-          : 'bmkAgeWeeks';
+    for (final table in const ['egg_quality']) {
+      const bmkColumn = 'eggBmkAgeWeeks';
       final (:clause, :args) = _where(
         DashboardFilter(customerId: customerId, flockId: flockId),
         table,
@@ -75,7 +68,7 @@ class PanelDashboardRepository {
     final filter = DashboardFilter(customerId: customerId, flockId: flockId);
     final (:clause, :args) = _where(filter, 'setter_optimizing');
     final rows = await db.rawQuery(
-      'SELECT DISTINCT setterId FROM setter_optimizing $clause AND setterId IS NOT NULL ORDER BY setterId',
+      'SELECT DISTINCT setter AS setterId FROM setter_optimizing $clause AND setter IS NOT NULL ORDER BY setter',
       args,
     );
     return rows.map((row) => row['setterId']?.toString()).nonNulls.toList();
@@ -89,7 +82,7 @@ class PanelDashboardRepository {
     final filter = DashboardFilter(customerId: customerId, flockId: flockId);
     final (:clause, :args) = _where(filter, 'hatcher_optimizing');
     final rows = await db.rawQuery(
-      'SELECT DISTINCT hatcherId FROM hatcher_optimizing $clause AND hatcherId IS NOT NULL ORDER BY hatcherId',
+      'SELECT DISTINCT hatcher AS hatcherId FROM hatcher_optimizing $clause AND hatcher IS NOT NULL ORDER BY hatcher',
       args,
     );
     return rows.map((row) => row['hatcherId']?.toString()).nonNulls.toList();
@@ -260,15 +253,31 @@ class PanelDashboardRepository {
     final db = await _dbHelper.db;
     final (:clause, :args) = _where(filter, 'egg_storage', tableAlias: 's');
     final rows = await db.rawQuery('''
-      SELECT estReadingsJson
+      SELECT id, sessionId, estReadingsJson
       FROM egg_storage s
       $clause
       ORDER BY date DESC, updatedAt DESC
       LIMIT 1
       ''', args);
     if (rows.isEmpty) return null;
+    final row = rows.first;
+    final photoRows = await db.query(
+      'photos',
+      columns: ['fieldKey', 'filePath'],
+      where: 'sessionId = ? AND panelName = ? AND fieldKey LIKE ?',
+      whereArgs: [row['sessionId'], 'egg_storage', 'shell_temp_%'],
+      orderBy: 'createdAt ASC',
+    );
+    final photosByPoint = <String, String>{};
+    for (final photo in photoRows) {
+      final fieldKey = photo['fieldKey']?.toString();
+      final path = photo['filePath']?.toString().trim();
+      if (fieldKey == null || path == null || path.isEmpty) continue;
+      photosByPoint[fieldKey.replaceFirst('shell_temp_', '')] = path;
+    }
     return EggStorageEstEvidence.fromJsonStrings(
-      readingsJson: rows.first['estReadingsJson']?.toString(),
+      readingsJson: row['estReadingsJson']?.toString(),
+      photosJson: photosByPoint.isEmpty ? null : jsonEncode(photosByPoint),
     );
   }
 
@@ -285,7 +294,7 @@ class PanelDashboardRepository {
       SELECT date, weightsJson, avgWeight, uniformityPct, cvPct
       FROM chick_weights
       $clause
-      ORDER BY date ASC, sampleIndex ASC, createdAt ASC
+      ORDER BY date ASC, house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC
       ''', args);
     if (rows.isEmpty) return null;
     final weightsByDate = <String, List<double>>{};
@@ -319,18 +328,18 @@ class PanelDashboardRepository {
 
   Future<PasgarAvg?> getPasgarAvg(DashboardFilter filter) async {
     final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_pasgar');
+    final (:clause, :args) = _where(filter, 'chick_quality');
     final rows = await db.rawQuery('''
       SELECT
-        COUNT(finalScore) AS rowCount,
-        AVG(finalScore) AS score,
-        AVG(reflexesPct) AS reflexesPct,
-        AVG(beakPct) AS beakPct,
-        AVG(navelPct) AS navelPct,
-        AVG(bellyPct) AS bellyPct,
-        AVG(legPct) AS legPct,
-        AVG(featherDevPct) AS featherDevPct
-      FROM chick_pasgar
+        COUNT(pasgarFinalScore) AS rowCount,
+        AVG(pasgarFinalScore) AS score,
+        AVG(pasgarReflexesPct) AS reflexesPct,
+        AVG(pasgarBeakPct) AS beakPct,
+        AVG(pasgarNavelPct) AS navelPct,
+        AVG(pasgarBellyPct) AS bellyPct,
+        AVG(pasgarLegPct) AS legPct,
+        AVG(pasgarFeatherDevPct) AS featherDevPct
+      FROM chick_quality
       $clause
       ''', args);
     if (rows.isEmpty || (rows.first['rowCount'] as int? ?? 0) == 0) {
@@ -341,10 +350,10 @@ class PanelDashboardRepository {
 
   Future<CvtAvg?> getCvtAvg(DashboardFilter filter) async {
     final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_cvt');
+    final (:clause, :args) = _where(filter, 'chick_quality');
     final rows = await db.rawQuery('''
-      SELECT COUNT(avgTemp) AS rowCount, AVG(avgTemp) AS avgTempF, AVG(cvPct) AS cvPct
-      FROM chick_cvt
+      SELECT COUNT(cvtAvgTemp) AS rowCount, AVG(cvtAvgTemp) AS avgTempF, AVG(cvtCvPct) AS cvPct
+      FROM chick_quality
       $clause
       ''', args);
     if (rows.isEmpty || (rows.first['rowCount'] as int? ?? 0) == 0) {
@@ -355,16 +364,86 @@ class PanelDashboardRepository {
 
   Future<List<YfbmTrend>?> getYfbmTrend(DashboardFilter filter) async {
     final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_yfbm');
+    final (:clause, :args) = _where(filter, 'chick_quality');
     final rows = await db.rawQuery('''
-      SELECT date, AVG(avgPct) AS avgPct, AVG(cvPct) AS cvPct
-      FROM chick_yfbm
+      SELECT date, AVG(yfbmAvgPct) AS avgPct, AVG(yfbmCvPct) AS cvPct
+      FROM chick_quality
       $clause
       GROUP BY date
       ORDER BY date ASC
       ''', args);
     if (rows.isEmpty) return null;
     return rows.map(YfbmTrend.fromMap).toList();
+  }
+
+  Future<CulledChicksAnalysisAvg?> getCulledChicksAnalysis(
+    DashboardFilter filter,
+  ) async {
+    final db = await _dbHelper.db;
+    final (:clause, :args) = _where(filter, 'chick_quality');
+    final rows = await db.rawQuery('''
+      SELECT culledChicksTotalEggSet, culledChicksAnalysisJson
+      FROM chick_quality
+      $clause
+      ORDER BY date ASC, house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC
+      ''', args);
+    if (rows.isEmpty) return null;
+
+    var totalEggSet = 0;
+    var unweightedRows = 0;
+    final weightedPctById = <String, double>{};
+    final unweightedPctById = <String, double>{};
+    for (final row in rows) {
+      final rowEggSet = _asInt(row['culledChicksTotalEggSet']) ?? 0;
+      final entries = CulledChicksAnalysisCodec.decode(
+        row['culledChicksAnalysisJson']?.toString(),
+        totalEggSet: rowEggSet,
+      );
+      if (rowEggSet > 0) {
+        totalEggSet += rowEggSet;
+      } else if (entries.isNotEmpty) {
+        unweightedRows += 1;
+      }
+      if (entries.isEmpty) continue;
+      for (final entry in entries) {
+        if (rowEggSet > 0) {
+          weightedPctById.update(
+            entry.defect.id,
+            (value) => value + (entry.pct * rowEggSet),
+            ifAbsent: () => entry.pct * rowEggSet,
+          );
+          continue;
+        }
+        unweightedPctById.update(
+          entry.defect.id,
+          (value) => value + entry.pct,
+          ifAbsent: () => entry.pct,
+        );
+      }
+    }
+
+    final entries = <CulledChicksAnalysisEntry>[];
+    final allDefectIds = {...weightedPctById.keys, ...unweightedPctById.keys};
+    for (final id in allDefectIds) {
+      final defect = culledChickDefectById(id);
+      if (defect == null) continue;
+      final weightedPct = totalEggSet > 0
+          ? (weightedPctById[id] ?? 0) / totalEggSet
+          : 0.0;
+      final unweightedPct = unweightedRows > 0
+          ? (unweightedPctById[id] ?? 0) / unweightedRows
+          : 0.0;
+      final pct = weightedPct + unweightedPct;
+      if (pct <= 0) continue;
+      entries.add(CulledChicksAnalysisEntry(defect: defect, pct: pct));
+    }
+
+    final summary = CulledChicksAnalysisSummary.fromEntries(
+      entries,
+      totalEggSet: totalEggSet,
+    );
+    if (!summary.hasData) return null;
+    return CulledChicksAnalysisAvg.fromSummary(summary);
   }
 
   Future<List<ChaEnvironmentalTrend>?> getChaEnvironmentalTrend(
@@ -384,13 +463,32 @@ class PanelDashboardRepository {
         AVG(q.eggAvgWeight) AS avgWeightG,
         AVG(q.eggUniformityPct) AS uniformityPct,
         AVG(q.eggCvPct) AS cvPct,
+        SUM(q.eggSampleSize) AS eggSampleSize,
+        AVG(q.eggBmkWeight) AS eggBmkWeight,
         AVG(s.shellTemp) AS shellTempC,
         AVG(q.uvAffectedPct) AS uvAffectedPct,
+        SUM(q.uvTrayEggCount) AS uvTrayEggCount,
+        AVG(q.uvCuticleDamagePct) AS uvCuticleDamagePct,
+        AVG(q.uvWashedPct) AS uvWashedPct,
+        AVG(q.uvDirtyPct) AS uvDirtyPct,
         0.0 AS co2,
         AVG(s.estAvg) AS estAvgF,
-        AVG(s.estCvPct) AS estCvPct
+        AVG(s.estCvPct) AS estCvPct,
+        MAX(s.storagePeriodDays) AS storageDays,
+        MAX(s.turningTimes) AS turningTimes,
+        MAX(s.traySpacing) AS traySpacing,
+        MAX(s.coolerProximity) AS coolerProximity,
+        MAX(s.condensationPresent) AS condensationPresent,
+        SUM(s.upsideDownCount) AS upsideDownCount,
+        AVG(s.upsideDownPct) AS upsideDownPct
       FROM egg_storage s
-      LEFT JOIN egg_quality q ON q.sessionId = s.sessionId AND q.sampleIndex = s.sampleIndex
+      LEFT JOIN egg_quality q ON q.sessionId = s.sessionId
+        AND IFNULL(q.house, '') = IFNULL(s.house, '')
+        AND IFNULL(q.setter, '') = IFNULL(s.setter, '')
+        AND IFNULL(q.hatcher, '') = IFNULL(s.hatcher, '')
+        AND IFNULL(q.trolley, '') = IFNULL(s.trolley, '')
+        AND IFNULL(q.tray, '') = IFNULL(s.tray, '')
+        AND IFNULL(q.position, '') = IFNULL(s.position, '')
       $clause
       GROUP BY s.date
       ORDER BY s.date ASC
@@ -410,13 +508,13 @@ class PanelDashboardRepository {
     final rows = await db.rawQuery(
       '''
       SELECT
-        setterId,
+        setter AS setterId,
         AVG(estAvg) AS estAvgF,
         AVG(estCvPct) AS estCvPct,
         AVG(turningAngle) AS turningAngle
       FROM setter_optimizing
-      $clause AND setterId IN ($placeholders)
-      GROUP BY setterId
+      $clause AND setter IN ($placeholders)
+      GROUP BY setter
       ''',
       [...args, ...setterIds],
     );
@@ -435,13 +533,13 @@ class PanelDashboardRepository {
     final rows = await db.rawQuery(
       '''
       SELECT
-        hatcherId,
+        hatcher AS hatcherId,
         AVG(cvtAvg) AS cvtAvgF,
         AVG(cvtCvPct) AS cvtCvPct,
         MAX(meconium) AS meconium
       FROM hatcher_optimizing
-      $clause AND hatcherId IN ($placeholders)
-      GROUP BY hatcherId
+      $clause AND hatcher IN ($placeholders)
+      GROUP BY hatcher
       ''',
       [...args, ...hatcherIds],
     );
@@ -459,7 +557,8 @@ class PanelDashboardRepository {
         panel.tableName,
         where: 'sessionId = ?',
         whereArgs: [sessionId],
-        orderBy: 'sampleIndex ASC, updatedAt ASC',
+        orderBy:
+            'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, updatedAt ASC',
       );
       rowsByPanel[panel.tableName] = rows
           .map((row) => Map<String, dynamic>.from(row))

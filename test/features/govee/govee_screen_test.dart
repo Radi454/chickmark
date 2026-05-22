@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
@@ -244,6 +245,29 @@ void main() {
     );
   });
 
+  testWidgets('live header uses the brand gradient card surface', (
+    tester,
+  ) async {
+    final govee = _MockGoveeService();
+    _stubLiveGovee(govee);
+    final provider = await _configuredProvider(govee: govee);
+
+    await tester.pumpWidget(buildGoveeTestApp(provider: provider));
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('govee-live-header')),
+        matching: find.byWidgetPredicate((widget) {
+          if (widget is! Container) return false;
+          final decoration = widget.decoration;
+          return decoration is BoxDecoration &&
+              decoration.gradient == AppColors.brandGradient;
+        }),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Govee main card opens settings with connection controls', (
     tester,
   ) async {
@@ -317,7 +341,7 @@ void main() {
     await tester.pumpWidget(buildGoveeTestApp(provider: provider));
 
     final dateButton = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '2026-05-06'),
+      find.widgetWithText(OutlinedButton, '06-05-2026'),
     );
     expect(dateButton.onPressed, isNull);
     expect(provider.captureDate, '2026-05-06');
@@ -331,7 +355,7 @@ void main() {
     await tester.pumpWidget(buildGoveeTestApp(provider: provider));
 
     final dateButton = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '2026-05-06'),
+      find.widgetWithText(OutlinedButton, '06-05-2026'),
     );
     expect(dateButton.onPressed, isNull);
     expect(provider.captureDate, '2026-05-06');
@@ -416,9 +440,7 @@ void main() {
     expect(find.text('Relative Humidity'), findsWidgets);
   });
 
-  testWidgets('saved captures stay available in an expandable card', (
-    tester,
-  ) async {
+  testWidgets('Govee screen does not show saved history cards', (tester) async {
     final govee = _MockGoveeService();
     _stubLiveGovee(govee);
     final capture = _savedCapture(
@@ -434,38 +456,26 @@ void main() {
 
     await tester.pumpWidget(buildGoveeTestApp(provider: provider));
 
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('govee-saved-captures-card')),
-      260,
-    );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('govee-saved-captures-card')),
-    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
     await tester.pumpAndSettle();
 
-    expect(find.text('Saved captures'), findsOneWidget);
+    expect(find.text('Saved captures'), findsNothing);
     expect(
       find.byKey(const ValueKey('govee-saved-captures-card')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('1 saved'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('govee-saved-captures-card')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Egg storage room'), findsWidgets);
-    expect(find.text('2 readings'), findsWidgets);
+    expect(find.text('Egg storage room'), findsNothing);
+    expect(find.text('2 readings'), findsNothing);
 
     await provider.startRecording();
     await tester.pump();
 
-    expect(find.text('Saved captures'), findsOneWidget);
+    expect(find.text('Saved captures'), findsNothing);
     expect(
       find.byKey(const ValueKey('govee-saved-captures-card')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('Egg storage room'), findsWidgets);
-    expect(find.text('2 readings'), findsWidgets);
   });
 
   testWidgets('live chart preview renders temperature and RH charts', (

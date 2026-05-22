@@ -122,6 +122,15 @@ void main() {
     },
   );
 
+  test('chick storage defaults to zero for BMK sample metadata', () {
+    final provider = AuditProvider();
+    provider.initialize(context(), notify: false);
+
+    expect(provider.activeDraft.chickStorageDays, 0);
+    expect(provider.activeStationSample.storageDays, 0);
+    expect(provider.activeStationSample.calculatedBmkAgeDays, 273);
+  });
+
   test('removeActiveHatch keeps compare hatch numbers sequential', () {
     final provider = AuditProvider();
     provider.initialize(context(), notify: false);
@@ -145,22 +154,26 @@ void main() {
     ]);
   });
 
-  test('sample drafts keep independent values when switching samples', () {
+  test('egg quality measurements stay independent while storage is shared', () {
     final provider = AuditProvider();
     provider.initialize(stationContext('Egg'), notify: false);
 
     provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
     provider.updateField('esEggStorageDays', 3);
+    provider.updateField('esEggAvgWeight', 55.0);
     provider.addSample();
     provider.updateField('esEggStorageDays', 7);
+    provider.updateField('esEggAvgWeight', 66.0);
     provider.switchSample(0);
 
-    expect(provider.activeDraft.esEggStorageDays, 3);
-    expect(provider.activeStationSample.storageDays, 3);
+    expect(provider.activeDraft.esEggStorageDays, 7);
+    expect(provider.activeDraft.esEggAvgWeight, 55.0);
+    expect(provider.activeStationSample.storageDays, 7);
 
     provider.switchSample(1);
 
     expect(provider.activeDraft.esEggStorageDays, 7);
+    expect(provider.activeDraft.esEggAvgWeight, 66.0);
     expect(provider.activeStationSample.storageDays, 7);
   });
 
@@ -193,6 +206,182 @@ void main() {
       'House 3',
     ]);
   });
+
+  test('egg quality scopes stay pooled until a scope comparison is added', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(provider.sampleCount, 1);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
+    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindHouse,
+      StationSampleModel.sampleKindHouse,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeHouse,
+      StationSampleModel.comparisonTypeHouse,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'H1',
+      'H2',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), [
+      'H1',
+      'H2',
+    ]);
+
+    provider.removeActiveSample();
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(provider.sampleCount, 1);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
+    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindMachine,
+      StationSampleModel.sampleKindMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeMachine,
+      StationSampleModel.comparisonTypeMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'S1H1',
+      'S2H2',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.setterNo), [
+      'S1',
+      'S2',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
+      'H1',
+      'H2',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), [
+      null,
+      null,
+    ]);
+  });
+
+  test('egg quality machine samples stay under the active house scope', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.switchSample(0);
+
+    expect(provider.isEggQualityHouseScopeActive, isTrue);
+    expect(provider.activeStationSample.sampleKind, 'house');
+    expect(provider.activeStationSample.houseNo, 'H1');
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(provider.isEggQualityHouseScopeActive, isTrue);
+    expect(provider.isEggQualityMachineScopeActive, isTrue);
+    expect(
+      provider.stationSamples
+          .where(
+            (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
+          )
+          .map((sample) => sample.houseNo),
+      ['H1', 'H2'],
+    );
+
+    final machineSamples = provider.stationSamples
+        .where(
+          (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
+        )
+        .toList();
+    expect(machineSamples, hasLength(1));
+    expect(machineSamples.single.houseNo, 'H1');
+    expect(machineSamples.single.houseLabel, 'House 1');
+    expect(machineSamples.single.sampleLabel, 'S1H1');
+    expect(machineSamples.single.setterNo, 'S1');
+    expect(machineSamples.single.hatcherNo, 'H1');
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    final h1MachineSamples = provider.stationSamples
+        .where(
+          (sample) =>
+              sample.sampleKind == StationSampleModel.sampleKindMachine &&
+              sample.houseNo == 'H1',
+        )
+        .toList();
+    expect(h1MachineSamples.map((sample) => sample.sampleLabel), [
+      'S1H1',
+      'S2H2',
+    ]);
+
+    final h2Index = provider.stationSamples.indexWhere(
+      (sample) =>
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          sample.houseNo == 'H2',
+    );
+    provider.switchSample(h2Index);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    final h2MachineSamples = provider.stationSamples
+        .where(
+          (sample) =>
+              sample.sampleKind == StationSampleModel.sampleKindMachine &&
+              sample.houseNo == 'H2',
+        )
+        .toList();
+    expect(h2MachineSamples.map((sample) => sample.sampleLabel), ['S1H1']);
+    expect(h2MachineSamples.single.setterNo, 'S1');
+    expect(h2MachineSamples.single.hatcherNo, 'H1');
+  });
+
+  test(
+    'egg storage and BMK fields are shared across quality scope samples',
+    () {
+      final provider = AuditProvider();
+      provider.initialize(stationContext('Egg'), notify: false);
+
+      provider.updateField('esEggStorageDays', 5);
+      provider.updateField('esEggQualityStorageDays', 3);
+      provider.updateField('esEggBmkAge', 39);
+      provider.updateField('esEggBmkWeight', 61.5);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+      expect(provider.drafts.map((draft) => draft.esEggStorageDays), [5, 5]);
+      expect(provider.drafts.map((draft) => draft.esEggQualityStorageDays), [
+        3,
+        3,
+      ]);
+      expect(provider.drafts.map((draft) => draft.esEggBmkAge), [39, 39]);
+      expect(provider.drafts.map((draft) => draft.esEggBmkWeight), [
+        61.5,
+        61.5,
+      ]);
+
+      provider.updateField('esEggQualityStorageDays', 4);
+      provider.updateField('esEggBmkAge', 38);
+      provider.updateField('esEggBmkWeight', 60.2);
+
+      expect(provider.drafts.map((draft) => draft.esEggQualityStorageDays), [
+        4,
+        4,
+      ]);
+      expect(provider.drafts.map((draft) => draft.esEggBmkAge), [38, 38]);
+      expect(provider.drafts.map((draft) => draft.esEggBmkWeight), [
+        60.2,
+        60.2,
+      ]);
+
+      provider.switchSample(0);
+      provider.updateField('esEggStorageDays', 6);
+
+      expect(provider.drafts.map((draft) => draft.esEggStorageDays), [6, 6]);
+    },
+  );
 
   test('setter comparison samples are labeled by setter number', () {
     final provider = AuditProvider();
@@ -360,6 +549,9 @@ void main() {
         'H1',
         'H2',
       ]);
+      provider.switchChickWeightSample(0);
+      expect(provider.activeChickWeightSample.sampleLabel, 'H1');
+      expect(provider.activeChickWeightSample.houseNo, 'H1');
       expect(provider.chickWeightSamples.map((sample) => sample.setterNo), [
         null,
         null,

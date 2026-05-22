@@ -21,7 +21,7 @@ void main() {
         name TEXT
       )
     ''');
-    await DatabaseHelper().applyV33UpgradeForTest(db);
+    await _createSyncTombstoneTable(db);
     dbHelper = _MockDatabaseHelper();
     when(() => dbHelper.db).thenAnswer((_) async => db);
     repository = SyncTombstoneRepository(dbHelper: dbHelper);
@@ -59,4 +59,16 @@ void main() {
     final rows = await db.query('customers');
     expect(rows, isEmpty);
   });
+}
+
+Future<void> _createSyncTombstoneTable(Database db) async {
+  await db.execute('''CREATE TABLE sync_tombstones (
+    id TEXT PRIMARY KEY,
+    tableName TEXT NOT NULL,
+    rowId TEXT NOT NULL,
+    deletedAt TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    syncedAt TEXT,
+    lastError TEXT
+  )''');
 }

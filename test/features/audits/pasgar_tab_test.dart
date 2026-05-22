@@ -45,8 +45,8 @@ void main() {
   ) async {
     await pumpPasgarTab(tester);
 
-    expect(find.text('Sample Size'), findsOneWidget);
-    expect(find.text('Defect Counts'), findsOneWidget);
+    expect(find.text('Sample Size'), findsNothing);
+    expect(find.text('Defect Counts'), findsNothing);
     expect(find.text('Reflexes'), findsOneWidget);
     expect(find.text('Beak'), findsOneWidget);
     expect(find.text('Navel'), findsOneWidget);
@@ -62,5 +62,15 @@ void main() {
     expect(find.byIcon(Icons.circle_outlined), findsNothing);
     expect(find.byIcon(Icons.directions_walk), findsNothing);
     expect(find.byIcon(Icons.air), findsNothing);
+  });
+
+  testWidgets('keeps embedded defect rows compact at station width', (
+    tester,
+  ) async {
+    await pumpPasgarTab(tester);
+
+    final reflexes = tester.widget<Text>(find.text('Reflexes'));
+
+    expect(reflexes.style?.fontSize, lessThanOrEqualTo(17));
   });
 }

@@ -117,7 +117,11 @@ class StationSampleMapper {
   }
 
   static String? _legacyStorageDaysKey(StationSampleModel sample) {
-    if (sample.stationType == 'egg') return 'esEggStorageDays';
+    if (sample.stationType == 'egg') {
+      return sample.sectorType == StationSampleModel.sectorEggQuality
+          ? 'esEggQualityStorageDays'
+          : 'esEggStorageDays';
+    }
     if (sample.stationType == 'chicks') return 'chickStorageDays';
     if (sample.stationType == 'hatch_analysis_egg_breakouts') {
       return _isEggBreakoutSample(sample) ? 'ebStorageDays' : 'haStorageDays';
@@ -341,10 +345,17 @@ class StationSampleMapper {
   }
 
   static int? _storageDays(AuditModel audit) {
-    return audit.esEggStorageDays ??
+    final storageDays =
+        audit.esEggQualityStorageDays ??
+        audit.esEggStorageDays ??
         audit.chickStorageDays ??
         audit.haStorageDays ??
         audit.ebStorageDays;
+    if (storageDays != null) return storageDays;
+    return switch (audit.auditType) {
+      'Egg' || 'Chicks' || 'Hatch Analysis & Egg Breakouts' => 0,
+      _ => null,
+    };
   }
 
   static int? _legacyBmkWeeks(AuditModel audit) {

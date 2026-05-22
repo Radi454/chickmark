@@ -151,11 +151,10 @@ void main() {
         expect(find.text('Breed from flock'), findsNothing);
         expect(find.text('Setter type'), findsOneWidget);
         expect(find.byKey(const ValueKey('setter-type-multi')), findsOneWidget);
+        expect(find.text('Setpoint RH (%)'), findsOneWidget);
+        expect(find.text('Actual RH (%)'), findsOneWidget);
         expect(provider.activeDraft.soMachineType, 'Multi');
-        expect(
-          tester.getTopLeft(find.text('Setter settings')).dy,
-          lessThan(tester.getTopLeft(find.text('EST sample 1')).dy),
-        );
+        expect(find.text('Setter settings'), findsNothing);
 
         await tester.enterText(
           find.byKey(const ValueKey('setter-batch-count-field')),
@@ -167,6 +166,19 @@ void main() {
         expect(provider.activeDraft.soBatchSize, 19200);
         expect(provider.activeDraft.soBatchCount, 3);
         expect(provider.activeDraft.soTotalEggsSet, 57600);
+
+        await tester.enterText(
+          find.byKey(const ValueKey('setter-setpoint-rh-field')),
+          '55',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('setter-actual-rh-field')),
+          '57.5',
+        );
+        await tester.pump();
+
+        expect(provider.activeDraft.soSetpointRh, 55.0);
+        expect(provider.activeDraft.soActualRh, 57.5);
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
@@ -195,11 +207,38 @@ void main() {
       expect(find.text('Allowed 99.5-102°F'), findsNothing);
       expect(find.text('Optimum 100-101°F'), findsNothing);
 
+      final turningAngleField = tester.widget<TextField>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.labelText == 'Turning Angle (°)',
+        ),
+      );
+      expect(
+        turningAngleField.decoration?.floatingLabelBehavior,
+        FloatingLabelBehavior.always,
+      );
+      expect(
+        turningAngleField.decoration?.floatingLabelStyle?.color,
+        const Color(0xFF1769D8),
+      );
+      expect(turningAngleField.decoration?.floatingLabelStyle?.fontSize, 14);
+
       final co2Field = find.byWidgetPredicate(
         (widget) =>
             widget is TextField &&
             widget.decoration?.labelText == 'CO2 Level (ppm)',
       );
+      final co2TextField = tester.widget<TextField>(co2Field);
+      expect(
+        co2TextField.decoration?.floatingLabelBehavior,
+        FloatingLabelBehavior.always,
+      );
+      expect(
+        co2TextField.decoration?.floatingLabelStyle?.color,
+        const Color(0xFF1769D8),
+      );
+      expect(co2TextField.decoration?.floatingLabelStyle?.fontSize, 14);
       final co2PhotoButton = find.byKey(
         const ValueKey('setter-co2-photo-button'),
       );
@@ -246,62 +285,85 @@ void main() {
   testWidgets('Hatcher screen uses setter-style hatcher hierarchy', (
     tester,
   ) async {
-    final provider = await pumpHatcherScreen(tester);
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpHatcherScreen(tester);
 
-    expect(find.text('Hatchers'), findsWidgets);
-    expect(find.text('H01'), findsOneWidget);
-    expect(find.text('Hatcher settings'), findsOneWidget);
-    expect(find.text('Hatcher number'), findsOneWidget);
-    expect(find.text('CVT sample 1'), findsNothing);
-    expect(find.text('Add hatcher'), findsOneWidget);
-    expect(find.text('Add sample'), findsNothing);
-    expect(find.text('Guided CVT capture'), findsOneWidget);
-    expect(find.text('CVT BMK 103-105°F'), findsNothing);
-    expect(find.text('Chick vent temp.'), findsNothing);
-    expect(find.text('Hatcher type'), findsNothing);
-    expect(find.text('Turning Angle (°)'), findsNothing);
-    expect(find.text('Transfer Day'), findsNothing);
-    expect(find.text('Dark greenish'), findsOneWidget);
-    expect(find.text('Water'), findsOneWidget);
-    expect(find.text('Greenish'), findsNothing);
-    expect(find.text('Watery'), findsNothing);
-    expect(
-      tester.getTopLeft(find.text('H01')).dy,
-      lessThan(tester.getTopLeft(find.text('Hatcher settings')).dy),
-    );
-    expect(
-      tester.getTopLeft(find.text('Hatcher settings')).dy,
-      lessThan(tester.getTopLeft(find.text('Guided CVT capture')).dy),
-    );
+      expect(find.text('Hatchers'), findsWidgets);
+      expect(find.text('H01'), findsOneWidget);
+      expect(find.text('Hatcher settings'), findsOneWidget);
+      expect(find.text('Hatcher number'), findsOneWidget);
+      expect(find.text('Setpoint (°F)'), findsOneWidget);
+      expect(find.text('Setpoint RH (%)'), findsOneWidget);
+      expect(find.text('CVT sample 1'), findsNothing);
+      expect(find.text('Add hatcher'), findsOneWidget);
+      expect(find.text('Add sample'), findsNothing);
+      expect(find.text('Guided CVT capture'), findsOneWidget);
+      expect(find.text('CVT BMK 103-105°F'), findsNothing);
+      expect(find.text('Chick vent temp.'), findsNothing);
+      expect(find.text('Hatcher type'), findsNothing);
+      expect(find.text('Turning Angle (°)'), findsNothing);
+      expect(find.text('Transfer Day'), findsNothing);
+      expect(find.text('Dark greenish'), findsOneWidget);
+      expect(find.text('Water'), findsOneWidget);
+      expect(find.text('Greenish'), findsNothing);
+      expect(find.text('Watery'), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('H01')).dy,
+        lessThan(tester.getTopLeft(find.text('Hatcher settings')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Hatcher settings')).dy,
+        lessThan(tester.getTopLeft(find.text('Guided CVT capture')).dy),
+      );
 
-    final co2Field = find.byWidgetPredicate(
-      (widget) =>
-          widget is TextField &&
-          widget.decoration?.labelText == 'CO2 Level (ppm)',
-    );
-    await tester.ensureVisible(co2Field);
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('hatcher-setpoint-f-field')),
+        '99.5',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('hatcher-setpoint-rh-field')),
+        '58',
+      );
+      await tester.pump();
 
-    final co2FieldCenterY = tester.getCenter(co2Field).dy;
-    final inlineCameraIcons = find.byIcon(Icons.camera_alt).evaluate().where((
-      element,
-    ) {
-      final iconFinder = find.byWidget(element.widget);
-      return (tester.getCenter(iconFinder).dy - co2FieldCenterY).abs() < 2;
-    }).toList();
-    expect(inlineCameraIcons, hasLength(1));
+      expect(provider.activeDraft.hoSetpointF, 99.5);
+      expect(provider.activeDraft.hoSetpointRh, 58.0);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('hatcher-add-sample-button')),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('hatcher-add-sample-button')));
-    await tester.pump();
+      final co2Field = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'CO2 Level (ppm)',
+      );
+      await tester.ensureVisible(co2Field);
+      await tester.pumpAndSettle();
 
-    expect(provider.sampleCount, 2);
-    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
-    expect(find.text('H01'), findsOneWidget);
-    expect(find.text('H2'), findsOneWidget);
+      final co2FieldCenterY = tester.getCenter(co2Field).dy;
+      final inlineCameraIcons = find.byIcon(Icons.camera_alt).evaluate().where((
+        element,
+      ) {
+        final iconFinder = find.byWidget(element.widget);
+        return (tester.getCenter(iconFinder).dy - co2FieldCenterY).abs() < 2;
+      }).toList();
+      expect(inlineCameraIcons, hasLength(1));
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('hatcher-add-sample-button')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('hatcher-add-sample-button')));
+      await tester.pump();
+
+      expect(provider.sampleCount, 2);
+      expect(
+        provider.stationSampleMode,
+        StationSampleModel.sampleModeComparison,
+      );
+      expect(find.text('H01'), findsOneWidget);
+      expect(find.text('H2'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('Hatcher meconium assessment includes a photo action', (

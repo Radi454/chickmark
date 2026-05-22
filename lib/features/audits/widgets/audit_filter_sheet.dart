@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/models/flock_model.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../providers/customers_provider.dart';
 import '../models/audit_filter.dart';
 
@@ -237,8 +238,6 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
     }
     final from = _filter.dateFrom!;
     final to = _filter.dateTo!;
-    return '${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}'
-        ' to '
-        '${to.year}-${to.month.toString().padLeft(2, '0')}-${to.day.toString().padLeft(2, '0')}';
+    return '${HatchDateUtils.formatDisplayDate(from)} to ${HatchDateUtils.formatDisplayDate(to)}';
   }
 }

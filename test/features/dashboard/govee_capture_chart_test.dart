@@ -38,7 +38,7 @@ void main() {
 
     expect(find.text('Egg storage room'), findsOneWidget);
     expect(find.text('Setter 7'), findsOneWidget);
-    expect(find.text('2026-05-02'), findsOneWidget);
+    expect(find.text('02-05-2026'), findsOneWidget);
     expect(find.text('12:00 PM - 12:04 PM'), findsOneWidget);
     expect(find.text('Temp'), findsOneWidget);
     expect(find.text('RH'), findsOneWidget);
@@ -171,7 +171,7 @@ void main() {
           .getTooltipItems([LineBarSpot(bar, 0, bar.spots.first)]);
 
       expect(tooltipItems, hasLength(1));
-      expect(tooltipItems.single!.text, contains('2026-05-02 12:00:00'));
+      expect(tooltipItems.single!.text, contains('02-05-2026 12:00:00'));
       expect(tooltipItems.single!.text, contains('Temp 71.0F'));
       expect(tooltipItems.single!.text, contains('RH 56.0%'));
       expect(tooltipItems.single!.text, isNot(contains('Spot')));

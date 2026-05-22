@@ -10,6 +10,7 @@ import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
+import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
@@ -27,12 +28,15 @@ class MockStationSampleRepository extends Mock
 
 class MockPanelSampleRepository extends Mock implements PanelSampleRepository {}
 
+class MockBenchmarkLookup extends Mock implements BenchmarkLookup {}
+
 void main() {
   late MockAuditRepository auditRepository;
   late MockActivityLogRepository activityLogRepository;
   late MockSupabaseService supabaseService;
   late MockStationSampleRepository stationSampleRepository;
   late MockPanelSampleRepository panelSampleRepository;
+  late MockBenchmarkLookup benchmarkLookup;
   late AuditProvider provider;
 
   final user = UserModel(
@@ -87,6 +91,7 @@ void main() {
     supabaseService = MockSupabaseService();
     stationSampleRepository = MockStationSampleRepository();
     panelSampleRepository = MockPanelSampleRepository();
+    benchmarkLookup = MockBenchmarkLookup();
 
     when(
       () => activityLogRepository.log(
@@ -103,6 +108,39 @@ void main() {
         samples: any(named: 'samples'),
       ),
     ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteHierarchyRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
+        any(),
+        any(),
+        any(),
+        keepHierarchyRows: any(named: 'keepHierarchyRows'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => benchmarkLookup.nearestBreakoutBenchmark(
+        calculatedBmkAgeDays: any(named: 'calculatedBmkAgeDays'),
+      ),
+    ).thenAnswer(
+      (_) async => {
+        'infertilePct': 5.0,
+        'early24hPct': 1.0,
+        'early48hPct': 2.0,
+        'bloodRingPct': 2.5,
+        'blackEyePct': 1.0,
+        'earlyDeadPct': 4.0,
+        'midDeadPct': 1.0,
+        'lateDeadPct': 2.5,
+        'externalPipPct': 0.5,
+        'crackedPct': 0.5,
+        'contamPct': 0.5,
+      },
+    );
 
     provider = AuditProvider(
       repository: auditRepository,
@@ -110,6 +148,7 @@ void main() {
       supabaseService: supabaseService,
       stationSampleRepository: stationSampleRepository,
       panelSampleRepository: panelSampleRepository,
+      benchmarkLookup: benchmarkLookup,
       autosaveEnabled: false,
     );
     provider.initialize(
@@ -168,7 +207,7 @@ void main() {
     final storage = calls.first.panel;
     expect(storage.sessionId, 'session-1');
     expect(storage.mode, PanelRecord.modePool);
-    expect(storage.values['storageDays'], 4);
+    expect(storage.values['storagePeriodDays'], 4);
     expect(storage.values['upsideDownCount'], 4);
     expect(storage.values['upsideDownPct'], 4.0);
 
@@ -186,13 +225,179 @@ void main() {
     verifyNever(() => stationSampleRepository.upsertSample(any()));
   });
 
+  test('saveSamplesWithResult skips untouched egg station panels', () async {
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    verifyNever(
+      () => panelSampleRepository.savePanelWithSamples(
+        panel: any(named: 'panel'),
+        samples: any(named: 'samples'),
+      ),
+    );
+  });
+
+  test('saveSamplesWithResult skips blank egg station panels', () async {
+    provider.updateField('esEggStorageDays', null);
+    provider.updateField('esEggQualityStorageDays', null);
+
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    verifyNever(
+      () => panelSampleRepository.savePanelWithSamples(
+        panel: any(named: 'panel'),
+        samples: any(named: 'samples'),
+      ),
+    );
+    expect(provider.activeStationSample.storageDays, 0);
+  });
+
   test(
-    'comparison mode writes multiple rows inside each panel table',
+    'saveSamplesWithResult skips egg quality with only auto BMK data',
+    () async {
+      provider.updateField('esEggBmkAge', 38);
+      provider.updateField('esEggBmkWeight', 67.0);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      verifyNever(
+        () => panelSampleRepository.savePanelWithSamples(
+          panel: any(named: 'panel'),
+          samples: any(named: 'samples'),
+        ),
+      );
+    },
+  );
+
+  test(
+    'saveSamplesWithResult keeps storage-only tray totals out of egg quality',
+    () async {
+      provider.updateField('esEggStorageDays', 38);
+      provider.updateField('esEggQualityStorageDays', 38);
+      provider.updateField('esEggBmkAge', 38);
+      provider.updateField('esEggBmkWeight', 67.0);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 150,
+            'cuticleDamage': 0,
+            'washed': 0,
+            'dirty': 0,
+            'upsideDown': 0,
+          },
+        ]),
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final calls = capturedPanelCalls();
+      expect(calls.map((call) => call.panel.tableName), ['egg_storage']);
+      expect(calls.single.panel.values['storagePeriodDays'], 38);
+      expect(calls.single.panel.values['upsideDownCount'], 0);
+    },
+  );
+
+  test(
+    'saveSamplesWithResult saves explicit clean UV quality inspections',
+    () async {
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 150,
+            'cuticleDamage': 0,
+            'washed': 0,
+            'dirty': 0,
+            'upsideDown': 0,
+            'qualityTouched': true,
+          },
+        ]),
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final calls = capturedPanelCalls();
+      final quality = calls.singleWhere(
+        (call) => call.panel.tableName == 'egg_quality',
+      );
+      expect(quality.panel.values['uvTrayEggCount'], 150);
+      expect(quality.panel.values['uvAffectedCount'], 0);
+      expect(quality.panel.values['uvAffectedPct'], 0.0);
+    },
+  );
+
+  test(
+    'saveSamplesWithResult writes egg quality storage with quality data',
+    () async {
+      provider.updateField('esEggStorageDays', 4);
+      provider.updateField('esEggQualityStorageDays', 9);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 150,
+            'cuticleDamage': 0,
+            'washed': 0,
+            'dirty': 0,
+            'upsideDown': 0,
+            'qualityTouched': true,
+          },
+        ]),
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final calls = capturedPanelCalls();
+      final storage = calls.firstWhere(
+        (call) => call.panel.tableName == 'egg_storage',
+      );
+      final quality = calls.firstWhere(
+        (call) => call.panel.tableName == 'egg_quality',
+      );
+
+      expect(storage.panel.storagePeriodDays, 4);
+      expect(storage.panel.values['storagePeriodDays'], 4);
+      expect(quality.panel.storagePeriodDays, 9);
+      expect(quality.panel.values['storagePeriodDays'], 9);
+    },
+  );
+
+  test(
+    'comparison mode keeps egg storage pooled and writes egg quality rows',
     () async {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
       provider.updateField('esEggStorageDays', 3);
+      provider.updateField('esEggQualityStorageDays', 3);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 50,
+            'cuticleDamage': 1,
+            'washed': 0,
+            'dirty': 0,
+            'upsideDown': 0,
+            'qualityTouched': true,
+          },
+        ]),
+      );
       provider.addSample();
+      provider.updateSampleMetadata({'houseNo': '9'});
       provider.updateField('esEggStorageDays', 7);
+      provider.updateField('esEggQualityStorageDays', 7);
+      provider.updateField(
+        'esUvTrays',
+        jsonEncode([
+          {
+            'totalEggs': 60,
+            'cuticleDamage': 0,
+            'washed': 1,
+            'dirty': 0,
+            'upsideDown': 0,
+            'qualityTouched': true,
+          },
+        ]),
+      );
       expect(provider.isCompareMode, isTrue);
       expect(provider.drafts.map((draft) => draft.sampleMode), [
         'comparison',
@@ -202,17 +407,117 @@ void main() {
       expect(await provider.saveSamplesWithResult(), isTrue);
 
       final calls = capturedPanelCalls();
-      final storageRows = calls
+      final storageCalls = calls
           .where((call) => call.panel.tableName == 'egg_storage')
+          .toList();
+      expect(storageCalls, hasLength(1));
+      expect(storageCalls.single.samples, hasLength(1));
+      expect(storageCalls.single.samples.single.scopeType.dbValue, 'pool');
+      expect(storageCalls.single.panel.storagePeriodDays, 7);
+
+      final qualityRows = calls
+          .where((call) => call.panel.tableName == 'egg_quality')
           .expand((call) => call.samples)
           .toList();
-      expect(storageRows, hasLength(2));
-      expect(storageRows.map((row) => row.scopeType.dbValue), [
+      expect(qualityRows, hasLength(2));
+      expect(qualityRows.map((row) => row.scopeType.dbValue), [
         'house',
         'house',
       ]);
-      expect(storageRows.map((row) => row.sampleIndex), [1, 2]);
+      expect(qualityRows.map((row) => row.scopeLabel), ['House 1', 'House 9']);
+      expect(qualityRows.map((row) => row.houseId), ['H1', '9']);
+      expect(qualityRows.map((row) => row.sampleIndex), [1, 2]);
       verifyNever(() => auditRepository.insertAudit(any()));
+    },
+  );
+
+  test(
+    'egg quality machine scope writes setter hatcher quality rows',
+    () async {
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+      provider.switchSample(0);
+      provider.updateSampleMetadata({'houseNo': 'H1'});
+      provider.updateField('esEggWeights', jsonEncode([50.0]));
+      provider.updateField('esEggSampleSize', 1);
+      provider.switchSample(1);
+      provider.updateSampleMetadata({
+        'houseNo': 'H2',
+        'setterNo': '12',
+        'hatcherNo': '34',
+      });
+      provider.updateField('esEggWeights', jsonEncode([51.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      expect(provider.sampleCount, 2);
+      expect(provider.drafts.map((draft) => draft.sampleMode), [
+        'comparison',
+        'comparison',
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+        'S1H1',
+        'S12H34',
+      ]);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final calls = capturedPanelCalls();
+      final qualityRows = calls
+          .where((call) => call.panel.tableName == 'egg_quality')
+          .expand((call) => call.samples)
+          .toList();
+
+      expect(qualityRows, hasLength(2));
+      expect(qualityRows.map((row) => row.scopeType.dbValue), [
+        'setter_hatcher',
+        'setter_hatcher',
+      ]);
+      expect(qualityRows.map((row) => row.scopeLabel), ['S1/H1', '12/34']);
+      expect(qualityRows.map((row) => row.setterId), ['S1', '12']);
+      expect(qualityRows.map((row) => row.hatcherId), ['H1', '34']);
+      expect(qualityRows.map((row) => row.houseId), ['H1', 'H2']);
+    },
+  );
+
+  test(
+    'removing egg quality scope sample prunes stale scoped quality rows',
+    () async {
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.switchSample(0);
+      provider.updateField('esEggWeights', jsonEncode([50.0]));
+      provider.updateField('esEggSampleSize', 1);
+      provider.switchSample(1);
+      provider.updateSampleMetadata({'houseNo': '12'});
+      provider.updateField('esEggWeights', jsonEncode([51.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      final removedSampleId = provider.activeStationSample.id;
+      provider.removeActiveSample();
+
+      expect(provider.sampleCount, 1);
+      expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final prune = verify(
+        () => panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
+          'egg_quality',
+          'session-1',
+          captureAny(),
+          keepHierarchyRows: any(named: 'keepHierarchyRows'),
+        ),
+      );
+      prune.called(1);
+      final keepIds = (prune.captured.single as Iterable<String>).toList();
+      expect(keepIds, hasLength(1));
+      expect(keepIds.single, contains(provider.stationSamples.single.id));
+      expect(keepIds.single, isNot(contains(removedSampleId)));
+
+      final qualityRows = capturedPanelCalls()
+          .where((call) => call.panel.tableName == 'egg_quality')
+          .expand((call) => call.samples)
+          .toList();
+      expect(qualityRows, hasLength(1));
+      expect(qualityRows.single.scopeType.dbValue, 'pool');
+      expect(qualityRows.single.houseId, isNull);
     },
   );
 
@@ -248,8 +553,6 @@ void main() {
       provider.updateField('cvtReadingsJson', jsonEncode([101.4, 102.2]));
       provider.updateField('cvtSampleSize', 2);
       provider.updateField('pm_sampleSize', 12);
-      provider.updateField('pm_gaspingPresent', 1);
-      provider.updateField('pm_gaspingType', 'mild');
 
       provider.addSample();
       provider.updateSampleMetadata({'setterNo': 'S-2', 'hatcherNo': 'H-2'});
@@ -268,6 +571,7 @@ void main() {
         cvPct: 2.4,
       );
       provider.addChickWeightSample();
+      provider.updateChickWeightSampleMetadata({'houseNo': '12'});
       provider.updateChickWeightSampleResult(
         weightsJson: jsonEncode([51.0, 52.0]),
         avgWeight: 51.5,
@@ -279,21 +583,30 @@ void main() {
 
       final calls = capturedPanelCalls();
       final chickQualityTables = calls
-          .where(
-            (call) => {
-              'chick_pasgar',
-              'chick_yfbm',
-              'chick_cvt',
-              'chick_pm',
-            }.contains(call.panel.tableName),
-          )
+          .where((call) => call.panel.tableName == 'chick_quality')
           .toList();
-      expect(chickQualityTables, hasLength(8));
+      expect(chickQualityTables, hasLength(2));
       expect(
         chickQualityTables
             .expand((call) => call.samples)
             .map((sample) => sample.scopeType.dbValue),
         everyElement('setter_hatcher'),
+      );
+      expect(chickQualityTables.map((call) => call.panel.values), [
+        containsPair('pasgarFinalScore', 9.8),
+        containsPair('pasgarFinalScore', 9.4),
+      ]);
+      expect(
+        chickQualityTables.first.panel.values,
+        containsPair('yfbmEntriesJson', contains('yolkWeight')),
+      );
+      expect(
+        chickQualityTables.first.panel.values,
+        containsPair('cvtSampleSize', 2),
+      );
+      expect(
+        chickQualityTables.first.panel.values,
+        containsPair('pmSampleSize', 12),
       );
 
       final weightCalls = calls
@@ -303,6 +616,22 @@ void main() {
       expect(weightCalls.map((call) => call.samples.single.scopeType.dbValue), [
         'house',
         'house',
+      ]);
+      expect(weightCalls.map((call) => call.samples.single.scopeLabel), [
+        'House 1',
+        'House 12',
+      ]);
+      expect(weightCalls.map((call) => call.samples.single.houseId), [
+        'H1',
+        '12',
+      ]);
+      expect(weightCalls.map((call) => call.samples.single.setterId), [
+        null,
+        null,
+      ]);
+      expect(weightCalls.map((call) => call.samples.single.hatcherId), [
+        null,
+        null,
       ]);
       expect(weightCalls.map((call) => call.panel.values['weightsJson']), [
         jsonEncode([41.0, 42.0, 43.0]),
@@ -316,6 +645,176 @@ void main() {
         42.0,
         51.5,
       ]);
+    },
+  );
+
+  test(
+    'removing chick weight sample prunes stale scoped weight rows',
+    () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 42,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+
+      provider.setChickWeightSampleMode(
+        StationSampleModel.sampleModeComparison,
+      );
+      provider.switchChickWeightSample(0);
+      provider.updateChickWeightSampleResult(
+        weightsJson: jsonEncode([41.0, 42.0]),
+        avgWeight: 41.5,
+        uniformityPct: 100.0,
+        cvPct: 1.2,
+      );
+      provider.addChickWeightSample();
+      provider.updateChickWeightSampleMetadata({'houseNo': '12'});
+      provider.updateChickWeightSampleResult(
+        weightsJson: jsonEncode([51.0, 52.0]),
+        avgWeight: 51.5,
+        uniformityPct: 100.0,
+        cvPct: 1.4,
+      );
+
+      final removedSampleId = provider.activeChickWeightSample.id;
+      provider.removeActiveChickWeightSample();
+
+      expect(provider.chickWeightSamples, hasLength(1));
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final prune = verify(
+        () => panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
+          'chick_weights',
+          'session-1',
+          captureAny(),
+          keepHierarchyRows: any(named: 'keepHierarchyRows'),
+        ),
+      );
+      prune.called(1);
+      final keepIds = (prune.captured.single as Iterable<String>).toList();
+      expect(keepIds, hasLength(1));
+      expect(keepIds.single, contains(provider.chickWeightSamples.single.id));
+      expect(keepIds.single, isNot(contains(removedSampleId)));
+
+      final weightRows = capturedPanelCalls()
+          .where((call) => call.panel.tableName == 'chick_weights')
+          .expand((call) => call.samples)
+          .toList();
+      expect(weightRows, hasLength(1));
+      expect(weightRows.single.houseId, 'H1');
+    },
+  );
+
+  test('chicks machine scope saves entered setter hatcher rows', () async {
+    provider.initialize(
+      AuditContext(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        flockAgeWeeks: 42,
+        date: '2026-01-01',
+      ),
+      currentUser: user,
+      sessionId: 'session-1',
+      notify: false,
+    );
+
+    provider.addSample();
+    provider.updateSampleMetadata({
+      'houseNo': 'H2',
+      'setterNo': '12',
+      'hatcherNo': '34',
+    });
+    provider.switchSample(0);
+    provider.updateField('pasgarSampleSize', 40);
+    provider.updateField('pasgarFinalScore', 9.8);
+    provider.switchSample(1);
+    provider.updateField('pasgarSampleSize', 40);
+    provider.updateField('pasgarFinalScore', 9.4);
+
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'S1H1',
+      'S12H34',
+    ]);
+
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    final qualityRows = capturedPanelCalls()
+        .where((call) => call.panel.tableName == 'chick_quality')
+        .expand((call) => call.samples)
+        .toList();
+
+    expect(qualityRows, hasLength(2));
+    expect(qualityRows.map((row) => row.scopeType.dbValue), [
+      'setter_hatcher',
+      'setter_hatcher',
+    ]);
+    expect(qualityRows.map((row) => row.scopeLabel), ['S1/H1', '12/34']);
+    expect(qualityRows.map((row) => row.setterId), ['S1', '12']);
+    expect(qualityRows.map((row) => row.hatcherId), ['H1', '34']);
+    expect(qualityRows.map((row) => row.houseId), [null, 'H2']);
+  });
+
+  test(
+    'removing chick quality machine sample prunes stale quality rows',
+    () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 42,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+
+      provider.addSample();
+      provider.switchSample(0);
+      provider.updateField('pasgarSampleSize', 40);
+      provider.updateField('pasgarFinalScore', 9.8);
+      provider.switchSample(1);
+      provider.updateSampleMetadata({'setterNo': '12', 'hatcherNo': '34'});
+      provider.updateField('pasgarSampleSize', 40);
+      provider.updateField('pasgarFinalScore', 9.4);
+
+      final removedSampleId = provider.activeStationSample.id;
+      provider.removeActiveSample();
+
+      expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final prune = verify(
+        () => panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
+          'chick_quality',
+          'session-1',
+          captureAny(),
+          keepHierarchyRows: any(named: 'keepHierarchyRows'),
+        ),
+      );
+      prune.called(1);
+      final keepIds = (prune.captured.single as Iterable<String>).toList();
+      expect(keepIds, hasLength(1));
+      expect(keepIds.single, contains(provider.stationSamples.single.id));
+      expect(keepIds.single, isNot(contains(removedSampleId)));
+
+      final qualityRows = capturedPanelCalls()
+          .where((call) => call.panel.tableName == 'chick_quality')
+          .expand((call) => call.samples)
+          .toList();
+      expect(qualityRows, hasLength(1));
+      expect(qualityRows.single.scopeType.dbValue, 'pool');
+      expect(qualityRows.single.setterId, isNull);
+      expect(qualityRows.single.hatcherId, isNull);
     },
   );
 
@@ -374,6 +873,7 @@ void main() {
   test(
     'saveSamplesWithResult returns false when panel persistence fails',
     () async {
+      provider.updateField('esEggStorageDays', 4);
       when(
         () => panelSampleRepository.savePanelWithSamples(
           panel: any(named: 'panel'),
@@ -492,6 +992,142 @@ void main() {
     },
   );
 
+  test(
+    'hatch breakout save treats blank storage as zero for BMK age',
+    () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatch Analysis & Egg Breakouts',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('haStorageDays', null);
+      provider.updateField('ebStorageDays', null);
+      provider.updateField(
+        'ebTrayBreakoutJson',
+        EggBreakoutSampleEntry.encodeList([
+          EggBreakoutSampleEntry.tray(
+            id: 'residue-tray',
+            label: 'Residue tray',
+            traySize: 150,
+            breakoutType: EggBreakoutType.residueHatchDay,
+            counts: const {'infertile': 15},
+          ),
+        ]),
+      );
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final residue = capturedPanelCalls().singleWhere(
+        (call) => call.panel.tableName == 'residue_breakout',
+      );
+      expect(residue.panel.storagePeriodDays, 0);
+      expect(residue.panel.values['storagePeriodDays'], 0);
+      expect(residue.panel.values['bmkAgeDays'], 259);
+      expect(residue.panel.values['bmkAgeWeeks'], 37);
+      expect(provider.activeStationSample.storageDays, 0);
+    },
+  );
+
+  test('hatch breakout save writes one panel row per tray sample', () async {
+    provider.initialize(
+      AuditContext(
+        auditType: 'Hatch Analysis & Egg Breakouts',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        flockAgeWeeks: 40,
+        date: '2026-01-01',
+      ),
+      currentUser: user,
+      sessionId: 'session-1',
+      notify: false,
+    );
+    provider.updateField(
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([
+        EggBreakoutSampleEntry.tray(
+          id: 'residue-tray-1',
+          label: 'Tray 1',
+          position: 'top',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          counts: const {'infertile': 15, 'earlyDead': 9},
+        ),
+        EggBreakoutSampleEntry.tray(
+          id: 'residue-tray-2',
+          label: 'Tray 2',
+          position: 'bottom',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          counts: const {'infertile': 30, 'earlyDead': 18},
+        ),
+      ]),
+    );
+    provider.updateField(
+      'ebBreakoutType',
+      EggBreakoutType.residueHatchDay.storageValue,
+    );
+
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    final residueRows = capturedPanelCalls()
+        .where((call) => call.panel.tableName == 'residue_breakout')
+        .toList();
+
+    expect(residueRows, hasLength(2));
+    expect(residueRows.map((call) => call.panel.values['traySize']), [
+      150,
+      150,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['infertileCount']), [
+      15,
+      30,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['earlyDeadCount']), [
+      9,
+      18,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['infertilePct']), [
+      10.0,
+      20.0,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['earlyDeadPct']), [
+      6.0,
+      12.0,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['infertileDiffPct']), [
+      5.0,
+      15.0,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['earlyDeadDiffPct']), [
+      2.0,
+      8.0,
+    ]);
+    expect(residueRows.map((call) => call.panel.values['position']), [
+      'top',
+      'bottom',
+    ]);
+    expect(residueRows.map((call) => call.samples.single.scopeType.dbValue), [
+      'tray',
+      'tray',
+    ]);
+    expect(residueRows.map((call) => call.samples.single.scopeLabel), [
+      'Tray 1',
+      'Tray 2',
+    ]);
+    expect(residueRows.map((call) => call.samples.single.sampleIndex), [1, 2]);
+  });
+
   testWidgets(
     'autosave persists the latest panel row without final side effects',
     (tester) async {
@@ -525,7 +1161,7 @@ void main() {
       final storage = calls.singleWhere(
         (call) => call.panel.tableName == 'egg_storage',
       );
-      expect(storage.panel.values['storageDays'], 8);
+      expect(storage.panel.values['storagePeriodDays'], 8);
       expect(autosaveProvider.isDirty, isFalse);
       verifyNever(
         () => activityLogRepository.log(
@@ -587,10 +1223,10 @@ void main() {
       final storageSaves = calls
           .where((call) => call.panel.tableName == 'egg_storage')
           .toList();
-      expect(storageSaves.map((call) => call.panel.values['storageDays']), [
-        3,
-        8,
-      ]);
+      expect(
+        storageSaves.map((call) => call.panel.values['storagePeriodDays']),
+        [3, 8],
+      );
       expect(provider.isDirty, isFalse);
     },
   );

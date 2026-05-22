@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/hatchery_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
@@ -32,10 +34,11 @@ class GoveeScopePicker extends StatelessWidget {
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.borderDefault),
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        padding: const EdgeInsets.all(AppSizes.spaceMd),
         child: Column(
           children: [
             DropdownButtonFormField<String>(
@@ -67,7 +70,7 @@ class GoveeScopePicker extends StatelessWidget {
                 }
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             DropdownButtonFormField<String>(
               initialValue:
                   hatcheries.any((item) => item.id == govee.hatcheryId)
@@ -92,7 +95,7 @@ class GoveeScopePicker extends StatelessWidget {
                       await _configure(context, selectedCustomer.id, value);
                     },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             _DatePlaceControls(govee: govee, configure: _configure),
           ],
         ),
@@ -177,14 +180,18 @@ class _DatePlaceControls extends StatelessWidget {
         if (constraints.maxWidth < 520) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [dateButton, const SizedBox(height: 12), placeDropdown],
+            children: [
+              dateButton,
+              const SizedBox(height: AppSizes.spaceSm),
+              placeDropdown,
+            ],
           );
         }
 
         return Row(
           children: [
             Expanded(child: dateButton),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSizes.spaceSm),
             Expanded(child: placeDropdown),
           ],
         );
@@ -213,18 +220,16 @@ class _StationScopeCard extends StatelessWidget {
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.borderDefault),
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSizes.cardPadding),
+        padding: const EdgeInsets.all(AppSizes.spaceMd),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Record environment',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 10),
+            const Text('Record environment', style: AppTextStyles.title),
+            const SizedBox(height: AppSizes.spaceSm),
             Row(
               children: [
                 Expanded(
@@ -239,7 +244,7 @@ class _StationScopeCard extends StatelessWidget {
                         .selectCaptureTarget(GoveeCaptureTarget.room),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSizes.spaceSm),
                 Expanded(
                   child: _ScopeChoice(
                     key: const ValueKey('govee-scope-machine-choice'),
@@ -255,7 +260,7 @@ class _StationScopeCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             _ReadOnlyCaptureDate(
               date: govee.captureDate ?? _formatDate(DateTime.now()),
             ),
@@ -282,7 +287,11 @@ class _ReadOnlyCaptureDate extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: null,
       icon: const Icon(Icons.calendar_today_outlined),
-      label: Text(date, overflow: TextOverflow.ellipsis),
+      label: Text(
+        HatchDateUtils.formatDisplayDateKey(date),
+        overflow: TextOverflow.ellipsis,
+        textDirection: TextDirection.ltr,
+      ),
     );
   }
 }
@@ -310,7 +319,7 @@ class _ScopeChoice extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSizes.spaceSm),
         decoration: BoxDecoration(
           color: selected ? AppColors.statusActiveBg : AppColors.surfaceVariant,
           borderRadius: BorderRadius.circular(AppSizes.cardRadius),
@@ -325,22 +334,21 @@ class _ScopeChoice extends StatelessWidget {
             Icon(
               icon,
               color: selected ? AppColors.primary : AppColors.textSecondary,
+              size: AppSizes.iconSm,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: AppSizes.spaceSm),
             Text(
               title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+              style: AppTextStyles.title.copyWith(fontSize: 14),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
+              style: AppTextStyles.caption.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),

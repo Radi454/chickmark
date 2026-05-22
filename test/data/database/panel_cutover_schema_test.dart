@@ -6,11 +6,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 const _panelTables = [
   'egg_storage',
   'egg_quality',
-  'chick_pasgar',
+  'chick_quality',
   'chick_weights',
-  'chick_yfbm',
-  'chick_cvt',
-  'chick_pm',
   'fresh_egg_breakout',
   'candled_egg_breakout',
   'residue_breakout',
@@ -37,18 +34,30 @@ const _commonPanelColumns = [
   'date',
   'breed',
   'flockAgeWeeks',
-  'mode',
-  'scopeType',
-  'scopeLabel',
-  'sampleIndex',
-  'groupKey',
-  'groupLabel',
+  'house',
+  'setter',
+  'hatcher',
+  'trolley',
+  'tray',
+  'position',
+  'storagePeriodDays',
+  'bmkAgeDays',
+  'bmkAgeWeeks',
   'notes',
   'createdAt',
   'updatedAt',
   'syncStatus',
   'lastSyncedAt',
   'syncError',
+];
+
+const _legacyPanelIdentityColumns = [
+  'mode',
+  'scopeType',
+  'scopeLabel',
+  'sampleIndex',
+  'groupKey',
+  'groupLabel',
 ];
 
 void main() {
@@ -95,6 +104,9 @@ void main() {
       for (final table in _panelTables) {
         final columns = await _columnNames(db, table);
         expect(columns, containsAll(_commonPanelColumns), reason: table);
+        for (final legacyColumn in _legacyPanelIdentityColumns) {
+          expect(columns, isNot(contains(legacyColumn)), reason: table);
+        }
       }
     },
   );
@@ -123,8 +135,11 @@ void main() {
         containsAll([
           'uvTrayEggCount',
           'uvCuticleDamageCount',
+          'uvCuticleDamagePct',
           'uvWashedCount',
+          'uvWashedPct',
           'uvDirtyCount',
+          'uvDirtyPct',
           'uvAffectedCount',
           'uvAffectedPct',
           'eggWeightsJson',
@@ -147,7 +162,6 @@ void main() {
       expect(columns, isNot(contains('avgWeight')));
       expect(columns, isNot(contains('uniformityPct')));
       expect(columns, isNot(contains('cvPct')));
-      expect(columns, isNot(contains('bmkAgeWeeks')));
       expect(columns, isNot(contains('bmkWeight')));
       expect(columns, isNot(contains('upsideDownCount')));
       expect(columns, isNot(contains('upsideDownPct')));
@@ -161,56 +175,95 @@ void main() {
     expect(columns, containsAll(['upsideDownCount', 'upsideDownPct']));
   });
 
-  test(
-    'existing panel tables receive new chick PM lesion columns on open',
-    () async {
-      await DatabaseHelper().close();
-      final dbPath = p.join(
-        await databaseFactory.getDatabasesPath(),
-        'hatchaudit.db',
-      );
-      final legacyDb = await databaseFactory.openDatabase(
-        dbPath,
-        options: OpenDatabaseOptions(
-          version: 36,
-          onCreate: (db, version) async {
-            await db.execute('''CREATE TABLE chick_pm (
-            id TEXT PRIMARY KEY,
-            sessionId TEXT NOT NULL,
-            customerId TEXT NOT NULL,
-            date TEXT NOT NULL,
-            mode TEXT NOT NULL DEFAULT 'pool',
-            scopeType TEXT NOT NULL DEFAULT 'pool',
-            scopeLabel TEXT NOT NULL DEFAULT 'Random',
-            sampleIndex INTEGER NOT NULL DEFAULT 0,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL,
-            syncStatus TEXT NOT NULL DEFAULT 'pending',
-            omphalitisCount INTEGER
-          )''');
-          },
-        ),
-      );
-      await legacyDb.close();
+  test('fresh database creates combined chick quality table', () async {
+    final db = await DatabaseHelper().db;
+    final tables = await _tableNames(db);
+    final columns = await _columnNames(db, 'chick_quality');
 
-      final db = await DatabaseHelper().db;
-      final columns = await _columnNames(db, 'chick_pm');
-
-      expect(
-        columns,
-        containsAll([
-          'gizzardErosionsCount',
-          'gizzardErosionsSeverity',
-          'airSacCaseationsCount',
-          'airSacCaseationsSeverity',
-          'nephritisCount',
-          'nephritisSeverity',
-          'generalSepticemiaCount',
-          'generalSepticemiaSeverity',
-        ]),
-      );
-    },
-  );
+    expect(tables, contains('chick_quality'));
+    expect(
+      tables,
+      isNot(
+        containsAll(['chick_pasgar', 'chick_yfbm', 'chick_cvt', 'chick_pm']),
+      ),
+    );
+    expect(
+      columns,
+      containsAll([
+        'pasgarSampleSize',
+        'pasgarReflexesCount',
+        'pasgarFinalScore',
+        'yfbmEntriesJson',
+        'yfbmEntryCount',
+        'yfbmAvgPct',
+        'yfbmCvPct',
+        'cvtReadingsJson',
+        'cvtSampleSize',
+        'cvtAvgTemp',
+        'cvtCvPct',
+        'pmSampleSize',
+        'pmCollectionPoint',
+        'pmGizzardErosionsCount',
+        'pmGizzardErosionsSeverity',
+        'pmAirSacCaseationsCount',
+        'pmAirSacCaseationsSeverity',
+        'pmUrolithiasisCount',
+        'pmUrolithiasisSeverity',
+        'pmNephritisCount',
+        'pmNephritisSeverity',
+        'pmGeneralSepticemiaCount',
+        'pmGeneralSepticemiaSeverity',
+        'pmOtherLesionsJson',
+        'culledChicksTotalEggSet',
+        'culledChicksAnalysisJson',
+        'culledChicksAffectedPct',
+        'culledChicksTopCategory',
+        'culledChicksTopSubtype',
+      ]),
+    );
+    expect(columns, isNot(contains('sampleSize')));
+    expect(columns, isNot(contains('cvPct')));
+    for (final column in [
+      'pmUnabsorbedYolkCount',
+      'pmUnabsorbedYolkSeverity',
+      'pmPerihepatitisCount',
+      'pmPerihepatitisSeverity',
+      'pmPericarditisCount',
+      'pmPericarditisSeverity',
+      'pmAirsacAcuteCount',
+      'pmAirsacAcuteSeverity',
+      'pmAirsacChronicCount',
+      'pmAirsacChronicSeverity',
+      'pmPulmonaryGranulomaCount',
+      'pmPulmonaryGranulomaSeverity',
+      'pmSwollenJointsCount',
+      'pmSwollenJointsSeverity',
+      'pmStuntedOrgansCount',
+      'pmStuntedOrgansSeverity',
+      'pmPulmonaryHemorrhageCount',
+      'pmPulmonaryHemorrhageSeverity',
+      'pmGaspingPresent',
+      'pmGaspingType',
+      'pmExposedBrainCount',
+      'pmEctopicVisceraCount',
+      'pmExtraLegsCount',
+      'pmCrossedBeakCount',
+      'pmAbsentEyeBothCount',
+      'pmAbsentEyeOneCount',
+      'pmSmallEyeCount',
+      'pmHydrocephalyCount',
+      'pmStarGazerCount',
+      'pmCurledToesCount',
+      'pmShortLegsCount',
+      'pmSpinalDeformityCount',
+      'pmCardiacAnomalyCount',
+      'pmConjoinedCount',
+      'pmOtherDeformityCount',
+      'pmOtherDeformityText',
+    ]) {
+      expect(columns, isNot(contains(column)), reason: column);
+    }
+  });
 
   test('v36 cutover opens an existing foreign-key legacy database', () async {
     await DatabaseHelper().close();

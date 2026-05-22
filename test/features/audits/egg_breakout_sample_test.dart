@@ -30,16 +30,26 @@ void main() {
       );
     });
 
+    test('defaults missing storage days to zero for BMK age', () {
+      expect(
+        EggBreakoutType.freshEggBreakout.calculateBmkAgeDays(
+          currentFlockAgeDays: 294,
+          storageDays: null,
+        ),
+        294,
+      );
+      expect(
+        EggBreakoutType.residueHatchDay.calculateBmkAgeDays(
+          currentFlockAgeDays: 294,
+          storageDays: null,
+        ),
+        273,
+      );
+    });
+
     test(
-      'returns unavailable BMK age when storage or current age is missing',
+      'returns unavailable BMK age when current age is missing or storage is invalid',
       () {
-        expect(
-          EggBreakoutType.freshEggBreakout.calculateBmkAgeDays(
-            currentFlockAgeDays: 294,
-            storageDays: null,
-          ),
-          isNull,
-        );
         expect(
           EggBreakoutType.residueHatchDay.calculateBmkAgeDays(
             currentFlockAgeDays: null,

@@ -38,7 +38,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 39,
+      version: 41,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -195,6 +195,8 @@ class DatabaseHelper {
       'egg_quality_samples',
       'egg_weights',
       'egg_weights_samples',
+      'chick_quality',
+      'chick_quality_samples',
       'chick_pasgar',
       'chick_pasgar_samples',
       'chick_weights',
@@ -223,6 +225,11 @@ class DatabaseHelper {
       'station_samples',
       'photos',
       'govee_daily_captures',
+      'govee_place_readings',
+      'govee_spot_captures',
+      'govee_spot_readings',
+      'temperature_sessions',
+      'temperature_readings',
       'sync_tombstones',
       'audits',
       'audit_sessions',

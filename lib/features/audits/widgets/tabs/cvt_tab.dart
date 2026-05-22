@@ -1017,8 +1017,8 @@ class _CvtTabState extends State<CvtTab> {
       description: 'cvt',
       createdAt: existing?.createdAt ?? DateTime.now(),
       sessionId: sessionId,
-      panelName: 'chick_cvt',
-      panelRowId: '$sessionId:chick_cvt:$draftId',
+      panelName: 'chick_quality',
+      panelRowId: '$sessionId:chick_quality:$draftId',
       fieldKey: 'cvt',
       uploadStatus: existing?.uploadStatus ?? 'local',
     );

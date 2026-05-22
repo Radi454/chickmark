@@ -4,6 +4,8 @@ import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   testWidgets('Govee sector appears when captures exist', (tester) async {
@@ -15,15 +17,14 @@ void main() {
     );
 
     expect(find.text('Govee Environmental Readings'), findsOneWidget);
-    expect(find.text('Egg storage room'), findsOneWidget);
+    expect(find.text('Egg storage room'), findsWidgets);
   });
 
-  testWidgets('place and machine filters hide when only one option exists', (
-    tester,
-  ) async {
+  testWidgets('saved captures are grouped by place', (tester) async {
     await _pumpSection(
       tester,
       captures: [
+        _makeSummary(id: 'egg', place: TemperaturePlace.eggStorageRoom),
         _makeSummary(
           id: 'setter-1',
           place: TemperaturePlace.insideSetter,
@@ -33,51 +34,67 @@ void main() {
     );
 
     expect(
-      find.byKey(const ValueKey('govee-place-filter-group')),
-      findsNothing,
+      find.byKey(const ValueKey('govee-place-group-eggStorageRoom')),
+      findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('govee-machine-filter-group')),
-      findsNothing,
+      find.byKey(const ValueKey('govee-place-group-insideSetter')),
+      findsOneWidget,
+    );
+    expect(find.text('Egg storage room'), findsWidgets);
+    expect(find.text('Inside setter'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('govee-capture-card-egg')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('govee-capture-card-setter-1')),
+      findsOneWidget,
     );
   });
 
-  testWidgets('local filters affect only the Govee sector', (tester) async {
+  testWidgets('each place group shows only captures from that place', (
+    tester,
+  ) async {
     await _pumpSection(
       tester,
       captures: [
         _makeSummary(id: 'egg', place: TemperaturePlace.eggStorageRoom),
         _makeSummary(id: 'chicks', place: TemperaturePlace.chickHoldingArea),
       ],
-      outsideChild: const Text('Other dashboard sector still visible'),
     );
 
-    expect(find.text('Other dashboard sector still visible'), findsOneWidget);
-    expect(find.text('Egg storage room'), findsWidgets);
-    expect(find.text('Chick holding area'), findsWidgets);
+    final eggGroup = find.byKey(
+      const ValueKey('govee-place-group-eggStorageRoom'),
+    );
+    final chickGroup = find.byKey(
+      const ValueKey('govee-place-group-chickHoldingArea'),
+    );
+
     expect(
-      find.byKey(const ValueKey('govee-capture-card-egg')),
+      find.descendant(
+        of: eggGroup,
+        matching: find.byKey(const ValueKey('govee-capture-card-egg')),
+      ),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('govee-capture-card-chicks')),
-      findsOneWidget,
+      find.descendant(
+        of: eggGroup,
+        matching: find.byKey(const ValueKey('govee-capture-card-chicks')),
+      ),
+      findsNothing,
     );
-
-    await tester.tap(
-      find.byKey(const ValueKey('govee-place-filter-chickHoldingArea')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Other dashboard sector still visible'), findsOneWidget);
-    expect(find.byKey(const ValueKey('govee-capture-card-egg')), findsNothing);
     expect(
-      find.byKey(const ValueKey('govee-capture-card-chicks')),
+      find.descendant(
+        of: chickGroup,
+        matching: find.byKey(const ValueKey('govee-capture-card-chicks')),
+      ),
       findsOneWidget,
     );
   });
 
-  testWidgets('machine chips filter inside setter and hatcher captures', (
+  testWidgets('inside machine place groups keep machine captures separated', (
     tester,
   ) async {
     await _pumpSection(
@@ -96,24 +113,25 @@ void main() {
       ],
     );
 
-    expect(
-      find.byKey(const ValueKey('govee-machine-filter-group')),
-      findsOneWidget,
+    final setterGroup = find.byKey(
+      const ValueKey('govee-place-group-insideSetter'),
     );
+
+    expect(setterGroup, findsOneWidget);
     expect(find.text('Setter 1'), findsWidgets);
     expect(find.text('Setter 2'), findsWidgets);
-
-    await tester.tap(
-      find.byKey(const ValueKey('govee-machine-filter-Setter 2')),
-    );
-    await tester.pumpAndSettle();
-
     expect(
-      find.byKey(const ValueKey('govee-capture-card-setter-1')),
-      findsNothing,
+      find.descendant(
+        of: setterGroup,
+        matching: find.byKey(const ValueKey('govee-capture-card-setter-1')),
+      ),
+      findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('govee-capture-card-setter-2')),
+      find.descendant(
+        of: setterGroup,
+        matching: find.byKey(const ValueKey('govee-capture-card-setter-2')),
+      ),
       findsOneWidget,
     );
   });
@@ -125,16 +143,19 @@ Future<void> _pumpSection(
   Widget? outsideChild,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: ListView(
-          children: [
-            ?outsideChild,
-            GoveeEnvironmentalReadingsSection(
-              captures: captures,
-              isLoading: false,
-            ),
-          ],
+    ChangeNotifierProvider(
+      create: (_) => AppProvider(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            children: [
+              ?outsideChild,
+              GoveeEnvironmentalReadingsSection(
+                captures: captures,
+                isLoading: false,
+              ),
+            ],
+          ),
         ),
       ),
     ),

@@ -6,6 +6,7 @@ import 'app_elevation.dart';
 
 class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
+  final Widget? titleLeading;
   final Widget? leading;
   final List<Widget>? actions;
   final PreferredSizeWidget? bottom;
@@ -14,6 +15,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   const GradientAppBar({
     super.key,
     required this.title,
+    this.titleLeading,
     this.leading,
     this.actions,
     this.bottom,
@@ -59,7 +61,16 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
                     onPressed: shellNavigation!.openDrawer,
                   )
                 : null),
-        title: Text(title),
+        title: titleLeading == null
+            ? Text(title)
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  titleLeading!,
+                  const SizedBox(width: 8),
+                  Text(title),
+                ],
+              ),
         centerTitle: true,
         toolbarHeight: toolbarHeight,
         backgroundColor: Colors.transparent,

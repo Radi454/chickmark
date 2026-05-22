@@ -76,20 +76,28 @@ class GoveeCaptureRepository {
   }
 
   Future<List<GoveeDailyCaptureModel>> getCapturesForDashboard({
-    required String customerId,
-    required String hatcheryId,
+    String? customerId,
+    String? hatcheryId,
     String? captureDate,
   }) async {
     final db = await _dbHelper.db;
-    final where = StringBuffer('customerId = ? AND hatcheryId = ?');
-    final whereArgs = <Object?>[customerId, hatcheryId];
+    final clauses = <String>[];
+    final whereArgs = <Object?>[];
+    if (customerId != null) {
+      clauses.add('customerId = ?');
+      whereArgs.add(customerId);
+    }
+    if (hatcheryId != null) {
+      clauses.add('hatcheryId = ?');
+      whereArgs.add(hatcheryId);
+    }
     if (captureDate != null) {
-      where.write(' AND captureDate = ?');
+      clauses.add('captureDate = ?');
       whereArgs.add(captureDate);
     }
     final rows = await db.query(
       'govee_daily_captures',
-      where: where.toString(),
+      where: clauses.isEmpty ? null : clauses.join(' AND '),
       whereArgs: whereArgs,
       orderBy:
           'captureDate DESC, stationKey ASC, place ASC, machineId ASC, updatedAt DESC',

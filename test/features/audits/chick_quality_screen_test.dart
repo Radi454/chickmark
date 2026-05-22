@@ -73,6 +73,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => AppProvider()),
         ],
         child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
           home: ChickQualityScreen(context: contextOverride ?? contextData()),
         ),
       ),
@@ -203,6 +204,155 @@ void main() {
     );
   });
 
+  testWidgets('culled chicks analysis panel follows PM and updates draft', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    final pmPanel = find.byKey(const ValueKey('chick-quality-panel-pm'));
+    final culledPanel = find.byKey(
+      const ValueKey('chick-quality-panel-culled-analysis'),
+    );
+
+    expect(pmPanel, findsOneWidget);
+    expect(culledPanel, findsOneWidget);
+    expect(
+      tester.getTopLeft(culledPanel).dy,
+      greaterThan(tester.getTopLeft(pmPanel).dy),
+    );
+
+    await tester.ensureVisible(culledPanel);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Culled Chicks Analysis'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open / unhealed navel'), findsOneWidget);
+    final navelCountField = find.byKey(
+      const ValueKey('culled-chicks-count-navel_open_unhealed'),
+    );
+    final navelIncrementButton = find.byKey(
+      const ValueKey('culled-chicks-increment-navel_open_unhealed'),
+    );
+    final navelDecrementButton = find.byKey(
+      const ValueKey('culled-chicks-decrement-navel_open_unhealed'),
+    );
+    expect(navelCountField, findsOneWidget);
+    expect(navelIncrementButton, findsOneWidget);
+    expect(navelDecrementButton, findsOneWidget);
+
+    await tester.tap(navelIncrementButton);
+    await tester.pumpAndSettle();
+    expect(provider.activeDraft.culledChicksTotalEggSet, 19200);
+    expect(
+      provider.activeDraft.culledChicksAffectedPct,
+      closeTo(1 / 19200 * 100, 0.000001),
+    );
+    expect(
+      provider.activeDraft.culledChicksTopSubtype,
+      'Open / unhealed navel',
+    );
+
+    await tester.tap(navelDecrementButton);
+    await tester.pumpAndSettle();
+    expect(provider.activeDraft.culledChicksAffectedPct, 0.0);
+    expect(provider.activeDraft.culledChicksTopSubtype, isNull);
+    expect(navelCountField, findsOneWidget);
+    expect(
+      find.text('Belly not fully closed, wet or inflamed navel'),
+      findsNothing,
+    );
+    expect(find.textContaining('Causes:'), findsNothing);
+    expect(find.textContaining('Ref:'), findsNothing);
+    expect(find.text('Navel'), findsOneWidget);
+    expect(find.text('Belly'), findsOneWidget);
+    expect(find.text('Sticky'), findsOneWidget);
+    expect(find.text('Dehydrated'), findsOneWidget);
+    expect(find.text('Legs'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Belly')).dy,
+      greaterThan(tester.getTopLeft(find.text('Navel')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Sticky')).dy,
+      greaterThan(tester.getTopLeft(find.text('Belly')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Dehydrated')).dy,
+      greaterThan(tester.getTopLeft(find.text('Sticky')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Legs')).dy,
+      greaterThan(tester.getTopLeft(find.text('Dehydrated')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Residual yolk / large abdomen')).dy,
+      greaterThan(tester.getTopLeft(find.text('Belly')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Residual yolk / large abdomen')).dy,
+      lessThan(tester.getTopLeft(find.text('Sticky')).dy),
+    );
+    expect(find.text('Albumen on feathers / glued down'), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey('culled-chicks-count-sticky_albumen_glued_down'),
+      ),
+      findsNothing,
+    );
+    expect(find.text('Wet chick'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('culled-chicks-count-sticky_wet_chick')),
+      findsNothing,
+    );
+    expect(find.text('Short beak'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('culled-chicks-count-head_short_beak')),
+      findsNothing,
+    );
+    expect(find.text('Weak / inactive chick'), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey('culled-chicks-count-small_weak_weak_inactive_chick'),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.getTopLeft(find.text('Dehydrated / burned chick')).dy,
+      greaterThan(tester.getTopLeft(find.text('Dehydrated')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Dehydrated / burned chick')).dy,
+      lessThan(tester.getTopLeft(find.text('Legs')).dy),
+    );
+
+    expect(find.text('19200'), findsOneWidget);
+    await enterAuditNumber(
+      tester,
+      find.byKey(const ValueKey('culled-chicks-count-navel_open_unhealed')),
+      '3',
+    );
+
+    expect(provider.activeDraft.culledChicksTotalEggSet, 19200);
+    expect(
+      provider.activeDraft.culledChicksAnalysisJson,
+      contains('navel_open_unhealed'),
+    );
+    expect(provider.activeDraft.culledChicksAnalysisJson, contains('"pct"'));
+    expect(
+      provider.activeDraft.culledChicksAnalysisJson,
+      isNot(contains('"count"')),
+    );
+    expect(
+      provider.activeDraft.culledChicksAffectedPct,
+      closeTo(3 / 19200 * 100, 0.000001),
+    );
+    expect(
+      provider.activeDraft.culledChicksTopSubtype,
+      'Open / unhealed navel',
+    );
+  });
+
   testWidgets('YFBM entries are edited from a modal entry sheet', (
     tester,
   ) async {
@@ -218,14 +368,35 @@ void main() {
 
     expect(find.text('YFBM Entries'), findsNothing);
     expect(find.text('Enter YFBM Entries'), findsOneWidget);
+    expect(find.text('0/10'), findsOneWidget);
+    expect(find.text('Target 8-10%'), findsOneWidget);
 
     await tester.tap(find.text('Enter YFBM Entries'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('yfbm-entries-sheet')), findsOneWidget);
     expect(find.text('YFBM Entries'), findsOneWidget);
-    expect(find.text('0 of 10 rows complete'), findsOneWidget);
-    expect(find.text('Target 8-10%'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('yfbm-entries-sheet')),
+        matching: find.text('0 of 10 rows complete'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('yfbm-entries-sheet')),
+        matching: find.text('Target 8-10%'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('yfbm-entries-sheet')),
+        matching: find.text('YFBM %'),
+      ),
+      findsNothing,
+    );
 
     await enterAuditNumber(
       tester,
@@ -281,7 +452,8 @@ void main() {
   });
 
   testWidgets('PM Necropsy shows the revised lesion checklist', (tester) async {
-    await pumpScreen(tester);
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
       find.byKey(const ValueKey('chick-quality-panel-pm')),
@@ -290,12 +462,20 @@ void main() {
     await tester.tap(find.text('PM Necropsy'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Omphalitis (Yolk Sacculitis)'), findsOneWidget);
+    expect(find.text('Omphalitis'), findsOneWidget);
     expect(find.text('Gaseous Ceca'), findsOneWidget);
     expect(find.text('Gizzard Erosions'), findsOneWidget);
     expect(find.text('Air Sac Caseations'), findsOneWidget);
+    expect(find.text('Urolithiasis (Urate Deposits)'), findsOneWidget);
+    expect(find.text('Pulmonary Granuloma'), findsNothing);
+    expect(find.text('Swollen Joints'), findsNothing);
+    expect(find.text('Stunted Organs'), findsNothing);
     expect(find.text('Nephritis'), findsOneWidget);
     expect(find.text('General Septicemia'), findsOneWidget);
+    expect(find.text('Gasping'), findsNothing);
+    expect(find.text('Gasping Present'), findsNothing);
+    expect(find.text('Deformities'), findsNothing);
+    expect(find.text('Exposed Brain'), findsNothing);
 
     expect(find.text('Unabsorbed Yolk'), findsNothing);
     expect(find.text('Perihepatitis'), findsNothing);
@@ -303,6 +483,33 @@ void main() {
     expect(find.text('Airsac Acute'), findsNothing);
     expect(find.text('Airsac Chronic'), findsNothing);
     expect(find.text('Pulmonary Hemorrhage'), findsNothing);
+
+    expect(find.text('Others'), findsWidgets);
+    expect(find.byKey(const ValueKey('pm-add-other-lesion')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('pm-other-lesion-name-0')),
+      'Retained shell',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('pm-other-lesion-count-0')),
+    );
+    await tester.pumpAndSettle();
+    await enterAuditNumber(
+      tester,
+      find.byKey(const ValueKey('pm-other-lesion-count-0')),
+      '2',
+    );
+    await tester.tap(find.byKey(const ValueKey('pm-add-other-lesion')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('pm-other-lesion-name-1')),
+      findsOneWidget,
+    );
+    final otherLesions =
+        jsonDecode(provider.activeDraft.pmOtherLesionsJson!) as List<dynamic>;
+    expect(otherLesions.first['name'], 'Retained shell');
+    expect(otherLesions.first['count'], 2);
   });
 
   testWidgets('separates machine quality scope from house weight scope', (
@@ -321,12 +528,18 @@ void main() {
       ),
       findsNothing,
     );
-    expect(find.text('Quality sampling'), findsOneWidget);
-    expect(find.text('Machine ID'), findsOneWidget);
+    expect(find.text('Quality sampling'), findsNothing);
+    expect(find.text('Machine ID'), findsNothing);
+    expect(find.text('Machine scope'), findsOneWidget);
     expect(find.text('Active machine'), findsNothing);
     expect(find.text('Setter and hatcher pair'), findsNothing);
-    expect(find.text('One sample'), findsWidgets);
-    expect(find.text('Multisamples'), findsWidgets);
+    expect(find.text('One sample'), findsNothing);
+    expect(find.text('Multisamples'), findsNothing);
+    expect(find.text('Pool'), findsWidgets);
+    expect(find.byTooltip('Add machine sample'), findsOneWidget);
+    expect(find.byTooltip('Remove active machine sample'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
@@ -350,11 +563,11 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('quality-scope-segment-single')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('quality-scope-segment-multiple')),
-      findsOneWidget,
+      findsNothing,
     );
 
     await tester.ensureVisible(
@@ -365,6 +578,8 @@ void main() {
     expect(find.text('Sample Mode'), findsNothing);
     expect(find.text('Chick Sample Mode'), findsNothing);
     expect(find.text('House scope'), findsOneWidget);
+    expect(find.text('Active house'), findsNothing);
+    expect(find.text('Weight sample source'), findsNothing);
     expect(find.text('One house'), findsNothing);
     expect(find.text('Compare houses'), findsNothing);
     expect(
@@ -381,11 +596,11 @@ void main() {
     expect(find.byKey(const ValueKey('house-scope-multi-icon')), findsNothing);
     expect(
       find.byKey(const ValueKey('house-scope-segment-single')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('house-scope-segment-multiple')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('chick-weight-metric-summary')),
@@ -399,44 +614,73 @@ void main() {
       findsNothing,
     );
 
-    final modeTop = tester.getTopLeft(find.text('House scope')).dy;
-    final panelTop = tester
-        .getTopLeft(find.byKey(const ValueKey('chick-quality-panel-weights')))
-        .dy;
-    expect(modeTop, greaterThan(panelTop));
+    expect(find.text('House Samples'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
+        matching: find.text('Pool'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Add house sample'), findsOneWidget);
+    expect(find.byTooltip('Remove active house sample'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
   });
 
-  testWidgets(
-    'weight comparison mode shows house chips and add/remove controls',
-    (tester) async {
-      await pumpScreen(tester);
+  testWidgets('house scope edits the active chick weight house number', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('chick-quality-panel-weights')),
-      );
-      await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('chick-quality-panel-weights')),
-          matching: find.text('Multisamples'),
-        ),
-      );
-      await tester.pumpAndSettle();
+    final weightsPanel = find.byKey(
+      const ValueKey('chick-quality-panel-weights'),
+    );
+    expect(find.text('House scope'), findsOneWidget);
+    expect(find.text('House Samples'), findsNothing);
+    expect(find.text('Active house'), findsNothing);
+    expect(find.text('Weight sample source'), findsNothing);
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('Pool')),
+      findsOneWidget,
+    );
+    expect(find.text('H1'), findsNothing);
+    expect(find.text('Label'), findsNothing);
+    expect(find.byTooltip('Add house sample'), findsOneWidget);
+    expect(find.byTooltip('Remove active house sample'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
 
-      expect(find.text('House Samples'), findsOneWidget);
-      expect(find.text('H1'), findsWidgets);
-      expect(find.text('Label'), findsNothing);
-      expect(find.byTooltip('Add house sample'), findsOneWidget);
-      expect(find.byTooltip('Remove active house sample'), findsNothing);
+    await tester.tap(find.byTooltip('Add house sample'));
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Add house sample'));
-      await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('Pool')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('H1')),
+      findsWidgets,
+    );
+    expect(find.text('H2'), findsWidgets);
+    expect(find.byTooltip('Remove active house sample'), findsOneWidget);
+    final houseField = find.widgetWithText(TextFormField, 'House');
+    expect(houseField, findsOneWidget);
 
-      expect(find.text('H2'), findsWidgets);
-      expect(find.byTooltip('Remove active house sample'), findsOneWidget);
-    },
-  );
+    await tester.enterText(houseField, '12');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(of: weightsPanel, matching: find.text('H12')),
+      findsWidgets,
+    );
+    expect(provider.activeChickWeightSample.houseNo, '12');
+    expect(provider.activeChickWeightSample.houseLabel, 'House 12');
+  });
 
   testWidgets('opens the weight sheet from the weights panel', (tester) async {
     await pumpScreen(tester);
@@ -545,32 +789,52 @@ void main() {
     );
   });
 
-  testWidgets('quality multisamples use setter and hatcher chip labels', (
+  testWidgets('machine scope edits the active setter and hatcher numbers', (
     tester,
   ) async {
     final provider = AuditProvider(autosaveEnabled: false);
     await pumpScreen(tester, provider: provider);
-
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.text('Multisamples'),
-      ),
+    final machineScope = find.byKey(
+      const ValueKey('chick-quality-machine-sampling'),
     );
-    await tester.pumpAndSettle();
 
+    expect(find.text('Machine scope'), findsOneWidget);
     expect(find.text('Machine Samples'), findsNothing);
     expect(find.text('Compare setter and hatcher pairs'), findsNothing);
-    expect(find.text('S1H1'), findsWidgets);
+    expect(
+      find.descendant(of: machineScope, matching: find.text('Pool')),
+      findsOneWidget,
+    );
+    expect(find.text('S1H1'), findsNothing);
     expect(find.byTooltip('Add machine sample'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
 
     await tester.tap(find.byTooltip('Add machine sample'));
     await tester.pumpAndSettle();
 
+    expect(
+      find.descendant(of: machineScope, matching: find.text('Pool')),
+      findsNothing,
+    );
+    expect(find.text('S1H1'), findsWidgets);
     expect(find.text('S2H2'), findsWidgets);
+    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
+    final setterField = find.widgetWithText(TextFormField, 'Setter');
+    final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
+    expect(setterField, findsOneWidget);
+    expect(hatcherField, findsOneWidget);
+
+    await tester.enterText(setterField, '7');
+    await tester.enterText(hatcherField, '8');
+    await tester.pumpAndSettle();
+
+    expect(find.text('S7H8'), findsWidgets);
+    expect(provider.activeStationSample.setterNo, '7');
+    expect(provider.activeStationSample.hatcherNo, '8');
   });
 
-  testWidgets('active machine fields stay aligned on phone widths', (
+  testWidgets('machine scope fields stay aligned on phone widths', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 900));
@@ -578,18 +842,28 @@ void main() {
 
     await pumpScreen(tester);
 
+    await tester.tap(find.byTooltip('Add machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Machine scope'), findsOneWidget);
+    final houseField = find.widgetWithText(TextFormField, 'House');
     final setterField = find.widgetWithText(TextFormField, 'Setter');
     final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
 
+    expect(houseField, findsOneWidget);
     expect(setterField, findsOneWidget);
     expect(hatcherField, findsOneWidget);
 
+    final houseRect = tester.getRect(houseField);
     final setterRect = tester.getRect(setterField);
     final hatcherRect = tester.getRect(hatcherField);
 
-    expect(hatcherRect.top, setterRect.top);
-    expect(hatcherRect.width, setterRect.width);
-    expect(hatcherRect.height, setterRect.height);
+    expect(setterRect.top, houseRect.top);
+    expect(hatcherRect.top, houseRect.top);
+    expect(setterRect.width, closeTo(houseRect.width, 0.1));
+    expect(hatcherRect.width, closeTo(houseRect.width, 0.1));
+    expect(setterRect.height, closeTo(houseRect.height, 0.1));
+    expect(hatcherRect.height, closeTo(houseRect.height, 0.1));
   });
 
   testWidgets('optional test cards follow the selected quality sample type', (
@@ -601,21 +875,15 @@ void main() {
     expect(find.text('One shared sample'), findsNothing);
     expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
 
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.text('Multisamples'),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('S1H1 setter/hatcher sample'), findsWidgets);
-
     await tester.tap(find.byTooltip('Add machine sample'));
     await tester.pumpAndSettle();
 
     expect(find.text('S2H2 setter/hatcher sample'), findsWidgets);
-    expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
+
+    await tester.tap(find.byTooltip('Add machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('S3H3 setter/hatcher sample'), findsWidgets);
   });
 
   testWidgets('does not render its own sticky save footer', (tester) async {

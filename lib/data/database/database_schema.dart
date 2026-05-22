@@ -91,13 +91,28 @@ Future<void> _createPanelSampleSchemaTables(DatabaseExecutor db) async {
   }
 }
 
+const _panelCommonColumnDefinitions = [
+  'house TEXT',
+  'setter TEXT',
+  'hatcher TEXT',
+  'trolley TEXT',
+  'tray TEXT',
+  'position TEXT',
+  'storagePeriodDays INTEGER',
+  'bmkAgeDays INTEGER',
+  'bmkAgeWeeks INTEGER',
+];
+
 Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
     if (!await _tableExists(db, panel.tableName)) continue;
     final columns = _columnNames(
       await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
     );
-    for (final columnDefinition in panel.measurementColumns) {
+    for (final columnDefinition in [
+      ..._panelCommonColumnDefinitions,
+      ...panel.measurementColumns,
+    ]) {
       final columnName = _columnNameFromDefinition(columnDefinition);
       if (columns.contains(columnName)) continue;
       await db.execute(
@@ -128,12 +143,7 @@ Future<void> _createPanelTable(
     date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
-    mode TEXT NOT NULL DEFAULT 'pool',
-    scopeType TEXT NOT NULL DEFAULT 'pool',
-    scopeLabel TEXT NOT NULL DEFAULT 'Random',
-    sampleIndex INTEGER NOT NULL DEFAULT 0,
-    groupKey TEXT,
-    groupLabel TEXT,
+    ${_panelCommonColumnDefinitions.join(',\n    ')},
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -143,9 +153,7 @@ Future<void> _createPanelTable(
     FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
-    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE,
-    CHECK (mode IN ('pool', 'comparison')),
-    CHECK (scopeType IN ('pool', 'house', 'setter', 'hatcher', 'setter_hatcher', 'trolley', 'tray', 'batch'))
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
   )''');
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_session ON $tableName (sessionId)',
@@ -154,10 +162,7 @@ Future<void> _createPanelTable(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
   );
   await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${tableName}_mode ON $tableName (sessionId, mode)',
-  );
-  await db.execute(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName (sessionId, mode, scopeType, scopeLabel, sampleIndex, IFNULL(groupKey, ''))",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
   );
 }
 

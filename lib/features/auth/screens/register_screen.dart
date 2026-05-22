@@ -101,7 +101,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               key: _formKey,
               child: Column(
                 children: [
-                  const ChickMarkLogo(logoSize: 80),
+                  const ChickMarkLogo(logoSize: 80, animated: true),
                   const SizedBox(height: 24),
                   SectionCard(
                     child: Column(

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/scorecard_formatter.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
@@ -251,7 +252,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Visit ${visit.session.date.day}/${visit.session.date.month}/${visit.session.date.year}',
+                      'Visit ${HatchDateUtils.formatDisplayDate(visit.session.date)}',
                       style: AppTextStyles.body.copyWith(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -665,7 +666,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
+    return HatchDateUtils.formatDisplayDate(date);
   }
 
   void _showFlockManagementSheet(BuildContext context) {

@@ -59,7 +59,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const ChickMarkLogo(logoSize: 100),
+            const ChickMarkLogo(logoSize: 100, animated: true),
             const SizedBox(height: 32),
             SectionCard(
               child: Column(

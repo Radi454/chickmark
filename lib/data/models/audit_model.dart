@@ -6,6 +6,7 @@ class AuditModel {
   final String auditType;
   final String customerId;
   final String? flockId;
+  final String? houseId;
   final String? setterId;
   final String? hatcherId;
   final DateTime date;
@@ -116,31 +117,23 @@ class AuditModel {
   final String? pmGizzardErosionsSeverity;
   final int? pmAirSacCaseationsCount;
   final String? pmAirSacCaseationsSeverity;
+  final int? pmUrolithiasisCount;
+  final String? pmUrolithiasisSeverity;
   final int? pmNephritisCount;
   final String? pmNephritisSeverity;
   final int? pmGeneralSepticemiaCount;
   final String? pmGeneralSepticemiaSeverity;
-  final bool? pmGaspingPresent;
-  final String? pmGaspingType;
-  final int? pmExposedBrainCount;
-  final int? pmEctopicVisceraCount;
-  final int? pmExtraLegsCount;
-  final int? pmCrossedBeakCount;
-  final int? pmAbsentEyeBothCount;
-  final int? pmAbsentEyeOneCount;
-  final int? pmSmallEyeCount;
-  final int? pmHydrocephalyCount;
-  final int? pmStarGazerCount;
-  final int? pmCurledToesCount;
-  final int? pmShortLegsCount;
-  final int? pmSpinalDeformityCount;
-  final int? pmCardiacAnomalyCount;
-  final int? pmConjoinedCount;
-  final int? pmOtherDeformityCount;
-  final String? pmOtherDeformityText;
+  final String? pmOtherLesionsJson;
   final String? pmSuspectedCauseAuto;
   final String? pmSuspectedCauseManual;
   final String? pmPhotosJson;
+
+  // --- Chicks: Culled Chicks Analysis ---
+  final int? culledChicksTotalEggSet;
+  final String? culledChicksAnalysisJson;
+  final double? culledChicksAffectedPct;
+  final String? culledChicksTopCategory;
+  final String? culledChicksTopSubtype;
 
   // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
   final int? haStorageDays;
@@ -198,6 +191,8 @@ class AuditModel {
   final double? soTurningAngle;
   final double? soSetpointF;
   final double? soActualF;
+  final double? soSetpointRh;
+  final double? soActualRh;
   final String? soMachineScreenPhoto;
   final int? soBatchSize;
   final int? soBatchCount;
@@ -209,6 +204,8 @@ class AuditModel {
   final String? hoHatcherId;
   final int? hoIncubationAge;
   final int? hoIncubationHours;
+  final double? hoSetpointF;
+  final double? hoSetpointRh;
   final double? hoCo2;
   final String? hoCo2Photo;
   final String? hoCvtReadings;
@@ -228,6 +225,7 @@ class AuditModel {
   final int? esTurningTimes;
   final String? esUvTrays;
   final int? esEggStorageDays;
+  final int? esEggQualityStorageDays;
   final int? esEggSampleSize;
   final String? esEggWeights;
   final double? esEggAvgWeight;
@@ -269,6 +267,7 @@ class AuditModel {
     required this.createdBy,
     required this.createdAt,
     required this.updatedAt,
+    this.houseId,
     this.setterId,
     this.hatcherId,
     this.hatchNumber = 1,
@@ -368,31 +367,22 @@ class AuditModel {
     this.pmGizzardErosionsSeverity,
     this.pmAirSacCaseationsCount,
     this.pmAirSacCaseationsSeverity,
+    this.pmUrolithiasisCount,
+    this.pmUrolithiasisSeverity,
     this.pmNephritisCount,
     this.pmNephritisSeverity,
     this.pmGeneralSepticemiaCount,
     this.pmGeneralSepticemiaSeverity,
-    this.pmGaspingPresent,
-    this.pmGaspingType,
-    this.pmExposedBrainCount,
-    this.pmEctopicVisceraCount,
-    this.pmExtraLegsCount,
-    this.pmCrossedBeakCount,
-    this.pmAbsentEyeBothCount,
-    this.pmAbsentEyeOneCount,
-    this.pmSmallEyeCount,
-    this.pmHydrocephalyCount,
-    this.pmStarGazerCount,
-    this.pmCurledToesCount,
-    this.pmShortLegsCount,
-    this.pmSpinalDeformityCount,
-    this.pmCardiacAnomalyCount,
-    this.pmConjoinedCount,
-    this.pmOtherDeformityCount,
-    this.pmOtherDeformityText,
+    this.pmOtherLesionsJson,
     this.pmSuspectedCauseAuto,
     this.pmSuspectedCauseManual,
     this.pmPhotosJson,
+    // --- Chicks: Culled Chicks Analysis ---
+    this.culledChicksTotalEggSet,
+    this.culledChicksAnalysisJson,
+    this.culledChicksAffectedPct,
+    this.culledChicksTopCategory,
+    this.culledChicksTopSubtype,
     // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
     this.haStorageDays,
     this.haTotalEggsSet,
@@ -447,6 +437,8 @@ class AuditModel {
     this.soTurningAngle,
     this.soSetpointF,
     this.soActualF,
+    this.soSetpointRh,
+    this.soActualRh,
     this.soMachineScreenPhoto,
     this.soBatchSize,
     this.soBatchCount,
@@ -457,6 +449,8 @@ class AuditModel {
     this.hoHatcherId,
     this.hoIncubationAge,
     this.hoIncubationHours,
+    this.hoSetpointF,
+    this.hoSetpointRh,
     this.hoCo2,
     this.hoCo2Photo,
     this.hoCvtReadings,
@@ -475,6 +469,7 @@ class AuditModel {
     this.esTurningTimes,
     this.esUvTrays,
     this.esEggStorageDays,
+    this.esEggQualityStorageDays,
     this.esEggSampleSize,
     this.esEggWeights,
     this.esEggAvgWeight,
@@ -519,6 +514,7 @@ class AuditModel {
       createdBy: map['createdBy'] ?? 'unknown',
       createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updatedAt'] ?? '') ?? DateTime.now(),
+      houseId: map['houseId'],
       setterId: map['setterId'],
       hatcherId: map['hatcherId'],
       notes: map['notes'],
@@ -617,31 +613,23 @@ class AuditModel {
       pmGizzardErosionsSeverity: map['pm_gizzardErosionsSeverity'],
       pmAirSacCaseationsCount: map['pm_airSacCaseationsCount'],
       pmAirSacCaseationsSeverity: map['pm_airSacCaseationsSeverity'],
+      pmUrolithiasisCount: map['pm_urolithiasisCount'],
+      pmUrolithiasisSeverity: map['pm_urolithiasisSeverity'],
       pmNephritisCount: map['pm_nephritisCount'],
       pmNephritisSeverity: map['pm_nephritisSeverity'],
       pmGeneralSepticemiaCount: map['pm_generalSepticemiaCount'],
       pmGeneralSepticemiaSeverity: map['pm_generalSepticemiaSeverity'],
-      pmGaspingPresent: map['pm_gaspingPresent'] == 1,
-      pmGaspingType: map['pm_gaspingType'],
-      pmExposedBrainCount: map['pm_exposedBrainCount'],
-      pmEctopicVisceraCount: map['pm_ectopicVisceraCount'],
-      pmExtraLegsCount: map['pm_extraLegsCount'],
-      pmCrossedBeakCount: map['pm_crossedBeakCount'],
-      pmAbsentEyeBothCount: map['pm_absentEyeBothCount'],
-      pmAbsentEyeOneCount: map['pm_absentEyeOneCount'],
-      pmSmallEyeCount: map['pm_smallEyeCount'],
-      pmHydrocephalyCount: map['pm_hydrocephalyCount'],
-      pmStarGazerCount: map['pm_starGazerCount'],
-      pmCurledToesCount: map['pm_curledToesCount'],
-      pmShortLegsCount: map['pm_shortLegsCount'],
-      pmSpinalDeformityCount: map['pm_spinalDeformityCount'],
-      pmCardiacAnomalyCount: map['pm_cardiacAnomalyCount'],
-      pmConjoinedCount: map['pm_conjoinedCount'],
-      pmOtherDeformityCount: map['pm_otherDeformityCount'],
-      pmOtherDeformityText: map['pm_otherDeformityText'],
+      pmOtherLesionsJson: map['pm_otherLesionsJson'],
       pmSuspectedCauseAuto: map['pm_suspectedCauseAuto'],
       pmSuspectedCauseManual: map['pm_suspectedCauseManual'],
       pmPhotosJson: map['pm_photosJson'],
+      // --- Chicks: Culled Chicks Analysis ---
+      culledChicksTotalEggSet:
+          map['culledChicksTotalEggSet'] ?? map['culledChicksSampleSize'],
+      culledChicksAnalysisJson: map['culledChicksAnalysisJson'],
+      culledChicksAffectedPct: map['culledChicksAffectedPct']?.toDouble(),
+      culledChicksTopCategory: map['culledChicksTopCategory'],
+      culledChicksTopSubtype: map['culledChicksTopSubtype'],
       // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       haStorageDays: map['haStorageDays'],
       haTotalEggsSet: map['haTotalEggsSet'],
@@ -696,6 +684,8 @@ class AuditModel {
       soTurningAngle: map['so_turningAngle']?.toDouble(),
       soSetpointF: map['so_setpointF']?.toDouble(),
       soActualF: map['so_actualF']?.toDouble(),
+      soSetpointRh: map['so_setpointRh']?.toDouble(),
+      soActualRh: map['so_actualRh']?.toDouble(),
       soMachineScreenPhoto: map['so_machineScreenPhoto'],
       soBatchSize: (map['so_batchSize'] as num?)?.toInt(),
       soBatchCount: (map['so_batchCount'] as num?)?.toInt(),
@@ -706,6 +696,8 @@ class AuditModel {
       hoHatcherId: map['hoHatcherId'],
       hoIncubationAge: map['hoIncubationAge'],
       hoIncubationHours: map['hoIncubationHours'],
+      hoSetpointF: map['ho_setpointF']?.toDouble(),
+      hoSetpointRh: map['ho_setpointRh']?.toDouble(),
       hoCo2: map['hoCo2']?.toDouble(),
       hoCo2Photo: map['hoCo2Photo'],
       hoCvtReadings: map['hoCvtReadings'],
@@ -724,6 +716,7 @@ class AuditModel {
       esTurningTimes: map['esTurningTimes'],
       esUvTrays: map['esUvTrays'],
       esEggStorageDays: map['esEggStorageDays'],
+      esEggQualityStorageDays: map['esEggQualityStorageDays'],
       esEggSampleSize: map['esEggSampleSize'],
       esEggWeights: map['esEggWeights'],
       esEggAvgWeight: map['esEggAvgWeight']?.toDouble(),
@@ -753,7 +746,9 @@ class AuditModel {
       esTraySpacing: map['es_traySpacing'],
       esCoolerProximity: map['es_coolerProximity'],
       esWallProximity: map['es_wallProximity'],
-      esCondensation: map['es_condensation'] == 1,
+      esCondensation: map['es_condensation'] == null
+          ? null
+          : map['es_condensation'] == 1,
     );
   }
 
@@ -769,6 +764,7 @@ class AuditModel {
       'createdBy': createdBy,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'houseId': houseId,
       'setterId': setterId,
       'hatcherId': hatcherId,
       'notes': notes,
@@ -867,33 +863,22 @@ class AuditModel {
       'pm_gizzardErosionsSeverity': pmGizzardErosionsSeverity,
       'pm_airSacCaseationsCount': pmAirSacCaseationsCount,
       'pm_airSacCaseationsSeverity': pmAirSacCaseationsSeverity,
+      'pm_urolithiasisCount': pmUrolithiasisCount,
+      'pm_urolithiasisSeverity': pmUrolithiasisSeverity,
       'pm_nephritisCount': pmNephritisCount,
       'pm_nephritisSeverity': pmNephritisSeverity,
       'pm_generalSepticemiaCount': pmGeneralSepticemiaCount,
       'pm_generalSepticemiaSeverity': pmGeneralSepticemiaSeverity,
-      'pm_gaspingPresent': pmGaspingPresent == null
-          ? null
-          : (pmGaspingPresent! ? 1 : 0),
-      'pm_gaspingType': pmGaspingType,
-      'pm_exposedBrainCount': pmExposedBrainCount,
-      'pm_ectopicVisceraCount': pmEctopicVisceraCount,
-      'pm_extraLegsCount': pmExtraLegsCount,
-      'pm_crossedBeakCount': pmCrossedBeakCount,
-      'pm_absentEyeBothCount': pmAbsentEyeBothCount,
-      'pm_absentEyeOneCount': pmAbsentEyeOneCount,
-      'pm_smallEyeCount': pmSmallEyeCount,
-      'pm_hydrocephalyCount': pmHydrocephalyCount,
-      'pm_starGazerCount': pmStarGazerCount,
-      'pm_curledToesCount': pmCurledToesCount,
-      'pm_shortLegsCount': pmShortLegsCount,
-      'pm_spinalDeformityCount': pmSpinalDeformityCount,
-      'pm_cardiacAnomalyCount': pmCardiacAnomalyCount,
-      'pm_conjoinedCount': pmConjoinedCount,
-      'pm_otherDeformityCount': pmOtherDeformityCount,
-      'pm_otherDeformityText': pmOtherDeformityText,
+      'pm_otherLesionsJson': pmOtherLesionsJson,
       'pm_suspectedCauseAuto': pmSuspectedCauseAuto,
       'pm_suspectedCauseManual': pmSuspectedCauseManual,
       'pm_photosJson': pmPhotosJson,
+      // --- Chicks: Culled Chicks Analysis ---
+      'culledChicksTotalEggSet': culledChicksTotalEggSet,
+      'culledChicksAnalysisJson': culledChicksAnalysisJson,
+      'culledChicksAffectedPct': culledChicksAffectedPct,
+      'culledChicksTopCategory': culledChicksTopCategory,
+      'culledChicksTopSubtype': culledChicksTopSubtype,
       // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       'haStorageDays': haStorageDays,
       'haTotalEggsSet': haTotalEggsSet,
@@ -948,6 +933,8 @@ class AuditModel {
       'so_turningAngle': soTurningAngle,
       'so_setpointF': soSetpointF,
       'so_actualF': soActualF,
+      'so_setpointRh': soSetpointRh,
+      'so_actualRh': soActualRh,
       'so_machineScreenPhoto': soMachineScreenPhoto,
       'so_batchSize': soBatchSize,
       'so_batchCount': soBatchCount,
@@ -958,6 +945,8 @@ class AuditModel {
       'hoHatcherId': hoHatcherId,
       'hoIncubationAge': hoIncubationAge,
       'hoIncubationHours': hoIncubationHours,
+      'ho_setpointF': hoSetpointF,
+      'ho_setpointRh': hoSetpointRh,
       'hoCo2': hoCo2,
       'hoCo2Photo': hoCo2Photo,
       'hoCvtReadings': hoCvtReadings,
@@ -978,6 +967,7 @@ class AuditModel {
       'esTurningTimes': esTurningTimes,
       'esUvTrays': esUvTrays,
       'esEggStorageDays': esEggStorageDays,
+      'esEggQualityStorageDays': esEggQualityStorageDays,
       'esEggSampleSize': esEggSampleSize,
       'esEggWeights': esEggWeights,
       'esEggAvgWeight': esEggAvgWeight,

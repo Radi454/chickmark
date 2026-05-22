@@ -6,12 +6,18 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/temp_converter.dart';
 import '../../../providers/app_provider.dart';
 import '../providers/govee_capture_provider.dart';
 
 class GoveeLiveReadingCard extends StatelessWidget {
   const GoveeLiveReadingCard({super.key});
+
+  static const Color _gradientForeground = Colors.white;
+  static const Color _gradientMutedForeground = Color(0xD9FFFFFF);
+  static const Color _gradientControlFill = Color(0x26FFFFFF);
+  static const Color _gradientBorder = Color(0x3DFFFFFF);
 
   @override
   Widget build(BuildContext context) {
@@ -31,15 +37,16 @@ class GoveeLiveReadingCard extends StatelessWidget {
     final updatedText = provider.liveUpdatedAt;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         gradient: AppColors.brandGradient,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: _gradientBorder),
         boxShadow: const [
           BoxShadow(
             color: AppColors.cardShadow,
-            blurRadius: AppSizes.cardShadowBlur,
-            offset: Offset(0, AppSizes.cardShadowOffsetY),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -63,17 +70,17 @@ class GoveeLiveReadingCard extends StatelessWidget {
                     Text(
                       _deviceName(provider.deviceName),
                       overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.sectionTitle.copyWith(
-                        color: Colors.white,
+                      style: AppTextStyles.title.copyWith(
+                        color: _gradientForeground,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       'Status: $subtitle',
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.caption.copyWith(
-                        color: Colors.white.withValues(alpha: 0.9),
+                        color: _gradientMutedForeground,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -86,7 +93,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
               _readAction(context, provider),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSizes.spaceSm),
           LayoutBuilder(
             builder: (context, constraints) {
               final stack = constraints.maxWidth < 340;
@@ -103,22 +110,26 @@ class GoveeLiveReadingCard extends StatelessWidget {
 
               if (stack) {
                 return Column(
-                  children: [tempTile, const SizedBox(height: 8), rhTile],
+                  children: [
+                    tempTile,
+                    const SizedBox(height: AppSizes.spaceSm),
+                    rhTile,
+                  ],
                 );
               }
               return Row(
                 children: [
                   Expanded(child: tempTile),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: AppSizes.spaceSm),
                   Expanded(child: rhTile),
                 ],
               );
             },
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSizes.spaceSm),
           Wrap(
-            spacing: 10,
-            runSpacing: 8,
+            spacing: AppSizes.spaceSm,
+            runSpacing: AppSizes.spaceXs,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _meta(
@@ -143,7 +154,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
             Text(
               provider.error!,
               style: AppTextStyles.caption.copyWith(
-                color: Colors.white,
+                color: _gradientForeground,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -155,14 +166,13 @@ class GoveeLiveReadingCard extends StatelessWidget {
 
   Widget _circleIcon(IconData icon) {
     return Container(
-      width: 38,
-      height: 38,
+      width: 34,
+      height: 34,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
+        color: _gradientControlFill,
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
       ),
-      child: Icon(icon, color: Colors.white, size: 20),
+      child: Icon(icon, color: _gradientForeground, size: 18),
     );
   }
 
@@ -172,15 +182,17 @@ class GoveeLiveReadingCard extends StatelessWidget {
       tooltip: 'Govee device settings',
       onPressed: () => _showSettings(context),
       icon: const Icon(Icons.settings_outlined),
-      color: Colors.white,
+      color: _gradientForeground,
       style: IconButton.styleFrom(
-        backgroundColor: Colors.white.withValues(alpha: 0.12),
-        foregroundColor: Colors.white,
-        disabledForegroundColor: Colors.white.withValues(alpha: 0.55),
-        minimumSize: const Size.square(38),
-        fixedSize: const Size.square(38),
+        backgroundColor: _gradientControlFill,
+        foregroundColor: _gradientForeground,
+        disabledForegroundColor: _gradientMutedForeground,
+        minimumSize: const Size.square(36),
+        fixedSize: const Size.square(36),
         padding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+        ),
       ),
     );
   }
@@ -211,12 +223,17 @@ class GoveeLiveReadingCard extends StatelessWidget {
       ),
       label: Text(label),
       style: TextButton.styleFrom(
-        foregroundColor: Colors.white,
-        disabledForegroundColor: Colors.white.withValues(alpha: 0.55),
-        backgroundColor: Colors.white.withValues(alpha: 0.12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        minimumSize: const Size(72, 38),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        foregroundColor: _gradientForeground,
+        disabledForegroundColor: _gradientMutedForeground,
+        backgroundColor: _gradientControlFill,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+        ),
+        minimumSize: const Size(70, 36),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceMd,
+          vertical: AppSizes.spaceSm,
+        ),
       ),
     );
   }
@@ -227,32 +244,32 @@ class GoveeLiveReadingCard extends StatelessWidget {
     required String value,
   }) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 9, 10, 10),
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: _gradientControlFill,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: _gradientBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: Colors.white.withValues(alpha: 0.82), size: 18),
+              Icon(icon, color: _gradientForeground, size: 17),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   label,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.caption.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
+                    color: _gradientMutedForeground,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: AppSizes.spaceXs),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -260,8 +277,8 @@ class GoveeLiveReadingCard extends StatelessWidget {
               value,
               maxLines: 1,
               style: AppTextStyles.heading.copyWith(
-                color: Colors.white,
-                fontSize: 26,
+                color: _gradientForeground,
+                fontSize: 20,
                 height: 1,
                 fontWeight: FontWeight.w800,
               ),
@@ -278,9 +295,9 @@ class GoveeLiveReadingCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: _gradientControlFill,
+        borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+        border: Border.all(color: _gradientBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -318,12 +335,12 @@ class GoveeLiveReadingCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: selected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
         ),
         child: Text(
           label,
           style: AppTextStyles.caption.copyWith(
-            color: selected ? AppColors.primary : Colors.white,
+            color: selected ? AppColors.primary : _gradientMutedForeground,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -335,12 +352,12 @@ class GoveeLiveReadingCard extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.white.withValues(alpha: 0.72), size: 15),
+        Icon(icon, color: _gradientMutedForeground, size: 15),
         const SizedBox(width: 5),
         Text(
           label,
           style: AppTextStyles.caption.copyWith(
-            color: Colors.white.withValues(alpha: 0.76),
+            color: _gradientMutedForeground,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -525,12 +542,7 @@ class _GoveeSettingsSheet extends StatelessWidget {
   }
 
   static String _formatDateTime(DateTime dateTime) {
-    final local = dateTime.toLocal();
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$month/$day $hour:$minute';
+    return HatchDateUtils.formatDisplayDateTime(dateTime);
   }
 }
 

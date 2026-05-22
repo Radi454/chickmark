@@ -31,12 +31,15 @@ Future<void> _createPanelTable(
     date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
-    mode TEXT NOT NULL DEFAULT 'pool',
-    scopeType TEXT NOT NULL DEFAULT 'pool',
-    scopeLabel TEXT NOT NULL DEFAULT 'Random',
-    sampleIndex INTEGER NOT NULL DEFAULT 0,
-    groupKey TEXT,
-    groupLabel TEXT,
+    house TEXT,
+    setter TEXT,
+    hatcher TEXT,
+    trolley TEXT,
+    tray TEXT,
+    position TEXT,
+    storagePeriodDays INTEGER,
+    bmkAgeDays INTEGER,
+    bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -44,6 +47,9 @@ Future<void> _createPanelTable(
     lastSyncedAt TEXT,
     syncError TEXT$extra
   )''');
+  await db.execute(
+    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+  );
 }
 
 void main() {
@@ -97,13 +103,7 @@ void main() {
       date TEXT NOT NULL
     )''');
     for (final panel in PanelSampleSchema.panels.where(
-      (panel) => {
-        'chick_pasgar',
-        'chick_weights',
-        'chick_yfbm',
-        'chick_cvt',
-        'chick_pm',
-      }.contains(panel.tableName),
+      (panel) => {'chick_quality', 'chick_weights'}.contains(panel.tableName),
     )) {
       await _createPanelTable(db, panel.tableName, panel.measurementColumns);
     }
@@ -156,7 +156,11 @@ void main() {
   });
 
   Future<List<Map<String, Object?>>> rows(String table) {
-    return db.query(table, orderBy: 'sampleIndex ASC, scopeLabel ASC');
+    return db.query(
+      table,
+      orderBy:
+          'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC',
+    );
   }
 
   void fillQualityDraft({
@@ -167,8 +171,6 @@ void main() {
     required List<double> cvtReadings,
     required double cvtAvg,
     required int pmSampleSize,
-    required bool gaspingPresent,
-    required String gaspingType,
   }) {
     provider.updateField('pasgarSampleSize', 40);
     provider.updateField('pasgarReflexes', pasgarReflexes);
@@ -193,19 +195,23 @@ void main() {
     provider.updateField('pm_gizzardErosionsSeverity', 'moderate');
     provider.updateField('pm_airSacCaseationsCount', 4);
     provider.updateField('pm_airSacCaseationsSeverity', 'severe');
+    provider.updateField('pm_urolithiasisCount', 2);
+    provider.updateField('pm_urolithiasisSeverity', 'moderate');
     provider.updateField('pm_nephritisCount', 1);
     provider.updateField('pm_nephritisSeverity', 'mild');
     provider.updateField('pm_generalSepticemiaCount', 5);
     provider.updateField('pm_generalSepticemiaSeverity', 'severe');
-    provider.updateField('pm_gaspingPresent', gaspingPresent ? 1 : 0);
-    provider.updateField('pm_gaspingType', gaspingType);
-    provider.updateField('pm_otherDeformityCount', 1);
-    provider.updateField('pm_otherDeformityText', 'crossed toes');
+    provider.updateField(
+      'pm_otherLesionsJson',
+      jsonEncode([
+        {'name': 'Retained shell', 'count': 2, 'severity': 'mild'},
+      ]),
+    );
     provider.updateField('pm_suspectedCauseManual', 'manual QA note');
   }
 
   test(
-    'Chicks station save persists quality panels and house weight rows',
+    'Chicks station save persists combined quality rows and house weight rows',
     () async {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
       provider.updateSampleMetadata({'setterNo': 'S-1', 'hatcherNo': 'H-1'});
@@ -220,8 +226,14 @@ void main() {
         cvtReadings: const [101.4, 101.8, 102.0],
         cvtAvg: 101.7,
         pmSampleSize: 12,
-        gaspingPresent: true,
-        gaspingType: 'mild',
+      );
+      provider.updateField('culledChicksTotalEggSet', 19200);
+      provider.updateField(
+        'culledChicksAnalysisJson',
+        jsonEncode([
+          {'id': 'navel_open_unhealed', 'count': 3},
+          {'id': 'legs_red_hocks', 'count': 2},
+        ]),
       );
 
       provider.addSample();
@@ -236,8 +248,13 @@ void main() {
         cvtReadings: const [102.1, 102.4],
         cvtAvg: 102.25,
         pmSampleSize: 8,
-        gaspingPresent: false,
-        gaspingType: 'none',
+      );
+      provider.updateField('culledChicksTotalEggSet', 19200);
+      provider.updateField(
+        'culledChicksAnalysisJson',
+        jsonEncode([
+          {'id': 'sticky_dehydrated_burned_chick', 'count': 1},
+        ]),
       );
 
       provider.setChickWeightSampleMode(
@@ -261,53 +278,73 @@ void main() {
 
       expect(await provider.saveSamplesWithResult(), isTrue);
 
-      final pasgar = await rows('chick_pasgar');
-      final yfbm = await rows('chick_yfbm');
-      final cvt = await rows('chick_cvt');
-      final pm = await rows('chick_pm');
+      final quality = await rows('chick_quality');
       final weights = await rows('chick_weights');
 
-      expect(pasgar, hasLength(2));
-      expect(yfbm, hasLength(2));
-      expect(cvt, hasLength(2));
-      expect(pm, hasLength(2));
+      expect(quality, hasLength(2));
       expect(weights, hasLength(2));
 
-      expect(pasgar.map((row) => row['scopeType']), [
-        'setter_hatcher',
-        'setter_hatcher',
-      ]);
-      expect(pasgar.map((row) => row['scopeLabel']), ['S-1/H-1', 'S-2/H-2']);
-      expect(pasgar.map((row) => row['sampleSize']), [40, 40]);
-      expect(pasgar.map((row) => row['reflexesCount']), [2, 4]);
-      expect(pasgar.map((row) => row['finalScore']), [9.8, 9.4]);
+      expect(quality.map((row) => row['setter']), ['S-1', 'S-2']);
+      expect(quality.map((row) => row['hatcher']), ['H-1', 'H-2']);
+      expect(quality.map((row) => row['pasgarSampleSize']), [40, 40]);
+      expect(quality.map((row) => row['pasgarReflexesCount']), [2, 4]);
+      expect(quality.map((row) => row['pasgarFinalScore']), [9.8, 9.4]);
 
-      expect(yfbm.map((row) => row['entryCount']), [2, 1]);
-      expect(yfbm.map((row) => row['avgPct']), [9.7, 10.2]);
-      expect(yfbm.first['entriesJson'], contains('yolkWeight'));
+      expect(quality.map((row) => row['yfbmEntryCount']), [2, 1]);
+      expect(quality.map((row) => row['yfbmAvgPct']), [9.7, 10.2]);
+      expect(quality.first['yfbmEntriesJson'], contains('yolkWeight'));
 
-      expect(cvt.map((row) => row['sampleSize']), [3, 2]);
-      expect(cvt.map((row) => row['avgTemp']), [101.7, 102.25]);
-      expect(cvt.last['readingsJson'], jsonEncode([102.1, 102.4]));
+      expect(quality.map((row) => row['cvtSampleSize']), [3, 2]);
+      expect(quality.map((row) => row['cvtAvgTemp']), [101.7, 102.25]);
+      expect(quality.last['cvtReadingsJson'], jsonEncode([102.1, 102.4]));
 
-      expect(pm.map((row) => row['sampleSize']), [12, 8]);
-      expect(pm.first['collectionPoint'], 'Chick basket');
-      expect(pm.first['omphalitisCount'], 2);
-      expect(pm.first['gizzardErosionsCount'], 3);
-      expect(pm.first['gizzardErosionsSeverity'], 'moderate');
-      expect(pm.first['airSacCaseationsCount'], 4);
-      expect(pm.first['airSacCaseationsSeverity'], 'severe');
-      expect(pm.first['nephritisCount'], 1);
-      expect(pm.first['nephritisSeverity'], 'mild');
-      expect(pm.first['generalSepticemiaCount'], 5);
-      expect(pm.first['generalSepticemiaSeverity'], 'severe');
-      expect(pm.map((row) => row['gaspingPresent']), [1, 0]);
-      expect(pm.first['gaspingType'], 'mild');
-      expect(pm.first['otherDeformityText'], 'crossed toes');
-      expect(pm.first['suspectedCauseManual'], 'manual QA note');
+      expect(quality.map((row) => row['pmSampleSize']), [12, 8]);
+      expect(quality.first['pmCollectionPoint'], 'Chick basket');
+      expect(quality.first['pmOmphalitisCount'], 2);
+      expect(quality.first['pmGizzardErosionsCount'], 3);
+      expect(quality.first['pmGizzardErosionsSeverity'], 'moderate');
+      expect(quality.first['pmAirSacCaseationsCount'], 4);
+      expect(quality.first['pmAirSacCaseationsSeverity'], 'severe');
+      expect(quality.first['pmUrolithiasisCount'], 2);
+      expect(quality.first['pmUrolithiasisSeverity'], 'moderate');
+      expect(quality.first['pmNephritisCount'], 1);
+      expect(quality.first['pmNephritisSeverity'], 'mild');
+      expect(quality.first['pmGeneralSepticemiaCount'], 5);
+      expect(quality.first['pmGeneralSepticemiaSeverity'], 'severe');
+      expect(quality.first['pmOtherLesionsJson'], contains('Retained shell'));
+      expect(quality.first.containsKey('pmPulmonaryGranulomaCount'), isFalse);
+      expect(quality.first.containsKey('pmSwollenJointsCount'), isFalse);
+      expect(quality.first.containsKey('pmStuntedOrgansCount'), isFalse);
+      expect(quality.first.containsKey('pmPulmonaryHemorrhageCount'), isFalse);
+      expect(quality.first.containsKey('pmGaspingPresent'), isFalse);
+      expect(quality.first.containsKey('pmOtherDeformityText'), isFalse);
+      expect(quality.first['pmSuspectedCauseManual'], 'manual QA note');
+      expect(quality.first['culledChicksTotalEggSet'], 19200);
+      expect(quality.first['culledChicksAnalysisJson'], contains('red_hocks'));
+      expect(quality.first['culledChicksAnalysisJson'], contains('"pct"'));
+      expect(
+        quality.first['culledChicksAnalysisJson'],
+        isNot(contains('"count"')),
+      );
+      expect(
+        quality.first['culledChicksAffectedPct'],
+        closeTo(5 / 19200 * 100, 0.000001),
+      );
+      expect(quality.first['culledChicksTopCategory'], 'Navel');
+      expect(quality.first['culledChicksTopSubtype'], 'Open / unhealed navel');
+      expect(quality.first.containsKey('culledChicksTotalCount'), isFalse);
+      expect(quality.last['culledChicksTotalEggSet'], 19200);
+      expect(
+        quality.last['culledChicksAffectedPct'],
+        closeTo(1 / 19200 * 100, 0.000001),
+      );
+      expect(quality.last['culledChicksTopCategory'], 'Dehydrated');
+      expect(
+        quality.last['culledChicksTopSubtype'],
+        'Dehydrated / burned chick',
+      );
 
-      expect(weights.map((row) => row['scopeType']), ['house', 'house']);
-      expect(weights.map((row) => row['scopeLabel']), ['House 1', 'House-B']);
+      expect(weights.map((row) => row['house']), ['H1', 'House-B']);
       expect(weights.map((row) => row['sampleSize']), [3, 2]);
       expect(weights.map((row) => row['weightsJson']), [
         jsonEncode([41.0, 42.0, 43.0]),

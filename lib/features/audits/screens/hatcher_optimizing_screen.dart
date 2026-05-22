@@ -76,6 +76,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final TextEditingController _incubationHoursController =
       TextEditingController(text: '0');
   late final TextEditingController _hatcherIdController;
+  final TextEditingController _setpointController = TextEditingController();
+  final TextEditingController _setpointRhController = TextEditingController();
   bool _chickPanting = false;
   String? _meconium;
   EstGuidedCaptureState? _cvtCaptureState;
@@ -102,6 +104,12 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         .toString();
     _incubationHoursController.text =
         (widget.initialAudit?.hoIncubationHours ?? 0).toString();
+    _setpointController.text = widget.initialAudit?.hoSetpointF != null
+        ? widget.initialAudit!.hoSetpointF!.toStringAsFixed(1)
+        : '';
+    _setpointRhController.text = widget.initialAudit?.hoSetpointRh != null
+        ? widget.initialAudit!.hoSetpointRh!.toStringAsFixed(1)
+        : '';
     _chickPanting = widget.initialAudit?.hoChickPanting ?? false;
     _meconium = widget.initialAudit?.hoMeconium;
     _loadCvtReadings(widget.initialAudit?.hoCvtReadings);
@@ -143,6 +151,12 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _hatcherIdController.text = audit.hatcherId ?? audit.hoHatcherId ?? '';
     _incubationAgeController.text = (audit.hoIncubationAge ?? 18).toString();
     _incubationHoursController.text = (audit.hoIncubationHours ?? 0).toString();
+    _setpointController.text = audit.hoSetpointF != null
+        ? audit.hoSetpointF!.toStringAsFixed(1)
+        : '';
+    _setpointRhController.text = audit.hoSetpointRh != null
+        ? audit.hoSetpointRh!.toStringAsFixed(1)
+        : '';
     _chickPanting = audit.hoChickPanting ?? false;
     _meconium = audit.hoMeconium;
     for (final controller in _controllers.values) {
@@ -217,6 +231,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _incubationAgeController.dispose();
     _incubationHoursController.dispose();
     _hatcherIdController.dispose();
+    _setpointController.dispose();
+    _setpointRhController.dispose();
     super.dispose();
   }
 
@@ -582,6 +598,46 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                 provider.updateField('hoHatcherId', value);
                 if (mounted) setState(() {});
               },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('hatcher-setpoint-f-field'),
+                    controller: _setpointController,
+                    enabled: !provider.isReadOnly,
+                    allowDecimal: true,
+                    maxDecimalPlaces: 1,
+                    decoration: const InputDecoration(
+                      labelText: 'Setpoint (°F)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => provider.updateField(
+                      'ho_setpointF',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('hatcher-setpoint-rh-field'),
+                    controller: _setpointRhController,
+                    enabled: !provider.isReadOnly,
+                    allowDecimal: true,
+                    maxDecimalPlaces: 1,
+                    decoration: const InputDecoration(
+                      labelText: 'Setpoint RH (%)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => provider.updateField(
+                      'ho_setpointRh',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Text(

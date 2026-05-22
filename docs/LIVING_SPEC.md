@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-16
+2026-05-22
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -27,12 +27,36 @@ The user-facing app name is ChickMark. `MaterialApp.title`, web document
 metadata, PWA manifest metadata, and Android/iOS native launcher metadata use
 `ChickMark`; the Dart package name and local database filename remain
 `hatchaudit` for import and storage compatibility.
-The shared ChickMark logo asset and platform launcher icons use the cheerful
-chick-and-check mark identity inside an egg-shaped blue outline.
+The shared in-app ChickMark logo asset uses the cap-and-glasses
+chick-and-check mark identity with a transparent background for app-bar and auth
+placements. Platform launcher icons use the same chick-and-check mark brand
+family. Large auth and startup placements can opt into a subtle bob-and-glint
+logo animation while compact navigation marks remain static.
 The app uses a compact operational type scale: shared headings, section titles,
 body copy, badges, app bars, and major station hero titles are intentionally
 smaller than the previous large display scale so dense audit screens stay
 scannable on phone-width layouts.
+Shared card surfaces use a restrained operational style with tighter corner
+radii, soft low-contrast shadows, and subtle default borders. Section cards may
+show small leading Material symbols in blue-tinted icon containers, and the
+Customers, Settings, and BMK reference surfaces use those simple symbols instead
+of decorative or emoji-led labeling.
+User-facing date labels use left-to-right `dd-MM-yyyy` formatting across Home,
+Audits, Customers, Activity Log, Dashboard Govee charts, and active Govee
+capture surfaces. Internal persistence keys and repository filters that depend
+on ISO date strings continue to store and compare `yyyy-MM-dd`.
+
+The BMK reference tab presents benchmark data as compact dashboard sections.
+Approved internal users see a small Reference/Admin mode toolbar above the
+content. The Reference view uses custom selector bars for breed and a text-only
+Fresh/Candled/Residue breakout type selector, labeled age dropdown controls, and
+responsive metric tiles. Phone-width layouts keep selector pills and benchmark
+values dense: breeds render three across when width allows, the breakout type
+selector stays one row, and sector metrics render two columns so Breed
+Benchmarks and Egg Breakout BMK read as two compact sectors rather than long
+single-item stacks. BMK metric tiles are text-only value cards and do not show
+per-metric decorative symbols; the Egg Breakout BMK sector header uses the
+standard egg symbol.
 
 The supported local web development origin is `http://127.0.0.1:57863`. Web
 accounts and entered data are scoped to the browser origin, so using this stable
@@ -90,6 +114,12 @@ keeping station entry sheets unobstructed.
 The station-selection screen resets its Start Visit loading state when a pushed
 visit-session route returns, so backing out from an audit station leaves the
 selected visit order editable and the Start Visit button usable.
+When the same customer, flock, hatchery, and visit date already has an
+in-progress session, station selection resumes that session instead of creating
+a duplicate. Saved stations stay in the visit-order list with a visible `Saved`
+badge, cannot be removed from the resumed visit order, and can be tapped to
+open that station for review/edit. Unsaved remaining stations can still be
+added before continuing the resumed visit.
 
 ## 3. Audit Workflow
 
@@ -122,7 +152,9 @@ The current New Audit button on Home opens `AuditContextScreen` without an
 - Select one or more stations from the five supported station keys and arrange
   their visit order. The Chicks station uses the shared chick icon in both the
   add list and selected visit-order list.
-- Start Visit creates an `audit_sessions` row with status `in_progress`.
+- Start Visit creates an `audit_sessions` row with status `in_progress`, or
+  resumes the matching same-context in-progress session when one already
+  exists.
 
 Supported station keys are:
 
@@ -143,9 +175,12 @@ When a visit is resumed or a previously saved station is opened inside the
 session, the station frame hydrates the station from panel rows for that
 session. It synthesizes the current form draft objects from those panel rows so
 the existing screens can render and resave in place without using legacy audit
-or sample tables. Hatch Analysis & Egg Breakouts suppresses the current-station
-progress strip so its breakout header is the first station content. Chicks uses
-the standard session progress strip.
+or sample tables. All selected station screens, including Hatch Analysis & Egg
+Breakouts, show the standard session progress strip above the station content.
+Completed visit sessions also open through `AuditSessionScreen` first, starting
+at the first station so the saved station fields can be reviewed and edited in
+place. Completed-session app bars show a `View final results` dashboard action
+that opens the final visit results view separately.
 
 Station save behavior:
 
@@ -155,21 +190,45 @@ Station save behavior:
   sync.
 - Hatch Analysis & Egg Breakouts saves all samples and marks all tab indices saved.
 - Other stations save through `AuditProvider.saveSamplesWithResult(tabIndex: 0)`.
-- Saving persists directly into panel tables. Pool mode creates one row in each
-  affected panel table with `mode = pool`, `scopeType = pool`, `scopeLabel =
-  Random`, and `sampleIndex = 1` for the first saved sample.
-- Comparison mode creates multiple rows in the same panel table with `mode =
-  comparison` and the relevant house, setter, hatcher, tray, trolley, or batch
-  scope identity.
-- Current saves write Egg panels (`egg_storage`, `egg_quality`),
-  Chicks panels (`chick_pasgar`, `chick_weights`, `chick_yfbm`, `chick_cvt`,
-  `chick_pm`), the selected breakout panel, Setter optimizing, or Hatcher
-  optimizing.
+- Saving persists directly into panel tables. Each saved leaf sample is one row
+  in the affected panel table. The row identity is the session plus the explicit
+  nullable hierarchy columns: `house`, `setter`, `hatcher`, `trolley`, `tray`,
+  and `position`.
+- Scope hierarchy is nested from broadest to narrowest: station context
+  (`customerId`, `hatcheryId`, `flockId`, `breed`, and date), then `house`, then
+  machine (`setter`/`hatcher` pair or the station's single machine id), then
+  `trolley`, then `tray`. If a sector has no added scope, it saves one
+  station-scoped row with all hierarchy columns null. If a sector is scoped to a
+  deeper layer, each saved row carries every populated parent scope. For example,
+  two houses with two machines per house, two trolleys per machine, and two
+  trays per trolley save sixteen tray rows.
+- One-sample rows leave unused hierarchy columns null. Multi-sample rows repeat
+  the shared parent context and differ at the selected leaf scope, while keeping
+  parent columns populated for comparison and dashboard grouping.
+- Current saves write Egg panels (`egg_storage`, `egg_quality`), Chicks
+  panels (`chick_quality`, `chick_weights`), the selected breakout panel,
+  Setter optimizing, or Hatcher optimizing.
+- Storage-capable stations default blank storage-day values to `0` in drafts
+  and station-sample metadata so BMK age calculations can run even when the
+  user leaves the storage field untouched.
+- Egg panel persistence skips `egg_storage` and `egg_quality` rows when their
+  corresponding fields are untouched or blank. If a save finds no meaningful
+  values for an Egg panel, it removes any existing rows for that session instead
+  of writing metadata-only rows populated only by default zeroes or auto-derived
+  BMK age/weight values.
+- Egg storage upside-down tray totals can save `egg_storage` without creating
+  `egg_quality`. `egg_quality` UV rows require a quality-side signal: an edited
+  UV tray, a quality defect count, UV evidence photo, egg-weight values, or
+  quality notes. Quality Storage Days and auto BMK age/weight values persist as
+  context only when a quality row has another quality-side signal.
 - Save/Next remains the final confirmation path. It retries any pending or
   failed autosave work, persists panel rows, runs remaining local side effects,
   and then allows station navigation or session completion. Intermediate
   station saves move to the next station without the large completion check
   overlay; the overlay is reserved for final selected station completion.
+- Re-saving a station in an already completed visit persists the edited station
+  fields and keeps the visit marked completed. In completed review mode the
+  footer action is `Save` rather than advancing to another station.
 - Final station saves report local panel persistence independently from
   activity-log or threshold-notification side-effect failures. Those failures
   are debug-logged and do not mark the locally saved station data as failed.
@@ -177,10 +236,25 @@ Station save behavior:
   taps or rapid field edits do not create duplicate station rows. If an autosave
   fails, the station remains dirty and the final Save/Next path retries before
   navigation.
+- Panel rows keep `hatcheryId` only when the referenced hatchery exists locally.
+  Older or repaired visit sessions that still point at a missing hatchery record
+  can autosave their station panel data by omitting the nullable panel
+  `hatcheryId`; the setup attention item remains responsible for surfacing the
+  missing hatchery record.
 - Reopened panel-row drafts may use synthetic in-memory IDs, but panel saves
-  resolve conflicts by the panel row identity (`sessionId`, mode, scope, sample
-  index, and group key) so reopened edits update the existing panel row instead
-  of writing legacy audit/sample tables.
+  resolve conflicts by the panel row identity (`sessionId`, `house`, `setter`,
+  `hatcher`, `trolley`, `tray`, and `position`) so reopened edits update the
+  existing panel row instead of writing legacy audit/sample tables.
+- If an existing scoped sample row is later saved with the same hierarchy as an
+  existing pooled or differently scoped row, panel persistence merges the save
+  into the existing hierarchy row and tombstones the stale row id instead of
+  attempting an `id` update that would violate the unique hierarchy index.
+- After current scoped rows save, the provider prunes stale hierarchy rows for
+  the same session/table when their row id or explicit hierarchy no longer
+  matches the active sample set. Removing a House or Machine scope chip, or
+  returning a comparison station to pooled mode, deletes the obsolete local panel
+  rows and queues sync tombstones instead of leaving hidden dashboard rows in
+  the database.
 - Completing a station updates `audit_sessions.stationsCompleted`.
 - Completing the final selected station updates the session to `completed` and
   returns to the main shell.
@@ -190,20 +264,29 @@ constructed with an explicit `auditType`. It collects customer/flock context and
 for Setter or Hatchers, requires the relevant machine id before
 opening a single station screen with a fresh `AuditProvider`.
 
-The Audits tab lists recent visit sessions. In-progress sessions resume in
-`AuditSessionScreen`; completed sessions open a session detail screen. Legacy
-single-audit edit paths remain as compatibility UI code, but the current list
-and save/load workflow are session and panel based.
+The Audits tab lists recent visit sessions. In-progress sessions open the
+station-selection continuation screen so saved stations are visible and unsaved
+stations can still be added. Completed sessions open the station workflow first
+for review/edit, with final results available from the station screen dashboard
+action. Legacy single-audit edit paths remain as compatibility UI code, but the
+current list and save/load workflow are session and panel based.
 
-Home starts with a compact left-aligned ChickMark icon mark, then shows monthly
-visit counts, active local visit sessions, recent visit sessions, setup
-attention items, quick shortcuts, and sync status. Counts and Recent Audits are based on
-`audit_sessions` rather than legacy audit rows. Today's Focus metric cards are
-actionable when they have a target: Continue opens the first active visit,
-Attention opens the first setup/action item, and Ready starts a new audit when a
-ready customer setup exists. The previous Audit Type Breakdown, extra
+Home shows the ChickMark icon mark before the `ChickMark` title in the main
+gradient app bar, then starts the page body with a mobile-friendly KPI strip for
+monthly visit counts, active flocks, and last audit date before active local
+visit sessions, recent visit sessions, setup attention items, quick shortcuts,
+and sync status. The active flocks KPI uses a paired hen/rooster glyph rather
+than an egg-only icon. Counts and Recent Audits are based on `audit_sessions`
+rather than legacy audit rows. Today's Focus metric cards are actionable when
+they have a target: Continue opens the first active visit's station-selection
+continuation screen, Attention opens the first setup/action item, and Ready
+starts a new audit when a ready customer setup exists. Active and recent visit
+cards show station completion progress such as `3/5`. The previous Audit Type
+Breakdown, extra
 Customers/Active Audits/Total Audits stat cards, and duplicate New Customer/New
-Audit action row are not shown on Home.
+Audit action row are not shown on Home. Home section headings and quick actions
+use a restrained operational scale so narrow browser previews do not read like
+oversized stacked display cards.
 
 ## 4. Station Screens
 
@@ -211,11 +294,11 @@ All station screens initialize an `AuditProvider` with `AuditContext`, hide
 their own app bar when embedded in `AuditSessionScreen`, and use read-only mode
 for existing audits unless edit mode is enabled by an allowed user. Visit
 sessions use a default-height gradient station app bar and a compact raised
-bottom navigation bar with the primary Next Station/Save action. Most stations
-also show a white compact stepper strip with short wrapping station labels; Hatch
-Analysis & Egg Breakouts hides that strip so its Hatching & Breakout card is
-the first content on the screen. Visit sessions mount only the current station
-at first, then keep previously opened stations mounted, so hidden future
+bottom navigation bar with the primary Next Station/Save action. Visit station
+screens also show a white compact stepper strip with short wrapping station
+labels; Hatch Analysis & Egg Breakouts uses the same strip above its Hatching &
+Breakout card. Visit sessions mount only the current station at first, then
+keep previously opened stations mounted, so hidden future
 stations do not hydrate their audit data before the user opens them.
 
 Audit numeric fields use a platform-adaptive input surface. Android and iOS
@@ -243,9 +326,12 @@ Quality cards, and station notes.
   Storage duration and EST target. Shell targets are 19.0-21.0°C for short
   storage, 18.0-20.0°C for medium storage, and 16.0-18.0°C for long storage.
 - Egg Shell Quality: expandable UV tray inspection with up to 10 UV tray entries
-  and overall affected average. Fresh or empty tray data shows a default Tray 1
-  editor before the add-tray action. Shell UV summary fields persist on the
-  consolidated `egg_quality` row.
+  and a top UV Summary card showing Cuticle Damage %, Washed %, Dirty %, and
+  total Affected %. Fresh or empty tray data shows a default Tray 1 editor
+  before the add-tray action. Shell UV summary fields persist on the
+  consolidated `egg_quality` row, including dashboard-ready per-type percentage
+  columns (`uvCuticleDamagePct`, `uvWashedPct`, and `uvDirtyPct`) alongside the
+  total affected percentage.
 - Upside Down Score: tray entries and overall upside-down average. Fresh or
   empty tray data shows a default Tray 1 editor before the add-tray action.
   Its header uses an inverted egg symbol with the pointed end up. Upside-down
@@ -253,29 +339,67 @@ Quality cards, and station notes.
   cards.
 - Egg Quality Assessment: shows a blue brand-gradient Egg quality card with
   white foreground styling for flock, breed, and BMK age in one equal-width row,
-  a compact text-only Sampling scope
-  segmented pill with calm selected-state styling for One sample and Multiple
-  samples choices, and an expandable Egg Weights & Uniformity card containing
-  house sample chips after multiple samples is chosen, an ordered row-style
-  weight metric summary, and the 100-egg weight sheet. The metric summary follows
+  a dedicated Quality Storage Days entry used for Egg Quality BMK age and BMK
+  egg-weight lookup. Egg Quality no longer shows the old One sample / Multiple
+  samples selector; it uses scope cards instead. House scope and Machine scope
+  each show `Pool` while inactive. Pressing the House scope add control turns the
+  pooled Egg Quality sample into sequential house comparison chips (`H1`, `H2`,
+  etc.). Pressing the Machine scope add control from an active house adds a
+  setter/hatcher machine sample under that house instead of replacing the house
+  level. House chips remain visible as the parent scope, and the Machine scope
+  chip list shows only the machine samples for the selected house. A selected
+  house with no machine samples shows `Pool` in the Machine scope card and does
+  not show machine identity fields until a machine is added or selected. If a
+  user adds Machine scope first and later adds House scope, the lower machine
+  scope is reset so the new house comparison starts as if no machine samples had
+  been entered. Generated scope chips keep a serial sequence within their own
+  visible scope, such as house chips `H1`, `H2` and machine chips `S1H1`,
+  `S2H2` under the selected house. The House input stays on House scope, while
+  Machine scope inherits that selected house and shows only blank Setter and
+  Hatcher fields until the user enters real machine numbers. Edited values
+  update the active chip label and the saved Egg Quality hierarchy identity.
+  Removing a broad House scope removes any nested Machine scope samples for
+  that house in the same action.
+  The expandable Egg Weights &
+  Uniformity card contains an ordered row-style weight metric summary and the
+  100-egg weight sheet. The metric summary follows
   the Chicks weight card order: Sample Size, BMK Egg Weight, Avg Weight, Low
   Margin, High Margin, Uniformity, and C.V. BMK Age stays in the Egg quality
   context card instead of the weights summary.
-  BMK age is derived from the flock entry date when available and falls back to
-  the saved flock age from the visit/session record. The station removes helper
-  explanations from the EST, Upside Down, Storage Checklist, Egg quality hero,
-  Sampling scope selector, Egg Weights & Uniformity card, Egg Shell Quality card,
-  and Notes panel so only the operational labels remain. Egg workbench headers
+  BMK age is derived from the flock entry date when available, falls back to the
+  saved flock age from the visit/session record, and subtracts the Egg Quality
+  storage period rather than the Egg Storage room period. The default Quality
+  Storage Days value runs the same BMK egg-weight lookup on screen load, so the
+  BMK Egg Weight row is populated before the user edits storage days or enters
+  weights. Egg storage-room fields, Quality Storage Days, BMK age, and BMK egg
+  weight are shared across all Egg Quality House/Machine scope samples, so
+  switching from `H1` to `H2` or `S1H1` to `S2H2` does not require re-entering
+  storage metadata and does not blank BMK values. Per-scope Egg Quality
+  measurements such as weights remain
+  independent. The station removes helper explanations from the EST, Upside
+  Down, Storage Checklist, Egg quality hero, Egg scope cards, Egg Weights &
+  Uniformity card, Egg Shell Quality card, and Notes panel so only the
+  operational labels remain. Egg workbench headers
   omit decorative mark badges such as `EST`, `EW`, `UV`, and `NT`, and omit
   header status pills such as `0/100` and `Avg affected 0.0%`. Expandable
   headers keep the title icon, title, and chevron as the only header controls.
-  Multiple samples mode keeps the add/remove house controls together at the
-  right edge and persists each house as a comparison row in the affected Egg
-  panel tables with sequential `House 1`, `House 2`, etc. scope labels. The
+  Egg Quality house comparison persists each house as a comparison row with
+  the entered house identity, defaulting to sequential `House 1`, `House 2`,
+  etc. scope labels, while machine comparison persists entered house plus
+  setter/hatcher hierarchy rows when a house parent is provided. Egg Storage
+  remains a station-level
+  pooled row with null sample hierarchy columns (`house`, `setter`, `hatcher`,
+  `trolley`, `tray`, and `position`) even when Egg Quality has an active House or
+  Machine scope. Removing an Egg Quality scope sample deletes its stale
+  `egg_quality` hierarchy row on the next save. Egg storage-period fields,
+  EST/storage handling fields, Egg Quality storage period, and Egg Quality BMK
+  age/weight are shared across all active Egg Quality house or machine samples,
+  so switching scope chips never requires re-entering storage data or re-running
+  the BMK lookup. The
   100-egg sheet uses a compact, responsive numeric grid with single rounded
   number-only input fields. Egg weights, sample size, average weight,
-  uniformity, CV%, and BMK egg-weight fields persist on the consolidated
-  `egg_quality` row instead of a separate Egg weights table.
+  uniformity, CV%, Egg Quality storage period, and BMK egg-weight fields persist
+  on the consolidated `egg_quality` row instead of a separate Egg weights table.
 - Storage Checklist: egg turning, tray spacing, cooler proximity,
   condensation, and related storage fields.
 - Notes: optional free-text station comments persisted on the audit row.
@@ -292,36 +416,50 @@ rendering the workbench.
 
 The left workbench column starts directly with Chick Quality sampling controls
 without a separate panel header, then contains expandable Pasgar Score, YFBM,
-Chick Vent Temperature, and PM Necropsy panels so each optional chick-quality
-test can be opened only when needed. These optional panel headers omit compact
-mark badges and result pills such as Pasgar score, YFBM status, CVT status, or
-PM review state; the full panel title and chevron are the only header controls.
-The quality sampling control offers One sample and Multisamples in a compact
-text-only segmented pill with a neutral track and subtle selected chip.
-The Machine ID card keeps Setter and Hatcher inputs in one equal-width row,
-including in narrow visit-session layouts. Optional chick-quality tests are
-followers of the selected quality sample scope: One
-sample mode has no per-card sample subtitle and saves one pooled sample row for
-Pasgar, YFBM, Chick Vent Temperature, and PM Necropsy, while Multisamples mode
-shows the active setter/hatcher label, such as `S1H1 setter/hatcher sample`,
-and saves one follower row per setter/hatcher sample for each of those panels.
-Chicks quality comparison samples persist as rows in the Chicks panel tables
-with `mode = comparison`, `scopeType = setter_hatcher`, generated
-setter/hatcher labels such as `S1H1`, `S2H2`, etc., and group label `Machine
-comparison`. Pasgar captures sample size, six tracked defect
+Chick Vent Temperature, PM Necropsy, and Culled Chicks Analysis panels so each
+optional chick-quality test can be opened only when needed. These optional
+panel headers omit compact mark badges and result pills such as Pasgar score,
+YFBM status, CVT status, or PM review state; the full panel title and chevron
+are the only header controls.
+The quality sampling control is a single `Machine scope` card matching the Egg
+quality machine-scope pattern. In pooled state it shows a disabled `Pool` chip
+and an add control; there is no separate One sample / Multisamples segmented
+control and no separate Machine ID card. Pressing the add control switches
+Chick Quality to generated setter/hatcher machine samples such as `S1H1` and
+`S2H2`; the active sample can then be switched or removed from the same card,
+and active comparison mode shows House, Setter, and Hatcher entry fields in
+that card. When a house is provided, saved `chick_quality` rows keep that house
+as the parent of the machine scope.
+Entered setter/hatcher values update the active chip label and the saved
+`chick_quality` setter/hatcher hierarchy identity.
+Optional chick-quality tests follow the selected quality sample scope: pooled
+mode has no per-card sample subtitle and saves one pooled sample row for Pasgar,
+YFBM, Chick Vent Temperature, and PM Necropsy, while machine scope shows the
+active setter/hatcher label, such as `S2H2 setter/hatcher sample`, and saves one
+`chick_quality` follower row per setter/hatcher sample. Chicks quality machine
+rows use the explicit `setter` and `hatcher` hierarchy columns, with generated
+setter/hatcher values stored on the normalized sample and panel sample rows.
+The consolidated `chick_quality` row stores prefixed Pasgar, YFBM, CVT, and PM
+Necropsy fields so optional quality sections share the same sample identity
+without colliding with weight fields.
+Pasgar captures sample size, six tracked defect
 counts/photos, and the final score. The final score uses the first five scored
 defect categories; feather development remains a tracked/displayed category but
 does not reduce the score. Defect percentages are treated as invalid when a
 defect count is negative or greater than the Pasgar sample size. Its embedded
-card layout uses compact typography, text-only headings and defect labels, and
-responsive defect-count controls so labels, steppers, numeric fields, and photo
-buttons remain legible in the narrow side-browser viewport. YFBM keeps the YFBM
-photo plus average percentage and CV% visible in the panel; empty YFBM metric
-cards render as neutral placeholders until rows are entered. The add/delete row
-entry list opens from an Enter YFBM Entries bottom sheet with a draggable modal,
-compact progress/target summary, and individual card rows for chick weight,
-yolk weight, calculated YFBM percentage, and row deletion. The sheet writes the
-existing YFBM entries and calculated fields. Chick
+card layout uses compact typography, omits the redundant Sample Size and Defect
+Counts card headings, and uses responsive defect-count controls so labels,
+steppers, numeric fields, and photo buttons remain legible in the narrow
+side-browser viewport.
+At normal station panel widths, embedded Pasgar defect rows keep operational
+16-17px labels and small count/photo controls instead of reusing the full-page
+audit scale. YFBM
+keeps the YFBM photo plus rows complete, average percentage, CV%, and target
+range visible in the main panel; empty YFBM metric cards render as neutral
+placeholders until rows are entered. The add/delete row entry list opens from
+an Enter YFBM Entries bottom sheet with a draggable, simple data-entry form for
+chick weight, yolk weight, and row deletion. The sheet writes the existing YFBM
+entries and calculated fields. Chick
 Vent Temperature reuses the EST-style guided grid workflow with Front/Middle/
 Back by Top/Middle/Bottom points, Guided CVT capture, inline camera/native
 camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
@@ -330,28 +468,51 @@ missing-photo attach, and saved-photo highlighting. CVT uses a 103-105°F /
 and photos locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the
 panel CVT average/CV summary fields for dashboards. PM Necropsy captures sample
 size, collection point, lesion counts with required severity when count is
-positive, gasping fields, deformity counts, suspected cause, and PM photos. The
-visible lesion list is Omphalitis (Yolk Sacculitis), Gaseous Ceca, Gizzard
-Erosions, Air Sac Caseations, Pulmonary Granuloma, Swollen Joints, Stunted
-Organs, Nephritis, and General Septicemia. Legacy PM lesion columns remain in
-the model and `chick_pm` storage for existing local data, but the active PM UI
-writes the revised lesion fields.
+positive, custom other lesion rows, suspected cause, and PM photos. The visible
+lesion list is Omphalitis, Gaseous Ceca,
+Gizzard Erosions, Air Sac Caseations, Urolithiasis (Urate Deposits), Nephritis,
+and General Septicemia. PM also shows an Others row whose lesion name is
+editable and can be expanded with additional custom lesion rows for unlisted
+findings. Custom lesion rows persist as `pmOtherLesionsJson`; fixed PM storage
+lives on the active `chick_quality` row using `pm*`-prefixed backend fields.
+Fresh `chick_quality` tables and current save maps omit deleted legacy PM
+lesions such as unabsorbed yolk, perihepatitis, pericarditis, airsac acute/
+chronic, pulmonary granuloma, swollen joints, stunted organs, and pulmonary
+hemorrhage; existing local databases may still carry those columns as legacy
+compatibility data.
+Culled Chicks Analysis appears immediately after the PM Necropsy panel and
+follows the same active quality sample scope. It records total egg set
+(defaulting new entries to 19,200) as the denominator for defect rates, with
+operator-entered defect counts grouped by Navel, Belly, Sticky, Dehydrated,
+Legs, Head, Neuro, Small/Weak, and Hair Chick. Belly appears as a
+standalone group immediately after Navel and contains the residual yolk / large
+abdomen item. Dehydrated appears as a standalone group after Sticky and contains
+Dehydrated / burned chick. Active entry rows show the defect subtype and a
+compact Count stepper with minus/plus buttons around the editable count field,
+plus the calculated percentage of total egg set for non-zero rows;
+hatchery-guide descriptions, likely causes, and source labels remain in the
+defect catalogue for Dashboard interpretation rather than cluttering the station
+counting workflow. The active `chick_quality` row stores `culledChicksTotalEggSet`
+and encoded defect percentage JSON; defect row counts are not persisted. Derived
+dashboard fields store total affected percentage, top category, and top subtype.
 
 The right workbench column contains Chick Weights & Uniformity. Its embedded
 blue flock card shows flock, breed, and BMK age inside one compact translucent
 context strip and omits the previous `Uniform`/`Review` title pill; edit flows
 fall back to the selected flock breed when a Chicks audit row does not carry a
-legacy breed field. Sampling scope lives inside this
-panel and offers One sample or Multisamples. Weight comparison samples are
-house samples: they persist as `chick_weights` rows with `mode = comparison`,
-`scopeType = house`, generated `H1`, `H2`, etc. labels by default, and
-`groupLabel = House comparison`. If the active house field is edited, the
-custom house value is preserved on save and used for the row scope label.
-Multisamples mode shows house sample chips plus add/remove controls, while the
-active house editor shows only the house field. The panel shows sample count,
-BMK chick weight, average weight, low/high margins, uniformity, and CV% in that
-order. The weight metrics render as one compact summary list instead of a
-nested card grid, and the 100-chick weight entry grid opens from an
+legacy breed field. Chick Weights uses an Egg-quality-style House scope card
+instead of a One house / Compare houses selector or separate Active house
+editor. In pooled state the card shows `Pool` plus an add control. Pressing the
+add control switches Chick Weights to generated house comparison samples (`H1`,
+`H2`, etc.) with add/remove controls in the same card. Active comparison mode
+shows a House entry field in the card. Entered house values update the active
+chip label and persist to `chick_weights` rows through the explicit house
+hierarchy columns; removing a house sample deletes its stale `chick_weights`
+row on the next save. The panel shows sample count, BMK chick weight, average
+weight, low/high margins,
+uniformity, and CV% in that order. The weight metrics
+render as one compact summary list instead of a nested card grid, and the
+100-chick weight entry grid opens from an
 egg-weight-style draggable Enter Weights modal sheet and persists each active
 house sample's own weights, sample size, average, uniformity, and CV% into its
 `chick_weights` row.
@@ -369,7 +530,8 @@ metadata card shows auto-filled flock, breed, and read-only BMK age as three
 equal-width tiles in one row; long flock or breed values wrap inside their own
 tile instead of pushing the BMK Age tile to another row. Storage Days is an
 entry field in a shorter light-grey entry card with no section heading, defaults
-to `0`, and clears its default zero on focus for faster replacement;
+to `0`, treats blank or older missing values as `0`, and clears its default zero
+on focus for faster replacement;
 Candled Age appears as an additional entry field only when Candled Egg is
 selected. The BMK age is displayed as `wks` and is calculated from current flock
 age minus storage days
@@ -383,19 +545,21 @@ fields use a ceiling week conversion. When opened from a resumed visit session,
 Hatch Analysis restores all saved breakout audit rows and linked station
 samples before rendering.
 
-Residue / Hatch Day adds batch tabs directly below the Storage Days card and
-above Hatch Results. Batch tab labels are generated from the batch setter and
-hatcher fields as `S{setter}H{hatcher}`; the label itself is not separately
-editable. New hatch-analysis batches default to setter and hatcher numbers
-matching the hatch sequence, so the first three new residue batches appear as
-`S1H1`, `S2H2`, and `S3H3` until their setter or hatcher number fields change.
-Each residue batch keeps its own total eggs set, hatched chicks, culled chicks,
-dead chicks, and tray breakout samples. Total eggs set defaults to `19200`.
+Candled Egg and Residue / Hatch Day add a shared hierarchy card directly below
+the Storage Days card. The card has house tabs first, then setter/hatcher
+machine tabs for the selected house. Machine tab labels are generated from the
+selected setter and hatcher fields as `S{setter}H{hatcher}`; the label itself is
+not separately editable. New hatch-analysis machine drafts default to
+`S1H1`, `S2H2`, and `S3H3` in the active house until their setter or hatcher
+number fields change. The selected House, Setter, and Hatcher values are shared
+by Hatch Results and all tray samples in that machine. Each residue machine
+keeps its own total eggs set, hatched chicks, culled chicks, dead chicks, and
+tray breakout samples. Total eggs set defaults to `19200`.
 
 Residue / Hatch Day shows a Hatch Results card before Breakout Samples for the
 active hatch. The card uses a text-only header with the active hatch label,
-groups setter, hatcher, eggs set, hatched, culled, and dead inputs under Hatch
-totals, and shows Hatchability, Fertility, HOF, Culled %, and Dead % as
+groups eggs set, hatched, culled, and dead inputs under Hatch totals, and shows
+Hatchability, Fertility, HOF, Culled %, and Dead % as
 one consolidated Performance summary card with ordered rows for the actual
 value, benchmark or limit, and benchmark/limit difference labeled as Gap.
 Hatchability is `hatched chicks /
@@ -414,27 +578,42 @@ reconciliation.
 Breakout Samples sits below the main card, and below the Hatch Results card for
 Residue / Hatch Day. It uses tray chips plus circular add and remove controls to
 manage tray samples while keeping the tray cards visible in the scroll view. The
-tray/pool toggle is not shown in the current UI; legacy pool samples remain
+Candled Egg and Residue tray-card header contains only tray-local fields:
+Trolley, Tray, Position, and Tray size; House, Setter, and Hatcher come from the
+shared hierarchy card above the samples. The tray/pool toggle is not shown in
+the current UI; legacy pool samples remain
 decodable and are converted to tray-style display while preserving their
 sampled-egg denominator. Breakout samples are scoped by breakout type in the
 shared JSON field: switching Fresh Egg, Candled Egg, and Residue / Hatch Day
 hides the other type's entered rows, and returning to a type restores its
 previous tray values. When the station saves panel-table rows, Fresh Egg,
-Candled Egg, and Residue / Hatch Day rollups use only samples from that active
-breakout type, so hidden samples from the other breakout tabs are preserved but
-not included in the saved counts, percentages, tray size, or position for the
+Candled Egg, and Residue / Hatch Day write one row per physical tray sample for
+the active breakout type. Fresh Egg tray rows use `house` and `tray` only,
+because those eggs are not set in a machine yet. Candled Egg and Residue /
+Hatch Day rows use the full sample hierarchy:
+`house -> setter/hatcher -> trolley -> tray -> position`. Each saved tray row
+stores that tray's own counts, percentages, current-versus-BMK percentage-point
+differences, tray size, hierarchy fields, and position when applicable, so
+multiple trays are comparable instead of being collapsed into one summed row.
+If older saved breakout JSON contains repeated tray ids, the screen normalizes
+those ids before rendering and persists the corrected ids on the next tray edit
+so each tray owns independent input state.
+Legacy pool or no-tray data still falls back to a single rollup row, and hidden
+samples from the other breakout tabs are preserved but not included in the
 current table. Each tray card shows label, position when applicable, and tray
 size as one balanced row above the breakout item rows, with the position control
 given extra width so values such as Random remain readable. New Fresh Egg tray
-samples default to 30 eggs; new Candled Egg and Residue / Hatch Day tray samples
-default to 150 eggs.
+samples default to 30 eggs; new Candled Egg and Residue / Hatch Day tray
+samples default to 150 eggs.
 Candled Egg and Residue / Hatch Day tray cards show a position selector;
 Fresh Egg tray cards omit position because those eggs are not set in a machine
 yet. The position selector uses the same body typography as the label and tray
-size fields. Each breakout item row contains a count input, a calculated percentage from
-the tray size, and a read-only BMK target percentage loaded from the nearest
-`bmk_egg_breakout` row for the calculated BMK age. Fresh Egg rows are
-Infertile, 24 hours, 48 hours, and Blood Ring. Candled Egg adds Black Eye.
+size fields. Each breakout item row contains a count input and one read-only
+summary field that combines the calculated percentage from tray size, the BMK
+target percentage loaded from the nearest `bmk_egg_breakout` row for the
+calculated BMK age, and the Diff value showing current percentage minus BMK
+target in percentage points. Fresh Egg rows are Infertile, 24 hours, 48 hours,
+and Blood Ring. Candled Egg adds Black Eye.
 Residue / Hatch Day uses Infertile, Early Dead, Mid Dead, Late Dead, External
 Pip, Cracked, and Contaminated. Count inputs keep focus while values are typed
 and the keyboard next action moves to the following breakout item count. Empty
@@ -444,6 +623,12 @@ negative tray sizes, and counts greater than the tray size are invalid for
 percentage output. Rows turn into a warning state when the calculated percentage
 is higher than the BMK target after a positive count has been entered; the
 warning is shown through row and BMK tile styling rather than an icon.
+Breakout BMK age is calculated in days from the current flock age and storage
+period: Fresh Egg uses `flockAgeDays - storagePeriodDays`, Candled Egg uses
+`flockAgeDays - storagePeriodDays - candlingDay`, and Residue / Hatch Day uses
+`flockAgeDays - storagePeriodDays - 21`; a missing storage period is treated as
+zero. The saved rows also keep `storagePeriodDays`, `bmkAgeDays`, and rounded
+`bmkAgeWeeks`.
 
 Setters captures:
 
@@ -455,12 +640,16 @@ Setters captures:
 - Setter type, defaulting to Multi, with Single limiting the setter to one EST
   age/breed sample and Multi allowing additional age/breed EST samples.
 - Setter number.
-- Machine screen setpoint and actual readings in Fahrenheit, with one shared
-  documentation photo for the screen that shows both values.
+- Machine screen setpoint and actual readings in Fahrenheit and relative
+  humidity, with one shared documentation photo for the screen that shows the
+  readings.
 - Batch size, defaulting to 19,200, and batch count, capped at 6. Total set
   eggs is calculated as `batch size * batch count`.
-- Turning angle.
-- CO2 level and photo, with the camera action aligned beside the entry field.
+- Turning angle uses a standalone numeric field with its label floated on the
+  field outline in the larger blue label style; there is no separate Setter
+  settings title.
+- CO2 level uses the same larger blue floated field label and keeps the camera
+  action aligned beside the entry field.
 - Age/breed EST samples. Breed is selected from the six benchmark breeds
   (`Ross308`, `Arbo`, `Avian`, `Cobb500`, `Hubbard`, `IR`), and each sample
   keeps its own incubation age slider from 1 to 18 days, 0-23 hour slider, EST
@@ -474,11 +663,11 @@ missing-photo attach, saved-photo highlighting, and per-point evidence photo
 records. Setters uses Fahrenheit readings with an allowed range of
 99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive the EST
 grid status styling and average summary color, but are not rendered as a
-separate helper strip in the entry form. Setter comparison samples
-persist as `setter_optimizing` rows with `mode = comparison`, generated setter
-labels, and `groupLabel = Setter comparison`. Setter and Hatcher station rows
-can store machine-specific breed/identity values while the selected flock is
-still required to enter the visit flow.
+separate helper strip in the entry form. Setter samples persist as
+`setter_optimizing` rows; multi-setter rows use the `setter` hierarchy column as
+their row identity. Setter and Hatcher station rows can store machine-specific
+breed/identity values while the selected flock is still required to enter the
+visit flow.
 Setters does not expose the generic Sample Mode selector; the dedicated setter
 row is the comparison control.
 
@@ -489,8 +678,8 @@ Hatchers captures:
   session. Hatcher tabs are labeled from the hatcher number as `H5`, `H7`, etc.,
   and fall back to the sample sequence when no hatcher id is available.
 - A Hatcher settings card for the active hatcher sample, containing the hatcher
-  number, incubation age slider from 18 to 21 days, and a separate 0-23 hour
-  slider.
+  number, machine temperature setpoint in Fahrenheit, RH setpoint percentage,
+  incubation age slider from 18 to 21 days, and a separate 0-23 hour slider.
 - CO2 level and photo, with the camera action aligned beside the entry field.
 - CVT (Chick Vent Temp.) average/CV summary and guided grid/photos. The grid
   uses the same guided OCR capture, inline/native camera fallback, evidence
@@ -504,9 +693,9 @@ Hatchers does not expose the generic Sample Mode selector, a hatcher type
 selector, turning-angle fields, or Transfer Day. The dedicated hatcher row is
 shown at the top level, above the Hatcher settings card, and is the comparison
 control. Hatcher comparison samples persist as machine samples with
-`hatcher_optimizing` rows with `mode = comparison`, generated hatcher labels,
-and `groupLabel = Hatcher comparison`. Removing hatchers until only one remains
-returns the station to pooled mode, clears comparison metadata, and saves the
+`hatcher_optimizing` rows using the `hatcher` hierarchy column as their row
+identity when multiple hatchers are sampled. Removing hatchers until only one
+remains returns the station to the single-sample state and saves the
 station-sample hatcher identity from the edited Hatcher number field.
 
 Govee is a standalone daily capture workflow. It is independent from audit
@@ -515,12 +704,14 @@ and calendar `captureDate`. The floating Govee capture panel is
 active-recording first and is the only in-app entry surface for new Govee
 recordings. Dashboard surfaces still provide the broader visit-level review.
 
-The active Govee recorder opens on a compact ChickMark-blue gradient live card
-that mirrors the Govee app's device-first hierarchy while keeping ChickMark
-colors. The card shows the device name, connection status, current Temperature
-and Relative Humidity, latest update time, RSSI, and battery level directly on
-the main card. It exposes a clear `Scan`, `Read`, or reconnect action, a compact
-`°F`/`°C` unit toggle backed by the app temperature setting, and a settings icon.
+The active Govee recorder opens on a compact ChickMark brand-gradient live card
+with white/translucent-white controls and small metric tiles. The card shows the
+device name, connection status, current Temperature and Relative Humidity,
+latest update time, RSSI, and battery level directly on the main card. It
+exposes a clear `Scan`, `Read`, or reconnect action, a compact `°F`/`°C` unit
+toggle backed by the app temperature setting, and a settings icon. The floating
+panel header, scope picker, and place recorder use the shared compact
+operational type scale and light bordered surfaces.
 The settings sheet shows current connection details, diagnostics, discovered
 Govee devices, scan/restart scan, read-now, select-device, and disconnect
 controls.
@@ -662,29 +853,54 @@ when it is available. Station entries preselect customer, hatchery, and place in
 floating Govee capture panel, while still letting the user change the place
 before recording.
 
-Dashboard has a cascade filter for Customer, Flock, and Age. It loads visit
-session summaries plus Hatch Analysis & Egg Breakouts, Egg Breakout, Chicks,
-Egg, Setters, and Hatchers sections from repository queries. Egg Breakout
-dashboard averages and trends ignore invalid category percentages when a
-category count is negative or greater than its tray size. Egg Storage dashboard
-trends read the persisted `egg_storage.estAvg` and `egg_storage.estCvPct`
-fields. Chicks dashboard weight trends read `chick_weights` panel rows and use
-their saved weight JSON plus average, CV%, and uniformity summary fields. CV and
-stored environmental standard-deviation summaries use sample standard deviation
-by default. Uniformity uses the combined daily average +/- 10% range.
+Dashboard has a cascade filter for Customer, Flock, and Age. On phone-width
+layouts the filter stacks Customer above a compact Flock/Age row and constrains
+dropdown labels with ellipsis so selected customer/flock names do not overflow.
+The current dashboard build shows the rebuilt Egg station sector and saved
+Govee Environmental Readings while the other station sectors are rebuilt one at
+a time. Egg Storage dashboard trends read the persisted
+`egg_storage.estAvg`, `egg_storage.estCvPct`, storage checklist metadata, and
+upside-down egg fields. The dashboard also loads the latest 9-point EST
+readings and matching `shell_temp_*` evidence photos for the same Egg storage
+session. The Egg sector shows the approved Egg Storage & Handling EST card in
+an evidence-first layout: the 9-point reading grid sits beside a blue brand
+summary card containing Average, target range, and CV%. The summary card raises
+an alarm when the EST average is outside the storage-day target range or CV% is
+above `AppThresholds.cvAlertPct`. EST alarm styling uses a soft red alert panel
+with neutral translucent metric tiles, and missing evidence photo placeholders
+use a light blue treatment instead of the shared yellow/orange warning palette.
+On phone-width layouts, the EST summary compresses into one compact
+Average/Target/CV row above the reading grid, and grid readings stay on one
+line. Upside Down Egg remains a separate row below the EST card. Storage days,
+turning, tray spacing, cooler proximity, and condensation render together in a
+single `Storage Info` card without a status recorded tile.
 
-When the selected visit date has saved Govee captures for the same customer and
-hatchery, Dashboard shows a dedicated `Govee Environmental Readings` section.
-Those Dashboard records are loaded by `customerId`, `hatcheryId`, and
-`captureDate`; they are not hard-linked to audit session ids. The section has
-local place chips when more than one place exists, and local machine chips when
-inside-setter or inside-hatcher records provide more than one machine option.
-These filters affect only the Govee section. Each capture card shows place,
-machine when present, recording time range, Temp avg/min/max/SD/CV%, RH
-avg/min/max/SD/CV%, and saved representative reading count. Each card renders
-separate timestamp-based Temperature and Relative Humidity charts from the
-capture row's LTTB-selected `chartPointsJson`. Dashboard chart touches show
-exact timestamp, temperature, RH, place, and machine when present.
+The dashboard also includes an Egg Quality card directly under Egg Storage. It
+reads dashboard-ready `egg_quality` values joined by session/sample from the Egg
+storage trend query. The Egg Weights & Uniformity card uses the same brand-blue
+summary pattern for average egg weight, uniformity, and C.V, and raises an alarm
+when C.V is above `AppThresholds.cvAlertPct` or uniformity is below
+`AppThresholds.uniformityGood`. Its detail tiles show sample size, BMK egg
+weight, and calculated low/high margins based on the saved average weight. The
+Shell Quality UV card shows total affected percentage against the `<= 5.0%`
+dashboard limit, raises an alarm when the saved affected percentage is higher
+than that limit, and organizes Cuticle Damage, Washed, and Dirty percentages in
+separate tiles with saved UV photos below when available. The Egg sector does
+not render CO2 dashboard tabs or Chicks station dashboard content.
+
+Dashboard shows a dedicated `Govee Environmental Readings` sector for saved
+Govee captures. Those records are loaded from saved Govee capture rows and may
+be scoped by the dashboard Customer filter; Flock and Age filters do not affect
+Govee records. The section is organized by place, with inside-setter and
+inside-hatcher captures kept as separate machine records within their place
+group. Each capture card shows place, machine when present, recording time
+range, Temp avg/min/max/SD/CV%, RH avg/min/max/SD/CV%, and saved representative
+reading count. Each card renders separate timestamp-based Temperature and
+Relative Humidity charts from the capture row's LTTB-selected
+`chartPointsJson`. Dashboard chart touches show exact timestamp, temperature,
+RH, place, and machine when present. The Govee screen remains focused on live
+device status, scope selection, recording, syncing, and save feedback; saved
+history cards live on Dashboard.
 
 ## 5. Data Hierarchy
 
@@ -702,10 +918,10 @@ The implemented hierarchy is:
   hatchery, flock, date, station order, station completion, optional findings,
   optional scorecards, notes, creator, and completion timestamp.
 - Panel tables: one source-of-truth table per station panel. Each row stores
-  visit ownership, pool/comparison identity, notes, sync state, and the
-  panel-specific measurements or calculated dashboard values. Pool results are
-  one row with `mode = pool`; comparison results are multiple rows in the same
-  table with `mode = comparison`.
+  visit ownership, explicit nullable sample hierarchy, storage/BMK context,
+  notes, sync state, and the panel-specific measurements or calculated
+  dashboard values. Single-sample results are one row; multi-sample results are
+  multiple rows in the same table, one row per sampled leaf.
 - `govee_daily_captures`: saved Govee place/day captures scoped by customer,
   hatchery, place, machine id, and capture date, with station key, capture
   start/end timestamps, device metadata, aggregate Temp/RH average/min/max/SD/CV
@@ -730,9 +946,12 @@ writes the legacy `audits` table, `sample_records`, sample detail tables, or
 `{panel}_samples` child tables.
 
 A sample is represented by a row in the relevant panel table. `mode` is only
-`pool` or `comparison`; it is never `sample`. Pool rows use `scopeType = pool`,
-`scopeLabel = Random`, and `sampleIndex = 0`. Comparison rows use the relevant
-scope identity and sequential sample indexes inside the same panel table.
+A sample is represented by a row in the relevant panel table. Panel tables do
+not store the old generic identity columns (`mode`, `scopeType`, `scopeLabel`,
+`sampleIndex`, `groupKey`, or `groupLabel`). Instead they use nullable
+hierarchy columns (`house`, `setter`, `hatcher`, `trolley`, `tray`,
+`position`). Hierarchy columns that are not meaningful for the current panel or
+single-sample state stay null.
 
 Dashboard values read panel rows directly. Values that the UI calculates during
 station save, such as averages, CV%, uniformity, Pasgar final score, breakout
@@ -794,9 +1013,9 @@ month, active flocks, last audit date, recent audits, and audit type breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 39. The database file
+The app uses SQLite through `sqflite` at database version 41. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
-so the destructive v39 reset can drop legacy foreign-key tables, then enabled
+so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
 initializes the default sqflite factory with `sqflite_common_ffi_web` before the
 database opens and uses the browser-safe `hatchaudit.db` name directly instead
@@ -810,9 +1029,11 @@ deletes the local `hatchaudit.db` store and retries opening once so a malformed
 browser-backed IndexedDB database does not leave the Flutter app on a blank
 screen. Release builds do not auto-delete the database on open errors.
 
-The v39 database cutover is destructive. Upgrading from any older local schema
-drops old app tables and recreates the current fresh schema. Old local audit
-history is not migrated. When an already-created v39 database opens, the app
+The v41 database cutover is destructive. Upgrading from any older local schema
+drops old app tables, including legacy audit/sample tables, legacy Govee spot
+tables, and legacy generic temperature tables, then recreates the current fresh
+schema. Old local audit history is not migrated. When an already-created v41
+database opens, the app
 checks panel tables against `PanelSampleSchema` and adds any missing
 measurement columns, allowing additive panel fields such as revised PM lesions
 to appear without another destructive reset.
@@ -831,11 +1052,8 @@ Tables created by the current database helper include:
 - `audit_sessions`
 - `egg_storage`
 - `egg_quality`
-- `chick_pasgar`
+- `chick_quality`
 - `chick_weights`
-- `chick_yfbm`
-- `chick_cvt`
-- `chick_pm`
 - `fresh_egg_breakout`
 - `candled_egg_breakout`
 - `residue_breakout`
@@ -845,13 +1063,17 @@ Tables created by the current database helper include:
 - `sync_tombstones`
 
 Fresh databases do not create `audits`, `sample_records`, sample detail tables,
-`egg_weights`, or `{panel}_samples` child tables.
+`egg_weights`, `{panel}_samples` child tables, legacy generic temperature
+tables, or legacy Govee spot-reading tables.
 
-Every panel table includes visit ownership fields, pool/comparison identity
-fields, panel-specific measurement and calculated summary fields, and sync
-fields. Each panel table has session, dashboard, mode, and unique-row indexes.
-The unique-row index protects `(sessionId, mode, scopeType, scopeLabel,
-sampleIndex, IFNULL(groupKey, ''))`.
+Every panel table includes visit ownership fields, explicit sample hierarchy
+fields (`house`, `setter`, `hatcher`, `trolley`, `tray`, `position`),
+storage/BMK context fields (`storagePeriodDays`, `bmkAgeDays`,
+`bmkAgeWeeks`), panel-specific measurement and calculated summary fields, and
+sync fields. Each panel table has session, dashboard, and unique-row indexes.
+The unique-row index protects `(sessionId, IFNULL(house, ''),
+IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''),
+IFNULL(position, ''))`.
 
 Relationship safety is enforced in SQLite for the current parent-child graph:
 `flocks` and `hatcheries` belong to `customers`; `audit_sessions` belongs to a
@@ -927,6 +1149,166 @@ discarding the failure context.
 
 ## 9. Change Log
 
+- 2026-05-22: Fixed panel row upserts when a Chicks/Egg scoped sample returns to
+  the pooled hierarchy while an older pooled row already exists. Saves now merge
+  into the existing hierarchy row and queue a tombstone for the stale scoped row
+  id, avoiding `idx_chick_quality_unique_row` unique-index failures.
+- 2026-05-22: Replaced the shared in-app ChickMark logo asset with the
+  cap-and-glasses chick mark, removed the checkerboard/white square background
+  by saving it with PNG transparency, regenerated web/Android/iOS/macOS launcher
+  icons from the same mark, and added optional bob-and-glint motion for large
+  auth/startup logo placements.
+- 2026-05-22: Restored the visit-session progress strip on Hatch Analysis &
+  Egg Breakouts so its station check marks appear like the other station
+  screens.
+- 2026-05-20: Added same-context visit resume for station selection. Matching
+  in-progress sessions now reopen with saved station badges, saved stations are
+  protected from removal, unsaved stations can be added before continuing, Home
+  and Audits route active visits through station selection, and completed visits
+  open station screens first with a separate final-results action.
+- 2026-05-20: Replaced Chicks Quality sampling/Machine ID controls with an
+  Egg-style `Machine scope` card. Adding machine scope now generates
+  setter/hatcher samples such as `S1H1` and `S2H2`, and Chick Quality panel
+  saves persist `setter_hatcher` scoped rows with generated setter/hatcher
+  hierarchy values instead of UI-only labels.
+- 2026-05-20: Stopped Egg storage upside-down tray totals, Quality Storage Days,
+  and auto BMK age/weight values from creating Egg Quality rows by themselves.
+  Explicit clean UV inspections still persist by marking the UV tray as
+  quality-entered when the quality controls are edited.
+- 2026-05-19: Prevented untouched Egg station saves from creating metadata-only
+  `egg_storage` or `egg_quality` rows. Blank storage defaults still feed draft
+  and sample metadata for BMK calculations, and auto BMK age/weight can still be
+  displayed, but panel persistence now skips and clears Egg panel rows when no
+  corresponding storage or quality field has been entered.
+- 2026-05-19: Redesigned the BMK reference screen into a denser operational
+  dashboard with compact Reference/Admin mode controls, custom breed and
+  breakout type selector bars, labeled age controls, and responsive benchmark
+  metric tiles. Phone-width BMK sectors now use two-column metric grids and
+  one-row breakout type controls so the whole sector can be scanned without
+  long vertical scrolling; per-metric decorative symbols were removed from
+  Breed Benchmarks and Egg Breakout BMK value cards, the Egg Breakout selector
+  is text-only, and the Egg Breakout sector header now uses the standard egg
+  symbol.
+- 2026-05-19: Split Egg Storage and Egg Quality storage periods. Egg Storage
+  keeps its own storage-room days for storage/EST persistence, while Egg Quality
+  now has a dedicated Quality Storage Days entry that drives Egg Quality BMK age,
+  BMK egg-weight lookup, mapper patches, and `egg_quality.storagePeriodDays`.
+- 2026-05-19: Defaulted blank storage-day values to `0` for Egg, Chicks, and
+  Hatch Analysis / Egg Breakout station metadata, plus saved rows that have
+  other meaningful panel data, so BMK age continues calculating when storage is
+  left untouched or missing in older rows.
+- 2026-05-19: Added Hatcher machine temperature and RH setpoint fields, storing
+  them in the hatcher audit draft and `hatcher_optimizing` panel row.
+- 2026-05-19: Removed the Setters `Setter settings` title and changed Turning
+  Angle and CO2 Level to always show larger blue labels on the field outline.
+- 2026-05-19: Added Setters machine-screen relative humidity setpoint and
+  actual entry fields, storing them in the audit draft and setter panel
+  persistence beside the existing Fahrenheit setpoint/actual readings.
+- 2026-05-19: Removed the Short beak item from Chicks Culled Chicks Analysis.
+  The defect catalogue no longer renders it in the UI, encodes it into
+  `culledChicksAnalysisJson`, or decodes older saved `head_short_beak` rows.
+- 2026-05-22: Changed Chicks Culled Chicks Analysis to use total egg set
+  (default 19,200) as the denominator and persist defect percentages only in
+  `culledChicksAnalysisJson`, with no saved defect row counts.
+- 2026-05-22: Standardized user-facing app dates to left-to-right
+  `dd-MM-yyyy` labels while preserving ISO date keys for persistence, search
+  fallback, and Govee capture queries.
+- 2026-05-22: Combined Hatch Analysis & Egg Breakouts row percentage, BMK, and
+  Diff metrics into one readable summary field instead of three narrow tiles.
+- 2026-05-19: Removed the Weak / inactive chick item from Chicks Culled Chicks
+  Analysis. The defect catalogue no longer renders it in the UI, encodes it into
+  `culledChicksAnalysisJson`, or decodes older saved
+  `small_weak_weak_inactive_chick` rows.
+- 2026-05-19: Moved Egg quality comparison sample chips and add/remove controls
+  into the Sampling scope card so the active house sample applies visibly to UV
+  tray inspection, weights/uniformity, and future Egg quality items rather than
+  appearing inside only the Egg Weights & Uniformity card.
+- 2026-05-19: Reworked panel persistence to use explicit nullable hierarchy
+  columns (`house`, `setter`, `hatcher`, `trolley`, `tray`, `position`) plus
+  storage/BMK context columns instead of the old generic mode/scope/sample
+  identity fields. Reopened station edits now update rows by that hierarchy
+  identity, and breakout BMK age is saved from the Fresh/Candled/Residue
+  formulas.
+- 2026-05-19: Normalized duplicate Hatch Analysis breakout tray ids before
+  rendering so tray inputs keep independent field state and persist corrected
+  ids on the next tray edit.
+- 2026-05-19: Replaced Dashboard Egg EST yellow/orange warning surfaces with
+  calmer red alarm panels, neutral summary metric highlighting, and light
+  blue evidence photo placeholders.
+- 2026-05-19: Made panel row saves tolerate orphaned hatchery references from
+  older or repaired visit sessions by omitting the nullable panel `hatcheryId`
+  when the local hatchery record is missing. This keeps station autosave working
+  while Home continues to flag the missing hatchery setup item.
+- 2026-05-18: Added minus/plus stepper buttons to Chicks Culled Chicks
+  Analysis Count fields while preserving direct numeric entry.
+- 2026-05-18: Moved Culled Chicks Analysis Dehydrated / burned chick from
+  Sticky into a standalone Dehydrated group.
+- 2026-05-18: Removed the Wet chick item from Chicks Culled Chicks Analysis
+  Sticky defects.
+- 2026-05-18: Removed the Albumen on feathers / glued down item from Chicks
+  Culled Chicks Analysis Sticky defects.
+- 2026-05-18: Moved Culled Chicks Analysis residual yolk / large abdomen from
+  Navel into a standalone Belly group displayed immediately after Navel.
+- 2026-05-18: Trimmed Chicks Culled Chicks Analysis counting rows to defect
+  subtype plus Count field, keeping descriptions/causes/references for
+  Dashboard interpretation instead of the active station entry screen.
+- 2026-05-18: Removed deleted legacy Chicks PM lesion columns from fresh
+  `chick_quality` schema and current save maps while keeping existing local
+  database compatibility.
+- 2026-05-18: Changed Hatch Analysis & Egg Breakouts panel persistence so
+  Fresh, Candled, and Residue tray samples save as separate tray-scoped rows
+  with per-tray counts and percentages instead of one summed breakout row.
+- 2026-05-18: Added current-versus-BMK Diff tiles to breakout item rows and
+  persisted per-category percentage-point differences on Fresh, Candled, and
+  Residue breakout panel rows for dashboard use.
+- 2026-05-18: Added Chicks Culled Chicks Analysis after PM Necropsy, with
+  grouped defect data entry, guide-based descriptions/causes/references,
+  persisted summary fields, and Dashboard Culled interpretation inside the
+  Chick Quality sector.
+- 2026-05-18: Rebuilt the Dashboard Egg sector around Egg Storage & Handling:
+  a 9-point EST temperature grid with evidence thumbnails and AVG/CV summary,
+  an Upside Down Egg card, and organized storage checklist metadata. The Egg
+  sector does not show Egg uniformity, UV, or CO2 tabs.
+- 2026-05-18: Restyled the Dashboard Egg EST card into an evidence-first layout
+  with the 9-point grid beside a blue Average/Target/CV summary, alarm text for
+  out-of-range average or CV above `AppThresholds.cvAlertPct`, smaller summary
+  metric type, a separate Upside Down Egg row, and one combined Storage Info row
+  for storage and handling metadata.
+- 2026-05-19: Combined the Dashboard Egg Storage Checklist and Handling Metadata
+  rows into one `Storage Info` card and removed the storage status recorded tile.
+- 2026-05-18: Fixed Dashboard mobile layout by making the Customer/Flock/Age
+  filter responsive, constraining dropdown labels, compacting the Egg EST
+  summary into a single mobile row above the grid, keeping EST readings on one
+  line, and removing Chicks content from Dashboard so the current screen shows
+  only Egg plus saved Govee sectors.
+- 2026-05-17: Moved the Home ChickMark icon mark into the main gradient app bar
+  before the `ChickMark` title and removed the standalone body logo slot.
+- 2026-05-17: Changed the Govee live capture card to the ChickMark blue brand
+  gradient and adjusted its controls, metric tiles, metadata, and unit toggle
+  to white/translucent-white foreground styling.
+- 2026-05-17: Hid the Chicks weight active house editor while House scope is in
+  One sample mode; Multisamples mode still shows house chips, add/remove
+  controls, and the house field for comparison rows.
+- 2026-05-17: Limited the Dashboard to the Egg station sector and saved Govee
+  Environmental Readings while future sectors are rebuilt. Removed the
+  dashboard Egg CO2 tab to match the current Egg station screen, moved saved
+  Govee history out of the Govee screen, and grouped saved Govee records by
+  place on Dashboard.
+- 2026-05-17: Removed the Chicks PM Necropsy Gasping and Deformities sectors
+  from the active UI, fresh `chick_quality` schema, save mapping, legacy
+  `AuditModel` serialization, and PM dashboard/detail summaries.
+- 2026-05-16: Renamed the Chicks PM Necropsy visible lesion label from
+  Omphalitis (Yolk Sacculitis) to Omphalitis.
+- 2026-05-16: Added Urolithiasis (Urate Deposits) as a fixed Chicks PM
+  Necropsy lesion field with count and severity.
+- 2026-05-16: Removed Pulmonary Granuloma, Swollen Joints, and Stunted Organs
+  from the active Chicks PM Necropsy visible lesion list while leaving legacy
+  storage fields intact.
+- 2026-05-16: Added editable custom Others lesion rows to Chicks PM Necropsy,
+  persisted as `pmOtherLesionsJson`.
+- 2026-05-16: Simplified the YFBM entries bottom sheet into a clean entry form
+  and moved rows complete, average, CV, and target range details into the main
+  YFBM panel.
 - 2026-05-16: Changed the Egg Upside Down Score header symbol to an inverted egg
   with the pointed end up.
 - 2026-05-16: Redesigned the YFBM entries bottom sheet from a hard-bordered
@@ -945,10 +1327,14 @@ discarding the failure context.
 - 2026-05-16: Extended visit progress strip connector lines so the line reaches
   the adjacent station circles instead of stopping short between steps.
 - 2026-05-16: Added a photo action to the Hatcher Meconium Assessment card.
-- 2026-05-16: Revised the Chicks PM Necropsy lesion list to use Omphalitis
-  (Yolk Sacculitis), Gizzard Erosions, Air Sac Caseations, Nephritis, and
-  General Septicemia, and added matching `chick_pm` backend fields with
-  on-open column backfill for existing local databases.
+- 2026-05-16: Revised the Chicks PM Necropsy lesion list to use Omphalitis,
+  Gizzard Erosions, Air Sac Caseations, Urolithiasis (Urate Deposits),
+  Nephritis, and General Septicemia, and added matching `chick_quality`
+  backend fields with on-open column backfill for existing local databases.
+- 2026-05-16: Consolidated Chicks quality persistence into one
+  `chick_quality` panel table with prefixed Pasgar, YFBM, CVT, and PM fields,
+  while keeping Chick Weights & Uniformity in the separate `chick_weights`
+  table.
 - 2026-05-16: Changed the stable web preview shortcut to default to a profile
   web-server build with local Flutter web resources, fixing the black side
   browser preview caused by the debug web-server handshake.
@@ -964,6 +1350,13 @@ discarding the failure context.
 - 2026-05-16: Removed unrelated decorative Pasgar symbols from Sample Size,
   Defect Counts, defect rows, and the score card so the Pasgar panel relies on
   text labels plus functional stepper/photo controls.
+- 2026-05-16: Tightened the embedded Chicks Pasgar defect-count layout so
+  station panel labels, percentages, count inputs, steppers, and photo buttons
+  use compact sizing instead of full-page audit typography.
+- 2026-05-16: Removed the redundant embedded Chicks Pasgar Defect Counts card
+  heading so the defect rows start directly under the card surface.
+- 2026-05-16: Removed the redundant embedded Chicks Pasgar Sample Size card
+  heading so the sample-size input starts directly under the card surface.
 - 2026-05-16: Added the ChickMark logo mark to the top of Home, wired Recent
   Audits and active-home counts to `audit_sessions`, and removed the Home Audit
   Type Breakdown/stat/action sector.
@@ -974,6 +1367,10 @@ discarding the failure context.
   section-title, title, body, badge, metric, app-bar, pending-approval, and
   major station hero text sizes while leaving dedicated numeric capture displays
   large enough for data entry.
+- 2026-05-16: Tightened the Home preview and floating Govee capture panel
+  styling: Home KPIs now render as a compact strip at browser-preview widths,
+  quick actions use primary/secondary hierarchy, and the Govee panel uses light
+  bordered surfaces with smaller headers and metric values.
 - 2026-05-16: Made Govee Start recording trigger the same scan/reconnect path as
   the manual Scan action when the device is not already GATT connected.
 - 2026-05-16: Seeded fresh Egg Shell Quality and Upside Down Score tray sections
@@ -999,6 +1396,10 @@ discarding the failure context.
 - 2026-05-16: Prefixed Egg shell UV database columns in `egg_quality` with
   `uv` (`uvTrayEggCount`, `uvAffectedPct`, etc.) to avoid name collisions with
   similar panel metrics.
+- 2026-05-16: Added per-type Egg shell UV percentage columns
+  (`uvCuticleDamagePct`, `uvWashedPct`, and `uvDirtyPct`) to `egg_quality` and
+  surfaced a matching UV Summary card at the top of the Egg Shell Quality
+  section.
 - 2026-05-16: Prefixed Egg weight and uniformity database columns in
   `egg_quality` with `egg` (`eggWeightsJson`, `eggAvgWeight`,
   `eggUniformityPct`, etc.) so they stay distinct from Chick weight panel
@@ -1021,6 +1422,58 @@ discarding the failure context.
 - 2026-05-16: Replaced the Chicks Quality sampling and House scope segmented
   buttons with text-only custom pills, removing the selected check and gradient
   segment icons.
+- 2026-05-19: Added the Machine Scope title above the Chicks setter/hatcher
+  sample chip row in Multisamples mode.
+- 2026-05-19: Removed the Chicks weight-panel House scope selector so the
+  flock card flows directly into metrics unless house comparison samples are
+  already active.
+- 2026-05-19: Renamed the Chicks weight comparison chip card to House scope and
+  changed its first blank house sample to `Pool`; typed house numbers derive
+  labels such as `H1`, while added houses keep automatic serial labels.
+- 2026-05-19: Changed blank Chicks machine-sample chips to display `Pool` until
+  both Setter and Hatcher values are entered, then derive labels such as
+  `S1H1`.
+- 2026-05-19: Replaced the Egg Quality One sample / Multiple samples selector
+  with House scope and Machine scope cards. Both default to `Pool`; House scope
+  activates sequential `H1`, `H2` comparison rows and Machine scope activates
+  sequential setter/hatcher rows such as `S1H1`, `S2H2`, while Egg Storage stays
+  pooled.
+- 2026-05-21: Changed Chick Weights & Uniformity to use an Egg-quality-style
+  House scope card. The card is visible in pooled state, add switches to
+  generated `H1`/`H2` house comparison samples, the separate Active house editor
+  is removed, and saved `chick_weights` panel rows carry house hierarchy values.
+- 2026-05-21: Added active scope identity fields: House fields for Egg Quality
+  and Chick Weights house scopes, and Setter/Hatcher fields for Egg Quality and
+  Chick Quality machine scopes. Entered values update chip labels and persist
+  through the panel sample hierarchy columns.
+- 2026-05-21: Pruned stale scoped panel rows after station saves so deleting
+  House or Machine scope samples removes their database rows and queues
+  tombstones for sync.
+- 2026-05-22: Fixed Egg Quality scope hierarchy so Machine scope is added under
+  the active House scope instead of replacing it. House chips stay visible as
+  the parent level, machine chips are filtered to the selected house, houses
+  without machine samples show pooled machine scope, and adding House scope after
+  Machine-only scope resets the lower machine samples.
+- 2026-05-22: Kept generated Egg Quality scope chip labels while leaving their
+  House/Setter/Hatcher input fields blank until the user enters real numbers,
+  and made House scope removal cascade-delete nested Machine scope samples.
+- 2026-05-22: Removed the inherited House field from the Egg Quality Machine
+  scope card; Machine scope now relies on the selected House scope and only asks
+  for Setter and Hatcher values.
+- 2026-05-22: Kept generated Egg Quality scope serials local to each visible
+  scope list, so machine samples under a selected house start at `S1H1` even
+  when house scope already contains `H1`/`H2`.
+- 2026-05-22: Tightened the v41 destructive cutover and current-schema tests so
+  obsolete audit/sample repositories remain inert, current panel relationship
+  cascades are verified, and legacy Govee/temperature tables are dropped during
+  reset.
+- 2026-05-19: Made Egg storage-period, EST/storage handling, Egg Quality storage
+  period, and Egg Quality BMK age/weight fields shared across Egg Quality
+  house/machine scope samples so the second sample keeps the same BMK lookup
+  instead of showing blank benchmark weight.
+- 2026-05-19: Started the Egg Quality BMK egg-weight lookup from the default
+  Quality Storage Days value when the Egg screen opens, so the BMK Egg Weight row
+  does not stay blank until storage days are manually edited.
 - 2026-05-16: Removed the leading thermometer icon from the station-level
   `Govee readings` card and removed compact PG/YF/CVT/PM mark badges from
   Chicks optional panel headers.
@@ -1068,6 +1521,10 @@ discarding the failure context.
   field text.
 - 2026-05-16: Removed the leading analytics icon from the Residue / Hatch Day
   Hatch Results card header.
+- 2026-05-19: Changed Hatch Analysis Candled/Residue hierarchy entry to shared
+  house tabs followed by setter/hatcher machine tabs, moved House/Setter/Hatcher
+  out of tray cards, and kept tray cards scoped to Trolley, Tray, Position, and
+  Tray size.
 - 2026-05-15: Moved Storage Days out of the expandable Egg Shell Temperature
   card so it appears immediately before that card.
 - 2026-05-15: Hid the app-wide floating Govee shortcut while modal sheets are

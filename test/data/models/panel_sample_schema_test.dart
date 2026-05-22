@@ -4,12 +4,12 @@ import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 
 void main() {
   test('panel schema exposes one storage table per panel', () {
-    expect(PanelSampleSchema.panels.length, 12);
+    expect(PanelSampleSchema.panels.length, 9);
     expect(
       PanelSampleSchema.panels.map((panel) => panel.tableName),
       containsAll([
         'egg_quality',
-        'chick_pasgar',
+        'chick_quality',
         'chick_weights',
         'fresh_egg_breakout',
         'candled_egg_breakout',
@@ -22,10 +22,40 @@ void main() {
       PanelSampleSchema.panels.map((panel) => panel.tableName),
       isNot(contains('egg_weights')),
     );
+    expect(
+      PanelSampleSchema.panels.map((panel) => panel.tableName),
+      isNot(
+        containsAll(['chick_pasgar', 'chick_yfbm', 'chick_cvt', 'chick_pm']),
+      ),
+    );
 
     for (final panel in PanelSampleSchema.panels) {
-      expect(panel.allowedLayers.first, SamplingLayer.pool);
       expect(panel.measurementColumns, isNotEmpty);
+    }
+  });
+
+  test('panel measurements do not duplicate common hierarchy columns', () {
+    const commonColumns = {
+      'house',
+      'setter',
+      'hatcher',
+      'trolley',
+      'tray',
+      'position',
+      'storagePeriodDays',
+      'bmkAgeDays',
+      'bmkAgeWeeks',
+    };
+
+    for (final panel in PanelSampleSchema.panels) {
+      final measurementNames = panel.measurementColumns
+          .map((definition) => definition.split(RegExp(r'\s+')).first)
+          .toSet();
+      expect(
+        measurementNames.intersection(commonColumns),
+        isEmpty,
+        reason: panel.tableName,
+      );
     }
   });
 
@@ -37,8 +67,11 @@ void main() {
       containsAll([
         'uvTrayEggCount INTEGER',
         'uvCuticleDamageCount INTEGER',
+        'uvCuticleDamagePct REAL',
         'uvWashedCount INTEGER',
+        'uvWashedPct REAL',
         'uvDirtyCount INTEGER',
+        'uvDirtyPct REAL',
         'uvAffectedCount INTEGER',
         'uvAffectedPct REAL',
         'eggWeightsJson TEXT',
@@ -66,57 +99,159 @@ void main() {
     );
   });
 
-  test('only approved panels expose tray comparison', () {
-    final trayPanels = PanelSampleSchema.panels
-        .where((panel) => panel.allowedLayers.contains(SamplingLayer.tray))
-        .map((panel) => panel.tableName)
-        .toList();
+  test(
+    'setter optimizing schema includes machine temperature and RH readings',
+    () {
+      final panel = PanelSampleSchema.byTable('setter_optimizing');
 
-    expect(trayPanels, [
-      'candled_egg_breakout',
-      'residue_breakout',
-      'setter_optimizing',
-      'hatcher_optimizing',
-    ]);
-  });
+      expect(
+        panel.measurementColumns,
+        containsAll([
+          'setpointF REAL',
+          'actualF REAL',
+          'setpointRh REAL',
+          'actualRh REAL',
+        ]),
+      );
+    },
+  );
 
-  test('chick hatchery panels compare setter and hatcher together', () {
-    for (final tableName in [
-      'chick_pasgar',
-      'chick_yfbm',
-      'chick_cvt',
-      'chick_pm',
-    ]) {
-      final panel = PanelSampleSchema.byTable(tableName);
-      expect(panel.allowedLayers, contains(SamplingLayer.setterHatcher));
-      expect(panel.allowedLayers, isNot(contains(SamplingLayer.tray)));
-    }
-  });
-
-  test('chick PM schema includes the revised lesion backend fields', () {
-    final panel = PanelSampleSchema.byTable('chick_pm');
+  test('hatcher optimizing schema includes machine setpoint readings', () {
+    final panel = PanelSampleSchema.byTable('hatcher_optimizing');
 
     expect(
       panel.measurementColumns,
+      containsAll(['setpointF REAL', 'setpointRh REAL']),
+    );
+  });
+
+  test('breakout schemas include current versus BMK diff columns', () {
+    expect(
+      PanelSampleSchema.byTable('fresh_egg_breakout').measurementColumns,
       containsAll([
-        'gizzardErosionsCount INTEGER',
-        'gizzardErosionsSeverity TEXT',
-        'airSacCaseationsCount INTEGER',
-        'airSacCaseationsSeverity TEXT',
-        'nephritisCount INTEGER',
-        'nephritisSeverity TEXT',
-        'generalSepticemiaCount INTEGER',
-        'generalSepticemiaSeverity TEXT',
+        'infertileDiffPct REAL',
+        'early24hDiffPct REAL',
+        'early48hDiffPct REAL',
+        'bloodRingDiffPct REAL',
+      ]),
+    );
+    expect(
+      PanelSampleSchema.byTable('candled_egg_breakout').measurementColumns,
+      contains('blackEyeDiffPct REAL'),
+    );
+    expect(
+      PanelSampleSchema.byTable('residue_breakout').measurementColumns,
+      containsAll([
+        'infertileDiffPct REAL',
+        'earlyDeadDiffPct REAL',
+        'midDeadDiffPct REAL',
+        'lateDeadDiffPct REAL',
+        'externalPipDiffPct REAL',
+        'crackedDiffPct REAL',
+        'contaminatedDiffPct REAL',
       ]),
     );
   });
 
+  test('chick quality schema consolidates optional quality checks', () {
+    final panel = PanelSampleSchema.byTable('chick_quality');
+
+    expect(panel.allowedLayers, contains(SamplingLayer.house));
+    expect(panel.allowedLayers, contains(SamplingLayer.setterHatcher));
+    expect(
+      panel.measurementColumns,
+      containsAll([
+        'pasgarSampleSize INTEGER',
+        'pasgarReflexesCount INTEGER',
+        'pasgarFinalScore REAL',
+        'yfbmEntriesJson TEXT',
+        'yfbmEntryCount INTEGER',
+        'yfbmAvgPct REAL',
+        'yfbmCvPct REAL',
+        'cvtReadingsJson TEXT',
+        'cvtSampleSize INTEGER',
+        'cvtAvgTemp REAL',
+        'cvtCvPct REAL',
+        'pmSampleSize INTEGER',
+        'pmCollectionPoint TEXT',
+        'culledChicksTotalEggSet INTEGER',
+        'culledChicksAnalysisJson TEXT',
+        'culledChicksAffectedPct REAL',
+        'culledChicksTopCategory TEXT',
+        'culledChicksTopSubtype TEXT',
+      ]),
+    );
+    expect(panel.measurementColumns, isNot(contains('sampleSize INTEGER')));
+    expect(panel.measurementColumns, isNot(contains('cvPct REAL')));
+  });
+
+  test('chick PM schema includes the revised lesion backend fields', () {
+    final panel = PanelSampleSchema.byTable('chick_quality');
+
+    expect(
+      panel.measurementColumns,
+      containsAll([
+        'pmGizzardErosionsCount INTEGER',
+        'pmGizzardErosionsSeverity TEXT',
+        'pmAirSacCaseationsCount INTEGER',
+        'pmAirSacCaseationsSeverity TEXT',
+        'pmUrolithiasisCount INTEGER',
+        'pmUrolithiasisSeverity TEXT',
+        'pmNephritisCount INTEGER',
+        'pmNephritisSeverity TEXT',
+        'pmGeneralSepticemiaCount INTEGER',
+        'pmGeneralSepticemiaSeverity TEXT',
+        'pmOtherLesionsJson TEXT',
+      ]),
+    );
+    for (final column in [
+      'pmUnabsorbedYolkCount INTEGER',
+      'pmUnabsorbedYolkSeverity TEXT',
+      'pmPerihepatitisCount INTEGER',
+      'pmPerihepatitisSeverity TEXT',
+      'pmPericarditisCount INTEGER',
+      'pmPericarditisSeverity TEXT',
+      'pmAirsacAcuteCount INTEGER',
+      'pmAirsacAcuteSeverity TEXT',
+      'pmAirsacChronicCount INTEGER',
+      'pmAirsacChronicSeverity TEXT',
+      'pmPulmonaryGranulomaCount INTEGER',
+      'pmPulmonaryGranulomaSeverity TEXT',
+      'pmSwollenJointsCount INTEGER',
+      'pmSwollenJointsSeverity TEXT',
+      'pmStuntedOrgansCount INTEGER',
+      'pmStuntedOrgansSeverity TEXT',
+      'pmPulmonaryHemorrhageCount INTEGER',
+      'pmPulmonaryHemorrhageSeverity TEXT',
+      'pmGaspingPresent INTEGER',
+      'pmGaspingType TEXT',
+      'pmExposedBrainCount INTEGER',
+      'pmEctopicVisceraCount INTEGER',
+      'pmExtraLegsCount INTEGER',
+      'pmCrossedBeakCount INTEGER',
+      'pmAbsentEyeBothCount INTEGER',
+      'pmAbsentEyeOneCount INTEGER',
+      'pmSmallEyeCount INTEGER',
+      'pmHydrocephalyCount INTEGER',
+      'pmStarGazerCount INTEGER',
+      'pmCurledToesCount INTEGER',
+      'pmShortLegsCount INTEGER',
+      'pmSpinalDeformityCount INTEGER',
+      'pmCardiacAnomalyCount INTEGER',
+      'pmConjoinedCount INTEGER',
+      'pmOtherDeformityCount INTEGER',
+      'pmOtherDeformityText TEXT',
+    ]) {
+      expect(panel.measurementColumns, isNot(contains(column)));
+    }
+  });
+
   test(
-    'panel and sample records serialize dashboard context and scope identity',
+    'panel and sample records serialize dashboard context and hierarchy',
     () {
       final panel = PanelRecord(
         id: 'panel-1',
-        tableName: 'chick_pasgar',
+        tableName: 'chick_quality',
         sessionId: 'session-1',
         customerId: 'customer-1',
         flockId: 'flock-1',
@@ -124,32 +259,49 @@ void main() {
         hatcheryId: 'hatchery-1',
         breed: 'Ross308',
         flockAgeWeeks: 40,
-        mode: PanelRecord.modeCompare,
-        scopeType: SamplingLayer.setterHatcher,
-        scopeLabel: 'S01 + H02',
-        values: const {'finalScore': 97.5},
+        house: 'House A',
+        setter: 'S01',
+        hatcher: 'H02',
+        trolley: 'T01',
+        tray: 'Tray 03',
+        position: 'top',
+        storagePeriodDays: 4,
+        bmkAgeDays: 276,
+        bmkAgeWeeks: 40,
+        values: const {'pasgarFinalScore': 97.5},
       );
 
-      expect(panel.toMap()['mode'], 'comparison');
-      expect(panel.toMap()['scopeType'], 'setter_hatcher');
+      expect(panel.toMap()['house'], 'House A');
+      expect(panel.toMap()['setter'], 'S01');
+      expect(panel.toMap()['hatcher'], 'H02');
+      expect(panel.toMap()['trolley'], 'T01');
+      expect(panel.toMap()['tray'], 'Tray 03');
+      expect(panel.toMap()['position'], 'top');
+      expect(panel.toMap()['storagePeriodDays'], 4);
+      expect(panel.toMap()['bmkAgeDays'], 276);
+      expect(panel.toMap()['bmkAgeWeeks'], 40);
       expect(panel.toMap()['date'], '2026-05-13');
-      expect(panel.toMap()['finalScore'], 97.5);
+      expect(panel.toMap()['pasgarFinalScore'], 97.5);
 
       final sample = PanelSampleRecord(
         id: 'sample-1',
         panelId: 'panel-1',
-        scopeType: SamplingLayer.setterHatcher,
-        scopeLabel: 'S01 + H02',
-        sampleIndex: 0,
+        houseId: 'House A',
         setterId: 'S01',
         hatcherId: 'H02',
+        trolleyId: 'T01',
+        trayId: 'Tray 03',
+        position: 'top',
         sampleSize: 100,
         summaryJson: '{"pasgarScore":97.5}',
       );
 
-      expect(sample.toMap()['scopeType'], 'setter_hatcher');
+      expect(sample.toMap()['houseId'], 'House A');
       expect(sample.toMap()['setterId'], 'S01');
       expect(sample.toMap()['hatcherId'], 'H02');
+      expect(sample.toMap()['trolleyId'], 'T01');
+      expect(sample.toMap()['trayId'], 'Tray 03');
+      expect(sample.toMap()['position'], 'top');
     },
   );
 }

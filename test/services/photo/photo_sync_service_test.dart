@@ -55,8 +55,8 @@ PhotoModel _photo(String filePath, {String uploadStatus = 'local'}) {
     description: 'Evidence',
     createdAt: DateTime(2026, 5, 2),
     sessionId: 'session-1',
-    panelName: 'chick_cvt',
-    panelRowId: 'cvt-row-1',
+    panelName: 'chick_quality',
+    panelRowId: 'chick-quality-row-1',
     fieldKey: 'cvtReadings',
     uploadStatus: uploadStatus,
   );

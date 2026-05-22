@@ -7,6 +7,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/security/security_policy.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../data/models/audit_model.dart';
 
 import '../../../widgets/status_badge.dart';
@@ -161,7 +162,8 @@ class AuditDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _formatDate(audit.date),
+                        HatchDateUtils.formatDisplayDate(audit.date),
+                        textDirection: TextDirection.ltr,
                         style: AppTextStyles.caption,
                       ),
                     ],
@@ -527,30 +529,6 @@ class AuditDetailScreen extends StatelessWidget {
       return null;
     }
     return null;
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthAbbreviation(date.month)} '
-        '${date.year}';
-  }
-
-  String _monthAbbreviation(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month - 1];
   }
 
   Future<void> _openAuditScreen(BuildContext context, {int sectionIndex = 0}) =>

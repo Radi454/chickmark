@@ -189,15 +189,11 @@ void main() {
       expect(summary.findingsSummary, isNull);
     });
 
-    test('PM score summary aggregates lesions and deformities', () {
+    test('PM score summary aggregates lesions', () {
       final audit = _makeAudit(
         auditType: 'Chicks',
         pmOmphalitisCount: 2,
         pmGaseousCecaCount: 1,
-        pmExposedBrainCount: 1,
-        pmCrossedBeakCount: 1,
-        pmGaspingPresent: true,
-        pmGaspingType: 'Asphyxia',
       );
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
@@ -206,13 +202,10 @@ void main() {
 
       expect(summary.pmScoreSummary, isNotNull);
       expect(summary.pmScoreSummary!.totalLesions, 3);
-      expect(summary.pmScoreSummary!.totalDeformities, 2);
-      expect(summary.pmScoreSummary!.gaspingPresent, true);
-      expect(summary.pmScoreSummary!.gaspingType, 'Asphyxia');
       expect(summary.pmScoreSummary!.overallSeverity, 'amber');
     });
 
-    test('PM severity is green when no lesions, deformities, or gasping', () {
+    test('PM severity is green when no lesions are present', () {
       final audit = _makeAudit(auditType: 'Chicks');
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
@@ -221,12 +214,8 @@ void main() {
       expect(summary.pmScoreSummary!.overallSeverity, 'green');
     });
 
-    test('PM severity is red when many lesions or deformities', () {
-      final audit = _makeAudit(
-        auditType: 'Chicks',
-        pmOmphalitisCount: 6,
-        pmExposedBrainCount: 4,
-      );
+    test('PM severity is red when many lesions are present', () {
+      final audit = _makeAudit(auditType: 'Chicks', pmOmphalitisCount: 6);
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
@@ -412,10 +401,6 @@ AuditModel _makeAudit({
   double? hoCvtAvg,
   int? pmOmphalitisCount,
   int? pmGaseousCecaCount,
-  int? pmExposedBrainCount,
-  int? pmCrossedBeakCount,
-  bool? pmGaspingPresent,
-  String? pmGaspingType,
   int? haTotalEggsSet,
   int? haHatched,
   int? haCulled,
@@ -439,10 +424,6 @@ AuditModel _makeAudit({
     hoCvtAvg: hoCvtAvg,
     pmOmphalitisCount: pmOmphalitisCount,
     pmGaseousCecaCount: pmGaseousCecaCount,
-    pmExposedBrainCount: pmExposedBrainCount,
-    pmCrossedBeakCount: pmCrossedBeakCount,
-    pmGaspingPresent: pmGaspingPresent,
-    pmGaspingType: pmGaspingType,
     haTotalEggsSet: haTotalEggsSet,
     haHatched: haHatched,
     haCulled: haCulled,

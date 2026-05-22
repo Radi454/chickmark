@@ -19,15 +19,15 @@ class AppElevation {
 
   static List<BoxShadow> get level1 => [
     BoxShadow(
-      color: const Color(0x0F000000),
-      blurRadius: AppSizes.spaceSm,
-      offset: const Offset(0, 2),
+      color: const Color(0x0A000000),
+      blurRadius: AppSizes.spaceMd,
+      offset: const Offset(0, 3),
     ),
   ];
 
   static List<BoxShadow> get level2 => [
     BoxShadow(
-      color: const Color(0x1A000000),
+      color: const Color(0x14000000),
       blurRadius: 16,
       offset: const Offset(0, 4),
     ),
@@ -35,7 +35,7 @@ class AppElevation {
 
   static List<BoxShadow> get level3 => [
     BoxShadow(
-      color: const Color(0x1A000000),
+      color: const Color(0x14000000),
       blurRadius: 24,
       offset: const Offset(0, 8),
     ),

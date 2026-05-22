@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
@@ -109,6 +110,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
           home: HatchAnalysisScreen(
             context: contextOverride ?? contextData(),
             benchmarkLookup: benchmarkLookup ?? mockBenchmarkLookup(),
@@ -465,6 +467,107 @@ void main() {
     expect(provider.activeDraft.setterId, '4');
     expect(provider.activeDraft.hatcherId, '7');
     expect(find.text('S4H7'), findsOneWidget);
+  });
+
+  testWidgets('residue hierarchy tabs share house machine context with trays', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        benchmarkLookup: mockBenchmarkLookup(),
+      );
+      await addVisibleSample(tester);
+
+      final sample = activeBreakoutSample(provider);
+      expect(find.byKey(const ValueKey('residue-house-tabs')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('residue-machine-tabs')),
+        findsOneWidget,
+      );
+      expect(find.byKey(ValueKey('${sample.id}-house')), findsNothing);
+      expect(find.byKey(ValueKey('${sample.id}-setter')), findsNothing);
+      expect(find.byKey(ValueKey('${sample.id}-hatcher')), findsNothing);
+      expect(find.byKey(ValueKey('${sample.id}-trolley')), findsOneWidget);
+      expect(find.byKey(ValueKey('${sample.id}-tray')), findsOneWidget);
+      expect(find.byKey(ValueKey('${sample.id}-position')), findsOneWidget);
+
+      await enterVisibleNumber(
+        tester,
+        const ValueKey('residue-house-number-0'),
+        '2',
+      );
+      await enterVisibleNumber(
+        tester,
+        const ValueKey('residue-setter-number-0'),
+        '3',
+      );
+      await enterVisibleNumber(
+        tester,
+        const ValueKey('residue-hatcher-number-0'),
+        '4',
+      );
+
+      final savedSample = EggBreakoutSampleEntry.decodeList(
+        provider.drafts.single.ebTrayBreakoutJson,
+      ).single;
+      expect(provider.drafts.single.toMap()['houseId'], '2');
+      expect(provider.drafts.single.setterId, '3');
+      expect(provider.drafts.single.hatcherId, '4');
+      expect(savedSample.house, '2');
+      expect(savedSample.setter, '3');
+      expect(savedSample.hatcher, '4');
+      expect(find.text('House 2'), findsOneWidget);
+      expect(find.text('S3H4'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('hatch total fields stay isolated between hatch tabs', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        benchmarkLookup: mockBenchmarkLookup(),
+      );
+
+      await enterVisibleNumber(
+        tester,
+        const ValueKey('residue-hatched-chicks-0'),
+        '11111',
+      );
+      expect(provider.drafts[0].haHatched, 11111);
+
+      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
+      expect(provider.activeHatchIndex, 1);
+      expect(provider.drafts[1].haHatched, isNull);
+      expect(
+        editableNumberText(tester, const ValueKey('residue-hatched-chicks-1')),
+        isEmpty,
+      );
+
+      await enterVisibleNumber(
+        tester,
+        const ValueKey('residue-hatched-chicks-1'),
+        '22222',
+      );
+      expect(provider.drafts[1].haHatched, 22222);
+
+      await tapVisibleKey(tester, const ValueKey('residue-batch-tab-0'));
+      expect(
+        editableNumberText(tester, const ValueKey('residue-hatched-chicks-0')),
+        '11111',
+      );
+      expect(provider.drafts[0].haHatched, 11111);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('uses breakout type as the main card and removes old regions', (
@@ -850,6 +953,137 @@ void main() {
     expect(find.byKey(const ValueKey('breakout-sample-tab-1')), findsNothing);
   });
 
+  testWidgets('editing one tray count does not update other tray fields', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+    await addVisibleSample(tester);
+    await addVisibleSample(tester);
+
+    final samples = EggBreakoutSampleEntry.decodeList(
+      provider.drafts.single.ebTrayBreakoutJson,
+    );
+    final firstCountKey = ValueKey('breakout-count-${samples[0].id}-infertile');
+    final secondCountKey = ValueKey(
+      'breakout-count-${samples[1].id}-infertile',
+    );
+
+    await tester.ensureVisible(find.byKey(firstCountKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(firstCountKey), '12');
+    await tester.pumpAndSettle();
+
+    final savedSamples = EggBreakoutSampleEntry.decodeList(
+      provider.drafts.single.ebTrayBreakoutJson,
+    );
+    expect(savedSamples[0].counts['infertile'], 12);
+    expect(savedSamples[1].counts['infertile'], isNull);
+    expect(editableNumberText(tester, firstCountKey), '12');
+    expect(editableNumberText(tester, secondCountKey), isEmpty);
+  });
+
+  testWidgets('duplicate saved tray ids are isolated before editing', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+    provider.updateHatchField(
+      0,
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([
+        EggBreakoutSampleEntry.tray(
+          id: 'duplicate-tray',
+          label: 'Tray 1',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+        ),
+        EggBreakoutSampleEntry.tray(
+          id: 'duplicate-tray',
+          label: 'Tray 2',
+          traySize: 150,
+          breakoutType: EggBreakoutType.residueHatchDay,
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    const firstCountKey = ValueKey('breakout-count-duplicate-tray-infertile');
+    const secondCountKey = ValueKey(
+      'breakout-count-duplicate-tray-2-infertile',
+    );
+
+    await tester.ensureVisible(find.byKey(firstCountKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(firstCountKey), '12');
+    await tester.pumpAndSettle();
+
+    final savedSamples = EggBreakoutSampleEntry.decodeList(
+      provider.drafts.single.ebTrayBreakoutJson,
+    );
+    expect(savedSamples.map((sample) => sample.id), [
+      'duplicate-tray',
+      'duplicate-tray-2',
+    ]);
+    expect(savedSamples[0].counts['infertile'], 12);
+    expect(savedSamples[1].counts['infertile'], isNull);
+    expect(editableNumberText(tester, firstCountKey), '12');
+    expect(editableNumberText(tester, secondCountKey), isEmpty);
+  });
+
+  testWidgets('editing one tray header does not update other tray headers', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        benchmarkLookup: mockBenchmarkLookup(),
+      );
+      await addVisibleSample(tester);
+      await addVisibleSample(tester);
+
+      final samples = EggBreakoutSampleEntry.decodeList(
+        provider.drafts.single.ebTrayBreakoutJson,
+      );
+      final firstTrayKey = ValueKey('${samples[0].id}-tray');
+      final secondTrayKey = ValueKey('${samples[1].id}-tray');
+      final firstTraySizeKey = ValueKey('${samples[0].id}-Tray size');
+      final secondTraySizeKey = ValueKey('${samples[1].id}-Tray size');
+
+      await tester.ensureVisible(find.byKey(firstTrayKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(firstTrayKey), 'Left tray');
+      await enterVisibleNumber(tester, firstTraySizeKey, '155');
+      await tester.pumpAndSettle();
+
+      final savedSamples = EggBreakoutSampleEntry.decodeList(
+        provider.drafts.single.ebTrayBreakoutJson,
+      );
+      expect(savedSamples[0].label, 'Left tray');
+      expect(savedSamples[0].tray, 'Left tray');
+      expect(savedSamples[0].traySize, 155);
+      expect(savedSamples[1].label, 'Tray 2');
+      expect(savedSamples[1].tray, 'Tray 2');
+      expect(savedSamples[1].traySize, 150);
+      expect(editableNumberText(tester, firstTraySizeKey), '155');
+      expect(editableNumberText(tester, secondTraySizeKey), '150');
+      expect(
+        tester.widget<TextFormField>(find.byKey(secondTrayKey)).initialValue,
+        'Tray 2',
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('sample card keeps header fields in one balanced row', (
     tester,
   ) async {
@@ -866,7 +1100,8 @@ void main() {
     await addVisibleSample(tester);
     final sample = activeBreakoutSample(provider);
 
-    final labelField = find.byKey(ValueKey('${sample.id}-label'));
+    final trolleyField = find.byKey(ValueKey('${sample.id}-trolley'));
+    final trayField = find.byKey(ValueKey('${sample.id}-tray'));
     final positionField = find.byKey(ValueKey('${sample.id}-position'));
     final traySizeField = find.byKey(ValueKey('${sample.id}-Tray size'));
 
@@ -874,7 +1109,11 @@ void main() {
     expect(find.text('Tray sample'), findsNothing);
     expect(find.text('Pool sample'), findsNothing);
     expect(find.text('Total sample'), findsNothing);
-    expect(labelField, findsOneWidget);
+    expect(find.byKey(ValueKey('${sample.id}-house')), findsNothing);
+    expect(find.byKey(ValueKey('${sample.id}-setter')), findsNothing);
+    expect(find.byKey(ValueKey('${sample.id}-hatcher')), findsNothing);
+    expect(trolleyField, findsOneWidget);
+    expect(trayField, findsOneWidget);
     expect(positionField, findsOneWidget);
     expect(traySizeField, findsOneWidget);
     final randomPositionText = tester.widget<Text>(
@@ -883,36 +1122,24 @@ void main() {
     expect(randomPositionText.style?.fontWeight, FontWeight.w400);
     expect(randomPositionText.style?.color, AppColors.textPrimary);
     expect(
-      tester.getTopLeft(labelField).dy,
-      closeTo(tester.getTopLeft(positionField).dy, 0.1),
-    );
-    expect(
-      tester.getTopLeft(labelField).dy,
-      closeTo(tester.getTopLeft(traySizeField).dy, 0.1),
-    );
-    expect(
-      tester.getSize(positionField).width,
-      greaterThan(tester.getSize(labelField).width),
-    );
-    expect(
-      tester.getSize(positionField).width,
-      greaterThan(tester.getSize(traySizeField).width),
-    );
-    expect(
       tester.getTopRight(find.text('Random')).dx,
       lessThan(tester.getTopRight(positionField).dx - 36),
     );
+    for (final field in [
+      trolleyField,
+      trayField,
+      positionField,
+      traySizeField,
+    ]) {
+      expect(tester.getSize(field).height, greaterThan(40));
+    }
     expect(
-      tester.getSize(labelField).height,
-      closeTo(tester.getSize(positionField).height, 0.1),
-    );
-    expect(
-      tester.getSize(labelField).height,
+      tester.getSize(trayField).height,
       closeTo(tester.getSize(traySizeField).height, 0.1),
     );
   });
 
-  testWidgets('breakout rows show count calculated percent and bmk target', (
+  testWidgets('breakout rows show count and one readable metric summary', (
     tester,
   ) async {
     await pumpScreen(
@@ -933,21 +1160,16 @@ void main() {
     );
     expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
     expect(
+      find.byKey(const ValueKey('breakout-summary-infertile')),
+      findsOneWidget,
+    );
+    expect(find.text('0.0% | BMK 3.0% | Diff -3.0pp'), findsOneWidget);
+    expect(
       find.byKey(const ValueKey('breakout-percent-infertile')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('breakout-percent-infertile')),
-        matching: find.text('0.0%'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('breakout-bmk-infertile')),
-      findsOneWidget,
-    );
-    expect(find.text('BMK 3.0%'), findsOneWidget);
+    expect(find.byKey(const ValueKey('breakout-bmk-infertile')), findsNothing);
+    expect(find.byKey(const ValueKey('breakout-diff-infertile')), findsNothing);
   });
 
   testWidgets('breakout rows alert when calculated percent is above bmk', (

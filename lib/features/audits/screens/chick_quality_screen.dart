@@ -18,6 +18,7 @@ import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/weight_grid_widget.dart';
 import '../widgets/tabs/cvt_tab.dart';
+import '../widgets/tabs/culled_chicks_analysis_tab.dart';
 import '../widgets/tabs/pasgar_tab.dart';
 import '../widgets/tabs/pm_necropsy_tab.dart';
 import '../widgets/tabs/yfbm_tab.dart';
@@ -216,6 +217,19 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: PmNecropsyTab(
+            audit: audit,
+            isReadOnly: provider.isReadOnly,
+            embedded: true,
+            onFieldChanged: provider.updateField,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _StationPanel(
+          key: const ValueKey('chick-quality-panel-culled-analysis'),
+          title: 'Culled Chicks Analysis',
+          meta: activeQualitySampleMeta,
+          collapsible: true,
+          child: CulledChicksAnalysisTab(
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -593,33 +607,36 @@ class _StationPanel extends StatelessWidget {
         width: double.infinity,
         decoration: decoration,
         clipBehavior: Clip.antiAlias,
-        child: Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            tilePadding: EdgeInsets.all(panelPadding),
-            childrenPadding: EdgeInsets.fromLTRB(
-              panelPadding,
-              0,
-              panelPadding,
-              panelPadding,
-            ),
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTextStyles.title.copyWith(
-                    fontWeight: FontWeight.w800,
+        child: Material(
+          type: MaterialType.transparency,
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.all(panelPadding),
+              childrenPadding: EdgeInsets.fromLTRB(
+                panelPadding,
+                0,
+                panelPadding,
+                panelPadding,
+              ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyles.title.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                if (meta.trim().isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(meta, style: AppTextStyles.caption),
+                  if (meta.trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(meta, style: AppTextStyles.caption),
+                  ],
                 ],
-              ],
+              ),
+              trailing: const Icon(Icons.expand_more),
+              children: [child],
             ),
-            trailing: const Icon(Icons.expand_more),
-            children: [child],
           ),
         ),
       );
@@ -705,133 +722,6 @@ class _GradientIcon extends StatelessWidget {
       blendMode: BlendMode.srcIn,
       shaderCallback: AppColors.brandGradient.createShader,
       child: Icon(icon, size: size, color: Colors.white),
-    );
-  }
-}
-
-class _ChickScopeSelector extends StatelessWidget {
-  final Key singleKey;
-  final Key multipleKey;
-  final bool isMultipleSelected;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  const _ChickScopeSelector({
-    required this.singleKey,
-    required this.multipleKey,
-    required this.isMultipleSelected,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.62,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.borderDefault),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: _ChickScopeOption(
-                key: singleKey,
-                label: 'One sample',
-                selected: !isMultipleSelected,
-                enabled: enabled,
-                onTap: () => onChanged(false),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: _ChickScopeOption(
-                key: multipleKey,
-                label: 'Multisamples',
-                selected: isMultipleSelected,
-                enabled: enabled,
-                onTap: () => onChanged(true),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChickScopeOption extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _ChickScopeOption({
-    super.key,
-    required this.label,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final textColor = !enabled
-        ? AppColors.textDisabled
-        : selected
-        ? AppColors.primary
-        : AppColors.textBody;
-
-    return Semantics(
-      button: true,
-      selected: selected,
-      enabled: enabled,
-      label: label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(11),
-          onTap: enabled ? onTap : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOut,
-            constraints: const BoxConstraints(minHeight: 48),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.surface : Colors.transparent,
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(
-                color: selected
-                    ? AppColors.primary.withAlpha(72)
-                    : Colors.transparent,
-              ),
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(10),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.body.copyWith(
-                color: textColor,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1056,21 +946,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
       children: [
         _buildSampleControlCard(
           title: 'House scope',
-          child: _buildHouseScopeSelector(),
-        ),
-        if (provider.isChickWeightCompareMode) ...[
-          const SizedBox(height: 10),
-          _buildSampleControlCard(
-            title: 'House Samples',
-            note: 'Compare chick weights by house',
-            child: _buildHouseSampleChips(),
-          ),
-        ],
-        const SizedBox(height: 10),
-        _buildSampleControlCard(
-          title: 'Active house',
-          note: 'Weight sample source',
-          child: _buildHouseFields(context),
+          child: _buildHouseSampleChips(),
         ),
       ],
     );
@@ -1128,50 +1004,42 @@ class _HouseWeightSampleControls extends StatelessWidget {
     );
   }
 
-  Widget _buildHouseScopeSelector() {
-    return _ChickScopeSelector(
-      singleKey: const ValueKey('house-scope-segment-single'),
-      multipleKey: const ValueKey('house-scope-segment-multiple'),
-      isMultipleSelected: provider.isChickWeightCompareMode,
-      enabled: !provider.isReadOnly,
-      onChanged: (compare) {
-        if (compare == provider.isChickWeightCompareMode) return;
-        provider.setChickWeightSampleMode(
-          compare
-              ? StationSampleModel.sampleModeComparison
-              : StationSampleModel.sampleModePooled,
+  Widget _buildScopeInputFields(List<Widget> fields) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (fields.length == 1) return fields.single;
+        return Row(
+          children: [
+            for (var i = 0; i < fields.length; i++) ...[
+              Expanded(child: fields[i]),
+              if (i < fields.length - 1) const SizedBox(width: 10),
+            ],
+          ],
         );
       },
     );
   }
 
   Widget _buildHouseSampleChips() {
-    final chips = [
-      for (final entry in provider.chickWeightSamples.asMap().entries)
-        ChoiceChip(
-          label: Text(entry.value.sampleLabel),
-          selected: entry.key == provider.activeChickWeightSampleIndex,
-          onSelected: provider.isReadOnly
-              ? null
-              : (_) => provider.switchChickWeightSample(entry.key),
-          selectedColor: AppColors.primary.withAlpha(30),
-          checkmarkColor: AppColors.primary,
-          labelStyle: AppTextStyles.body.copyWith(
-            color: entry.key == provider.activeChickWeightSampleIndex
-                ? AppColors.primary
-                : AppColors.textBody,
-            fontWeight: FontWeight.w800,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(
-              color: entry.key == provider.activeChickWeightSampleIndex
-                  ? AppColors.primary
-                  : AppColors.borderDefault,
+    final active = provider.isChickWeightCompareMode;
+    final chips = active
+        ? [
+            for (final entry in provider.chickWeightSamples.asMap().entries)
+              _buildHouseSampleChip(
+                label: entry.value.sampleLabel,
+                selected: entry.key == provider.activeChickWeightSampleIndex,
+                enabled: !provider.isReadOnly,
+                onSelected: () => provider.switchChickWeightSample(entry.key),
+              ),
+          ]
+        : [
+            _buildHouseSampleChip(
+              label: 'Pool',
+              selected: true,
+              enabled: false,
+              onSelected: null,
             ),
-          ),
-        ),
-    ];
+          ];
 
     final actions = Row(
       mainAxisSize: MainAxisSize.min,
@@ -1181,7 +1049,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
           icon: Icons.add,
           onPressed: provider.isReadOnly ? null : provider.addChickWeightSample,
         ),
-        if (provider.chickWeightSamples.length > 1) ...[
+        if (active && provider.chickWeightSamples.length > 1) ...[
           const SizedBox(width: 8),
           _buildHouseSampleActionButton(
             tooltip: 'Remove active house sample',
@@ -1194,7 +1062,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
       ],
     );
 
-    return LayoutBuilder(
+    final chipRow = LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 520) {
           return Wrap(
@@ -1222,6 +1090,54 @@ class _HouseWeightSampleControls extends StatelessWidget {
         );
       },
     );
+    if (!active) return chipRow;
+    final sample = provider.activeChickWeightSample;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        chipRow,
+        const SizedBox(height: 10),
+        _buildScopeInputFields([
+          TextFormField(
+            key: ValueKey('chick-weight-house-${sample.id}'),
+            initialValue: sample.houseNo ?? '',
+            enabled: !provider.isReadOnly,
+            textInputAction: TextInputAction.done,
+            decoration: _scopeInputDecoration('House'),
+            onChanged: (value) {
+              provider.updateChickWeightSampleMetadata({
+                'houseNo': value.trim(),
+              });
+            },
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildHouseSampleChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback? onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: enabled && onSelected != null ? (_) => onSelected() : null,
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: FontWeight.w800,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
+        ),
+      ),
+    );
   }
 
   Widget _buildHouseSampleActionButton({
@@ -1240,21 +1156,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
     );
   }
 
-  Widget _buildHouseFields(BuildContext context) {
-    final sample = provider.activeChickWeightSample;
-    return TextFormField(
-      key: ValueKey('chick-weight-house-${sample.id}'),
-      initialValue: sample.houseNo ?? '',
-      enabled: !provider.isReadOnly,
-      textInputAction: TextInputAction.done,
-      decoration: _houseInputDecoration('House'),
-      onChanged: (value) {
-        provider.updateChickWeightSampleMetadata({'houseNo': value.trim()});
-      },
-    );
-  }
-
-  InputDecoration _houseInputDecoration(String label) {
+  InputDecoration _scopeInputDecoration(String label) {
     return InputDecoration(
       labelText: label,
       isDense: true,
@@ -1288,17 +1190,8 @@ class _MachineSampleControls extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSampleControlCard(
-          title: 'Quality sampling',
-          child: _buildMachineScopeSelector(),
-        ),
-        if (provider.isCompareMode) ...[
-          const SizedBox(height: 10),
-          _buildSampleControlCard(child: _buildMachineSampleChips()),
-        ],
-        const SizedBox(height: 10),
-        _buildSampleControlCard(
-          title: 'Machine ID',
-          child: _buildMachineFields(context),
+          title: 'Machine scope',
+          child: _buildMachineSampleChips(),
         ),
       ],
     );
@@ -1356,50 +1249,26 @@ class _MachineSampleControls extends StatelessWidget {
     );
   }
 
-  Widget _buildMachineScopeSelector() {
-    return _ChickScopeSelector(
-      singleKey: const ValueKey('quality-scope-segment-single'),
-      multipleKey: const ValueKey('quality-scope-segment-multiple'),
-      isMultipleSelected: provider.isCompareMode,
-      enabled: !provider.isReadOnly,
-      onChanged: (compare) {
-        if (compare == provider.isCompareMode) return;
-        provider.setStationSampleMode(
-          compare
-              ? StationSampleModel.sampleModeComparison
-              : StationSampleModel.sampleModePooled,
-        );
-      },
-    );
-  }
-
   Widget _buildMachineSampleChips() {
-    final chips = [
-      for (final entry in provider.stationSamples.asMap().entries)
-        ChoiceChip(
-          label: Text(entry.value.sampleLabel),
-          selected: entry.key == provider.activeSampleIndex,
-          onSelected: provider.isReadOnly
-              ? null
-              : (_) => provider.switchSample(entry.key),
-          selectedColor: AppColors.primary.withAlpha(30),
-          checkmarkColor: AppColors.primary,
-          labelStyle: AppTextStyles.body.copyWith(
-            color: entry.key == provider.activeSampleIndex
-                ? AppColors.primary
-                : AppColors.textBody,
-            fontWeight: FontWeight.w800,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(
-              color: entry.key == provider.activeSampleIndex
-                  ? AppColors.primary
-                  : AppColors.borderDefault,
+    final active = provider.isChickQualityMachineScopeActive;
+    final chips = active
+        ? [
+            for (final entry in provider.stationSamples.asMap().entries)
+              _buildMachineSampleChip(
+                label: entry.value.sampleLabel,
+                selected: entry.key == provider.activeSampleIndex,
+                enabled: !provider.isReadOnly,
+                onSelected: () => provider.switchSample(entry.key),
+              ),
+          ]
+        : [
+            _buildMachineSampleChip(
+              label: 'Pool',
+              selected: true,
+              enabled: false,
+              onSelected: null,
             ),
-          ),
-        ),
-    ];
+          ];
 
     final actions = Row(
       mainAxisSize: MainAxisSize.min,
@@ -1409,7 +1278,7 @@ class _MachineSampleControls extends StatelessWidget {
           icon: Icons.add,
           onPressed: provider.isReadOnly ? null : provider.addSample,
         ),
-        if (provider.sampleCount > 1) ...[
+        if (active && provider.sampleCount > 1) ...[
           const SizedBox(width: 8),
           _buildMachineSampleActionButton(
             tooltip: 'Remove active machine sample',
@@ -1420,7 +1289,7 @@ class _MachineSampleControls extends StatelessWidget {
       ],
     );
 
-    return LayoutBuilder(
+    final chipRow = LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 520) {
           return Wrap(
@@ -1448,6 +1317,72 @@ class _MachineSampleControls extends StatelessWidget {
         );
       },
     );
+    if (!active) return chipRow;
+    final sample = provider.activeStationSample;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        chipRow,
+        const SizedBox(height: 10),
+        _buildScopeInputFields([
+          TextFormField(
+            key: ValueKey('chick-machine-house-${sample.id}'),
+            initialValue: sample.houseNo ?? '',
+            enabled: !provider.isReadOnly,
+            textInputAction: TextInputAction.next,
+            decoration: _scopeInputDecoration('House'),
+            onChanged: (value) {
+              provider.updateSampleMetadata({'houseNo': value.trim()});
+            },
+          ),
+          TextFormField(
+            key: ValueKey('chick-machine-setter-${sample.id}'),
+            initialValue: sample.setterNo ?? '',
+            enabled: !provider.isReadOnly,
+            textInputAction: TextInputAction.next,
+            decoration: _scopeInputDecoration('Setter'),
+            onChanged: (value) {
+              provider.updateSampleMetadata({'setterNo': value.trim()});
+            },
+          ),
+          TextFormField(
+            key: ValueKey('chick-machine-hatcher-${sample.id}'),
+            initialValue: sample.hatcherNo ?? '',
+            enabled: !provider.isReadOnly,
+            textInputAction: TextInputAction.done,
+            decoration: _scopeInputDecoration('Hatcher'),
+            onChanged: (value) {
+              provider.updateSampleMetadata({'hatcherNo': value.trim()});
+            },
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildMachineSampleChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback? onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: enabled && onSelected != null ? (_) => onSelected() : null,
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: FontWeight.w800,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
+        ),
+      ),
+    );
   }
 
   Widget _buildMachineSampleActionButton({
@@ -1466,41 +1401,18 @@ class _MachineSampleControls extends StatelessWidget {
     );
   }
 
-  Widget _buildMachineFields(BuildContext context) {
-    final sample = provider.activeStationSample;
-    final fields = [
-      TextFormField(
-        key: ValueKey('chick-machine-setter-${sample.id}'),
-        initialValue: sample.setterNo ?? '',
-        enabled: !provider.isReadOnly,
-        textInputAction: TextInputAction.next,
-        decoration: _machineInputDecoration('Setter'),
-        onChanged: (value) {
-          provider.updateSampleMetadata({'setterNo': value.trim()});
-        },
-      ),
-      TextFormField(
-        key: ValueKey('chick-machine-hatcher-${sample.id}'),
-        initialValue: sample.hatcherNo ?? '',
-        enabled: !provider.isReadOnly,
-        textInputAction: TextInputAction.done,
-        decoration: _machineInputDecoration('Hatcher'),
-        onChanged: (value) {
-          provider.updateSampleMetadata({'hatcherNo': value.trim()});
-        },
-      ),
-    ];
-
+  Widget _buildScopeInputFields(List<Widget> fields) {
     return Row(
       children: [
-        Expanded(child: fields[0]),
-        const SizedBox(width: 10),
-        Expanded(child: fields[1]),
+        for (var i = 0; i < fields.length; i++) ...[
+          Expanded(child: fields[i]),
+          if (i < fields.length - 1) const SizedBox(width: 10),
+        ],
       ],
     );
   }
 
-  InputDecoration _machineInputDecoration(String label) {
+  InputDecoration _scopeInputDecoration(String label) {
     return InputDecoration(
       labelText: label,
       isDense: true,

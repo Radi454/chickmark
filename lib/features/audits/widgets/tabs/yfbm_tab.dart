@@ -186,13 +186,7 @@ class _YfbmTabState extends State<YfbmTab> {
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: _buildStatCard('AVG %', _avgPercentController)),
-            const SizedBox(width: 8),
-            Expanded(child: _buildStatCard('CV %', _cvPercentController)),
-          ],
-        ),
+        _buildSummaryGrid(),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(AppSizes.cardPadding),
@@ -332,14 +326,6 @@ class _YfbmTabState extends State<YfbmTab> {
                       'YFBM Entries',
                       style: AppTextStyles.heading.copyWith(fontSize: 22),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_completedRows()} of ${_entries.length} rows complete',
-                      style: AppTextStyles.caption.copyWith(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -361,55 +347,6 @@ class _YfbmTabState extends State<YfbmTab> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 520;
-              final pills = [
-                _summaryPill(
-                  icon: Icons.check_circle_outline,
-                  label: '${_completedRows()}/${_entries.length}',
-                  value: 'Rows',
-                  color: AppColors.primary,
-                ),
-                _summaryPill(
-                  icon: Icons.track_changes_outlined,
-                  label: _avgPercentController.text.isEmpty
-                      ? '--'
-                      : '${_avgPercentController.text}%',
-                  value: 'Average',
-                  color: _metricColor(_avgPercentController.text, true),
-                ),
-                _summaryPill(
-                  icon: Icons.show_chart,
-                  label: _cvPercentController.text.isEmpty
-                      ? '--'
-                      : '${_cvPercentController.text}%',
-                  value: 'CV',
-                  color: _metricColor(_cvPercentController.text, false),
-                ),
-                _summaryPill(
-                  icon: Icons.flag_outlined,
-                  label: _targetLabel,
-                  value: 'Range',
-                  color: AppColors.textSecondary,
-                ),
-              ];
-
-              if (compact) {
-                return Wrap(spacing: 8, runSpacing: 8, children: pills);
-              }
-
-              return Row(
-                children: [
-                  for (var i = 0; i < pills.length; i++) ...[
-                    Expanded(child: pills[i]),
-                    if (i != pills.length - 1) const SizedBox(width: 8),
-                  ],
-                ],
-              );
-            },
-          ),
         ],
       ),
     );
@@ -427,22 +364,12 @@ class _YfbmTabState extends State<YfbmTab> {
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final entry = _entries[index];
-        final pct = CalculationUtils.percentOf(
-          entry.yolkWeight,
-          entry.chickWeight,
-        );
-        return _entryCard(index, entry, pct, refreshSheet);
+        return _entryCard(index, entry, refreshSheet);
       },
     );
   }
 
-  Widget _entryCard(
-    int index,
-    _EntryData entry,
-    double? pct,
-    VoidCallback refreshSheet,
-  ) {
-    final pctColor = _percentageColor(pct);
+  Widget _entryCard(int index, _EntryData entry, VoidCallback refreshSheet) {
     final complete = entry.chickWeight != null && entry.yolkWeight != null;
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -450,7 +377,7 @@ class _YfbmTabState extends State<YfbmTab> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: complete
-              ? pctColor.withValues(alpha: 0.45)
+              ? AppColors.primary.withValues(alpha: 0.35)
               : AppColors.borderDefault,
         ),
       ),
@@ -484,7 +411,6 @@ class _YfbmTabState extends State<YfbmTab> {
                 column: 1,
               ),
             ];
-            final result = _percentagePill(pct, pctColor);
             final deleteButton = widget.isReadOnly
                 ? const SizedBox.shrink()
                 : _deleteButton(index, refreshSheet);
@@ -497,16 +423,10 @@ class _YfbmTabState extends State<YfbmTab> {
                     children: [
                       rowNumber,
                       const SizedBox(width: 10),
-                      Expanded(child: result),
-                      deleteButton,
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
                       Expanded(child: fields[0]),
                       const SizedBox(width: 8),
                       Expanded(child: fields[1]),
+                      deleteButton,
                     ],
                   ),
                 ],
@@ -520,8 +440,6 @@ class _YfbmTabState extends State<YfbmTab> {
                 Expanded(child: fields[0]),
                 const SizedBox(width: 10),
                 Expanded(child: fields[1]),
-                const SizedBox(width: 10),
-                SizedBox(width: 104, child: result),
                 deleteButton,
               ],
             );
@@ -531,41 +449,88 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _summaryPill({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+  Widget _buildSummaryGrid() {
+    final completedRows = _completedRows();
+    final stats = [
+      _YfbmSummaryStat(
+        icon: Icons.check_circle_outline,
+        label: 'Rows',
+        value: '$completedRows/${_entries.length}',
+        color: completedRows == 0 ? AppColors.textSecondary : AppColors.primary,
+      ),
+      _YfbmSummaryStat(
+        icon: Icons.track_changes_outlined,
+        label: 'Average',
+        value: _avgPercentController.text.isEmpty
+            ? '--'
+            : '${_avgPercentController.text}%',
+        color: _metricColor(_avgPercentController.text, true),
+      ),
+      _YfbmSummaryStat(
+        icon: Icons.show_chart,
+        label: 'CV',
+        value: _cvPercentController.text.isEmpty
+            ? '--'
+            : '${_cvPercentController.text}%',
+        color: _metricColor(_cvPercentController.text, false),
+      ),
+      _YfbmSummaryStat(
+        icon: Icons.flag_outlined,
+        label: _targetLabel,
+        value: 'Range',
+        color: AppColors.textSecondary,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth < 460 ? 2 : 4;
+        const spacing = 8.0;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final stat in stats)
+              SizedBox(width: itemWidth, child: _buildSummaryCard(stat)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSummaryCard(_YfbmSummaryStat stat) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      constraints: const BoxConstraints(minHeight: 74),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: stat.color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        border: Border.all(color: stat.color.withValues(alpha: 0.2)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: color),
+          Icon(stat.icon, size: 18, color: stat.color),
           const SizedBox(width: 8),
-          Flexible(
+          Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  label,
+                  stat.value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.body.copyWith(
-                    color: color,
+                    color: stat.color,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  value,
+                  stat.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.caption.copyWith(
@@ -652,43 +617,6 @@ class _YfbmTabState extends State<YfbmTab> {
     );
   }
 
-  Widget _percentagePill(double? pct, Color color) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            pct == null ? '--' : '${pct.toStringAsFixed(1)}%',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.title.copyWith(
-              color: color,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'YFBM %',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _deleteButton(int index, VoidCallback refreshSheet) {
     return Padding(
       padding: const EdgeInsets.only(left: 6),
@@ -704,49 +632,6 @@ class _YfbmTabState extends State<YfbmTab> {
           _removeEntry(index);
           refreshSheet();
         },
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String label, TextEditingController controller) {
-    final parsed = double.tryParse(controller.text);
-    final hasValue = parsed != null;
-    final value = parsed ?? 0.0;
-    final isGood = label.contains('AVG')
-        ? value >= AppThresholds.yfbmMin && value <= AppThresholds.yfbmMax
-        : value <= AppThresholds.cvAlertPct;
-    final color = !hasValue
-        ? AppColors.textSecondary
-        : isGood
-        ? AppColors.statusGood
-        : AppColors.statusError;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 82),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: hasValue
-            ? color.withValues(alpha: 0.08)
-            : AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: hasValue
-              ? color.withValues(alpha: 0.8)
-              : AppColors.borderDefault,
-        ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            hasValue ? controller.text : '--',
-            style: AppTextStyles.heading.copyWith(fontSize: 22, color: color),
-          ),
-        ],
       ),
     );
   }
@@ -784,6 +669,20 @@ class _YfbmTabState extends State<YfbmTab> {
     _cvPercentController.dispose();
     super.dispose();
   }
+}
+
+class _YfbmSummaryStat {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _YfbmSummaryStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 }
 
 class _EntryData {

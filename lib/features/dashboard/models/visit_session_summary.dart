@@ -61,7 +61,7 @@ class VisitSessionSummary {
     final scorecards = _computePanelScorecards(session, panelRowsByTable);
     final findings = _parseFindings(session.findingsJson);
     final pm = PmScoreSummary.fromPanelRows(
-      panelRowsByTable['chick_pm'] ?? const [],
+      panelRowsByTable['chick_quality'] ?? const [],
     );
     final hatch = HatchBudgetSummary.fromPanelRows(
       panelRowsByTable['residue_breakout'] ?? const [],
@@ -337,7 +337,10 @@ class StationScorecard {
         }
         break;
       case 'chicks':
-        final pasgar = _lastDouble(rowsByPanel['chick_pasgar'], 'finalScore');
+        final pasgar = _lastDouble(
+          rowsByPanel['chick_quality'],
+          'pasgarFinalScore',
+        );
         if (pasgar != null && pasgar < 7) return 'amber';
         final cv = _lastDouble(rowsByPanel['chick_weights'], 'cvPct');
         if (cv != null && cv > 8) return 'red';
@@ -454,18 +457,9 @@ class SessionFinding {
 /// Aggregated PM necropsy score for display on the dashboard.
 class PmScoreSummary {
   final int totalLesions;
-  final int totalDeformities;
-  final bool gaspingPresent;
-  final String? gaspingType;
   final String? overallSeverity;
 
-  const PmScoreSummary({
-    this.totalLesions = 0,
-    this.totalDeformities = 0,
-    this.gaspingPresent = false,
-    this.gaspingType,
-    this.overallSeverity,
-  });
+  const PmScoreSummary({this.totalLesions = 0, this.overallSeverity});
 
   factory PmScoreSummary.fromAudit(AuditModel audit) {
     int lesions = 0;
@@ -482,44 +476,20 @@ class PmScoreSummary {
     lesions += audit.pmPulmonaryHemorrhageCount ?? 0;
     lesions += audit.pmGizzardErosionsCount ?? 0;
     lesions += audit.pmAirSacCaseationsCount ?? 0;
+    lesions += audit.pmUrolithiasisCount ?? 0;
     lesions += audit.pmNephritisCount ?? 0;
     lesions += audit.pmGeneralSepticemiaCount ?? 0;
 
-    int deformities = 0;
-    deformities += audit.pmExposedBrainCount ?? 0;
-    deformities += audit.pmEctopicVisceraCount ?? 0;
-    deformities += audit.pmExtraLegsCount ?? 0;
-    deformities += audit.pmCrossedBeakCount ?? 0;
-    deformities += audit.pmAbsentEyeBothCount ?? 0;
-    deformities += audit.pmAbsentEyeOneCount ?? 0;
-    deformities += audit.pmSmallEyeCount ?? 0;
-    deformities += audit.pmHydrocephalyCount ?? 0;
-    deformities += audit.pmStarGazerCount ?? 0;
-    deformities += audit.pmCurledToesCount ?? 0;
-    deformities += audit.pmShortLegsCount ?? 0;
-    deformities += audit.pmSpinalDeformityCount ?? 0;
-    deformities += audit.pmCardiacAnomalyCount ?? 0;
-    deformities += audit.pmConjoinedCount ?? 0;
-    deformities += audit.pmOtherDeformityCount ?? 0;
-
     String? severity;
-    if (lesions == 0 &&
-        deformities == 0 &&
-        !(audit.pmGaspingPresent ?? false)) {
+    if (lesions == 0) {
       severity = 'green';
-    } else if (lesions > 5 || deformities > 3) {
+    } else if (lesions > 5) {
       severity = 'red';
     } else {
       severity = 'amber';
     }
 
-    return PmScoreSummary(
-      totalLesions: lesions,
-      totalDeformities: deformities,
-      gaspingPresent: audit.pmGaspingPresent ?? false,
-      gaspingType: audit.pmGaspingType,
-      overallSeverity: severity,
-    );
+    return PmScoreSummary(totalLesions: lesions, overallSeverity: severity);
   }
 
   factory PmScoreSummary.fromPanelRows(List<Map<String, dynamic>> rows) {
@@ -528,57 +498,29 @@ class PmScoreSummary {
         rows.fold<int>(0, (total, row) => total + (_asInt(row[key]) ?? 0));
 
     final lesions =
-        sum('omphalitisCount') +
-        sum('gaseousCecaCount') +
-        sum('unabsorbedYolkCount') +
-        sum('perihepatitisCount') +
-        sum('pericarditisCount') +
-        sum('airsacAcuteCount') +
-        sum('airsacChronicCount') +
-        sum('pulmonaryGranulomaCount') +
-        sum('swollenJointsCount') +
-        sum('stuntedOrgansCount') +
-        sum('pulmonaryHemorrhageCount') +
-        sum('gizzardErosionsCount') +
-        sum('airSacCaseationsCount') +
-        sum('nephritisCount') +
-        sum('generalSepticemiaCount');
-    final deformities =
-        sum('exposedBrainCount') +
-        sum('ectopicVisceraCount') +
-        sum('extraLegsCount') +
-        sum('crossedBeakCount') +
-        sum('absentEyeBothCount') +
-        sum('absentEyeOneCount') +
-        sum('smallEyeCount') +
-        sum('hydrocephalyCount') +
-        sum('starGazerCount') +
-        sum('curledToesCount') +
-        sum('shortLegsCount') +
-        sum('spinalDeformityCount') +
-        sum('cardiacAnomalyCount') +
-        sum('conjoinedCount') +
-        sum('otherDeformityCount');
-    final gaspingPresent = rows.any((row) => row['gaspingPresent'] == 1);
-    final gaspingType = rows
-        .map((row) => row['gaspingType']?.toString())
-        .firstWhere(
-          (value) => value != null && value.isNotEmpty,
-          orElse: () => null,
-        );
-    final severity = lesions == 0 && deformities == 0 && !gaspingPresent
+        sum('pmOmphalitisCount') +
+        sum('pmGaseousCecaCount') +
+        sum('pmUnabsorbedYolkCount') +
+        sum('pmPerihepatitisCount') +
+        sum('pmPericarditisCount') +
+        sum('pmAirsacAcuteCount') +
+        sum('pmAirsacChronicCount') +
+        sum('pmPulmonaryGranulomaCount') +
+        sum('pmSwollenJointsCount') +
+        sum('pmStuntedOrgansCount') +
+        sum('pmPulmonaryHemorrhageCount') +
+        sum('pmGizzardErosionsCount') +
+        sum('pmAirSacCaseationsCount') +
+        sum('pmUrolithiasisCount') +
+        sum('pmNephritisCount') +
+        sum('pmGeneralSepticemiaCount');
+    final severity = lesions == 0
         ? 'green'
-        : lesions > 5 || deformities > 3
+        : lesions > 5
         ? 'red'
         : 'amber';
 
-    return PmScoreSummary(
-      totalLesions: lesions,
-      totalDeformities: deformities,
-      gaspingPresent: gaspingPresent,
-      gaspingType: gaspingType,
-      overallSeverity: severity,
-    );
+    return PmScoreSummary(totalLesions: lesions, overallSeverity: severity);
   }
 
   static const nullPm = PmScoreSummary();

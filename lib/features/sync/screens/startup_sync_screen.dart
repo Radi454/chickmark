@@ -57,7 +57,7 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const ChickMarkLogo(logoSize: 128),
+                const ChickMarkLogo(logoSize: 128, animated: true),
                 const SizedBox(height: 26),
                 const _CheckmarkLoader(),
               ],

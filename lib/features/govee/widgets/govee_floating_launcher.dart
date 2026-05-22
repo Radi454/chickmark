@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../features/audits/providers/audit_session_provider.dart';
@@ -253,24 +254,40 @@ class GoveeFloatingCapturePanel extends StatelessWidget {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
             child: Row(
               children: [
-                const Icon(
-                  Icons.device_thermostat_outlined,
-                  color: AppColors.primary,
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.activeBg,
+                    borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+                  ),
+                  child: const Icon(
+                    Icons.device_thermostat_outlined,
+                    color: AppColors.primary,
+                    size: 18,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppSizes.spaceSm),
                 Expanded(
                   child: Text(
                     'Govee capture',
-                    style: AppTextStyles.heading.copyWith(fontSize: 20),
+                    style: AppTextStyles.title.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 IconButton(
                   tooltip: 'Close Govee',
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.close),
+                  style: IconButton.styleFrom(
+                    fixedSize: const Size.square(36),
+                    minimumSize: const Size.square(36),
+                    padding: EdgeInsets.zero,
+                  ),
                 ),
               ],
             ),

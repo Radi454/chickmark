@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../core/theme/app_text_styles.dart';
 import '../providers/govee_capture_provider.dart';
 
 class GoveePlaceRecorder extends StatelessWidget {
@@ -13,15 +14,16 @@ class GoveePlaceRecorder extends StatelessWidget {
     final provider = context.watch<GoveeCaptureProvider>();
 
     return Container(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
         boxShadow: const [
           BoxShadow(
             color: AppColors.cardShadow,
-            blurRadius: 14,
-            offset: Offset(0, 6),
+            blurRadius: 10,
+            offset: Offset(0, 3),
           ),
         ],
       ),
@@ -37,28 +39,28 @@ class GoveePlaceRecorder extends StatelessWidget {
                 color: provider.isRecording
                     ? AppColors.statusError
                     : AppColors.primary,
+                size: 18,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSizes.spaceSm),
               Expanded(
                 child: Text(
                   _phaseLabel(provider.phase),
-                  style: const TextStyle(
-                    fontSize: 17,
+                  style: AppTextStyles.title.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSizes.spaceSm),
           _RecordingContext(provider: provider),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSizes.spaceSm),
           _RecordingState(provider: provider),
           if (provider.error != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             Text(
               provider.error!,
-              style: const TextStyle(
+              style: AppTextStyles.caption.copyWith(
                 color: AppColors.statusError,
                 fontWeight: FontWeight.w700,
               ),
@@ -66,10 +68,10 @@ class GoveePlaceRecorder extends StatelessWidget {
           ],
           if (provider.syncFailureDetails != null ||
               provider.syncFailureDiagnostics.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceSm),
             _SyncDiagnostics(provider: provider),
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSizes.spaceSm),
           if (provider.phase == GoveeCapturePhase.syncFailed ||
               provider.phase == GoveeCapturePhase.saveFailed)
             FilledButton.icon(
@@ -103,7 +105,7 @@ class GoveePlaceRecorder extends StatelessWidget {
                     label: const Text('Start recording'),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSizes.spaceSm),
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: provider.canStopRecording
@@ -155,18 +157,17 @@ class _SyncDiagnostics extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.bug_report_outlined,
                 color: AppColors.textSecondary,
                 size: 18,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Sync diagnostics',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
+                style: AppTextStyles.title.copyWith(
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -176,7 +177,7 @@ class _SyncDiagnostics extends StatelessWidget {
             const SizedBox(height: 8),
             SelectableText(
               details,
-              style: const TextStyle(
+              style: AppTextStyles.caption.copyWith(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
               ),
@@ -219,7 +220,11 @@ class _RecordingContext extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.place_outlined, color: AppColors.primary),
+          const Icon(
+            Icons.place_outlined,
+            color: AppColors.primary,
+            size: AppSizes.iconSm,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -228,13 +233,12 @@ class _RecordingContext extends StatelessWidget {
                 Text(
                   provider.place?.label ?? 'Choose a place',
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  style: AppTextStyles.title,
                 ),
                 const SizedBox(height: 2),
                 Text(
                   _machineText(provider),
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
+                  style: AppTextStyles.caption.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -272,10 +276,7 @@ class _RecordingState extends StatelessWidget {
       ),
       child: Text(
         _stateText(provider),
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontWeight: FontWeight.w700,
-        ),
+        style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }

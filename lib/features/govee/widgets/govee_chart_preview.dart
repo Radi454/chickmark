@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/utils/calculation_utils.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/temp_converter.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/govee/govee_service.dart';
@@ -121,12 +122,7 @@ class GoveeChartPreview extends StatelessWidget {
   }
 
   String _exactTimestamp(DateTime timestamp) {
-    final local = timestamp.toLocal();
-    final date =
-        '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
-    final time =
-        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
-    return '$date $time';
+    return HatchDateUtils.formatDisplayTimestamp(timestamp);
   }
 }
 

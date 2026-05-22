@@ -31,11 +31,8 @@ const _createdBy = 'panel-smoke';
 const _poolWorkflowPanels = [
   'egg_storage',
   'egg_quality',
-  'chick_pasgar',
+  'chick_quality',
   'chick_weights',
-  'chick_yfbm',
-  'chick_cvt',
-  'chick_pm',
   'residue_breakout',
   'setter_optimizing',
   'hatcher_optimizing',
@@ -136,7 +133,7 @@ void main() {
   });
 
   test(
-    'comparison mode creates multiple rows in the same panel table',
+    'comparison mode keeps Egg storage pooled and Egg quality multi-row',
     () async {
       final provider = _newStationProvider('egg');
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
@@ -147,16 +144,17 @@ void main() {
 
       expect(await provider.saveSamplesWithResult(), isTrue);
 
-      for (final table in ['egg_storage', 'egg_quality']) {
-        final rows = await _rows(table);
-        expect(rows, hasLength(2), reason: table);
-        expect(rows.map((row) => row['mode']), ['comparison', 'comparison']);
-        expect(rows.map((row) => row['scopeType']), ['house', 'house']);
-        expect(rows.map((row) => row['sampleIndex']), [1, 2]);
-      }
-
       final storage = await _rows('egg_storage');
-      expect(storage.map((row) => row['storageDays']), [6, 10]);
+      expect(storage, hasLength(1));
+      expect(storage.single['house'], isNull);
+      expect(storage.single['storagePeriodDays'], 10);
+
+      final quality = await _rows('egg_quality');
+      expect(quality, hasLength(2));
+      expect(quality.map((row) => row['house']), ['H1', 'H2']);
+      expect(quality.first, isNot(contains('mode')));
+      expect(quality.first, isNot(contains('scopeType')));
+      expect(quality.first, isNot(contains('sampleIndex')));
       await _expectNoLegacyAuditOrSampleTables();
     },
   );
@@ -379,10 +377,6 @@ void _fillChickStationInitial(AuditProvider provider) {
   provider.updateField('pm_collectionPoint', 'Chick basket');
   provider.updateField('pm_omphalitisCount', 1);
   provider.updateField('pm_omphalitisSeverity', 'mild');
-  provider.updateField('pm_gaspingPresent', 0);
-  provider.updateField('pm_gaspingType', 'none');
-  provider.updateField('pm_otherDeformityCount', 1);
-  provider.updateField('pm_otherDeformityText', 'curled toes');
   provider.updateField('pm_suspectedCauseManual', 'smoke baseline');
   provider.updateField('chickBmkAge', 42);
   provider.updateField('chickBmkWeight', 42.0);
@@ -418,6 +412,11 @@ void _fillHatchAnalysisInitial(AuditProvider provider) {
       EggBreakoutSampleEntry.tray(
         id: 'residue-tray-1',
         label: 'Tray 1',
+        house: 'House 1',
+        setter: 'S5',
+        hatcher: 'H7',
+        trolley: 'T1',
+        tray: 'Tray 1',
         position: 'Middle',
         traySize: 150,
         breakoutType: EggBreakoutType.residueHatchDay,
@@ -505,11 +504,11 @@ void _editHatcher(AuditProvider provider) {
 }
 
 Future<void> _expectInitialPanelValues() async {
-  expect((await _singleRow('egg_storage'))['storageDays'], 6);
+  expect((await _singleRow('egg_storage'))['storagePeriodDays'], 6);
   expect((await _singleRow('egg_storage'))['upsideDownCount'], 3);
   expect((await _singleRow('egg_quality'))['eggAvgWeight'], 62.5);
-  expect((await _singleRow('chick_pasgar'))['finalScore'], 96.5);
-  expect((await _singleRow('chick_cvt'))['avgTemp'], 104.0);
+  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 96.5);
+  expect((await _singleRow('chick_quality'))['cvtAvgTemp'], 104.0);
   expect((await _singleRow('chick_weights'))['avgWeight'], 43.125);
   expect((await _singleRow('residue_breakout'))['hatchabilityPct'], 92.7);
   expect((await _singleRow('setter_optimizing'))['estAvg'], 100.5);
@@ -517,11 +516,11 @@ Future<void> _expectInitialPanelValues() async {
 }
 
 Future<void> _expectEditedPanelValues() async {
-  expect((await _singleRow('egg_storage'))['storageDays'], 8);
+  expect((await _singleRow('egg_storage'))['storagePeriodDays'], 8);
   expect((await _singleRow('egg_storage'))['shellTemp'], 20.6);
   expect((await _singleRow('egg_quality'))['eggAvgWeight'], 63.2);
-  expect((await _singleRow('chick_pasgar'))['finalScore'], 97.2);
-  expect((await _singleRow('chick_cvt'))['avgTemp'], 103.8);
+  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 97.2);
+  expect((await _singleRow('chick_quality'))['cvtAvgTemp'], 103.8);
   expect((await _singleRow('chick_weights'))['avgWeight'], 43.75);
   expect((await _singleRow('residue_breakout'))['hatchedCount'], 17900);
   expect((await _singleRow('residue_breakout'))['hatchabilityPct'], 93.2);
@@ -535,8 +534,9 @@ Future<void> _expectPoolRowsPerPanel() async {
   for (final table in _poolWorkflowPanels) {
     final rows = await _rows(table);
     expect(rows, hasLength(1), reason: table);
-    expect(rows.single['mode'], 'pool', reason: table);
-    expect(rows.single['scopeType'], 'pool', reason: table);
+    expect(rows.single, isNot(contains('mode')), reason: table);
+    expect(rows.single, isNot(contains('scopeType')), reason: table);
+    expect(rows.single, isNot(contains('sampleIndex')), reason: table);
   }
   expect(await _rows('fresh_egg_breakout'), isEmpty);
   expect(await _rows('candled_egg_breakout'), isEmpty);
@@ -576,18 +576,17 @@ Future<void> _expectDashboardLoadsFromPanelTables() async {
   await dashboard.setCustomer(_customerId);
 
   expect(dashboard.eggStorageLatest?.avgWeightG, 63.2);
+  expect(dashboard.eggStorageEstEvidence?.points, isNotEmpty);
   expect(dashboard.chickWeightLatest?.avgWeightG, 43.75);
   expect(dashboard.pasgarAvg?.score, 97.2);
   expect(dashboard.cvtAvg?.avgTempF, 103.8);
-  expect(dashboard.hatchAnalysisAvg?.hatchabilityPct, 93.2);
-  expect(dashboard.availableSetterIds, contains('S5'));
-  expect(dashboard.availableHatcherIds, contains('H7'));
-  expect(dashboard.setterComparisons.single.estAvgF, 100.8);
-  expect(dashboard.hatcherComparisons.single.cvtAvgF, 103.9);
-  expect(
-    dashboard.visitSessions.map((summary) => summary.session.id),
-    contains(_sessionId),
-  );
+  expect(dashboard.hatchAnalysisAvg, isNull);
+  expect(dashboard.availableSetterIds, isEmpty);
+  expect(dashboard.availableHatcherIds, isEmpty);
+  expect(dashboard.setterComparisons, isEmpty);
+  expect(dashboard.hatcherComparisons, isEmpty);
+  expect(dashboard.visitSessions, isEmpty);
+  expect(dashboard.goveeCaptures, isEmpty);
 
   dashboard.dispose();
 }
@@ -607,9 +606,15 @@ List<AuditModel> _auditDraftsFromPanelRows(
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
   final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
+  final groupIndexes = <String, int>{};
   for (final entry in rowsByPanel.entries) {
     for (final row in entry.value) {
-      final index = (row['sampleIndex'] as num?)?.toInt() ?? 1;
+      final index = stationKey == 'hatch_analysis_egg_breakouts'
+          ? 0
+          : groupIndexes.putIfAbsent(
+              _panelRowIdentityKey(row),
+              () => groupIndexes.length,
+            );
       grouped.putIfAbsent(index, () => []).add((table: entry.key, row: row));
     }
   }
@@ -629,6 +634,17 @@ Map<String, dynamic> _auditMapFromPanelRows(
   List<({String table, Map<String, dynamic> row})> records,
 ) {
   final first = records.first.row;
+  final createdAt =
+      first['createdAt']?.toString() ??
+      DateTime.utc(2026, 5, 15).toIso8601String();
+  final updatedAt = records
+      .map((record) => record.row['updatedAt']?.toString())
+      .where((value) => value != null && value.isNotEmpty)
+      .cast<String>()
+      .fold<String>(createdAt, (latest, value) {
+        return value.compareTo(latest) > 0 ? value : latest;
+      });
+  final mode = _rowHasHierarchy(first) ? 'comparison' : 'pool';
   final map = <String, dynamic>{
     'id': '$_sessionId:$stationKey:$sampleIndex',
     'auditType': _auditContextFor(stationKey).auditType,
@@ -637,14 +653,14 @@ Map<String, dynamic> _auditMapFromPanelRows(
     'date': first['date'] ?? '2026-05-15',
     'status': 'completed',
     'createdBy': _createdBy,
-    'createdAt':
-        first['createdAt'] ?? DateTime.utc(2026, 5, 15).toIso8601String(),
-    'updatedAt':
-        first['updatedAt'] ?? DateTime.utc(2026, 5, 15).toIso8601String(),
+    'createdAt': createdAt,
+    'updatedAt': updatedAt,
     'sessionId': _sessionId,
-    'sampleMode': first['mode'] == 'comparison' ? 'comparison' : 'pool',
-    'compareGroupKey': first['groupKey'],
-    'hatchNumber': sampleIndex,
+    'sampleMode': mode,
+    'compareGroupKey': _rowHasHierarchy(first)
+        ? 'panel-hierarchy-$_sessionId'
+        : null,
+    'hatchNumber': sampleIndex + 1,
     'notes': first['notes'],
   };
 
@@ -665,7 +681,7 @@ void _mergePanelRowIntoAuditMap(
 
   switch (table) {
     case 'egg_storage':
-      copy('esEggStorageDays', 'storageDays');
+      copy('esEggStorageDays', 'storagePeriodDays');
       copy('es_estReadingsJson', 'estReadingsJson');
       copy('es_estAvg', 'estAvg');
       copy('es_estCv', 'estCvPct');
@@ -677,11 +693,13 @@ void _mergePanelRowIntoAuditMap(
       _mergeEggTraySummary(map, {'upsideDown': row['upsideDownCount']});
       break;
     case 'egg_quality':
+      copy('esEggQualityStorageDays', 'storagePeriodDays');
       _mergeEggTraySummary(map, {
         'totalEggs': row['uvTrayEggCount'],
         'cuticleDamage': row['uvCuticleDamageCount'],
         'washed': row['uvWashedCount'],
         'dirty': row['uvDirtyCount'],
+        'qualityTouched': true,
       });
       copy('esEggWeights', 'eggWeightsJson');
       copy('esEggSampleSize', 'eggSampleSize');
@@ -691,15 +709,27 @@ void _mergePanelRowIntoAuditMap(
       copy('esEggBmkAge', 'eggBmkAgeWeeks');
       copy('esEggBmkWeight', 'eggBmkWeight');
       break;
-    case 'chick_pasgar':
-      copy('pasgarSampleSize', 'sampleSize');
-      copy('pasgarReflexes', 'reflexesCount');
-      copy('pasgarBeak', 'beakCount');
-      copy('pasgarNavel', 'navelCount');
-      copy('pasgarBelly', 'bellyCount');
-      copy('pasgarLeg', 'legCount');
-      copy('pasgarFeatherDev', 'featherDevCount');
-      copy('pasgarFinalScore', 'finalScore');
+    case 'chick_quality':
+      copy('pasgarSampleSize', 'pasgarSampleSize');
+      copy('pasgarReflexes', 'pasgarReflexesCount');
+      copy('pasgarBeak', 'pasgarBeakCount');
+      copy('pasgarNavel', 'pasgarNavelCount');
+      copy('pasgarBelly', 'pasgarBellyCount');
+      copy('pasgarLeg', 'pasgarLegCount');
+      copy('pasgarFeatherDev', 'pasgarFeatherDevCount');
+      copy('pasgarFinalScore', 'pasgarFinalScore');
+      copy('yfbmEntries', 'yfbmEntriesJson');
+      copy('yfbmAvgPct', 'yfbmAvgPct');
+      copy('yfbmCvPct', 'yfbmCvPct');
+      copy('cvtReadingsJson', 'cvtReadingsJson');
+      copy('cvtSampleSize', 'cvtSampleSize');
+      copy('cvtAvg', 'cvtAvgTemp');
+      copy('cvtCvPct', 'cvtCvPct');
+      copy('pm_sampleSize', 'pmSampleSize');
+      copy('pm_collectionPoint', 'pmCollectionPoint');
+      copy('pm_omphalitisCount', 'pmOmphalitisCount');
+      copy('pm_omphalitisSeverity', 'pmOmphalitisSeverity');
+      copy('pm_suspectedCauseManual', 'pmSuspectedCauseManual');
       break;
     case 'chick_weights':
       copy('chickWeights', 'weightsJson');
@@ -710,27 +740,16 @@ void _mergePanelRowIntoAuditMap(
       copy('chickBmkAge', 'bmkAgeWeeks');
       copy('chickBmkWeight', 'bmkWeight');
       break;
-    case 'chick_yfbm':
-      copy('yfbmEntries', 'entriesJson');
-      copy('yfbmAvgPct', 'avgPct');
-      copy('yfbmCvPct', 'cvPct');
+    case 'fresh_egg_breakout':
+      _mergeBreakoutRow(map, row, 'freshEggBreakout');
       break;
-    case 'chick_cvt':
-      copy('cvtReadingsJson', 'readingsJson');
-      copy('cvtSampleSize', 'sampleSize');
-      copy('cvtAvg', 'avgTemp');
-      copy('cvtCvPct', 'cvPct');
-      break;
-    case 'chick_pm':
-      for (final key in _pmKeys) {
-        if (row[key] != null) map['pm_$key'] = row[key];
-      }
+    case 'candled_egg_breakout':
+      _mergeBreakoutRow(map, row, 'candledEggBreakout');
       break;
     case 'residue_breakout':
-      map['ebBreakoutType'] = EggBreakoutType.residueHatchDay.storageValue;
-      copy('setterId', 'setterId');
-      copy('hatcherId', 'hatcherId');
-      copy('haStorageDays', 'storageDays');
+      _mergeBreakoutRow(map, row, 'residueHatchDay');
+      copy('setterId', 'setter');
+      copy('hatcherId', 'hatcher');
       copy('haTotalEggsSet', 'totalEggsSet');
       copy('haHatched', 'hatchedCount');
       copy('haCulled', 'culledCount');
@@ -738,21 +757,10 @@ void _mergePanelRowIntoAuditMap(
       copy('haHatchability', 'hatchabilityPct');
       copy('haFertility', 'fertilityPct');
       copy('haHof', 'hofPct');
-      copy('ebStorageDays', 'storageDays');
-      copy('ebBreakoutAgeDays', 'bmkAgeDays');
-      copy('ebBmkAge', 'bmkAgeWeeks');
-      copy('ebTraySize', 'traySize');
-      copy('ebInfertileCount', 'infertileCount');
-      copy('ebEarlyDeadCount', 'earlyDeadCount');
-      copy('ebMidDeadCount', 'midDeadCount');
-      copy('ebLateDeadCount', 'lateDeadCount');
-      copy('ebExternalPipCount', 'externalPipCount');
-      copy('ebCrackedCount', 'crackedCount');
-      copy('ebContaminatedCount', 'contaminatedCount');
       break;
     case 'setter_optimizing':
-      copy('setterId', 'setterId');
-      copy('soSetterId', 'setterId');
+      copy('setterId', 'setter');
+      copy('soSetterId', 'setter');
       copy('so_machineType', 'machineType');
       copy('so_setpointF', 'setpointF');
       copy('so_actualF', 'actualF');
@@ -769,8 +777,8 @@ void _mergePanelRowIntoAuditMap(
       copy('soEstCv', 'estCvPct');
       break;
     case 'hatcher_optimizing':
-      copy('hatcherId', 'hatcherId');
-      copy('hoHatcherId', 'hatcherId');
+      copy('hatcherId', 'hatcher');
+      copy('hoHatcherId', 'hatcher');
       copy('hoIncubationAge', 'incubationAgeDays');
       copy('hoIncubationHours', 'incubationHours');
       copy('hoCo2', 'co2Ppm');
@@ -781,6 +789,93 @@ void _mergePanelRowIntoAuditMap(
       copy('ho_meconium', 'meconium');
       break;
   }
+}
+
+void _mergeBreakoutRow(
+  Map<String, dynamic> map,
+  Map<String, dynamic> row,
+  String breakoutType,
+) {
+  void copy(String target, String source) {
+    final value = row[source];
+    if (value != null) map[target] = value;
+  }
+
+  map['ebBreakoutType'] = breakoutType;
+  copy('ebStorageDays', 'storagePeriodDays');
+  copy('haStorageDays', 'storagePeriodDays');
+  copy('houseId', 'house');
+  copy('setterId', 'setter');
+  copy('hatcherId', 'hatcher');
+  copy('ebBreakoutAgeDays', 'candlingDay');
+  copy('ebBmkAge', 'bmkAgeWeeks');
+  copy('ebTraySize', 'traySize');
+  copy('ebInfertileCount', 'infertileCount');
+  copy('ebEarlyDeadCount', 'earlyDeadCount');
+  copy('ebMidDeadCount', 'midDeadCount');
+  copy('ebLateDeadCount', 'lateDeadCount');
+  copy('ebExternalPipCount', 'externalPipCount');
+  copy('ebCrackedCount', 'crackedCount');
+  copy('ebContaminatedCount', 'contaminatedCount');
+  if (row['early24hCount'] != null || row['early48hCount'] != null) {
+    map['ebEarlyDeadCount'] = row['early24hCount'];
+    map['ebMidDeadCount'] = row['early48hCount'];
+    map['ebLateDeadCount'] = row['bloodRingCount'];
+  }
+  _mergeBreakoutTrayEntry(map, row, breakoutType);
+}
+
+void _mergeBreakoutTrayEntry(
+  Map<String, dynamic> map,
+  Map<String, dynamic> row,
+  String breakoutType,
+) {
+  final type = EggBreakoutType.fromStorageValue(breakoutType);
+  final counts = <String, int>{};
+  void addCount(String key, String column) {
+    final value = _asInt(row[column]);
+    if (value != null && value > 0) counts[key] = value;
+  }
+
+  addCount('infertile', 'infertileCount');
+  if (type == EggBreakoutType.residueHatchDay) {
+    addCount('earlyDead', 'earlyDeadCount');
+    addCount('midDead', 'midDeadCount');
+    addCount('lateDead', 'lateDeadCount');
+    addCount('externalPip', 'externalPipCount');
+    addCount('cracked', 'crackedCount');
+    addCount('contaminated', 'contaminatedCount');
+  } else {
+    addCount('early24h', 'early24hCount');
+    addCount('early48h', 'early48hCount');
+    addCount('early72hBloodRing', 'bloodRingCount');
+    if (type == EggBreakoutType.candledEggBreakout) {
+      addCount('blackEye', 'blackEyeCount');
+    }
+  }
+
+  final existing = EggBreakoutSampleEntry.decodeList(
+    map['ebTrayBreakoutJson']?.toString(),
+    fallbackBreakoutType: type,
+  );
+  final label = _asText(row['tray']) ?? 'Tray ${existing.length + 1}';
+  final next = EggBreakoutSampleEntry.tray(
+    id: _asText(row['id']) ?? 'tray-${existing.length + 1}',
+    label: label,
+    house: _asText(row['house']),
+    setter: _asText(row['setter']),
+    hatcher: _asText(row['hatcher']),
+    trolley: _asText(row['trolley']),
+    tray: _asText(row['tray']) ?? label,
+    position: _asText(row['position']),
+    traySize: _asInt(row['traySize']),
+    breakoutType: type,
+    counts: counts,
+  );
+  map['ebTrayBreakoutJson'] = EggBreakoutSampleEntry.encodeList([
+    ...existing,
+    next,
+  ]);
 }
 
 void _mergeEggTraySummary(
@@ -812,10 +907,14 @@ List<StationSampleModel> _stationSamplesFromPanelRows(
   String stationKey,
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
+  final primaryEntry = rowsByPanel.entries.firstWhere(
+    (entry) => entry.value.isNotEmpty,
+    orElse: () => const MapEntry('', []),
+  );
+  if (primaryEntry.value.isEmpty) return const [];
   return [
-    for (final entry in rowsByPanel.entries)
-      for (final row in entry.value)
-        _sampleFromPanelRow(stationKey, entry.key, row),
+    for (final row in primaryEntry.value)
+      _sampleFromPanelRow(stationKey, primaryEntry.key, row),
   ];
 }
 
@@ -824,46 +923,85 @@ StationSampleModel _sampleFromPanelRow(
   String table,
   Map<String, dynamic> row,
 ) {
-  final scopeType = row['scopeType']?.toString() ?? 'pool';
+  final scopeType = _scopeTypeForRow(row);
+  final sampleMode = _rowHasHierarchy(row)
+      ? StationSampleModel.sampleModeComparison
+      : StationSampleModel.sampleModePooled;
+  final sampleIndex = _asInt(row['sampleIndex']) ?? 1;
+  final sampleLabel = _sampleLabelForRow(row) ?? 'Sample $sampleIndex';
   return StationSampleModel(
-    id: row['id']?.toString() ?? '$_sessionId:$table:${row['sampleIndex']}',
+    id: row['id']?.toString() ?? '$_sessionId:$table:$sampleIndex',
     auditSessionId: _sessionId,
     stationType: stationKey,
     sectorType: _sectorTypeForTable(table),
     sampleKind: _sampleKindForScope(scopeType),
-    sampleMode: row['mode'] == 'comparison'
-        ? StationSampleModel.sampleModeComparison
-        : StationSampleModel.sampleModePooled,
+    sampleMode: sampleMode,
     comparisonType: _comparisonTypeForScope(scopeType),
-    sampleIndex: (row['sampleIndex'] as num?)?.toInt() ?? 1,
-    sampleLabel: row['scopeLabel']?.toString(),
-    groupKey: row['groupKey']?.toString(),
-    groupLabel: row['groupLabel']?.toString(),
-    houseNo: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
-    houseLabel: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
-    storageDays: (row['storageDays'] as num?)?.toInt(),
-    incubationDay: ((row['incubationAgeDays'] ?? row['bmkAgeDays']) as num?)
-        ?.toInt(),
-    setterNo: row['setterId']?.toString(),
-    hatcherNo: row['hatcherId']?.toString(),
+    sampleIndex: sampleIndex,
+    sampleLabel: sampleLabel,
+    sampleType: _sampleTypeForTable(table),
+    breakoutType: _breakoutTypeForTable(table),
+    groupKey: _rowHasHierarchy(row) ? 'panel-hierarchy-$_sessionId' : null,
+    groupLabel: _rowHasHierarchy(row) ? 'Hierarchy comparison' : null,
+    houseNo: _asText(row['house']),
+    houseLabel: _asText(row['house']),
+    storageDays: _asInt(row['storagePeriodDays']),
+    incubationDay: _asInt(row['incubationAgeDays'] ?? row['bmkAgeDays']),
+    setterNo: _asText(row['setter']),
+    hatcherNo: _asText(row['hatcher']),
     notes: row['notes']?.toString(),
-    createdAt:
-        DateTime.tryParse(row['createdAt']?.toString() ?? '') ??
-        DateTime.utc(2026, 5, 15),
-    updatedAt:
-        DateTime.tryParse(row['updatedAt']?.toString() ?? '') ??
-        DateTime.utc(2026, 5, 15),
+    createdAt: _parseDate(row['createdAt']) ?? DateTime.utc(2026, 5, 15),
+    updatedAt: _parseDate(row['updatedAt']) ?? DateTime.utc(2026, 5, 15),
   );
+}
+
+String _panelRowIdentityKey(Map<String, dynamic> row) {
+  return [
+    _asText(row['house']) ?? '',
+    _asText(row['setter']) ?? '',
+    _asText(row['hatcher']) ?? '',
+    _asText(row['trolley']) ?? '',
+    _asText(row['tray']) ?? '',
+    _asText(row['position']) ?? '',
+  ].join('|');
+}
+
+bool _rowHasHierarchy(Map<String, dynamic> row) {
+  return _asText(row['house']) != null ||
+      _asText(row['setter']) != null ||
+      _asText(row['hatcher']) != null ||
+      _asText(row['trolley']) != null ||
+      _asText(row['tray']) != null ||
+      _asText(row['position']) != null;
+}
+
+String _scopeTypeForRow(Map<String, dynamic> row) {
+  if (_asText(row['tray']) != null) return 'tray';
+  if (_asText(row['trolley']) != null) return 'trolley';
+  if (_asText(row['setter']) != null && _asText(row['hatcher']) != null) {
+    return 'setter_hatcher';
+  }
+  if (_asText(row['setter']) != null) return 'setter';
+  if (_asText(row['hatcher']) != null) return 'hatcher';
+  if (_asText(row['house']) != null) return 'house';
+  return 'pool';
+}
+
+String? _sampleLabelForRow(Map<String, dynamic> row) {
+  return _asText(row['tray']) ??
+      _asText(row['trolley']) ??
+      _asText(row['setter']) ??
+      _asText(row['hatcher']) ??
+      _asText(row['house']);
 }
 
 String _sectorTypeForTable(String table) {
   return switch (table) {
     'egg_storage' || 'egg_quality' => StationSampleModel.sectorEggQuality,
     'chick_weights' => StationSampleModel.sectorChickWeights,
-    'chick_pasgar' ||
-    'chick_yfbm' ||
-    'chick_cvt' ||
-    'chick_pm' => StationSampleModel.sectorChickQuality,
+    'chick_quality' => StationSampleModel.sectorChickQuality,
+    'fresh_egg_breakout' ||
+    'candled_egg_breakout' ||
     'residue_breakout' => StationSampleModel.sectorHatchBreakout,
     'setter_optimizing' => StationSampleModel.sectorSetterOptimizing,
     'hatcher_optimizing' => StationSampleModel.sectorHatcherOptimizing,
@@ -895,16 +1033,48 @@ String? _comparisonTypeForScope(String scopeType) {
   };
 }
 
+String? _sampleTypeForTable(String table) {
+  return switch (table) {
+    'chick_quality' ||
+    'chick_weights' ||
+    'fresh_egg_breakout' => StationSampleModel.sampleTypeBreakoutFresh,
+    'candled_egg_breakout' => StationSampleModel.sampleTypeBreakoutCandled10d,
+    'residue_breakout' => StationSampleModel.sampleTypeBreakoutResidue21d,
+    _ => StationSampleModel.sampleTypeDefault,
+  };
+}
+
+String? _breakoutTypeForTable(String table) {
+  return switch (table) {
+    'fresh_egg_breakout' => StationSampleModel.breakoutTypeFresh,
+    'candled_egg_breakout' => StationSampleModel.breakoutTypeCandled10d,
+    'residue_breakout' => StationSampleModel.breakoutTypeResidue21d,
+    _ => null,
+  };
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  return DateTime.tryParse(value.toString());
+}
+
+int? _asInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.round();
+  return int.tryParse(value.toString());
+}
+
+String? _asText(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
 List<String> _panelTablesForStation(String stationKey) {
   return switch (stationKey) {
     'egg' => const ['egg_storage', 'egg_quality'],
-    'chicks' => const [
-      'chick_pasgar',
-      'chick_weights',
-      'chick_yfbm',
-      'chick_cvt',
-      'chick_pm',
-    ],
+    'chicks' => const ['chick_quality', 'chick_weights'],
     'hatch_analysis_egg_breakouts' => const [
       'fresh_egg_breakout',
       'candled_egg_breakout',
@@ -926,7 +1096,8 @@ Future<List<Map<String, dynamic>>> _rows(String table) async {
   final db = await DatabaseHelper().db;
   final rows = await db.query(
     table,
-    orderBy: 'sampleIndex ASC, scopeLabel ASC, createdAt ASC',
+    orderBy:
+        "house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC",
   );
   return rows.map((row) => Map<String, dynamic>.from(row)).toList();
 }
@@ -947,15 +1118,3 @@ Future<void> _resetDatabase() async {
   );
   await databaseFactory.deleteDatabase(dbPath);
 }
-
-const _pmKeys = {
-  'sampleSize',
-  'collectionPoint',
-  'omphalitisCount',
-  'omphalitisSeverity',
-  'gaspingPresent',
-  'gaspingType',
-  'otherDeformityCount',
-  'otherDeformityText',
-  'suspectedCauseManual',
-};

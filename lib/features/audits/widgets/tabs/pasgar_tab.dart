@@ -106,6 +106,7 @@ class _PasgarTabState extends State<PasgarTab> {
         _referenceCard(
           key: const ValueKey('pasgar-sample-size-card'),
           title: 'Sample Size',
+          showTitle: !widget.embedded,
           children: [
             AuditNumericField(
               controller: _sampleSizeController,
@@ -115,7 +116,7 @@ class _PasgarTabState extends State<PasgarTab> {
                 errorText: _sampleSizeError,
               ),
               style: AppTextStyles.body.copyWith(
-                fontSize: widget.embedded ? 20 : 24,
+                fontSize: widget.embedded ? 16 : 24,
                 fontWeight: FontWeight.w700,
               ),
               onChanged: (value) {
@@ -131,25 +132,26 @@ class _PasgarTabState extends State<PasgarTab> {
             ),
           ],
         ),
-        SizedBox(height: widget.embedded ? 16 : 64),
+        SizedBox(height: widget.embedded ? AppSizes.spaceMd : 64),
         _referenceCard(
           key: const ValueKey('pasgar-defect-counts-card'),
           title: 'Defect Counts',
+          showTitle: !widget.embedded,
           children: [
             _buildDefectInput(0, 'Reflexes'),
-            const SizedBox(height: 18),
+            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
             _buildDefectInput(1, 'Beak'),
-            const SizedBox(height: 18),
+            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
             _buildDefectInput(2, 'Navel'),
-            const SizedBox(height: 18),
+            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
             _buildDefectInput(3, 'Belly'),
-            const SizedBox(height: 18),
+            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
             _buildDefectInput(4, 'Leg'),
-            const SizedBox(height: 18),
+            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
             _buildDefectInput(5, 'Feather Dev'),
           ],
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: widget.embedded ? AppSizes.spaceMd : 24),
         _buildScoreCard(pasgarScore),
       ],
     );
@@ -181,29 +183,32 @@ class _PasgarTabState extends State<PasgarTab> {
     required Key key,
     required String title,
     required List<Widget> children,
+    bool showTitle = true,
   }) {
     final compact = widget.embedded;
     return Container(
       key: key,
       width: double.infinity,
-      padding: EdgeInsets.all(compact ? 18 : 32),
+      padding: EdgeInsets.all(compact ? AppSizes.spaceLg : 32),
       decoration: BoxDecoration(
-        color: compact ? AppColors.surfaceRaised : Colors.white,
-        borderRadius: BorderRadius.circular(compact ? 16 : 24),
+        color: compact ? AppColors.surface : Colors.white,
+        borderRadius: BorderRadius.circular(compact ? AppSizes.cardRadius : 24),
         border: compact ? Border.all(color: AppColors.borderDefault) : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: compact ? 0.018 : 0.03),
-            blurRadius: compact ? 12 : 18,
-            offset: Offset(0, compact ? 4 : 8),
+            color: Colors.black.withValues(alpha: compact ? 0.012 : 0.03),
+            blurRadius: compact ? 8 : 18,
+            offset: Offset(0, compact ? 2 : 8),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle(title),
-          SizedBox(height: compact ? 16 : 24),
+          if (showTitle) ...[
+            _cardTitle(title),
+            SizedBox(height: compact ? AppSizes.spaceMd : 24),
+          ],
           ...children,
         ],
       ),
@@ -217,7 +222,7 @@ class _PasgarTabState extends State<PasgarTab> {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: AppTextStyles.heading.copyWith(
-        fontSize: compact ? 21 : 28,
+        fontSize: compact ? 18 : 28,
         fontWeight: FontWeight.w800,
       ),
     );
@@ -227,15 +232,21 @@ class _PasgarTabState extends State<PasgarTab> {
     final compact = widget.embedded;
     return InputDecoration(
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 14 : 20),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 20,
+        ),
         borderSide: const BorderSide(color: AppColors.borderDefault),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 14 : 20),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 20,
+        ),
         borderSide: const BorderSide(color: AppColors.borderDefault),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 14 : 20),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 20,
+        ),
         borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
       ),
       labelText: label,
@@ -245,8 +256,8 @@ class _PasgarTabState extends State<PasgarTab> {
         fontWeight: FontWeight.w800,
       ),
       contentPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 18 : 32,
-        vertical: compact ? 18 : 26,
+        horizontal: compact ? AppSizes.spaceMd : 32,
+        vertical: compact ? AppSizes.spaceMd : 26,
       ),
       errorText: errorText,
     );
@@ -262,10 +273,12 @@ class _PasgarTabState extends State<PasgarTab> {
     return Container(
       key: const ValueKey('pasgar-score-card'),
       width: double.infinity,
-      padding: EdgeInsets.all(widget.embedded ? 20 : 28),
+      padding: EdgeInsets.all(widget.embedded ? AppSizes.spaceLg : 28),
       decoration: BoxDecoration(
-        color: widget.embedded ? AppColors.surfaceRaised : Colors.white,
-        borderRadius: BorderRadius.circular(widget.embedded ? 16 : 24),
+        color: widget.embedded ? AppColors.surface : Colors.white,
+        borderRadius: BorderRadius.circular(
+          widget.embedded ? AppSizes.cardRadius : 24,
+        ),
         border: widget.embedded
             ? Border.all(color: AppColors.borderDefault)
             : null,
@@ -275,13 +288,16 @@ class _PasgarTabState extends State<PasgarTab> {
         children: [
           Text(
             'PASGAR Score',
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+            style: AppTextStyles.body.copyWith(
+              fontSize: widget.embedded ? 14 : null,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             '${pasgarScore.toStringAsFixed(1)}/10',
             style: AppTextStyles.heading.copyWith(
-              fontSize: widget.embedded ? 28 : 32,
+              fontSize: widget.embedded ? 24 : 32,
               color: scoreColor,
             ),
           ),
@@ -307,6 +323,7 @@ class _PasgarTabState extends State<PasgarTab> {
     final isAlert = _isDefectAlert(index);
 
     final compact = widget.embedded;
+    final controlGap = compact ? AppSizes.spaceXs : 12.0;
     final controls = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -318,15 +335,15 @@ class _PasgarTabState extends State<PasgarTab> {
           icon: Icons.remove_circle_outline,
           color: AppColors.textSecondary,
         ),
-        SizedBox(width: compact ? 6 : 12),
+        SizedBox(width: controlGap),
         SizedBox(
-          width: compact ? 78 : 110,
+          width: compact ? 62 : 110,
           child: AuditNumericField(
             controller: _controllers[index],
             enabled: !widget.isReadOnly,
             textAlign: TextAlign.center,
             style: AppTextStyles.body.copyWith(
-              fontSize: compact ? 18 : 22,
+              fontSize: compact ? 16 : 22,
               fontWeight: FontWeight.w700,
             ),
             decoration: _defectInputDecoration(
@@ -338,7 +355,7 @@ class _PasgarTabState extends State<PasgarTab> {
             },
           ),
         ),
-        SizedBox(width: compact ? 6 : 0),
+        SizedBox(width: compact ? AppSizes.spaceXs : 0),
         _defectStepperButton(
           tooltip: 'Increase $label',
           onPressed: canIncrease
@@ -347,18 +364,20 @@ class _PasgarTabState extends State<PasgarTab> {
           icon: Icons.add_circle_outline,
           color: AppColors.textPrimary,
         ),
-        SizedBox(width: compact ? 8 : 0),
+        SizedBox(width: compact ? AppSizes.spaceSm : 0),
         PhotoButton(
           photoPath: widget.audit.toMap()[photoFields[index]] as String?,
           enabled: !widget.isReadOnly,
-          size: compact ? 44 : 56,
+          size: compact ? 40 : 56,
           onPhotoCaptured: (path) =>
               widget.onFieldChanged(photoFields[index], path),
         ),
       ],
     );
 
-    Widget labelBlock({required bool compactLayout}) {
+    Widget labelBlock({required bool stacked}) {
+      final labelFontSize = compact ? (stacked ? 16.0 : 17.0) : 24.0;
+      final percentFontSize = compact ? 12.0 : 16.0;
       return Row(
         children: [
           Expanded(
@@ -367,7 +386,7 @@ class _PasgarTabState extends State<PasgarTab> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.body.copyWith(
-                fontSize: compactLayout ? 16 : 24,
+                fontSize: labelFontSize,
                 height: 1.2,
                 fontWeight: FontWeight.w700,
               ),
@@ -378,7 +397,7 @@ class _PasgarTabState extends State<PasgarTab> {
             _defectPercent(index),
             style: AppTextStyles.caption.copyWith(
               color: isAlert ? AppColors.statusError : AppColors.textSecondary,
-              fontSize: compactLayout ? 12 : 16,
+              fontSize: percentFontSize,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -396,12 +415,12 @@ class _PasgarTabState extends State<PasgarTab> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compactLayout = compact && constraints.maxWidth < 430;
+        final compactLayout = compact && constraints.maxWidth < 360;
         if (compactLayout) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              labelBlock(compactLayout: true),
+              labelBlock(stacked: true),
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
@@ -417,7 +436,7 @@ class _PasgarTabState extends State<PasgarTab> {
 
         return Row(
           children: [
-            Expanded(child: labelBlock(compactLayout: false)),
+            Expanded(child: labelBlock(stacked: false)),
             const SizedBox(width: 10),
             controls,
           ],
@@ -436,13 +455,13 @@ class _PasgarTabState extends State<PasgarTab> {
     return IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
-      icon: Icon(icon, size: compact ? 28 : 36),
+      icon: Icon(icon, size: compact ? 24 : 36),
       color: color,
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
       constraints: BoxConstraints.tightFor(
-        width: compact ? 36 : 48,
-        height: compact ? 40 : 48,
+        width: compact ? 32 : 48,
+        height: compact ? 36 : 48,
       ),
     );
   }
@@ -453,21 +472,27 @@ class _PasgarTabState extends State<PasgarTab> {
   }) {
     return InputDecoration(
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 12 : 16),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 16,
+        ),
         borderSide: const BorderSide(color: AppColors.borderDefault),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 12 : 16),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 16,
+        ),
         borderSide: const BorderSide(color: AppColors.borderDefault),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(compact ? 12 : 16),
+        borderRadius: BorderRadius.circular(
+          compact ? AppSizes.inputRadius : 16,
+        ),
         borderSide: const BorderSide(color: AppColors.primary),
       ),
       isDense: true,
       contentPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 12,
-        vertical: compact ? 13 : 20,
+        horizontal: compact ? AppSizes.spaceSm : 12,
+        vertical: compact ? 10 : 20,
       ),
       errorText: errorText,
     );

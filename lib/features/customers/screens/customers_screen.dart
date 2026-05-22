@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/features/customers/widgets/customer_card.dart';
@@ -24,9 +25,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<CustomersProvider>();
       if (provider.allCustomers.isEmpty && !provider.isLoading) {
-        provider.loadCustomers(
-          currentUser: context.read<AuthProvider>().user,
-        );
+        provider.loadCustomers(currentUser: context.read<AuthProvider>().user);
       }
     });
   }
@@ -57,20 +56,22 @@ class _CustomersScreenState extends State<CustomersScreen> {
             children: [
               // Search Bar
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
                 child: TextField(
                   decoration: InputDecoration(
                     hintText: 'Search customers...',
-                    prefixIcon: const Icon(Icons.search),
+                    prefixIcon: const Icon(Icons.search, size: 20),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: AppColors.surface,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+                      borderSide: const BorderSide(
+                        color: AppColors.borderDefault,
+                      ),
                     ),
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
+                      horizontal: AppSizes.spaceLg,
+                      vertical: AppSizes.spaceMd,
                     ),
                   ),
                   onChanged: provider.setSearchQuery,
@@ -80,17 +81,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
               Expanded(
                 child: provider.filteredCustomers.isEmpty
                     ? Center(
-                        child: Text(
-                          provider.searchQuery.isEmpty
-                              ? 'No customers yet'
-                              : 'No customers found',
-                          style: AppTextStyles.body.copyWith(
-                            color: Colors.grey,
-                          ),
+                        child: _CustomersEmptyState(
+                          isSearching: provider.searchQuery.isNotEmpty,
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSizes.cardPadding,
+                        ),
                         itemCount: provider.filteredCustomers.length,
                         itemBuilder: (context, index) {
                           final customer = provider.filteredCustomers[index];
@@ -160,6 +158,50 @@ class _CustomersScreenState extends State<CustomersScreen> {
     if (!context.mounted || updatedCustomer == null) return;
     await context.read<CustomersProvider>().loadCustomers(
       currentUser: context.read<AuthProvider>().user,
+    );
+  }
+}
+
+class _CustomersEmptyState extends StatelessWidget {
+  final bool isSearching;
+
+  const _CustomersEmptyState({required this.isSearching});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSizes.spaceXl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.activeBg,
+              borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+            ),
+            child: Icon(
+              isSearching ? Icons.search_off_outlined : Icons.business_outlined,
+              color: AppColors.primary,
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: AppSizes.spaceLg),
+          Text(
+            isSearching ? 'No customers found' : 'No customers yet',
+            style: AppTextStyles.title,
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          Text(
+            isSearching
+                ? 'Try another customer name, location, or phone.'
+                : 'Customer records will appear here once added.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.caption,
+          ),
+        ],
+      ),
     );
   }
 }

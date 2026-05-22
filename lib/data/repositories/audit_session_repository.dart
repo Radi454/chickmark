@@ -148,6 +148,26 @@ class AuditSessionRepository {
     return result.map(AuditSessionModel.fromMap).toList();
   }
 
+  Future<AuditSessionModel?> findInProgressSession({
+    required String customerId,
+    required String flockId,
+    required String hatcheryId,
+    required DateTime date,
+  }) async {
+    final db = await _dbHelper.db;
+    final day = date.toIso8601String().split('T').first;
+    final result = await db.query(
+      'audit_sessions',
+      where:
+          'customerId = ? AND flockId = ? AND hatcheryId = ? AND status = ? AND substr(date, 1, 10) = ?',
+      whereArgs: [customerId, flockId, hatcheryId, 'in_progress', day],
+      orderBy: 'updatedAt DESC, createdAt DESC',
+      limit: 1,
+    );
+    if (result.isEmpty) return null;
+    return AuditSessionModel.fromMap(result.first);
+  }
+
   Future<List<AuditSessionModel>> getCompletedSessions({
     String? customerId,
     int limit = 50,
@@ -183,15 +203,49 @@ class AuditSessionRepository {
     }
     final validCompleted = _validCompletedStations(updated, selectedStations);
     final isComplete = _isComplete(validCompleted, selectedStations);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
     await db.update(
       'audit_sessions',
       {
         'stationsCompleted': validCompleted.isEmpty
             ? null
             : jsonEncode(validCompleted),
-        'updatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
-        'completedAt': isComplete ? DateTime.now().toIso8601String() : null,
+        'completedAt': completedAt,
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<void> updateSelectedStationKeys(
+    String sessionId,
+    List<String> selectedStationKeys,
+  ) async {
+    final db = await _dbHelper.db;
+    final current = await getSessionById(sessionId);
+    if (current == null) return;
+    final selected = normalizeStationKeys(selectedStationKeys);
+    final completed = current.stationsCompleted
+        .where((stationKey) => selected.contains(stationKey))
+        .toList(growable: false);
+    final isComplete = _isComplete(completed, selected);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
+    await db.update(
+      'audit_sessions',
+      {
+        'selectedStationKeys': jsonEncode(selected),
+        'stationsCompleted': completed.isEmpty ? null : jsonEncode(completed),
+        'updatedAt': now.toIso8601String(),
+        'status': isComplete ? 'completed' : 'in_progress',
+        'completedAt': completedAt,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -210,15 +264,19 @@ class AuditSessionRepository {
       selectedStations,
     );
     final isComplete = _isComplete(validStations, selectedStations);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current?.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
     await db.update(
       'audit_sessions',
       {
         'stationsCompleted': validStations.isEmpty
             ? null
             : jsonEncode(validStations),
-        'updatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
-        'completedAt': isComplete ? DateTime.now().toIso8601String() : null,
+        'completedAt': completedAt,
       },
       where: 'id = ?',
       whereArgs: [sessionId],

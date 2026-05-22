@@ -11,6 +11,15 @@ class PanelRecord {
     required this.date,
     this.breed,
     this.flockAgeWeeks,
+    this.house,
+    this.setter,
+    this.hatcher,
+    this.trolley,
+    this.tray,
+    this.position,
+    this.storagePeriodDays,
+    this.bmkAgeDays,
+    this.bmkAgeWeeks,
     this.mode = modePool,
     SamplingLayer? scopeType,
     SamplingLayer? compareLayer,
@@ -50,6 +59,15 @@ class PanelRecord {
   final DateTime date;
   final String? breed;
   final int? flockAgeWeeks;
+  final String? house;
+  final String? setter;
+  final String? hatcher;
+  final String? trolley;
+  final String? tray;
+  final String? position;
+  final int? storagePeriodDays;
+  final int? bmkAgeDays;
+  final int? bmkAgeWeeks;
   final String mode;
   final SamplingLayer scopeType;
   final String scopeLabel;
@@ -74,6 +92,15 @@ class PanelRecord {
       'date': _dateOnly(date),
       'breed': breed,
       'flockAgeWeeks': flockAgeWeeks,
+      'house': house,
+      'setter': setter,
+      'hatcher': hatcher,
+      'trolley': trolley,
+      'tray': tray,
+      'position': position,
+      'storagePeriodDays': storagePeriodDays,
+      'bmkAgeDays': bmkAgeDays,
+      'bmkAgeWeeks': bmkAgeWeeks,
       'mode': mode,
       'scopeType': scopeType.dbValue,
       'scopeLabel': scopeLabel,
@@ -100,6 +127,15 @@ class PanelRecord {
       'date',
       'breed',
       'flockAgeWeeks',
+      'house',
+      'setter',
+      'hatcher',
+      'trolley',
+      'tray',
+      'position',
+      'storagePeriodDays',
+      'bmkAgeDays',
+      'bmkAgeWeeks',
       'mode',
       'scopeType',
       'scopeLabel',
@@ -123,6 +159,15 @@ class PanelRecord {
       hatcheryId: map['hatcheryId'] as String?,
       breed: map['breed'] as String?,
       flockAgeWeeks: map['flockAgeWeeks'] as int?,
+      house: map['house'] as String?,
+      setter: map['setter'] as String?,
+      hatcher: map['hatcher'] as String?,
+      trolley: map['trolley'] as String?,
+      tray: map['tray'] as String?,
+      position: map['position'] as String?,
+      storagePeriodDays: map['storagePeriodDays'] as int?,
+      bmkAgeDays: map['bmkAgeDays'] as int?,
+      bmkAgeWeeks: map['bmkAgeWeeks'] as int?,
       mode: map['mode'] as String? ?? modePool,
       scopeType: SamplingLayer.fromDbValue(
         map['scopeType'] as String? ?? SamplingLayer.pool.dbValue,

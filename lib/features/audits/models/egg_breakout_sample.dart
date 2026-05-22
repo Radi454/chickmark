@@ -28,8 +28,9 @@ enum EggBreakoutType {
     required int? storageDays,
     int? candlingDay,
   }) {
-    if (currentFlockAgeDays == null || storageDays == null) return null;
-    if (storageDays < 0) return null;
+    if (currentFlockAgeDays == null) return null;
+    final effectiveStorageDays = storageDays ?? 0;
+    if (effectiveStorageDays < 0) return null;
     final extraDays = switch (this) {
       EggBreakoutType.freshEggBreakout => 0,
       EggBreakoutType.candledEggBreakout => candlingDay ?? 10,
@@ -38,7 +39,7 @@ enum EggBreakoutType {
     if (extraDays < 0) return null;
     return BmkAgeCalculator.calculateDaysFromFlockAge(
       currentFlockAgeDays: currentFlockAgeDays,
-      storageDays: storageDays,
+      storageDays: effectiveStorageDays,
       incubationOffsetDays: extraDays,
     );
   }
@@ -126,6 +127,11 @@ class EggBreakoutSampleEntry {
   final String id;
   final EggBreakoutSampleMode sampleMode;
   final String label;
+  final String? house;
+  final String? setter;
+  final String? hatcher;
+  final String? trolley;
+  final String? tray;
   final String? position;
   final int? traySize;
   final int? numberOfTrays;
@@ -136,6 +142,11 @@ class EggBreakoutSampleEntry {
     required this.id,
     required this.sampleMode,
     required this.label,
+    this.house,
+    this.setter,
+    this.hatcher,
+    this.trolley,
+    this.tray,
     this.position,
     this.traySize,
     this.numberOfTrays,
@@ -146,6 +157,11 @@ class EggBreakoutSampleEntry {
   factory EggBreakoutSampleEntry.tray({
     required String id,
     required String label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     String? position,
     int? traySize = 150,
     EggBreakoutType breakoutType = EggBreakoutType.residueHatchDay,
@@ -155,6 +171,11 @@ class EggBreakoutSampleEntry {
       id: id,
       sampleMode: EggBreakoutSampleMode.tray,
       label: label,
+      house: house,
+      setter: setter,
+      hatcher: hatcher,
+      trolley: trolley,
+      tray: tray ?? label,
       position: position,
       traySize: traySize,
       breakoutType: breakoutType,
@@ -165,6 +186,11 @@ class EggBreakoutSampleEntry {
   factory EggBreakoutSampleEntry.pool({
     required String id,
     required String label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     int? numberOfTrays = 1,
     int? traySize = 150,
     EggBreakoutType breakoutType = EggBreakoutType.residueHatchDay,
@@ -174,6 +200,11 @@ class EggBreakoutSampleEntry {
       id: id,
       sampleMode: EggBreakoutSampleMode.pool,
       label: label,
+      house: house,
+      setter: setter,
+      hatcher: hatcher,
+      trolley: trolley,
+      tray: tray,
       numberOfTrays: numberOfTrays,
       traySize: traySize,
       breakoutType: breakoutType,
@@ -203,6 +234,13 @@ class EggBreakoutSampleEntry {
           : mode == EggBreakoutSampleMode.tray
           ? 'Tray $index'
           : 'Pool $index',
+      house: _readText(json['house']),
+      setter: _readText(json['setter']),
+      hatcher: _readText(json['hatcher']),
+      trolley: _readText(json['trolley']),
+      tray:
+          _readText(json['tray']) ??
+          (mode == EggBreakoutSampleMode.tray ? label : null),
       position: json['position'] as String?,
       traySize: _readNullableInt(json['traySize']) ?? 150,
       numberOfTrays: _readNullableInt(json['numberOfTrays']) ?? 1,
@@ -230,6 +268,11 @@ class EggBreakoutSampleEntry {
     String? id,
     EggBreakoutSampleMode? sampleMode,
     String? label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     String? position,
     int? traySize,
     int? numberOfTrays,
@@ -240,6 +283,11 @@ class EggBreakoutSampleEntry {
       id: id ?? this.id,
       sampleMode: sampleMode ?? this.sampleMode,
       label: label ?? this.label,
+      house: house ?? this.house,
+      setter: setter ?? this.setter,
+      hatcher: hatcher ?? this.hatcher,
+      trolley: trolley ?? this.trolley,
+      tray: tray ?? this.tray,
       position: position ?? this.position,
       traySize: traySize ?? this.traySize,
       numberOfTrays: numberOfTrays ?? this.numberOfTrays,
@@ -253,6 +301,11 @@ class EggBreakoutSampleEntry {
       'id': id,
       'sampleMode': sampleMode.storageValue,
       'label': label,
+      if (house != null) 'house': house,
+      if (setter != null) 'setter': setter,
+      if (hatcher != null) 'hatcher': hatcher,
+      if (trolley != null) 'trolley': trolley,
+      if (tray != null) 'tray': tray,
       if (position != null) 'position': position,
       'traySize': traySize,
       if (sampleMode == EggBreakoutSampleMode.pool)
@@ -324,5 +377,10 @@ class EggBreakoutSampleEntry {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value);
     return null;
+  }
+
+  static String? _readText(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 }

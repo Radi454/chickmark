@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_session_provider.dart';
@@ -17,6 +18,8 @@ class AuditStationSelectionScreen extends StatefulWidget {
   final String flockId;
   final String hatcheryId;
   final FlockModel selectedFlock;
+  final DateTime? visitDate;
+  final String? existingSessionId;
 
   const AuditStationSelectionScreen({
     super.key,
@@ -24,6 +27,8 @@ class AuditStationSelectionScreen extends StatefulWidget {
     required this.flockId,
     required this.hatcheryId,
     required this.selectedFlock,
+    this.visitDate,
+    this.existingSessionId,
   });
 
   @override
@@ -34,6 +39,9 @@ class AuditStationSelectionScreen extends StatefulWidget {
 class _AuditStationSelectionScreenState
     extends State<AuditStationSelectionScreen> {
   final List<String> _orderedSelectedKeys = [];
+  final Set<String> _savedStationKeys = <String>{};
+  AuditSessionModel? _existingSession;
+  String? _selectedOpenStationKey;
   bool _isStarting = false;
 
   static const _allStations = [
@@ -51,6 +59,14 @@ class _AuditStationSelectionScreenState
   List<Map<String, dynamic>> get _availableStations => _allStations
       .where((s) => !_orderedSelectedKeys.contains(s['key'] as String))
       .toList();
+
+  DateTime get _visitDate => widget.visitDate ?? DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadExistingSession());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +123,7 @@ class _AuditStationSelectionScreenState
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _orderedSelectedKeys.length,
-              onReorder: _onReorder,
+              onReorderItem: _onReorder,
               itemBuilder: (context, index) {
                 return _buildSelectedTile(index);
               },
@@ -120,7 +136,6 @@ class _AuditStationSelectionScreenState
 
   void _onReorder(int oldIndex, int newIndex) {
     setState(() {
-      if (newIndex > oldIndex) newIndex--;
       final item = _orderedSelectedKeys.removeAt(oldIndex);
       _orderedSelectedKeys.insert(newIndex, item);
     });
@@ -133,6 +148,7 @@ class _AuditStationSelectionScreenState
       orElse: () => {'key': '', 'name': '', 'icon': Icons.help},
     );
     final name = station['name'] as String;
+    final isSaved = _savedStationKeys.contains(stationKey);
 
     return Material(
       key: ValueKey(stationKey),
@@ -140,6 +156,12 @@ class _AuditStationSelectionScreenState
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: InkWell(
+          onTap: isSaved
+              ? () {
+                  setState(() => _selectedOpenStationKey = stationKey);
+                  _handleStartVisit();
+                }
+              : null,
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
@@ -167,17 +189,47 @@ class _AuditStationSelectionScreenState
                 _buildStationIcon(stationKey, AppColors.primary),
                 const SizedBox(width: 10),
                 Expanded(child: Text(name, style: AppTextStyles.body)),
-                IconButton(
-                  onPressed: () {
-                    setState(() => _orderedSelectedKeys.removeAt(index));
-                  },
-                  icon: const Icon(Icons.close, size: 18),
-                  color: Colors.grey,
-                  padding: const EdgeInsets.all(4),
-                  constraints: const BoxConstraints(),
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 4),
+                if (isSaved) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.completedText.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+                      border: Border.all(
+                        color: AppColors.completedText.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      'Saved',
+                      style: AppTextStyles.badgeLabel.copyWith(
+                        color: AppColors.completedText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (!isSaved) ...[
+                  IconButton(
+                    tooltip: 'Remove station',
+                    onPressed: () {
+                      setState(() {
+                        final removed = _orderedSelectedKeys.removeAt(index);
+                        if (_selectedOpenStationKey == removed) {
+                          _selectedOpenStationKey = null;
+                        }
+                      });
+                    },
+                    icon: const Icon(Icons.close, size: 18),
+                    color: Colors.grey,
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 ReorderableDragStartListener(
                   index: index,
                   child: const Icon(
@@ -264,6 +316,9 @@ class _AuditStationSelectionScreenState
   }
 
   Widget _buildStartVisitButton() {
+    final buttonText = _existingSession == null
+        ? 'Start Visit'
+        : 'Continue Visit';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -302,8 +357,8 @@ class _AuditStationSelectionScreenState
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
-                : const Text(
-                    'Start Visit',
+                : Text(
+                    buttonText,
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
           ),
@@ -319,18 +374,24 @@ class _AuditStationSelectionScreenState
     final sessionProvider = context.read<AuditSessionProvider>();
 
     try {
-      await sessionProvider.startSession(
-        context: AuditSessionContext(
-          customerId: widget.customerId,
-          hatcheryId: widget.hatcheryId,
-          flockId: widget.flockId,
-          date: DateTime.now(),
-          breed: widget.selectedFlock.breed,
-          flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
-          selectedStationKeys: _orderedSelectedKeys,
-        ),
-        currentUser: context.read<AuthProvider>().user,
-      );
+      final existing = _existingSession;
+      if (existing != null) {
+        await sessionProvider.updateSelectedStationKeys(_orderedSelectedKeys);
+        final stationIndex = _selectedOpenStationKey == null
+            ? null
+            : _orderedSelectedKeys.indexOf(_selectedOpenStationKey!);
+        await sessionProvider.resumeSession(
+          existing.id,
+          initialStationIndex: stationIndex == null || stationIndex < 0
+              ? null
+              : stationIndex,
+        );
+      } else {
+        await sessionProvider.startOrResumeSession(
+          context: _sessionContext(),
+          currentUser: context.read<AuthProvider>().user,
+        );
+      }
 
       if (!mounted) return;
 
@@ -355,5 +416,56 @@ class _AuditStationSelectionScreenState
         setState(() => _isStarting = false);
       }
     }
+  }
+
+  Future<void> _loadExistingSession() async {
+    AuditSessionProvider sessionProvider;
+    AuthProvider authProvider;
+    try {
+      sessionProvider = context.read<AuditSessionProvider>();
+      authProvider = context.read<AuthProvider>();
+    } on ProviderNotFoundException {
+      return;
+    }
+
+    if (widget.existingSessionId != null) {
+      await sessionProvider.resumeSession(
+        widget.existingSessionId!,
+        initialStationIndex: 0,
+      );
+    } else {
+      await sessionProvider.loadMatchingSessionForStationSelection(
+        context: _sessionContext(selectedStationKeys: const []),
+        currentUser: authProvider.user,
+      );
+    }
+    if (!mounted) return;
+    final session = sessionProvider.currentSession;
+    if (session == null || !sessionProvider.isResumed) return;
+    setState(() {
+      _existingSession = session;
+      _orderedSelectedKeys
+        ..clear()
+        ..addAll(session.selectedStationKeys);
+      _savedStationKeys
+        ..clear()
+        ..addAll(session.stationsCompleted);
+      if (_selectedOpenStationKey != null &&
+          !_orderedSelectedKeys.contains(_selectedOpenStationKey)) {
+        _selectedOpenStationKey = null;
+      }
+    });
+  }
+
+  AuditSessionContext _sessionContext({List<String>? selectedStationKeys}) {
+    return AuditSessionContext(
+      customerId: widget.customerId,
+      hatcheryId: widget.hatcheryId,
+      flockId: widget.flockId,
+      date: _visitDate,
+      breed: widget.selectedFlock.breed,
+      flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
+      selectedStationKeys: selectedStationKeys ?? _orderedSelectedKeys,
+    );
   }
 }

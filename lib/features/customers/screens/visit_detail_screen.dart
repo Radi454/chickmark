@@ -4,6 +4,7 @@ import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/scorecard_formatter.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/audit_model.dart';
@@ -101,7 +102,7 @@ class VisitDetailScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Visit ${session.date.day}/${session.date.month}/${session.date.year}',
+                        'Visit ${HatchDateUtils.formatDisplayDate(session.date)}',
                         style: AppTextStyles.heading.copyWith(fontSize: 22),
                       ),
                       const SizedBox(height: 4),
@@ -294,12 +295,6 @@ class VisitDetailScreen extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _MetricChip(label: 'Lesions', value: '${pm.totalLesions}'),
-                _MetricChip(
-                  label: 'Deformities',
-                  value: '${pm.totalDeformities}',
-                ),
-                if (pm.gaspingPresent)
-                  _MetricChip(label: 'Gasping', value: pm.gaspingType ?? 'Yes'),
                 if (pm.overallSeverity != null)
                   _MetricChip(label: 'Severity', value: pm.overallSeverity!),
               ],

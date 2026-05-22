@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/core/utils/temp_converter.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
@@ -70,7 +71,11 @@ class GoveeCaptureChart extends StatelessWidget {
                       Text(machineLabel, style: AppTextStyles.caption),
                     ],
                     const SizedBox(height: AppSizes.spaceXs),
-                    Text(capture.captureDate, style: AppTextStyles.caption),
+                    Text(
+                      HatchDateUtils.formatDisplayDateKey(capture.captureDate),
+                      textDirection: TextDirection.ltr,
+                      style: AppTextStyles.caption,
+                    ),
                     if (startedAt != null && endedAt != null) ...[
                       const SizedBox(height: AppSizes.spaceXs),
                       Text(
@@ -677,34 +682,11 @@ String _clockLabel(DateTime dateTime) {
 }
 
 String _formatTimestamp(DateTime dateTime) {
-  final month = dateTime.month.toString().padLeft(2, '0');
-  final day = dateTime.day.toString().padLeft(2, '0');
-  final hour = dateTime.hour.toString().padLeft(2, '0');
-  final minute = dateTime.minute.toString().padLeft(2, '0');
-  final second = dateTime.second.toString().padLeft(2, '0');
-  return '${dateTime.year}-$month-$day $hour:$minute:$second';
+  return HatchDateUtils.formatDisplayTimestamp(dateTime);
 }
 
 String _endpointLabel(DateTime timestamp) {
   final hour = timestamp.hour.toString().padLeft(2, '0');
   final minute = timestamp.minute.toString().padLeft(2, '0');
-  final month = _monthName(timestamp.month);
-  return '$hour:$minute, $month ${timestamp.day}';
-}
-
-String _monthName(int month) {
-  return const [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ][month - 1];
+  return '${HatchDateUtils.formatDisplayDate(timestamp)} $hour:$minute';
 }

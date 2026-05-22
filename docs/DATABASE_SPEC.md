@@ -19,9 +19,9 @@ Old generated specs are intentionally not used.
 ## Runtime
 
 - Engine: SQLite through `sqflite`.
-- Current schema version: `39`.
+- Current schema version: `41`.
 - Database file: `hatchaudit.db`.
-- Cutover behavior: upgrades to v39 are destructive and rebuild the fresh
+- Cutover behavior: upgrades to v41 are destructive and rebuild the fresh
   schema. Old local audit history is not migrated.
 - Fresh install schema: no `audits`, no `sample_records`, no sample detail
   tables, and no `{panel}_samples` child tables.
@@ -52,30 +52,15 @@ erDiagram
 ```
 
 `panel_tables` means any implemented station/panel table:
-`egg_storage`, `egg_quality`, `chick_pasgar`, `chick_weights`,
-`chick_yfbm`, `chick_cvt`, `chick_pm`, `fresh_egg_breakout`,
-`candled_egg_breakout`, `residue_breakout`, `setter_optimizing`, or
-`hatcher_optimizing`.
+`egg_storage`, `egg_quality`, `chick_quality`, `chick_weights`,
+`fresh_egg_breakout`, `candled_egg_breakout`, `residue_breakout`,
+`setter_optimizing`, or `hatcher_optimizing`.
 
-Each panel table is the only source of truth for that panel. A pooled result is
-one row in the panel table. A comparison result is multiple rows in the same
-panel table. A sample is a row, not a mode.
-
-Allowed `mode` values:
-
-- `pool`
-- `comparison`
-
-Allowed `scopeType` values:
-
-- `pool`
-- `house`
-- `setter`
-- `hatcher`
-- `setter_hatcher`
-- `trolley`
-- `tray`
-- `batch`
+Each panel table is the only source of truth for that panel. A single sample is
+one row in the panel table. Multi-sample screens write one row per sampled leaf
+and identify each row with explicit nullable hierarchy columns:
+`house`, `setter`, `hatcher`, `trolley`, `tray`, and `position`. A sample is a
+row, not a separate child-table record or generic mode.
 
 ## Table Catalog
 
@@ -86,11 +71,8 @@ Fresh databases create these tables:
 - Panel tables:
   - `egg_storage`
   - `egg_quality`
-  - `chick_pasgar`
+  - `chick_quality`
   - `chick_weights`
-  - `chick_yfbm`
-  - `chick_cvt`
-  - `chick_pm`
   - `fresh_egg_breakout`
   - `candled_egg_breakout`
   - `residue_breakout`
@@ -193,8 +175,8 @@ station completion, notes, and visit summary payloads:
 
 ## Panel Table Common Columns
 
-Every panel table has the same ownership, comparison identity, metadata, and
-sync columns.
+Every panel table has the same ownership, explicit sample hierarchy,
+storage/BMK context, metadata, and sync columns.
 
 | Column | Why it exists | Current UI/workflow mapping |
 | --- | --- | --- |
@@ -206,12 +188,15 @@ sync columns.
 | `date TEXT NOT NULL` | Visit date and dashboard time filter. | Visit/session date. |
 | `breed TEXT` | Dashboard and BMK context. | Visit breed or station machine breed field when shown. |
 | `flockAgeWeeks INTEGER` | BMK age context. | Visit flock age. |
-| `mode TEXT NOT NULL DEFAULT 'pool'` | Distinguishes pooled rows from comparison rows. | `1 sample` maps to `pool`; `Multiple samples` or machine/batch comparisons map to `comparison`. |
-| `scopeType TEXT NOT NULL DEFAULT 'pool'` | Identifies the comparison dimension. | Pool, house, setter, hatcher, setter/hatcher, trolley, tray, or batch controls. |
-| `scopeLabel TEXT NOT NULL DEFAULT 'Random'` | Human-readable row label. | `Random`, `House 1`, `S5`, `H2`, tray, trolley, or batch labels. |
-| `sampleIndex INTEGER NOT NULL DEFAULT 0` | Stable sample ordering. | Pool is `0`; comparison rows use sequential sample indexes. |
-| `groupKey TEXT` | Groups related comparison rows. | Generated comparison group key for multi-row station state. |
-| `groupLabel TEXT` | Human-readable comparison group label. | House, setter, hatcher, tray, trolley, or batch comparison label. |
+| `house TEXT` | Optional house identity. | House samples, Fresh Egg tray context, Candled/Residue parent context. |
+| `setter TEXT` | Optional setter identity. | Setter samples and Candled/Residue machine context. |
+| `hatcher TEXT` | Optional hatcher identity. | Hatcher samples and Candled/Residue machine context. |
+| `trolley TEXT` | Optional trolley identity. | Candled/Residue tray hierarchy when entered. |
+| `tray TEXT` | Optional tray identity. | Breakout tray rows and any tray-level panel UI. |
+| `position TEXT` | Optional position identity. | Candled/Residue tray position. |
+| `storagePeriodDays INTEGER` | Storage period context. | Egg storage and breakout BMK calculations. |
+| `bmkAgeDays INTEGER` | Calculated BMK age in days. | Fresh/Candled/Residue breakout benchmark lookup. |
+| `bmkAgeWeeks INTEGER` | Rounded BMK age in weeks. | BMK/dashboard filtering and display. |
 | `notes TEXT` | Station-level notes. | Notes field on the station screen. |
 | `createdAt TEXT NOT NULL` | Local creation timestamp. | Draft/station save timestamp. |
 | `updatedAt TEXT NOT NULL` | Conflict resolution and dashboard freshness. | Updated on each station save. |
@@ -223,11 +208,10 @@ Each panel table has these indexes:
 
 - `idx_{panel}_session(sessionId)`
 - `idx_{panel}_dashboard(customerId, flockId, date)`
-- `idx_{panel}_mode(sessionId, mode)`
-- `idx_{panel}_unique_row(sessionId, mode, scopeType, scopeLabel, sampleIndex, IFNULL(groupKey, ''))`
+- `idx_{panel}_unique_row(sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))`
 
-The unique row index prevents duplicate pool/comparison rows and treats a null
-`groupKey` safely.
+The unique row index prevents duplicate rows for the same sampled hierarchy
+inside a visit session.
 
 ## Panel Measurement Columns
 
@@ -241,7 +225,6 @@ spacing, cooler proximity, condensation, upside-down score, station notes.
 
 User-entered or captured columns:
 
-- `storageDays INTEGER`
 - `estReadingsJson TEXT`
 - `shellTemp REAL`
 - `turningTimes INTEGER`
@@ -280,29 +263,65 @@ Calculated/dashboard columns:
 - `eggBmkAgeWeeks INTEGER`
 - `eggBmkWeight REAL`
 
-### `chick_pasgar`
+### `chick_quality`
 
-UI fields: sample size and six Pasgar defect counts.
+UI fields: Pasgar, YFBM, Chick Vent Temperature, PM Necropsy, and Culled
+Chicks Analysis.
 
-User-entered columns:
+User-entered or captured columns:
 
-- `sampleSize INTEGER`
-- `reflexesCount INTEGER`
-- `beakCount INTEGER`
-- `navelCount INTEGER`
-- `bellyCount INTEGER`
-- `legCount INTEGER`
-- `featherDevCount INTEGER`
+- `pasgarSampleSize INTEGER`
+- `pasgarReflexesCount INTEGER`
+- `pasgarBeakCount INTEGER`
+- `pasgarNavelCount INTEGER`
+- `pasgarBellyCount INTEGER`
+- `pasgarLegCount INTEGER`
+- `pasgarFeatherDevCount INTEGER`
+- `yfbmEntriesJson TEXT`
+- `cvtReadingsJson TEXT`
+- `cvtSampleSize INTEGER`
+- `pmSampleSize INTEGER`
+- `pmCollectionPoint TEXT`
+- `pmOmphalitisCount INTEGER`
+- `pmOmphalitisSeverity TEXT`
+- `pmGaseousCecaCount INTEGER`
+- `pmGaseousCecaSeverity TEXT`
+- `pmGizzardErosionsCount INTEGER`
+- `pmGizzardErosionsSeverity TEXT`
+- `pmAirSacCaseationsCount INTEGER`
+- `pmAirSacCaseationsSeverity TEXT`
+- `pmUrolithiasisCount INTEGER`
+- `pmUrolithiasisSeverity TEXT`
+- `pmNephritisCount INTEGER`
+- `pmNephritisSeverity TEXT`
+- `pmGeneralSepticemiaCount INTEGER`
+- `pmGeneralSepticemiaSeverity TEXT`
+- `pmOtherLesionsJson TEXT`
+- `pmSuspectedCauseAuto TEXT`
+- `pmSuspectedCauseManual TEXT`
+- `culledChicksTotalEggSet INTEGER`
+- `culledChicksAnalysisJson TEXT`
+
+`culledChicksAnalysisJson` stores defect subtype percentages (`pct`) calculated
+from the total egg set denominator; raw defect row counts are not persisted.
 
 Calculated/dashboard columns:
 
-- `reflexesPct REAL`
-- `beakPct REAL`
-- `navelPct REAL`
-- `bellyPct REAL`
-- `legPct REAL`
-- `featherDevPct REAL`
-- `finalScore REAL`
+- `pasgarReflexesPct REAL`
+- `pasgarBeakPct REAL`
+- `pasgarNavelPct REAL`
+- `pasgarBellyPct REAL`
+- `pasgarLegPct REAL`
+- `pasgarFeatherDevPct REAL`
+- `pasgarFinalScore REAL`
+- `yfbmEntryCount INTEGER`
+- `yfbmAvgPct REAL`
+- `yfbmCvPct REAL`
+- `cvtAvgTemp REAL`
+- `cvtCvPct REAL`
+- `culledChicksAffectedPct REAL`
+- `culledChicksTopCategory TEXT`
+- `culledChicksTopSubtype TEXT`
 
 ### `chick_weights`
 
@@ -318,110 +337,15 @@ Calculated/dashboard columns:
 - `avgWeight REAL`
 - `uniformityPct REAL`
 - `cvPct REAL`
-- `bmkAgeWeeks INTEGER`
 - `bmkWeight REAL`
-
-### `chick_yfbm`
-
-UI fields: YFBM entries.
-
-User-entered columns:
-
-- `entriesJson TEXT`
-
-Calculated/dashboard columns:
-
-- `entryCount INTEGER`
-- `avgPct REAL`
-- `cvPct REAL`
-
-### `chick_cvt`
-
-UI fields: chick vent temperature capture/readings.
-
-User-entered or captured columns:
-
-- `readingsJson TEXT`
-- `sampleSize INTEGER`
-
-Calculated/dashboard columns:
-
-- `avgTemp REAL`
-- `cvPct REAL`
-
-### `chick_pm`
-
-UI fields: PM sample size, collection point, condition counts/severities,
-deformity counts, gasping state/type, and suspected cause fields.
-The active PM UI uses Omphalitis (Yolk Sacculitis), Gaseous Ceca, Gizzard
-Erosions, Air Sac Caseations, Pulmonary Granuloma, Swollen Joints, Stunted
-Organs, Nephritis, and General Septicemia. Legacy condition columns remain for
-previously saved rows.
-
-User-entered columns:
-
-- `sampleSize INTEGER`
-- `collectionPoint TEXT`
-- `omphalitisCount INTEGER`
-- `omphalitisSeverity TEXT`
-- `gaseousCecaCount INTEGER`
-- `gaseousCecaSeverity TEXT`
-- `unabsorbedYolkCount INTEGER`
-- `unabsorbedYolkSeverity TEXT`
-- `perihepatitisCount INTEGER`
-- `perihepatitisSeverity TEXT`
-- `pericarditisCount INTEGER`
-- `pericarditisSeverity TEXT`
-- `airsacAcuteCount INTEGER`
-- `airsacAcuteSeverity TEXT`
-- `airsacChronicCount INTEGER`
-- `airsacChronicSeverity TEXT`
-- `pulmonaryGranulomaCount INTEGER`
-- `pulmonaryGranulomaSeverity TEXT`
-- `swollenJointsCount INTEGER`
-- `swollenJointsSeverity TEXT`
-- `stuntedOrgansCount INTEGER`
-- `stuntedOrgansSeverity TEXT`
-- `pulmonaryHemorrhageCount INTEGER`
-- `pulmonaryHemorrhageSeverity TEXT`
-- `gizzardErosionsCount INTEGER`
-- `gizzardErosionsSeverity TEXT`
-- `airSacCaseationsCount INTEGER`
-- `airSacCaseationsSeverity TEXT`
-- `nephritisCount INTEGER`
-- `nephritisSeverity TEXT`
-- `generalSepticemiaCount INTEGER`
-- `generalSepticemiaSeverity TEXT`
-- `gaspingPresent INTEGER`
-- `gaspingType TEXT`
-- `exposedBrainCount INTEGER`
-- `ectopicVisceraCount INTEGER`
-- `extraLegsCount INTEGER`
-- `crossedBeakCount INTEGER`
-- `absentEyeBothCount INTEGER`
-- `absentEyeOneCount INTEGER`
-- `smallEyeCount INTEGER`
-- `hydrocephalyCount INTEGER`
-- `starGazerCount INTEGER`
-- `curledToesCount INTEGER`
-- `shortLegsCount INTEGER`
-- `spinalDeformityCount INTEGER`
-- `cardiacAnomalyCount INTEGER`
-- `conjoinedCount INTEGER`
-- `otherDeformityCount INTEGER`
-- `otherDeformityText TEXT`
-- `suspectedCauseAuto TEXT`
-- `suspectedCauseManual TEXT`
 
 ### `fresh_egg_breakout`
 
-UI fields: storage days, BMK age, tray size, fresh breakout counts.
+UI fields: storage period, calculated BMK age, house/tray identity, tray size,
+fresh breakout counts.
 
 User-entered columns:
 
-- `storageDays INTEGER`
-- `bmkAgeDays INTEGER`
-- `bmkAgeWeeks INTEGER`
 - `traySize INTEGER`
 - `infertileCount INTEGER`
 - `early24hCount INTEGER`
@@ -434,19 +358,19 @@ Calculated/dashboard columns:
 - `early24hPct REAL`
 - `early48hPct REAL`
 - `bloodRingPct REAL`
+- `infertileDiffPct REAL`
+- `early24hDiffPct REAL`
+- `early48hDiffPct REAL`
+- `bloodRingDiffPct REAL`
 
 ### `candled_egg_breakout`
 
-UI fields: storage days, BMK age, candling day, tray position, tray size,
-candled breakout counts.
+UI fields: storage period, calculated BMK age, candling day, tray hierarchy,
+tray size, candled breakout counts.
 
 User-entered columns:
 
-- `storageDays INTEGER`
-- `bmkAgeDays INTEGER`
-- `bmkAgeWeeks INTEGER`
 - `candlingDay INTEGER`
-- `position TEXT`
 - `traySize INTEGER`
 - `infertileCount INTEGER`
 - `early24hCount INTEGER`
@@ -461,20 +385,19 @@ Calculated/dashboard columns:
 - `early48hPct REAL`
 - `bloodRingPct REAL`
 - `blackEyePct REAL`
+- `infertileDiffPct REAL`
+- `early24hDiffPct REAL`
+- `early48hDiffPct REAL`
+- `bloodRingDiffPct REAL`
+- `blackEyeDiffPct REAL`
 
 ### `residue_breakout`
 
-UI fields: setter/hatcher identity, storage days, BMK age, position, tray size,
+UI fields: storage period, calculated BMK age, full tray hierarchy, tray size,
 residue counts, hatch results totals.
 
 User-entered columns:
 
-- `setterId TEXT`
-- `hatcherId TEXT`
-- `storageDays INTEGER`
-- `bmkAgeDays INTEGER`
-- `bmkAgeWeeks INTEGER`
-- `position TEXT`
 - `traySize INTEGER`
 - `infertileCount INTEGER`
 - `earlyDeadCount INTEGER`
@@ -497,6 +420,13 @@ Calculated/dashboard columns:
 - `externalPipPct REAL`
 - `crackedPct REAL`
 - `contaminatedPct REAL`
+- `infertileDiffPct REAL`
+- `earlyDeadDiffPct REAL`
+- `midDeadDiffPct REAL`
+- `lateDeadDiffPct REAL`
+- `externalPipDiffPct REAL`
+- `crackedDiffPct REAL`
+- `contaminatedDiffPct REAL`
 - `hatchabilityPct REAL`
 - `fertilityPct REAL`
 - `hofPct REAL`
@@ -505,13 +435,12 @@ Calculated/dashboard columns:
 
 ### `setter_optimizing`
 
-UI fields: setter id, machine type, setpoint/actual screen values, batch size,
-batch count, total eggs set, turning angle, CO2, breed, incubation age/hour,
-EST readings.
+UI fields: setter hierarchy identity, machine type, setpoint/actual screen
+values, batch size, batch count, total eggs set, turning angle, CO2, breed,
+incubation age/hour, EST readings.
 
 User-entered or captured columns:
 
-- `setterId TEXT`
 - `machineType TEXT`
 - `setpointF REAL`
 - `actualF REAL`
@@ -533,12 +462,11 @@ Calculated/dashboard columns:
 
 ### `hatcher_optimizing`
 
-UI fields: hatcher id, incubation age/hour, CO2, CVT readings, chick panting,
-meconium.
+UI fields: hatcher hierarchy identity, incubation age/hour, CO2, CVT readings,
+chick panting, meconium.
 
 User-entered or captured columns:
 
-- `hatcherId TEXT`
 - `incubationAgeDays INTEGER`
 - `incubationHours INTEGER`
 - `co2Ppm REAL`
@@ -554,16 +482,18 @@ Calculated/dashboard columns:
 
 ## Scope Support By Panel
 
+Scope rows are hierarchical. If a sector records a deeper scope, the row keeps
+all populated parent hierarchy columns in order: `house`, machine
+(`setter`/`hatcher`), `trolley`, then `tray`. If no scope is selected, the row
+is station-scoped and leaves the hierarchy columns null.
+
 | Panel | Allowed scopes |
 | --- | --- |
 | `egg_storage` | `pool`, `house` |
-| `egg_quality` | `pool`, `house` |
-| `chick_pasgar` | `pool`, `setter_hatcher` |
+| `egg_quality` | `pool`, `house`, `setter_hatcher` |
+| `chick_quality` | `pool`, `house`, `setter_hatcher` |
 | `chick_weights` | `pool`, `house` |
-| `chick_yfbm` | `pool`, `setter_hatcher` |
-| `chick_cvt` | `pool`, `setter_hatcher` |
-| `chick_pm` | `pool`, `setter_hatcher` |
-| `fresh_egg_breakout` | `pool`, `house` |
+| `fresh_egg_breakout` | `pool`, `house`, `tray` |
 | `candled_egg_breakout` | `pool`, `house`, `setter`, `tray` |
 | `residue_breakout` | `pool`, `house`, `setter_hatcher`, `tray`, `batch` |
 | `setter_optimizing` | `pool`, `setter`, `trolley`, `tray` |

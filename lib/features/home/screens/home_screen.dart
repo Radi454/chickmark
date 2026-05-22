@@ -8,24 +8,23 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/navigation/shell_navigation_scope.dart';
 import 'package:hatchaudit/core/security/security_policy.dart';
 import 'package:hatchaudit/core/utils/audit_type_labels.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
-import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
+import 'package:hatchaudit/features/audits/screens/audit_station_selection_screen.dart';
 import 'package:hatchaudit/features/customers/widgets/add_customer_sheet.dart';
 import 'package:hatchaudit/features/customers/screens/customer_detail_screen.dart';
-import 'package:hatchaudit/features/customers/screens/visit_detail_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
-import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
-import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/home/providers/home_provider.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 import 'package:hatchaudit/widgets/chick_mark_logo.dart';
+import 'package:hatchaudit/widgets/flock_pair_icon.dart';
 import 'package:hatchaudit/widgets/scale_button.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -40,8 +39,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _isSyncing = false;
   late final HomeProvider _homeProvider;
-  final PanelDashboardRepository _panelDashboardRepository =
-      PanelDashboardRepository();
 
   @override
   void initState() {
@@ -64,7 +61,20 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(title: 'ChickMark'),
+      appBar: const GradientAppBar(
+        title: 'ChickMark',
+        titleLeading: SizedBox(
+          key: ValueKey('home-appbar-logo'),
+          width: 30,
+          height: 30,
+          child: ChickMarkLogo(
+            logoSize: 30,
+            showWordmark: false,
+            showTagline: false,
+            compact: true,
+          ),
+        ),
+      ),
       body: ChangeNotifierProvider<HomeProvider>.value(
         value: _homeProvider,
         child: Consumer3<CustomersProvider, SettingsProvider, HomeProvider>(
@@ -83,24 +93,27 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSizes.spaceMd,
+                  AppSizes.spaceMd,
+                  AppSizes.spaceMd,
+                  AppSizes.cardPadding,
+                ),
                 children: [
-                  _buildLogoHeader(),
-                  const SizedBox(height: AppSizes.spaceLg),
                   _buildKpiRow(home),
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildQuickActions(context),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildRecentAudits(provider, home),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildTodayFocus(provider, home),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildContinueActiveAudits(provider, home),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildAttentionNeeded(context, provider, home),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildQuickShortcuts(provider),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildSyncStatus(context, provider, settings, home),
                   const SizedBox(height: AppSizes.fabBottomPadding),
                 ],
@@ -112,27 +125,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildLogoHeader() {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: SizedBox(
-        key: const ValueKey('home-logo-header'),
-        width: 56,
-        height: 56,
-        child: const ChickMarkLogo(
-          logoSize: 56,
-          showWordmark: false,
-          showTagline: false,
-          compact: true,
-        ),
-      ),
-    );
-  }
-
   Widget _buildKpiRow(HomeProvider provider) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useRow = constraints.maxWidth >= 700;
+        final useRow = constraints.maxWidth >= 360;
         final cards = [
           _KpiCard(
             label: 'Audits this month',
@@ -142,7 +138,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _KpiCard(
             label: 'Active flocks',
             value: provider.activeFlocksCount.toString(),
-            icon: Icons.egg_alt_outlined,
+            iconWidget: const FlockPairIcon(
+              key: ValueKey('home-active-flocks-flock-icon'),
+              color: AppColors.primary,
+              size: 20,
+            ),
           ),
           _KpiCard(
             label: 'Last audit',
@@ -152,13 +152,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ];
 
         if (useRow) {
-          return Row(
-            children: [
-              for (var i = 0; i < cards.length; i++) ...[
-                if (i > 0) const SizedBox(width: AppSizes.spaceMd),
-                Expanded(child: cards[i]),
+          return SizedBox(
+            height: 104,
+            child: Row(
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSizes.spaceSm),
+                  Expanded(child: cards[i]),
+                ],
               ],
-            ],
+            ),
           );
         }
 
@@ -186,10 +189,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _QuickActionButton(
               label: 'New Audit',
               icon: Icons.add_circle_outline,
+              isPrimary: true,
               onTap: canEdit ? () => _openAuditTypeSelection(context) : null,
             ),
           ),
-          const SizedBox(width: AppSizes.spaceMd),
+          const SizedBox(width: AppSizes.spaceSm),
           Expanded(
             child: _QuickActionButton(
               label: 'Dashboard',
@@ -681,14 +685,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String _formatSyncTime(String timestamp) {
     final parsed = DateTime.tryParse(timestamp)?.toLocal();
     if (parsed == null) return timestamp;
-    return '${_formatDate(parsed)} ${_twoDigits(parsed.hour)}:${_twoDigits(parsed.minute)}';
+    return HatchDateUtils.formatDisplayDateTime(parsed);
   }
-
-  String _formatDate(DateTime date) {
-    return '${date.year}-${_twoDigits(date.month)}-${_twoDigits(date.day)}';
-  }
-
-  String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
   void _openAuditTypeSelection(BuildContext context) {
     Navigator.push(
@@ -699,45 +697,67 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openSession(AuditSessionModel session) async {
     if (session.status == 'in_progress') {
-      final sessionProvider = context.read<AuditSessionProvider>();
-      await sessionProvider.resumeSession(session.id);
-
-      if (!mounted) return;
-      if (sessionProvider.error != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
-        return;
-      }
-
-      await Navigator.push(
-        context,
-        AppPageRoute(
-          builder: (context) => ChangeNotifierProvider.value(
-            value: sessionProvider,
-            child: const AuditSessionScreen(),
-          ),
-        ),
-      );
+      await _openStationSelectionForSession(session);
     } else {
-      final panelRows = await _panelDashboardRepository.getPanelRowsBySession(
-        session.id,
-      );
-      final visit = VisitSessionSummary.fromPanelRows(
-        session: session,
-        panelRowsByTable: panelRows,
-      );
-      if (!mounted) return;
-      await context.read<DashboardProvider>().selectVisitSession(visit);
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        AppPageRoute(builder: (context) => VisitDetailScreen(visit: visit)),
-      );
+      await _openStationWorkflow(session, initialStationIndex: 0);
     }
 
     if (!mounted) return;
     await _reloadHomeData();
+  }
+
+  Future<void> _openStationSelectionForSession(
+    AuditSessionModel session,
+  ) async {
+    final customersProvider = context.read<CustomersProvider>();
+    final selectedFlock = customersProvider.flockById(session.flockId);
+    if (selectedFlock == null) {
+      await _openStationWorkflow(session);
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      AppPageRoute(
+        builder: (context) => AuditStationSelectionScreen(
+          customerId: session.customerId,
+          flockId: session.flockId,
+          hatcheryId: session.hatcheryId,
+          selectedFlock: selectedFlock,
+          visitDate: session.date,
+          existingSessionId: session.id,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStationWorkflow(
+    AuditSessionModel session, {
+    int? initialStationIndex,
+  }) async {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    await sessionProvider.resumeSession(
+      session.id,
+      initialStationIndex: initialStationIndex,
+    );
+
+    if (!mounted) return;
+    if (sessionProvider.error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      AppPageRoute(
+        builder: (context) => ChangeNotifierProvider.value(
+          value: sessionProvider,
+          child: const AuditSessionScreen(),
+        ),
+      ),
+    );
   }
 
   void _openCustomerDetail(CustomerModel customer) {
@@ -799,44 +819,59 @@ class _HomeScreenState extends State<HomeScreen> {
 class _KpiCard extends StatelessWidget {
   final String label;
   final String value;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
 
   const _KpiCard({
     required this.label,
     required this.value,
-    required this.icon,
-  });
+    this.icon,
+    this.iconWidget,
+  }) : assert(icon != null || iconWidget != null);
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       margin: EdgeInsets.zero,
-      child: Row(
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: AppSizes.iconContainerMd,
-            height: AppSizes.iconContainerMd,
-            decoration: BoxDecoration(
-              color: AppColors.activeBg,
-              borderRadius: BorderRadius.circular(AppSizes.iconRadius),
-            ),
-            child: Icon(icon, color: AppColors.primary),
-          ),
-          const SizedBox(width: AppSizes.spaceMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: AppTextStyles.caption),
-                const SizedBox(height: AppSizes.spaceSm),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.heading,
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: AppColors.activeBg,
+                  borderRadius: BorderRadius.circular(AppSizes.iconRadius),
                 ),
-              ],
+                child: Center(
+                  child:
+                      iconWidget ??
+                      Icon(icon, color: AppColors.primary, size: 18),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: AppSizes.spaceXs),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.heading.copyWith(fontSize: 18, height: 1.1),
           ),
         ],
       ),
@@ -848,26 +883,41 @@ class _QuickActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onTap;
+  final bool isPrimary;
 
   const _QuickActionButton({
     required this.label,
     required this.icon,
     required this.onTap,
+    this.isPrimary = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final style = isPrimary
+        ? ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: AppColors.textDisabled,
+            disabledForegroundColor: AppColors.surface,
+            padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
+            minimumSize: const Size.fromHeight(42),
+          )
+        : ElevatedButton.styleFrom(
+            backgroundColor: AppColors.surface,
+            foregroundColor: AppColors.primary,
+            disabledBackgroundColor: AppColors.textDisabled,
+            disabledForegroundColor: AppColors.surface,
+            side: const BorderSide(color: AppColors.borderDefault),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
+            minimumSize: const Size.fromHeight(42),
+          );
     final button = ElevatedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: AppColors.textDisabled,
-        disabledForegroundColor: AppColors.surface,
-        padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceMd),
-      ),
+      icon: Icon(icon, size: 17),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      style: style,
     );
 
     if (onTap == null) {
@@ -916,7 +966,7 @@ class _RecentSessionTile extends StatelessWidget {
           style: AppTextStyles.title,
         ),
         subtitle: Text(
-          '$customerName · $flockLabel$breedPart · ${session.date.toIso8601String().split('T').first}',
+          '$customerName · $flockLabel$breedPart · ${HatchDateUtils.formatDisplayDate(session.date)}',
           style: AppTextStyles.caption,
         ),
         trailing: Column(
@@ -951,11 +1001,19 @@ class _HomeSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(title, style: AppTextStyles.sectionTitle)),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.title.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
             ?trailing,
           ],
         ),
-        const SizedBox(height: AppSizes.spaceMd),
+        const SizedBox(height: AppSizes.spaceSm),
         child,
       ],
     );
@@ -1116,7 +1174,7 @@ class _ActiveSessionCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSizes.spaceSm),
           Text(
-            '$flockLabel${breed != null ? ' · $breed' : ''} · ${session.date.toIso8601String().split('T').first}',
+            '$flockLabel${breed != null ? ' · $breed' : ''} · ${HatchDateUtils.formatDisplayDate(session.date)}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTextStyles.caption,

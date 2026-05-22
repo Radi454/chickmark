@@ -35,5 +35,20 @@ void main() {
       expect(HatchDateUtils.flockAgeDays(entryDate, now: today), 0);
       expect(HatchDateUtils.flockAgeWeeks(entryDate, now: today), 0);
     });
+    test('formatDisplayDate returns dd-MM-yyyy with leading zeroes', () {
+      expect(
+        HatchDateUtils.formatDisplayDate(DateTime(2026, 4, 7)),
+        '07-04-2026',
+      );
+    });
+    test('formatDisplayDateKey displays ISO date keys as dd-MM-yyyy', () {
+      expect(HatchDateUtils.formatDisplayDateKey('2026-05-02'), '02-05-2026');
+    });
+    test('formatDisplayDateTime returns dd-MM-yyyy before the time', () {
+      expect(
+        HatchDateUtils.formatDisplayDateTime(DateTime(2026, 4, 7, 8, 5)),
+        '07-04-2026 08:05',
+      );
+    });
   });
 }

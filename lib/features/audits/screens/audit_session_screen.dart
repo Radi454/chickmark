@@ -6,10 +6,15 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/panel_dashboard_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
+import '../../customers/screens/visit_detail_screen.dart';
+import '../../dashboard/models/visit_session_summary.dart';
+import '../../dashboard/providers/dashboard_provider.dart';
 import '../../audits/providers/audit_provider.dart';
 import '../../audits/providers/audit_session_provider.dart';
 import '../../audits/screens/audit_context_screen.dart';
@@ -24,6 +29,7 @@ import '../../audits/widgets/audit_keyboard_dismiss.dart';
 import '../../govee/providers/govee_capture_provider.dart';
 import '../../govee/widgets/govee_floating_launcher.dart';
 import '../../../providers/customers_provider.dart';
+import '../models/egg_breakout_sample.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -32,11 +38,13 @@ bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
 class AuditSessionScreen extends StatefulWidget {
   final AuditRepository? auditRepository;
   final StationSampleRepository? stationSampleRepository;
+  final PanelSampleRepository? panelSampleRepository;
 
   const AuditSessionScreen({
     super.key,
     this.auditRepository,
     this.stationSampleRepository,
+    this.panelSampleRepository,
   });
 
   @override
@@ -47,7 +55,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
   final Set<String> _mountedStationKeys = <String>{};
-  final PanelSampleRepository _panelSampleRepository = PanelSampleRepository();
+  final PanelDashboardRepository _panelDashboardRepository =
+      PanelDashboardRepository();
   String? _mountedSessionId;
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
@@ -93,8 +102,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             stationKeys,
             currentStationKey,
           );
-          final showProgress =
-              currentStationKey != 'hatch_analysis_egg_breakouts';
+          final showProgress = stationKeys.isNotEmpty;
 
           return Stack(
             children: [
@@ -169,7 +177,18 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final title = stationKey != null
         ? (AuditSessionProvider.stationDisplayLabels[stationKey] ?? 'Visit')
         : 'Visit';
-    return GradientAppBar(title: title);
+    return GradientAppBar(
+      title: title,
+      actions: provider.isSessionComplete
+          ? [
+              IconButton(
+                tooltip: 'View final results',
+                icon: const Icon(Icons.dashboard_outlined),
+                onPressed: () => _openFinalResults(provider.currentSession!),
+              ),
+            ]
+          : null,
+    );
   }
 
   Widget _buildSavedOverlay() {
@@ -370,7 +389,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
-        panelSampleRepository: _panelSampleRepository,
+        panelSampleRepository:
+            widget.panelSampleRepository ?? PanelSampleRepository(),
         eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
@@ -388,6 +408,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final index = provider.currentStationIndex;
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
+    final isCompletedReview = provider.isSessionComplete;
     final stationProvider = _currentStationProvider;
 
     return Container(
@@ -450,11 +471,16 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : Icon(isLast ? Icons.save : Icons.arrow_forward, size: 18),
+                    : Icon(
+                        isCompletedReview || isLast
+                            ? Icons.save
+                            : Icons.arrow_forward,
+                        size: 18,
+                      ),
                 label: Text(
                   _isSavingStation
                       ? 'Saving...'
-                      : (isLast ? 'Save' : 'Next Station'),
+                      : (isCompletedReview || isLast ? 'Save' : 'Next Station'),
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -571,10 +597,19 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
     if (_isSavingStation) return;
+    final wasCompleted = provider.isSessionComplete;
     final shouldContinue = await _confirmStationExit();
     if (!shouldContinue) return;
 
     await provider.markCurrentStationCompleted();
+
+    if (wasCompleted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Station saved.')));
+      return;
+    }
 
     final isLast =
         provider.currentStationIndex == provider.stationKeys.length - 1;
@@ -592,6 +627,29 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       if (!mounted) return;
       Navigator.of(context).popUntil(auditSessionCompletionRoutePredicate);
     }
+  }
+
+  Future<void> _openFinalResults(AuditSessionModel session) async {
+    final panelRows = await _panelDashboardRepository.getPanelRowsBySession(
+      session.id,
+    );
+    final visit = VisitSessionSummary.fromPanelRows(
+      session: session,
+      panelRowsByTable: panelRows,
+    );
+
+    if (!mounted) return;
+    try {
+      await context.read<DashboardProvider>().selectVisitSession(visit);
+    } on ProviderNotFoundException {
+      // The session screen is used in isolated tests without the dashboard tree.
+    }
+
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => VisitDetailScreen(visit: visit)),
+    );
   }
 
   Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
@@ -748,13 +806,7 @@ class _StationFrameState extends State<_StationFrame> {
   List<String> _panelTablesForStation(String stationKey) {
     return switch (stationKey) {
       'egg' => const ['egg_storage', 'egg_quality'],
-      'chicks' => const [
-        'chick_pasgar',
-        'chick_weights',
-        'chick_yfbm',
-        'chick_cvt',
-        'chick_pm',
-      ],
+      'chicks' => const ['chick_quality', 'chick_weights'],
       'hatch_analysis_egg_breakouts' => const [
         'fresh_egg_breakout',
         'candled_egg_breakout',
@@ -770,9 +822,15 @@ class _StationFrameState extends State<_StationFrame> {
     Map<String, List<Map<String, dynamic>>> rowsByPanel,
   ) {
     final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
+    final groupIndexes = <String, int>{};
     for (final entry in rowsByPanel.entries) {
       for (final row in entry.value) {
-        final index = _asInt(row['sampleIndex']) ?? 0;
+        final index = widget.stationKey == 'hatch_analysis_egg_breakouts'
+            ? 0
+            : groupIndexes.putIfAbsent(
+                _panelRowIdentityKey(row),
+                () => groupIndexes.length,
+              );
         grouped
             .putIfAbsent(
               index,
@@ -801,9 +859,7 @@ class _StationFrameState extends State<_StationFrame> {
         .fold<String>(createdAt, (latest, value) {
           return value.compareTo(latest) > 0 ? value : latest;
         });
-    final mode = first['mode']?.toString() == 'comparison'
-        ? 'comparison'
-        : 'pool';
+    final mode = _rowHasHierarchy(first) ? 'comparison' : 'pool';
     final map = <String, dynamic>{
       'id': '${widget.sessionId}:${widget.stationKey}:$sampleIndex',
       'auditType': widget.context.auditType,
@@ -816,7 +872,9 @@ class _StationFrameState extends State<_StationFrame> {
       'updatedAt': updatedAt,
       'sessionId': widget.sessionId,
       'sampleMode': mode,
-      'compareGroupKey': first['groupKey'],
+      'compareGroupKey': _rowHasHierarchy(first)
+          ? 'panel-hierarchy-${widget.sessionId}'
+          : null,
       'hatchNumber': sampleIndex + 1,
       'notes': first['notes'],
     };
@@ -839,7 +897,7 @@ class _StationFrameState extends State<_StationFrame> {
 
     switch (table) {
       case 'egg_storage':
-        copy('esEggStorageDays', 'storageDays');
+        copy('esEggStorageDays', 'storagePeriodDays');
         copy('es_estReadingsJson', 'estReadingsJson');
         copy('es_estAvg', 'estAvg');
         copy('es_estCv', 'estCvPct');
@@ -851,6 +909,7 @@ class _StationFrameState extends State<_StationFrame> {
         _mergeEggTraySummary(map, {'upsideDown': row['upsideDownCount']});
         break;
       case 'egg_quality':
+        copy('esEggQualityStorageDays', 'storagePeriodDays');
         copy('es_uvSampleSize', 'uvTrayEggCount');
         copy('es_uvCuticleDamageCount', 'uvCuticleDamageCount');
         copy('es_uvWashingEvidenceCount', 'uvWashedCount');
@@ -860,6 +919,7 @@ class _StationFrameState extends State<_StationFrame> {
           'cuticleDamage': row['uvCuticleDamageCount'],
           'washed': row['uvWashedCount'],
           'dirty': row['uvDirtyCount'],
+          'qualityTouched': true,
         });
         copy('esEggWeights', 'eggWeightsJson');
         copy('esEggSampleSize', 'eggSampleSize');
@@ -869,15 +929,59 @@ class _StationFrameState extends State<_StationFrame> {
         copy('esEggBmkAge', 'eggBmkAgeWeeks');
         copy('esEggBmkWeight', 'eggBmkWeight');
         break;
-      case 'chick_pasgar':
-        copy('pasgarSampleSize', 'sampleSize');
-        copy('pasgarReflexes', 'reflexesCount');
-        copy('pasgarBeak', 'beakCount');
-        copy('pasgarNavel', 'navelCount');
-        copy('pasgarBelly', 'bellyCount');
-        copy('pasgarLeg', 'legCount');
-        copy('pasgarFeatherDev', 'featherDevCount');
-        copy('pasgarFinalScore', 'finalScore');
+      case 'chick_quality':
+        copy('pasgarSampleSize', 'pasgarSampleSize');
+        copy('pasgarReflexes', 'pasgarReflexesCount');
+        copy('pasgarBeak', 'pasgarBeakCount');
+        copy('pasgarNavel', 'pasgarNavelCount');
+        copy('pasgarBelly', 'pasgarBellyCount');
+        copy('pasgarLeg', 'pasgarLegCount');
+        copy('pasgarFeatherDev', 'pasgarFeatherDevCount');
+        copy('pasgarFinalScore', 'pasgarFinalScore');
+        copy('yfbmEntries', 'yfbmEntriesJson');
+        copy('yfbmAvgPct', 'yfbmAvgPct');
+        copy('yfbmCvPct', 'yfbmCvPct');
+        copy('cvtReadingsJson', 'cvtReadingsJson');
+        copy('cvtSampleSize', 'cvtSampleSize');
+        copy('cvtAvg', 'cvtAvgTemp');
+        copy('cvtCvPct', 'cvtCvPct');
+        copy('pm_sampleSize', 'pmSampleSize');
+        copy('pm_collectionPoint', 'pmCollectionPoint');
+        copy('pm_omphalitisCount', 'pmOmphalitisCount');
+        copy('pm_omphalitisSeverity', 'pmOmphalitisSeverity');
+        copy('pm_gaseousCecaCount', 'pmGaseousCecaCount');
+        copy('pm_gaseousCecaSeverity', 'pmGaseousCecaSeverity');
+        copy('pm_unabsorbedYolkCount', 'pmUnabsorbedYolkCount');
+        copy('pm_unabsorbedYolkSeverity', 'pmUnabsorbedYolkSeverity');
+        copy('pm_perihepatitisCount', 'pmPerihepatitisCount');
+        copy('pm_perihepatitisSeverity', 'pmPerihepatitisSeverity');
+        copy('pm_pericarditisCount', 'pmPericarditisCount');
+        copy('pm_pericarditisSeverity', 'pmPericarditisSeverity');
+        copy('pm_airsacAcuteCount', 'pmAirsacAcuteCount');
+        copy('pm_airsacAcuteSeverity', 'pmAirsacAcuteSeverity');
+        copy('pm_airsacChronicCount', 'pmAirsacChronicCount');
+        copy('pm_airsacChronicSeverity', 'pmAirsacChronicSeverity');
+        copy('pm_pulmonaryGranulomaCount', 'pmPulmonaryGranulomaCount');
+        copy('pm_pulmonaryGranulomaSeverity', 'pmPulmonaryGranulomaSeverity');
+        copy('pm_swollenJointsCount', 'pmSwollenJointsCount');
+        copy('pm_swollenJointsSeverity', 'pmSwollenJointsSeverity');
+        copy('pm_stuntedOrgansCount', 'pmStuntedOrgansCount');
+        copy('pm_stuntedOrgansSeverity', 'pmStuntedOrgansSeverity');
+        copy('pm_pulmonaryHemorrhageCount', 'pmPulmonaryHemorrhageCount');
+        copy('pm_pulmonaryHemorrhageSeverity', 'pmPulmonaryHemorrhageSeverity');
+        copy('pm_gizzardErosionsCount', 'pmGizzardErosionsCount');
+        copy('pm_gizzardErosionsSeverity', 'pmGizzardErosionsSeverity');
+        copy('pm_airSacCaseationsCount', 'pmAirSacCaseationsCount');
+        copy('pm_airSacCaseationsSeverity', 'pmAirSacCaseationsSeverity');
+        copy('pm_urolithiasisCount', 'pmUrolithiasisCount');
+        copy('pm_urolithiasisSeverity', 'pmUrolithiasisSeverity');
+        copy('pm_nephritisCount', 'pmNephritisCount');
+        copy('pm_nephritisSeverity', 'pmNephritisSeverity');
+        copy('pm_generalSepticemiaCount', 'pmGeneralSepticemiaCount');
+        copy('pm_generalSepticemiaSeverity', 'pmGeneralSepticemiaSeverity');
+        copy('pm_otherLesionsJson', 'pmOtherLesionsJson');
+        copy('pm_suspectedCauseAuto', 'pmSuspectedCauseAuto');
+        copy('pm_suspectedCauseManual', 'pmSuspectedCauseManual');
         break;
       case 'chick_weights':
         copy('chickWeights', 'weightsJson');
@@ -888,22 +992,6 @@ class _StationFrameState extends State<_StationFrame> {
         copy('chickBmkAge', 'bmkAgeWeeks');
         copy('chickBmkWeight', 'bmkWeight');
         break;
-      case 'chick_yfbm':
-        copy('yfbmEntries', 'entriesJson');
-        copy('yfbmAvgPct', 'avgPct');
-        copy('yfbmCvPct', 'cvPct');
-        break;
-      case 'chick_cvt':
-        copy('cvtReadingsJson', 'readingsJson');
-        copy('cvtSampleSize', 'sampleSize');
-        copy('cvtAvg', 'avgTemp');
-        copy('cvtCvPct', 'cvPct');
-        break;
-      case 'chick_pm':
-        for (final key in row.keys) {
-          if (_pmKeys.contains(key)) map['pm_$key'] = row[key];
-        }
-        break;
       case 'fresh_egg_breakout':
         _mergeBreakoutRow(map, row, 'freshEggBreakout');
         break;
@@ -912,8 +1000,8 @@ class _StationFrameState extends State<_StationFrame> {
         break;
       case 'residue_breakout':
         _mergeBreakoutRow(map, row, 'residueHatchDay');
-        copy('setterId', 'setterId');
-        copy('hatcherId', 'hatcherId');
+        copy('setterId', 'setter');
+        copy('hatcherId', 'hatcher');
         copy('haTotalEggsSet', 'totalEggsSet');
         copy('haHatched', 'hatchedCount');
         copy('haCulled', 'culledCount');
@@ -923,11 +1011,13 @@ class _StationFrameState extends State<_StationFrame> {
         copy('haHof', 'hofPct');
         break;
       case 'setter_optimizing':
-        copy('setterId', 'setterId');
-        copy('soSetterId', 'setterId');
+        copy('setterId', 'setter');
+        copy('soSetterId', 'setter');
         copy('so_machineType', 'machineType');
         copy('so_setpointF', 'setpointF');
         copy('so_actualF', 'actualF');
+        copy('so_setpointRh', 'setpointRh');
+        copy('so_actualRh', 'actualRh');
         copy('so_batchSize', 'batchSize');
         copy('so_batchCount', 'batchCount');
         copy('so_totalEggsSet', 'totalEggsSet');
@@ -941,8 +1031,10 @@ class _StationFrameState extends State<_StationFrame> {
         copy('soEstCv', 'estCvPct');
         break;
       case 'hatcher_optimizing':
-        copy('hatcherId', 'hatcherId');
-        copy('hoHatcherId', 'hatcherId');
+        copy('hatcherId', 'hatcher');
+        copy('hoHatcherId', 'hatcher');
+        copy('ho_setpointF', 'setpointF');
+        copy('ho_setpointRh', 'setpointRh');
         copy('hoIncubationAge', 'incubationAgeDays');
         copy('hoIncubationHours', 'incubationHours');
         copy('hoCo2', 'co2Ppm');
@@ -991,8 +1083,12 @@ class _StationFrameState extends State<_StationFrame> {
     }
 
     map['ebBreakoutType'] = breakoutType;
-    copy('ebStorageDays', 'storageDays');
-    copy('ebBreakoutAgeDays', 'bmkAgeDays');
+    copy('ebStorageDays', 'storagePeriodDays');
+    copy('haStorageDays', 'storagePeriodDays');
+    copy('houseId', 'house');
+    copy('setterId', 'setter');
+    copy('hatcherId', 'hatcher');
+    copy('ebBreakoutAgeDays', 'candlingDay');
     copy('ebBmkAge', 'bmkAgeWeeks');
     copy('ebTraySize', 'traySize');
     copy('ebInfertileCount', 'infertileCount');
@@ -1007,6 +1103,63 @@ class _StationFrameState extends State<_StationFrame> {
       map['ebMidDeadCount'] = row['early48hCount'];
       map['ebLateDeadCount'] = row['bloodRingCount'];
     }
+    _mergeBreakoutTrayEntry(map, row, breakoutType);
+  }
+
+  void _mergeBreakoutTrayEntry(
+    Map<String, dynamic> map,
+    Map<String, dynamic> row,
+    String breakoutType,
+  ) {
+    final type = EggBreakoutType.fromStorageValue(breakoutType);
+    final counts = <String, int>{};
+    void addCount(String key, String column) {
+      final value = _asInt(row[column]);
+      if (value != null && value > 0) counts[key] = value;
+    }
+
+    addCount('infertile', 'infertileCount');
+    if (type == EggBreakoutType.residueHatchDay) {
+      addCount('earlyDead', 'earlyDeadCount');
+      addCount('midDead', 'midDeadCount');
+      addCount('lateDead', 'lateDeadCount');
+      addCount('externalPip', 'externalPipCount');
+      addCount('cracked', 'crackedCount');
+      addCount('contaminated', 'contaminatedCount');
+    } else {
+      addCount('early24h', 'early24hCount');
+      addCount('early48h', 'early48hCount');
+      addCount('early72hBloodRing', 'bloodRingCount');
+      if (type == EggBreakoutType.candledEggBreakout) {
+        addCount('blackEye', 'blackEyeCount');
+      }
+    }
+
+    final existing = EggBreakoutSampleEntry.decodeList(
+      map['ebTrayBreakoutJson']?.toString(),
+      fallbackBreakoutType: type,
+    );
+    final label =
+        _asText(row['tray']) ??
+        _asText(row['scopeLabel']) ??
+        'Tray ${existing.length + 1}';
+    final next = EggBreakoutSampleEntry.tray(
+      id: _asText(row['id']) ?? 'tray-${existing.length + 1}',
+      label: label,
+      house: _asText(row['house']),
+      setter: _asText(row['setter']),
+      hatcher: _asText(row['hatcher']),
+      trolley: _asText(row['trolley']),
+      tray: _asText(row['tray']) ?? label,
+      position: _asText(row['position']),
+      traySize: _asInt(row['traySize']),
+      breakoutType: type,
+      counts: counts,
+    );
+    map['ebTrayBreakoutJson'] = EggBreakoutSampleEntry.encodeList([
+      ...existing,
+      next,
+    ]);
   }
 
   List<StationSampleModel> _stationSamplesFromPanelRows(
@@ -1027,51 +1180,90 @@ class _StationFrameState extends State<_StationFrame> {
     String table,
     Map<String, dynamic> row,
   ) {
-    final scopeType = row['scopeType']?.toString() ?? 'pool';
-    final sampleMode = row['mode']?.toString() == 'comparison'
+    final scopeType = _scopeTypeForRow(row);
+    final sampleMode = _rowHasHierarchy(row)
         ? StationSampleModel.sampleModeComparison
         : StationSampleModel.sampleModePooled;
+    final sampleIndex = _asInt(row['sampleIndex']) ?? 1;
+    final sampleLabel = _sampleLabelForRow(row) ?? 'Sample $sampleIndex';
     return StationSampleModel(
-      id:
-          row['id']?.toString() ??
-          '${widget.sessionId}:$table:${row['sampleIndex']}',
+      id: row['id']?.toString() ?? '${widget.sessionId}:$table:$sampleIndex',
       auditSessionId: widget.sessionId,
       stationType: widget.stationKey,
       sectorType: _sectorTypeForTable(table),
       sampleKind: _sampleKindForScope(scopeType),
       sampleMode: sampleMode,
       comparisonType: _comparisonTypeForScope(scopeType),
-      sampleIndex: _asInt(row['sampleIndex']) ?? 0,
-      sampleLabel: row['scopeLabel']?.toString(),
+      sampleIndex: sampleIndex,
+      sampleLabel: sampleLabel,
       sampleType: _sampleTypeForTable(table),
       breakoutType: _breakoutTypeForTable(table),
-      groupKey: row['groupKey']?.toString(),
-      groupLabel: row['groupLabel']?.toString(),
-      houseNo: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
-      houseLabel: scopeType == 'house' ? row['scopeLabel']?.toString() : null,
-      storageDays: _asInt(row['storageDays']),
+      groupKey: _rowHasHierarchy(row)
+          ? 'panel-hierarchy-${widget.sessionId}'
+          : null,
+      groupLabel: _rowHasHierarchy(row) ? 'Hierarchy comparison' : null,
+      houseNo: _asText(row['house']),
+      houseLabel: _asText(row['house']),
+      storageDays: _asInt(row['storagePeriodDays']),
       incubationDay: _asInt(row['incubationAgeDays'] ?? row['bmkAgeDays']),
-      setterNo: row['setterId']?.toString(),
-      hatcherNo: row['hatcherId']?.toString(),
+      setterNo: _asText(row['setter']),
+      hatcherNo: _asText(row['hatcher']),
       notes: row['notes']?.toString(),
       createdAt: _parseDate(row['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(row['updatedAt']) ?? DateTime.now(),
     );
   }
 
+  String _panelRowIdentityKey(Map<String, dynamic> row) {
+    return [
+      _asText(row['house']) ?? '',
+      _asText(row['setter']) ?? '',
+      _asText(row['hatcher']) ?? '',
+      _asText(row['trolley']) ?? '',
+      _asText(row['tray']) ?? '',
+      _asText(row['position']) ?? '',
+    ].join('|');
+  }
+
+  bool _rowHasHierarchy(Map<String, dynamic> row) {
+    return _asText(row['house']) != null ||
+        _asText(row['setter']) != null ||
+        _asText(row['hatcher']) != null ||
+        _asText(row['trolley']) != null ||
+        _asText(row['tray']) != null ||
+        _asText(row['position']) != null;
+  }
+
+  String _scopeTypeForRow(Map<String, dynamic> row) {
+    if (_asText(row['tray']) != null) return 'tray';
+    if (_asText(row['trolley']) != null) return 'trolley';
+    if (_asText(row['setter']) != null && _asText(row['hatcher']) != null) {
+      return 'setter_hatcher';
+    }
+    if (_asText(row['setter']) != null) return 'setter';
+    if (_asText(row['hatcher']) != null) return 'hatcher';
+    if (_asText(row['house']) != null) return 'house';
+    return 'pool';
+  }
+
+  String? _sampleLabelForRow(Map<String, dynamic> row) {
+    return _asText(row['tray']) ??
+        _asText(row['trolley']) ??
+        _asText(row['setter']) ??
+        _asText(row['hatcher']) ??
+        _asText(row['house']);
+  }
+
   String _sectorTypeForTable(String table) {
     return switch (table) {
       'egg_quality' => StationSampleModel.sectorEggQuality,
       'chick_weights' => StationSampleModel.sectorChickWeights,
+      'chick_quality' => StationSampleModel.sectorChickQuality,
       'fresh_egg_breakout' ||
       'candled_egg_breakout' ||
       'residue_breakout' => StationSampleModel.sectorHatchBreakout,
       'setter_optimizing' => StationSampleModel.sectorSetterOptimizing,
       'hatcher_optimizing' => StationSampleModel.sectorHatcherOptimizing,
-      'chick_pasgar' ||
-      'chick_yfbm' ||
-      'chick_cvt' ||
-      'chick_pm' => StationSampleModel.sectorChickQuality,
       _ => StationSampleModel.sectorDefault,
     };
   }
@@ -1102,11 +1294,8 @@ class _StationFrameState extends State<_StationFrame> {
 
   String? _sampleTypeForTable(String table) {
     return switch (table) {
-      'chick_pasgar' ||
+      'chick_quality' ||
       'chick_weights' ||
-      'chick_yfbm' ||
-      'chick_cvt' ||
-      'chick_pm' => StationSampleModel.sampleTypeChickQualityHatchedBatch,
       'fresh_egg_breakout' => StationSampleModel.sampleTypeBreakoutFresh,
       'candled_egg_breakout' => StationSampleModel.sampleTypeBreakoutCandled10d,
       'residue_breakout' => StationSampleModel.sampleTypeBreakoutResidue21d,
@@ -1136,60 +1325,10 @@ class _StationFrameState extends State<_StationFrame> {
     return int.tryParse(value.toString());
   }
 
-  static const _pmKeys = {
-    'sampleSize',
-    'collectionPoint',
-    'omphalitisCount',
-    'omphalitisSeverity',
-    'gaseousCecaCount',
-    'gaseousCecaSeverity',
-    'unabsorbedYolkCount',
-    'unabsorbedYolkSeverity',
-    'perihepatitisCount',
-    'perihepatitisSeverity',
-    'pericarditisCount',
-    'pericarditisSeverity',
-    'airsacAcuteCount',
-    'airsacAcuteSeverity',
-    'airsacChronicCount',
-    'airsacChronicSeverity',
-    'pulmonaryGranulomaCount',
-    'pulmonaryGranulomaSeverity',
-    'swollenJointsCount',
-    'swollenJointsSeverity',
-    'stuntedOrgansCount',
-    'stuntedOrgansSeverity',
-    'pulmonaryHemorrhageCount',
-    'pulmonaryHemorrhageSeverity',
-    'gizzardErosionsCount',
-    'gizzardErosionsSeverity',
-    'airSacCaseationsCount',
-    'airSacCaseationsSeverity',
-    'nephritisCount',
-    'nephritisSeverity',
-    'generalSepticemiaCount',
-    'generalSepticemiaSeverity',
-    'gaspingPresent',
-    'gaspingType',
-    'exposedBrainCount',
-    'ectopicVisceraCount',
-    'extraLegsCount',
-    'crossedBeakCount',
-    'absentEyeBothCount',
-    'absentEyeOneCount',
-    'smallEyeCount',
-    'hydrocephalyCount',
-    'starGazerCount',
-    'curledToesCount',
-    'shortLegsCount',
-    'spinalDeformityCount',
-    'cardiacAnomalyCount',
-    'conjoinedCount',
-    'otherDeformityCount',
-    'otherDeformityText',
-    'suspectedCauseAuto',
-    'suspectedCauseManual',
-  };
+  String? _asText(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/sample_mode.dart';
 
 void main() {
   group('AuditModel round-trip serialization', () {
@@ -168,6 +169,8 @@ void main() {
         'so_turningAngle': 45.0,
         'so_setpointF': 100.0,
         'so_actualF': 100.4,
+        'so_setpointRh': 55.0,
+        'so_actualRh': 57.5,
         'so_machineScreenPhoto': '/photos/setter-screen.jpg',
         'so_batchSize': 19200,
         'so_batchCount': 3,
@@ -184,6 +187,8 @@ void main() {
       expect(restored.soTurningAngle, 45.0);
       expect(restored.soSetpointF, 100.0);
       expect(restored.soActualF, 100.4);
+      expect(restored.soSetpointRh, 55.0);
+      expect(restored.soActualRh, 57.5);
       expect(restored.soMachineScreenPhoto, '/photos/setter-screen.jpg');
       expect(restored.soBatchSize, 19200);
       expect(restored.soBatchCount, 3);
@@ -195,6 +200,8 @@ void main() {
 
     test('Hatchers expanded meconium and transfer day round-trip', () {
       final original = fromMapWith(baseHatcher(), {
+        'ho_setpointF': 99.5,
+        'ho_setpointRh': 58.0,
         'ho_meconium': 'Normal',
         'ho_transferDay': 18,
         'hoCvtAvg': 104.2,
@@ -203,6 +210,8 @@ void main() {
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
+      expect(restored.hoSetpointF, 99.5);
+      expect(restored.hoSetpointRh, 58.0);
       expect(restored.hoMeconium, 'Normal');
       expect(restored.hoTransferDay, 18);
       expect(restored.hoCvtAvg, 104.2);
@@ -235,10 +244,14 @@ void main() {
         'pm_gizzardErosionsSeverity': 'Severe',
         'pm_airSacCaseationsCount': 5,
         'pm_airSacCaseationsSeverity': 'Moderate',
+        'pm_urolithiasisCount': 2,
+        'pm_urolithiasisSeverity': 'Mild',
         'pm_nephritisCount': 6,
         'pm_nephritisSeverity': 'Mild',
         'pm_generalSepticemiaCount': 7,
         'pm_generalSepticemiaSeverity': 'Severe',
+        'pm_otherLesionsJson':
+            '[{"name":"Retained shell","count":2,"severity":"Mild"}]',
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
@@ -256,45 +269,16 @@ void main() {
       expect(restored.pmGizzardErosionsSeverity, 'Severe');
       expect(restored.pmAirSacCaseationsCount, 5);
       expect(restored.pmAirSacCaseationsSeverity, 'Moderate');
+      expect(restored.toMap()['pm_urolithiasisCount'], 2);
+      expect(restored.toMap()['pm_urolithiasisSeverity'], 'Mild');
       expect(restored.pmNephritisCount, 6);
       expect(restored.pmNephritisSeverity, 'Mild');
       expect(restored.pmGeneralSepticemiaCount, 7);
       expect(restored.pmGeneralSepticemiaSeverity, 'Severe');
-    });
-
-    test('PM Necropsy gasping and deformity fields round-trip', () {
-      final original = fromMapWith(baseChickQuality(), {
-        'pm_gaspingPresent': 1,
-        'pm_gaspingType': 'Abdominal',
-        'pm_exposedBrainCount': 1,
-        'pm_ectopicVisceraCount': 0,
-        'pm_extraLegsCount': 0,
-        'pm_crossedBeakCount': 2,
-        'pm_absentEyeBothCount': 0,
-        'pm_absentEyeOneCount': 1,
-        'pm_smallEyeCount': 0,
-        'pm_hydrocephalyCount': 1,
-        'pm_starGazerCount': 0,
-        'pm_curledToesCount': 1,
-        'pm_shortLegsCount': 0,
-        'pm_spinalDeformityCount': 0,
-        'pm_cardiacAnomalyCount': 0,
-        'pm_conjoinedCount': 0,
-        'pm_otherDeformityCount': 3,
-        'pm_otherDeformityText': 'Missing wing feather',
-      });
-      final map = original.toMap();
-      final restored = AuditModel.fromMap(map);
-
-      expect(restored.pmGaspingPresent, true);
-      expect(restored.pmGaspingType, 'Abdominal');
-      expect(restored.pmExposedBrainCount, 1);
-      expect(restored.pmCrossedBeakCount, 2);
-      expect(restored.pmAbsentEyeOneCount, 1);
-      expect(restored.pmHydrocephalyCount, 1);
-      expect(restored.pmCurledToesCount, 1);
-      expect(restored.pmOtherDeformityCount, 3);
-      expect(restored.pmOtherDeformityText, 'Missing wing feather');
+      expect(
+        restored.pmOtherLesionsJson,
+        '[{"name":"Retained shell","count":2,"severity":"Mild"}]',
+      );
     });
 
     test('PM Necropsy cause and photo fields round-trip', () {
@@ -354,7 +338,7 @@ void main() {
       expect(restored.esTraySpacing, isNull);
       expect(restored.esCoolerProximity, isNull);
       expect(restored.esWallProximity, isNull);
-      expect(restored.esCondensation, isFalse);
+      expect(restored.esCondensation, isNull);
       expect(restored.soMachineType, isNull);
       expect(restored.soTurningAngle, isNull);
       expect(restored.hoMeconium, isNull);
@@ -362,7 +346,6 @@ void main() {
       expect(restored.cvtReadingsJson, isNull);
       expect(restored.cvtPhotosJson, isNull);
       expect(restored.pmSampleSize, isNull);
-      expect(restored.pmGaspingPresent, isFalse);
       expect(restored.pmPhotosJson, isNull);
     });
 
@@ -394,7 +377,7 @@ void main() {
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
-      expect(restored.sampleMode, 'compare');
+      expect(restored.sampleMode, SampleMode.compare);
       expect(restored.compareGroupKey, 'compare-visit-1');
       expect(restored.ebTrayBreakoutJson, original.ebTrayBreakoutJson);
     });

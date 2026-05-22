@@ -4,6 +4,7 @@ import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/audit_session_repository.dart';
 import '../../../data/repositories/flock_repository.dart';
+import '../../../core/utils/date_utils.dart';
 
 class HomeProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepository;
@@ -76,7 +77,7 @@ class HomeProvider extends ChangeNotifier {
                 .where((session) => session.customerId == customerId)
                 .toList();
       _lastAuditDate = _recentSessions.isNotEmpty
-          ? _recentSessions.first.date.toIso8601String().split('T').first
+          ? HatchDateUtils.formatDisplayDate(_recentSessions.first.date)
           : null;
 
       final flocks = await _flockRepository.getAllFlocks();
