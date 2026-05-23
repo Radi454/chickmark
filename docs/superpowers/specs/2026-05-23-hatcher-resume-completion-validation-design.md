@@ -113,6 +113,14 @@ placeholders should follow the existing prefix-first behavior: start as `H`
 with a blank House field, then update to labels such as `H1` only after the
 user enters a house value.
 
+Tray scope follows the same explicit-scope rule. Adding Tray scope must not
+create House scope or Machine scope. If House scope and Machine scope are both
+pooled, tray rows save under the pooled context without a synthetic house,
+setter, or hatcher hierarchy. If House scope already exists, tray rows inherit
+the selected house. If Machine scope already exists for breakout types that
+support machines, tray rows inherit the selected setter or hatcher, and inherit
+the selected house only when that house scope already exists.
+
 ## Data Cleanup
 
 The save path should not leave rows that imply progress when they contain no
@@ -147,6 +155,9 @@ Add or update tests for:
 - Editing a reopened Hatcher machine saves that machine independently.
 - Hatch Analysis Machine scope added from House `Pool` keeps House scope pooled
   and does not create a synthetic `H1`.
+- Hatch Analysis Tray scope added from pooled House and Machine scope does not
+  create synthetic House or Machine hierarchy, and tray rows inherit existing
+  House or Machine context only when those scopes are active.
 - An incomplete station can navigate forward after confirmation without being
   added to `stationsCompleted`.
 - A station with meaningful optional data but missing core data saves the
