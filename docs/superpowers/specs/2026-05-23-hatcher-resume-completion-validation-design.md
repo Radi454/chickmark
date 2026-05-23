@@ -137,6 +137,23 @@ the selected house. If Machine scope already exists for breakout types that
 support machines, tray rows inherit the selected setter or hatcher, and inherit
 the selected house only when that house scope already exists.
 
+## Setters Incubation Age Sample UI
+
+The Setters incubation age sample selector should be cleaned up without
+changing the data model or workflow. Replace the current bulky layout with a
+compact sample header:
+
+- Header text: `Incubation age samples`.
+- Small icon-only add/remove controls aligned to the header, using the existing
+  button affordance but reduced visual weight.
+- Horizontal sample chips below the header, labeled by sample context such as
+  `Pool`, `Day 1`, or `Day 2` instead of repeating the full section title.
+- Incubation age and incubation hours inputs remain directly under the chips.
+
+The UI must keep the same behavior: single-sample setter visits show `Pool`,
+multi-sample visits can add, remove, and switch samples, and editing the age or
+hours updates the active sample.
+
 ## Data Cleanup
 
 The save path should not leave rows that imply progress when they contain no
@@ -176,6 +193,8 @@ Add or update tests for:
 - Hatch Analysis Tray scope added from pooled House and Machine scope does not
   create synthetic House or Machine hierarchy, and tray rows inherit existing
   House or Machine context only when those scopes are active.
+- Setters incubation age samples render as a compact selector with non-redundant
+  labels while preserving add, remove, switch, and edit behavior.
 - An incomplete station can navigate forward after confirmation without being
   added to `stationsCompleted`.
 - A station with meaningful optional data but missing core data saves the
