@@ -100,6 +100,19 @@ The dialog copy should be short and specific, for example:
 > This station does not have enough core data to mark complete. Continue without
 > completing this station?
 
+## Hatch Analysis Scope Constraint
+
+Hatch Analysis & Egg Breakouts machine scope must not auto-convert House scope
+from `Pool` to a generated house such as `H1`. If the user adds Machine scope
+while House scope is still pooled, House scope stays `Pool`, the Machine scope
+shows the setter/hatcher chip, and the saved machine row keeps house hierarchy
+empty until the user explicitly adds House scope.
+
+Only the House scope add action may create a house placeholder. New house
+placeholders should follow the existing prefix-first behavior: start as `H`
+with a blank House field, then update to labels such as `H1` only after the
+user enters a house value.
+
 ## Data Cleanup
 
 The save path should not leave rows that imply progress when they contain no
@@ -132,6 +145,8 @@ Add or update tests for:
 - Hatchers reopen with multiple saved hatcher rows and show multiple
   machine-scope chips.
 - Editing a reopened Hatcher machine saves that machine independently.
+- Hatch Analysis Machine scope added from House `Pool` keeps House scope pooled
+  and does not create a synthetic `H1`.
 - An incomplete station can navigate forward after confirmation without being
   added to `stationsCompleted`.
 - A station with meaningful optional data but missing core data saves the
