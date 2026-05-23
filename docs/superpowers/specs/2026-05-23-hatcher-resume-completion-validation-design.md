@@ -56,6 +56,22 @@ meconium values. Saving after editing any restored machine must update that
 machine's `hatcher_optimizing` row instead of collapsing the station back to one
 row.
 
+## Hatcher Settings UI Alignment
+
+The Hatcher settings card should visually follow the Setter settings form
+pattern instead of using slider rows. Keep the existing `Hatcher settings`
+section and fields, but lay them out as compact outlined numeric inputs:
+
+- First row: `Setpoint (°F)` and `Setpoint RH (%)`.
+- Second row: `Incubation Age (days)` and `Incubation Hours`.
+
+The Hatcher incubation age and hour controls should use the same numeric field
+interaction as Setter fields, including the audit numeric keyboard. Remove the
+large incubation sliders from this card. Preserve existing Hatcher data fields
+and constraints: incubation age remains saved to `hoIncubationAge` with the
+18-21 day range, and incubation hours remains saved to `hoIncubationHours` with
+the 0-23 hour range.
+
 ## Completion Validation
 
 Introduce a station completion validation result that can be used by
@@ -153,6 +169,8 @@ Add or update tests for:
 - Hatchers reopen with multiple saved hatcher rows and show multiple
   machine-scope chips.
 - Editing a reopened Hatcher machine saves that machine independently.
+- Hatcher settings uses Setter-style outlined numeric inputs for incubation age
+  and incubation hours, and still updates the same Hatcher fields.
 - Hatch Analysis Machine scope added from House `Pool` keeps House scope pooled
   and does not create a synthetic `H1`.
 - Hatch Analysis Tray scope added from pooled House and Machine scope does not
