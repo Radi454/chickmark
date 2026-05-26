@@ -18,7 +18,6 @@ class PanelRecord {
     this.tray,
     this.position,
     this.storagePeriodDays,
-    this.bmkAgeDays,
     this.bmkAgeWeeks,
     this.mode = modePool,
     SamplingLayer? scopeType,
@@ -66,7 +65,6 @@ class PanelRecord {
   final String? tray;
   final String? position;
   final int? storagePeriodDays;
-  final int? bmkAgeDays;
   final int? bmkAgeWeeks;
   final String mode;
   final SamplingLayer scopeType;
@@ -99,7 +97,6 @@ class PanelRecord {
       'tray': tray,
       'position': position,
       'storagePeriodDays': storagePeriodDays,
-      'bmkAgeDays': bmkAgeDays,
       'bmkAgeWeeks': bmkAgeWeeks,
       'mode': mode,
       'scopeType': scopeType.dbValue,
@@ -134,7 +131,6 @@ class PanelRecord {
       'tray',
       'position',
       'storagePeriodDays',
-      'bmkAgeDays',
       'bmkAgeWeeks',
       'mode',
       'scopeType',
@@ -166,7 +162,6 @@ class PanelRecord {
       tray: map['tray'] as String?,
       position: map['position'] as String?,
       storagePeriodDays: map['storagePeriodDays'] as int?,
-      bmkAgeDays: map['bmkAgeDays'] as int?,
       bmkAgeWeeks: map['bmkAgeWeeks'] as int?,
       mode: map['mode'] as String? ?? modePool,
       scopeType: SamplingLayer.fromDbValue(

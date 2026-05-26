@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
@@ -84,6 +85,16 @@ void main() {
     );
     registerFallbackValue(DateTime(2026));
     registerFallbackValue(TemperaturePlace.eggStorageRoom);
+    registerFallbackValue(
+      PanelRecord(
+        id: 'fallback-panel',
+        tableName: 'egg_storage',
+        sessionId: 'fallback-session',
+        customerId: 'fallback-customer',
+        date: DateTime(2026),
+      ),
+    );
+    registerFallbackValue(<PanelSampleRecord>[]);
   });
 
   testWidgets('completion navigation keeps unnamed root route available', (
@@ -239,66 +250,72 @@ void main() {
     expect(find.byIcon(Icons.cruelty_free), findsNothing);
   });
 
-  testWidgets('station selection shows saved badge for resumed session', (
-    tester,
-  ) async {
-    final repository = MockAuditSessionRepository();
-    final supabase = MockSupabaseService();
-    final provider = AuditSessionProvider(
-      repository: repository,
-      supabaseService: supabase,
-    );
-    final session = AuditSessionModel.fromMap(
-      makeAuditSessionRow(
-        id: 'existing-session',
-        selectedStationKeys: ['egg', 'chicks'],
-        stationsCompleted: ['egg'],
-      ),
-    );
+  testWidgets(
+    'station selection shows saved badge and remove button for saved row',
+    (tester) async {
+      final repository = MockAuditSessionRepository();
+      final supabase = MockSupabaseService();
+      final provider = AuditSessionProvider(
+        repository: repository,
+        supabaseService: supabase,
+      );
+      final session = AuditSessionModel.fromMap(
+        makeAuditSessionRow(
+          id: 'existing-session',
+          selectedStationKeys: ['egg'],
+          stationsCompleted: ['egg'],
+        ),
+      );
 
-    when(
-      () => repository.findInProgressSession(
-        customerId: SessionTestFixtures.testCustomerId,
-        flockId: SessionTestFixtures.testFlockId,
-        hatcheryId: SessionTestFixtures.testHatcheryId,
-        date: any(named: 'date'),
-      ),
-    ).thenAnswer((_) async => session);
-    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+      when(
+        () => repository.findInProgressSession(
+          customerId: SessionTestFixtures.testCustomerId,
+          flockId: SessionTestFixtures.testFlockId,
+          hatcheryId: SessionTestFixtures.testHatcheryId,
+          date: any(named: 'date'),
+        ),
+      ).thenAnswer((_) async => session);
+      when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
 
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: provider),
-          ChangeNotifierProvider(
-            create: (_) => AuthProvider(supabaseService: supabase),
-          ),
-        ],
-        child: MaterialApp(
-          theme: ThemeData(splashFactory: NoSplash.splashFactory),
-          home: AuditStationSelectionScreen(
-            customerId: SessionTestFixtures.testCustomerId,
-            flockId: SessionTestFixtures.testFlockId,
-            hatcheryId: SessionTestFixtures.testHatcheryId,
-            selectedFlock: FlockModel(
-              id: SessionTestFixtures.testFlockId,
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: provider),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(supabaseService: supabase),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(splashFactory: NoSplash.splashFactory),
+            home: AuditStationSelectionScreen(
               customerId: SessionTestFixtures.testCustomerId,
               flockId: SessionTestFixtures.testFlockId,
-              breed: SessionTestFixtures.testBreed,
-              entryDate: SessionTestFixtures.testVisitDate.subtract(
-                const Duration(days: 42 * 7),
+              hatcheryId: SessionTestFixtures.testHatcheryId,
+              selectedFlock: FlockModel(
+                id: SessionTestFixtures.testFlockId,
+                customerId: SessionTestFixtures.testCustomerId,
+                flockId: SessionTestFixtures.testFlockId,
+                breed: SessionTestFixtures.testBreed,
+                entryDate: SessionTestFixtures.testVisitDate.subtract(
+                  const Duration(days: 42 * 7),
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Saved'), findsOneWidget);
-    expect(find.text('Continue Visit'), findsOneWidget);
-    expect(find.byTooltip('Remove saved station'), findsNothing);
-  });
+      expect(find.text('Saved'), findsOneWidget);
+      expect(find.text('Continue Visit'), findsOneWidget);
+      expect(find.byTooltip('Remove station'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Remove station'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved'), findsNothing);
+    },
+  );
 
   testWidgets('resumed station selection can add unsaved stations', (
     tester,
@@ -484,6 +501,21 @@ void main() {
     final firstNodeCenter = tester.getCenter(
       find.byKey(const ValueKey('audit-session-progress-node-0')),
     );
+    expect(
+      find.byKey(const ValueKey('audit-session-progress-current-marker-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audit-session-progress-current-marker-1')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('audit-session-progress-shell')),
+        matching: find.byIcon(Icons.radio_button_checked),
+      ),
+      findsNothing,
+    );
     for (var i = 1; i < 5; i++) {
       expect(
         tester
@@ -587,6 +619,266 @@ void main() {
     expect(_completionCheckOverlayFinder(), findsNothing);
   });
 
+  testWidgets('incomplete station can continue without marking completed', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel.fromMap(
+      makeAuditSessionRow(
+        id: 'incomplete-forward-session',
+        selectedStationKeys: ['egg', 'chicks'],
+        stationsCompleted: const [],
+      ),
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+    _stubEmptyPanelPersistence(panelSampleRepository, session.id);
+
+    await provider.resumeSession(session.id, initialStationIndex: 0);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Continue without completing?'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(provider.currentStationIndex, 1);
+    verifyNever(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    );
+  });
+
+  testWidgets('final incomplete station stays in progress after confirmation', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel.fromMap(
+      makeAuditSessionRow(
+        id: 'incomplete-final-session',
+        selectedStationKeys: ['egg'],
+        stationsCompleted: const [],
+        status: 'in_progress',
+      ),
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    ).thenAnswer((_) async {});
+    when(
+      () => sessionRepository.updateSessionProgress(session.id, any()),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+    _stubEmptyPanelPersistence(panelSampleRepository, session.id);
+
+    await provider.resumeSession(session.id, initialStationIndex: 0);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Continue without completing?'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(provider.currentSession?.status, 'in_progress');
+    verifyNever(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    );
+    verifyNever(
+      () => sessionRepository.updateSessionProgress(session.id, any()),
+    );
+  });
+
+  testWidgets('completed review uses next until the final station', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel.fromMap(
+      makeAuditSessionRow(
+        id: 'completed-review-session',
+        status: 'completed',
+        selectedStationKeys: ['egg', 'chicks'],
+        stationsCompleted: ['egg', 'chicks'],
+        completedAt: SessionTestFixtures.testUpdatedAt,
+      ),
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => sessionRepository.markStationCompleted(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.getRowsBySessionId(any(), session.id),
+    ).thenAnswer((_) async => []);
+    when(
+      () => panelSampleRepository.getRowsBySessionId('egg_storage', session.id),
+    ).thenAnswer(
+      (_) async => [
+        _panelRow(
+          sessionId: session.id,
+          id: 'completed-review-egg-storage',
+          values: const {'storagePeriodDays': 4},
+        ),
+      ],
+    );
+    when(
+      () => panelSampleRepository.getRowsBySessionId('egg_quality', session.id),
+    ).thenAnswer((_) async => []);
+    when(
+      () => panelSampleRepository.savePanelWithSamples(
+        panel: any(named: 'panel'),
+        samples: any(named: 'samples'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteHierarchyRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
+        any(),
+        any(),
+        any(),
+        keepHierarchyRows: any(named: 'keepHierarchyRows'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteRowsBySessionIdForSampleIds(
+        any(),
+        any(),
+        any(),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.resumeSession(session.id, initialStationIndex: 0);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.widgetWithText(ElevatedButton, 'Next Station'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Save'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(provider.currentStationIndex, 1);
+    expect(find.widgetWithText(ElevatedButton, 'Save'), findsOneWidget);
+  });
+
   testWidgets('session shell only hydrates the visible station initially', (
     tester,
   ) async {
@@ -675,6 +967,83 @@ void main() {
     );
   });
 
+  testWidgets(
+    'session switch with same station key uses a fresh station provider',
+    (tester) async {
+      final sessionRepository = MockAuditSessionRepository();
+      final auditRepository = MockAuditRepository();
+      final panelSampleRepository = MockPanelSampleRepository();
+      final supabase = MockSupabaseService();
+      final firstSession = AuditSessionModel.fromMap(
+        makeAuditSessionRow(
+          id: 'first-session',
+          selectedStationKeys: const ['egg'],
+        ),
+      );
+      final secondSession = AuditSessionModel.fromMap(
+        makeAuditSessionRow(
+          id: 'second-session',
+          selectedStationKeys: const ['egg'],
+        ),
+      );
+      final provider = AuditSessionProvider(
+        repository: sessionRepository,
+        supabaseService: supabase,
+      );
+
+      when(
+        () => sessionRepository.getSessionById(firstSession.id),
+      ).thenAnswer((_) async => firstSession);
+      when(
+        () => sessionRepository.getSessionById(secondSession.id),
+      ).thenAnswer((_) async => secondSession);
+      when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+      when(
+        () => panelSampleRepository.getRowsBySessionId(any(), any()),
+      ).thenAnswer((_) async => []);
+
+      await provider.resumeSession(firstSession.id, initialStationIndex: 0);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: provider),
+            ChangeNotifierProvider(create: (_) => CustomersProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(supabaseService: supabase),
+            ),
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+          ],
+          child: MaterialApp(
+            home: AuditSessionScreen(
+              auditRepository: auditRepository,
+              panelSampleRepository: panelSampleRepository,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final firstStationProvider = Provider.of<AuditProvider>(
+        tester.element(find.byType(EggStorageScreen)),
+        listen: false,
+      );
+
+      await provider.resumeSession(secondSession.id, initialStationIndex: 0);
+      await tester.pump();
+      await tester.pump();
+
+      final secondStationProvider = Provider.of<AuditProvider>(
+        tester.element(find.byType(EggStorageScreen)),
+        listen: false,
+      );
+
+      expect(secondStationProvider, isNot(same(firstStationProvider)));
+    },
+  );
+
   testWidgets('resumed Egg station hydrates saved audit data', (tester) async {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
@@ -753,6 +1122,119 @@ void main() {
 
     expect(find.widgetWithText(TextField, '9'), findsNWidgets(2));
   });
+
+  testWidgets(
+    'resumed Egg station hydrates quality hierarchy when storage is pooled',
+    (tester) async {
+      final sessionRepository = MockAuditSessionRepository();
+      final auditRepository = MockAuditRepository();
+      final panelSampleRepository = MockPanelSampleRepository();
+      final activityLog = MockActivityLogRepository();
+      final supabase = MockSupabaseService();
+      final session = AuditSessionModel(
+        id: 'session-egg-hierarchy-resume',
+        customerId: SessionTestFixtures.testCustomerId,
+        flockId: SessionTestFixtures.testFlockId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        status: 'in_progress',
+        selectedStationKeys: const ['egg'],
+        stationsCompleted: const ['egg'],
+        createdAt: SessionTestFixtures.testCreatedAt,
+        updatedAt: SessionTestFixtures.testUpdatedAt,
+      );
+      final provider = AuditSessionProvider(
+        repository: sessionRepository,
+        activityLogRepository: activityLog,
+        supabaseService: supabase,
+      );
+
+      when(
+        () => sessionRepository.getSessionById(session.id),
+      ).thenAnswer((_) async => session);
+      when(
+        () => activityLog.log(
+          any(),
+          any(),
+          entityType: any(named: 'entityType'),
+          entityId: any(named: 'entityId'),
+          details: any(named: 'details'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
+        () =>
+            panelSampleRepository.getRowsBySessionId('egg_storage', session.id),
+      ).thenAnswer(
+        (_) async => [
+          _panelRow(
+            sessionId: session.id,
+            id: 'egg-storage-pooled',
+            values: const {'storagePeriodDays': 4},
+          ),
+        ],
+      );
+      when(
+        () =>
+            panelSampleRepository.getRowsBySessionId('egg_quality', session.id),
+      ).thenAnswer(
+        (_) async => [
+          _panelRow(
+            sessionId: session.id,
+            id: 'egg-quality-house-1',
+            house: 'H1',
+            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[50.0]'},
+          ),
+          _panelRow(
+            sessionId: session.id,
+            id: 'egg-quality-house-1-machine-1',
+            house: 'H1',
+            setter: 'S1',
+            hatcher: 'H1',
+            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[51.0]'},
+          ),
+          _panelRow(
+            sessionId: session.id,
+            id: 'egg-quality-house-1-machine-2',
+            house: 'H1',
+            setter: 'S2',
+            hatcher: 'H2',
+            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[52.0]'},
+          ),
+        ],
+      );
+
+      await provider.resumeSession(session.id);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: provider),
+            ChangeNotifierProvider(create: (_) => CustomersProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(supabaseService: supabase),
+            ),
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+          ],
+          child: MaterialApp(
+            home: AuditSessionScreen(
+              auditRepository: auditRepository,
+              panelSampleRepository: panelSampleRepository,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('House scope'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'H1'), findsOneWidget);
+      expect(find.text('Machine scope'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'S2H2'), findsOneWidget);
+    },
+  );
 
   testWidgets('resumed Chicks station hydrates saved comparison samples', (
     tester,
@@ -1020,15 +1502,10 @@ void main() {
       find.byKey(const ValueKey('audit-session-progress-shell')),
       findsOneWidget,
     );
-    final progressCheckIcon = find.descendant(
-      of: find.byKey(const ValueKey('audit-session-progress-shell')),
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is Icon && widget.icon == Icons.check && widget.size == 12,
-        description: 'compact station progress check icon',
-      ),
+    expect(
+      find.byKey(const ValueKey('audit-session-progress-current-marker-0')),
+      findsOneWidget,
     );
-    expect(progressCheckIcon, findsOneWidget);
     expect(
       find.byKey(const ValueKey('chick-quality-workbench')),
       findsOneWidget,
@@ -1094,15 +1571,10 @@ void main() {
       find.byKey(const ValueKey('audit-session-progress-shell')),
       findsOneWidget,
     );
-    final progressCheckIcon = find.descendant(
-      of: find.byKey(const ValueKey('audit-session-progress-shell')),
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is Icon && widget.icon == Icons.check && widget.size == 12,
-        description: 'compact station progress check icon',
-      ),
+    expect(
+      find.byKey(const ValueKey('audit-session-progress-current-marker-0')),
+      findsOneWidget,
     );
-    expect(progressCheckIcon, findsOneWidget);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('audit-session-progress-shell')),
@@ -1316,6 +1788,38 @@ Finder _completionCheckOverlayFinder() {
         widget is Icon && widget.icon == Icons.check && widget.size == 48,
     description: 'large completion check overlay',
   );
+}
+
+void _stubEmptyPanelPersistence(
+  MockPanelSampleRepository repository,
+  String sessionId,
+) {
+  when(
+    () => repository.getRowsBySessionId(any(), sessionId),
+  ).thenAnswer((_) async => []);
+  when(
+    () => repository.savePanelWithSamples(
+      panel: any(named: 'panel'),
+      samples: any(named: 'samples'),
+    ),
+  ).thenAnswer((_) async {});
+  when(
+    () => repository.deleteHierarchyRowsBySessionId(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => repository.deleteHierarchyRowsBySessionIdExcept(
+      any(),
+      any(),
+      any(),
+      keepHierarchyRows: any(named: 'keepHierarchyRows'),
+    ),
+  ).thenAnswer((_) async {});
+  when(
+    () => repository.deleteRowsBySessionId(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => repository.deleteRowsBySessionIdForSampleIds(any(), any(), any()),
+  ).thenAnswer((_) async {});
 }
 
 void _stubEmptyGoveeRepository(MockGoveeCaptureRepository repository) {

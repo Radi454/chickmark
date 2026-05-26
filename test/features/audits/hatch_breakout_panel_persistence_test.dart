@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
@@ -39,7 +40,6 @@ Future<void> _createPanelTable(
     tray TEXT,
     position TEXT,
     storagePeriodDays INTEGER,
-    bmkAgeDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
@@ -118,6 +118,15 @@ void main() {
       flockId TEXT NOT NULL,
       hatcheryId TEXT NOT NULL,
       date TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE sync_tombstones (
+      id TEXT PRIMARY KEY,
+      tableName TEXT NOT NULL,
+      rowId TEXT NOT NULL,
+      deletedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncedAt TEXT,
+      lastError TEXT
     )''');
     final residuePanel = PanelSampleSchema.byTable('residue_breakout');
     await _createPanelTable(
@@ -224,7 +233,9 @@ void main() {
     expect(rows.map((row) => row['tray']), ['Tray 1', 'Tray 2']);
     expect(rows.map((row) => row['position']), ['top', 'bottom']);
     expect(rows.map((row) => row['storagePeriodDays']), [4, 4]);
-    expect(rows.map((row) => row['bmkAgeDays']), [269, 269]);
+    for (final row in rows) {
+      expect(row.keys, isNot(contains('bmkAgeDays')));
+    }
     expect(rows.map((row) => row['bmkAgeWeeks']), [39, 39]);
     expect(rows.map((row) => row['traySize']), [150, 150]);
     expect(rows.map((row) => row['infertileCount']), [15, 30]);
@@ -234,4 +245,178 @@ void main() {
     expect(rows.map((row) => row['infertileDiffPct']), [5.0, 15.0]);
     expect(rows.map((row) => row['earlyDeadDiffPct']), [2.0, 8.0]);
   });
+
+  test(
+    'residue breakout machine scope persists setter and hatcher hierarchy',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('houseId', 'House A');
+      provider.updateField('setterId', 'S1');
+      provider.updateField('hatcherId', 'H1');
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+      provider.updateField('ebTraySize', 300);
+      provider.updateField('ebInfertileCount', 12);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout');
+
+      expect(rows, hasLength(1));
+      expect(rows.single['house'], 'House A');
+      expect(rows.single['setter'], '1');
+      expect(rows.single['hatcher'], '1');
+      expect(rows.single['trolley'], isNull);
+      expect(rows.single['tray'], isNull);
+      expect(rows.single['position'], isNull);
+    },
+  );
+
+  test(
+    'residue breakout trolley scope persists a trolley row under the selected machine',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('houseId', 'House A');
+      provider.updateField('setterId', 'S1');
+      provider.updateField('hatcherId', 'H1');
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+      provider.updateField(
+        'ebTrayBreakoutJson',
+        EggBreakoutSampleEntry.encodeList([
+          EggBreakoutSampleEntry.pool(
+            id: 'residue-trolley-1',
+            label: 'Trolley T1',
+            house: 'House A',
+            setter: 'S1',
+            hatcher: 'H1',
+            trolley: 'T1',
+            traySize: 150,
+            numberOfTrays: 2,
+            breakoutType: EggBreakoutType.residueHatchDay,
+            counts: const {'infertile': 12, 'earlyDead': 6},
+          ),
+        ]),
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout');
+
+      expect(rows, hasLength(1));
+      expect(rows.single['house'], 'House A');
+      expect(rows.single['setter'], 'S1');
+      expect(rows.single['hatcher'], 'H1');
+      expect(rows.single['trolley'], 'T1');
+      expect(rows.single['tray'], isNull);
+      expect(rows.single['position'], isNull);
+      expect(rows.single['traySize'], 300);
+      expect(rows.single['infertileCount'], 12);
+      expect(rows.single['earlyDeadCount'], 6);
+    },
+  );
+
+  test(
+    'residue breakout tray scope prunes stale pooled and parent hierarchy rows',
+    () async {
+      final now = DateTime.utc(2026, 5, 18).toIso8601String();
+      Future<void> insertStaleRow({
+        required String id,
+        String? house,
+        String? setter,
+        String? hatcher,
+        String? trolley,
+      }) {
+        return db.insert('residue_breakout', {
+          'id': id,
+          'sessionId': 'session-hatch-breakout-db',
+          'customerId': 'customer-hatch-breakout-db',
+          'flockId': 'flock-hatch-breakout-db',
+          'hatcheryId': 'hatchery-hatch-breakout-db',
+          'date': '2026-05-18',
+          'breed': 'Ross 308',
+          'house': house,
+          'setter': setter,
+          'hatcher': hatcher,
+          'trolley': trolley,
+          'traySize': 300,
+          'infertileCount': 12,
+          'createdAt': now,
+          'updatedAt': now,
+          'syncStatus': 'pending',
+        });
+      }
+
+      await insertStaleRow(id: 'stale-pool');
+      await insertStaleRow(id: 'stale-house', house: 'House A');
+      await insertStaleRow(
+        id: 'stale-machine',
+        house: 'House A',
+        setter: 'S1',
+        hatcher: 'H1',
+      );
+      await insertStaleRow(
+        id: 'stale-trolley',
+        house: 'House A',
+        setter: 'S1',
+        hatcher: 'H1',
+        trolley: 'T1',
+      );
+
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('houseId', 'House A');
+      provider.updateField('setterId', 'S1');
+      provider.updateField('hatcherId', 'H1');
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+      provider.updateField(
+        'ebTrayBreakoutJson',
+        EggBreakoutSampleEntry.encodeList([
+          EggBreakoutSampleEntry.tray(
+            id: 'residue-tray-1',
+            label: 'Tray 1',
+            house: 'House A',
+            setter: 'S1',
+            hatcher: 'H1',
+            trolley: 'T1',
+            tray: 'Tray 1',
+            position: 'top',
+            traySize: 150,
+            breakoutType: EggBreakoutType.residueHatchDay,
+            counts: const {'infertile': 15, 'earlyDead': 9},
+          ),
+        ]),
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout');
+
+      expect(rows, hasLength(1));
+      expect(rows.single['house'], 'House A');
+      expect(rows.single['setter'], 'S1');
+      expect(rows.single['hatcher'], 'H1');
+      expect(rows.single['trolley'], 'T1');
+      expect(rows.single['tray'], 'Tray 1');
+      expect(rows.single['position'], 'top');
+      expect(rows.single['infertileCount'], 15);
+
+      final tombstones = await db.query(
+        'sync_tombstones',
+        orderBy: 'rowId ASC',
+      );
+      expect(tombstones.map((row) => row['rowId']), [
+        'stale-house',
+        'stale-machine',
+        'stale-pool',
+        'stale-trolley',
+      ]);
+    },
+  );
 }

@@ -55,11 +55,12 @@ class PanelSampleRepository {
   ) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
+    final columns = await _tableColumns(database, definition.tableName);
     final rows = await database.query(
       definition.tableName,
       where: 'sessionId = ?',
       whereArgs: [sessionId],
-      orderBy: _panelOrderBy,
+      orderBy: _panelOrderByForColumns(columns),
     );
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -71,36 +72,20 @@ class PanelSampleRepository {
   ) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
+    final columns = await _tableColumns(database, definition.tableName);
+    final hierarchyColumns = _hierarchyColumnsForTable(columns);
     final rows = mode == PanelRecord.modeComparison
         ? await database.query(
             definition.tableName,
-            where: '''
-              sessionId = ?
-              AND (
-                house IS NOT NULL
-                OR setter IS NOT NULL
-                OR hatcher IS NOT NULL
-                OR trolley IS NOT NULL
-                OR tray IS NOT NULL
-                OR position IS NOT NULL
-              )
-            ''',
+            where: _hierarchyRowsWhereForColumns(hierarchyColumns),
             whereArgs: [sessionId],
-            orderBy: _panelOrderBy,
+            orderBy: _panelOrderByForColumns(columns),
           )
         : await database.query(
             definition.tableName,
-            where: '''
-              sessionId = ?
-              AND house IS NULL
-              AND setter IS NULL
-              AND hatcher IS NULL
-              AND trolley IS NULL
-              AND tray IS NULL
-              AND position IS NULL
-            ''',
+            where: _pooledRowsWhereForColumns(hierarchyColumns),
             whereArgs: [sessionId],
-            orderBy: _panelOrderBy,
+            orderBy: _panelOrderByForColumns(columns),
           );
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -146,18 +131,12 @@ class PanelSampleRepository {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
     await database.transaction<void>((txn) async {
+      final columns = await _tableColumns(txn, definition.tableName);
+      final hierarchyColumns = _hierarchyColumnsForTable(columns);
       final rows = await txn.query(
         definition.tableName,
-        columns: [
-          'id',
-          'house',
-          'setter',
-          'hatcher',
-          'trolley',
-          'tray',
-          'position',
-        ],
-        where: _hierarchyRowsWhere,
+        columns: ['id', ...hierarchyColumns],
+        where: _hierarchyRowsWhereForColumns(hierarchyColumns),
         whereArgs: [sessionId],
       );
       await SyncTombstoneRepository.queueDeletesWithExecutor(
@@ -167,7 +146,7 @@ class PanelSampleRepository {
       );
       await txn.delete(
         definition.tableName,
-        where: _hierarchyRowsWhere,
+        where: _hierarchyRowsWhereForColumns(hierarchyColumns),
         whereArgs: [sessionId],
       );
     });
@@ -185,20 +164,16 @@ class PanelSampleRepository {
         .map((id) => id.trim())
         .where((id) => id.isNotEmpty)
         .toSet();
-    final keepHierarchyKeys = keepHierarchyRows.map(_hierarchyKey).toSet();
     await database.transaction<void>((txn) async {
+      final columns = await _tableColumns(txn, definition.tableName);
+      final hierarchyColumns = _hierarchyColumnsForTable(columns);
+      final keepHierarchyKeys = keepHierarchyRows
+          .map((row) => _hierarchyKey(row, hierarchyColumns))
+          .toSet();
       final rows = await txn.query(
         definition.tableName,
-        columns: [
-          'id',
-          'house',
-          'setter',
-          'hatcher',
-          'trolley',
-          'tray',
-          'position',
-        ],
-        where: _hierarchyRowsWhere,
+        columns: ['id', ...hierarchyColumns],
+        where: _hierarchyRowsWhereForColumns(hierarchyColumns),
         whereArgs: [sessionId],
       );
       final staleIds = <String>[];
@@ -207,8 +182,104 @@ class PanelSampleRepository {
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
-            !keepHierarchyKeys.contains(_hierarchyKey(row))) {
+            !keepHierarchyKeys.contains(_hierarchyKey(row, hierarchyColumns))) {
           staleIds.add(id);
+        }
+      }
+      if (staleIds.isEmpty) return;
+
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        definition.tableName,
+        staleIds,
+      );
+      final placeholders = List.filled(staleIds.length, '?').join(', ');
+      await txn.delete(
+        definition.tableName,
+        where: 'id IN ($placeholders)',
+        whereArgs: staleIds,
+      );
+    });
+  }
+
+  Future<void> deleteRowsBySessionIdExcept(
+    String tableName,
+    String sessionId,
+    Iterable<String> keepIds, {
+    Iterable<Map<String, Object?>> keepHierarchyRows = const [],
+  }) async {
+    final definition = PanelSampleSchema.byTable(tableName);
+    final database = await _databaseHelper.db;
+    final keepIdSet = keepIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    await database.transaction<void>((txn) async {
+      final columns = await _tableColumns(txn, definition.tableName);
+      final hierarchyColumns = _hierarchyColumnsForTable(columns);
+      final keepHierarchyKeys = keepHierarchyRows
+          .map((row) => _hierarchyKey(row, hierarchyColumns))
+          .toSet();
+      final rows = await txn.query(
+        definition.tableName,
+        columns: ['id', ...hierarchyColumns],
+        where: 'sessionId = ?',
+        whereArgs: [sessionId],
+      );
+      final staleIds = <String>[];
+      for (final row in rows) {
+        final id = row['id']?.toString();
+        if (id != null &&
+            id.isNotEmpty &&
+            !keepIdSet.contains(id) &&
+            !keepHierarchyKeys.contains(_hierarchyKey(row, hierarchyColumns))) {
+          staleIds.add(id);
+        }
+      }
+      if (staleIds.isEmpty) return;
+
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        definition.tableName,
+        staleIds,
+      );
+      final placeholders = List.filled(staleIds.length, '?').join(', ');
+      await txn.delete(
+        definition.tableName,
+        where: 'id IN ($placeholders)',
+        whereArgs: staleIds,
+      );
+    });
+  }
+
+  Future<void> deleteRowsBySessionIdForSampleIds(
+    String tableName,
+    String sessionId,
+    Iterable<String> sampleIds,
+  ) async {
+    final definition = PanelSampleSchema.byTable(tableName);
+    final sampleIdSet = sampleIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (sampleIdSet.isEmpty) return;
+
+    final database = await _databaseHelper.db;
+    await database.transaction<void>((txn) async {
+      final rows = await txn.query(
+        definition.tableName,
+        columns: ['id'],
+        where: 'sessionId = ?',
+        whereArgs: [sessionId],
+      );
+      final staleIds = <String>[];
+      for (final row in rows) {
+        final rowId = row['id']?.toString();
+        if (rowId == null || rowId.isEmpty) continue;
+        if (sampleIdSet.any(
+          (sampleId) => _rowIdMatchesSampleId(rowId, sampleId),
+        )) {
+          staleIds.add(rowId);
         }
       }
       if (staleIds.isEmpty) return;
@@ -274,11 +345,12 @@ class PanelSampleRepository {
   }) async {
     final definition = PanelSampleSchema.byTable(panelTable);
     final database = await _databaseHelper.db;
+    final columns = await _tableColumns(database, definition.tableName);
     return database.query(
       definition.tableName,
       where: 'id = ?',
       whereArgs: [panelId],
-      orderBy: _panelOrderBy,
+      orderBy: _panelOrderByForColumns(columns),
     );
   }
 
@@ -397,11 +469,13 @@ class PanelSampleRepository {
   ) async {
     final sessionId = row['sessionId'];
     if (sessionId == null) return null;
+    final columns = await _tableColumns(executor, table);
+    final hierarchyColumns = _hierarchyColumnsForTable(columns);
     final rows = await executor.query(
       table,
       columns: ['id'],
-      where: _panelIdentityWhere,
-      whereArgs: _panelIdentityWhereArgs(row),
+      where: _panelIdentityWhereForColumns(hierarchyColumns),
+      whereArgs: _panelIdentityWhereArgs(row, hierarchyColumns),
       limit: 1,
     );
     return rows.isEmpty ? null : rows.first['id']?.toString();
@@ -435,11 +509,13 @@ class PanelSampleRepository {
 
     final updateValues = Map<String, Object?>.from(row)..remove('id');
     if (updateValues.isEmpty) return;
+    final columns = await _tableColumns(executor, table);
+    final hierarchyColumns = _hierarchyColumnsForTable(columns);
     await executor.update(
       table,
       updateValues,
-      where: _panelIdentityWhere,
-      whereArgs: _panelIdentityWhereArgs(row),
+      where: _panelIdentityWhereForColumns(hierarchyColumns),
+      whereArgs: _panelIdentityWhereArgs(row, hierarchyColumns),
     );
   }
 
@@ -465,6 +541,12 @@ class PanelSampleRepository {
       'createdAt': sample.createdAt.toUtc().toIso8601String(),
       'updatedAt': sample.updatedAt.toUtc().toIso8601String(),
     };
+  }
+
+  bool _rowIdMatchesSampleId(String rowId, String sampleId) {
+    if (rowId == sampleId) return true;
+    final marker = ':$sampleId';
+    return rowId.endsWith(marker) || rowId.contains('$marker:');
   }
 
   Future<Map<String, Object?>> _withoutOrphanedPanelHatcheryId(
@@ -510,52 +592,80 @@ class PanelSampleRepository {
         }).join();
   }
 
-  static const _panelOrderBy =
-      'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC';
+  static const _defaultHierarchyColumns = [
+    'house',
+    'setter',
+    'hatcher',
+    'trolley',
+    'tray',
+    'position',
+  ];
 
-  static const _hierarchyRowsWhere = '''
+  static List<String> _hierarchyColumnsForTable(Set<String> columns) {
+    return _defaultHierarchyColumns
+        .where(columns.contains)
+        .toList(growable: false);
+  }
+
+  static String _panelOrderByForColumns(Set<String> columns) {
+    final orderColumns = [
+      ..._hierarchyColumnsForTable(columns),
+      if (columns.contains('createdAt')) 'createdAt',
+    ];
+    return orderColumns.map((column) => '$column ASC').join(', ');
+  }
+
+  static String _hierarchyRowsWhereForColumns(List<String> hierarchyColumns) {
+    if (hierarchyColumns.isEmpty) return 'sessionId = ? AND 1 = 0';
+    final hierarchyWhere = hierarchyColumns
+        .map((column) => '$column IS NOT NULL')
+        .join('\n      OR ');
+    return '''
+      sessionId = ?
+      AND (
+        $hierarchyWhere
+      )
+    ''';
+  }
+
+  static String _pooledRowsWhereForColumns(List<String> hierarchyColumns) {
+    if (hierarchyColumns.isEmpty) return 'sessionId = ?';
+    final hierarchyWhere = hierarchyColumns
+        .map((column) => '$column IS NULL')
+        .join('\n      AND ');
+    return '''
+      sessionId = ?
+      AND $hierarchyWhere
+    ''';
+  }
+
+  static String _panelIdentityWhereForColumns(List<String> hierarchyColumns) {
+    final hierarchyWhere = hierarchyColumns
+        .map((column) => "AND IFNULL($column, '') = ?")
+        .join('\n    ');
+    return '''
     sessionId = ?
-    AND (
-      house IS NOT NULL
-      OR setter IS NOT NULL
-      OR hatcher IS NOT NULL
-      OR trolley IS NOT NULL
-      OR tray IS NOT NULL
-      OR position IS NOT NULL
-    )
+    $hierarchyWhere
   ''';
+  }
 
-  static const _panelIdentityWhere = '''
-    sessionId = ?
-    AND IFNULL(house, '') = ?
-    AND IFNULL(setter, '') = ?
-    AND IFNULL(hatcher, '') = ?
-    AND IFNULL(trolley, '') = ?
-    AND IFNULL(tray, '') = ?
-    AND IFNULL(position, '') = ?
-  ''';
-
-  static List<Object?> _panelIdentityWhereArgs(Map<String, Object?> row) {
+  static List<Object?> _panelIdentityWhereArgs(
+    Map<String, Object?> row,
+    List<String> hierarchyColumns,
+  ) {
     return [
       row['sessionId'],
-      row['house'] ?? '',
-      row['setter'] ?? '',
-      row['hatcher'] ?? '',
-      row['trolley'] ?? '',
-      row['tray'] ?? '',
-      row['position'] ?? '',
+      for (final column in hierarchyColumns) row[column] ?? '',
     ];
   }
 
-  static String _hierarchyKey(Map<String, Object?> row) {
-    return [
-      row['house'],
-      row['setter'],
-      row['hatcher'],
-      row['trolley'],
-      row['tray'],
-      row['position'],
-    ].map((value) => value?.toString().trim() ?? '').join('\u001F');
+  static String _hierarchyKey(
+    Map<String, Object?> row,
+    List<String> hierarchyColumns,
+  ) {
+    return hierarchyColumns
+        .map((column) => row[column]?.toString().trim() ?? '')
+        .join('\u001F');
   }
 
   String? _firstText(String? first, [String? second, String? third]) {

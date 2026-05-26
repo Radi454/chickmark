@@ -498,6 +498,51 @@ void main() {
       verify(() => mockSupabase.syncAuditSession(any())).called(greaterThan(0));
     });
 
+    test(
+      'removeCurrentStationCompletion removes station and reopens session',
+      () async {
+        final completed = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            selectedStationKeys: const ['egg', 'chicks'],
+            stationsCompleted: const ['egg', 'chicks'],
+            status: 'completed',
+            completedAt: DateTime(2026, 1, 1),
+          ),
+        );
+        final updated = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: completed.id,
+            selectedStationKeys: const ['egg', 'chicks'],
+            stationsCompleted: const ['egg'],
+            status: 'in_progress',
+            completedAt: null,
+          ),
+        );
+        when(
+          () => mockRepo.updateSessionProgress(completed.id, const ['egg']),
+        ).thenAnswer((_) async {});
+        var getSessionCall = 0;
+        when(() => mockRepo.getSessionById(completed.id)).thenAnswer((_) async {
+          getSessionCall++;
+          return getSessionCall == 1 ? completed : updated;
+        });
+        when(
+          () => mockSupabase.syncAuditSession(any()),
+        ).thenAnswer((_) async {});
+
+        await provider.resumeSession(completed.id, initialStationIndex: 1);
+        provider.stationTransitionComplete();
+
+        await provider.removeCurrentStationCompletion();
+
+        expect(provider.stationsCompleted, ['egg']);
+        expect(provider.isSessionActive, isTrue);
+        verify(
+          () => mockRepo.updateSessionProgress(completed.id, const ['egg']),
+        ).called(1);
+      },
+    );
+
     test('coalesces duplicate station completion requests', () async {
       final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
       final updatedSession = AuditSessionModel.fromMap(updatedRow);

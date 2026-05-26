@@ -100,61 +100,38 @@ class _PasgarTabState extends State<PasgarTab> {
           .toList(),
     );
 
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _referenceCard(
-          key: const ValueKey('pasgar-sample-size-card'),
-          title: 'Sample Size',
-          showTitle: !widget.embedded,
-          children: [
-            AuditNumericField(
-              controller: _sampleSizeController,
-              enabled: !widget.isReadOnly,
-              decoration: _inputDecoration(
-                label: 'Number of chicks sampled',
-                errorText: _sampleSizeError,
+    final content = widget.embedded
+        ? _buildEmbeddedContent(pasgarScore)
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _referenceCard(
+                key: const ValueKey('pasgar-sample-size-card'),
+                title: 'Sample Size',
+                children: [_buildSampleSizeField()],
               ),
-              style: AppTextStyles.body.copyWith(
-                fontSize: widget.embedded ? 16 : 24,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 64),
+              _referenceCard(
+                key: const ValueKey('pasgar-defect-counts-card'),
+                title: 'Defect Counts',
+                children: [
+                  _buildDefectInput(0, 'Reflexes'),
+                  const SizedBox(height: 18),
+                  _buildDefectInput(1, 'Beak'),
+                  const SizedBox(height: 18),
+                  _buildDefectInput(2, 'Navel'),
+                  const SizedBox(height: 18),
+                  _buildDefectInput(3, 'Belly'),
+                  const SizedBox(height: 18),
+                  _buildDefectInput(4, 'Leg'),
+                  const SizedBox(height: 18),
+                  _buildDefectInput(5, 'Feather Dev'),
+                ],
               ),
-              onChanged: (value) {
-                setState(() {
-                  _validateSampleSize();
-                });
-                widget.onFieldChanged(
-                  'pasgarSampleSize',
-                  int.tryParse(value) ?? 0,
-                );
-                _persistScore();
-              },
-            ),
-          ],
-        ),
-        SizedBox(height: widget.embedded ? AppSizes.spaceMd : 64),
-        _referenceCard(
-          key: const ValueKey('pasgar-defect-counts-card'),
-          title: 'Defect Counts',
-          showTitle: !widget.embedded,
-          children: [
-            _buildDefectInput(0, 'Reflexes'),
-            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
-            _buildDefectInput(1, 'Beak'),
-            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
-            _buildDefectInput(2, 'Navel'),
-            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
-            _buildDefectInput(3, 'Belly'),
-            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
-            _buildDefectInput(4, 'Leg'),
-            SizedBox(height: widget.embedded ? AppSizes.spaceMd : 18),
-            _buildDefectInput(5, 'Feather Dev'),
-          ],
-        ),
-        SizedBox(height: widget.embedded ? AppSizes.spaceMd : 24),
-        _buildScoreCard(pasgarScore),
-      ],
-    );
+              const SizedBox(height: 24),
+              _buildScoreCard(pasgarScore),
+            ],
+          );
 
     if (widget.embedded) return AuditNumericKeyboardScope(child: content);
 
@@ -183,48 +160,138 @@ class _PasgarTabState extends State<PasgarTab> {
     required Key key,
     required String title,
     required List<Widget> children,
-    bool showTitle = true,
   }) {
-    final compact = widget.embedded;
     return Container(
       key: key,
       width: double.infinity,
-      padding: EdgeInsets.all(compact ? AppSizes.spaceLg : 32),
+      padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: compact ? AppColors.surface : Colors.white,
-        borderRadius: BorderRadius.circular(compact ? AppSizes.cardRadius : 24),
-        border: compact ? Border.all(color: AppColors.borderDefault) : null,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: compact ? 0.012 : 0.03),
-            blurRadius: compact ? 8 : 18,
-            offset: Offset(0, compact ? 2 : 8),
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        children: [_cardTitle(title), const SizedBox(height: 24), ...children],
+      ),
+    );
+  }
+
+  Widget _buildEmbeddedContent(double pasgarScore) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildEmbeddedSampleSizeRow(),
+        const SizedBox(height: AppSizes.spaceSm),
+        _buildEmbeddedDefectList(),
+        const SizedBox(height: AppSizes.spaceSm),
+        _buildScoreCard(pasgarScore),
+      ],
+    );
+  }
+
+  Widget _buildEmbeddedSampleSizeRow() {
+    return Container(
+      key: const ValueKey('pasgar-sample-size-card'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceMd,
+        vertical: AppSizes.spaceSm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
         children: [
-          if (showTitle) ...[
-            _cardTitle(title),
-            SizedBox(height: compact ? AppSizes.spaceMd : 24),
+          Expanded(
+            child: Text(
+              'Number of chicks sampled',
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ),
+          const SizedBox(width: AppSizes.spaceMd),
+          SizedBox(width: 92, child: _buildSampleSizeField(compactRow: true)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmbeddedDefectList() {
+    const rows = [
+      (0, 'Reflexes'),
+      (1, 'Beak'),
+      (2, 'Navel'),
+      (3, 'Belly'),
+      (4, 'Leg'),
+      (5, 'Feather Dev'),
+    ];
+
+    return Container(
+      key: const ValueKey('pasgar-defect-counts-card'),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSizes.spaceMd,
+                vertical: AppSizes.spaceSm,
+              ),
+              child: _buildDefectInput(rows[i].$1, rows[i].$2),
+            ),
+            if (i < rows.length - 1)
+              const Divider(height: 1, thickness: 1, color: AppColors.divider),
           ],
-          ...children,
         ],
       ),
     );
   }
 
   Widget _cardTitle(String title) {
-    final compact = widget.embedded;
     return Text(
       title,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: AppTextStyles.heading.copyWith(
-        fontSize: compact ? 18 : 28,
+        fontSize: 28,
         fontWeight: FontWeight.w800,
       ),
+    );
+  }
+
+  Widget _buildSampleSizeField({bool compactRow = false}) {
+    return AuditNumericField(
+      controller: _sampleSizeController,
+      enabled: !widget.isReadOnly,
+      textAlign: compactRow ? TextAlign.center : TextAlign.start,
+      decoration: compactRow
+          ? _compactInputDecoration(_sampleSizeError)
+          : _inputDecoration(
+              label: 'Number of chicks sampled',
+              errorText: _sampleSizeError,
+            ),
+      style: AppTextStyles.body.copyWith(
+        fontSize: compactRow ? 18 : 24,
+        fontWeight: FontWeight.w800,
+      ),
+      onChanged: (value) {
+        setState(() {
+          _validateSampleSize();
+        });
+        widget.onFieldChanged('pasgarSampleSize', int.tryParse(value) ?? 0);
+        _persistScore();
+      },
     );
   }
 
@@ -270,34 +337,60 @@ class _PasgarTabState extends State<PasgarTab> {
         ? Colors.orange
         : Colors.red;
 
+    if (widget.embedded) {
+      return Container(
+        key: const ValueKey('pasgar-score-card'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceMd,
+          vertical: AppSizes.spaceMd,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.statusGoodBg,
+          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+          border: Border.all(color: AppColors.statusGood.withAlpha(48)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'PASGAR Score',
+                style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Text(
+              '${pasgarScore.toStringAsFixed(1)}/10',
+              style: AppTextStyles.heading.copyWith(
+                fontSize: 24,
+                color: scoreColor,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       key: const ValueKey('pasgar-score-card'),
       width: double.infinity,
-      padding: EdgeInsets.all(widget.embedded ? AppSizes.spaceLg : 28),
+      padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: widget.embedded ? AppColors.surface : Colors.white,
-        borderRadius: BorderRadius.circular(
-          widget.embedded ? AppSizes.cardRadius : 24,
-        ),
-        border: widget.embedded
-            ? Border.all(color: AppColors.borderDefault)
-            : null,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'PASGAR Score',
-            style: AppTextStyles.body.copyWith(
-              fontSize: widget.embedded ? 14 : null,
-              fontWeight: FontWeight.w800,
-            ),
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 4),
           Text(
             '${pasgarScore.toStringAsFixed(1)}/10',
             style: AppTextStyles.heading.copyWith(
-              fontSize: widget.embedded ? 24 : 32,
+              fontSize: 32,
               color: scoreColor,
             ),
           ),
@@ -337,13 +430,13 @@ class _PasgarTabState extends State<PasgarTab> {
         ),
         SizedBox(width: controlGap),
         SizedBox(
-          width: compact ? 62 : 110,
+          width: compact ? 52 : 110,
           child: AuditNumericField(
             controller: _controllers[index],
             enabled: !widget.isReadOnly,
             textAlign: TextAlign.center,
             style: AppTextStyles.body.copyWith(
-              fontSize: compact ? 16 : 22,
+              fontSize: compact ? 15 : 22,
               fontWeight: FontWeight.w700,
             ),
             decoration: _defectInputDecoration(
@@ -368,7 +461,7 @@ class _PasgarTabState extends State<PasgarTab> {
         PhotoButton(
           photoPath: widget.audit.toMap()[photoFields[index]] as String?,
           enabled: !widget.isReadOnly,
-          size: compact ? 40 : 56,
+          size: compact ? 36 : 56,
           onPhotoCaptured: (path) =>
               widget.onFieldChanged(photoFields[index], path),
         ),
@@ -376,7 +469,7 @@ class _PasgarTabState extends State<PasgarTab> {
     );
 
     Widget labelBlock({required bool stacked}) {
-      final labelFontSize = compact ? (stacked ? 16.0 : 17.0) : 24.0;
+      final labelFontSize = compact ? (stacked ? 15.0 : 16.0) : 24.0;
       final percentFontSize = compact ? 12.0 : 16.0;
       return Row(
         children: [
@@ -415,7 +508,7 @@ class _PasgarTabState extends State<PasgarTab> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compactLayout = compact && constraints.maxWidth < 360;
+        final compactLayout = compact && constraints.maxWidth < 380;
         if (compactLayout) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -460,8 +553,8 @@ class _PasgarTabState extends State<PasgarTab> {
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
       constraints: BoxConstraints.tightFor(
-        width: compact ? 32 : 48,
-        height: compact ? 36 : 48,
+        width: compact ? 28 : 48,
+        height: compact ? 32 : 48,
       ),
     );
   }
@@ -493,6 +586,31 @@ class _PasgarTabState extends State<PasgarTab> {
       contentPadding: EdgeInsets.symmetric(
         horizontal: compact ? AppSizes.spaceSm : 12,
         vertical: compact ? 10 : 20,
+      ),
+      errorText: errorText,
+    );
+  }
+
+  InputDecoration _compactInputDecoration(String? errorText) {
+    return InputDecoration(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+        borderSide: const BorderSide(color: AppColors.borderDefault),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+      ),
+      filled: true,
+      fillColor: AppColors.surface,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceSm,
+        vertical: AppSizes.spaceSm,
       ),
       errorText: errorText,
     );

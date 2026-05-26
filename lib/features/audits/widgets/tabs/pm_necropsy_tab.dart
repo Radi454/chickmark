@@ -172,12 +172,6 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
         'severity': widget.audit.pmGaseousCecaSeverity,
       },
       {
-        'label': 'Gizzard Erosions',
-        'field': 'pm_gizzardErosions',
-        'count': widget.audit.pmGizzardErosionsCount,
-        'severity': widget.audit.pmGizzardErosionsSeverity,
-      },
-      {
         'label': 'Air Sac Caseations',
         'field': 'pm_airSacCaseations',
         'count': widget.audit.pmAirSacCaseationsCount,
@@ -200,6 +194,12 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
         'field': 'pm_generalSepticemia',
         'count': widget.audit.pmGeneralSepticemiaCount,
         'severity': widget.audit.pmGeneralSepticemiaSeverity,
+      },
+      {
+        'label': 'Gizzard Erosions',
+        'field': 'pm_gizzardErosions',
+        'count': widget.audit.pmGizzardErosionsCount,
+        'severity': widget.audit.pmGizzardErosionsSeverity,
       },
     ];
 

@@ -400,7 +400,9 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         final value = sampleWeights[i];
         _weightControllers[i].text = value == null ? '' : value.toString();
       }
-    } else if (audit.chickWeights != null && audit.chickWeights!.isNotEmpty) {
+    } else if (!provider.isChickWeightCompareMode &&
+        audit.chickWeights != null &&
+        audit.chickWeights!.isNotEmpty) {
       try {
         final decoded = jsonDecode(audit.chickWeights!);
         if (decoded is List) {
@@ -934,13 +936,37 @@ class _FlockInfo extends StatelessWidget {
   }
 }
 
-class _HouseWeightSampleControls extends StatelessWidget {
+class _HouseWeightSampleControls extends StatefulWidget {
   final AuditProvider provider;
 
   const _HouseWeightSampleControls({required this.provider});
 
   @override
+  State<_HouseWeightSampleControls> createState() =>
+      _HouseWeightSampleControlsState();
+}
+
+class _HouseWeightSampleControlsState
+    extends State<_HouseWeightSampleControls> {
+  final Map<String, TextEditingController> _identityControllers = {};
+  final Map<String, FocusNode> _identityFocusNodes = {};
+
+  AuditProvider get provider => widget.provider;
+
+  @override
+  void dispose() {
+    for (final controller in _identityControllers.values) {
+      controller.dispose();
+    }
+    for (final node in _identityFocusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    _pruneIdentityFields(provider.chickWeightSamples);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1049,7 +1075,7 @@ class _HouseWeightSampleControls extends StatelessWidget {
           icon: Icons.add,
           onPressed: provider.isReadOnly ? null : provider.addChickWeightSample,
         ),
-        if (active && provider.chickWeightSamples.length > 1) ...[
+        if (active) ...[
           const SizedBox(width: 8),
           _buildHouseSampleActionButton(
             tooltip: 'Remove active house sample',
@@ -1100,7 +1126,8 @@ class _HouseWeightSampleControls extends StatelessWidget {
         _buildScopeInputFields([
           TextFormField(
             key: ValueKey('chick-weight-house-${sample.id}'),
-            initialValue: sample.houseNo ?? '',
+            controller: _identityController(sample),
+            focusNode: _identityFocusNode(sample),
             enabled: !provider.isReadOnly,
             textInputAction: TextInputAction.done,
             decoration: _scopeInputDecoration('House'),
@@ -1113,6 +1140,54 @@ class _HouseWeightSampleControls extends StatelessWidget {
         ]),
       ],
     );
+  }
+
+  TextEditingController _identityController(StationSampleModel sample) {
+    final nextText = _fieldValue(sample);
+    final controller = _identityControllers.putIfAbsent(
+      sample.id,
+      () => TextEditingController(text: nextText),
+    );
+    final focusNode = _identityFocusNodes[sample.id];
+
+    if (focusNode?.hasFocus != true && controller.text != nextText) {
+      controller.value = TextEditingValue(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: nextText.length),
+      );
+    }
+
+    return controller;
+  }
+
+  FocusNode _identityFocusNode(StationSampleModel sample) {
+    return _identityFocusNodes.putIfAbsent(sample.id, FocusNode.new);
+  }
+
+  void _pruneIdentityFields(List<StationSampleModel> samples) {
+    final validKeys = samples.map((sample) => sample.id).toSet();
+    for (final key in _identityControllers.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _identityControllers.remove(key)?.dispose();
+      _identityFocusNodes.remove(key)?.dispose();
+    }
+    for (final key in _identityFocusNodes.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _identityFocusNodes.remove(key)?.dispose();
+    }
+  }
+
+  String _fieldValue(StationSampleModel sample) {
+    final value = sample.houseNo?.trim();
+    if (value == null || value.isEmpty) return '';
+    if (_isGeneratedHouseScopeValue(sample, value)) return '';
+    return sample.houseNo ?? '';
+  }
+
+  bool _isGeneratedHouseScopeValue(StationSampleModel sample, String value) {
+    if (value == 'H') return true;
+    if (!RegExp(r'^H\d+$').hasMatch(value)) return false;
+    return sample.sampleLabel == value && sample.houseNo == value;
   }
 
   Widget _buildHouseSampleChip({
@@ -1179,13 +1254,35 @@ class _HouseWeightSampleControls extends StatelessWidget {
   }
 }
 
-class _MachineSampleControls extends StatelessWidget {
+class _MachineSampleControls extends StatefulWidget {
   final AuditProvider provider;
 
   const _MachineSampleControls({required this.provider});
 
   @override
+  State<_MachineSampleControls> createState() => _MachineSampleControlsState();
+}
+
+class _MachineSampleControlsState extends State<_MachineSampleControls> {
+  final Map<String, TextEditingController> _identityControllers = {};
+  final Map<String, FocusNode> _identityFocusNodes = {};
+
+  AuditProvider get provider => widget.provider;
+
+  @override
+  void dispose() {
+    for (final controller in _identityControllers.values) {
+      controller.dispose();
+    }
+    for (final node in _identityFocusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    _pruneIdentityFields(provider.stationSamples);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1276,14 +1373,18 @@ class _MachineSampleControls extends StatelessWidget {
         _buildMachineSampleActionButton(
           tooltip: 'Add machine sample',
           icon: Icons.add,
-          onPressed: provider.isReadOnly ? null : provider.addSample,
+          onPressed: provider.isReadOnly
+              ? null
+              : provider.addChickQualityMachineScopeSample,
         ),
-        if (active && provider.sampleCount > 1) ...[
+        if (active) ...[
           const SizedBox(width: 8),
           _buildMachineSampleActionButton(
             tooltip: 'Remove active machine sample',
             icon: Icons.remove,
-            onPressed: provider.isReadOnly ? null : provider.removeActiveSample,
+            onPressed: provider.isReadOnly
+                ? null
+                : provider.removeActiveChickQualityMachineScopeSample,
           ),
         ],
       ],
@@ -1326,18 +1427,9 @@ class _MachineSampleControls extends StatelessWidget {
         const SizedBox(height: 10),
         _buildScopeInputFields([
           TextFormField(
-            key: ValueKey('chick-machine-house-${sample.id}'),
-            initialValue: sample.houseNo ?? '',
-            enabled: !provider.isReadOnly,
-            textInputAction: TextInputAction.next,
-            decoration: _scopeInputDecoration('House'),
-            onChanged: (value) {
-              provider.updateSampleMetadata({'houseNo': value.trim()});
-            },
-          ),
-          TextFormField(
             key: ValueKey('chick-machine-setter-${sample.id}'),
-            initialValue: sample.setterNo ?? '',
+            controller: _identityController(sample, 'setter'),
+            focusNode: _identityFocusNode(sample, 'setter'),
             enabled: !provider.isReadOnly,
             textInputAction: TextInputAction.next,
             decoration: _scopeInputDecoration('Setter'),
@@ -1347,7 +1439,8 @@ class _MachineSampleControls extends StatelessWidget {
           ),
           TextFormField(
             key: ValueKey('chick-machine-hatcher-${sample.id}'),
-            initialValue: sample.hatcherNo ?? '',
+            controller: _identityController(sample, 'hatcher'),
+            focusNode: _identityFocusNode(sample, 'hatcher'),
             enabled: !provider.isReadOnly,
             textInputAction: TextInputAction.done,
             decoration: _scopeInputDecoration('Hatcher'),
@@ -1358,6 +1451,89 @@ class _MachineSampleControls extends StatelessWidget {
         ]),
       ],
     );
+  }
+
+  TextEditingController _identityController(
+    StationSampleModel sample,
+    String field,
+  ) {
+    final key = _identityKey(sample, field);
+    final nextText = _fieldValue(sample, field);
+    final controller = _identityControllers.putIfAbsent(
+      key,
+      () => TextEditingController(text: nextText),
+    );
+    final focusNode = _identityFocusNodes[key];
+
+    if (focusNode?.hasFocus != true && controller.text != nextText) {
+      controller.value = TextEditingValue(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: nextText.length),
+      );
+    }
+
+    return controller;
+  }
+
+  FocusNode _identityFocusNode(StationSampleModel sample, String field) {
+    final key = _identityKey(sample, field);
+    return _identityFocusNodes.putIfAbsent(key, FocusNode.new);
+  }
+
+  void _pruneIdentityFields(List<StationSampleModel> samples) {
+    final validKeys = <String>{
+      for (final sample in samples)
+        for (final field in const ['setter', 'hatcher'])
+          _identityKey(sample, field),
+    };
+
+    for (final key in _identityControllers.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _identityControllers.remove(key)?.dispose();
+      _identityFocusNodes.remove(key)?.dispose();
+    }
+    for (final key in _identityFocusNodes.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _identityFocusNodes.remove(key)?.dispose();
+    }
+  }
+
+  String _identityKey(StationSampleModel sample, String field) {
+    return '${sample.id}:$field';
+  }
+
+  String _fieldValue(StationSampleModel sample, String field) {
+    final value = switch (field) {
+      'setter' => sample.setterNo,
+      'hatcher' => sample.hatcherNo,
+      _ => null,
+    };
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return '';
+
+    final prefix = field == 'setter' ? 'S' : 'H';
+    if (_isGeneratedMachineScopeValue(sample, trimmed, prefix)) return '';
+    return value ?? '';
+  }
+
+  bool _isGeneratedMachineScopeValue(
+    StationSampleModel sample,
+    String value,
+    String prefix,
+  ) {
+    if (value == prefix) return true;
+    if (!RegExp('^$prefix\\d+\$').hasMatch(value)) return false;
+    return value == '$prefix${_scopeSerial(sample)}';
+  }
+
+  int _scopeSerial(StationSampleModel sample) {
+    var serial = 0;
+    for (final candidate in provider.stationSamples) {
+      if (candidate.sampleKind != sample.sampleKind) continue;
+      serial++;
+      if (candidate.id == sample.id) return serial;
+    }
+    return sample.sampleIndex;
   }
 
   Widget _buildMachineSampleChip({

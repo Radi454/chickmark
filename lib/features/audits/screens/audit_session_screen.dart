@@ -30,6 +30,7 @@ import '../../govee/providers/govee_capture_provider.dart';
 import '../../govee/widgets/govee_floating_launcher.dart';
 import '../../../providers/customers_provider.dart';
 import '../models/egg_breakout_sample.dart';
+import '../models/station_completion_validation.dart';
 
 bool auditSessionCompletionRoutePredicate(Route<dynamic> route) {
   return route.settings.name == '/main' || route.isFirst;
@@ -51,6 +52,20 @@ class AuditSessionScreen extends StatefulWidget {
   State<AuditSessionScreen> createState() => _AuditSessionScreenState();
 }
 
+enum _StationExitIntent { back, jump, forward, finalSave }
+
+class _StationExitDecision {
+  final StationCompletionValidation validation;
+  final bool confirmed;
+
+  const _StationExitDecision({
+    required this.validation,
+    required this.confirmed,
+  });
+
+  bool get canMove => confirmed && validation.canNavigate;
+}
+
 class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
@@ -63,9 +78,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   @override
   void dispose() {
-    for (final provider in _stationAuditProviders.values) {
-      provider.dispose();
-    }
+    _resetMountedStationState();
     super.dispose();
   }
 
@@ -144,7 +157,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     String? currentStationKey,
   ) {
     if (_mountedSessionId != sessionId) {
-      _mountedStationKeys.clear();
+      _resetMountedStationState();
       _mountedSessionId = sessionId;
     }
 
@@ -152,6 +165,15 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     if (currentStationKey != null) {
       _mountedStationKeys.add(currentStationKey);
     }
+  }
+
+  void _resetMountedStationState() {
+    for (final provider in _stationAuditProviders.values) {
+      provider.dispose();
+    }
+    _stationAuditProviders.clear();
+    _eggStorageControllers.clear();
+    _mountedStationKeys.clear();
   }
 
   Widget _buildMountedStationStack(
@@ -269,6 +291,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                   final isCurrent = index == provider.currentStationIndex;
                   final isPast = index < provider.currentStationIndex;
                   final isReached = isCompleted || isCurrent || isPast;
+                  final nodeColor = isCurrent
+                      ? AppColors.primary
+                      : isReached
+                      ? AppColors.completedText
+                      : Colors.grey.shade300;
 
                   return Expanded(
                     child: GestureDetector(
@@ -284,12 +311,41 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                             height: nodeSize,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: isReached
-                                  ? AppColors.completedText
-                                  : Colors.grey.shade300,
+                              color: nodeColor,
+                              border: isCurrent
+                                  ? Border.all(
+                                      color: AppColors.primaryLight,
+                                      width: 2,
+                                    )
+                                  : null,
+                              boxShadow: isCurrent
+                                  ? const [
+                                      BoxShadow(
+                                        color: AppColors.cardShadowElevated,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ]
+                                  : null,
                             ),
                             child: Center(
-                              child: isReached
+                              child: isCurrent
+                                  ? Container(
+                                      key: ValueKey(
+                                        'audit-session-progress-current-marker-$index',
+                                      ),
+                                      width: 13,
+                                      height: 13,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.white,
+                                        border: Border.all(
+                                          color: AppColors.primaryLight,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    )
+                                  : isReached
                                   ? const Icon(
                                       Icons.check,
                                       size: 12,
@@ -317,10 +373,14 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                             style: TextStyle(
                               fontSize: 11,
                               height: 1.05,
-                              fontWeight: isReached
+                              fontWeight: isCurrent
+                                  ? FontWeight.w800
+                                  : isReached
                                   ? FontWeight.w700
                                   : FontWeight.w500,
-                              color: isReached
+                              color: isCurrent
+                                  ? AppColors.primary
+                                  : isReached
                                   ? AppColors.completedText
                                   : Colors.grey.shade600,
                             ),
@@ -378,7 +438,9 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     );
 
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
-      final p = AuditProvider();
+      final p = AuditProvider(
+        panelSampleRepository: widget.panelSampleRepository,
+      );
       return p;
     });
 
@@ -408,7 +470,6 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final index = provider.currentStationIndex;
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
-    final isCompletedReview = provider.isSessionComplete;
     final stationProvider = _currentStationProvider;
 
     return Container(
@@ -471,16 +532,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : Icon(
-                        isCompletedReview || isLast
-                            ? Icons.save
-                            : Icons.arrow_forward,
-                        size: 18,
-                      ),
+                    : Icon(isLast ? Icons.save : Icons.arrow_forward, size: 18),
                 label: Text(
                   _isSavingStation
                       ? 'Saving...'
-                      : (isCompletedReview || isLast ? 'Save' : 'Next Station'),
+                      : (isLast ? 'Save' : 'Next Station'),
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -581,8 +637,13 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handleBackNavigation(BuildContext context) async {
-    final shouldLeave = await _confirmStationExit();
-    if (!shouldLeave) return;
+    final decision = await _confirmStationExit(intent: _StationExitIntent.back);
+    if (!decision.canMove) return;
+    if (!mounted) return;
+    await _removeCompletionIfNeeded(
+      this.context.read<AuditSessionProvider>(),
+      decision,
+    );
     if (!mounted) return;
 
     final sessionProvider = this.context.read<AuditSessionProvider>();
@@ -597,28 +658,39 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {
     if (_isSavingStation) return;
-    final wasCompleted = provider.isSessionComplete;
-    final shouldContinue = await _confirmStationExit();
-    if (!shouldContinue) return;
-
-    await provider.markCurrentStationCompleted();
-
-    if (wasCompleted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Station saved.')));
-      return;
-    }
-
+    final wasSessionCompleted = provider.isSessionComplete;
     final isLast =
         provider.currentStationIndex == provider.stationKeys.length - 1;
+    final decision = await _confirmStationExit(
+      intent: isLast
+          ? _StationExitIntent.finalSave
+          : _StationExitIntent.forward,
+    );
+    if (!decision.canMove) return;
+
+    if (decision.validation.shouldMarkCompleted) {
+      await provider.markCurrentStationCompleted();
+    } else {
+      await _removeCompletionIfNeeded(provider, decision);
+    }
 
     if (!isLast) {
       provider.goToNextStation();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         provider.stationTransitionComplete();
       });
+    } else if (!decision.validation.shouldMarkCompleted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Station saved without completing the visit.'),
+        ),
+      );
+    } else if (wasSessionCompleted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Station saved.')));
     } else {
       await provider.completeSession();
       if (!mounted) return;
@@ -653,8 +725,9 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   }
 
   Future<void> _handlePreviousStation(AuditSessionProvider provider) async {
-    final shouldMove = await _confirmStationExit();
-    if (!shouldMove) return;
+    final decision = await _confirmStationExit(intent: _StationExitIntent.back);
+    if (!decision.canMove) return;
+    await _removeCompletionIfNeeded(provider, decision);
 
     provider.goToPreviousStation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -669,8 +742,9 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   ) async {
     if (stationIndex == provider.currentStationIndex) return;
 
-    final shouldMove = await _confirmStationExit();
-    if (!shouldMove) return;
+    final decision = await _confirmStationExit(intent: _StationExitIntent.jump);
+    if (!decision.canMove) return;
+    await _removeCompletionIfNeeded(provider, decision);
 
     provider.goToStation(stationIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -678,22 +752,61 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     });
   }
 
-  Future<bool> _confirmStationExit() async {
-    final stationAuditProvider = _currentStationProvider;
-    if (stationAuditProvider == null) return true;
+  Future<void> _removeCompletionIfNeeded(
+    AuditSessionProvider provider,
+    _StationExitDecision decision,
+  ) async {
+    if (decision.validation.shouldMarkCompleted) return;
+    if (provider.isStationCompleted) {
+      await provider.removeCurrentStationCompletion();
+    }
+  }
 
-    if (!mounted) return false;
+  Future<_StationExitDecision> _confirmStationExit({
+    required _StationExitIntent intent,
+  }) async {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    final stationKey =
+        sessionProvider.currentSession == null ||
+            sessionProvider.currentStationIndex < 0 ||
+            sessionProvider.currentStationIndex >=
+                sessionProvider.stationKeys.length
+        ? ''
+        : sessionProvider.stationKeys[sessionProvider.currentStationIndex];
+    final stationAuditProvider = _currentStationProvider;
+    if (stationAuditProvider == null) {
+      return _StationExitDecision(
+        validation: StationCompletionValidation.complete(stationKey),
+        confirmed: true,
+      );
+    }
+
+    if (!mounted) {
+      return _StationExitDecision(
+        validation: StationCompletionValidation.failed(stationKey),
+        confirmed: false,
+      );
+    }
 
     setState(() => _isSavingStation = true);
-    var saved = false;
+    var validation = StationCompletionValidation.failed(stationKey);
     try {
       final prepared = await _prepareCurrentStationForExit();
-      saved = prepared ? await _saveCurrentStation() : false;
-      if (!mounted) return false;
+      final saved = prepared ? await _saveCurrentStation() : false;
+      if (!mounted) {
+        return _StationExitDecision(validation: validation, confirmed: false);
+      }
       if (!saved) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not save station. Try again.')),
         );
+      } else {
+        validation = stationAuditProvider.validateStationCompletion(stationKey);
+        if (validation.status == StationCompletionStatus.failed) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(validation.message)));
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -701,11 +814,57 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
           const SnackBar(content: Text('Could not save station. Try again.')),
         );
       }
-      saved = false;
+      validation = StationCompletionValidation.failed(stationKey);
     } finally {
       if (mounted) setState(() => _isSavingStation = false);
     }
-    return saved;
+
+    if (!validation.canNavigate || !mounted) {
+      return _StationExitDecision(validation: validation, confirmed: false);
+    }
+    if (!validation.needsIncompleteConfirmation) {
+      return _StationExitDecision(validation: validation, confirmed: true);
+    }
+
+    final confirmed = await _showIncompleteStationDialog(intent);
+    return _StationExitDecision(
+      validation: validation,
+      confirmed: confirmed && mounted,
+    );
+  }
+
+  Future<bool> _showIncompleteStationDialog(_StationExitIntent intent) async {
+    final body = switch (intent) {
+      _StationExitIntent.finalSave =>
+        'This station was saved, but it does not have enough core data to complete the visit. Continue saving it as incomplete?',
+      _StationExitIntent.forward =>
+        'This station was saved, but it does not have enough core data to mark complete. Continue to the next station without completing it?',
+      _StationExitIntent.jump =>
+        'This station was saved, but it does not have enough core data to mark complete. Continue to the selected station without completing it?',
+      _StationExitIntent.back =>
+        'This station was saved, but it does not have enough core data to mark complete. Leave it incomplete and continue?',
+    };
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Continue without completing?'),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Stay'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed ?? false;
   }
 
   Future<bool> _prepareCurrentStationForExit() async {
@@ -821,6 +980,9 @@ class _StationFrameState extends State<_StationFrame> {
   List<AuditModel> _auditDraftsFromPanelRows(
     Map<String, List<Map<String, dynamic>>> rowsByPanel,
   ) {
+    final eggDrafts = _eggAuditDraftsFromPanelRows(rowsByPanel);
+    if (eggDrafts != null) return eggDrafts;
+
     final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
     final groupIndexes = <String, int>{};
     for (final entry in rowsByPanel.entries) {
@@ -885,6 +1047,31 @@ class _StationFrameState extends State<_StationFrame> {
     return map;
   }
 
+  List<AuditModel>? _eggAuditDraftsFromPanelRows(
+    Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  ) {
+    if (widget.stationKey != 'egg') return null;
+    final qualityRows =
+        rowsByPanel['egg_quality'] ?? const <Map<String, dynamic>>[];
+    if (qualityRows.isEmpty) return null;
+
+    final pooledStorageRecords =
+        (rowsByPanel['egg_storage'] ?? const <Map<String, dynamic>>[])
+            .where((row) => !_rowHasHierarchy(row))
+            .map((row) => (table: 'egg_storage', row: row))
+            .toList();
+
+    return [
+      for (final entry in qualityRows.asMap().entries)
+        AuditModel.fromMap(
+          _auditMapFromPanelRows(entry.key, [
+            (table: 'egg_quality', row: entry.value),
+            ...pooledStorageRecords,
+          ]),
+        ),
+    ];
+  }
+
   void _mergePanelRowIntoAuditMap(
     Map<String, dynamic> map,
     String table,
@@ -938,11 +1125,40 @@ class _StationFrameState extends State<_StationFrame> {
         copy('pasgarLeg', 'pasgarLegCount');
         copy('pasgarFeatherDev', 'pasgarFeatherDevCount');
         copy('pasgarFinalScore', 'pasgarFinalScore');
+        copy('chaCo2', 'co2Ppm');
+        copy('chaCo2Photo', 'co2Photo');
+        copy('chaPm10', 'pm10');
+        copy('chaPm10Photo', 'pm10Photo');
+        copy('chaPm25', 'pm25');
+        copy('chaPm25Photo', 'pm25Photo');
+        copy('chaAirVelocitySpot1', 'airVelocitySpot1');
+        copy('chaAirVelocitySpot1Photo', 'airVelocitySpot1Photo');
+        copy('chaAirVelocitySpot2', 'airVelocitySpot2');
+        copy('chaAirVelocitySpot2Photo', 'airVelocitySpot2Photo');
+        copy('chaAirVelocitySpot3', 'airVelocitySpot3');
+        copy('chaAirVelocitySpot3Photo', 'airVelocitySpot3Photo');
+        copy('chaAirInlet', 'airInlet');
+        copy('chaAirInletPhoto', 'airInletPhoto');
+        copy('chaAirOutlet', 'airOutlet');
+        copy('chaAirOutletPhoto', 'airOutletPhoto');
+        copy('chaNoiseLevel', 'noiseLevel');
+        copy('chaNoiseLevelPhoto', 'noiseLevelPhoto');
+        copy('yfbmPhoto', 'yfbmPhoto');
         copy('yfbmEntries', 'yfbmEntriesJson');
         copy('yfbmAvgPct', 'yfbmAvgPct');
         copy('yfbmCvPct', 'yfbmCvPct');
         copy('cvtReadingsJson', 'cvtReadingsJson');
+        copy('cvtPhotosJson', 'cvtPhotosJson');
         copy('cvtSampleSize', 'cvtSampleSize');
+        copy('cvtTopBasket', 'cvtTopBasket');
+        copy('cvtTopTemp', 'cvtTopTemp');
+        copy('cvtTopPhoto', 'cvtTopPhoto');
+        copy('cvtMiddleBasket', 'cvtMiddleBasket');
+        copy('cvtMiddleTemp', 'cvtMiddleTemp');
+        copy('cvtMiddlePhoto', 'cvtMiddlePhoto');
+        copy('cvtBottomBasket', 'cvtBottomBasket');
+        copy('cvtBottomTemp', 'cvtBottomTemp');
+        copy('cvtBottomPhoto', 'cvtBottomPhoto');
         copy('cvtAvg', 'cvtAvgTemp');
         copy('cvtCvPct', 'cvtCvPct');
         copy('pm_sampleSize', 'pmSampleSize');
@@ -982,6 +1198,12 @@ class _StationFrameState extends State<_StationFrame> {
         copy('pm_otherLesionsJson', 'pmOtherLesionsJson');
         copy('pm_suspectedCauseAuto', 'pmSuspectedCauseAuto');
         copy('pm_suspectedCauseManual', 'pmSuspectedCauseManual');
+        copy('pm_photosJson', 'pmPhotosJson');
+        copy('culledChicksTotalEggSet', 'culledChicksTotalEggSet');
+        copy('culledChicksAnalysisJson', 'culledChicksAnalysisJson');
+        copy('culledChicksAffectedPct', 'culledChicksAffectedPct');
+        copy('culledChicksTopCategory', 'culledChicksTopCategory');
+        copy('culledChicksTopSubtype', 'culledChicksTopSubtype');
         break;
       case 'chick_weights':
         copy('chickWeights', 'weightsJson');
@@ -1023,12 +1245,16 @@ class _StationFrameState extends State<_StationFrame> {
         copy('so_totalEggsSet', 'totalEggsSet');
         copy('so_turningAngle', 'turningAngle');
         copy('soCo2', 'co2Ppm');
+        copy('soCo2Photo', 'co2Photo');
         copy('soBreed', 'estBreed');
         copy('soIncubationAge', 'incubationAgeDays');
         copy('soIncubationHours', 'incubationHours');
         copy('soEstReadings', 'estReadingsJson');
+        copy('soEstPhotos', 'estPhotosJson');
+        copy('so_estSamplesJson', 'estSamplesJson');
         copy('soEstAvg', 'estAvg');
         copy('soEstCv', 'estCvPct');
+        copy('so_machineScreenPhoto', 'machineScreenPhoto');
         break;
       case 'hatcher_optimizing':
         copy('hatcherId', 'hatcher');
@@ -1038,11 +1264,15 @@ class _StationFrameState extends State<_StationFrame> {
         copy('hoIncubationAge', 'incubationAgeDays');
         copy('hoIncubationHours', 'incubationHours');
         copy('hoCo2', 'co2Ppm');
+        copy('hoCo2Photo', 'co2Photo');
         copy('hoCvtReadings', 'cvtReadingsJson');
+        copy('hoCvtPhotos', 'cvtPhotosJson');
         copy('hoCvtAvg', 'cvtAvg');
         copy('hoCvtCv', 'cvtCvPct');
         copy('hoChickPanting', 'chickPanting');
+        copy('hoChickPantingPhoto', 'chickPantingPhoto');
         copy('ho_meconium', 'meconium');
+        copy('ho_transferDay', 'transferDay');
         break;
     }
   }
@@ -1165,26 +1395,43 @@ class _StationFrameState extends State<_StationFrame> {
   List<StationSampleModel> _stationSamplesFromPanelRows(
     Map<String, List<Map<String, dynamic>>> rowsByPanel,
   ) {
-    final primaryEntry = rowsByPanel.entries.firstWhere(
+    final primaryEntry = _stationSampleSourceRows(rowsByPanel);
+    if (primaryEntry.value.isEmpty) return const [];
+    return [
+      for (final entry in primaryEntry.value.asMap().entries)
+        _sampleFromPanelRow(
+          primaryEntry.key,
+          entry.value,
+          fallbackIndex: entry.key + 1,
+        ),
+    ];
+  }
+
+  MapEntry<String, List<Map<String, dynamic>>> _stationSampleSourceRows(
+    Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  ) {
+    if (widget.stationKey == 'egg') {
+      final qualityRows = rowsByPanel['egg_quality'];
+      if (qualityRows != null && qualityRows.isNotEmpty) {
+        return MapEntry('egg_quality', qualityRows);
+      }
+    }
+    return rowsByPanel.entries.firstWhere(
       (entry) => entry.value.isNotEmpty,
       orElse: () => const MapEntry('', []),
     );
-    if (primaryEntry.value.isEmpty) return const [];
-    return [
-      for (final row in primaryEntry.value)
-        _sampleFromPanelRow(primaryEntry.key, row),
-    ];
   }
 
   StationSampleModel _sampleFromPanelRow(
     String table,
-    Map<String, dynamic> row,
-  ) {
+    Map<String, dynamic> row, {
+    required int fallbackIndex,
+  }) {
     final scopeType = _scopeTypeForRow(row);
     final sampleMode = _rowHasHierarchy(row)
         ? StationSampleModel.sampleModeComparison
         : StationSampleModel.sampleModePooled;
-    final sampleIndex = _asInt(row['sampleIndex']) ?? 1;
+    final sampleIndex = _asInt(row['sampleIndex']) ?? fallbackIndex;
     final sampleLabel = _sampleLabelForRow(row) ?? 'Sample $sampleIndex';
     return StationSampleModel(
       id: row['id']?.toString() ?? '${widget.sessionId}:$table:$sampleIndex',
@@ -1205,7 +1452,7 @@ class _StationFrameState extends State<_StationFrame> {
       houseNo: _asText(row['house']),
       houseLabel: _asText(row['house']),
       storageDays: _asInt(row['storagePeriodDays']),
-      incubationDay: _asInt(row['incubationAgeDays'] ?? row['bmkAgeDays']),
+      incubationDay: _asInt(row['incubationAgeDays'] ?? row['candlingDay']),
       setterNo: _asText(row['setter']),
       hatcherNo: _asText(row['hatcher']),
       notes: row['notes']?.toString(),
@@ -1247,10 +1494,13 @@ class _StationFrameState extends State<_StationFrame> {
   }
 
   String? _sampleLabelForRow(Map<String, dynamic> row) {
+    final setter = _asText(row['setter']);
+    final hatcher = _asText(row['hatcher']);
+    if (setter != null && hatcher != null) return '$setter$hatcher';
     return _asText(row['tray']) ??
         _asText(row['trolley']) ??
-        _asText(row['setter']) ??
-        _asText(row['hatcher']) ??
+        setter ??
+        hatcher ??
         _asText(row['house']);
   }
 
@@ -1386,6 +1636,8 @@ class _StationFrameState extends State<_StationFrame> {
         return HatcherOptimizingScreen(
           context: widget.context,
           initialAudit: initialAudit,
+          initialAudits: initialData.stationAudits,
+          initialStationSamples: initialData.stationSamples,
         );
       default:
         return null;

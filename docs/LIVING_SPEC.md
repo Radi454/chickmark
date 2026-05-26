@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-22
+2026-05-25
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -117,9 +117,9 @@ selected visit order editable and the Start Visit button usable.
 When the same customer, flock, hatchery, and visit date already has an
 in-progress session, station selection resumes that session instead of creating
 a duplicate. Saved stations stay in the visit-order list with a visible `Saved`
-badge, cannot be removed from the resumed visit order, and can be tapped to
-open that station for review/edit. Unsaved remaining stations can still be
-added before continuing the resumed visit.
+badge, can be removed from the resumed visit order, and can be tapped outside
+the removal button to open that station for review/edit. Unsaved remaining
+stations can still be added before continuing the resumed visit.
 
 ## 3. Audit Workflow
 
@@ -166,11 +166,12 @@ Supported station keys are:
 
 `AuditSessionScreen` renders the selected stations in one visit workflow. It
 shows a progress indicator, keeps one `AuditProvider` per station, and shows one
-station at a time. Completed/reached station nodes use compact check marks
-inside the progress circles. Moving forward, moving back, switching to an
-earlier or completed station, leaving the visit, or saving the final station all
-go through a station-exit confirmation path that attempts to save the current
-station.
+station at a time. Completed or reached past station nodes use compact check
+marks inside green progress circles, while the current station uses a blue circle
+with a small white dot marker so it is visually distinct from completed
+stations. Moving forward, moving back, switching to an earlier or completed
+station, leaving the visit, or saving the final station all go through a
+station-exit confirmation path that attempts to save the current station.
 When a visit is resumed or a previously saved station is opened inside the
 session, the station frame hydrates the station from panel rows for that
 session. It synthesizes the current form draft objects from those panel rows so
@@ -191,13 +192,17 @@ Station save behavior:
 - Hatch Analysis & Egg Breakouts saves all samples and marks all tab indices saved.
 - Other stations save through `AuditProvider.saveSamplesWithResult(tabIndex: 0)`.
 - Saving persists directly into panel tables. Each saved leaf sample is one row
-  in the affected panel table. The row identity is the session plus the explicit
-  nullable hierarchy columns: `house`, `setter`, `hatcher`, `trolley`, `tray`,
-  and `position`.
-- Scope hierarchy is nested from broadest to narrowest: station context
-  (`customerId`, `hatcheryId`, `flockId`, `breed`, and date), then `house`, then
-  machine (`setter`/`hatcher` pair or the station's single machine id), then
-  `trolley`, then `tray`. If a sector has no added scope, it saves one
+  in the affected panel table. The row identity is the session plus that
+  table's explicit nullable hierarchy columns. Egg, chick, and breakout panels
+  can use `house`, `setter`, `hatcher`, `trolley`, `tray`, and `position`;
+  Setter optimizing starts at `setter` and can nest `trolley` then `tray`;
+  Hatcher optimizing starts at `hatcher` and can nest `trolley` then `tray`.
+- Scope hierarchy is nested from broadest to narrowest inside the sampling
+  sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
+  pair or the station's single machine id), then `trolley`, then `tray`. Visit
+  ownership fields such as `customerId`, `hatcheryId`, `flockId`, `breed`, and
+  date remain row context for filtering and session ownership, but they are not
+  Setter/Hatcher sampling scopes. If a sector has no added scope, it saves one
   station-scoped row with all hierarchy columns null. If a sector is scoped to a
   deeper layer, each saved row carries every populated parent scope. For example,
   two houses with two machines per house, two trolleys per machine, and two
@@ -221,14 +226,16 @@ Station save behavior:
   UV tray, a quality defect count, UV evidence photo, egg-weight values, or
   quality notes. Quality Storage Days and auto BMK age/weight values persist as
   context only when a quality row has another quality-side signal.
-- Save/Next remains the final confirmation path. It retries any pending or
-  failed autosave work, persists panel rows, runs remaining local side effects,
-  and then allows station navigation or session completion. Intermediate
-  station saves move to the next station without the large completion check
-  overlay; the overlay is reserved for final selected station completion.
+- Save/Next remains the station-exit path. It retries any pending or failed
+  autosave work, persists meaningful panel rows, removes blank/default-only
+  rows, validates the station core requirement, and then allows navigation.
+  Incomplete stations prompt before navigation; when confirmed, the station can
+  be skipped without adding it to `stationsCompleted`.
 - Re-saving a station in an already completed visit persists the edited station
-  fields and keeps the visit marked completed. In completed review mode the
-  footer action is `Save` rather than advancing to another station.
+  fields and keeps the visit marked completed only while that station still
+  satisfies its core completion rule. If review edits remove core data, the
+  station is removed from `stationsCompleted` and the visit returns to
+  `in_progress` until all selected stations are complete again.
 - Final station saves report local panel persistence independently from
   activity-log or threshold-notification side-effect failures. Those failures
   are debug-logged and do not mark the locally saved station data as failed.
@@ -255,7 +262,13 @@ Station save behavior:
   returning a comparison station to pooled mode, deletes the obsolete local panel
   rows and queues sync tombstones instead of leaving hidden dashboard rows in
   the database.
-- Completing a station updates `audit_sessions.stationsCompleted`.
+- Removed scope sample row ids are tombstoned before panel rows are re-saved, so
+  a retained scope that shifts into the removed scope's hierarchy label cannot
+  inherit the deleted row's saved identity.
+- Completing a station updates `audit_sessions.stationsCompleted` only when the
+  saved station validates as complete. A station with saved but incomplete data,
+  or with only blank/default data that was discarded during save, can be left
+  and revisited later but does not receive a green completion check.
 - Completing the final selected station updates the session to `completed` and
   returns to the main shell.
 
@@ -296,8 +309,9 @@ for existing audits unless edit mode is enabled by an allowed user. Visit
 sessions use a default-height gradient station app bar and a compact raised
 bottom navigation bar with the primary Next Station/Save action. Visit station
 screens also show a white compact stepper strip with short wrapping station
-labels; Hatch Analysis & Egg Breakouts uses the same strip above its Hatching &
-Breakout card. Visit sessions mount only the current station at first, then
+labels and a small white dot marker on the active blue station circle; Hatch Analysis &
+Egg Breakouts uses the same strip above its Hatching & Breakout card. Visit
+sessions mount only the current station at first, then
 keep previously opened stations mounted, so hidden future
 stations do not hydrate their audit data before the user opens them.
 
@@ -343,23 +357,43 @@ Quality cards, and station notes.
   egg-weight lookup. Egg Quality no longer shows the old One sample / Multiple
   samples selector; it uses scope cards instead. House scope and Machine scope
   each show `Pool` while inactive. Pressing the House scope add control turns the
-  pooled Egg Quality sample into sequential house comparison chips (`H1`, `H2`,
-  etc.). Pressing the Machine scope add control from an active house adds a
-  setter/hatcher machine sample under that house instead of replacing the house
-  level. House chips remain visible as the parent scope, and the Machine scope
-  chip list shows only the machine samples for the selected house. A selected
+  pooled Egg Quality sample into a single House placeholder chip (`H`) with a
+  blank House field until the user enters the house value. Pressing the Machine
+  scope add control turns pooled Egg Quality into a single Machine placeholder
+  chip (`SH`), or from an active house adds a setter/hatcher machine sample under
+  that house instead of replacing the house level. House chips remain visible as
+  the parent scope, and the Machine scope chip list shows only the machine
+  samples for the selected house. A selected
   house with no machine samples shows `Pool` in the Machine scope card and does
-  not show machine identity fields until a machine is added or selected. If a
-  user adds Machine scope first and later adds House scope, the lower machine
-  scope is reset so the new house comparison starts as if no machine samples had
-  been entered. Generated scope chips keep a serial sequence within their own
-  visible scope, such as house chips `H1`, `H2` and machine chips `S1H1`,
-  `S2H2` under the selected house. The House input stays on House scope, while
-  Machine scope inherits that selected house and shows only blank Setter and
-  Hatcher fields until the user enters real machine numbers. Edited values
-  update the active chip label and the saved Egg Quality hierarchy identity.
-  Removing a broad House scope removes any nested Machine scope samples for
-  that house in the same action.
+  not show machine identity fields until a machine is added or selected. A
+  selected house with existing machine samples defaults to the first machine
+  child under that house, so the active Egg Quality row always uses the deepest
+  available scope instead of a parent-only house row. If a user adds Machine
+  scope first and later adds House scope, the lower machine scope is reset so
+  the new house comparison starts as if no machine samples had been entered.
+  Egg Quality scope rows do not receive serial defaults: converted and newly
+  added House scope rows start as `H`, and converted and newly added Machine
+  scope rows start as `SH`, with the identity inputs shown blank. The House
+  input stays on House scope, while Machine scope inherits the selected house
+  and shows only blank Setter and Hatcher fields until the user enters real
+  machine numbers. Edited values update the active chip label, such as `H2` or
+  `S3H4`, and the saved Egg Quality hierarchy
+  identity. House, Setter, and Hatcher identity inputs keep their active editing
+  focus while provider state refreshes and sync provider-side identity changes
+  back into the field when the user is not actively editing that field. Editing
+  the selected House value while a Machine child is active renames the parent
+  House chip and updates that house key on the nested Machine children, so the
+  Machine scope remains attached to the same parent.
+  Removing a broad House scope removes that house and any nested Machine scope
+  samples for that house in the same action, even when a nested machine chip is
+  currently selected. When a selected House scope has visible Machine scope
+  children, the Machine scope remove action is available and deletes the child
+  machine under that selected house while keeping the house selected. Removing
+  the only active House or Machine scope returns Egg Quality to the pooled
+  state. Removing the currently active machine returns selection to that
+  machine's parent house context, defaulting to the first remaining machine
+  child when one exists and otherwise showing the parent house with Machine
+  scope as `Pool`.
   The expandable Egg Weights &
   Uniformity card contains an ordered row-style weight metric summary and the
   100-egg weight sheet. The metric summary follows
@@ -373,7 +407,7 @@ Quality cards, and station notes.
   BMK Egg Weight row is populated before the user edits storage days or enters
   weights. Egg storage-room fields, Quality Storage Days, BMK age, and BMK egg
   weight are shared across all Egg Quality House/Machine scope samples, so
-  switching from `H1` to `H2` or `S1H1` to `S2H2` does not require re-entering
+  switching from `H` to `H2` or `SH` to `S2H2` does not require re-entering
   storage metadata and does not blank BMK values. Per-scope Egg Quality
   measurements such as weights remain
   independent. The station removes helper explanations from the EST, Upside
@@ -384,13 +418,20 @@ Quality cards, and station notes.
   header status pills such as `0/100` and `Avg affected 0.0%`. Expandable
   headers keep the title icon, title, and chevron as the only header controls.
   Egg Quality house comparison persists each house as a comparison row with
-  the entered house identity, defaulting to sequential `House 1`, `House 2`,
-  etc. scope labels, while machine comparison persists entered house plus
-  setter/hatcher hierarchy rows when a house parent is provided. Egg Storage
-  remains a station-level
+  the entered house identity. A new House placeholder remains a prefix-only `H`
+  sample until the user enters the value that produces the final label, such as
+  `H2`. Once a house has machine children, Egg Quality persistence keeps only
+  the machine leaf rows for that house and prunes any parent-only `house` row
+  with null setter/hatcher hierarchy. Machine comparison persists entered house
+  plus setter/hatcher hierarchy rows when a house parent is provided; newly
+  added machine placeholders remain `SH` until the Setter/Hatcher values are
+  entered. Egg Storage remains a station-level
   pooled row with null sample hierarchy columns (`house`, `setter`, `hatcher`,
   `trolley`, `tray`, and `position`) even when Egg Quality has an active House or
-  Machine scope. Removing an Egg Quality scope sample deletes its stale
+  Machine scope. When a saved Egg station is resumed, the screen rebuilds Egg
+  Quality scope chips from `egg_quality` hierarchy rows instead of the pooled
+  `egg_storage` row, while still merging pooled Egg Storage fields into each
+  active Egg Quality draft. Removing an Egg Quality scope sample deletes its stale
   `egg_quality` hierarchy row on the next save. Egg storage-period fields,
   EST/storage handling fields, Egg Quality storage period, and Egg Quality BMK
   age/weight are shared across all active Egg Quality house or machine samples,
@@ -425,17 +466,21 @@ The quality sampling control is a single `Machine scope` card matching the Egg
 quality machine-scope pattern. In pooled state it shows a disabled `Pool` chip
 and an add control; there is no separate One sample / Multisamples segmented
 control and no separate Machine ID card. Pressing the add control switches
-Chick Quality to generated setter/hatcher machine samples such as `S1H1` and
-`S2H2`; the active sample can then be switched or removed from the same card,
-and active comparison mode shows House, Setter, and Hatcher entry fields in
-that card. When a house is provided, saved `chick_quality` rows keep that house
-as the parent of the machine scope.
+Chick Quality to a single active `SH` placeholder on first activation;
+subsequent adds create additional `SH` placeholders until the user enters
+Setter/Hatcher values. The active sample can then be switched or removed from
+the same card; removing the only active machine sample returns the card to
+`Pool` and hides the Setter/Hatcher entry fields. Active comparison mode shows
+the same blank Setter and Hatcher entry fields used by Egg quality machine scope.
+Chick Quality machine
+scope does not expose a House entry, and saved `chick_quality` rows keep house
+hierarchy columns empty while using setter/hatcher as the explicit leaf scope.
 Entered setter/hatcher values update the active chip label and the saved
 `chick_quality` setter/hatcher hierarchy identity.
 Optional chick-quality tests follow the selected quality sample scope: pooled
 mode has no per-card sample subtitle and saves one pooled sample row for Pasgar,
 YFBM, Chick Vent Temperature, and PM Necropsy, while machine scope shows the
-active setter/hatcher label, such as `S2H2 setter/hatcher sample`, and saves one
+active setter/hatcher label, such as `SH setter/hatcher sample`, and saves one
 `chick_quality` follower row per setter/hatcher sample. Chicks quality machine
 rows use the explicit `setter` and `hatcher` hierarchy columns, with generated
 setter/hatcher values stored on the normalized sample and panel sample rows.
@@ -447,9 +492,11 @@ counts/photos, and the final score. The final score uses the first five scored
 defect categories; feather development remains a tracked/displayed category but
 does not reduce the score. Defect percentages are treated as invalid when a
 defect count is negative or greater than the Pasgar sample size. Its embedded
-card layout uses compact typography, omits the redundant Sample Size and Defect
-Counts card headings, and uses responsive defect-count controls so labels,
-steppers, numeric fields, and photo buttons remain legible in the narrow
+layout uses one light form block instead of nested card surfaces: the sample
+size appears as a compact row, defect counts share one divided list, and the
+score appears as a slim green summary row. It omits the redundant Sample Size
+and Defect Counts card headings, and uses responsive defect-count controls so
+labels, steppers, numeric fields, and photo buttons remain legible in the narrow
 side-browser viewport.
 At normal station panel widths, embedded Pasgar defect rows keep operational
 16-17px labels and small count/photo controls instead of reusing the full-page
@@ -464,15 +511,15 @@ Vent Temperature reuses the EST-style guided grid workflow with Front/Middle/
 Back by Top/Middle/Bottom points, Guided CVT capture, inline camera/native
 camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
 missing-photo attach, and saved-photo highlighting. CVT uses a 103-105°F /
-39.4-40.6°C target, has an inline °F/°C entry toggle, persists grid readings
-and photos locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the
-panel CVT average/CV summary fields for dashboards. PM Necropsy captures sample
+39.4-40.6°C target, enters grid readings in °F, persists readings and photos
+locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the panel CVT
+average/CV summary fields for dashboards. PM Necropsy captures sample
 size, collection point, lesion counts with required severity when count is
 positive, custom other lesion rows, suspected cause, and PM photos. The visible
 lesion list is Omphalitis, Gaseous Ceca,
-Gizzard Erosions, Air Sac Caseations, Urolithiasis (Urate Deposits), Nephritis,
-and General Septicemia. PM also shows an Others row whose lesion name is
-editable and can be expanded with additional custom lesion rows for unlisted
+Air Sac Caseations, Urolithiasis (Urate Deposits), Nephritis, General
+Septicemia, and Gizzard Erosions. PM also shows an Others row whose lesion name
+is editable and can be expanded with additional custom lesion rows for unlisted
 findings. Custom lesion rows persist as `pmOtherLesionsJson`; fixed PM storage
 lives on the active `chick_quality` row using `pm*`-prefixed backend fields.
 Fresh `chick_quality` tables and current save maps omit deleted legacy PM
@@ -503,19 +550,22 @@ fall back to the selected flock breed when a Chicks audit row does not carry a
 legacy breed field. Chick Weights uses an Egg-quality-style House scope card
 instead of a One house / Compare houses selector or separate Active house
 editor. In pooled state the card shows `Pool` plus an add control. Pressing the
-add control switches Chick Weights to generated house comparison samples (`H1`,
-`H2`, etc.) with add/remove controls in the same card. Active comparison mode
-shows a House entry field in the card. Entered house values update the active
-chip label and persist to `chick_weights` rows through the explicit house
-hierarchy columns; removing a house sample deletes its stale `chick_weights`
-row on the next save. The panel shows sample count, BMK chick weight, average
+add control switches Chick Weights to the Egg-style house scope flow: the
+first activation becomes a single active `H` placeholder, and subsequent adds
+create additional `H` placeholders until the user enters House values. The House
+entry field is blank for the active placeholder. Entered house values update the
+active chip label and persist to `chick_weights` rows through the explicit house
+hierarchy columns; removing a house sample deletes its stale `chick_weights` row
+on the next save, and removing the only active `H` sample returns Chick Weights
+to pooled `Pool` state. The panel shows sample count, BMK chick weight, average
 weight, low/high margins,
 uniformity, and CV% in that order. The weight metrics
 render as one compact summary list instead of a nested card grid, and the
 100-chick weight entry grid opens from an
 egg-weight-style draggable Enter Weights modal sheet and persists each active
 house sample's own weights, sample size, average, uniformity, and CV% into its
-`chick_weights` row.
+`chick_weights` row. New or blank comparison-house samples do not inherit the
+previous active house's weight grid or calculated metrics.
 Dashboard chick-weight trends do not read those legacy audit fields.
 
 Hatch Analysis & Egg Breakouts is an egg breakout entry screen rather than a
@@ -545,16 +595,41 @@ fields use a ceiling week conversion. When opened from a resumed visit session,
 Hatch Analysis restores all saved breakout audit rows and linked station
 samples before rendering.
 
-Candled Egg and Residue / Hatch Day add a shared hierarchy card directly below
-the Storage Days card. The card has house tabs first, then setter/hatcher
-machine tabs for the selected house. Machine tab labels are generated from the
-selected setter and hatcher fields as `S{setter}H{hatcher}`; the label itself is
-not separately editable. New hatch-analysis machine drafts default to
-`S1H1`, `S2H2`, and `S3H3` in the active house until their setter or hatcher
-number fields change. The selected House, Setter, and Hatcher values are shared
-by Hatch Results and all tray samples in that machine. Each residue machine
-keeps its own total eggs set, hatched chicks, culled chicks, dead chicks, and
-tray breakout samples. Total eggs set defaults to `19200`.
+Candled Egg and Residue / Hatch Day add hierarchy controls directly below the
+Storage Days card. The controls use the same scope-card treatment as Egg and
+Chicks screens: a `House scope` card contains the house tabs and active House
+field, and a `Machine scope` card contains setter/hatcher machine tabs for the
+selected house plus the active Setter and Hatcher fields. Both cards show a
+disabled selected `Pool` chip while their scope has not been activated. Pressing
+House scope `+` turns the pooled hatch row into the first house scope, shows a
+blank House field, and labels the first chip as prefix-only `H` until a house
+number is entered. Entered values update the chip to compact labels such as
+`H1` and `H2`. The House scope remove action is available as soon as House
+scope is active; removing the only active house returns the Hatch Analysis
+hierarchy to pooled mode. Pressing Machine scope `+` creates the first
+setter/hatcher machine row without creating a synthetic House scope. If House
+scope is still pooled, the House card remains `Pool`; if a House scope is
+active, the machine row inherits that active house. Machine rows show blank
+Setter and Hatcher fields and label the chip as prefix-only `SH` until either
+number field is entered. Entered values update chips as `S{setter}H{hatcher}`;
+the label itself is not separately editable. The Machine scope remove action is
+available as soon as a real machine chip is active; removing the only active
+machine returns the selected context to machine `Pool` without changing House
+scope. A `Trolley scope` card sits directly below Machine scope and belongs to
+the selected machine. It shows `Pool` until a machine is active and a trolley is
+added. Pressing Trolley scope `+` creates the first tray sample for that
+machine with a prefix-only `T` trolley placeholder, shows the active Trolley
+field blank, and labels the chip `T` until a number is entered. Entered trolley
+values update the chip as `T{trolley}`; adding more tray samples while a trolley
+is selected assigns those trays to the same trolley. Switching to another
+machine shows that machine's own trolley scope instead of sharing trolley chips
+across machines. Removing the active trolley clears that trolley assignment from
+its tray samples without deleting the trays. The selected House, Setter,
+Hatcher, and Trolley values are shared by Hatch Results and all tray samples in
+that machine, while unactivated pooled tray rows save without hidden
+House/Setter/Hatcher/Trolley hierarchy. Each residue machine keeps its own total
+eggs set, hatched chicks, culled chicks, dead chicks, trolley groups, and tray
+breakout samples. Total eggs set defaults to `19200`.
 
 Residue / Hatch Day shows a Hatch Results card before Breakout Samples for the
 active hatch. The card uses a text-only header with the active hatch label,
@@ -576,22 +651,33 @@ limit. Residue no longer enforces the old 100-percent hatch-budget
 reconciliation.
 
 Breakout Samples sits below the main card, and below the Hatch Results card for
-Residue / Hatch Day. It uses tray chips plus circular add and remove controls to
-manage tray samples while keeping the tray cards visible in the scroll view. The
-Candled Egg and Residue tray-card header contains only tray-local fields:
-Trolley, Tray, Position, and Tray size; House, Setter, and Hatcher come from the
-shared hierarchy card above the samples. The tray/pool toggle is not shown in
-the current UI; legacy pool samples remain
-decodable and are converted to tray-style display while preserving their
-sampled-egg denominator. Breakout samples are scoped by breakout type in the
-shared JSON field: switching Fresh Egg, Candled Egg, and Residue / Hatch Day
-hides the other type's entered rows, and returning to a type restores its
-previous tray values. When the station saves panel-table rows, Fresh Egg,
-Candled Egg, and Residue / Hatch Day write one row per physical tray sample for
-the active breakout type. Fresh Egg tray rows use `house` and `tray` only,
-because those eggs are not set in a machine yet. Candled Egg and Residue /
-Hatch Day rows use the full sample hierarchy:
-`house -> setter/hatcher -> trolley -> tray -> position`. Each saved tray row
+Residue / Hatch Day. It has a dedicated `Tray scope` card that mirrors the
+House and Machine scope pattern. In pooled state the Tray scope card shows a
+selected `Pool` chip, the sample card records one aggregate pool sample, and no
+tray-local Trolley, Tray, or Position fields are shown. Pressing Tray scope `+`
+switches the active breakout type into tray comparison, creates `Tray 1`, and
+shows tray chips plus circular add and remove controls while keeping the tray
+entry panel tabbed: only the selected tray's entry card is rendered below the
+Tray scope tabs, so other trays are selected from the chip row instead of
+stacked as scroll content. Removing the final tray returns that breakout type
+to Tray scope `Pool`. The Candled Egg and Residue tray-card header contains
+only tray-local fields: Tray, Position, and Tray size; House, Setter, Hatcher,
+and Trolley come from the shared hierarchy cards above the samples. Breakout
+samples are scoped by breakout type in the shared JSON field: switching Fresh
+Egg, Candled Egg, and Residue / Hatch Day hides the other type's entered rows,
+and returning to a type restores its previous pool or tray values. When the
+station saves panel-table rows, tray comparison writes one row per physical tray
+sample for the active breakout type, while pooled Tray scope saves the active
+aggregate row at the deepest active parent scope. That means a pooled station
+saves one row with blank hierarchy, House scope saves house rows, Machine scope
+saves `house -> setter/hatcher` rows, Trolley scope saves
+`house -> setter/hatcher -> trolley` rows, and Tray scope saves only tray leaf
+rows. Fresh Egg tray rows use `house` and `tray` only, because those eggs are
+not set in a machine yet. Candled Egg and Residue / Hatch Day rows use the full
+sample hierarchy: `house -> setter/hatcher -> trolley -> tray -> position`.
+When a deeper breakout scope is saved, stale parent aggregate rows from the same
+session/table are removed so App Inspector shows the current leaf rows instead
+of duplicated Pool, House, Machine, or Trolley parents. Each saved tray row
 stores that tray's own counts, percentages, current-versus-BMK percentage-point
 differences, tray size, hierarchy fields, and position when applicable, so
 multiple trays are comparable instead of being collapsed into one summed row.
@@ -611,8 +697,8 @@ yet. The position selector uses the same body typography as the label and tray
 size fields. Each breakout item row contains a count input and one read-only
 summary field that combines the calculated percentage from tray size, the BMK
 target percentage loaded from the nearest `bmk_egg_breakout` row for the
-calculated BMK age, and the Diff value showing current percentage minus BMK
-target in percentage points. Fresh Egg rows are Infertile, 24 hours, 48 hours,
+calculated BMK age, and the Gap value showing current percentage minus BMK
+target without a `pp` suffix. Fresh Egg rows are Infertile, 24 hours, 48 hours,
 and Blood Ring. Candled Egg adds Black Eye.
 Residue / Hatch Day uses Infertile, Early Dead, Mid Dead, Late Dead, External
 Pip, Cracked, and Contaminated. Count inputs keep focus while values are typed
@@ -627,33 +713,46 @@ Breakout BMK age is calculated in days from the current flock age and storage
 period: Fresh Egg uses `flockAgeDays - storagePeriodDays`, Candled Egg uses
 `flockAgeDays - storagePeriodDays - candlingDay`, and Residue / Hatch Day uses
 `flockAgeDays - storagePeriodDays - 21`; a missing storage period is treated as
-zero. The saved rows also keep `storagePeriodDays`, `bmkAgeDays`, and rounded
-`bmkAgeWeeks`.
+zero. The saved rows keep `storagePeriodDays` and rounded `bmkAgeWeeks`; the
+day-level BMK value is calculated in memory for benchmark lookup and is not
+persisted as a panel-table column.
 
 Setters captures:
 
-- A dedicated setter chip row. The first setter uses the selected visit setter
-  id when present; Add setter creates another setter in the same audit session.
-  Setter tabs are labeled from the setter number as `S5`, `S7`, etc., and fall
-  back to the sample sequence when no setter id is available. Setter tabs and
-  the Setter type selector are text-only chips without selected checkmarks.
-- Setter type, defaulting to Multi, with Single limiting the setter to one EST
-  age/breed sample and Multi allowing additional age/breed EST samples.
+- A dedicated `Machine scope` card for setter machines, matching the existing
+  Egg and Chicks machine-scope pattern with S-only chips and circular icon
+  actions. The active setter-number entry is inside this Machine scope card.
+  The first setter uses the selected visit setter id when present; otherwise it
+  defaults to `S`. The add action creates another setter machine in the same
+  audit session, defaulted to `S`, and the remove action appears once more than
+  one machine is available. Setter machine chips use labels from the setter
+  number, such as `S5` and `S7`, and they never include the hatcher-oriented
+  `H` suffix used by setter/hatcher machine scope elsewhere. The Setter type
+  selector remains text-only without selected checkmarks.
+- Setter type, defaulting to Multi, with Single limiting the setter to one
+  incubation-age EST scope and Multi allowing additional incubation-age scopes.
 - Setter number.
-- Machine screen setpoint and actual readings in Fahrenheit and relative
-  humidity, with one shared documentation photo for the screen that shows the
-  readings.
+- Machine screen temperature and relative humidity setpoint readings only.
+  Actual temperature/RH entry fields are not shown in the Setters setup card.
 - Batch size, defaulting to 19,200, and batch count, capped at 6. Total set
   eggs is calculated as `batch size * batch count`.
-- Turning angle uses a standalone numeric field with its label floated on the
-  field outline in the larger blue label style; there is no separate Setter
-  settings title.
+- Turning angle uses a numeric field with its label floated on the field outline
+  in the larger blue label style, and it includes a camera action aligned beside
+  the entry field; there is no separate Setter settings title.
 - CO2 level uses the same larger blue floated field label and keeps the camera
   action aligned beside the entry field.
-- Age/breed EST samples. Breed is selected from the six benchmark breeds
-  (`Ross308`, `Arbo`, `Avian`, `Cobb500`, `Hubbard`, `IR`), and each sample
-  keeps its own incubation age slider from 1 to 18 days, 0-23 hour slider, EST
-  readings/photos, average, and CV.
+- EST samples are grouped by an `Incubation age samples` selector. A single
+  incubation-age sample is shown as `Pool` in the same compact outlined chip
+  style as multi-sample days; once multiple incubation-age samples exist, chips
+  are labeled from the entered age, such as `Day 1` and `Day 12`.
+  Duplicate days are disambiguated with compact occurrence labels such as
+  `Day 1 · 1` and `Day 1 · 2`. Small icon-only actions add or remove
+  incubation-age samples with accessible tap targets. Each scope keeps its own
+  incubation age numeric entry from 1 to 18 days, 0-23 hour numeric entry, EST
+  readings/photos, average, and CV, so switching between incubation-age samples
+  restores that sample's own EST grid and active save payload. Setters does not
+  expose a breed picker in the EST sample card; benchmark breed identity comes
+  from the visit/session context rather than per-sample UI.
 - EST average/CV summary and EST grid/photos.
 
 Setter EST reuses the storage EST guided grid workflow with Front/Middle/Back
@@ -664,39 +763,50 @@ records. Setters uses Fahrenheit readings with an allowed range of
 99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive the EST
 grid status styling and average summary color, but are not rendered as a
 separate helper strip in the entry form. Setter samples persist as
-`setter_optimizing` rows; multi-setter rows use the `setter` hierarchy column as
-their row identity. Setter and Hatcher station rows can store machine-specific
-breed/identity values while the selected flock is still required to enter the
-visit flow.
+`setter_optimizing` rows. The table's sampling hierarchy starts at the `setter`
+machine column and can nest `trolley` then `tray`; it does not include house or
+hatcher hierarchy columns. Multi-setter rows use the `setter` hierarchy column
+as their row identity. Setter and Hatcher station rows can store
+machine-specific identity values while the selected flock is still required to
+enter the visit flow.
 Setters does not expose the generic Sample Mode selector; the dedicated setter
 row is the comparison control.
 
 Hatchers captures:
 
-- A dedicated hatcher chip row. The first hatcher uses the selected visit
-  hatcher id when present; Add hatcher creates another hatcher in the same audit
-  session. Hatcher tabs are labeled from the hatcher number as `H5`, `H7`, etc.,
-  and fall back to the sample sequence when no hatcher id is available.
-- A Hatcher settings card for the active hatcher sample, containing the hatcher
-  number, machine temperature setpoint in Fahrenheit, RH setpoint percentage,
-  incubation age slider from 18 to 21 days, and a separate 0-23 hour slider.
+- A dedicated `Machine scope` card for hatcher machines, matching the Setters
+  machine-scope pattern with H-only chips and circular icon actions. The active
+  hatcher-number entry is inside this Machine scope card. The first hatcher uses
+  the selected visit hatcher id when present; otherwise it defaults to `H`. The
+  add action creates another hatcher machine in the same audit session, defaulted
+  to `H`, and the remove action appears once more than one machine is available.
+  Hatcher machine chips use labels from the hatcher number, such as `H5` and
+  `H7`, and they never include setter scope.
+- A Hatcher settings card for the active hatcher sample, containing outlined
+  numeric entry fields for machine temperature setpoint in Fahrenheit, RH
+  setpoint percentage, incubation age from 18 to 21 days, and incubation hours
+  from 0 to 23 hours. The incubation age and hours controls use the audit
+  numeric keyboard instead of sliders.
 - CO2 level and photo, with the camera action aligned beside the entry field.
 - CVT (Chick Vent Temp.) average/CV summary and guided grid/photos. The grid
   uses the same guided OCR capture, inline/native camera fallback, evidence
   thumbnails, missing-photo attach, and saved-photo highlighting as the setter
   EST/CVT grid flow.
-- Chick panting yes/no with photo.
+- Chick panting uses compact Yes/No choice chips with the photo action in the
+  card header.
 - Meconium assessment: Normal, Dark greenish, Water, or Excessive, with a
   panel photo action for evidence.
 
 Hatchers does not expose the generic Sample Mode selector, a hatcher type
-selector, turning-angle fields, or Transfer Day. The dedicated hatcher row is
-shown at the top level, above the Hatcher settings card, and is the comparison
-control. Hatcher comparison samples persist as machine samples with
-`hatcher_optimizing` rows using the `hatcher` hierarchy column as their row
-identity when multiple hatchers are sampled. Removing hatchers until only one
-remains returns the station to the single-sample state and saves the
-station-sample hatcher identity from the edited Hatcher number field.
+selector, turning-angle fields, or Transfer Day. The dedicated Machine scope
+card is shown at the top level, above the Hatcher settings card, and is the
+comparison control. Hatcher comparison samples persist as machine samples with
+`hatcher_optimizing` rows. The table's sampling hierarchy starts at the
+`hatcher` machine column and can nest `trolley` then `tray`; it does not include
+house or setter hierarchy columns. Multiple hatchers use the `hatcher`
+hierarchy column as their row identity. Removing hatchers until only one remains
+returns the station to the single-sample state and saves the station-sample
+hatcher identity from the edited Hatcher number field.
 
 Govee is a standalone daily capture workflow. It is independent from audit
 sessions and is keyed by `customerId`, `hatcheryId`, place, nullable machine id,
@@ -1067,13 +1177,14 @@ Fresh databases do not create `audits`, `sample_records`, sample detail tables,
 tables, or legacy Govee spot-reading tables.
 
 Every panel table includes visit ownership fields, explicit sample hierarchy
-fields (`house`, `setter`, `hatcher`, `trolley`, `tray`, `position`),
-storage/BMK context fields (`storagePeriodDays`, `bmkAgeDays`,
+fields for that panel, storage/BMK context fields (`storagePeriodDays`,
 `bmkAgeWeeks`), panel-specific measurement and calculated summary fields, and
-sync fields. Each panel table has session, dashboard, and unique-row indexes.
-The unique-row index protects `(sessionId, IFNULL(house, ''),
-IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''),
-IFNULL(position, ''))`.
+sync fields. Egg, chick, and breakout panel hierarchy can include `house`,
+`setter`, `hatcher`, `trolley`, `tray`, and `position`; `setter_optimizing`
+uses only `setter`, `trolley`, and `tray`; `hatcher_optimizing` uses only
+`hatcher`, `trolley`, and `tray`. Each panel table has session, dashboard, and
+unique-row indexes. The unique-row index protects `sessionId` plus the panel's
+actual hierarchy columns.
 
 Relationship safety is enforced in SQLite for the current parent-child graph:
 `flocks` and `hatcheries` belong to `customers`; `audit_sessions` belongs to a
@@ -1149,6 +1260,52 @@ discarding the failure context.
 
 ## 9. Change Log
 
+- 2026-05-25: Aligned Egg Breakout panel persistence with the Egg Quality
+  hierarchy model. Breakout rows now save at the deepest active scope
+  (`Pool`, `House`, `Machine`, `Trolley`, or tray leaf), Candled/Residue schema
+  includes Trolley as a real layer, and tray saves prune stale parent aggregate
+  rows from the same session/table.
+- 2026-05-25: Added a Hatch Analysis Trolley scope card under Machine scope.
+  Trolleys are owned by the active machine, added trays inherit the selected
+  trolley, and Candled/Residue tray cards now keep trolley out of the tray-local
+  header fields.
+- 2026-05-25: Added station-specific completion validation to the visit exit
+  path. Incomplete stations can be skipped after confirmation without being
+  marked complete, and blank/default-only station rows are removed instead of
+  implying progress.
+- 2026-05-25: Restored Hatcher multi-machine resume so all saved Hatcher rows
+  reopen as machine-scope chips and can be edited independently, including
+  machine-specific CO2 and incubation values.
+- 2026-05-25: Kept Hatch Analysis House, Machine, and Tray scopes explicit:
+  adding Machine or Tray scope no longer creates synthetic parent scope.
+- 2026-05-25: Fixed Egg Breakout tray-row persistence so explicit saved tray
+  hierarchy is written to the breakout panel tables, while hidden draft
+  hierarchy still remains blank until the matching scope is active.
+- 2026-05-25: Cleaned the Setters incubation-age sample selector with `Pool` /
+  `Day N` chips, duplicate-day disambiguation, compact icon actions, and active
+  EST sample payload sync; Hatcher incubation age/hour controls now use numeric
+  fields.
+- 2026-05-23: Changed the visit-session progress strip so the active station
+  circle uses a small white dot marker on blue, leaving green checks for
+  completed/reached past stations.
+- 2026-05-23: Changed Hatch Analysis / Egg Breakouts Tray scope comparison to
+  render only the active tray entry panel under the tray chips instead of
+  stacking every tray card in the scroll view.
+- 2026-05-23: Updated Hatch Analysis / Egg Breakouts scope controls so House
+  scope starts as prefix-only `H`, Machine scope starts as prefix-only `SH`,
+  both active hierarchy cards expose remove actions that return to pooled mode,
+  and Breakout Samples uses a dedicated Tray scope where `Pool` stores aggregate
+  counts while tray comparison still saves one panel row per physical tray.
+- 2026-05-23: Removed persisted `bmkAgeDays` from panel tables. BMK day values
+  are still calculated in memory for benchmark lookups, while stored panel
+  context keeps current flock age weeks, storage period, and rounded BMK weeks.
+- 2026-05-23: Fixed Chick Weights House scope so newly added or blank house
+  samples no longer inherit the previous active house's entered weight grid,
+  sample size, average, uniformity, or C.V. Saves now keep each `chick_weights`
+  row tied to that house sample's own entered values.
+- 2026-05-23: Fixed Chick Weights House scope removal so the first active `H`
+  sample exposes the remove action and removing it returns the weights card to
+  pooled `Pool` state.
 - 2026-05-22: Fixed panel row upserts when a Chicks/Egg scoped sample returns to
   the pooled hierarchy while an older pooled row already exists. Saves now merge
   into the existing hierarchy row and queue a tombstone for the stale scoped row
@@ -1161,11 +1318,74 @@ discarding the failure context.
 - 2026-05-22: Restored the visit-session progress strip on Hatch Analysis &
   Egg Breakouts so its station check marks appear like the other station
   screens.
+- 2026-05-23: Added the station removal button to saved rows on the resumed
+  Select Stations visit-order list while preserving row taps for review/edit.
+- 2026-05-23: Kept visit-session footer navigation on `Next Station` for
+  non-final completed/review stations, reserving `Save` for the final station.
 - 2026-05-20: Added same-context visit resume for station selection. Matching
-  in-progress sessions now reopen with saved station badges, saved stations are
-  protected from removal, unsaved stations can be added before continuing, Home
-  and Audits route active visits through station selection, and completed visits
-  open station screens first with a separate final-results action.
+  in-progress sessions now reopen with saved station badges, unsaved stations
+  can be added before continuing, Home and Audits route active visits through
+  station selection, and completed visits open station screens first with a
+  separate final-results action.
+- 2026-05-23: Fixed resumed Egg stations so `egg_quality` house and
+  setter/hatcher hierarchy rows hydrate the House/Machine scope chips even when
+  `egg_storage` is only a pooled row. Egg sample synchronization now applies
+  generated house labels only to house samples and generated machine labels only
+  to machine samples, preventing machine children from being reassigned or
+  relabeled during resume/save.
+- 2026-05-23: Fixed Egg Quality Machine scope removal from a selected House
+  scope. Visible machine children now expose the remove action even when the
+  house chip is active, and removal deletes that machine child while preserving
+  the selected house.
+- 2026-05-23: Fixed Egg Quality parent scope selection so selecting a house with
+  machine children activates the first machine child instead of leaving
+  setter/hatcher null, and saving now prunes parent-only house rows once machine
+  leaf rows exist under that house.
+- 2026-05-23: Fixed Egg Quality active machine removal so deleting `S1H1` under
+  `H1` returns to the `H1` context instead of falling through by list position
+  to the next house such as `H2`.
+- 2026-05-23: Changed first Egg Quality scope activation to use the same
+  prefix-only placeholders as later scope rows. Converting pooled Egg Quality to
+  House scope now creates only `H`, converting pooled Egg Quality to Machine
+  scope now creates only `SH`, and removing the only active scope returns the
+  station to `Pool`.
+- 2026-05-23: Changed newly added Egg Quality scope rows to start as prefix-only
+  placeholders. New House rows show `H` with a blank House field, new Machine
+  rows show `SH` with blank Setter/Hatcher fields, and entering values updates
+  the chip labels such as `H2` or `S3H4`.
+- 2026-05-23: Stabilized Egg Quality House/Setter/Hatcher identity fields so
+  entering a House number keeps the field active during provider rebuilds, while
+  idle fields still sync metadata changes back into the visible input.
+- 2026-05-23: Deleted removed scope sample panel rows before re-saving retained
+  scopes, preventing reindexed House/Machine labels from reusing a deleted
+  scope's saved row id.
+- 2026-05-23: Fixed Egg Quality House-field edits while a Machine child is
+  active. Renaming the selected House now updates the parent House sample and
+  cascades the new house key to its Machine children instead of orphaning the
+  active Machine scope.
+- 2026-05-23: Aligned first Chicks scope activation with Egg placeholder scope
+  behavior. Chick Quality Machine scope now starts with a single `SH`
+  placeholder, and Chick Weights House scope starts with a single `H`
+  placeholder instead of adding generated `S1H1`/`H1` rows beside them.
+- 2026-05-23: Fixed Chick Quality Machine scope removal so the first active
+  `SH` sample exposes the remove action and removing it returns the card to
+  pooled `Pool` state.
+- 2026-05-23: Restyled the embedded Chicks Pasgar form to remove nested card
+  boxes, group defect rows in one divided list, and show the final score as a
+  compact summary row.
+- 2026-05-23: Removed the embedded Chicks CVT inline °F/°C toggle. CVT grid
+  entry now stays in °F while retaining the 103-105°F / 39.4-40.6°C target
+  reference and guided capture action.
+- 2026-05-23: Moved the Chicks PM Necropsy fixed Gizzard Erosions row to the
+  end of the built-in lesion checklist before custom Others rows.
+- 2026-05-23: Made Setter/Hatcher panel-table hierarchy machine-first:
+  `setter_optimizing` now uses only `setter -> trolley -> tray`, and
+  `hatcher_optimizing` now uses only `hatcher -> trolley -> tray`; existing
+  current databases drop the old unrelated house/opposite-machine/position
+  hierarchy columns and rebuild the unique-row indexes.
+- 2026-05-23: Updated Hatch Analysis Candled/Residue hierarchy controls to use
+  Egg/Chicks-style `House scope` and `Machine scope` cards. The House card owns
+  the House field, while the Machine card owns the Setter and Hatcher fields.
 - 2026-05-20: Replaced Chicks Quality sampling/Machine ID controls with an
   Egg-style `Machine scope` card. Adding machine scope now generates
   setter/hatcher samples such as `S1H1` and `S2H2`, and Chick Quality panel
@@ -1201,6 +1421,31 @@ discarding the failure context.
   them in the hatcher audit draft and `hatcher_optimizing` panel row.
 - 2026-05-19: Removed the Setters `Setter settings` title and changed Turning
   Angle and CO2 Level to always show larger blue labels on the field outline.
+- 2026-05-23: Added a Setters Turning Angle camera action aligned beside the
+  entry field.
+- 2026-05-23: Changed the Setters selector to the existing Egg-style `Machine
+  scope` card with circular icon actions while keeping its chips S-only, such
+  as `S1` and `S5`, without any `H` suffix.
+- 2026-05-23: Moved the Setters setter-number entry into the Machine scope card
+  and defaulted blank first/new setter machine samples to `S`.
+- 2026-05-25: Removed the Setters machine-screen actual temperature and actual
+  RH entry fields from the setup card, leaving only the Fahrenheit and RH
+  setpoint fields.
+- 2026-05-23: Removed the Setters EST sample breed picker so samples only show
+  incubation age, incubation hours, readings, photos, average, and CV inputs.
+- 2026-05-23: Replaced the Setters EST sample tabs with an incubation-age
+  selector that shows one sample as `Pool`, manages samples with plus/minus
+  icon actions, and keeps EST grids isolated per incubation-age sample.
+- 2026-05-23: Changed the Hatchers selector to the Setters-style `Machine
+  scope` card, moved Hatcher number into that card, and defaulted blank
+  first/new hatcher machine samples to `H`.
+- 2026-05-23: Restyled Hatcher Chick Panting from a full-width segmented
+  control to compact Yes/No chips with the photo action in the card header.
+- 2026-05-23: Changed Hatch Analysis / Egg Breakouts House scope chips from
+  `House 1` wording to compact `H1`, `H2`, etc. labels.
+- 2026-05-23: Changed Hatch Analysis / Egg Breakouts hierarchy controls to show
+  `Pool` in House scope and Machine scope until activated, and kept unactivated
+  pooled tray rows from saving hidden House/Setter/Hatcher hierarchy.
 - 2026-05-19: Added Setters machine-screen relative humidity setpoint and
   actual entry fields, storing them in the audit draft and setter panel
   persistence beside the existing Fahrenheit setpoint/actual readings.
@@ -1213,8 +1458,10 @@ discarding the failure context.
 - 2026-05-22: Standardized user-facing app dates to left-to-right
   `dd-MM-yyyy` labels while preserving ISO date keys for persistence, search
   fallback, and Govee capture queries.
+- 2026-05-23: Renamed the Hatch Analysis & Egg Breakouts row summary delta from
+  Diff to Gap and removed the `pp` suffix from the displayed value.
 - 2026-05-22: Combined Hatch Analysis & Egg Breakouts row percentage, BMK, and
-  Diff metrics into one readable summary field instead of three narrow tiles.
+  delta metrics into one readable summary field instead of three narrow tiles.
 - 2026-05-19: Removed the Weak / inactive chick item from Chicks Culled Chicks
   Analysis. The defect catalogue no longer renders it in the UI, encodes it into
   `culledChicksAnalysisJson`, or decodes older saved
@@ -1463,6 +1710,9 @@ discarding the failure context.
 - 2026-05-22: Kept generated Egg Quality scope serials local to each visible
   scope list, so machine samples under a selected house start at `S1H1` even
   when house scope already contains `H1`/`H2`.
+- 2026-05-22: Made Egg Quality House-scope removal target the selected parent
+  house even when a nested machine sample is active, so one House `-` press
+  removes the house and all machine samples beneath it.
 - 2026-05-22: Tightened the v41 destructive cutover and current-schema tests so
   obsolete audit/sample repositories remain inert, current panel relationship
   cascades are verified, and legacy Govee/temperature tables are dropped during

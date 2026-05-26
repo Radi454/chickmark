@@ -38,7 +38,6 @@ Future<void> _createPanelTable(
     tray TEXT,
     position TEXT,
     storagePeriodDays INTEGER,
-    bmkAgeDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
@@ -423,6 +422,83 @@ void main() {
       expect(quality.map((row) => row['eggAvgWeight']), [55.5, 66.0]);
       expect(quality[0]['eggWeightsJson'], jsonEncode([55.0, 56.0]));
       expect(quality[1]['eggWeightsJson'], jsonEncode([65.0, 66.0, 67.0]));
+    },
+  );
+
+  test(
+    'egg quality skips parent house row once machine children exist',
+    () async {
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.switchSample(0);
+      provider.updateField('esEggWeights', jsonEncode([50.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+      provider.updateSampleMetadata({'setterNo': '1', 'hatcherNo': '1'});
+      provider.updateField('esEggWeights', jsonEncode([51.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+      provider.updateSampleMetadata({'setterNo': '2', 'hatcherNo': '2'});
+      provider.updateField('esEggWeights', jsonEncode([52.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final quality = await rows('egg_quality');
+
+      expect(quality, hasLength(2));
+      expect(quality.map((row) => row['house']), ['H', 'H']);
+      expect(quality.map((row) => row['setter']), ['1', '2']);
+      expect(quality.map((row) => row['hatcher']), ['1', '2']);
+      expect(quality.map((row) => row['eggWeightsJson']), [
+        jsonEncode([51.0]),
+        jsonEncode([52.0]),
+      ]);
+    },
+  );
+
+  test(
+    'removing a reindexed egg quality scope deletes its saved row identity',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField('esEggWeights', jsonEncode([50.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      provider.addSample();
+      provider.updateField('esEggWeights', jsonEncode([51.0]));
+      provider.updateField('esEggSampleSize', 1);
+      final removedSampleId = provider.activeStationSample.id;
+
+      provider.addSample();
+      provider.updateField('esEggWeights', jsonEncode([52.0]));
+      provider.updateField('esEggSampleSize', 1);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final beforeRemoval = await rows('egg_quality');
+      expect(beforeRemoval.map((row) => row['house']), ['H1', 'H2', 'H3']);
+      final removedRowId =
+          beforeRemoval.singleWhere((row) => row['house'] == 'H2')['id']
+              as String;
+      expect(removedRowId, contains(removedSampleId));
+
+      provider.switchSample(1);
+      provider.removeActiveSample();
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final afterRemoval = await rows('egg_quality');
+      expect(afterRemoval.map((row) => row['house']), ['H1', 'H2']);
+      expect(
+        afterRemoval.map((row) => row['id']),
+        isNot(contains(removedRowId)),
+      );
+      expect(
+        afterRemoval.map((row) => row['id'] as String),
+        everyElement(isNot(contains(removedSampleId))),
+      );
+      expect(afterRemoval.last['eggWeightsJson'], jsonEncode([52.0]));
     },
   );
 }

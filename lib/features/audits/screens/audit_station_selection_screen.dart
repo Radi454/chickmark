@@ -211,25 +211,23 @@ class _AuditStationSelectionScreenState
                   ),
                   const SizedBox(width: 8),
                 ],
-                if (!isSaved) ...[
-                  IconButton(
-                    tooltip: 'Remove station',
-                    onPressed: () {
-                      setState(() {
-                        final removed = _orderedSelectedKeys.removeAt(index);
-                        if (_selectedOpenStationKey == removed) {
-                          _selectedOpenStationKey = null;
-                        }
-                      });
-                    },
-                    icon: const Icon(Icons.close, size: 18),
-                    color: Colors.grey,
-                    padding: const EdgeInsets.all(4),
-                    constraints: const BoxConstraints(),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  const SizedBox(width: 4),
-                ],
+                IconButton(
+                  tooltip: 'Remove station',
+                  onPressed: () {
+                    setState(() {
+                      final removed = _orderedSelectedKeys.removeAt(index);
+                      if (_selectedOpenStationKey == removed) {
+                        _selectedOpenStationKey = null;
+                      }
+                    });
+                  },
+                  icon: const Icon(Icons.close, size: 18),
+                  color: Colors.grey,
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 4),
                 ReorderableDragStartListener(
                   index: index,
                   child: const Icon(

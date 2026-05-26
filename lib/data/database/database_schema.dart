@@ -91,15 +91,8 @@ Future<void> _createPanelSampleSchemaTables(DatabaseExecutor db) async {
   }
 }
 
-const _panelCommonColumnDefinitions = [
-  'house TEXT',
-  'setter TEXT',
-  'hatcher TEXT',
-  'trolley TEXT',
-  'tray TEXT',
-  'position TEXT',
+const _panelContextColumnDefinitions = [
   'storagePeriodDays INTEGER',
-  'bmkAgeDays INTEGER',
   'bmkAgeWeeks INTEGER',
 ];
 
@@ -110,7 +103,8 @@ Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
       await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
     );
     for (final columnDefinition in [
-      ..._panelCommonColumnDefinitions,
+      ...panel.hierarchyColumnDefinitions,
+      ..._panelContextColumnDefinitions,
       ...panel.measurementColumns,
     ]) {
       final columnName = _columnNameFromDefinition(columnDefinition);
@@ -118,6 +112,38 @@ Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
       await db.execute(
         'ALTER TABLE ${panel.tableName} ADD COLUMN $columnDefinition',
       );
+    }
+  }
+}
+
+Future<void> _dropPanelUniqueRowIndexes(DatabaseExecutor db) async {
+  for (final panel in PanelSampleSchema.panels) {
+    await db.execute('DROP INDEX IF EXISTS idx_${panel.tableName}_unique_row');
+  }
+}
+
+Future<void> _ensurePanelUniqueRowIndexes(DatabaseExecutor db) async {
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    await db.execute(_panelUniqueRowIndexSql(panel));
+  }
+}
+
+Future<void> _dropDeprecatedPanelColumns(DatabaseExecutor db) async {
+  final allHierarchyColumns = kPanelHierarchyColumnDefinitions
+      .map(_columnNameFromDefinition)
+      .toSet();
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    final columns = _columnNames(
+      await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
+    );
+    final deprecatedColumns = {
+      'bmkAgeDays',
+      ...allHierarchyColumns.difference(panel.hierarchyColumnNames.toSet()),
+    };
+    for (final column in deprecatedColumns.intersection(columns)) {
+      await db.execute('ALTER TABLE ${panel.tableName} DROP COLUMN $column');
     }
   }
 }
@@ -134,6 +160,7 @@ Future<void> _createPanelTable(
   final extraColumns = panel.measurementColumns.isEmpty
       ? ''
       : ',\n    ${panel.measurementColumns.join(',\n    ')}';
+  final hierarchyColumns = panel.hierarchyColumnDefinitions.join(',\n    ');
   await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
     id TEXT PRIMARY KEY,
     sessionId TEXT NOT NULL,
@@ -143,7 +170,8 @@ Future<void> _createPanelTable(
     date TEXT NOT NULL,
     breed TEXT,
     flockAgeWeeks INTEGER,
-    ${_panelCommonColumnDefinitions.join(',\n    ')},
+    $hierarchyColumns,
+    ${_panelContextColumnDefinitions.join(',\n    ')},
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -161,9 +189,16 @@ Future<void> _createPanelTable(
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
   );
-  await db.execute(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
-  );
+  await db.execute(_panelUniqueRowIndexSql(panel));
+}
+
+String _panelUniqueRowIndexSql(PanelSampleDefinition panel) {
+  final tableName = panel.tableName;
+  final columns = [
+    'sessionId',
+    ...panel.hierarchyColumnNames.map((column) => "IFNULL($column, '')"),
+  ].join(', ');
+  return 'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName ($columns)';
 }
 
 Future<void> _createSyncTombstoneTable(DatabaseExecutor db) async {

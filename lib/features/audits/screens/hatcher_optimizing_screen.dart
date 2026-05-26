@@ -11,6 +11,7 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../core/utils/temp_converter.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
+import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
@@ -31,12 +32,16 @@ import 'audit_context_screen.dart';
 class HatcherOptimizingScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
+  final List<AuditModel> initialAudits;
+  final List<StationSampleModel> initialStationSamples;
   final int initialSectionIndex;
 
   const HatcherOptimizingScreen({
     super.key,
     required this.context,
     this.initialAudit,
+    this.initialAudits = const [],
+    this.initialStationSamples = const [],
     this.initialSectionIndex = 0,
   });
   @override
@@ -78,6 +83,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   late final TextEditingController _hatcherIdController;
   final TextEditingController _setpointController = TextEditingController();
   final TextEditingController _setpointRhController = TextEditingController();
+  final TextEditingController _co2Controller = TextEditingController();
   bool _chickPanting = false;
   String? _meconium;
   EstGuidedCaptureState? _cvtCaptureState;
@@ -94,11 +100,11 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   void initState() {
     super.initState();
     _hatcherIdController = TextEditingController(
-      text:
-          widget.initialAudit?.hatcherId ??
-          widget.initialAudit?.hoHatcherId ??
-          widget.context.hatcherId ??
-          '',
+      text: _hatcherNumberValue(
+        widget.initialAudit?.hatcherId ??
+            widget.initialAudit?.hoHatcherId ??
+            widget.context.hatcherId,
+      ),
     );
     _incubationAgeController.text = (widget.initialAudit?.hoIncubationAge ?? 18)
         .toString();
@@ -110,6 +116,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _setpointRhController.text = widget.initialAudit?.hoSetpointRh != null
         ? widget.initialAudit!.hoSetpointRh!.toStringAsFixed(1)
         : '';
+    _co2Controller.text = _formatNumber(widget.initialAudit?.hoCo2);
     _chickPanting = widget.initialAudit?.hoChickPanting ?? false;
     _meconium = widget.initialAudit?.hoMeconium;
     _loadCvtReadings(widget.initialAudit?.hoCvtReadings);
@@ -135,10 +142,14 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         date: widget.context.date,
       ),
       existingAudit: widget.initialAudit,
+      existingAudits: widget.initialAudits,
+      existingStationSamples: widget.initialStationSamples,
+      readOnly: widget.context.sessionId == null ? null : false,
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
     );
+    _syncActiveSampleForm(auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToInitialSection();
@@ -148,7 +159,9 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   void _syncActiveSampleForm(AuditModel audit) {
     if (_activeAuditId == audit.id) return;
     _activeAuditId = audit.id;
-    _hatcherIdController.text = audit.hatcherId ?? audit.hoHatcherId ?? '';
+    _hatcherIdController.text = _hatcherNumberValue(
+      audit.hatcherId ?? audit.hoHatcherId,
+    );
     _incubationAgeController.text = (audit.hoIncubationAge ?? 18).toString();
     _incubationHoursController.text = (audit.hoIncubationHours ?? 0).toString();
     _setpointController.text = audit.hoSetpointF != null
@@ -157,6 +170,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _setpointRhController.text = audit.hoSetpointRh != null
         ? audit.hoSetpointRh!.toStringAsFixed(1)
         : '';
+    _co2Controller.text = _formatNumber(audit.hoCo2);
     _chickPanting = audit.hoChickPanting ?? false;
     _meconium = audit.hoMeconium;
     for (final controller in _controllers.values) {
@@ -233,6 +247,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _hatcherIdController.dispose();
     _setpointController.dispose();
     _setpointRhController.dispose();
+    _co2Controller.dispose();
     super.dispose();
   }
 
@@ -334,45 +349,46 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                       borderRadius: BorderRadius.circular(AppSizes.cardRadius),
                     ),
                     child: Padding(
+                      key: const ValueKey('hatcher-chick-panting-card'),
                       padding: const EdgeInsets.all(AppSizes.cardPadding),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Chick Panting', style: AppTextStyles.body),
-                          const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
-                                child: SegmentedButton<bool>(
-                                  segments: const [
-                                    ButtonSegment(
-                                      value: false,
-                                      label: Text('No'),
-                                    ),
-                                    ButtonSegment(
-                                      value: true,
-                                      label: Text('Yes'),
-                                    ),
-                                  ],
-                                  selected: {_chickPanting},
-                                  onSelectionChanged: auditProvider.isReadOnly
-                                      ? null
-                                      : (s) {
-                                          setState(
-                                            () => _chickPanting = s.first,
-                                          );
-                                          auditProvider.updateField(
-                                            'hoChickPanting',
-                                            s.first ? 1 : 0,
-                                          );
-                                        },
+                                child: Text(
+                                  'Chick Panting',
+                                  style: AppTextStyles.body.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               PhotoButton(
+                                key: const ValueKey(
+                                  'hatcher-chick-panting-photo-button',
+                                ),
                                 photoPath: audit.hoChickPantingPhoto,
                                 enabled: !auditProvider.isReadOnly,
                                 onPhotoCaptured: (p) => auditProvider
                                     .updateField('hoChickPantingPhoto', p),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildPantingChoice(
+                                provider: auditProvider,
+                                value: false,
+                                label: 'No',
+                              ),
+                              _buildPantingChoice(
+                                provider: auditProvider,
+                                value: true,
+                                label: 'Yes',
                               ),
                             ],
                           ),
@@ -485,87 +501,221 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   }
 
   Widget _buildHatcherTabs(AuditProvider provider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Hatchers',
-          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            OutlinedButton.icon(
-              key: const ValueKey('hatcher-add-sample-button'),
-              onPressed: provider.isReadOnly
-                  ? null
-                  : () {
-                      provider.addSample();
-                      if (!mounted) return;
-                      setState(() {
-                        _syncActiveSampleForm(provider.activeDraft);
-                      });
-                    },
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add hatcher'),
-            ),
-            IconButton.outlined(
-              tooltip: 'Remove selected hatcher',
-              onPressed: provider.isReadOnly || provider.sampleCount <= 1
-                  ? null
-                  : () {
-                      provider.removeActiveSample();
-                      if (!mounted) return;
-                      setState(() {
-                        _syncActiveSampleForm(provider.activeDraft);
-                      });
-                    },
-              icon: const Icon(Icons.delete_outline),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (var i = 0; i < provider.drafts.length; i++) ...[
-                ChoiceChip(
-                  label: Text(_hatcherTabLabel(provider.drafts[i], i)),
-                  selected: provider.activeSampleIndex == i,
-                  onSelected: (_) {
-                    provider.switchSample(i);
-                    if (!mounted) return;
-                    _syncActiveSampleForm(provider.activeDraft);
-                  },
-                  selectedColor: AppColors.primary.withAlpha(30),
-                  checkmarkColor: AppColors.primary,
-                  labelStyle: AppTextStyles.body.copyWith(
-                    color: provider.activeSampleIndex == i
-                        ? AppColors.primary
-                        : AppColors.textBody,
-                    fontWeight: provider.activeSampleIndex == i
-                        ? FontWeight.w800
-                        : FontWeight.w600,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: provider.activeSampleIndex == i
-                          ? AppColors.primary
-                          : AppColors.borderDefault,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
+    return _buildHatcherSampleControlCard(
+      key: const ValueKey('hatcher-machine-scope-card'),
+      title: 'Machine scope',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHatcherMachineScopeChips(provider),
+          const SizedBox(height: 12),
+          _buildHatcherNumberField(provider),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHatcherSampleControlCard({
+    Key? key,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      key: key,
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
           ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHatcherMachineScopeChips(AuditProvider provider) {
+    final chips = [
+      for (final entry in provider.drafts.asMap().entries)
+        _buildHatcherScopeChip(
+          label: _hatcherTabLabel(entry.value, entry.key),
+          selected: provider.activeSampleIndex == entry.key,
+          enabled: !provider.isReadOnly,
+          onSelected: () => _switchHatcherSample(provider, entry.key),
         ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHatcherSampleActionButton(
+          tooltip: 'Add machine sample',
+          icon: Icons.add,
+          onPressed: provider.isReadOnly
+              ? null
+              : () => _addHatcherMachineSample(provider),
+        ),
+        if (provider.sampleCount > 1) ...[
+          const SizedBox(width: 8),
+          _buildHatcherSampleActionButton(
+            tooltip: 'Remove active machine sample',
+            icon: Icons.remove,
+            onPressed: provider.isReadOnly
+                ? null
+                : () => _removeActiveHatcherSample(provider),
+          ),
+        ],
       ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
+            ),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHatcherScopeChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: enabled ? (_) => onSelected() : null,
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: FontWeight.w800,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHatcherSampleActionButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton.filledTonal(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
+      ),
+    );
+  }
+
+  void _addHatcherMachineSample(AuditProvider provider) {
+    provider.addSample();
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider.activeDraft);
+    });
+  }
+
+  void _switchHatcherSample(AuditProvider provider, int index) {
+    provider.switchSample(index);
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider.activeDraft);
+    });
+  }
+
+  void _removeActiveHatcherSample(AuditProvider provider) {
+    provider.removeActiveSample();
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider.activeDraft);
+    });
+  }
+
+  Widget _buildHatcherNumberField(AuditProvider provider) {
+    return TextField(
+      key: const ValueKey('hatcher-machine-scope-number-field'),
+      controller: _hatcherIdController,
+      enabled: !provider.isReadOnly,
+      decoration: const InputDecoration(
+        labelText: 'Hatcher number',
+        border: OutlineInputBorder(),
+      ),
+      onChanged: (value) {
+        provider.updateField('hatcherId', value);
+        provider.updateField('hoHatcherId', value);
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  Widget _buildPantingChoice({
+    required AuditProvider provider,
+    required bool value,
+    required String label,
+  }) {
+    final selected = _chickPanting == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: provider.isReadOnly
+          ? null
+          : (_) {
+              setState(() => _chickPanting = value);
+              provider.updateField('hoChickPanting', value ? 1 : 0);
+            },
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
+        ),
+      ),
     );
   }
 
@@ -584,20 +734,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
             Text(
               'Hatcher settings',
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _hatcherIdController,
-              enabled: !provider.isReadOnly,
-              decoration: const InputDecoration(
-                labelText: 'Hatcher number',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                provider.updateField('hatcherId', value);
-                provider.updateField('hoHatcherId', value);
-                if (mounted) setState(() {});
-              },
             ),
             const SizedBox(height: 12),
             Row(
@@ -640,45 +776,35 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Text(
-              'Incubation Age: ${_incubationAgeController.text} days',
-              style: AppTextStyles.body,
-            ),
-            Slider(
-              value: double.tryParse(_incubationAgeController.text) ?? 18,
-              min: 18,
-              max: 21,
-              divisions: 3,
-              onChanged: provider.isReadOnly
-                  ? null
-                  : (value) {
-                      final age = value.toInt();
-                      setState(() {
-                        _incubationAgeController.text = age.toString();
-                      });
-                      provider.updateField('hoIncubationAge', age);
-                    },
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Incubation Hours: ${_incubationHoursController.text} hours',
-              style: AppTextStyles.body,
-            ),
-            Slider(
-              key: const ValueKey('hatcher-incubation-hours-slider'),
-              value: double.tryParse(_incubationHoursController.text) ?? 0,
-              min: 0,
-              max: 23,
-              divisions: 23,
-              onChanged: provider.isReadOnly
-                  ? null
-                  : (value) {
-                      final hours = value.toInt();
-                      setState(() {
-                        _incubationHoursController.text = hours.toString();
-                      });
-                      provider.updateField('hoIncubationHours', hours);
-                    },
+            Row(
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('hatcher-incubation-age-field'),
+                    controller: _incubationAgeController,
+                    enabled: !provider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Incubation Age (days)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => _updateIncubationAge(provider, value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('hatcher-incubation-hours-field'),
+                    controller: _incubationHoursController,
+                    enabled: !provider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Incubation Hours',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) =>
+                        _updateIncubationHours(provider, value),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -699,6 +825,8 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
           children: [
             Expanded(
               child: TextField(
+                key: const ValueKey('hatcher-co2-field'),
+                controller: _co2Controller,
                 enabled: !provider.isReadOnly,
                 decoration: const InputDecoration(
                   labelText: 'CO2 Level (ppm)',
@@ -880,13 +1008,61 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
 
   String _hatcherTabLabel(AuditModel audit, int index) {
     final raw = (audit.hatcherId ?? audit.hoHatcherId ?? '').trim();
-    if (raw.isEmpty) return 'H${index + 1}';
+    if (raw.isEmpty) return 'H';
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
     if (digits.isNotEmpty) return 'H$digits';
     final withoutPrefix = raw.toLowerCase().startsWith('h')
         ? raw.substring(1).trim()
         : raw;
     return 'H$withoutPrefix';
+  }
+
+  String _hatcherNumberValue(String? value) {
+    final raw = (value ?? '').trim();
+    return raw.isEmpty ? 'H' : raw;
+  }
+
+  String _formatNumber(double? value) {
+    if (value == null) return '';
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    return value.toString();
+  }
+
+  void _updateIncubationAge(AuditProvider provider, String value) {
+    final parsed = int.tryParse(value);
+    if (parsed == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    final age = parsed.clamp(18, 21).toInt();
+    _replaceControllerTextIfNeeded(_incubationAgeController, age.toString());
+    provider.updateField('hoIncubationAge', age);
+    if (mounted) setState(() {});
+  }
+
+  void _updateIncubationHours(AuditProvider provider, String value) {
+    final parsed = int.tryParse(value);
+    if (parsed == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    final hours = parsed.clamp(0, 23).toInt();
+    _replaceControllerTextIfNeeded(
+      _incubationHoursController,
+      hours.toString(),
+    );
+    provider.updateField('hoIncubationHours', hours);
+    if (mounted) setState(() {});
+  }
+
+  void _replaceControllerTextIfNeeded(
+    TextEditingController controller,
+    String value,
+  ) {
+    if (controller.text == value) return;
+    controller
+      ..text = value
+      ..selection = TextSelection.collapsed(offset: value.length);
   }
 
   void _scrollToInitialSection() {

@@ -113,6 +113,8 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     100,
     (_) => FocusNode(),
   );
+  final Map<String, TextEditingController> _eggScopeIdentityControllers = {};
+  final Map<String, FocusNode> _eggScopeIdentityFocusNodes = {};
   String? _traySpacing;
   String? _coolerProximity;
   bool? _condensation;
@@ -359,6 +361,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     for (var n in _eggWeightFocusNodes) {
       n.dispose();
     }
+    for (final controller in _eggScopeIdentityControllers.values) {
+      controller.dispose();
+    }
+    for (final focusNode in _eggScopeIdentityFocusNodes.values) {
+      focusNode.dispose();
+    }
     super.dispose();
   }
 
@@ -372,6 +380,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
     _syncActiveSampleForm(audit);
+    _pruneEggScopeIdentityFields(auditProvider.stationSamples);
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
@@ -1159,6 +1168,11 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         scopeEntries.any(
           (entry) => _isEggScopeEntrySelected(auditProvider, sampleKind, entry),
         );
+    final hasRemovableEntry =
+        (hasSelectedEntry ||
+        (sampleKind == StationSampleModel.sampleKindMachine &&
+            active &&
+            hasEntries));
     final chips = active && hasEntries
         ? [
             for (final entry in scopeEntries)
@@ -1190,7 +1204,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
           icon: Icons.add,
           onPressed: auditProvider.isReadOnly ? null : addSample,
         ),
-        if (hasSelectedEntry && auditProvider.sampleCount > 1) ...[
+        if (hasRemovableEntry) ...[
           const SizedBox(width: 8),
           _buildHouseSampleActionButton(
             tooltip: removeTooltip,
@@ -1297,7 +1311,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       return _buildScopeInputRow([
         TextFormField(
           key: ValueKey('egg-quality-house-${sample.id}'),
-          initialValue: _eggScopeFieldValue(auditProvider, sample, 'house'),
+          controller: _eggScopeIdentityController(
+            auditProvider,
+            sample,
+            'house',
+          ),
+          focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
           enabled: !auditProvider.isReadOnly,
           textInputAction: TextInputAction.done,
           decoration: _scopeInputDecoration('House'),
@@ -1310,7 +1329,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     return _buildScopeInputRow([
       TextFormField(
         key: ValueKey('egg-quality-setter-${sample.id}'),
-        initialValue: _eggScopeFieldValue(auditProvider, sample, 'setter'),
+        controller: _eggScopeIdentityController(
+          auditProvider,
+          sample,
+          'setter',
+        ),
+        focusNode: _eggScopeIdentityFocusNode(sample, 'setter'),
         enabled: !auditProvider.isReadOnly,
         textInputAction: TextInputAction.next,
         decoration: _scopeInputDecoration('Setter'),
@@ -1320,7 +1344,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       ),
       TextFormField(
         key: ValueKey('egg-quality-hatcher-${sample.id}'),
-        initialValue: _eggScopeFieldValue(auditProvider, sample, 'hatcher'),
+        controller: _eggScopeIdentityController(
+          auditProvider,
+          sample,
+          'hatcher',
+        ),
+        focusNode: _eggScopeIdentityFocusNode(sample, 'hatcher'),
         enabled: !auditProvider.isReadOnly,
         textInputAction: TextInputAction.done,
         decoration: _scopeInputDecoration('Hatcher'),
@@ -1329,6 +1358,59 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         },
       ),
     ]);
+  }
+
+  TextEditingController _eggScopeIdentityController(
+    AuditProvider auditProvider,
+    StationSampleModel sample,
+    String field,
+  ) {
+    final key = _eggScopeIdentityKey(sample, field);
+    final nextText = _eggScopeFieldValue(auditProvider, sample, field);
+    final controller = _eggScopeIdentityControllers.putIfAbsent(
+      key,
+      () => TextEditingController(text: nextText),
+    );
+    final focusNode = _eggScopeIdentityFocusNodes[key];
+
+    if (focusNode?.hasFocus != true && controller.text != nextText) {
+      controller.value = TextEditingValue(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: nextText.length),
+      );
+    }
+
+    return controller;
+  }
+
+  FocusNode _eggScopeIdentityFocusNode(
+    StationSampleModel sample,
+    String field,
+  ) {
+    final key = _eggScopeIdentityKey(sample, field);
+    return _eggScopeIdentityFocusNodes.putIfAbsent(key, FocusNode.new);
+  }
+
+  void _pruneEggScopeIdentityFields(List<StationSampleModel> samples) {
+    final validKeys = <String>{
+      for (final sample in samples)
+        for (final field in const ['house', 'setter', 'hatcher'])
+          _eggScopeIdentityKey(sample, field),
+    };
+
+    for (final key in _eggScopeIdentityControllers.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _eggScopeIdentityControllers.remove(key)?.dispose();
+      _eggScopeIdentityFocusNodes.remove(key)?.dispose();
+    }
+    for (final key in _eggScopeIdentityFocusNodes.keys.toList()) {
+      if (validKeys.contains(key)) continue;
+      _eggScopeIdentityFocusNodes.remove(key)?.dispose();
+    }
+  }
+
+  String _eggScopeIdentityKey(StationSampleModel sample, String field) {
+    return '${sample.id}:$field';
   }
 
   String _eggScopeFieldValue(
@@ -1366,6 +1448,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     String value,
     String prefix,
   ) {
+    if (value == prefix) return true;
     if (!RegExp('^$prefix\\d+\$').hasMatch(value)) return false;
     return value == '$prefix${_eggScopeSerial(auditProvider, sample)}';
   }
@@ -1393,6 +1476,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
   bool _isGeneratedHouseScopeValue(AuditProvider auditProvider, String value) {
     final trimmed = value.trim();
+    if (trimmed == 'H') return true;
     if (!RegExp(r'^H\d+$').hasMatch(trimmed)) return false;
     return auditProvider.stationSamples.any(
       (sample) =>

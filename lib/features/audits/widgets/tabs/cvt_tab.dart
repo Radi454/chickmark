@@ -68,8 +68,6 @@ class _CvtTabState extends State<CvtTab> {
   int _captureGeneration = 0;
   int _successPulse = 0;
   Timer? _autoScanTimer;
-  TempUnit _entryUnit = TempUnit.fahrenheit;
-
   @override
   void initState() {
     super.initState();
@@ -181,19 +179,12 @@ class _CvtTabState extends State<CvtTab> {
     }
   }
 
-  String _formatForEntryUnit(double valueF) {
-    final value = _entryUnit == TempUnit.celsius
-        ? TempConverter.toCelsius(valueF)
-        : valueF;
-    return value.toStringAsFixed(1);
-  }
+  String _formatForEntryUnit(double valueF) => valueF.toStringAsFixed(1);
 
   double? _controllerValueF(String key) {
     final parsed = double.tryParse(_controllers[key]?.text.trim() ?? '');
     if (parsed == null) return null;
-    return _entryUnit == TempUnit.celsius
-        ? TempConverter.toFahrenheit(parsed)
-        : parsed;
+    return parsed;
   }
 
   Map<String, double> _currentReadingsF() {
@@ -264,19 +255,6 @@ class _CvtTabState extends State<CvtTab> {
       'middle': readings['middle_middle'] ?? firstForLevel('middle'),
       'bottom': readings['back_bottom'] ?? firstForLevel('bottom'),
     };
-  }
-
-  void _toggleEntryUnit(TempUnit nextUnit) {
-    if (_entryUnit == nextUnit) return;
-    final readings = _currentReadingsF();
-    setState(() {
-      _entryUnit = nextUnit;
-      for (final entry in _controllers.entries) {
-        final value = readings[entry.key];
-        entry.value.text = value == null ? '' : _formatForEntryUnit(value);
-      }
-      _guidedValueController.clear();
-    });
   }
 
   void _toggleGuidedCapture() {
@@ -367,7 +345,7 @@ class _CvtTabState extends State<CvtTab> {
                   enabled: !widget.isReadOnly,
                   highlightedKey: _highlightedKey,
                   showPhotoCapture: false,
-                  unitSuffix: _entryUnit == TempUnit.celsius ? '°C' : '°F',
+                  unitSuffix: '°F',
                   tempStatusFn: CalculationUtils.cvtStatus,
                   tempZoneFn: CalculationUtils.cvtZone,
                   onValueChanged: (_, _) {
@@ -405,44 +383,17 @@ class _CvtTabState extends State<CvtTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'CVT Grid',
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '103-105°F / 39.4-40.6°C',
-                    style: AppTextStyles.caption.copyWith(
-                      color: AppColors.greenTab,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            SegmentedButton<TempUnit>(
-              key: const ValueKey('cvt-unit-toggle'),
-              segments: const [
-                ButtonSegment(value: TempUnit.fahrenheit, label: Text('°F')),
-                ButtonSegment(value: TempUnit.celsius, label: Text('°C')),
-              ],
-              selected: {_entryUnit},
-              onSelectionChanged: widget.isReadOnly
-                  ? null
-                  : (selection) => _toggleEntryUnit(selection.first),
-              showSelectedIcon: false,
-            ),
-          ],
+        Text(
+          'CVT Grid',
+          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '103-105°F / 39.4-40.6°C',
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.greenTab,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: 12),
         Align(
@@ -466,7 +417,7 @@ class _CvtTabState extends State<CvtTab> {
     return EstGuidedCapturePanel(
       state: state,
       valueController: _guidedValueController,
-      unitSuffix: _entryUnit == TempUnit.celsius ? '°C' : '°F',
+      unitSuffix: '°F',
       targetLabelBuilder: _targetLabel,
       preview: InlineCameraCapture(
         key: _cameraKey,
@@ -607,9 +558,7 @@ class _CvtTabState extends State<CvtTab> {
       return;
     }
 
-    final reading = _entryUnit == TempUnit.celsius
-        ? readingC
-        : readingC == null
+    final reading = readingC == null
         ? null
         : TempConverter.toFahrenheit(readingC);
 
@@ -701,9 +650,7 @@ class _CvtTabState extends State<CvtTab> {
       unawaited(_photoService.deletePhoto(savedPath));
       return;
     }
-    final reading = _entryUnit == TempUnit.celsius
-        ? readingC
-        : readingC == null
+    final reading = readingC == null
         ? null
         : TempConverter.toFahrenheit(readingC);
     if (reading == null) {
@@ -835,10 +782,7 @@ class _CvtTabState extends State<CvtTab> {
     final valueController = TextEditingController(
       text: readingC == null
           ? ''
-          : (_entryUnit == TempUnit.celsius
-                    ? readingC
-                    : TempConverter.toFahrenheit(readingC))
-                .toStringAsFixed(1),
+          : TempConverter.toFahrenheit(readingC).toStringAsFixed(1),
     );
     final confirmed = await showDialog<bool>(
       context: context,
@@ -851,7 +795,7 @@ class _CvtTabState extends State<CvtTab> {
             maxDecimalPlaces: 1,
             decoration: InputDecoration(
               labelText: 'Temperature',
-              suffixText: _entryUnit == TempUnit.celsius ? '°C' : '°F',
+              suffixText: '°F',
             ),
           ),
         ),

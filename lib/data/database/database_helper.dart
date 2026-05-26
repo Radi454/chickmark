@@ -45,7 +45,10 @@ class DatabaseHelper {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onOpen: (db) async {
+        await _dropPanelUniqueRowIndexes(db);
+        await _dropDeprecatedPanelColumns(db);
         await _ensurePanelSampleSchemaColumns(db);
+        await _ensurePanelUniqueRowIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
       },
     );

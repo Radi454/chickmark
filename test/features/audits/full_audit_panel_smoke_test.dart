@@ -605,6 +605,9 @@ List<AuditModel> _auditDraftsFromPanelRows(
   String stationKey,
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
+  final eggDrafts = _eggAuditDraftsFromPanelRows(stationKey, rowsByPanel);
+  if (eggDrafts != null) return eggDrafts;
+
   final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
   final groupIndexes = <String, int>{};
   for (final entry in rowsByPanel.entries) {
@@ -626,6 +629,32 @@ List<AuditModel> _auditDraftsFromPanelRows(
   ];
   drafts.sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
   return drafts;
+}
+
+List<AuditModel>? _eggAuditDraftsFromPanelRows(
+  String stationKey,
+  Map<String, List<Map<String, dynamic>>> rowsByPanel,
+) {
+  if (stationKey != 'egg') return null;
+  final qualityRows =
+      rowsByPanel['egg_quality'] ?? const <Map<String, dynamic>>[];
+  if (qualityRows.isEmpty) return null;
+
+  final pooledStorageRecords =
+      (rowsByPanel['egg_storage'] ?? const <Map<String, dynamic>>[])
+          .where((row) => !_rowHasHierarchy(row))
+          .map((row) => (table: 'egg_storage', row: row))
+          .toList();
+
+  return [
+    for (final entry in qualityRows.asMap().entries)
+      AuditModel.fromMap(
+        _auditMapFromPanelRows(stationKey, entry.key, [
+          (table: 'egg_quality', row: entry.value),
+          ...pooledStorageRecords,
+        ]),
+      ),
+  ]..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
 }
 
 Map<String, dynamic> _auditMapFromPanelRows(
@@ -907,27 +936,46 @@ List<StationSampleModel> _stationSamplesFromPanelRows(
   String stationKey,
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
-  final primaryEntry = rowsByPanel.entries.firstWhere(
+  final primaryEntry = _stationSampleSourceRows(stationKey, rowsByPanel);
+  if (primaryEntry.value.isEmpty) return const [];
+  return [
+    for (final entry in primaryEntry.value.asMap().entries)
+      _sampleFromPanelRow(
+        stationKey,
+        primaryEntry.key,
+        entry.value,
+        fallbackIndex: entry.key + 1,
+      ),
+  ];
+}
+
+MapEntry<String, List<Map<String, dynamic>>> _stationSampleSourceRows(
+  String stationKey,
+  Map<String, List<Map<String, dynamic>>> rowsByPanel,
+) {
+  if (stationKey == 'egg') {
+    final qualityRows = rowsByPanel['egg_quality'];
+    if (qualityRows != null && qualityRows.isNotEmpty) {
+      return MapEntry('egg_quality', qualityRows);
+    }
+  }
+  return rowsByPanel.entries.firstWhere(
     (entry) => entry.value.isNotEmpty,
     orElse: () => const MapEntry('', []),
   );
-  if (primaryEntry.value.isEmpty) return const [];
-  return [
-    for (final row in primaryEntry.value)
-      _sampleFromPanelRow(stationKey, primaryEntry.key, row),
-  ];
 }
 
 StationSampleModel _sampleFromPanelRow(
   String stationKey,
   String table,
-  Map<String, dynamic> row,
-) {
+  Map<String, dynamic> row, {
+  required int fallbackIndex,
+}) {
   final scopeType = _scopeTypeForRow(row);
   final sampleMode = _rowHasHierarchy(row)
       ? StationSampleModel.sampleModeComparison
       : StationSampleModel.sampleModePooled;
-  final sampleIndex = _asInt(row['sampleIndex']) ?? 1;
+  final sampleIndex = _asInt(row['sampleIndex']) ?? fallbackIndex;
   final sampleLabel = _sampleLabelForRow(row) ?? 'Sample $sampleIndex';
   return StationSampleModel(
     id: row['id']?.toString() ?? '$_sessionId:$table:$sampleIndex',
@@ -946,7 +994,7 @@ StationSampleModel _sampleFromPanelRow(
     houseNo: _asText(row['house']),
     houseLabel: _asText(row['house']),
     storageDays: _asInt(row['storagePeriodDays']),
-    incubationDay: _asInt(row['incubationAgeDays'] ?? row['bmkAgeDays']),
+    incubationDay: _asInt(row['incubationAgeDays'] ?? row['candlingDay']),
     setterNo: _asText(row['setter']),
     hatcherNo: _asText(row['hatcher']),
     notes: row['notes']?.toString(),
@@ -988,10 +1036,13 @@ String _scopeTypeForRow(Map<String, dynamic> row) {
 }
 
 String? _sampleLabelForRow(Map<String, dynamic> row) {
+  final setter = _asText(row['setter']);
+  final hatcher = _asText(row['hatcher']);
+  if (setter != null && hatcher != null) return '$setter$hatcher';
   return _asText(row['tray']) ??
       _asText(row['trolley']) ??
-      _asText(row['setter']) ??
-      _asText(row['hatcher']) ??
+      setter ??
+      hatcher ??
       _asText(row['house']);
 }
 
@@ -1094,11 +1145,19 @@ Future<Map<String, dynamic>> _singleRow(String table) async {
 
 Future<List<Map<String, dynamic>>> _rows(String table) async {
   final db = await DatabaseHelper().db;
-  final rows = await db.query(
-    table,
-    orderBy:
-        "house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC",
-  );
+  final tableColumns = (await db.rawQuery(
+    'PRAGMA table_info($table)',
+  )).map((row) => row['name']?.toString()).whereType<String>().toSet();
+  final orderBy = [
+    'house',
+    'setter',
+    'hatcher',
+    'trolley',
+    'tray',
+    'position',
+    'createdAt',
+  ].where(tableColumns.contains).map((column) => '$column ASC').join(', ');
+  final rows = await db.query(table, orderBy: orderBy);
   return rows.map((row) => Map<String, dynamic>.from(row)).toList();
 }
 

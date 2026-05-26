@@ -43,7 +43,6 @@ void main() {
       'tray',
       'position',
       'storagePeriodDays',
-      'bmkAgeDays',
       'bmkAgeWeeks',
     };
 
@@ -104,6 +103,12 @@ void main() {
     () {
       final panel = PanelSampleSchema.byTable('setter_optimizing');
 
+      expect(panel.allowedLayers, [
+        SamplingLayer.setter,
+        SamplingLayer.trolley,
+        SamplingLayer.tray,
+      ]);
+      expect(panel.hierarchyColumnNames, ['setter', 'trolley', 'tray']);
       expect(
         panel.measurementColumns,
         containsAll([
@@ -111,6 +116,10 @@ void main() {
           'actualF REAL',
           'setpointRh REAL',
           'actualRh REAL',
+          'co2Photo TEXT',
+          'estPhotosJson TEXT',
+          'estSamplesJson TEXT',
+          'machineScreenPhoto TEXT',
         ]),
       );
     },
@@ -119,13 +128,46 @@ void main() {
   test('hatcher optimizing schema includes machine setpoint readings', () {
     final panel = PanelSampleSchema.byTable('hatcher_optimizing');
 
+    expect(panel.allowedLayers, [
+      SamplingLayer.hatcher,
+      SamplingLayer.trolley,
+      SamplingLayer.tray,
+    ]);
+    expect(panel.hierarchyColumnNames, ['hatcher', 'trolley', 'tray']);
     expect(
       panel.measurementColumns,
-      containsAll(['setpointF REAL', 'setpointRh REAL']),
+      containsAll([
+        'setpointF REAL',
+        'setpointRh REAL',
+        'co2Photo TEXT',
+        'cvtPhotosJson TEXT',
+        'chickPantingPhoto TEXT',
+        'transferDay INTEGER',
+      ]),
     );
   });
 
   test('breakout schemas include current versus BMK diff columns', () {
+    expect(PanelSampleSchema.byTable('fresh_egg_breakout').allowedLayers, [
+      SamplingLayer.pool,
+      SamplingLayer.house,
+      SamplingLayer.tray,
+    ]);
+    expect(PanelSampleSchema.byTable('candled_egg_breakout').allowedLayers, [
+      SamplingLayer.pool,
+      SamplingLayer.house,
+      SamplingLayer.setterHatcher,
+      SamplingLayer.trolley,
+      SamplingLayer.tray,
+    ]);
+    expect(PanelSampleSchema.byTable('residue_breakout').allowedLayers, [
+      SamplingLayer.pool,
+      SamplingLayer.house,
+      SamplingLayer.setterHatcher,
+      SamplingLayer.trolley,
+      SamplingLayer.tray,
+      SamplingLayer.batch,
+    ]);
     expect(
       PanelSampleSchema.byTable('fresh_egg_breakout').measurementColumns,
       containsAll([
@@ -164,16 +206,46 @@ void main() {
         'pasgarSampleSize INTEGER',
         'pasgarReflexesCount INTEGER',
         'pasgarFinalScore REAL',
+        'co2Ppm REAL',
+        'co2Photo TEXT',
+        'pm10 REAL',
+        'pm10Photo TEXT',
+        'pm25 REAL',
+        'pm25Photo TEXT',
+        'airVelocitySpot1 REAL',
+        'airVelocitySpot1Photo TEXT',
+        'airVelocitySpot2 REAL',
+        'airVelocitySpot2Photo TEXT',
+        'airVelocitySpot3 REAL',
+        'airVelocitySpot3Photo TEXT',
+        'airInlet REAL',
+        'airInletPhoto TEXT',
+        'airOutlet REAL',
+        'airOutletPhoto TEXT',
+        'noiseLevel REAL',
+        'noiseLevelPhoto TEXT',
+        'yfbmPhoto TEXT',
         'yfbmEntriesJson TEXT',
         'yfbmEntryCount INTEGER',
         'yfbmAvgPct REAL',
         'yfbmCvPct REAL',
         'cvtReadingsJson TEXT',
+        'cvtPhotosJson TEXT',
         'cvtSampleSize INTEGER',
+        'cvtTopBasket TEXT',
+        'cvtTopTemp REAL',
+        'cvtTopPhoto TEXT',
+        'cvtMiddleBasket TEXT',
+        'cvtMiddleTemp REAL',
+        'cvtMiddlePhoto TEXT',
+        'cvtBottomBasket TEXT',
+        'cvtBottomTemp REAL',
+        'cvtBottomPhoto TEXT',
         'cvtAvgTemp REAL',
         'cvtCvPct REAL',
         'pmSampleSize INTEGER',
         'pmCollectionPoint TEXT',
+        'pmPhotosJson TEXT',
         'culledChicksTotalEggSet INTEGER',
         'culledChicksAnalysisJson TEXT',
         'culledChicksAffectedPct REAL',
@@ -202,6 +274,7 @@ void main() {
         'pmGeneralSepticemiaCount INTEGER',
         'pmGeneralSepticemiaSeverity TEXT',
         'pmOtherLesionsJson TEXT',
+        'pmPhotosJson TEXT',
       ]),
     );
     for (final column in [
@@ -266,7 +339,6 @@ void main() {
         tray: 'Tray 03',
         position: 'top',
         storagePeriodDays: 4,
-        bmkAgeDays: 276,
         bmkAgeWeeks: 40,
         values: const {'pasgarFinalScore': 97.5},
       );
@@ -278,7 +350,7 @@ void main() {
       expect(panel.toMap()['tray'], 'Tray 03');
       expect(panel.toMap()['position'], 'top');
       expect(panel.toMap()['storagePeriodDays'], 4);
-      expect(panel.toMap()['bmkAgeDays'], 276);
+      expect(panel.toMap(), isNot(contains('bmkAgeDays')));
       expect(panel.toMap()['bmkAgeWeeks'], 40);
       expect(panel.toMap()['date'], '2026-05-13');
       expect(panel.toMap()['pasgarFinalScore'], 97.5);

@@ -435,6 +435,21 @@ class AuditSessionProvider extends ChangeNotifier {
     }
   }
 
+  /// Remove the visible station from completion progress and reopen if needed.
+  Future<void> removeCurrentStationCompletion() async {
+    if (_currentSession == null) return;
+    if (_currentStationIndex < 0 ||
+        _currentStationIndex >= stationKeys.length) {
+      return;
+    }
+    final stationKey = stationKeys[_currentStationIndex];
+    if (!stationsCompleted.contains(stationKey)) return;
+    final nextCompleted = stationsCompleted
+        .where((completedKey) => completedKey != stationKey)
+        .toList(growable: false);
+    await updateProgress(nextCompleted);
+  }
+
   /// Complete the entire visit session.
   Future<void> completeSession() async {
     if (_currentSession == null || _isLoading) return;

@@ -41,7 +41,6 @@ const _commonPanelColumns = [
   'tray',
   'position',
   'storagePeriodDays',
-  'bmkAgeDays',
   'bmkAgeWeeks',
   'notes',
   'createdAt',
@@ -103,11 +102,108 @@ void main() {
 
       for (final table in _panelTables) {
         final columns = await _columnNames(db, table);
-        expect(columns, containsAll(_commonPanelColumns), reason: table);
+        final expectedColumns = _expectedCommonColumnsFor(table);
+        expect(columns, containsAll(expectedColumns), reason: table);
+        expect(columns, isNot(contains('bmkAgeDays')), reason: table);
         for (final legacyColumn in _legacyPanelIdentityColumns) {
           expect(columns, isNot(contains(legacyColumn)), reason: table);
         }
       }
+    },
+  );
+
+  test('setter and hatcher tables start hierarchy at machine scope', () async {
+    final db = await DatabaseHelper().db;
+    final setterColumns = await _columnNames(db, 'setter_optimizing');
+    final hatcherColumns = await _columnNames(db, 'hatcher_optimizing');
+
+    expect(setterColumns, containsAll(['setter', 'trolley', 'tray']));
+    expect(setterColumns, isNot(contains('house')));
+    expect(setterColumns, isNot(contains('hatcher')));
+    expect(setterColumns, isNot(contains('position')));
+
+    expect(hatcherColumns, containsAll(['hatcher', 'trolley', 'tray']));
+    expect(hatcherColumns, isNot(contains('house')));
+    expect(hatcherColumns, isNot(contains('setter')));
+    expect(hatcherColumns, isNot(contains('position')));
+  });
+
+  test(
+    'opening an existing current database drops deprecated BMK age days',
+    () async {
+      await DatabaseHelper().close();
+      final dbPath = p.join(
+        await databaseFactory.getDatabasesPath(),
+        'hatchaudit.db',
+      );
+      final existingDb = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 41,
+          onCreate: (db, version) async {
+            await db.execute('''CREATE TABLE egg_storage (
+            id TEXT PRIMARY KEY,
+            sessionId TEXT NOT NULL,
+            customerId TEXT NOT NULL,
+            date TEXT NOT NULL,
+            bmkAgeDays INTEGER
+          )''');
+          },
+        ),
+      );
+      await existingDb.close();
+
+      final db = await DatabaseHelper().db;
+      final columns = await _columnNames(db, 'egg_storage');
+
+      expect(columns, isNot(contains('bmkAgeDays')));
+      expect(columns, containsAll(['storagePeriodDays', 'bmkAgeWeeks']));
+    },
+  );
+
+  test(
+    'opening an existing current database drops obsolete setter hierarchy columns',
+    () async {
+      await DatabaseHelper().close();
+      final dbPath = p.join(
+        await databaseFactory.getDatabasesPath(),
+        'hatchaudit.db',
+      );
+      final existingDb = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 41,
+          onCreate: (db, version) async {
+            await db.execute('''CREATE TABLE setter_optimizing (
+              id TEXT PRIMARY KEY,
+              sessionId TEXT NOT NULL,
+              customerId TEXT NOT NULL,
+              date TEXT NOT NULL,
+              house TEXT,
+              setter TEXT,
+              hatcher TEXT,
+              trolley TEXT,
+              tray TEXT,
+              position TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              syncStatus TEXT NOT NULL DEFAULT 'pending'
+            )''');
+            await db.execute(
+              "CREATE UNIQUE INDEX idx_setter_optimizing_unique_row ON setter_optimizing (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+            );
+          },
+        ),
+      );
+      await existingDb.close();
+
+      final db = await DatabaseHelper().db;
+      final columns = await _columnNames(db, 'setter_optimizing');
+
+      expect(columns, containsAll(['setter', 'trolley', 'tray']));
+      expect(columns, isNot(contains('house')));
+      expect(columns, isNot(contains('hatcher')));
+      expect(columns, isNot(contains('position')));
     },
   );
 
@@ -362,4 +458,17 @@ Future<Set<String>> _tableNames(Database db) async {
 Future<Set<String>> _columnNames(Database db, String table) async {
   final rows = await db.rawQuery('PRAGMA table_info($table)');
   return rows.map((row) => row['name']! as String).toSet();
+}
+
+Set<String> _expectedCommonColumnsFor(String table) {
+  final columns = _commonPanelColumns.toSet();
+  switch (table) {
+    case 'setter_optimizing':
+      columns.removeAll(['house', 'hatcher', 'position']);
+      break;
+    case 'hatcher_optimizing':
+      columns.removeAll(['house', 'setter', 'position']);
+      break;
+  }
+  return columns;
 }

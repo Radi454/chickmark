@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
@@ -417,7 +418,7 @@ void main() {
     expect(entries.first['yolkWeight'], 4.0);
   });
 
-  testWidgets('CVT uses an EST-style grid with target and unit controls', (
+  testWidgets('CVT uses an EST-style grid with target and capture action', (
     tester,
   ) async {
     final provider = AuditProvider(autosaveEnabled: false);
@@ -433,7 +434,7 @@ void main() {
     expect(find.text('Guided CVT capture'), findsOneWidget);
     expect(find.text('103-105°F / 39.4-40.6°C'), findsOneWidget);
     expect(find.byKey(const ValueKey('cvt-temperature-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cvt-unit-toggle')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cvt-unit-toggle')), findsNothing);
     expect(find.text('CVT Measurements'), findsNothing);
 
     await enterAuditNumber(
@@ -483,6 +484,22 @@ void main() {
     expect(find.text('Airsac Acute'), findsNothing);
     expect(find.text('Airsac Chronic'), findsNothing);
     expect(find.text('Pulmonary Hemorrhage'), findsNothing);
+
+    final expectedLesionOrder = [
+      'Omphalitis',
+      'Gaseous Ceca',
+      'Air Sac Caseations',
+      'Urolithiasis (Urate Deposits)',
+      'Nephritis',
+      'General Septicemia',
+      'Gizzard Erosions',
+    ];
+    for (var i = 0; i < expectedLesionOrder.length - 1; i += 1) {
+      expect(
+        tester.getTopLeft(find.text(expectedLesionOrder[i])).dy,
+        lessThan(tester.getTopLeft(find.text(expectedLesionOrder[i + 1])).dy),
+      );
+    }
 
     expect(find.text('Others'), findsWidgets);
     expect(find.byKey(const ValueKey('pm-add-other-lesion')), findsOneWidget);
@@ -664,12 +681,28 @@ void main() {
     );
     expect(
       find.descendant(of: weightsPanel, matching: find.text('H1')),
-      findsWidgets,
+      findsNothing,
     );
-    expect(find.text('H2'), findsWidgets);
+    expect(find.text('H'), findsWidgets);
     expect(find.byTooltip('Remove active house sample'), findsOneWidget);
     final houseField = find.widgetWithText(TextFormField, 'House');
     expect(houseField, findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: weightsPanel,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is TextField &&
+                    widget.decoration?.labelText == 'House',
+              ),
+            ),
+          )
+          .controller
+          ?.text,
+      '',
+    );
 
     await tester.enterText(houseField, '12');
     await tester.pumpAndSettle();
@@ -681,6 +714,50 @@ void main() {
     expect(provider.activeChickWeightSample.houseNo, '12');
     expect(provider.activeChickWeightSample.houseLabel, 'House 12');
   });
+
+  testWidgets(
+    'house scope can remove the only active weight sample back to pool',
+    (tester) async {
+      final provider = AuditProvider(autosaveEnabled: false);
+      await pumpScreen(tester, provider: provider);
+      final weightsPanel = find.byKey(
+        const ValueKey('chick-quality-panel-weights'),
+      );
+
+      await tester.ensureVisible(weightsPanel);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Add house sample'));
+      await tester.pumpAndSettle();
+
+      expect(provider.isChickWeightCompareMode, isTrue);
+      expect(
+        provider.chickWeightSampleMode,
+        StationSampleModel.sampleModeComparison,
+      );
+      expect(
+        find.descendant(of: weightsPanel, matching: find.text('Pool')),
+        findsNothing,
+      );
+      expect(find.byTooltip('Remove active house sample'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'House'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Remove active house sample'));
+      await tester.pumpAndSettle();
+
+      expect(provider.isChickWeightCompareMode, isFalse);
+      expect(
+        provider.chickWeightSampleMode,
+        StationSampleModel.sampleModePooled,
+      );
+      expect(
+        find.descendant(of: weightsPanel, matching: find.text('Pool')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Remove active house sample'), findsNothing);
+      expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
+    },
+  );
 
   testWidgets('opens the weight sheet from the weights panel', (tester) async {
     await pumpScreen(tester);
@@ -817,13 +894,32 @@ void main() {
       find.descendant(of: machineScope, matching: find.text('Pool')),
       findsNothing,
     );
-    expect(find.text('S1H1'), findsWidgets);
-    expect(find.text('S2H2'), findsWidgets);
+    expect(find.text('S1H1'), findsNothing);
+    expect(find.text('SH'), findsWidgets);
     expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
     final setterField = find.widgetWithText(TextFormField, 'Setter');
     final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
     expect(setterField, findsOneWidget);
     expect(hatcherField, findsOneWidget);
+    for (final label in ['Setter', 'Hatcher']) {
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: machineScope,
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is TextField &&
+                      widget.decoration?.labelText == label,
+                ),
+              ),
+            )
+            .controller
+            ?.text,
+        '',
+      );
+    }
 
     await tester.enterText(setterField, '7');
     await tester.enterText(hatcherField, '8');
@@ -832,6 +928,40 @@ void main() {
     expect(find.text('S7H8'), findsWidgets);
     expect(provider.activeStationSample.setterNo, '7');
     expect(provider.activeStationSample.hatcherNo, '8');
+  });
+
+  testWidgets('machine scope can remove the only active sample back to pool', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+    final machineScope = find.byKey(
+      const ValueKey('chick-quality-machine-sampling'),
+    );
+
+    await tester.tap(find.byTooltip('Add machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(of: machineScope, matching: find.text('Pool')),
+      findsNothing,
+    );
+    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove active machine sample'));
+    await tester.pumpAndSettle();
+
+    expect(provider.isCompareMode, isFalse);
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(
+      find.descendant(of: machineScope, matching: find.text('Pool')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Remove active machine sample'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
 
   testWidgets('machine scope fields stay aligned on phone widths', (
@@ -846,24 +976,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Machine scope'), findsOneWidget);
-    final houseField = find.widgetWithText(TextFormField, 'House');
     final setterField = find.widgetWithText(TextFormField, 'Setter');
     final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
 
-    expect(houseField, findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
     expect(setterField, findsOneWidget);
     expect(hatcherField, findsOneWidget);
 
-    final houseRect = tester.getRect(houseField);
     final setterRect = tester.getRect(setterField);
     final hatcherRect = tester.getRect(hatcherField);
 
-    expect(setterRect.top, houseRect.top);
-    expect(hatcherRect.top, houseRect.top);
-    expect(setterRect.width, closeTo(houseRect.width, 0.1));
-    expect(hatcherRect.width, closeTo(houseRect.width, 0.1));
-    expect(setterRect.height, closeTo(houseRect.height, 0.1));
-    expect(hatcherRect.height, closeTo(houseRect.height, 0.1));
+    expect(hatcherRect.top, setterRect.top);
+    expect(hatcherRect.width, closeTo(setterRect.width, 0.1));
+    expect(hatcherRect.height, closeTo(setterRect.height, 0.1));
   });
 
   testWidgets('optional test cards follow the selected quality sample type', (
@@ -878,12 +1003,12 @@ void main() {
     await tester.tap(find.byTooltip('Add machine sample'));
     await tester.pumpAndSettle();
 
-    expect(find.text('S2H2 setter/hatcher sample'), findsWidgets);
+    expect(find.text('SH setter/hatcher sample'), findsWidgets);
 
     await tester.tap(find.byTooltip('Add machine sample'));
     await tester.pumpAndSettle();
 
-    expect(find.text('S3H3 setter/hatcher sample'), findsWidgets);
+    expect(find.text('SH setter/hatcher sample'), findsWidgets);
   });
 
   testWidgets('does not render its own sticky save footer', (tester) async {

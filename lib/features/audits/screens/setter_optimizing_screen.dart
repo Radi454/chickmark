@@ -95,9 +95,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       TextEditingController(text: '0');
   late final TextEditingController _setterIdController;
   final TextEditingController _setpointController = TextEditingController();
-  final TextEditingController _actualController = TextEditingController();
   final TextEditingController _setpointRhController = TextEditingController();
-  final TextEditingController _actualRhController = TextEditingController();
   final TextEditingController _batchSizeController = TextEditingController();
   final TextEditingController _batchCountController = TextEditingController();
   final TextEditingController _turningAngleController = TextEditingController();
@@ -178,19 +176,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   }
 
   void _initializeFormState(AuditModel audit) {
-    _setterIdController.text = audit.setterId ?? audit.soSetterId ?? '';
+    _setterIdController.text = _setterNumberValue(audit);
     _machineType = _normalizeSetterType(audit.soMachineType);
     _setpointController.text = audit.soSetpointF != null
         ? audit.soSetpointF!.toStringAsFixed(1)
         : '';
-    _actualController.text = audit.soActualF != null
-        ? audit.soActualF!.toStringAsFixed(1)
-        : '';
     _setpointRhController.text = audit.soSetpointRh != null
         ? audit.soSetpointRh!.toStringAsFixed(1)
-        : '';
-    _actualRhController.text = audit.soActualRh != null
-        ? audit.soActualRh!.toStringAsFixed(1)
         : '';
     _batchSizeController.text = (audit.soBatchSize ?? 19200).toString();
     _batchCountController.text = (audit.soBatchCount ?? 1).toString();
@@ -227,15 +219,11 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         ? sampleAvg.toStringAsFixed(1)
         : '';
     _estCvController.text = sampleCv != null ? sampleCv.toStringAsFixed(1) : '';
-    _loadEstReadings(
-      _encodedStringMap(activeEstSample['estReadings']) ?? audit.soEstReadings,
-    );
-    _loadEstPhotos(
-      _encodedStringMap(activeEstSample['estPhotos']) ?? audit.soEstPhotos,
-    );
+    _loadEstReadings(_encodedStringMap(activeEstSample['estReadings']));
+    _loadEstPhotos(_encodedStringMap(activeEstSample['estPhotos']));
   }
 
-  void _syncActiveSampleForm(AuditModel audit) {
+  void _syncActiveSampleForm(AuditProvider provider, AuditModel audit) {
     if (_activeAuditId == audit.id) return;
     _activeAuditId = audit.id;
     _nextEstCaptureGeneration();
@@ -247,6 +235,10 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _isConfirmingEstCapture = false;
     _activeEstSampleIndex = 0;
     _initializeFormState(audit);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || provider.activeDraft.id != _activeAuditId) return;
+      _syncSelectedEstSampleToFlatFields(provider);
+    });
   }
 
   String _normalizeSetterType(String? value) {
@@ -395,9 +387,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _incubationHoursController.dispose();
     _setterIdController.dispose();
     _setpointController.dispose();
-    _actualController.dispose();
     _setpointRhController.dispose();
-    _actualRhController.dispose();
     _batchSizeController.dispose();
     _batchCountController.dispose();
     _turningAngleController.dispose();
@@ -414,7 +404,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
-    _syncActiveSampleForm(audit);
+    _syncActiveSampleForm(auditProvider, audit);
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
       child: Scaffold(
@@ -443,7 +433,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
                   const SizedBox(height: 16),
                   _buildIdentityCard(auditProvider, audit),
                   const SizedBox(height: 16),
-                  _buildMachineCard(auditProvider),
+                  _buildMachineCard(auditProvider, audit),
                   const SizedBox(height: 16),
                   _buildCo2Card(auditProvider, audit),
                   const SizedBox(height: 16),
@@ -471,88 +461,219 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   }
 
   Widget _buildSetterTabs(AuditProvider provider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _buildSetterSampleControlCard(
+      key: const ValueKey('setter-machine-scope-card'),
+      title: 'Machine scope',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSetterMachineScopeChips(provider),
+          const SizedBox(height: 12),
+          _buildSetterNumberField(provider),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSetterSampleControlCard({
+    Key? key,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      key: key,
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSetterMachineScopeChips(AuditProvider provider) {
+    final chips = [
+      for (final entry in provider.drafts.asMap().entries)
+        _buildSetterScopeChip(
+          label: _setterTabLabel(entry.value, entry.key),
+          selected: provider.activeSampleIndex == entry.key,
+          enabled: !provider.isReadOnly,
+          onSelected: () => _switchSetterSample(provider, entry.key),
+        ),
+    ];
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'Setters',
-          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+        _buildSetterSampleActionButton(
+          tooltip: 'Add machine sample',
+          icon: Icons.add,
+          onPressed: provider.isReadOnly
+              ? null
+              : () => _addSetterMachineSample(provider),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        if (provider.sampleCount > 1) ...[
+          const SizedBox(width: 8),
+          _buildSetterSampleActionButton(
+            tooltip: 'Remove active machine sample',
+            icon: Icons.remove,
+            onPressed: provider.isReadOnly
+                ? null
+                : () => _removeActiveSetterSample(provider),
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [...chips, actions],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            OutlinedButton.icon(
-              key: const ValueKey('setter-add-sample-button'),
-              onPressed: provider.isReadOnly
-                  ? null
-                  : () {
-                      provider.addSample();
-                      if (!mounted) return;
-                      setState(() {
-                        _syncActiveSampleForm(provider.activeDraft);
-                      });
-                    },
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add setter'),
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips,
+              ),
             ),
-            IconButton.outlined(
-              tooltip: 'Remove selected setter',
-              onPressed: provider.isReadOnly || provider.sampleCount <= 1
-                  ? null
-                  : () {
-                      provider.removeActiveSample();
-                      if (!mounted) return;
-                      setState(() {
-                        _syncActiveSampleForm(provider.activeDraft);
-                      });
-                    },
-              icon: const Icon(Icons.delete_outline),
-            ),
+            const SizedBox(width: 8),
+            actions,
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSetterScopeChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: enabled ? (_) => onSelected() : null,
+      selectedColor: AppColors.primary.withAlpha(30),
+      checkmarkColor: AppColors.primary,
+      labelStyle: AppTextStyles.body.copyWith(
+        color: selected ? AppColors.primary : AppColors.textBody,
+        fontWeight: FontWeight.w800,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.borderDefault,
         ),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (var i = 0; i < provider.drafts.length; i++) ...[
-                ChoiceChip(
-                  label: Text(_setterTabLabel(provider.drafts[i], i)),
-                  selected: provider.activeSampleIndex == i,
-                  showCheckmark: false,
-                  onSelected: (_) {
-                    provider.switchSample(i);
-                    if (!mounted) return;
-                    _syncActiveSampleForm(provider.activeDraft);
-                  },
-                  selectedColor: AppColors.primary.withAlpha(30),
-                  checkmarkColor: AppColors.primary,
-                  labelStyle: AppTextStyles.body.copyWith(
-                    color: provider.activeSampleIndex == i
-                        ? AppColors.primary
-                        : AppColors.textBody,
-                    fontWeight: provider.activeSampleIndex == i
-                        ? FontWeight.w800
-                        : FontWeight.w600,
+      ),
+    );
+  }
+
+  Widget _buildSetterSampleActionButton({
+    Key? key,
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    final enabled = onPressed != null;
+    final fillColor = enabled
+        ? AppColors.primary.withAlpha(18)
+        : AppColors.borderDefault.withAlpha(90);
+    final iconColor = enabled ? AppColors.primary : AppColors.textDisabled;
+    return Tooltip(
+      key: key,
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkResponse(
+            onTap: onPressed,
+            radius: 24,
+            containedInkWell: false,
+            child: SizedBox.square(
+              dimension: 48,
+              child: Center(
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: provider.activeSampleIndex == i
-                          ? AppColors.primary
-                          : AppColors.borderDefault,
-                    ),
-                  ),
+                  child: Icon(icon, size: 20, color: iconColor),
                 ),
-                const SizedBox(width: 8),
-              ],
-            ],
+              ),
+            ),
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  void _addSetterMachineSample(AuditProvider provider) {
+    provider.addSample();
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider, provider.activeDraft);
+    });
+  }
+
+  void _switchSetterSample(AuditProvider provider, int index) {
+    provider.switchSample(index);
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider, provider.activeDraft);
+    });
+  }
+
+  void _removeActiveSetterSample(AuditProvider provider) {
+    provider.removeActiveSample();
+    if (!mounted) return;
+    setState(() {
+      _syncActiveSampleForm(provider, provider.activeDraft);
+    });
+  }
+
+  Widget _buildSetterNumberField(AuditProvider auditProvider) {
+    return TextField(
+      key: const ValueKey('setter-machine-scope-number-field'),
+      controller: _setterIdController,
+      enabled: !auditProvider.isReadOnly,
+      decoration: const InputDecoration(
+        labelText: 'Setter number',
+        border: OutlineInputBorder(),
+      ),
+      onChanged: (value) {
+        auditProvider.updateField('setterId', value);
+        auditProvider.updateField('soSetterId', value);
+        if (mounted) setState(() {});
+      },
     );
   }
 
@@ -604,108 +725,37 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
               }).toList(),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _setterIdController,
-              enabled: !auditProvider.isReadOnly,
-              decoration: const InputDecoration(
-                labelText: 'Setter number',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                auditProvider.updateField('setterId', value);
-                auditProvider.updateField('soSetterId', value);
-                if (mounted) setState(() {});
-              },
-            ),
-            const SizedBox(height: 12),
             Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: AuditNumericField(
-                        controller: _setpointController,
-                        enabled: !auditProvider.isReadOnly,
-                        allowDecimal: true,
-                        maxDecimalPlaces: 1,
-                        decoration: const InputDecoration(
-                          labelText: 'Setpoint (°F)',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => auditProvider.updateField(
-                          'so_setpointF',
-                          double.tryParse(value),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: AuditNumericField(
-                        controller: _actualController,
-                        enabled: !auditProvider.isReadOnly,
-                        allowDecimal: true,
-                        maxDecimalPlaces: 1,
-                        decoration: const InputDecoration(
-                          labelText: 'Actual (°F)',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => auditProvider.updateField(
-                          'so_actualF',
-                          double.tryParse(value),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    PhotoButton(
-                      photoPath: audit.soMachineScreenPhoto,
-                      enabled: !auditProvider.isReadOnly,
-                      onPhotoCaptured: (path) => auditProvider.updateField(
-                        'so_machineScreenPhoto',
-                        path,
-                      ),
-                    ),
-                  ],
+                AuditNumericField(
+                  controller: _setpointController,
+                  enabled: !auditProvider.isReadOnly,
+                  allowDecimal: true,
+                  maxDecimalPlaces: 1,
+                  decoration: const InputDecoration(
+                    labelText: 'Setpoint (°F)',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) => auditProvider.updateField(
+                    'so_setpointF',
+                    double.tryParse(value),
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: AuditNumericField(
-                        key: const ValueKey('setter-setpoint-rh-field'),
-                        controller: _setpointRhController,
-                        enabled: !auditProvider.isReadOnly,
-                        allowDecimal: true,
-                        maxDecimalPlaces: 1,
-                        decoration: const InputDecoration(
-                          labelText: 'Setpoint RH (%)',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => auditProvider.updateField(
-                          'so_setpointRh',
-                          double.tryParse(value),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: AuditNumericField(
-                        key: const ValueKey('setter-actual-rh-field'),
-                        controller: _actualRhController,
-                        enabled: !auditProvider.isReadOnly,
-                        allowDecimal: true,
-                        maxDecimalPlaces: 1,
-                        decoration: const InputDecoration(
-                          labelText: 'Actual RH (%)',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => auditProvider.updateField(
-                          'so_actualRh',
-                          double.tryParse(value),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 48),
-                  ],
+                AuditNumericField(
+                  key: const ValueKey('setter-setpoint-rh-field'),
+                  controller: _setpointRhController,
+                  enabled: !auditProvider.isReadOnly,
+                  allowDecimal: true,
+                  maxDecimalPlaces: 1,
+                  decoration: const InputDecoration(
+                    labelText: 'Setpoint RH (%)',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) => auditProvider.updateField(
+                    'so_setpointRh',
+                    double.tryParse(value),
+                  ),
                 ),
               ],
             ),
@@ -788,6 +838,46 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     if (mounted) setState(() {});
   }
 
+  void _updateIncubationAge(AuditProvider provider, String value) {
+    final parsed = int.tryParse(value);
+    if (parsed == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    final age = parsed.clamp(1, 18).toInt();
+    _replaceControllerTextIfNeeded(_incubationAgeController, age.toString());
+    provider.updateField('soIncubationAge', age);
+    _syncActiveEstSampleToDraft(provider);
+    if (mounted) setState(() {});
+  }
+
+  void _updateIncubationHours(AuditProvider provider, String value) {
+    final parsed = int.tryParse(value);
+    if (parsed == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    final hours = parsed.clamp(0, 23).toInt();
+    _replaceControllerTextIfNeeded(
+      _incubationHoursController,
+      hours.toString(),
+    );
+    provider.updateField('soIncubationHours', hours);
+    _syncActiveEstSampleToDraft(provider);
+    if (mounted) setState(() {});
+  }
+
+  void _replaceControllerTextIfNeeded(
+    TextEditingController controller,
+    String value,
+  ) {
+    if (controller.text == value) return;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
   void _addEstSample(AuditProvider provider) {
     _syncActiveEstSampleToDraft(provider);
     final samples = _setterEstSamples(provider.activeDraft);
@@ -809,6 +899,26 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       _activeEstSampleIndex = samples.length - 1;
       _initializeFormState(provider.activeDraft);
     });
+    _syncSelectedEstSampleToFlatFields(provider);
+  }
+
+  void _removeActiveEstSample(AuditProvider provider) {
+    final samples = _setterEstSamples(provider.activeDraft);
+    if (samples.length <= 1) return;
+    _syncActiveEstSampleToDraft(provider);
+    final refreshedSamples = _setterEstSamples(provider.activeDraft);
+    final index = _activeEstSampleIndex
+        .clamp(0, refreshedSamples.length - 1)
+        .toInt();
+    refreshedSamples.removeAt(index);
+    _writeSetterEstSamples(provider, refreshedSamples);
+    setState(() {
+      _activeEstSampleIndex = index
+          .clamp(0, refreshedSamples.length - 1)
+          .toInt();
+      _initializeFormState(provider.activeDraft);
+    });
+    _syncSelectedEstSampleToFlatFields(provider);
   }
 
   void _switchEstSample(AuditProvider provider, int index) {
@@ -819,6 +929,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       _activeEstSampleIndex = index;
       _initializeFormState(provider.activeDraft);
     });
+    _syncSelectedEstSampleToFlatFields(provider);
   }
 
   Map<String, dynamic> _activeEstSampleFromForm(AuditModel audit) {
@@ -846,6 +957,36 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _writeSetterEstSamples(provider, samples);
   }
 
+  void _syncSelectedEstSampleToFlatFields(AuditProvider provider) {
+    final samples = _setterEstSamples(provider.activeDraft);
+    final index = _activeEstSampleIndex.clamp(0, samples.length - 1).toInt();
+    final sample = _normalizeEstSample(samples[index]);
+    final age = _clampInt(sample['incubationAge'], min: 1, max: 18);
+    final hours = _clampInt(sample['incubationHours'], min: 0, max: 23);
+    final readingsJson = _encodedStringMap(sample['estReadings']);
+    final photosJson = _encodedStringMap(sample['estPhotos']);
+    final avg = (sample['estAvg'] as num?)?.toDouble();
+    final cv = (sample['estCv'] as num?)?.toDouble();
+    final breed = _normalizeBreed(sample['breed']);
+    final draft = provider.activeDraft;
+
+    if (draft.soBreed != breed) provider.updateField('soBreed', breed);
+    if (draft.soIncubationAge != age) {
+      provider.updateField('soIncubationAge', age);
+    }
+    if (draft.soIncubationHours != hours) {
+      provider.updateField('soIncubationHours', hours);
+    }
+    if (draft.soEstReadings != readingsJson) {
+      provider.updateField('soEstReadings', readingsJson);
+    }
+    if (draft.soEstPhotos != photosJson) {
+      provider.updateField('soEstPhotos', photosJson);
+    }
+    if (draft.soEstAvg != avg) provider.updateField('soEstAvg', avg);
+    if (draft.soEstCv != cv) provider.updateField('soEstCv', cv);
+  }
+
   void _writeSetterEstSamples(
     AuditProvider provider,
     List<Map<String, dynamic>> samples,
@@ -853,9 +994,33 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     provider.updateField('so_estSamplesJson', jsonEncode(samples));
   }
 
+  String _incubationAgeScopeLabel(
+    List<Map<String, dynamic>> samples,
+    int index,
+  ) {
+    if (samples.length == 1) return 'Pool';
+    final sample = samples[index];
+    final age = _clampInt(sample['incubationAge'], min: 1, max: 18);
+    final duplicateCount = samples.where((candidate) {
+      return _clampInt(candidate['incubationAge'], min: 1, max: 18) == age;
+    }).length;
+    if (duplicateCount == 1) return 'Day $age';
+
+    var occurrence = 0;
+    for (var i = 0; i <= index; i++) {
+      final candidateAge = _clampInt(
+        samples[i]['incubationAge'],
+        min: 1,
+        max: 18,
+      );
+      if (candidateAge == age) occurrence++;
+    }
+    return 'Day $age · $occurrence';
+  }
+
   Widget _buildEstSampleCard(AuditProvider auditProvider, AuditModel audit) {
     final samples = _setterEstSamples(audit);
-    final showSampleTabs = _machineType == 'Multi';
+    final canChangeSampleCount = _machineType == 'Multi';
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -870,108 +1035,113 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
               children: [
                 Expanded(
                   child: Text(
-                    'EST sample ${_activeEstSampleIndex + 1}',
+                    'Incubation age samples',
                     style: AppTextStyles.body.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                if (showSampleTabs)
-                  OutlinedButton.icon(
-                    key: const ValueKey('setter-est-sample-add-button'),
-                    onPressed: auditProvider.isReadOnly
-                        ? null
-                        : () => _addEstSample(auditProvider),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add sample'),
+                if (canChangeSampleCount)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildSetterSampleActionButton(
+                        key: const ValueKey('setter-est-sample-add-button'),
+                        tooltip: 'Add incubation age sample',
+                        icon: Icons.add,
+                        onPressed: auditProvider.isReadOnly
+                            ? null
+                            : () => _addEstSample(auditProvider),
+                      ),
+                      if (samples.length > 1) ...[
+                        const SizedBox(width: 8),
+                        _buildSetterSampleActionButton(
+                          key: const ValueKey(
+                            'setter-est-sample-remove-button',
+                          ),
+                          tooltip: 'Remove active incubation age sample',
+                          icon: Icons.remove,
+                          onPressed: auditProvider.isReadOnly
+                              ? null
+                              : () => _removeActiveEstSample(auditProvider),
+                        ),
+                      ],
+                    ],
                   ),
               ],
             ),
-            if (showSampleTabs && samples.length > 1) ...[
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (var i = 0; i < samples.length; i++) ...[
-                      ChoiceChip(
-                        label: Text('EST sample ${i + 1}'),
-                        selected: i == _activeEstSampleIndex,
-                        showCheckmark: false,
-                        onSelected: (_) => _switchEstSample(auditProvider, i),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var i = 0; i < samples.length; i++) ...[
+                    ChoiceChip(
+                      label: Text(_incubationAgeScopeLabel(samples, i)),
+                      selected: i == _activeEstSampleIndex,
+                      showCheckmark: false,
+                      selectedColor: AppColors.primary.withAlpha(30),
+                      backgroundColor: AppColors.surface,
+                      labelStyle: AppTextStyles.body.copyWith(
+                        color: i == _activeEstSampleIndex
+                            ? AppColors.primary
+                            : AppColors.textBody,
+                        fontWeight: i == _activeEstSampleIndex
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                       ),
-                      const SizedBox(width: 8),
-                    ],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: i == _activeEstSampleIndex
+                              ? AppColors.primary
+                              : AppColors.borderDefault,
+                        ),
+                      ),
+                      onSelected: auditProvider.isReadOnly
+                          ? null
+                          : (_) {
+                              if (samples.length > 1) {
+                                _switchEstSample(auditProvider, i);
+                              }
+                            },
+                    ),
+                    const SizedBox(width: 8),
                   ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('setter-incubation-age-field'),
+                    controller: _incubationAgeController,
+                    enabled: !auditProvider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Incubation Age (days)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) =>
+                        _updateIncubationAge(auditProvider, value),
+                  ),
                 ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              key: const ValueKey('setter-est-breed-dropdown'),
-              initialValue: _setterBreeds.contains(_activeEstBreed)
-                  ? _activeEstBreed
-                  : 'Ross308',
-              decoration: const InputDecoration(
-                labelText: 'Breed',
-                border: OutlineInputBorder(),
-              ),
-              items: _setterBreeds
-                  .map(
-                    (breed) =>
-                        DropdownMenuItem(value: breed, child: Text(breed)),
-                  )
-                  .toList(),
-              onChanged: auditProvider.isReadOnly
-                  ? null
-                  : (breed) {
-                      if (breed == null) return;
-                      setState(() => _activeEstBreed = breed);
-                      _syncActiveEstSampleToDraft(auditProvider);
-                    },
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Incubation Age: ${_incubationAgeController.text} days',
-              style: AppTextStyles.body,
-            ),
-            Slider(
-              value: double.tryParse(_incubationAgeController.text) ?? 1,
-              min: 1,
-              max: 18,
-              divisions: 17,
-              onChanged: auditProvider.isReadOnly
-                  ? null
-                  : (value) {
-                      final age = value.toInt();
-                      setState(() {
-                        _incubationAgeController.text = age.toString();
-                      });
-                      auditProvider.updateField('soIncubationAge', age);
-                      _syncActiveEstSampleToDraft(auditProvider);
-                    },
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Incubation Hours: ${_incubationHoursController.text} hours',
-              style: AppTextStyles.body,
-            ),
-            Slider(
-              key: const ValueKey('setter-incubation-hours-slider'),
-              value: double.tryParse(_incubationHoursController.text) ?? 0,
-              min: 0,
-              max: 23,
-              divisions: 23,
-              onChanged: auditProvider.isReadOnly
-                  ? null
-                  : (value) {
-                      final hours = value.toInt();
-                      setState(() {
-                        _incubationHoursController.text = hours.toString();
-                      });
-                      auditProvider.updateField('soIncubationHours', hours);
-                      _syncActiveEstSampleToDraft(auditProvider);
-                    },
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AuditNumericField(
+                    key: const ValueKey('setter-incubation-hours-field'),
+                    controller: _incubationHoursController,
+                    enabled: !auditProvider.isReadOnly,
+                    decoration: const InputDecoration(
+                      labelText: 'Incubation Hours',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) =>
+                        _updateIncubationHours(auditProvider, value),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -979,7 +1149,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     );
   }
 
-  Widget _buildMachineCard(AuditProvider auditProvider) {
+  Widget _buildMachineCard(AuditProvider auditProvider, AuditModel audit) {
     return Card(
       key: _sectionKeys[1],
       elevation: 2,
@@ -991,18 +1161,34 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AuditNumericField(
-              controller: _turningAngleController,
-              enabled: !auditProvider.isReadOnly,
-              allowDecimal: true,
-              maxDecimalPlaces: 1,
-              decoration: _prominentFloatingLabelDecoration(
-                'Turning Angle (°)',
-              ),
-              onChanged: (value) => auditProvider.updateField(
-                'so_turningAngle',
-                double.tryParse(value),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: AuditNumericField(
+                    controller: _turningAngleController,
+                    enabled: !auditProvider.isReadOnly,
+                    allowDecimal: true,
+                    maxDecimalPlaces: 1,
+                    decoration: _prominentFloatingLabelDecoration(
+                      'Turning Angle (°)',
+                    ),
+                    onChanged: (value) => auditProvider.updateField(
+                      'so_turningAngle',
+                      double.tryParse(value),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                PhotoButton(
+                  key: const ValueKey('setter-turning-angle-photo-button'),
+                  photoPath: audit.soMachineScreenPhoto,
+                  enabled: !auditProvider.isReadOnly,
+                  fieldKey: 'turning_angle',
+                  onPhotoCaptured: (path) =>
+                      auditProvider.updateField('so_machineScreenPhoto', path),
+                ),
+              ],
             ),
           ],
         ),
@@ -1639,6 +1825,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
 
     final previousReadingsJson = provider.activeDraft.soEstReadings;
     final previousPhotosJson = provider.activeDraft.soEstPhotos;
+    final previousSamplesJson = provider.activeDraft.soEstSamplesJson;
     final previousAvg = provider.activeDraft.soEstAvg;
     final previousCv = provider.activeDraft.soEstCv;
     final previousAvgText = _estAvgController.text;
@@ -1685,6 +1872,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     });
     provider.updateField('soEstReadings', previousReadingsJson);
     provider.updateField('soEstPhotos', previousPhotosJson);
+    provider.updateField('so_estSamplesJson', previousSamplesJson);
     provider.updateField('soEstAvg', previousAvg);
     provider.updateField('soEstCv', previousCv);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1939,13 +2127,18 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
 
   String _setterTabLabel(AuditModel audit, int index) {
     final raw = (audit.setterId ?? audit.soSetterId ?? '').trim();
-    if (raw.isEmpty) return 'S${index + 1}';
+    if (raw.isEmpty) return 'S';
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
     if (digits.isNotEmpty) return 'S$digits';
     final withoutPrefix = raw.toLowerCase().startsWith('s')
         ? raw.substring(1).trim()
         : raw;
     return 'S$withoutPrefix';
+  }
+
+  String _setterNumberValue(AuditModel audit) {
+    final raw = (audit.setterId ?? audit.soSetterId ?? '').trim();
+    return raw.isEmpty ? 'S' : raw;
   }
 
   bool _isDifferentAuditContext(

@@ -557,8 +557,7 @@ class PanelDashboardRepository {
         panel.tableName,
         where: 'sessionId = ?',
         whereArgs: [sessionId],
-        orderBy:
-            'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, updatedAt ASC',
+        orderBy: _orderByForPanel(panel),
       );
       rowsByPanel[panel.tableName] = rows
           .map((row) => Map<String, dynamic>.from(row))
@@ -647,6 +646,11 @@ class PanelDashboardRepository {
     final values = rows.map((row) => _asDouble(row[column])).nonNulls.toList();
     if (values.isEmpty) return 0;
     return CalculationUtils.average(values);
+  }
+
+  String _orderByForPanel(PanelSampleDefinition panel) {
+    final columns = [...panel.hierarchyColumnNames, 'updatedAt'];
+    return columns.map((column) => '$column ASC').join(', ');
   }
 
   double? _asDouble(Object? raw) {

@@ -29,7 +29,6 @@ Future<void> _createPanelTable(
     tray TEXT,
     position TEXT,
     storagePeriodDays INTEGER,
-    bmkAgeDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,
@@ -44,6 +43,42 @@ Future<void> _createPanelTable(
   )''');
   await db.execute(
     "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+  );
+}
+
+Future<void> _createMachineScopedPanelTable(
+  Database db,
+  String tableName, {
+  required String machineColumn,
+}) async {
+  await db.execute('''CREATE TABLE $tableName (
+    id TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT,
+    hatcheryId TEXT,
+    date TEXT NOT NULL,
+    breed TEXT,
+    flockAgeWeeks INTEGER,
+    $machineColumn TEXT,
+    trolley TEXT,
+    tray TEXT,
+    storagePeriodDays INTEGER,
+    bmkAgeWeeks INTEGER,
+    notes TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    estAvg REAL,
+    FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL($machineColumn, ''), IFNULL(trolley, ''), IFNULL(tray, ''))",
   );
 }
 
@@ -170,7 +205,6 @@ void main() {
       date: DateTime.utc(2026, 5, 13),
       hatcheryId: 'hatchery-1',
       storagePeriodDays: 4,
-      bmkAgeDays: 276,
       bmkAgeWeeks: 40,
       metricsJson: '{"pasgarScore":97.5}',
     );
@@ -199,7 +233,7 @@ void main() {
     expect(rows.single['tray'], 'Tray 03');
     expect(rows.single['position'], 'top');
     expect(rows.single['storagePeriodDays'], 4);
-    expect(rows.single['bmkAgeDays'], 276);
+    expect(rows.single.keys, isNot(contains('bmkAgeDays')));
     expect(rows.single['bmkAgeWeeks'], 40);
     expect(rows.single['sampleSize'], 100);
   });
@@ -431,6 +465,64 @@ void main() {
       expect(tombstones, hasLength(1));
       expect(tombstones.single['tableName'], 'egg_quality');
       expect(tombstones.single['rowId'], 'quality-sample-2');
+    },
+  );
+
+  test(
+    'savePanelWithSamples works with machine-scoped setter hierarchy only',
+    () async {
+      await _createMachineScopedPanelTable(
+        db,
+        'setter_optimizing',
+        machineColumn: 'setter',
+      );
+      final panel = PanelRecord(
+        id: 'setter-panel',
+        tableName: 'setter_optimizing',
+        sessionId: 'session-1',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: DateTime.utc(2026, 5, 13),
+        hatcheryId: 'hatchery-1',
+        values: const {'estAvg': 100.5},
+      );
+
+      await repository.savePanelWithSamples(
+        panel: panel,
+        samples: [
+          PanelSampleRecord(
+            id: 'setter-machine',
+            panelId: panel.id,
+            setterId: 'S1',
+            hatcherId: 'ignored',
+            houseId: 'ignored',
+          ),
+        ],
+      );
+      await repository.savePanelWithSamples(
+        panel: panel,
+        samples: [
+          PanelSampleRecord(
+            id: 'setter-machine-trolley',
+            panelId: panel.id,
+            setterId: 'S1',
+            trolleyId: 'T1',
+            trayId: 'Tray 1',
+          ),
+        ],
+      );
+
+      final rows = await repository.getRowsBySessionId(
+        'setter_optimizing',
+        'session-1',
+      );
+
+      expect(rows, hasLength(2));
+      expect(rows.first.keys, isNot(contains('house')));
+      expect(rows.first.keys, isNot(contains('hatcher')));
+      expect(rows.first['setter'], 'S1');
+      expect(rows.last['trolley'], 'T1');
+      expect(rows.last['tray'], 'Tray 1');
     },
   );
 }

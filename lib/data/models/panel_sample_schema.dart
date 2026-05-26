@@ -20,16 +20,31 @@ enum SamplingLayer {
   }
 }
 
+const kPanelHierarchyColumnDefinitions = [
+  'house TEXT',
+  'setter TEXT',
+  'hatcher TEXT',
+  'trolley TEXT',
+  'tray TEXT',
+  'position TEXT',
+];
+
 class PanelSampleDefinition {
   const PanelSampleDefinition({
     required this.tableName,
     required this.allowedLayers,
     required this.measurementColumns,
+    this.hierarchyColumnDefinitions = kPanelHierarchyColumnDefinitions,
   });
 
   final String tableName;
   final List<SamplingLayer> allowedLayers;
   final List<String> measurementColumns;
+  final List<String> hierarchyColumnDefinitions;
+
+  List<String> get hierarchyColumnNames => hierarchyColumnDefinitions
+      .map((definition) => definition.trim().split(RegExp(r'\s+')).first)
+      .toList(growable: false);
 
   @Deprecated(
     'Panel sample child tables were removed in the panel-only cutover.',
@@ -105,12 +120,41 @@ class PanelSampleSchema {
         'pasgarLegPct REAL',
         'pasgarFeatherDevPct REAL',
         'pasgarFinalScore REAL',
+        'co2Ppm REAL',
+        'co2Photo TEXT',
+        'pm10 REAL',
+        'pm10Photo TEXT',
+        'pm25 REAL',
+        'pm25Photo TEXT',
+        'airVelocitySpot1 REAL',
+        'airVelocitySpot1Photo TEXT',
+        'airVelocitySpot2 REAL',
+        'airVelocitySpot2Photo TEXT',
+        'airVelocitySpot3 REAL',
+        'airVelocitySpot3Photo TEXT',
+        'airInlet REAL',
+        'airInletPhoto TEXT',
+        'airOutlet REAL',
+        'airOutletPhoto TEXT',
+        'noiseLevel REAL',
+        'noiseLevelPhoto TEXT',
+        'yfbmPhoto TEXT',
         'yfbmEntriesJson TEXT',
         'yfbmEntryCount INTEGER',
         'yfbmAvgPct REAL',
         'yfbmCvPct REAL',
         'cvtReadingsJson TEXT',
+        'cvtPhotosJson TEXT',
         'cvtSampleSize INTEGER',
+        'cvtTopBasket TEXT',
+        'cvtTopTemp REAL',
+        'cvtTopPhoto TEXT',
+        'cvtMiddleBasket TEXT',
+        'cvtMiddleTemp REAL',
+        'cvtMiddlePhoto TEXT',
+        'cvtBottomBasket TEXT',
+        'cvtBottomTemp REAL',
+        'cvtBottomPhoto TEXT',
         'cvtAvgTemp REAL',
         'cvtCvPct REAL',
         'pmSampleSize INTEGER',
@@ -132,6 +176,7 @@ class PanelSampleSchema {
         'pmOtherLesionsJson TEXT',
         'pmSuspectedCauseAuto TEXT',
         'pmSuspectedCauseManual TEXT',
+        'pmPhotosJson TEXT',
         'culledChicksTotalEggSet INTEGER',
         'culledChicksAnalysisJson TEXT',
         'culledChicksAffectedPct REAL',
@@ -179,7 +224,8 @@ class PanelSampleSchema {
       allowedLayers: [
         SamplingLayer.pool,
         SamplingLayer.house,
-        SamplingLayer.setter,
+        SamplingLayer.setterHatcher,
+        SamplingLayer.trolley,
         SamplingLayer.tray,
       ],
       measurementColumns: [
@@ -208,6 +254,7 @@ class PanelSampleSchema {
         SamplingLayer.pool,
         SamplingLayer.house,
         SamplingLayer.setterHatcher,
+        SamplingLayer.trolley,
         SamplingLayer.tray,
         SamplingLayer.batch,
       ],
@@ -248,11 +295,11 @@ class PanelSampleSchema {
     PanelSampleDefinition(
       tableName: 'setter_optimizing',
       allowedLayers: [
-        SamplingLayer.pool,
         SamplingLayer.setter,
         SamplingLayer.trolley,
         SamplingLayer.tray,
       ],
+      hierarchyColumnDefinitions: ['setter TEXT', 'trolley TEXT', 'tray TEXT'],
       measurementColumns: [
         'machineType TEXT',
         'setpointF REAL',
@@ -264,35 +311,43 @@ class PanelSampleSchema {
         'totalEggsSet INTEGER',
         'turningAngle REAL',
         'co2Ppm REAL',
+        'co2Photo TEXT',
         'estBreed TEXT',
         'incubationAgeDays INTEGER',
         'incubationHours INTEGER',
         'estReadingsJson TEXT',
+        'estPhotosJson TEXT',
+        'estSamplesJson TEXT',
         'estSampleSize INTEGER',
         'estAvg REAL',
         'estCvPct REAL',
+        'machineScreenPhoto TEXT',
       ],
     ),
     PanelSampleDefinition(
       tableName: 'hatcher_optimizing',
       allowedLayers: [
-        SamplingLayer.pool,
         SamplingLayer.hatcher,
         SamplingLayer.trolley,
         SamplingLayer.tray,
       ],
+      hierarchyColumnDefinitions: ['hatcher TEXT', 'trolley TEXT', 'tray TEXT'],
       measurementColumns: [
         'setpointF REAL',
         'setpointRh REAL',
         'incubationAgeDays INTEGER',
         'incubationHours INTEGER',
         'co2Ppm REAL',
+        'co2Photo TEXT',
         'cvtReadingsJson TEXT',
+        'cvtPhotosJson TEXT',
         'cvtSampleSize INTEGER',
         'cvtAvg REAL',
         'cvtCvPct REAL',
         'chickPanting INTEGER',
+        'chickPantingPhoto TEXT',
         'meconium TEXT',
+        'transferDay INTEGER',
       ],
     ),
   ];

@@ -14,6 +14,7 @@ import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
+import 'package:hatchaudit/features/audits/models/station_completion_validation.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 
@@ -120,7 +121,22 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(
+      () => panelSampleRepository.deleteRowsBySessionIdExcept(
+        any(),
+        any(),
+        any(),
+        keepHierarchyRows: any(named: 'keepHierarchyRows'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
       () => panelSampleRepository.deleteRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.deleteRowsBySessionIdForSampleIds(
+        any(),
+        any(),
+        any(),
+      ),
     ).thenAnswer((_) async {});
     when(
       () => benchmarkLookup.nearestBreakoutBenchmark(
@@ -435,11 +451,10 @@ void main() {
     'egg quality machine scope writes setter hatcher quality rows',
     () async {
       provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      provider.switchSample(0);
       provider.updateSampleMetadata({'houseNo': 'H1'});
       provider.updateField('esEggWeights', jsonEncode([50.0]));
       provider.updateField('esEggSampleSize', 1);
-      provider.switchSample(1);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
       provider.updateSampleMetadata({
         'houseNo': 'H2',
         'setterNo': '12',
@@ -454,7 +469,7 @@ void main() {
         'comparison',
       ]);
       expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-        'S1H1',
+        'SH',
         'S12H34',
       ]);
 
@@ -471,9 +486,9 @@ void main() {
         'setter_hatcher',
         'setter_hatcher',
       ]);
-      expect(qualityRows.map((row) => row.scopeLabel), ['S1/H1', '12/34']);
-      expect(qualityRows.map((row) => row.setterId), ['S1', '12']);
-      expect(qualityRows.map((row) => row.hatcherId), ['H1', '34']);
+      expect(qualityRows.map((row) => row.scopeLabel), ['S/H', '12/34']);
+      expect(qualityRows.map((row) => row.setterId), ['S', '12']);
+      expect(qualityRows.map((row) => row.hatcherId), ['H', '34']);
       expect(qualityRows.map((row) => row.houseId), ['H1', 'H2']);
     },
   );
@@ -482,19 +497,23 @@ void main() {
     'removing egg quality scope sample prunes stale scoped quality rows',
     () async {
       provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-      provider.switchSample(0);
       provider.updateField('esEggWeights', jsonEncode([50.0]));
       provider.updateField('esEggSampleSize', 1);
-      provider.switchSample(1);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
       provider.updateSampleMetadata({'houseNo': '12'});
       provider.updateField('esEggWeights', jsonEncode([51.0]));
       provider.updateField('esEggSampleSize', 1);
 
       final removedSampleId = provider.activeStationSample.id;
-      provider.removeActiveSample();
+      provider.removeActiveEggQualityScopeSample(
+        StationSampleModel.sampleKindHouse,
+      );
 
       expect(provider.sampleCount, 1);
-      expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+      expect(
+        provider.stationSampleMode,
+        StationSampleModel.sampleModeComparison,
+      );
       expect(await provider.saveSamplesWithResult(), isTrue);
 
       final prune = verify(
@@ -516,8 +535,8 @@ void main() {
           .expand((call) => call.samples)
           .toList();
       expect(qualityRows, hasLength(1));
-      expect(qualityRows.single.scopeType.dbValue, 'pool');
-      expect(qualityRows.single.houseId, isNull);
+      expect(qualityRows.single.scopeType.dbValue, 'house');
+      expect(qualityRows.single.houseId, 'H');
     },
   );
 
@@ -648,6 +667,52 @@ void main() {
     },
   );
 
+  test('blank chick weight house samples are discarded', () async {
+    provider.initialize(
+      AuditContext(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        flockAgeWeeks: 42,
+        date: '2026-01-01',
+      ),
+      currentUser: user,
+      sessionId: 'session-1',
+      notify: false,
+    );
+
+    provider.setChickWeightSampleMode(StationSampleModel.sampleModeComparison);
+    provider.switchChickWeightSample(0);
+    provider.updateChickWeightSampleResult(
+      weightsJson: jsonEncode([41.0, 42.0]),
+      avgWeight: 41.5,
+      uniformityPct: 100.0,
+      cvPct: 1.2,
+    );
+    provider.addChickWeightSample();
+    final blankSampleId = provider.activeChickWeightSample.id;
+    provider.updateChickWeightSampleMetadata({'houseNo': '12'});
+
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    final weightCalls = capturedPanelCalls()
+        .where((call) => call.panel.tableName == 'chick_weights')
+        .toList();
+    expect(weightCalls, hasLength(1));
+    expect(weightCalls.map((call) => call.panel.values['weightsJson']), [
+      jsonEncode([41.0, 42.0]),
+    ]);
+    expect(weightCalls.map((call) => call.panel.values['sampleSize']), [2]);
+    expect(weightCalls.map((call) => call.panel.values['avgWeight']), [41.5]);
+    verify(
+      () => panelSampleRepository.deleteRowsBySessionIdForSampleIds(
+        'chick_weights',
+        'session-1',
+        any(that: contains(blankSampleId)),
+      ),
+    ).called(1);
+  });
+
   test(
     'removing chick weight sample prunes stale scoped weight rows',
     () async {
@@ -759,7 +824,7 @@ void main() {
     expect(qualityRows.map((row) => row.scopeLabel), ['S1/H1', '12/34']);
     expect(qualityRows.map((row) => row.setterId), ['S1', '12']);
     expect(qualityRows.map((row) => row.hatcherId), ['H1', '34']);
-    expect(qualityRows.map((row) => row.houseId), [null, 'H2']);
+    expect(qualityRows.map((row) => row.houseId), [null, null]);
   });
 
   test(
@@ -882,6 +947,10 @@ void main() {
       ).thenThrow(Exception('database unavailable'));
 
       expect(await provider.saveSamplesWithResult(), isFalse);
+      expect(
+        provider.validateStationCompletion('egg').status,
+        StationCompletionStatus.failed,
+      );
     },
   );
 
@@ -1033,7 +1102,7 @@ void main() {
       );
       expect(residue.panel.storagePeriodDays, 0);
       expect(residue.panel.values['storagePeriodDays'], 0);
-      expect(residue.panel.values['bmkAgeDays'], 259);
+      expect(residue.panel.values, isNot(contains('bmkAgeDays')));
       expect(residue.panel.values['bmkAgeWeeks'], 37);
       expect(provider.activeStationSample.storageDays, 0);
     },
@@ -1126,6 +1195,65 @@ void main() {
       'Tray 2',
     ]);
     expect(residueRows.map((call) => call.samples.single.sampleIndex), [1, 2]);
+    expect(residueRows.map((call) => call.samples.single.houseId), [
+      null,
+      null,
+    ]);
+    expect(residueRows.map((call) => call.samples.single.setterId), [
+      null,
+      null,
+    ]);
+    expect(residueRows.map((call) => call.samples.single.hatcherId), [
+      null,
+      null,
+    ]);
+  });
+
+  test('hatch breakout pooled tray scope saves one rollup row', () async {
+    provider.initialize(
+      AuditContext(
+        auditType: 'Hatch Analysis & Egg Breakouts',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        flockAgeWeeks: 40,
+        date: '2026-01-01',
+      ),
+      currentUser: user,
+      sessionId: 'session-1',
+      notify: false,
+    );
+    provider.updateField(
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([
+        EggBreakoutSampleEntry.pool(
+          id: 'residue-pool',
+          label: 'Pool',
+          traySize: 150,
+          numberOfTrays: 1,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          counts: const {'infertile': 12, 'earlyDead': 6},
+        ),
+      ]),
+    );
+    provider.updateField(
+      'ebBreakoutType',
+      EggBreakoutType.residueHatchDay.storageValue,
+    );
+
+    expect(await provider.saveSamplesWithResult(), isTrue);
+
+    final residueRows = capturedPanelCalls()
+        .where((call) => call.panel.tableName == 'residue_breakout')
+        .toList();
+    expect(residueRows, hasLength(1));
+    final residue = residueRows.single;
+    expect(residue.panel.mode, PanelRecord.modePool);
+    expect(residue.panel.scopeType.dbValue, isNot('tray'));
+    expect(residue.panel.values['traySize'], 150);
+    expect(residue.panel.values['infertileCount'], 12);
+    expect(residue.panel.values['earlyDeadCount'], 6);
+    expect(residue.samples.single.scopeType.dbValue, isNot('tray'));
+    expect(residue.samples.single.summaryJson, contains('"sampleMode":"pool"'));
   });
 
   testWidgets(
@@ -1230,4 +1358,417 @@ void main() {
       expect(provider.isDirty, isFalse);
     },
   );
+
+  group('station completion validation', () {
+    test('egg notes save without completing station', () async {
+      provider.updateField('notes', 'Stored near cooler wall');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('egg').status,
+        StationCompletionStatus.savedButIncomplete,
+      );
+    });
+
+    test('egg storage data marks station complete', () async {
+      provider.updateField('esEggStorageDays', 4);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('egg').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('egg quality data marks station complete', () async {
+      provider.updateField('esEggWeights', jsonEncode([52.0, 53.0]));
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('egg').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('hatch notes save without completing station', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatch Analysis & Egg Breakouts',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('notes', 'Investigate tray labels');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('hatch').status,
+        StationCompletionStatus.savedButIncomplete,
+      );
+    });
+
+    test('hatch breakout data marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatch Analysis & Egg Breakouts',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('ebInfertileCount', 3);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('hatch').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('hatch result data marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatch Analysis & Egg Breakouts',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('haHatched', 18000);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('hatch').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test(
+      'blank default setter save deletes rows and remains incomplete',
+      () async {
+        provider.initialize(
+          AuditContext(
+            auditType: 'Setters',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            flockAgeWeeks: 40,
+            setterId: 'S5',
+            date: '2026-01-01',
+          ),
+          currentUser: user,
+          sessionId: 'session-1',
+          notify: false,
+        );
+
+        expect(await provider.saveSamplesWithResult(), isTrue);
+
+        verifyNever(
+          () => panelSampleRepository.savePanelWithSamples(
+            panel: any(named: 'panel'),
+            samples: any(named: 'samples'),
+          ),
+        );
+        verify(
+          () => panelSampleRepository.deleteRowsBySessionId(
+            'setter_optimizing',
+            'session-1',
+          ),
+        ).called(1);
+        expect(
+          provider.validateStationCompletion('setters').status,
+          StationCompletionStatus.emptyOrDiscarded,
+        );
+      },
+    );
+
+    test('setter direct incubation age marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Setters',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          setterId: 'S5',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('soIncubationAge', 2);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('setters').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('setter direct incubation hours marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Setters',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          setterId: 'S5',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('soIncubationHours', 6);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('setters').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('setter setpoint marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Setters',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          setterId: 'S5',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('so_setpointF', 99.8);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('setters').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('hatcher CVT reading marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatchers',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          hatcherId: 'H7',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('hoCvtReadings', jsonEncode({'front_top': 99.1}));
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('hatchers').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('hatcher photo core data is persisted and marks complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatchers',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          hatcherId: 'H7',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('hoCo2Photo', '/tmp/hatcher-co2.jpg');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final hatcher = capturedPanelCalls().singleWhere(
+        (call) => call.panel.tableName == 'hatcher_optimizing',
+      );
+      expect(hatcher.panel.values['co2Photo'], '/tmp/hatcher-co2.jpg');
+      expect(
+        provider.validateStationCompletion('hatchers').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test('setter notes save without completing station', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Setters',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          setterId: 'S5',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('notes', 'Needs follow up');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('setters').status,
+        StationCompletionStatus.savedButIncomplete,
+      );
+    });
+
+    test('hatcher transfer day saves without completing station', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatchers',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          hatcherId: 'H7',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('ho_transferDay', 19);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final hatcher = capturedPanelCalls().singleWhere(
+        (call) => call.panel.tableName == 'hatcher_optimizing',
+      );
+      expect(hatcher.panel.values['transferDay'], 19);
+      expect(
+        provider.validateStationCompletion('hatchers').status,
+        StationCompletionStatus.savedButIncomplete,
+      );
+    });
+
+    test('chick core Pasgar data marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Chicks',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('pasgarSampleSize', 100);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('chicks').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
+    test(
+      'PM photos-only data saves but chick core remains incomplete',
+      () async {
+        provider.initialize(
+          AuditContext(
+            auditType: 'Chicks',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            flockAgeWeeks: 40,
+            date: '2026-01-01',
+          ),
+          currentUser: user,
+          sessionId: 'session-1',
+          notify: false,
+        );
+        provider.updateField('pm_photosJson', jsonEncode(['pm-photo.jpg']));
+
+        expect(await provider.saveSamplesWithResult(), isTrue);
+
+        final quality = capturedPanelCalls().singleWhere(
+          (call) => call.panel.tableName == 'chick_quality',
+        );
+        expect(
+          quality.panel.values['pmPhotosJson'],
+          jsonEncode(['pm-photo.jpg']),
+        );
+        expect(
+          provider.validateStationCompletion('chicks').status,
+          StationCompletionStatus.savedButIncomplete,
+        );
+      },
+    );
+
+    test(
+      'optional chick environment data saves but chick core remains incomplete',
+      () async {
+        provider.initialize(
+          AuditContext(
+            auditType: 'Chicks',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            flockAgeWeeks: 40,
+            date: '2026-01-01',
+          ),
+          currentUser: user,
+          sessionId: 'session-1',
+          notify: false,
+        );
+        provider.updateField('chaCo2', 1200.0);
+        provider.updateField('chaCo2Photo', '/tmp/chick-co2.jpg');
+        provider.updateField('cvtTopPhoto', '/tmp/cvt-top.jpg');
+        provider.updateField('pm_photosJson', jsonEncode(['pm-photo.jpg']));
+
+        expect(await provider.saveSamplesWithResult(), isTrue);
+
+        final quality = capturedPanelCalls().singleWhere(
+          (call) => call.panel.tableName == 'chick_quality',
+        );
+        expect(quality.panel.values['co2Ppm'], 1200.0);
+        expect(quality.panel.values['co2Photo'], '/tmp/chick-co2.jpg');
+        expect(quality.panel.values['cvtTopPhoto'], '/tmp/cvt-top.jpg');
+        expect(
+          quality.panel.values['pmPhotosJson'],
+          jsonEncode(['pm-photo.jpg']),
+        );
+        expect(
+          provider.validateStationCompletion('chicks').status,
+          StationCompletionStatus.savedButIncomplete,
+        );
+      },
+    );
+  });
 }

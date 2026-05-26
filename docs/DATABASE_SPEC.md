@@ -195,7 +195,6 @@ storage/BMK context, metadata, and sync columns.
 | `tray TEXT` | Optional tray identity. | Breakout tray rows and any tray-level panel UI. |
 | `position TEXT` | Optional position identity. | Candled/Residue tray position. |
 | `storagePeriodDays INTEGER` | Storage period context. | Egg storage and breakout BMK calculations. |
-| `bmkAgeDays INTEGER` | Calculated BMK age in days. | Fresh/Candled/Residue breakout benchmark lookup. |
 | `bmkAgeWeeks INTEGER` | Rounded BMK age in weeks. | BMK/dashboard filtering and display. |
 | `notes TEXT` | Station-level notes. | Notes field on the station screen. |
 | `createdAt TEXT NOT NULL` | Local creation timestamp. | Draft/station save timestamp. |

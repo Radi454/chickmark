@@ -38,7 +38,6 @@ Future<void> _createPanelTable(
     tray TEXT,
     position TEXT,
     storagePeriodDays INTEGER,
-    bmkAgeDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
     createdAt TEXT NOT NULL,

@@ -219,54 +219,141 @@ void main() {
     expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
     expect(provider.stationSamples.map((sample) => sample.sampleKind), [
       StationSampleModel.sampleKindHouse,
-      StationSampleModel.sampleKindHouse,
     ]);
     expect(provider.stationSamples.map((sample) => sample.comparisonType), [
       StationSampleModel.comparisonTypeHouse,
-      StationSampleModel.comparisonTypeHouse,
     ]);
-    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'H1',
-      'H2',
-    ]);
-    expect(provider.stationSamples.map((sample) => sample.houseNo), [
-      'H1',
-      'H2',
-    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), ['H']);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), ['H']);
 
-    provider.removeActiveSample();
+    final machineProvider = AuditProvider();
+    machineProvider.initialize(stationContext('Egg'), notify: false);
 
-    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
-    expect(provider.sampleCount, 1);
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-
-    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
-    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+    machineProvider.addEggQualityScopeSample(
       StationSampleModel.sampleKindMachine,
+    );
+
+    expect(
+      machineProvider.stationSampleMode,
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(machineProvider.stationSamples.map((sample) => sample.sampleKind), [
       StationSampleModel.sampleKindMachine,
     ]);
-    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
-      StationSampleModel.comparisonTypeMachine,
-      StationSampleModel.comparisonTypeMachine,
+    expect(
+      machineProvider.stationSamples.map((sample) => sample.comparisonType),
+      [StationSampleModel.comparisonTypeMachine],
+    );
+    expect(machineProvider.stationSamples.map((sample) => sample.sampleLabel), [
+      'SH',
     ]);
-    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'S1H1',
-      'S2H2',
+    expect(machineProvider.stationSamples.map((sample) => sample.setterNo), [
+      'S',
     ]);
-    expect(provider.stationSamples.map((sample) => sample.setterNo), [
-      'S1',
-      'S2',
+    expect(machineProvider.stationSamples.map((sample) => sample.hatcherNo), [
+      'H',
     ]);
-    expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
-      'H1',
-      'H2',
-    ]);
-    expect(provider.stationSamples.map((sample) => sample.houseNo), [
-      null,
+    expect(machineProvider.stationSamples.map((sample) => sample.houseNo), [
       null,
     ]);
   });
+  test('first egg quality house scope starts as a prefix placeholder', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    expect(provider.sampleCount, 1);
+    expect(
+      provider.activeStationSample.sampleKind,
+      StationSampleModel.sampleKindHouse,
+    );
+    expect(provider.activeStationSample.sampleLabel, 'H');
+    expect(provider.activeStationSample.houseNo, 'H');
+  });
+
+  test('new egg quality scope placeholders update from entered values', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    expect(provider.activeStationSample.sampleLabel, 'H');
+    expect(provider.activeStationSample.houseNo, 'H');
+
+    provider.updateSampleMetadata({'houseNo': '2'});
+
+    expect(provider.activeStationSample.sampleLabel, 'H2');
+    expect(provider.activeStationSample.houseNo, '2');
+    expect(provider.activeStationSample.houseLabel, 'House 2');
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(provider.activeStationSample.sampleLabel, 'SH');
+    expect(provider.activeStationSample.setterNo, 'S');
+    expect(provider.activeStationSample.hatcherNo, 'H');
+
+    provider.updateSampleMetadata({'setterNo': '3', 'hatcherNo': '4'});
+
+    expect(provider.activeStationSample.sampleLabel, 'S3H4');
+    expect(provider.activeStationSample.setterNo, '3');
+    expect(provider.activeStationSample.hatcherNo, '4');
+  });
+
+  test(
+    'editing selected house while machine child is active keeps child attached',
+    () {
+      final provider = AuditProvider();
+      provider.initialize(stationContext('Egg'), notify: false);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+      final placeholderHouseIndex = provider.stationSamples.indexWhere(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindHouse &&
+            sample.houseNo == 'H',
+      );
+      final placeholderHouseId =
+          provider.stationSamples[placeholderHouseIndex].id;
+
+      provider.switchSample(placeholderHouseIndex);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+      final activeMachineId = provider.activeStationSample.id;
+      expect(provider.activeStationSample.sampleKind, 'machine');
+      expect(provider.activeStationSample.houseNo, 'H');
+
+      provider.updateSampleMetadata({'houseNo': '2'});
+
+      final renamedHouse = provider.stationSamples.singleWhere(
+        (sample) => sample.id == placeholderHouseId,
+      );
+      expect(renamedHouse.houseNo, '2');
+      expect(renamedHouse.houseLabel, 'House 2');
+      expect(renamedHouse.sampleLabel, 'H2');
+
+      expect(provider.activeStationSample.id, activeMachineId);
+      expect(provider.activeStationSample.sampleKind, 'machine');
+      expect(provider.activeStationSample.houseNo, '2');
+      expect(
+        provider.stationSamples.any(
+          (sample) =>
+              sample.sampleKind == StationSampleModel.sampleKindMachine &&
+              sample.houseNo == 'H',
+        ),
+        isFalse,
+      );
+
+      provider.switchSample(
+        provider.stationSamples.indexWhere(
+          (sample) => sample.id == placeholderHouseId,
+        ),
+      );
+
+      expect(provider.activeStationSample.id, activeMachineId);
+      expect(provider.activeStationSample.houseNo, '2');
+    },
+  );
 
   test('egg quality machine samples stay under the active house scope', () {
     final provider = AuditProvider();
@@ -277,7 +364,7 @@ void main() {
 
     expect(provider.isEggQualityHouseScopeActive, isTrue);
     expect(provider.activeStationSample.sampleKind, 'house');
-    expect(provider.activeStationSample.houseNo, 'H1');
+    expect(provider.activeStationSample.houseNo, 'H');
 
     provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
 
@@ -289,7 +376,7 @@ void main() {
             (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
           )
           .map((sample) => sample.houseNo),
-      ['H1', 'H2'],
+      ['H'],
     );
 
     final machineSamples = provider.stationSamples
@@ -298,44 +385,195 @@ void main() {
         )
         .toList();
     expect(machineSamples, hasLength(1));
-    expect(machineSamples.single.houseNo, 'H1');
-    expect(machineSamples.single.houseLabel, 'House 1');
-    expect(machineSamples.single.sampleLabel, 'S1H1');
-    expect(machineSamples.single.setterNo, 'S1');
-    expect(machineSamples.single.hatcherNo, 'H1');
+    expect(machineSamples.single.houseNo, 'H');
+    expect(machineSamples.single.houseLabel, 'House');
+    expect(machineSamples.single.sampleLabel, 'SH');
+    expect(machineSamples.single.setterNo, 'S');
+    expect(machineSamples.single.hatcherNo, 'H');
 
     provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
 
-    final h1MachineSamples = provider.stationSamples
+    final hMachineSamples = provider.stationSamples
         .where(
           (sample) =>
               sample.sampleKind == StationSampleModel.sampleKindMachine &&
-              sample.houseNo == 'H1',
+              sample.houseNo == 'H',
         )
         .toList();
-    expect(h1MachineSamples.map((sample) => sample.sampleLabel), [
-      'S1H1',
-      'S2H2',
-    ]);
+    expect(hMachineSamples.map((sample) => sample.sampleLabel), ['SH', 'SH']);
 
-    final h2Index = provider.stationSamples.indexWhere(
-      (sample) =>
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          sample.houseNo == 'H2',
-    );
-    provider.switchSample(h2Index);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': '2'});
     provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
 
     final h2MachineSamples = provider.stationSamples
         .where(
           (sample) =>
               sample.sampleKind == StationSampleModel.sampleKindMachine &&
-              sample.houseNo == 'H2',
+              sample.houseNo == '2',
         )
         .toList();
-    expect(h2MachineSamples.map((sample) => sample.sampleLabel), ['S1H1']);
-    expect(h2MachineSamples.single.setterNo, 'S1');
-    expect(h2MachineSamples.single.hatcherNo, 'H1');
+    expect(h2MachineSamples.map((sample) => sample.sampleLabel), ['SH']);
+    expect(h2MachineSamples.single.setterNo, 'S');
+    expect(h2MachineSamples.single.hatcherNo, 'H');
+  });
+
+  test('selecting egg house scope defaults to first machine child', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': '1'});
+
+    final h1Index = provider.stationSamples.indexWhere(
+      (sample) =>
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          sample.houseNo == '1',
+    );
+    provider.switchSample(h1Index);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': '2'});
+    final h2Index = provider.activeSampleIndex;
+
+    expect(provider.activeStationSample.sampleKind, 'house');
+    expect(provider.activeStationSample.houseNo, '2');
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+    provider.switchSample(h1Index);
+
+    expect(provider.activeStationSample.sampleKind, 'machine');
+    expect(provider.activeStationSample.houseNo, '1');
+    expect(provider.activeStationSample.sampleLabel, 'SH');
+
+    provider.switchSample(h2Index);
+
+    expect(provider.activeStationSample.sampleKind, 'machine');
+    expect(provider.activeStationSample.houseNo, '2');
+    expect(provider.activeStationSample.sampleLabel, 'SH');
+  });
+
+  test('removing active house cascades when a nested machine is selected', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(provider.activeStationSample.sampleKind, 'machine');
+    expect(provider.activeStationSample.houseNo, 'H');
+    expect(
+      provider.stationSamples.where(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindMachine &&
+            sample.houseNo == 'H',
+      ),
+      hasLength(2),
+    );
+
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindHouse,
+    );
+
+    expect(
+      provider.stationSamples.any(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindHouse &&
+            sample.houseNo == 'H',
+      ),
+      isFalse,
+    );
+    expect(
+      provider.stationSamples.any(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindMachine &&
+            sample.houseNo == 'H',
+      ),
+      isFalse,
+    );
+    expect(provider.sampleCount, 1);
+  });
+
+  test('removing machine scope from a selected house removes its child', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    final h2Index = provider.stationSamples.indexWhere(
+      (sample) =>
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          sample.houseNo == 'H',
+    );
+    provider.switchSample(h2Index);
+    provider.updateSampleMetadata({'houseNo': '2'});
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(
+      provider.stationSamples.where(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindMachine &&
+            sample.houseNo == '2',
+      ),
+      hasLength(1),
+    );
+
+    provider.switchSample(h2Index);
+    expect(provider.activeStationSample.sampleKind, 'machine');
+    expect(provider.activeStationSample.houseNo, '2');
+
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindMachine,
+    );
+
+    expect(
+      provider.stationSamples.any(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindHouse &&
+            sample.houseNo == '2',
+      ),
+      isTrue,
+    );
+    expect(
+      provider.stationSamples.any(
+        (sample) =>
+            sample.sampleKind == StationSampleModel.sampleKindMachine &&
+            sample.houseNo == '2',
+      ),
+      isFalse,
+    );
+    expect(provider.activeStationSample.sampleKind, 'house');
+    expect(provider.activeStationSample.houseNo, '2');
+  });
+
+  test('removing active machine returns to its parent house scope', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+
+    expect(provider.activeStationSample.sampleKind, 'machine');
+    expect(provider.activeStationSample.houseNo, 'H');
+
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindMachine,
+    );
+
+    expect(provider.activeStationSample.sampleKind, 'house');
+    expect(provider.activeStationSample.houseNo, 'H');
+
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindHouse,
+    );
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(provider.sampleCount, 1);
   });
 
   test(
@@ -349,6 +587,7 @@ void main() {
       provider.updateField('esEggBmkAge', 39);
       provider.updateField('esEggBmkWeight', 61.5);
 
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
       provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
 
       expect(provider.drafts.map((draft) => draft.esEggStorageDays), [5, 5]);
@@ -531,7 +770,7 @@ void main() {
       );
       expect(provider.chickWeightSamples.map((sample) => sample.sampleLabel), [
         'H1',
-        'H2',
+        'H',
       ]);
       expect(provider.chickWeightSamples.map((sample) => sample.groupLabel), [
         'House comparison',
@@ -547,7 +786,7 @@ void main() {
       ]);
       expect(provider.chickWeightSamples.map((sample) => sample.houseNo), [
         'H1',
-        'H2',
+        'H',
       ]);
       provider.switchChickWeightSample(0);
       expect(provider.activeChickWeightSample.sampleLabel, 'H1');
@@ -562,6 +801,101 @@ void main() {
       ]);
     },
   );
+
+  test('chick quality machine scope follows egg placeholder behavior', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    provider.addChickQualityMachineScopeSample();
+
+    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
+    expect(provider.stationSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeMachine,
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), ['SH']);
+    expect(provider.stationSamples.map((sample) => sample.setterNo), ['S']);
+    expect(provider.stationSamples.map((sample) => sample.hatcherNo), ['H']);
+    expect(provider.stationSamples.map((sample) => sample.houseNo), ['']);
+
+    provider.updateSampleMetadata({'setterNo': '7', 'hatcherNo': '8'});
+
+    expect(provider.activeStationSample.sampleLabel, 'S7H8');
+    expect(provider.activeStationSample.setterNo, '7');
+    expect(provider.activeStationSample.hatcherNo, '8');
+  });
+
+  test('removing the only chick quality machine scope returns to pool', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    provider.addChickQualityMachineScopeSample();
+    provider.removeActiveChickQualityMachineScopeSample();
+
+    expect(provider.isCompareMode, isFalse);
+    expect(provider.sampleCount, 1);
+    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    expect(
+      provider.activeStationSample.sampleMode,
+      StationSampleModel.sampleModePooled,
+    );
+    expect(provider.activeStationSample.comparisonType, isNull);
+    expect(provider.activeStationSample.sampleLabel, 'Sample 1');
+  });
+
+  test('chick weight house scope follows egg placeholder behavior', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    provider.addChickWeightSample();
+
+    expect(
+      provider.chickWeightSampleMode,
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(provider.chickWeightSamples.map((sample) => sample.sampleKind), [
+      StationSampleModel.sampleKindHouse,
+    ]);
+    expect(provider.chickWeightSamples.map((sample) => sample.comparisonType), [
+      StationSampleModel.comparisonTypeHouse,
+    ]);
+    expect(provider.chickWeightSamples.map((sample) => sample.sampleLabel), [
+      'H',
+    ]);
+    expect(provider.chickWeightSamples.map((sample) => sample.houseNo), ['H']);
+
+    provider.updateChickWeightSampleMetadata({'houseNo': '12'});
+
+    expect(provider.activeChickWeightSample.sampleLabel, 'H12');
+    expect(provider.activeChickWeightSample.houseNo, '12');
+    expect(provider.activeChickWeightSample.houseLabel, 'House 12');
+  });
 
   test('removing egg storage house samples keeps house labels sequential', () {
     final provider = AuditProvider();
