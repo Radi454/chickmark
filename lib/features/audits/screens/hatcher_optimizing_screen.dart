@@ -84,7 +84,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final TextEditingController _setpointController = TextEditingController();
   final TextEditingController _setpointRhController = TextEditingController();
   final TextEditingController _co2Controller = TextEditingController();
-  bool _chickPanting = false;
+  bool? _chickPanting;
   String? _meconium;
   EstGuidedCaptureState? _cvtCaptureState;
   String? _cvtHighlightedKey;
@@ -117,7 +117,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         ? widget.initialAudit!.hoSetpointRh!.toStringAsFixed(1)
         : '';
     _co2Controller.text = _formatNumber(widget.initialAudit?.hoCo2);
-    _chickPanting = widget.initialAudit?.hoChickPanting ?? false;
+    _chickPanting = widget.initialAudit?.hoChickPanting;
     _meconium = widget.initialAudit?.hoMeconium;
     _loadCvtReadings(widget.initialAudit?.hoCvtReadings);
     _loadCvtPhotos(widget.initialAudit?.hoCvtPhotos);
@@ -171,7 +171,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         ? audit.hoSetpointRh!.toStringAsFixed(1)
         : '';
     _co2Controller.text = _formatNumber(audit.hoCo2);
-    _chickPanting = audit.hoChickPanting ?? false;
+    _chickPanting = audit.hoChickPanting;
     _meconium = audit.hoMeconium;
     for (final controller in _controllers.values) {
       controller.clear();

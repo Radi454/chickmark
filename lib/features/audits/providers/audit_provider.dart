@@ -2900,7 +2900,9 @@ class AuditProvider extends ChangeNotifier {
         _hasMeaningfulEggStorageCoreData(draft) ||
             _hasMeaningfulEggQualityCoreData(draft),
       'Chicks' => _hasMeaningfulChickCoreData(draft),
-      'Hatch Analysis & Egg Breakouts' => _hasMeaningfulHatchCoreData(draft),
+      'Hatch Analysis & Egg Breakouts' => _hasMeaningfulHatchCompletionCoreData(
+        draft,
+      ),
       'Setters' => _hasMeaningfulSetterCoreData(draft),
       'Hatchers' => _hasMeaningfulHatcherCoreData(draft),
       _ => false,
@@ -3040,7 +3042,7 @@ class AuditProvider extends ChangeNotifier {
     return _hasMeaningfulHatchCoreData(draft) || _hasText(draft.notes);
   }
 
-  bool _hasMeaningfulHatchCoreData(AuditModel draft) {
+  bool _hasMeaningfulHatchCompletionCoreData(AuditModel draft) {
     return (draft.haHatched ?? 0) > 0 ||
         (draft.haCulled ?? 0) > 0 ||
         (draft.haDead ?? 0) > 0 ||
@@ -3057,6 +3059,11 @@ class AuditProvider extends ChangeNotifier {
         (draft.haContaminatedExploders ?? 0) > 0 ||
         _hasMeaningfulJsonData(draft.haBenchmarkStatusesJson) ||
         _hasMeaningfulBreakoutSamples(draft);
+  }
+
+  bool _hasMeaningfulHatchCoreData(AuditModel draft) {
+    return (draft.haTotalEggsSet ?? 0) > 0 ||
+        _hasMeaningfulHatchCompletionCoreData(draft);
   }
 
   bool _hasMeaningfulBreakoutSamples(AuditModel draft) {
@@ -3143,7 +3150,7 @@ class AuditProvider extends ChangeNotifier {
         _hasMeaningfulJsonObject(draft.hoCvtPhotos) ||
         draft.hoCvtAvg != null ||
         draft.hoCvtCv != null ||
-        draft.hoChickPanting == true ||
+        draft.hoChickPanting != null ||
         _hasText(draft.hoChickPantingPhoto) ||
         _hasText(draft.hoMeconium);
   }
@@ -3190,8 +3197,9 @@ class AuditProvider extends ChangeNotifier {
   List<_PanelSavePair> _scopedPanelSavePairs(List<_PanelSavePair> pairs) {
     if (pairs.isEmpty) return pairs;
 
+    final hatchBreakoutPrunedPairs = _pruneHatchBreakoutParentPairs(pairs);
     final eggHouseKeysWithMachineChildren = <String>{};
-    for (final pair in pairs) {
+    for (final pair in hatchBreakoutPrunedPairs) {
       final sample = pair.sample;
       if (pair.draft.auditType != 'Egg' ||
           sample.sampleKind != StationSampleModel.sampleKindMachine) {
@@ -3200,15 +3208,126 @@ class AuditProvider extends ChangeNotifier {
       final houseKey = _blankToNull(sample.houseNo);
       if (houseKey != null) eggHouseKeysWithMachineChildren.add(houseKey);
     }
-    if (eggHouseKeysWithMachineChildren.isEmpty) return pairs;
+    if (eggHouseKeysWithMachineChildren.isEmpty) {
+      return hatchBreakoutPrunedPairs;
+    }
 
     return [
-      for (final pair in pairs)
+      for (final pair in hatchBreakoutPrunedPairs)
         if (!_isDefaultedEggQualityParentPair(
           pair,
           eggHouseKeysWithMachineChildren,
         ))
           pair,
+    ];
+  }
+
+  List<_PanelSavePair> _pruneHatchBreakoutParentPairs(
+    List<_PanelSavePair> pairs,
+  ) {
+    final paths = <_BreakoutHierarchyPath>[];
+    for (var i = 0; i < pairs.length; i++) {
+      final pair = pairs[i];
+      if (pair.draft.auditType != 'Hatch Analysis & Egg Breakouts') {
+        continue;
+      }
+      for (final tableName in _panelTablesForDraft(pair.draft)) {
+        if (!_isEggBreakoutPanelTable(tableName)) continue;
+        paths.addAll(_breakoutHierarchyPathsForPair(i, tableName, pair));
+      }
+    }
+    if (paths.length < 2) return pairs;
+
+    final parentPairIndexes = <int>{};
+    for (final path in paths) {
+      if (!path.canHaveChildren) continue;
+      final hasChild = paths.any(
+        (candidate) =>
+            candidate.pairIndex != path.pairIndex && path.isParentOf(candidate),
+      );
+      if (hasChild) parentPairIndexes.add(path.pairIndex);
+    }
+    if (parentPairIndexes.isEmpty) return pairs;
+
+    return [
+      for (var i = 0; i < pairs.length; i++)
+        if (!parentPairIndexes.contains(i)) pairs[i],
+    ];
+  }
+
+  List<_BreakoutHierarchyPath> _breakoutHierarchyPathsForPair(
+    int pairIndex,
+    String tableName,
+    _PanelSavePair pair,
+  ) {
+    final entries = _breakoutLeafEntriesForTable(tableName, pair.draft);
+    if (entries.isEmpty) {
+      final panel = _panelRecordForSamples(tableName, pair.draft, [
+        pair.sample,
+      ]);
+      final panelSample = _panelSampleRecordForStationSample(
+        tableName: tableName,
+        panelId: panel.id,
+        draft: pair.draft,
+        sample: pair.sample,
+      );
+      return [
+        _BreakoutHierarchyPath(
+          pairIndex: pairIndex,
+          sessionId: pair.sample.auditSessionId,
+          tableName: tableName,
+          scopeType: panelSample.scopeType,
+          house: _blankToNull(panelSample.houseId),
+          setter: _blankToNull(panelSample.setterId),
+          hatcher: _blankToNull(panelSample.hatcherId),
+          trolley: _blankToNull(panelSample.trolleyLabel),
+          tray: _blankToNull(panelSample.trayLabel),
+          position: _blankToNull(panelSample.position),
+        ),
+      ];
+    }
+
+    final breakoutType = _breakoutTypeForTable(tableName);
+    final useDraftBatchHierarchy =
+        breakoutType != EggBreakoutType.freshEggBreakout &&
+        SampleMode.isCompare(pair.draft.sampleMode);
+    return [
+      for (final entry in entries)
+        _BreakoutHierarchyPath(
+          pairIndex: pairIndex,
+          sessionId: pair.sample.auditSessionId,
+          tableName: tableName,
+          scopeType: _breakoutScopeTypeForEntry(
+            tableName: tableName,
+            entry: entry,
+            breakoutType: breakoutType,
+          ),
+          house: breakoutType == EggBreakoutType.freshEggBreakout
+              ? _blankToNull(entry.house)
+              : _blankToNull(entry.house) ??
+                    (useDraftBatchHierarchy
+                        ? _blankToNull(pair.draft.houseId)
+                        : null),
+          setter: breakoutType == EggBreakoutType.freshEggBreakout
+              ? null
+              : _blankToNull(entry.setter) ??
+                    (useDraftBatchHierarchy
+                        ? _blankToNull(pair.draft.setterId)
+                        : null),
+          hatcher: breakoutType == EggBreakoutType.freshEggBreakout
+              ? null
+              : _blankToNull(entry.hatcher) ??
+                    (useDraftBatchHierarchy
+                        ? _blankToNull(pair.draft.hatcherId)
+                        : null),
+          trolley: breakoutType == EggBreakoutType.freshEggBreakout
+              ? null
+              : _blankToNull(entry.trolley),
+          tray: _blankToNull(entry.tray),
+          position: breakoutType == EggBreakoutType.freshEggBreakout
+              ? null
+              : _blankToNull(entry.position),
+        ),
     ];
   }
 
@@ -4661,30 +4780,22 @@ class AuditProvider extends ChangeNotifier {
     required StationSampleModel sample,
   }) {
     final scopeType = _scopeTypeForPanel(tableName, sample, draft);
-    final sampleHouseNo =
-        _blankToNull(sample.houseNo) ??
-        (draft.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft.houseId)
-            : null);
-    final sampleHouseLabel =
-        _blankToNull(sample.houseLabel) ??
-        (draft.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft.houseId)
-            : null);
-    final sampleSetterNo =
-        _blankToNull(sample.setterNo) ??
-        (draft.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft.setterId)
-            : null);
-    final sampleHatcherNo =
-        _blankToNull(sample.hatcherNo) ??
-        (draft.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft.hatcherId)
-            : null);
+    final isHatchBreakout = draft.auditType == 'Hatch Analysis & Egg Breakouts';
+    final sampleHouseNo = isHatchBreakout
+        ? _blankToNull(draft.houseId)
+        : _blankToNull(sample.houseNo);
+    final sampleHouseLabel = isHatchBreakout
+        ? _blankToNull(draft.houseId)
+        : _blankToNull(sample.houseLabel);
+    final sampleSetterNo = isHatchBreakout
+        ? _blankToNull(draft.setterId)
+        : _blankToNull(sample.setterNo);
+    final sampleHatcherNo = isHatchBreakout
+        ? _blankToNull(draft.hatcherId)
+        : _blankToNull(sample.hatcherNo);
     final usesHouse =
-        scopeType == SamplingLayer.house ||
-        sampleHouseNo != null ||
-        sampleHouseLabel != null;
+        _scopeIncludesHouse(scopeType) &&
+        (sampleHouseNo != null || sampleHouseLabel != null);
     final usesSetter =
         tableName == 'setter_optimizing' ||
         scopeType == SamplingLayer.setter ||
@@ -4732,16 +4843,14 @@ class AuditProvider extends ChangeNotifier {
     AuditModel? draft,
   ]) {
     final allowed = PanelSampleSchema.byTable(tableName).allowedLayers;
-    final sampleSetterNo =
-        _blankToNull(sample.setterNo) ??
-        (draft?.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft?.setterId)
-            : null);
-    final sampleHatcherNo =
-        _blankToNull(sample.hatcherNo) ??
-        (draft?.auditType == 'Hatch Analysis & Egg Breakouts'
-            ? _blankToNull(draft?.hatcherId)
-            : null);
+    final isHatchBreakout =
+        draft?.auditType == 'Hatch Analysis & Egg Breakouts';
+    final sampleSetterNo = isHatchBreakout
+        ? _blankToNull(draft?.setterId)
+        : _blankToNull(sample.setterNo);
+    final sampleHatcherNo = isHatchBreakout
+        ? _blankToNull(draft?.hatcherId)
+        : _blankToNull(sample.hatcherNo);
     final isComparison =
         sample.sampleMode == StationSampleModel.sampleModeComparison ||
         (draft != null && SampleMode.isCompare(draft.sampleMode));
@@ -4769,6 +4878,15 @@ class AuditProvider extends ChangeNotifier {
       return SamplingLayer.house;
     }
     return SamplingLayer.pool;
+  }
+
+  bool _scopeIncludesHouse(SamplingLayer scopeType) {
+    return scopeType == SamplingLayer.house ||
+        scopeType == SamplingLayer.setter ||
+        scopeType == SamplingLayer.hatcher ||
+        scopeType == SamplingLayer.setterHatcher ||
+        scopeType == SamplingLayer.trolley ||
+        scopeType == SamplingLayer.tray;
   }
 
   String _scopeLabelForSample(
@@ -4885,4 +5003,77 @@ class AuditProvider extends ChangeNotifier {
       );
     }
   }
+}
+
+class _BreakoutHierarchyPath {
+  const _BreakoutHierarchyPath({
+    required this.pairIndex,
+    required this.sessionId,
+    required this.tableName,
+    required this.scopeType,
+    this.house,
+    this.setter,
+    this.hatcher,
+    this.trolley,
+    this.tray,
+    this.position,
+  });
+
+  final int pairIndex;
+  final String sessionId;
+  final String tableName;
+  final SamplingLayer scopeType;
+  final String? house;
+  final String? setter;
+  final String? hatcher;
+  final String? trolley;
+  final String? tray;
+  final String? position;
+
+  bool get canHaveChildren => _samplingLayerDepth(scopeType) < 4;
+
+  bool isParentOf(_BreakoutHierarchyPath child) {
+    if (sessionId != child.sessionId || tableName != child.tableName) {
+      return false;
+    }
+    if (_samplingLayerDepth(child.scopeType) <=
+        _samplingLayerDepth(scopeType)) {
+      return false;
+    }
+    return switch (scopeType) {
+      SamplingLayer.pool => true,
+      SamplingLayer.house => _matches(house, child.house),
+      SamplingLayer.setter =>
+        _matches(house, child.house) && _matches(setter, child.setter),
+      SamplingLayer.hatcher =>
+        _matches(house, child.house) && _matches(hatcher, child.hatcher),
+      SamplingLayer.setterHatcher =>
+        _matches(house, child.house) &&
+            _matches(setter, child.setter) &&
+            _matches(hatcher, child.hatcher),
+      SamplingLayer.trolley =>
+        _matches(house, child.house) &&
+            _matches(setter, child.setter) &&
+            _matches(hatcher, child.hatcher) &&
+            _matches(trolley, child.trolley),
+      SamplingLayer.tray || SamplingLayer.batch => false,
+    };
+  }
+
+  static bool _matches(String? parentValue, String? childValue) {
+    return parentValue == null || parentValue == childValue;
+  }
+}
+
+int _samplingLayerDepth(SamplingLayer scopeType) {
+  return switch (scopeType) {
+    SamplingLayer.pool => 0,
+    SamplingLayer.house => 1,
+    SamplingLayer.setter ||
+    SamplingLayer.hatcher ||
+    SamplingLayer.setterHatcher => 2,
+    SamplingLayer.trolley => 3,
+    SamplingLayer.tray => 4,
+    SamplingLayer.batch => 1,
+  };
 }

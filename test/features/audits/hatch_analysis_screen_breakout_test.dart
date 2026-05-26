@@ -196,6 +196,24 @@ void main() {
     return tester.widget<TextField>(textField).controller?.text ?? '';
   }
 
+  double mainScrollOffset(WidgetTester tester) {
+    final listView = tester.widget<ListView>(find.byType(ListView));
+    expect(listView.controller, isNotNull);
+    return listView.controller!.offset;
+  }
+
+  Future<void> pinFinderNearViewportBottom(
+    WidgetTester tester,
+    Finder finder,
+  ) async {
+    await Scrollable.ensureVisible(
+      tester.element(finder),
+      duration: Duration.zero,
+      alignment: 0.95,
+    );
+    await tester.pumpAndSettle();
+  }
+
   RenderBox smallestDecoratedAncestorBox(WidgetTester tester, Finder finder) {
     final boxes =
         find
@@ -486,13 +504,38 @@ void main() {
     expect(provider.isCompareMode, isFalse);
     expect(find.text('House scope'), findsOneWidget);
     expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('Pool'), findsAtLeastNWidgets(2));
+    expect(find.text('Trolley scope'), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-trolley-tabs')), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-add-trolley')), findsOneWidget);
+    expect(find.text('Pool'), findsAtLeastNWidgets(3));
     expect(find.byKey(const ValueKey('residue-house-number-0')), findsNothing);
     expect(find.byKey(const ValueKey('residue-setter-number-0')), findsNothing);
     expect(
       find.byKey(const ValueKey('residue-hatcher-number-0')),
       findsNothing,
     );
+
+    await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
+
+    expect(provider.isCompareMode, isFalse);
+    expect(provider.hatchCount, 1);
+    expect(
+      find.byKey(const ValueKey('residue-trolley-number-0')),
+      findsOneWidget,
+    );
+    expect(
+      editableNumberText(tester, const ValueKey('residue-trolley-number-0')),
+      isEmpty,
+    );
+    final pooledTrolleySamples = EggBreakoutSampleEntry.decodeList(
+      provider.activeDraft.ebTrayBreakoutJson,
+      fallbackBreakoutType: EggBreakoutType.residueHatchDay,
+    );
+    expect(pooledTrolleySamples, hasLength(1));
+    expect(pooledTrolleySamples.single.trolley, 'T');
+    expect(pooledTrolleySamples.single.house, isNull);
+    expect(pooledTrolleySamples.single.setter, isNull);
+    expect(pooledTrolleySamples.single.hatcher, isNull);
 
     await tapVisibleKey(tester, const ValueKey('residue-add-house'));
 
@@ -525,6 +568,8 @@ void main() {
     expect(provider.activeDraft.setterId, 'S');
     expect(provider.activeDraft.hatcherId, 'H');
     expect(find.text('SH'), findsOneWidget);
+    expect(find.text('Trolley scope'), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-trolley-tabs')), findsOneWidget);
     expect(find.byKey(const ValueKey('residue-remove-batch')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('residue-setter-number-0')),
@@ -653,6 +698,98 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  testWidgets(
+    'selecting trolley and tray chips does not scroll to tray fields',
+    (tester) async {
+      tester.view.physicalSize = const Size(500, 520);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final provider = await pumpScreen(
+          tester,
+          breakoutType: EggBreakoutType.residueHatchDay,
+          benchmarkLookup: mockBenchmarkLookup(),
+        );
+
+        await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
+        await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
+        await enterVisibleNumber(
+          tester,
+          const ValueKey('residue-trolley-number-0'),
+          '7',
+        );
+        await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
+
+        await pinFinderNearViewportBottom(
+          tester,
+          find.byKey(const ValueKey('residue-trolley-tabs')),
+        );
+        final beforeTrolleyTap = mainScrollOffset(tester);
+        expect(
+          editableNumberText(
+            tester,
+            const ValueKey('residue-trolley-number-0'),
+          ),
+          '8',
+        );
+
+        await tester.tap(find.byKey(const ValueKey('residue-trolley-tab-0')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(
+          mainScrollOffset(tester),
+          moreOrLessEquals(beforeTrolleyTap, epsilon: 0.1),
+        );
+        expect(
+          find.byKey(const ValueKey('residue-trolley-number-0')),
+          findsOneWidget,
+        );
+        expect(
+          editableNumberText(
+            tester,
+            const ValueKey('residue-trolley-number-0'),
+          ),
+          '7',
+        );
+
+        await tapVisibleKey(tester, const ValueKey('breakout-add-sample'));
+        final samples = EggBreakoutSampleEntry.decodeList(
+          provider.drafts.single.ebTrayBreakoutJson,
+          fallbackBreakoutType: EggBreakoutType.residueHatchDay,
+        );
+        final secondSampleCountKey = ValueKey(
+          'breakout-count-${samples[1].id}-infertile',
+        );
+        await pinFinderNearViewportBottom(
+          tester,
+          find.byKey(const ValueKey('breakout-sample-tab-0')),
+        );
+        final beforeTrayTap = mainScrollOffset(tester);
+        expect(find.byKey(secondSampleCountKey), findsNothing);
+
+        await tester.tap(find.byKey(const ValueKey('breakout-sample-tab-1')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(
+          mainScrollOffset(tester),
+          moreOrLessEquals(beforeTrayTap, epsilon: 0.1),
+        );
+        expect(
+          find.byKey(const ValueKey('breakout-sample-tab-1')),
+          findsOneWidget,
+        );
+        expect(find.byKey(secondSampleCountKey), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   testWidgets('remove machine is hidden when pool house chip is selected', (
     tester,

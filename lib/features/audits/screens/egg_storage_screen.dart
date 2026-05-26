@@ -1060,45 +1060,21 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   }
 
   Widget _buildEggSampleControls(AuditProvider auditProvider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSampleControlCard(
-          title: 'House scope',
-          child: _buildEggScopeChips(
-            auditProvider,
-            active: auditProvider.isEggQualityHouseScopeActive,
-            sampleKind: StationSampleModel.sampleKindHouse,
-            addTooltip: 'Add house sample',
-            removeTooltip: 'Remove active house sample',
-            addSample: () => _addEggHouseSample(auditProvider),
-            switchSample: (index) =>
-                _switchEggHouseSample(auditProvider, index),
-            removeSample: () => _removeActiveEggScopeSample(
-              auditProvider,
-              StationSampleModel.sampleKindHouse,
-            ),
-          ),
+    return _buildSampleControlCard(
+      title: 'House scope',
+      child: _buildEggScopeChips(
+        auditProvider,
+        active: auditProvider.isEggQualityHouseScopeActive,
+        sampleKind: StationSampleModel.sampleKindHouse,
+        addTooltip: 'Add house sample',
+        removeTooltip: 'Remove active house sample',
+        addSample: () => _addEggHouseSample(auditProvider),
+        switchSample: (index) => _switchEggHouseSample(auditProvider, index),
+        removeSample: () => _removeActiveEggScopeSample(
+          auditProvider,
+          StationSampleModel.sampleKindHouse,
         ),
-        const SizedBox(height: 12),
-        _buildSampleControlCard(
-          title: 'Machine scope',
-          child: _buildEggScopeChips(
-            auditProvider,
-            active: auditProvider.isEggQualityMachineScopeActive,
-            sampleKind: StationSampleModel.sampleKindMachine,
-            addTooltip: 'Add machine sample',
-            removeTooltip: 'Remove active machine sample',
-            addSample: () => _addEggMachineSample(auditProvider),
-            switchSample: (index) =>
-                _switchEggHouseSample(auditProvider, index),
-            removeSample: () => _removeActiveEggScopeSample(
-              auditProvider,
-              StationSampleModel.sampleKindMachine,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -1563,12 +1539,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
   void _addEggHouseSample(AuditProvider provider) {
     provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    _syncActiveSampleForm(provider.activeDraft);
-    if (mounted) setState(() {});
-  }
-
-  void _addEggMachineSample(AuditProvider provider) {
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
     _syncActiveSampleForm(provider.activeDraft);
     if (mounted) setState(() {});
   }

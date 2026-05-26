@@ -180,6 +180,63 @@ void main() {
     await db.close();
   });
 
+  test(
+    'residue breakout pooled station scope persists one blank hierarchy row',
+    () async {
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+      provider.updateField('ebTraySize', 300);
+      provider.updateField('ebInfertileCount', 12);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout');
+
+      expect(rows, hasLength(1));
+      expect(rows.single['house'], isNull);
+      expect(rows.single['setter'], isNull);
+      expect(rows.single['hatcher'], isNull);
+      expect(rows.single['trolley'], isNull);
+      expect(rows.single['tray'], isNull);
+      expect(rows.single['position'], isNull);
+      expect(rows.single['infertileCount'], 12);
+    },
+  );
+
+  test(
+    'residue breakout house scope persists one row per open house',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateHatchField(0, 'houseId', 'House A');
+      provider.updateHatchField(0, 'setterId', null);
+      provider.updateHatchField(0, 'hatcherId', null);
+      provider.updateHatchField(0, 'ebTraySize', 300);
+      provider.updateHatchField(0, 'ebInfertileCount', 12);
+
+      provider.addHatch();
+      provider.updateHatchField(1, 'houseId', 'House B');
+      provider.updateHatchField(1, 'setterId', null);
+      provider.updateHatchField(1, 'hatcherId', null);
+      provider.updateHatchField(1, 'ebTraySize', 300);
+      provider.updateHatchField(1, 'ebInfertileCount', 18);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout', orderBy: 'house ASC');
+
+      expect(rows, hasLength(2));
+      expect(rows.map((row) => row['house']), ['House A', 'House B']);
+      expect(rows.every((row) => row['setter'] == null), isTrue);
+      expect(rows.every((row) => row['hatcher'] == null), isTrue);
+      expect(rows.every((row) => row['trolley'] == null), isTrue);
+      expect(rows.every((row) => row['tray'] == null), isTrue);
+      expect(rows.every((row) => row['position'] == null), isTrue);
+      expect(rows.map((row) => row['infertileCount']), [12, 18]);
+    },
+  );
+
   test('residue breakout persists each tray as a separate table row', () async {
     provider.updateField(
       'ebTrayBreakoutJson',
@@ -266,11 +323,65 @@ void main() {
 
       expect(rows, hasLength(1));
       expect(rows.single['house'], 'House A');
-      expect(rows.single['setter'], '1');
-      expect(rows.single['hatcher'], '1');
+      expect(rows.single['setter'], 'S1');
+      expect(rows.single['hatcher'], 'H1');
       expect(rows.single['trolley'], isNull);
       expect(rows.single['tray'], isNull);
       expect(rows.single['position'], isNull);
+    },
+  );
+
+  test(
+    'residue breakout machine scope keeps open paths when only total eggs set is present',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+
+      final paths = [
+        ('House A', 'S1', 'H1'),
+        ('House A', 'S2', 'H2'),
+        ('House B', 'S1', 'H1'),
+        ('House B', 'S2', 'H2'),
+      ];
+      for (var index = 0; index < paths.length; index++) {
+        if (index > 0) provider.addHatch();
+        final (house, setter, hatcher) = paths[index];
+        provider.updateHatchField(index, 'houseId', house);
+        provider.updateHatchField(index, 'setterId', setter);
+        provider.updateHatchField(index, 'hatcherId', hatcher);
+      }
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query(
+        'residue_breakout',
+        orderBy: 'house ASC, setter ASC, hatcher ASC',
+      );
+
+      expect(rows, hasLength(4));
+      expect(
+        rows.map(
+          (row) => '${row['house']}|${row['setter']}|${row['hatcher']}',
+        ),
+        [
+          'House A|S1|H1',
+          'House A|S2|H2',
+          'House B|S1|H1',
+          'House B|S2|H2',
+        ],
+      );
+      expect(rows.every((row) => row['trolley'] == null), isTrue);
+      expect(rows.every((row) => row['tray'] == null), isTrue);
+      expect(rows.every((row) => row['position'] == null), isTrue);
+      expect(rows.map((row) => row['totalEggsSet']), [
+        19200,
+        19200,
+        19200,
+        19200,
+      ]);
     },
   );
 
@@ -417,6 +528,99 @@ void main() {
         'stale-pool',
         'stale-trolley',
       ]);
+    },
+  );
+
+  test(
+    'residue breakout saves only the narrowest active grain across open hierarchy paths',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateHatchField(0, 'houseId', 'House A');
+      provider.updateHatchField(0, 'setterId', null);
+      provider.updateHatchField(0, 'hatcherId', null);
+      provider.updateHatchField(0, 'ebTraySize', 300);
+      provider.updateHatchField(0, 'ebInfertileCount', 1);
+
+      provider.addHatch();
+      provider.updateHatchField(1, 'houseId', 'House B');
+      provider.updateHatchField(1, 'setterId', null);
+      provider.updateHatchField(1, 'hatcherId', null);
+      provider.updateHatchField(1, 'ebTraySize', 300);
+      provider.updateHatchField(1, 'ebInfertileCount', 1);
+
+      var nextIndex = 2;
+      for (final house in ['House A', 'House B']) {
+        for (var machine = 1; machine <= 3; machine++) {
+          provider.addHatch();
+          final hatchIndex = provider.activeHatchIndex;
+          final setter = 'S$machine';
+          final hatcher = 'H$machine';
+          provider.updateHatchField(hatchIndex, 'houseId', house);
+          provider.updateHatchField(hatchIndex, 'setterId', setter);
+          provider.updateHatchField(hatchIndex, 'hatcherId', hatcher);
+          provider.updateHatchField(
+            hatchIndex,
+            'ebTrayBreakoutJson',
+            EggBreakoutSampleEntry.encodeList([
+              for (var trolley = 1; trolley <= 3; trolley++)
+                for (var tray = 1; tray <= 3; tray++)
+                  EggBreakoutSampleEntry.tray(
+                    id: 'residue-$nextIndex-$trolley-$tray',
+                    label: 'Tray $tray',
+                    house: house,
+                    setter: setter,
+                    hatcher: hatcher,
+                    trolley: 'T$trolley',
+                    tray: 'Tray $tray',
+                    position: 'P$tray',
+                    traySize: 150,
+                    breakoutType: EggBreakoutType.residueHatchDay,
+                    counts: {'infertile': machine + trolley + tray},
+                  ),
+            ]),
+          );
+          nextIndex++;
+        }
+      }
+
+      provider.updateField(
+        'ebBreakoutType',
+        EggBreakoutType.residueHatchDay.storageValue,
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final rows = await db.query('residue_breakout');
+
+      expect(rows, hasLength(54));
+      expect(rows.every((row) => row['house'] != null), isTrue);
+      expect(rows.every((row) => row['setter'] != null), isTrue);
+      expect(rows.every((row) => row['hatcher'] != null), isTrue);
+      expect(rows.every((row) => row['trolley'] != null), isTrue);
+      expect(rows.every((row) => row['tray'] != null), isTrue);
+      expect(rows.every((row) => row['position'] != null), isTrue);
+
+      final houses = rows.map((row) => row['house']).toSet();
+      final machinePaths = rows
+          .map((row) => '${row['house']}|${row['setter']}|${row['hatcher']}')
+          .toSet();
+      final trolleyPaths = rows
+          .map(
+            (row) =>
+                '${row['house']}|${row['setter']}|${row['hatcher']}|${row['trolley']}',
+          )
+          .toSet();
+      final trayPaths = rows
+          .map(
+            (row) =>
+                '${row['house']}|${row['setter']}|${row['hatcher']}|${row['trolley']}|${row['tray']}|${row['position']}',
+          )
+          .toSet();
+
+      expect(houses, {'House A', 'House B'});
+      expect(machinePaths, hasLength(6));
+      expect(trolleyPaths, hasLength(18));
+      expect(trayPaths, hasLength(54));
     },
   );
 }

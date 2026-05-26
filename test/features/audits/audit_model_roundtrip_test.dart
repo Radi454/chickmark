@@ -218,6 +218,12 @@ void main() {
       expect(restored.hoCvtCv, 0.5);
     });
 
+    test('Hatchers unanswered chick panting stays null', () {
+      final restored = AuditModel.fromMap(baseHatcher().toMap());
+
+      expect(restored.hoChickPanting, isNull);
+    });
+
     test('PM Necropsy lesion and severity fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
         'pm_sampleSize': 40,

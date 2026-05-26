@@ -232,8 +232,8 @@ void main() {
       findsNothing,
     );
     expect(find.text('House scope'), findsOneWidget);
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('Pool'), findsNWidgets(2));
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.text('Pool'), findsOneWidget);
     expect(find.text('UV torch inspection by tray'), findsNothing);
     expect(find.text('Optional station comments'), findsNothing);
 
@@ -273,7 +273,7 @@ void main() {
     expect(find.byKey(const ValueKey('egg-workbench-mark-EW')), findsNothing);
     expect(find.text('0/100'), findsNothing);
     expect(find.byTooltip('Add house sample'), findsOneWidget);
-    expect(find.byTooltip('Add machine sample'), findsOneWidget);
+    expect(find.byTooltip('Add machine sample'), findsNothing);
     expect(
       tester.getTopLeft(find.byTooltip('Add house sample')).dy,
       lessThan(tester.getTopLeft(find.text('Egg Weights & Uniformity')).dy),
@@ -303,17 +303,8 @@ void main() {
 
     expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
     expect(find.widgetWithText(ChoiceChip, 'H'), findsNothing);
-    expect(find.text('Pool'), findsNWidgets(2));
+    expect(find.text('Pool'), findsOneWidget);
     expect(find.byTooltip('Remove active house sample'), findsNothing);
-
-    await tester.ensureVisible(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsOneWidget);
-    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Egg Shell Quality'));
     await tester.pump();
@@ -409,7 +400,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('egg quality scope cards edit active sample identities', (
+  testWidgets('egg quality house scope card edits active sample identities', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(700, 1000));
@@ -434,21 +425,9 @@ void main() {
     expect(provider.activeStationSample.houseNo, '9');
     expect(provider.activeStationSample.houseLabel, 'House 9');
 
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    await tester.pumpAndSettle();
-
-    final setterField = find.widgetWithText(TextFormField, 'Setter');
-    final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
-    expect(setterField, findsOneWidget);
-    expect(hatcherField, findsOneWidget);
-
-    await tester.enterText(setterField, '12');
-    await tester.enterText(hatcherField, '34');
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'S12H34'), findsOneWidget);
-    expect(provider.activeStationSample.setterNo, '12');
-    expect(provider.activeStationSample.hatcherNo, '34');
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
 
   testWidgets('egg quality house field stays active while entering a number', (
@@ -508,7 +487,7 @@ void main() {
     expect(houseField.controller?.text, '8');
   });
 
-  testWidgets('egg quality generated scope labels leave fields empty', (
+  testWidgets('egg quality generated house scope labels leave fields empty', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(700, 1000));
@@ -539,70 +518,8 @@ void main() {
       '',
     );
 
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsOneWidget);
-    expect(
-      find.byKey(
-        ValueKey(
-          'egg-quality-machine-house-${provider.activeStationSample.id}',
-        ),
-      ),
-      findsNothing,
-    );
-    for (final label in ['Setter', 'Hatcher']) {
-      final fields = tester.widgetList<TextField>(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget is TextField && widget.decoration?.labelText == label,
-        ),
-      );
-      expect(fields, isNotEmpty);
-      expect(fields.map((field) => field.controller?.text), everyElement(''));
-    }
-  });
-
-  testWidgets('egg quality filters machine scope to the selected house', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    provider.updateSampleMetadata({'houseNo': '1'});
-    await tester.pumpAndSettle();
-
-    final h1Index = provider.stationSamples.indexWhere(
-      (sample) =>
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          sample.houseNo == '1',
-    );
-    provider.switchSample(h1Index);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    provider.updateSampleMetadata({'houseNo': '2'});
-    final h2Index = provider.activeSampleIndex;
-    await tester.pumpAndSettle();
-
-    provider.switchSample(h1Index);
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsNWidgets(2));
-
-    provider.switchSample(h2Index);
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'H2'), findsOneWidget);
+    expect(find.text('Machine scope'), findsNothing);
     expect(find.widgetWithText(ChoiceChip, 'SH'), findsNothing);
-    expect(find.text('Pool'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
     expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
@@ -655,112 +572,7 @@ void main() {
     );
     expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
     expect(find.widgetWithText(ChoiceChip, 'S2H2'), findsNothing);
-    expect(find.text('Pool'), findsNWidgets(2));
-  });
-
-  testWidgets(
-    'removing machine scope from a selected house deletes that child',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(700, 1000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await pumpScreen(tester);
-      final provider = Provider.of<AuditProvider>(
-        tester.element(find.byType(EggStorageScreen)),
-        listen: false,
-      );
-
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-      await tester.pumpAndSettle();
-
-      final hIndex = provider.stationSamples.indexWhere(
-        (sample) =>
-            sample.sampleKind == StationSampleModel.sampleKindHouse &&
-            sample.houseNo == 'H',
-      );
-      provider.switchSample(hIndex);
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      await tester.pumpAndSettle();
-
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'SH'), findsOneWidget);
-
-      provider.switchSample(hIndex);
-      await tester.pumpAndSettle();
-
-      final removeMachine = find.byTooltip('Remove active machine sample');
-      expect(removeMachine, findsOneWidget);
-      await tester.tap(removeMachine);
-      await tester.pumpAndSettle();
-
-      expect(
-        provider.stationSamples.any(
-          (sample) =>
-              sample.sampleKind == StationSampleModel.sampleKindHouse &&
-              sample.houseNo == 'H',
-        ),
-        isTrue,
-      );
-      expect(
-        provider.stationSamples.any(
-          (sample) =>
-              sample.sampleKind == StationSampleModel.sampleKindMachine &&
-              sample.houseNo == 'H',
-        ),
-        isFalse,
-      );
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'SH'), findsNothing);
-      expect(find.text('Pool'), findsOneWidget);
-    },
-  );
-
-  testWidgets('adding house scope after machine scope resets machine samples', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    await tester.pumpAndSettle();
-
-    expect(
-      provider.stationSamples.where(
-        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
-      ),
-      isNotEmpty,
-    );
-    expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsOneWidget);
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
-
-    expect(
-      provider.stationSamples.where(
-        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
-      ),
-      isEmpty,
-    );
-    expect(
-      provider.stationSamples.where(
-        (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
-      ),
-      hasLength(1),
-    );
-    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsNothing);
     expect(find.text('Pool'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
 
   testWidgets(

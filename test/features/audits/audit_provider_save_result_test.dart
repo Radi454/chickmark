@@ -1624,6 +1624,30 @@ void main() {
       );
     });
 
+    test('hatcher explicit no chick panting marks station complete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatchers',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          hatcherId: 'H7',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+      provider.updateField('hoChickPanting', 0);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(
+        provider.validateStationCompletion('hatchers').status,
+        StationCompletionStatus.complete,
+      );
+    });
+
     test('setter notes save without completing station', () async {
       provider.initialize(
         AuditContext(

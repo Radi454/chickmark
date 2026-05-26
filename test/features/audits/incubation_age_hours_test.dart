@@ -753,6 +753,16 @@ void main() {
       ),
       findsOneWidget,
     );
+    final noChip = find.descendant(
+      of: pantingCard,
+      matching: find.widgetWithText(ChoiceChip, 'No'),
+    );
+    final yesChip = find.descendant(
+      of: pantingCard,
+      matching: find.widgetWithText(ChoiceChip, 'Yes'),
+    );
+    expect(tester.widget<ChoiceChip>(noChip).selected, isFalse);
+    expect(tester.widget<ChoiceChip>(yesChip).selected, isFalse);
     expect(
       find.descendant(
         of: pantingCard,

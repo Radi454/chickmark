@@ -704,7 +704,9 @@ class AuditModel {
       hoCvtPhotos: map['hoCvtPhotos'],
       hoCvtAvg: map['hoCvtAvg']?.toDouble(),
       hoCvtCv: map['hoCvtCv']?.toDouble(),
-      hoChickPanting: map['hoChickPanting'] == 1,
+      hoChickPanting: map['hoChickPanting'] == null
+          ? null
+          : map['hoChickPanting'] == 1 || map['hoChickPanting'] == true,
       hoChickPantingPhoto: map['hoChickPantingPhoto'],
       hoMeconium: map['ho_meconium'],
       hoTransferDay: map['ho_transferDay'],

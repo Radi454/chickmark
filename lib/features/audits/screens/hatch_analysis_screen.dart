@@ -243,9 +243,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final activeTrolleyKey = activeTraySamples.isEmpty
         ? null
         : _trimmedOrNull(activeTraySamples[activeTrayIndex].trolley);
-    final trolleyTabs = hasSelectedMachineEntry
-        ? _residueTrolleyTabs(activeTraySamples)
-        : const <_ResidueTrolleyTab>[];
+    final trolleyTabs = _residueTrolleyTabs(activeTraySamples);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1040),
@@ -449,7 +447,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                   children: [
                     _residueHierarchyTabRow(
                       rowKey: const ValueKey('residue-trolley-tabs'),
-                      entries: hasSelectedMachineEntry && trolleyTabs.isNotEmpty
+                      entries: trolleyTabs.isNotEmpty
                           ? [
                               for (final trolley in trolleyTabs)
                                 _buildResidueScopeChip(
@@ -462,8 +460,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                                   onSelected: () => _activateBreakoutSample(
                                     activeIndex,
                                     trolley.firstSampleIndex,
-                                    activeTraySamples[trolley.firstSampleIndex]
-                                        .id,
                                   ),
                                 ),
                             ]
@@ -480,10 +476,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           key: const ValueKey('residue-add-trolley'),
                           tooltip: 'Add trolley',
                           icon: Icons.add,
-                          onPressed:
-                              provider.isReadOnly ||
-                                  !hasSelectedMachineEntry ||
-                                  activeAudit == null
+                          onPressed: provider.isReadOnly || activeAudit == null
                               ? null
                               : () => _addResidueTrolley(
                                   provider,
@@ -511,9 +504,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           ),
                       ],
                     ),
-                    if (activeTrolleyKey != null &&
-                        activeAudit != null &&
-                        hasSelectedMachineEntry) ...[
+                    if (activeTrolleyKey != null && activeAudit != null) ...[
                       const SizedBox(height: AppSizes.spaceMd),
                       _responsiveTileGrid(
                         minTileWidth: 150,
@@ -2142,11 +2133,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 selected: entry.key == activeIndex,
                 onSelected: provider.isReadOnly
                     ? null
-                    : (_) => _activateBreakoutSample(
-                        hatchIndex,
-                        entry.key,
-                        entry.value.id,
-                      ),
+                    : (_) => _activateBreakoutSample(hatchIndex, entry.key),
                 selectedColor: AppColors.primary.withValues(alpha: 0.14),
                 checkmarkColor: AppColors.primary,
                 labelStyle: AppTextStyles.body.copyWith(
@@ -2992,15 +2979,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return clamped;
   }
 
-  void _activateBreakoutSample(
-    int hatchIndex,
-    int sampleIndex,
-    String sampleId,
-  ) {
+  void _activateBreakoutSample(int hatchIndex, int sampleIndex) {
     setState(() {
       _activeBreakoutSampleIndexes[hatchIndex] = sampleIndex;
     });
-    _scrollToBreakoutSample(sampleId);
   }
 
   void _scrollToBreakoutSample(String sampleId) {
