@@ -626,6 +626,49 @@ void main() {
     );
   });
 
+  testWidgets('adding house or machine scope keeps Tray and Trolley pooled', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final provider = await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        benchmarkLookup: mockBenchmarkLookup(),
+      );
+
+      // Pooled baseline: Tray scope and Trolley scope both show Pool.
+      expect(
+        find.byKey(const ValueKey('breakout-pool-sample-tab')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
+
+      // Adding a machine scope must not flip Tray or Trolley out of Pool.
+      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
+      expect(
+        find.byKey(const ValueKey('breakout-pool-sample-tab')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
+
+      // Adding a house scope must not flip Tray or Trolley out of Pool either.
+      await tapVisibleKey(tester, const ValueKey('residue-add-house'));
+      expect(
+        find.byKey(const ValueKey('breakout-pool-sample-tab')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
+
+      expect(provider.isCompareMode, isTrue);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('machine scope from pool does not create house scope', (
     tester,
   ) async {
@@ -679,6 +722,8 @@ void main() {
         provider.drafts[0].ebTrayBreakoutJson,
         fallbackBreakoutType: EggBreakoutType.residueHatchDay,
       );
+      // Adding a trolley keeps the breakout pooled (Tray scope stays Pool).
+      expect(firstMachineSamples.single.sampleMode, EggBreakoutSampleMode.pool);
       expect(firstMachineSamples.single.trolley, 'T');
       expect(
         find.byKey(ValueKey('${firstMachineSamples.single.id}-trolley')),
@@ -690,13 +735,12 @@ void main() {
         const ValueKey('residue-trolley-number-0'),
         '7',
       );
-      await tapVisibleKey(tester, const ValueKey('breakout-add-sample'));
 
       firstMachineSamples = EggBreakoutSampleEntry.decodeList(
         provider.drafts[0].ebTrayBreakoutJson,
         fallbackBreakoutType: EggBreakoutType.residueHatchDay,
       );
-      expect(firstMachineSamples.map((sample) => sample.trolley), ['7', '7']);
+      expect(firstMachineSamples.map((sample) => sample.trolley), ['7']);
       expect(find.text('T7'), findsOneWidget);
 
       await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
@@ -723,7 +767,7 @@ void main() {
         provider.drafts[1].ebTrayBreakoutJson,
         fallbackBreakoutType: EggBreakoutType.residueHatchDay,
       );
-      expect(firstMachineSamples.map((sample) => sample.trolley), ['7', '7']);
+      expect(firstMachineSamples.map((sample) => sample.trolley), ['7']);
       expect(secondMachineSamples.map((sample) => sample.trolley), ['2']);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -800,10 +844,15 @@ void main() {
 
         await pinFinderNearViewportBottom(
           tester,
-          find.byKey(const ValueKey('breakout-sample-tab-0')),
+          find.byKey(const ValueKey('breakout-add-sample')),
         );
         final beforeTrayAdd = mainScrollOffset(tester);
 
+        // The first Tray + converts the active pooled trolley into Tray 1; the
+        // second adds Tray 2. Neither should scroll to the tray entry fields.
+        await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
         await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
@@ -816,9 +865,22 @@ void main() {
           provider.drafts.single.ebTrayBreakoutJson,
           fallbackBreakoutType: EggBreakoutType.residueHatchDay,
         );
+        expect(samples, hasLength(2));
+        expect(
+          samples.every(
+            (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
+          ),
+          isTrue,
+        );
         final secondSampleCountKey = ValueKey(
           'breakout-count-${samples[1].id}-infertile',
         );
+
+        // Select Tray 1 so Tray 2's fields are hidden, then select Tray 2.
+        await tester.tap(find.byKey(const ValueKey('breakout-sample-tab-0')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
         await pinFinderNearViewportBottom(
           tester,
           find.byKey(const ValueKey('breakout-sample-tab-0')),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
@@ -344,6 +346,41 @@ void main() {
     ]);
     expect(provider.drafts.map((draft) => draft.setterId), ['5', '7']);
     expect(provider.drafts.map((draft) => draft.soSetterId), ['5', '7']);
+  });
+
+  test('adding a setter machine sample starts the new machine EST pooled', () {
+    final provider = AuditProvider();
+    provider.initialize(
+      AuditContext(
+        auditType: 'Setters',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        setterId: '5',
+        date: '2026-04-27',
+      ),
+      notify: false,
+    );
+
+    // First machine has a 2-sample (comparison) incubation-age EST scope.
+    provider.updateField(
+      'so_estSamplesJson',
+      jsonEncode([
+        {'id': 'a', 'incubationAge': 3},
+        {'id': 'b', 'incubationAge': 6},
+      ]),
+    );
+
+    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+    provider.addSample();
+
+    // Adding a machine must not flip the new machine's EST scope out of Pool:
+    // the previous machine keeps its 2-sample comparison, while the new machine
+    // starts with a single default EST sample (which renders as `Pool`).
+    expect(provider.drafts.length, 2);
+    final firstEst = jsonDecode(provider.drafts[0].soEstSamplesJson!) as List;
+    final secondEst = jsonDecode(provider.drafts[1].soEstSamplesJson!) as List;
+    expect(firstEst, hasLength(2));
+    expect(secondEst, hasLength(1));
   });
 
   test('hatcher comparison samples are labeled by hatcher number', () {

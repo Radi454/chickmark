@@ -234,16 +234,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final activeBreakoutType = activeAudit == null
         ? EggBreakoutType.residueHatchDay
         : EggBreakoutType.fromStorageValue(activeAudit.ebBreakoutType);
-    final activeTraySamples = activeAudit == null
+    final activeScopeSamples = activeAudit == null
         ? const <EggBreakoutSampleEntry>[]
-        : _breakoutTraySamplesForAudit(activeAudit, activeBreakoutType);
-    final activeTrayIndex = activeTraySamples.isEmpty
+        : _resolveBreakoutWorkingSamples(activeAudit, activeBreakoutType);
+    final activeScopeIndex = activeScopeSamples.isEmpty
         ? 0
-        : _activeBreakoutSampleIndex(activeIndex, activeTraySamples.length);
-    final activeTrolleyKey = activeTraySamples.isEmpty
+        : _activeBreakoutSampleIndex(activeIndex, activeScopeSamples.length);
+    final activeTrolleyKey = activeScopeSamples.isEmpty
         ? null
-        : _trimmedOrNull(activeTraySamples[activeTrayIndex].trolley);
-    final trolleyTabs = _residueTrolleyTabs(activeTraySamples);
+        : _trimmedOrNull(activeScopeSamples[activeScopeIndex].trolley);
+    final trolleyTabs = _residueTrolleyTabs(activeScopeSamples);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1040),
@@ -483,7 +483,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                                   activeIndex,
                                   activeAudit,
                                   activeBreakoutType,
-                                  activeTraySamples,
+                                  activeScopeSamples,
                                 ),
                         ),
                         if (activeTrolleyKey != null)
@@ -498,7 +498,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                                     provider,
                                     activeIndex,
                                     activeBreakoutType,
-                                    activeTraySamples,
+                                    activeScopeSamples,
                                     activeTrolleyKey,
                                   ),
                           ),
@@ -523,7 +523,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                               provider,
                               activeIndex,
                               activeBreakoutType,
-                              activeTraySamples,
+                              activeScopeSamples,
                               activeTrolleyKey,
                               value,
                             ),
@@ -680,11 +680,15 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return houses;
   }
 
-  List<EggBreakoutSampleEntry> _breakoutTraySamplesForAudit(
+  /// The breakout samples the scope cards operate on for [audit]. Tray samples
+  /// take over once tray comparison is active; otherwise the pool sample(s)
+  /// (which may carry a trolley) are returned so the Trolley scope can attach
+  /// to a pooled sample without forcing the Tray scope into comparison.
+  List<EggBreakoutSampleEntry> _resolveBreakoutWorkingSamples(
     AuditModel audit,
     EggBreakoutType breakoutType,
   ) {
-    return _normalizeBreakoutSamples(
+    final breakoutSamples = _normalizeBreakoutSamples(
       EggBreakoutSampleEntry.decodeList(
             audit.ebTrayBreakoutJson,
             fallbackBreakoutType:
@@ -692,13 +696,22 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 ? breakoutType
                 : null,
           )
-          .where(
-            (sample) =>
-                sample.breakoutType == breakoutType &&
-                sample.sampleMode == EggBreakoutSampleMode.tray,
-          )
+          .where((sample) => sample.breakoutType == breakoutType)
           .toList(),
     );
+    return _resolveWorkingSamplesFrom(breakoutSamples, breakoutType);
+  }
+
+  List<EggBreakoutSampleEntry> _resolveWorkingSamplesFrom(
+    List<EggBreakoutSampleEntry> breakoutSamples,
+    EggBreakoutType breakoutType,
+  ) {
+    final traySamples = breakoutSamples
+        .where((sample) => sample.sampleMode == EggBreakoutSampleMode.tray)
+        .toList();
+    if (traySamples.isNotEmpty) return traySamples;
+    if (breakoutSamples.isNotEmpty) return breakoutSamples;
+    return [_defaultPoolBreakoutSample(breakoutType)];
   }
 
   List<_ResidueTrolleyTab> _residueTrolleyTabs(
@@ -829,15 +842,43 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final nextTrolley = existingTrolleys.isEmpty
         ? 'T'
         : _nextPrefixedScopeNumber(existingTrolleys, 'T');
-    final nextSampleIndex = samples.length + 1;
-    final nextSample = EggBreakoutSampleEntry.tray(
-      id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
-      label: 'Tray $nextSampleIndex',
-      trolley: nextTrolley,
-      position: 'random',
-      traySize: _defaultTraySizeForBreakout(breakoutType),
-      breakoutType: breakoutType,
+    final trayScopeActive = samples.any(
+      (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
     );
+
+    // Adding a trolley keeps the breakout pooled: the trolley attaches to a
+    // pool sample so the Tray scope stays on `Pool` until the user adds a tray.
+    // The first trolley reuses the lone blank pool sample in place; only when
+    // tray comparison is already active does a new trolley spawn a tray.
+    if (!trayScopeActive &&
+        existingTrolleys.isEmpty &&
+        samples.length == 1 &&
+        _trimmedOrNull(samples.first.trolley) == null) {
+      _activeBreakoutSampleIndexes[hatchIndex] = 0;
+      _persistBreakoutSamples(provider, hatchIndex, breakoutType, [
+        samples.first.copyWith(trolley: nextTrolley),
+      ]);
+      return;
+    }
+
+    final nextSampleIndex = samples.length + 1;
+    final nextSample = trayScopeActive
+        ? EggBreakoutSampleEntry.tray(
+            id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
+            label: 'Tray $nextSampleIndex',
+            trolley: nextTrolley,
+            position: 'random',
+            traySize: _defaultTraySizeForBreakout(breakoutType),
+            breakoutType: breakoutType,
+          )
+        : EggBreakoutSampleEntry.pool(
+            id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
+            label: 'Pool $nextSampleIndex',
+            trolley: nextTrolley,
+            numberOfTrays: 1,
+            traySize: _defaultTraySizeForBreakout(breakoutType),
+            breakoutType: breakoutType,
+          );
     final nextSampleWithHierarchy = _sampleWithActiveBatchHierarchy(
       audit,
       nextSample,
@@ -856,12 +897,30 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     String trolleyKey,
   ) {
     if (samples.isEmpty) return;
-    final nextSamples = [
-      for (final sample in samples)
-        _trimmedOrNull(sample.trolley) == trolleyKey
-            ? sample.copyWith(trolley: '')
-            : sample,
-    ];
+    final trayScopeActive = samples.any(
+      (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
+    );
+    final remaining = samples
+        .where((sample) => _trimmedOrNull(sample.trolley) != trolleyKey)
+        .toList();
+    final remainingHasTrolley = remaining.any(
+      (sample) => _trimmedOrNull(sample.trolley) != null,
+    );
+    // In tray comparison, or when this is the only trolley, keep the samples
+    // and just drop the trolley label (preserving entered counts). For pooled
+    // multi-trolley scopes, removing a trolley removes its pool sample so no
+    // orphaned no-trolley pool sample is left behind.
+    var nextSamples = trayScopeActive || !remainingHasTrolley
+        ? [
+            for (final sample in samples)
+              _trimmedOrNull(sample.trolley) == trolleyKey
+                  ? sample.copyWith(trolley: '')
+                  : sample,
+          ]
+        : remaining;
+    if (nextSamples.isEmpty) {
+      nextSamples = [_defaultPoolBreakoutSample(breakoutType)];
+    }
     final nextActiveIndex = nextSamples.indexWhere(
       (sample) => _trimmedOrNull(sample.trolley) == null,
     );
@@ -2091,11 +2150,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final traySamples = breakoutSamples
         .where((sample) => sample.sampleMode == EggBreakoutSampleMode.tray)
         .toList();
-    final samples = traySamples.isNotEmpty
-        ? traySamples
-        : breakoutSamples.isNotEmpty
-        ? breakoutSamples
-        : [_defaultPoolBreakoutSample(breakoutType)];
+    final samples = _resolveWorkingSamplesFrom(breakoutSamples, breakoutType);
     final totalSample = samples.fold<int>(
       0,
       (sum, sample) => sum + (sample.totalSample ?? 0),
@@ -2226,9 +2281,9 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               ? null
               : () {
                   final nextIndex = trayScopeActive ? samples.length + 1 : 1;
-                  final activeTrolley = trayScopeActive
-                      ? _trimmedOrNull(samples[activeIndex].trolley)
-                      : null;
+                  final activeTrolley = _trimmedOrNull(
+                    samples[activeIndex].trolley,
+                  );
                   final nextSample = EggBreakoutSampleEntry.tray(
                     id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
                     label: 'Tray $nextIndex',
