@@ -263,28 +263,6 @@ Future<void> _createGoveeCaptureTables(Database db) async {
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_govee_daily_dashboard ON govee_daily_captures (customerId, hatcheryId, captureDate)',
   );
-  await _createGoveeCaptureReadingsTable(db);
-}
-
-/// Raw per-dot readings for a Govee capture: one row per sensor sample.
-///
-/// Kept separate from [govee_daily_captures] (which stores summary stats plus a
-/// downsampled overview in chartPointsJson) so the full-resolution stream can be
-/// queried by time window for zoom. Idempotent so it can run from both onCreate
-/// and onOpen, letting existing databases gain the table without a destructive
-/// version cutover.
-Future<void> _createGoveeCaptureReadingsTable(Database db) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS govee_capture_readings (
-    id TEXT PRIMARY KEY,
-    captureId TEXT NOT NULL,
-    recordedAtMs INTEGER NOT NULL,
-    temperatureFahrenheit REAL NOT NULL,
-    humidity REAL NOT NULL,
-    FOREIGN KEY (captureId) REFERENCES govee_daily_captures(id) ON DELETE CASCADE
-  )''');
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_govee_readings_window ON govee_capture_readings (captureId, recordedAtMs)',
-  );
 }
 
 Future<void> _createOperationalIndexes(Database db) async {

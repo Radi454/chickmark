@@ -10,7 +10,6 @@ import '../../../data/repositories/govee_capture_repository.dart';
 import '../../../core/utils/calculation_utils.dart';
 import '../../../services/govee/govee_service.dart';
 import '../../dashboard/models/govee_capture_summary.dart';
-import '../../temperature/services/lttb_downsampler.dart';
 import '../utils/govee_place_flow.dart';
 
 enum GoveeCapturePhase {
@@ -526,11 +525,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
 
     final now = _clock();
     final captureId = _uuid.v4();
-    final downsampled = LttbDownsampler.downsample<GoveeSensorReading>(
-      valid,
-      timestampFor: (reading) => reading.timestamp,
-      yFor: (reading) => reading.temperatureFahrenheit! + reading.humidity!,
-    );
     final capture = GoveeDailyCaptureModel(
       id: captureId,
       customerId: _customerId!,
@@ -579,29 +573,13 @@ class GoveeCaptureProvider extends ChangeNotifier {
       createdAt: now,
       updatedAt: now,
     );
-    final readings = downsampled
+    final readings = valid
         .asMap()
         .entries
         .map((entry) {
           final reading = entry.value;
           return GoveePlaceReadingModel(
             id: _uuid.v4(),
-            captureId: captureId,
-            readingIndex: entry.key,
-            recordedAt: reading.timestamp,
-            temperatureFahrenheit: reading.temperatureFahrenheit!,
-            humidity: reading.humidity!,
-            createdAt: now,
-          );
-        })
-        .toList(growable: false);
-    final rawReadings = valid
-        .asMap()
-        .entries
-        .map((entry) {
-          final reading = entry.value;
-          return GoveePlaceReadingModel(
-            id: '$captureId-${entry.key}',
             captureId: captureId,
             readingIndex: entry.key,
             recordedAt: reading.timestamp,
@@ -619,7 +597,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
       await _repository.saveReplacement(
         capture: savedCapture,
         readings: readings,
-        rawReadings: rawReadings,
       );
       await _loadSavedSummaries(
         preferredCaptureId: savedCapture.id,

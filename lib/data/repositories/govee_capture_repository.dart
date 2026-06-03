@@ -39,7 +39,6 @@ class GoveeCaptureRepository {
   Future<void> saveReplacement({
     required GoveeDailyCaptureModel capture,
     required List<GoveePlaceReadingModel> readings,
-    List<GoveePlaceReadingModel> rawReadings = const [],
   }) async {
     final db = await _dbHelper.db;
     await db.transaction<void>((txn) async {
@@ -58,16 +57,10 @@ class GoveeCaptureRepository {
       );
 
       for (final row in existing) {
-        final existingId = row['id'];
-        await txn.delete(
-          'govee_capture_readings',
-          where: 'captureId = ?',
-          whereArgs: [existingId],
-        );
         await txn.delete(
           'govee_daily_captures',
           where: 'id = ?',
-          whereArgs: [existingId],
+          whereArgs: [row['id']],
         );
       }
 
@@ -79,14 +72,6 @@ class GoveeCaptureRepository {
           ),
         ),
       );
-
-      for (final reading in rawReadings) {
-        await txn.insert(
-          'govee_capture_readings',
-          _rawReadingToStorageMap(capture.id, reading),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
     });
   }
 
@@ -132,37 +117,6 @@ class GoveeCaptureRepository {
     );
     if (rows.isEmpty) return const [];
     return GoveeDailyCaptureModel.fromMap(rows.first).chartReadings;
-  }
-
-  /// Full-resolution readings for a capture, ordered oldest first.
-  ///
-  /// Returns every stored sensor sample from govee_capture_readings so the chart
-  /// can render real detail on zoom. Empty for legacy captures saved before the
-  /// raw table existed; callers should fall back to the capture's overview.
-  Future<List<GoveePlaceReadingModel>> getRawReadings(String captureId) async {
-    final db = await _dbHelper.db;
-    final rows = await db.query(
-      'govee_capture_readings',
-      where: 'captureId = ?',
-      whereArgs: [captureId],
-      orderBy: 'recordedAtMs ASC',
-    );
-    return rows.asMap().entries.map((entry) {
-      final row = entry.value;
-      final recordedAt = DateTime.fromMillisecondsSinceEpoch(
-        (row['recordedAtMs'] as num?)?.toInt() ?? 0,
-      );
-      return GoveePlaceReadingModel(
-        id: row['id'] as String? ?? '$captureId-${entry.key}',
-        captureId: captureId,
-        readingIndex: entry.key,
-        recordedAt: recordedAt,
-        temperatureFahrenheit:
-            (row['temperatureFahrenheit'] as num?)?.toDouble() ?? 0,
-        humidity: (row['humidity'] as num?)?.toDouble() ?? 0,
-        createdAt: recordedAt,
-      );
-    }).toList(growable: false);
   }
 
   Future<List<GoveeDailyCaptureModel>> getAllCaptures() async {
@@ -270,19 +224,6 @@ class GoveeCaptureRepository {
     final row = capture.toMap();
     _normalizeCaptureStorageRow(row);
     return row;
-  }
-
-  Map<String, dynamic> _rawReadingToStorageMap(
-    String captureId,
-    GoveePlaceReadingModel reading,
-  ) {
-    return {
-      'id': reading.id,
-      'captureId': captureId,
-      'recordedAtMs': reading.recordedAt.millisecondsSinceEpoch,
-      'temperatureFahrenheit': reading.temperatureFahrenheit,
-      'humidity': reading.humidity,
-    };
   }
 
   void _normalizeCaptureStorageRow(Map<String, dynamic> row) {

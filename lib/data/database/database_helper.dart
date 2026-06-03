@@ -49,7 +49,6 @@ class DatabaseHelper {
         await _dropDeprecatedPanelColumns(db);
         await _ensurePanelSampleSchemaColumns(db);
         await _ensurePanelUniqueRowIndexes(db);
-        await _createGoveeCaptureReadingsTable(db);
         await db.execute('PRAGMA foreign_keys = ON');
       },
     );
@@ -229,7 +228,6 @@ class DatabaseHelper {
       'station_samples',
       'photos',
       'govee_daily_captures',
-      'govee_capture_readings',
       'govee_place_readings',
       'govee_spot_captures',
       'govee_spot_readings',

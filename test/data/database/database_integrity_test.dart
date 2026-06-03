@@ -104,43 +104,6 @@ void main() {
       isEmpty,
     );
   });
-
-  test('govee raw readings persist and cascade with their capture', () async {
-    final db = await DatabaseHelper().db;
-    await _insertValidGraph(db);
-
-    await db.insert('govee_capture_readings', {
-      'id': 'capture-1-0',
-      'captureId': 'capture-1',
-      'recordedAtMs': 1780480800000,
-      'temperatureFahrenheit': 99.4,
-      'humidity': 55.1,
-    });
-    await db.insert('govee_capture_readings', {
-      'id': 'capture-1-1',
-      'captureId': 'capture-1',
-      'recordedAtMs': 1780480802000,
-      'temperatureFahrenheit': 99.6,
-      'humidity': 54.8,
-    });
-
-    expect(
-      await db.query(
-        'govee_capture_readings',
-        where: 'captureId = ?',
-        whereArgs: ['capture-1'],
-      ),
-      hasLength(2),
-    );
-
-    await db.delete(
-      'govee_daily_captures',
-      where: 'id = ?',
-      whereArgs: ['capture-1'],
-    );
-
-    expect(await db.query('govee_capture_readings'), isEmpty);
-  });
 }
 
 Future<void> _insertValidGraph(Database db) async {
