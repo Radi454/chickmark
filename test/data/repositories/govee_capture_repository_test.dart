@@ -183,6 +183,59 @@ void main() {
   );
 
   test(
+    'saveReplacement stores raw readings and clears prior raw rows',
+    () async {
+      when(
+        () => txn.query(
+          'govee_daily_captures',
+          where:
+              'customerId = ? AND hatcheryId = ? AND place = ? AND machineId = ? AND captureDate = ?',
+          whereArgs: [
+            newCapture.customerId,
+            newCapture.hatcheryId,
+            newCapture.place.name,
+            '',
+            newCapture.captureDate,
+          ],
+          limit: 1,
+        ),
+      ).thenAnswer((_) async => [oldCapture.toMap()]);
+
+      await repository.saveReplacement(
+        capture: newCapture,
+        readings: newReadings,
+        rawReadings: newReadings,
+      );
+
+      verify(
+        () => txn.delete(
+          'govee_capture_readings',
+          where: 'captureId = ?',
+          whereArgs: [oldCapture.id],
+        ),
+      ).called(1);
+
+      final inserted = verify(
+        () => txn.insert(
+          'govee_capture_readings',
+          captureAny(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        ),
+      ).captured;
+
+      expect(inserted, hasLength(newReadings.length));
+      expect(inserted.first, {
+        'id': 'reading-0',
+        'captureId': newCapture.id,
+        'recordedAtMs':
+            DateTime.parse('2026-05-02T10:00:00').millisecondsSinceEpoch,
+        'temperatureFahrenheit': 70.0,
+        'humidity': 55.0,
+      });
+    },
+  );
+
+  test(
     'getCaptureForScope queries one machine-aware place date capture',
     () async {
       when(

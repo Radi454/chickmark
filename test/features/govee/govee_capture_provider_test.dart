@@ -181,6 +181,7 @@ void main() {
       () => mockRepo.saveReplacement(
         capture: any(named: 'capture'),
         readings: any(named: 'readings'),
+        rawReadings: any(named: 'rawReadings'),
       ),
     ).thenAnswer((_) async {});
   });
@@ -238,17 +239,21 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: captureAny(named: 'capture'),
           readings: captureAny(named: 'readings'),
+          rawReadings: captureAny(named: 'rawReadings'),
         ),
       ).captured;
       final capture = captured[0] as GoveeDailyCaptureModel;
       final readings = captured[1] as List<GoveePlaceReadingModel>;
+      final rawReadings = captured[2] as List<GoveePlaceReadingModel>;
 
       expect(capture.place, TemperaturePlace.insideSetter);
       expect(capture.machineId, 'setter-7');
       expect(capture.startedAt, DateTime.parse('2026-05-02T10:00:00'));
       expect(capture.endedAt, DateTime.parse('2026-05-02T10:20:00'));
-      expect(capture.readingCount, 100);
+      expect(capture.readingCount, 1000);
       expect(readings, hasLength(100));
+      expect(rawReadings, hasLength(1000));
+      expect(rawReadings.first.recordedAt, DateTime.parse('2026-05-02T10:00:00'));
     },
   );
 
@@ -351,6 +356,7 @@ void main() {
       () => mockRepo.saveReplacement(
         capture: captureAny(named: 'capture'),
         readings: captureAny(named: 'readings'),
+        rawReadings: captureAny(named: 'rawReadings'),
       ),
     ).captured;
     final capture = captured[0] as GoveeDailyCaptureModel;
@@ -484,6 +490,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: any(named: 'capture'),
           readings: any(named: 'readings'),
+          rawReadings: any(named: 'rawReadings'),
         ),
       ).thenAnswer((invocation) async {
         savedCapture =
@@ -528,6 +535,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: captureAny(named: 'capture'),
           readings: captureAny(named: 'readings'),
+          rawReadings: captureAny(named: 'rawReadings'),
         ),
       ).captured;
       final capture = captured[0] as GoveeDailyCaptureModel;
@@ -572,6 +580,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: captureAny(named: 'capture'),
           readings: captureAny(named: 'readings'),
+          rawReadings: captureAny(named: 'rawReadings'),
         ),
       ).captured;
       final capture = captured[0] as GoveeDailyCaptureModel;
@@ -647,6 +656,7 @@ void main() {
       () => mockRepo.saveReplacement(
         capture: captureAny(named: 'capture'),
         readings: captureAny(named: 'readings'),
+        rawReadings: captureAny(named: 'rawReadings'),
       ),
     ).captured;
     final capture = captured[0] as GoveeDailyCaptureModel;
@@ -695,6 +705,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: captureAny(named: 'capture'),
           readings: captureAny(named: 'readings'),
+          rawReadings: captureAny(named: 'rawReadings'),
         ),
       ).captured;
       final capture = captured[0] as GoveeDailyCaptureModel;
@@ -737,6 +748,7 @@ void main() {
       () => mockRepo.saveReplacement(
         capture: captureAny(named: 'capture'),
         readings: captureAny(named: 'readings'),
+        rawReadings: captureAny(named: 'rawReadings'),
       ),
     ).captured;
     final capture = captured[0] as GoveeDailyCaptureModel;
@@ -782,6 +794,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: any(named: 'capture'),
           readings: any(named: 'readings'),
+          rawReadings: any(named: 'rawReadings'),
         ),
       );
     },
@@ -821,6 +834,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: any(named: 'capture'),
           readings: any(named: 'readings'),
+          rawReadings: any(named: 'rawReadings'),
         ),
       );
     },
@@ -836,6 +850,7 @@ void main() {
         () => mockRepo.saveReplacement(
           capture: any(named: 'capture'),
           readings: any(named: 'readings'),
+          rawReadings: any(named: 'rawReadings'),
         ),
       ).thenAnswer((invocation) async {
         attempts += 1;

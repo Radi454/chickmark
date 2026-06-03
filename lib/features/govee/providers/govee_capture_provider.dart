@@ -575,7 +575,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
         valid,
         (reading) => reading.humidity,
       ),
-      readingCount: downsampled.length,
+      readingCount: valid.length,
       createdAt: now,
       updatedAt: now,
     );
@@ -595,6 +595,22 @@ class GoveeCaptureProvider extends ChangeNotifier {
           );
         })
         .toList(growable: false);
+    final rawReadings = valid
+        .asMap()
+        .entries
+        .map((entry) {
+          final reading = entry.value;
+          return GoveePlaceReadingModel(
+            id: '$captureId-${entry.key}',
+            captureId: captureId,
+            readingIndex: entry.key,
+            recordedAt: reading.timestamp,
+            temperatureFahrenheit: reading.temperatureFahrenheit!,
+            humidity: reading.humidity!,
+            createdAt: now,
+          );
+        })
+        .toList(growable: false);
 
     final savedCapture = capture.copyWith(
       chartPointsJson: GoveePlaceReadingModel.listToJson(readings),
@@ -603,6 +619,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
       await _repository.saveReplacement(
         capture: savedCapture,
         readings: readings,
+        rawReadings: rawReadings,
       );
       await _loadSavedSummaries(
         preferredCaptureId: savedCapture.id,

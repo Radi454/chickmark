@@ -39,6 +39,7 @@ class GoveeCaptureRepository {
   Future<void> saveReplacement({
     required GoveeDailyCaptureModel capture,
     required List<GoveePlaceReadingModel> readings,
+    List<GoveePlaceReadingModel> rawReadings = const [],
   }) async {
     final db = await _dbHelper.db;
     await db.transaction<void>((txn) async {
@@ -57,10 +58,16 @@ class GoveeCaptureRepository {
       );
 
       for (final row in existing) {
+        final existingId = row['id'];
+        await txn.delete(
+          'govee_capture_readings',
+          where: 'captureId = ?',
+          whereArgs: [existingId],
+        );
         await txn.delete(
           'govee_daily_captures',
           where: 'id = ?',
-          whereArgs: [row['id']],
+          whereArgs: [existingId],
         );
       }
 
@@ -72,6 +79,14 @@ class GoveeCaptureRepository {
           ),
         ),
       );
+
+      for (final reading in rawReadings) {
+        await txn.insert(
+          'govee_capture_readings',
+          _rawReadingToStorageMap(capture.id, reading),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
     });
   }
 
@@ -224,6 +239,19 @@ class GoveeCaptureRepository {
     final row = capture.toMap();
     _normalizeCaptureStorageRow(row);
     return row;
+  }
+
+  Map<String, dynamic> _rawReadingToStorageMap(
+    String captureId,
+    GoveePlaceReadingModel reading,
+  ) {
+    return {
+      'id': reading.id,
+      'captureId': captureId,
+      'recordedAtMs': reading.recordedAt.millisecondsSinceEpoch,
+      'temperatureFahrenheit': reading.temperatureFahrenheit,
+      'humidity': reading.humidity,
+    };
   }
 
   void _normalizeCaptureStorageRow(Map<String, dynamic> row) {
