@@ -410,6 +410,8 @@ class _AuditStationSelectionScreenState
         ),
       );
     } finally {
+      await WidgetsBinding.instance.endOfFrame;
+      await Future<void>.delayed(Duration.zero);
       if (mounted) {
         setState(() => _isStarting = false);
       }

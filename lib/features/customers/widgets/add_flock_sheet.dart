@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_sizes.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/flock_model.dart';
 
@@ -128,43 +129,55 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppSizes.sheetRadius),
+        ),
       ),
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(
+          AppSizes.spaceXl,
+          AppSizes.spaceLg,
+          AppSizes.spaceXl,
+          AppSizes.spaceXl,
+        ),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderDefault,
+                    borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSizes.spaceLg),
               Text(
                 _isEditing ? 'Edit Flock' : 'Add New Flock',
-                style: AppTextStyles.heading.copyWith(fontSize: 20),
+                style: AppTextStyles.heading,
               ),
               if (_isEditing) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: AppSizes.spaceXs),
                 Text(
                   'Update details, availability, and depletion rules from one place.',
                   style: AppTextStyles.caption,
                 ),
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSizes.spaceLg),
               TextFormField(
                 controller: _flockIdController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Flock ID *',
                   hintText: 'Enter flock ID',
-                  filled: true,
-                  fillColor: AppColors.background,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
                 ),
                 style: AppTextStyles.body,
                 validator: (value) {
@@ -174,18 +187,10 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSizes.spaceMd),
               DropdownButtonFormField<String>(
                 initialValue: _selectedBreed,
-                decoration: InputDecoration(
-                  labelText: 'Breed',
-                  filled: true,
-                  fillColor: AppColors.background,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
+                decoration: const InputDecoration(labelText: 'Breed'),
                 style: AppTextStyles.body,
                 items: _breeds.map((breed) {
                   return DropdownMenuItem<String>(
@@ -201,42 +206,37 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   }
                 },
               ),
-              const SizedBox(height: 16),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
+              const SizedBox(height: AppSizes.spaceLg),
+              _ChoiceRow<bool>(
+                label: 'Age source',
+                value: _useCurrentAge,
+                options: const [
+                  _ChoiceOption(
                     value: false,
-                    icon: Icon(Icons.calendar_today_outlined),
-                    label: Text('Entry date'),
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Entry date',
                   ),
-                  ButtonSegment(
+                  _ChoiceOption(
                     value: true,
-                    icon: Icon(Icons.warning_amber_outlined),
-                    label: Text('Current age'),
+                    icon: Icons.calculate_outlined,
+                    label: 'Current age',
                   ),
                 ],
-                selected: {_useCurrentAge},
-                onSelectionChanged: (selection) {
+                onChanged: (value) {
                   setState(() {
-                    _useCurrentAge = selection.first;
+                    _useCurrentAge = value;
                   });
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSizes.spaceMd),
               if (_useCurrentAge)
                 TextFormField(
                   controller: _ageWeeksController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Current age weeks *',
                     hintText: 'Enter current flock age',
                     helperText: 'This creates an estimated entry date.',
-                    prefixIcon: const Icon(Icons.warning_amber_outlined),
-                    filled: true,
-                    fillColor: AppColors.background,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
+                    prefixIcon: Icon(Icons.calculate_outlined),
                   ),
                   keyboardType: TextInputType.number,
                   style: AppTextStyles.body,
@@ -250,39 +250,16 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   },
                 )
               else
-                ListTile(
-                  title: Text(
-                    'Entry Date',
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '${_entryDate.day}/${_entryDate.month}/${_entryDate.year}',
-                    style: AppTextStyles.body,
-                  ),
-                  trailing: const Icon(Icons.calendar_today),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  onTap: _selectDate,
-                ),
-              const SizedBox(height: 16),
+                _DateFieldButton(date: _entryDate, onTap: _selectDate),
+              const SizedBox(height: AppSizes.spaceMd),
               TextFormField(
                 controller: _depletionAgeController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Depletion age weeks *',
                   hintText: 'Default is 65 weeks',
                   helperText:
                       'Flocks at or beyond this age are hidden from new audits.',
-                  prefixIcon: const Icon(Icons.hourglass_bottom_outlined),
-                  filled: true,
-                  fillColor: AppColors.background,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
+                  prefixIcon: Icon(Icons.hourglass_bottom_outlined),
                 ),
                 keyboardType: TextInputType.number,
                 style: AppTextStyles.body,
@@ -294,52 +271,48 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Availability',
-                style: AppTextStyles.caption.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
+              const SizedBox(height: AppSizes.spaceLg),
+              _ChoiceRow<bool>(
+                label: 'Availability',
+                value: _isSold,
+                options: const [
+                  _ChoiceOption(
                     value: false,
-                    icon: Icon(Icons.check_circle_outline),
-                    label: Text('Active'),
+                    icon: Icons.check_circle_outline,
+                    label: 'Active',
                   ),
-                  ButtonSegment(
+                  _ChoiceOption(
                     value: true,
-                    icon: Icon(Icons.sell_outlined),
-                    label: Text('Sold'),
+                    icon: Icons.sell_outlined,
+                    label: 'Sold',
                   ),
                 ],
-                selected: {_isSold},
-                onSelectionChanged: (selection) {
+                onChanged: (value) {
                   setState(() {
-                    _isSold = selection.first;
+                    _isSold = value;
                   });
                 },
               ),
               if (!_isSold) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSizes.spaceSm),
                 Text(
                   'Active flocks are still hidden from new audits once they reach depletion age.',
                   style: AppTextStyles.caption,
                 ),
               ],
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSizes.spaceXl),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saveFlock,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSizes.spaceLg,
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(
+                        AppSizes.buttonRadius,
+                      ),
                     ),
                   ),
                   child: Text(
@@ -353,6 +326,169 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChoiceOption<T> {
+  final T value;
+  final IconData icon;
+  final String label;
+
+  const _ChoiceOption({
+    required this.value,
+    required this.icon,
+    required this.label,
+  });
+}
+
+class _ChoiceRow<T> extends StatelessWidget {
+  final String label;
+  final T value;
+  final List<_ChoiceOption<T>> options;
+  final ValueChanged<T> onChanged;
+
+  const _ChoiceRow({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: AppSizes.spaceSm),
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+            border: Border.all(color: AppColors.borderDefault),
+          ),
+          child: Row(
+            children: options.map((option) {
+              final selected = option.value == value;
+              return Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+                  onTap: () => onChanged(option.value),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSizes.spaceMd,
+                      vertical: AppSizes.spaceSm,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected ? AppColors.surface : Colors.transparent,
+                      borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+                      boxShadow: selected
+                          ? const [
+                              BoxShadow(
+                                color: AppColors.cardShadow,
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          option.icon,
+                          size: AppSizes.iconSm,
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: AppSizes.spaceSm),
+                        Flexible(
+                          child: Text(
+                            option.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.badgeLabel.copyWith(
+                              color: selected
+                                  ? AppColors.textPrimary
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DateFieldButton extends StatelessWidget {
+  final DateTime date;
+  final VoidCallback onTap;
+
+  const _DateFieldButton({required this.date, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final formattedDate = '${date.day}/${date.month}/${date.year}';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceLg,
+          vertical: AppSizes.spaceMd,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+          border: Border.all(color: AppColors.borderDefault),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_outlined,
+              size: AppSizes.iconSm,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(width: AppSizes.spaceMd),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Entry date',
+                    style: AppTextStyles.caption.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: AppSizes.spaceXs),
+                  Text(formattedDate, style: AppTextStyles.body),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.edit_calendar_outlined,
+              size: AppSizes.iconSm,
+              color: AppColors.primary,
+            ),
+          ],
         ),
       ),
     );

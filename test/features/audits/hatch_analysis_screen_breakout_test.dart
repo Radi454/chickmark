@@ -588,11 +588,42 @@ void main() {
       isEmpty,
     );
 
+    await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
+
+    expect(provider.hatchCount, 2);
+    expect(provider.activeDraft.setterId, '1');
+    expect(provider.activeDraft.hatcherId, '1');
+    expect(find.text('SH'), findsOneWidget);
+    expect(find.text('S1H1'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('residue-setter-number-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('residue-hatcher-number-1')),
+      findsOneWidget,
+    );
+    expect(
+      editableNumberText(tester, const ValueKey('residue-setter-number-1')),
+      '1',
+    );
+    expect(
+      editableNumberText(tester, const ValueKey('residue-hatcher-number-1')),
+      '1',
+    );
+
     await tapVisibleKey(tester, const ValueKey('residue-remove-batch'));
 
+    expect(provider.hatchCount, 1);
+    expect(provider.activeDraft.setterId, 'S');
+    expect(provider.activeDraft.hatcherId, 'H');
     expect(find.text('H'), findsOneWidget);
-    expect(find.text('Pool'), findsAtLeastNWidgets(1));
-    expect(find.byKey(const ValueKey('residue-setter-number-0')), findsNothing);
+    expect(find.text('SH'), findsOneWidget);
+    expect(find.text('S1H1'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('residue-setter-number-0')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('machine scope from pool does not create house scope', (
@@ -700,7 +731,7 @@ void main() {
   });
 
   testWidgets(
-    'selecting trolley and tray chips does not scroll to tray fields',
+    'adding and selecting trolley and tray chips does not scroll to tray fields',
     (tester) async {
       tester.view.physicalSize = const Size(500, 520);
       tester.view.devicePixelRatio = 1;
@@ -722,13 +753,21 @@ void main() {
           const ValueKey('residue-trolley-number-0'),
           '7',
         );
-        await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
 
         await pinFinderNearViewportBottom(
           tester,
           find.byKey(const ValueKey('residue-trolley-tabs')),
         );
-        final beforeTrolleyTap = mainScrollOffset(tester);
+        final beforeTrolleyAdd = mainScrollOffset(tester);
+
+        await tester.tap(find.byKey(const ValueKey('residue-add-trolley')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(
+          mainScrollOffset(tester),
+          moreOrLessEquals(beforeTrolleyAdd, epsilon: 0.1),
+        );
         expect(
           editableNumberText(
             tester,
@@ -736,6 +775,8 @@ void main() {
           ),
           '8',
         );
+
+        final beforeTrolleyTap = mainScrollOffset(tester);
 
         await tester.tap(find.byKey(const ValueKey('residue-trolley-tab-0')));
         await tester.pump();
@@ -757,7 +798,20 @@ void main() {
           '7',
         );
 
-        await tapVisibleKey(tester, const ValueKey('breakout-add-sample'));
+        await pinFinderNearViewportBottom(
+          tester,
+          find.byKey(const ValueKey('breakout-sample-tab-0')),
+        );
+        final beforeTrayAdd = mainScrollOffset(tester);
+
+        await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(
+          mainScrollOffset(tester),
+          moreOrLessEquals(beforeTrayAdd, epsilon: 0.1),
+        );
         final samples = EggBreakoutSampleEntry.decodeList(
           provider.drafts.single.ebTrayBreakoutJson,
           fallbackBreakoutType: EggBreakoutType.residueHatchDay,

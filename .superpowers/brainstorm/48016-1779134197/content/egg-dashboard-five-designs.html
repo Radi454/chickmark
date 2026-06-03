@@ -1,0 +1,598 @@
+<style>
+  .design-board {
+    max-width: 1160px;
+    margin: 0 auto;
+    display: grid;
+    gap: 22px;
+  }
+
+  .design-option {
+    border: 1px solid #dce5f0;
+    border-radius: 18px;
+    background: #f7faff;
+    padding: 16px;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+    cursor: pointer;
+  }
+
+  .design-option:hover {
+    border-color: #2d83e6;
+  }
+
+  .design-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .design-label h3 {
+    margin: 0;
+    color: #f8fafc;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .design-label p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .mock-panel {
+    border: 1px solid #dce7f4;
+    border-radius: 16px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .mock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #edf2f8;
+  }
+
+  .mock-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .mock-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 24px;
+    font-weight: 900;
+  }
+
+  .mock-kicker {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .mock-name {
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 950;
+    line-height: 1.08;
+  }
+
+  .mock-status,
+  .ok-pill,
+  .alarm-pill {
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .mock-status,
+  .ok-pill {
+    background: #e8f7ee;
+    color: #1f7a45;
+  }
+
+  .alarm-pill {
+    background: #ffedd5;
+    color: #9a3412;
+  }
+
+  .mock-body {
+    padding: 16px;
+  }
+
+  .blue-gradient {
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+  }
+
+  .metric-title {
+    color: rgba(255,255,255,.78);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .metric-value {
+    color: #ffffff;
+    font-size: 28px;
+    font-weight: 950;
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+
+  .metric-note {
+    color: rgba(255,255,255,.80);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .alarm-text {
+    color: #7c2d12;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.4;
+  }
+
+  .grid-shell {
+    border: 1px solid #e1e9f3;
+    border-radius: 15px;
+    background: #fbfdff;
+    padding: 14px;
+  }
+
+  .readings {
+    display: grid;
+    grid-template-columns: 64px repeat(3, 1fr);
+    gap: 9px;
+  }
+
+  .axis,
+  .column {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+  }
+
+  .column {
+    text-align: center;
+    color: #334155;
+  }
+
+  .axis {
+    align-self: center;
+  }
+
+  .cell {
+    min-height: 70px;
+    border: 1px solid #dfe8f3;
+    border-radius: 14px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+
+  .cell strong {
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 950;
+  }
+
+  .thumb {
+    width: 58px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #42505e, #d8b78d 50%, #3fc766 51%, #13923a);
+  }
+
+  .rows {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .detail-row {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    border: 1px solid #e0e8f2;
+    border-radius: 14px;
+    background: #ffffff;
+    padding: 12px 14px;
+  }
+
+  .row-label {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 950;
+  }
+
+  .row-values {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mini-value {
+    border-radius: 10px;
+    background: #f4f8ff;
+    border: 1px solid #e1eaff;
+    padding: 8px 10px;
+    min-width: 0;
+  }
+
+  .mini-value span {
+    display: block;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 850;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+
+  .mini-value b {
+    display: block;
+    margin-top: 3px;
+    color: #10203b;
+    font-size: 13px;
+    font-weight: 950;
+    overflow-wrap: anywhere;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr .9fr;
+    gap: 1px;
+    overflow: hidden;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    box-shadow: 0 14px 34px rgba(25, 63, 194, 0.22);
+  }
+
+  .summary-grid .metric {
+    min-height: 96px;
+    padding: 16px;
+    background: rgba(255,255,255,.06);
+  }
+
+  .summary-grid .metric.warn {
+    background: linear-gradient(135deg, rgba(245, 158, 11, .25), rgba(239, 68, 68, .26));
+  }
+
+  .alarm-strip {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    border: 1px solid rgba(251, 146, 60, .44);
+    border-radius: 13px;
+    background: #fff7ed;
+    padding: 11px 13px;
+    margin-top: 10px;
+  }
+
+  .option-b .mock-body {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .side-summary {
+    border-radius: 16px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    display: grid;
+  }
+
+  .side-summary .metric {
+    padding: 15px;
+    border-bottom: 1px solid rgba(255,255,255,.20);
+  }
+
+  .option-c .mock-body {
+    display: grid;
+    gap: 12px;
+  }
+
+  .report-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .report-card {
+    border: 1px solid #dfe8f3;
+    border-radius: 14px;
+    background: #f8fbff;
+    padding: 13px;
+  }
+
+  .report-card.warn {
+    border-color: #fdba74;
+    background: #fff7ed;
+  }
+
+  .report-card span {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .report-card b {
+    display: block;
+    margin-top: 6px;
+    color: #0f172a;
+    font-size: 24px;
+    font-weight: 950;
+  }
+
+  .option-d .top-band {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 290px;
+    gap: 14px;
+  }
+
+  .evidence-summary {
+    border-radius: 16px;
+    padding: 16px;
+    color: #fff;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    display: grid;
+    gap: 12px;
+  }
+
+  .compact-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .compact-metrics div {
+    border-radius: 11px;
+    background: rgba(255,255,255,.12);
+    padding: 10px;
+  }
+
+  .option-e .mock-body {
+    display: grid;
+    gap: 12px;
+  }
+
+  .dashboard-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .large-tile {
+    border-radius: 16px;
+    padding: 16px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    min-height: 112px;
+  }
+
+  .large-tile.warn {
+    background: linear-gradient(135deg, #079fe0, #193fc2 58%, #f97316);
+  }
+
+  @media (max-width: 760px) {
+    .summary-grid,
+    .report-metrics,
+    .dashboard-tile-grid,
+    .option-b .mock-body,
+    .option-d .top-band {
+      grid-template-columns: 1fr;
+    }
+
+    .detail-row,
+    .alarm-strip {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>Five Egg Dashboard Directions</h2>
+<p class="subtitle">All five use the same rules: AVG + target + CV stay together, alarms show when AVG or CV are out of range, and upside-down egg plus checklist metadata stay in separate rows.</p>
+
+<div class="design-board">
+  <div class="design-option" data-choice="a-command-summary" onclick="toggleSelect(this)">
+    <div class="design-label">
+      <h3>A. Command Summary</h3>
+      <p>Closest to the current direction, but cleaner and alarm-forward.</p>
+    </div>
+    <div class="mock-panel">
+      <div class="mock-head">
+        <div class="mock-title">
+          <div class="mock-icon">&deg;</div>
+          <div>
+            <div class="mock-kicker">Egg Storage</div>
+            <div class="mock-name">Storage & Handling</div>
+            <div class="mock-kicker" style="margin-top:5px;text-transform:none;letter-spacing:0">Medium storage &bull; 9-point check</div>
+          </div>
+        </div>
+        <div class="mock-status">Completed</div>
+      </div>
+      <div class="mock-body">
+        <div class="summary-grid">
+          <div class="metric warn"><div class="metric-title">Average</div><div class="metric-value">27.1&deg;C</div><div class="metric-note">High vs target</div></div>
+          <div class="metric"><div class="metric-title">Target</div><div class="metric-value">18-20&deg;C</div><div class="metric-note">Medium storage</div></div>
+          <div class="metric warn"><div class="metric-title">CV%</div><div class="metric-value">8.8%</div><div class="metric-note">Limit <= 8.0%</div></div>
+        </div>
+        <div class="alarm-strip"><div class="alarm-pill">Alarm</div><div class="alarm-text">Average is above target, and CV% is above the app limit.</div></div>
+        <div class="grid-shell" style="margin-top:14px">
+          <div class="readings">
+            <div></div><div class="column">Front</div><div class="column">Middle</div><div class="column">Back</div>
+            <div class="axis">Top</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>28.5</strong><div class="thumb"></div></div><div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+            <div class="axis">Middle</div><div class="cell"><strong>29.0</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+            <div class="axis">Bottom</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+          </div>
+        </div>
+        <div class="rows">
+          <div class="detail-row"><div class="row-label">Upside Down Egg</div><div class="row-values"><div class="mini-value"><span>Count</span><b>12 eggs</b></div><div class="mini-value"><span>Rate</span><b>4.0%</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Storage Checklist</div><div class="row-values"><div class="mini-value"><span>Storage</span><b>6 days</b></div><div class="mini-value"><span>Turning</span><b>4 times</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Handling Metadata</div><div class="row-values"><div class="mini-value"><span>Tray spacing</span><b>Adequate</b></div><div class="mini-value"><span>Cooler</span><b>Far</b></div><div class="mini-value"><span>Condensation</span><b>No</b></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="design-option" data-choice="b-side-rail" onclick="toggleSelect(this)">
+    <div class="design-label">
+      <h3>B. Side Rail</h3>
+      <p>More operational: summary stays fixed on the side, grid reads like a workbench.</p>
+    </div>
+    <div class="mock-panel option-b">
+      <div class="mock-head">
+        <div class="mock-title"><div class="mock-icon">&deg;</div><div><div class="mock-kicker">Egg Storage</div><div class="mock-name">Storage & Handling</div></div></div>
+        <div class="alarm-pill">Alarm</div>
+      </div>
+      <div class="mock-body">
+        <div class="side-summary">
+          <div class="metric"><div class="metric-title">Average</div><div class="metric-value">27.1&deg;C</div><div class="metric-note">High</div></div>
+          <div class="metric"><div class="metric-title">Target</div><div class="metric-value">18-20&deg;C</div><div class="metric-note">Medium storage</div></div>
+          <div class="metric"><div class="metric-title">CV%</div><div class="metric-value">8.8%</div><div class="metric-note">Limit <= 8.0%</div></div>
+          <div class="metric" style="background:#fff7ed;color:#7c2d12"><div style="font-size:12px;font-weight:900">Action needed before release.</div></div>
+        </div>
+        <div>
+          <div class="grid-shell">
+            <div class="readings">
+              <div></div><div class="column">Front</div><div class="column">Middle</div><div class="column">Back</div>
+              <div class="axis">Top</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>28.5</strong><div class="thumb"></div></div><div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+              <div class="axis">Middle</div><div class="cell"><strong>29.0</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+              <div class="axis">Bottom</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+            </div>
+          </div>
+          <div class="rows">
+            <div class="detail-row"><div class="row-label">Upside Down Egg</div><div class="row-values"><div class="mini-value"><span>Count</span><b>12 eggs</b></div><div class="mini-value"><span>Rate</span><b>4.0%</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+            <div class="detail-row"><div class="row-label">Storage Checklist</div><div class="row-values"><div class="mini-value"><span>Storage</span><b>6 days</b></div><div class="mini-value"><span>Turning</span><b>4 times</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="design-option" data-choice="c-clinical-report" onclick="toggleSelect(this)">
+    <div class="design-label">
+      <h3>C. Clinical Report</h3>
+      <p>Cleanest and most audit-like: white cards with a restrained warning band.</p>
+    </div>
+    <div class="mock-panel option-c">
+      <div class="mock-head">
+        <div class="mock-title"><div class="mock-icon">&deg;</div><div><div class="mock-kicker">Egg Storage</div><div class="mock-name">Storage & Handling</div></div></div>
+        <div class="mock-status">Completed</div>
+      </div>
+      <div class="mock-body">
+        <div class="report-metrics">
+          <div class="report-card warn"><span>Average</span><b>27.1&deg;C</b><div class="alarm-text">High vs 18-20&deg;C</div></div>
+          <div class="report-card"><span>Target</span><b>18-20&deg;C</b><div style="color:#64748b;font-size:12px;font-weight:800">Medium storage</div></div>
+          <div class="report-card warn"><span>CV%</span><b>8.8%</b><div class="alarm-text">Limit <= 8.0%</div></div>
+        </div>
+        <div class="alarm-strip" style="margin-top:0"><div class="alarm-pill">Alarm</div><div class="alarm-text">Temperature uniformity and average are outside the current target rules.</div></div>
+        <div class="grid-shell">
+          <div class="readings">
+            <div></div><div class="column">Front</div><div class="column">Middle</div><div class="column">Back</div>
+            <div class="axis">Top</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>28.5</strong><div class="thumb"></div></div><div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+            <div class="axis">Middle</div><div class="cell"><strong>29.0</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+            <div class="axis">Bottom</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+          </div>
+        </div>
+        <div class="rows">
+          <div class="detail-row"><div class="row-label">Upside Down Egg</div><div class="row-values"><div class="mini-value"><span>Count</span><b>12 eggs</b></div><div class="mini-value"><span>Rate</span><b>4.0%</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Storage Checklist</div><div class="row-values"><div class="mini-value"><span>Storage</span><b>6 days</b></div><div class="mini-value"><span>Turning</span><b>4 times</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Handling Metadata</div><div class="row-values"><div class="mini-value"><span>Tray spacing</span><b>Adequate</b></div><div class="mini-value"><span>Cooler</span><b>Far</b></div><div class="mini-value"><span>Condensation</span><b>No</b></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="design-option" data-choice="d-evidence-first" onclick="toggleSelect(this)">
+    <div class="design-label">
+      <h3>D. Evidence First</h3>
+      <p>Photos/readings become the hero, with summary tucked beside them.</p>
+    </div>
+    <div class="mock-panel option-d">
+      <div class="mock-head">
+        <div class="mock-title"><div class="mock-icon">&deg;</div><div><div class="mock-kicker">Egg Storage</div><div class="mock-name">Storage & Handling</div></div></div>
+        <div class="alarm-pill">Alarm</div>
+      </div>
+      <div class="mock-body">
+        <div class="top-band">
+          <div class="grid-shell">
+            <div class="readings">
+              <div></div><div class="column">Front</div><div class="column">Middle</div><div class="column">Back</div>
+              <div class="axis">Top</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>28.5</strong><div class="thumb"></div></div><div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+              <div class="axis">Middle</div><div class="cell"><strong>29.0</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+              <div class="axis">Bottom</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+            </div>
+          </div>
+          <div class="evidence-summary">
+            <div><div class="metric-title">Average</div><div class="metric-value">27.1&deg;C</div><div class="metric-note">High vs target</div></div>
+            <div><div class="metric-title">Target</div><div class="metric-value">18-20&deg;C</div><div class="metric-note">Medium storage</div></div>
+            <div><div class="metric-title">CV%</div><div class="metric-value">8.8%</div><div class="metric-note">Limit <= 8.0%</div></div>
+            <div class="alarm-strip" style="grid-template-columns:1fr;margin:0;background:#fff7ed"><div class="alarm-text">Alarm: check room handling before moving this batch.</div></div>
+          </div>
+        </div>
+        <div class="rows">
+          <div class="detail-row"><div class="row-label">Upside Down Egg</div><div class="row-values"><div class="mini-value"><span>Count</span><b>12 eggs</b></div><div class="mini-value"><span>Rate</span><b>4.0%</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Storage Checklist</div><div class="row-values"><div class="mini-value"><span>Storage</span><b>6 days</b></div><div class="mini-value"><span>Turning</span><b>4 times</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Handling Metadata</div><div class="row-values"><div class="mini-value"><span>Tray spacing</span><b>Adequate</b></div><div class="mini-value"><span>Cooler</span><b>Far</b></div><div class="mini-value"><span>Condensation</span><b>No</b></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="design-option" data-choice="e-tile-dashboard" onclick="toggleSelect(this)">
+    <div class="design-label">
+      <h3>E. Tile Dashboard</h3>
+      <p>Big tappable metric tiles first, then the grid and metadata rows.</p>
+    </div>
+    <div class="mock-panel option-e">
+      <div class="mock-head">
+        <div class="mock-title"><div class="mock-icon">&deg;</div><div><div class="mock-kicker">Egg Storage</div><div class="mock-name">Storage & Handling</div></div></div>
+        <div class="mock-status">Completed</div>
+      </div>
+      <div class="mock-body">
+        <div class="dashboard-tile-grid">
+          <div class="large-tile warn"><div class="metric-title">Average</div><div class="metric-value">27.1&deg;C</div><div class="metric-note">Alarm: High</div></div>
+          <div class="large-tile"><div class="metric-title">Target</div><div class="metric-value">18-20&deg;C</div><div class="metric-note">Medium storage</div></div>
+          <div class="large-tile warn"><div class="metric-title">CV%</div><div class="metric-value">8.8%</div><div class="metric-note">Alarm: > 8.0%</div></div>
+        </div>
+        <div class="alarm-strip"><div class="alarm-pill">Alarm</div><div class="alarm-text">Two checks need attention: AVG is above target and CV% is above limit.</div></div>
+        <div class="grid-shell">
+          <div class="readings">
+            <div></div><div class="column">Front</div><div class="column">Middle</div><div class="column">Back</div>
+            <div class="axis">Top</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>28.5</strong><div class="thumb"></div></div><div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+            <div class="axis">Middle</div><div class="cell"><strong>29.0</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+            <div class="axis">Bottom</div><div class="cell"><strong>28.7</strong><div class="thumb"></div></div><div class="cell"><strong>23.0</strong><div class="thumb"></div></div><div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+          </div>
+        </div>
+        <div class="rows">
+          <div class="detail-row"><div class="row-label">Upside Down Egg</div><div class="row-values"><div class="mini-value"><span>Count</span><b>12 eggs</b></div><div class="mini-value"><span>Rate</span><b>4.0%</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Storage Checklist</div><div class="row-values"><div class="mini-value"><span>Storage</span><b>6 days</b></div><div class="mini-value"><span>Turning</span><b>4 times</b></div><div class="mini-value"><span>Status</span><b>Recorded</b></div></div></div>
+          <div class="detail-row"><div class="row-label">Handling Metadata</div><div class="row-values"><div class="mini-value"><span>Tray spacing</span><b>Adequate</b></div><div class="mini-value"><span>Cooler</span><b>Far</b></div><div class="mini-value"><span>Condensation</span><b>No</b></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">Click the one you like, or tell me what to mix from multiple options.</p>

@@ -1,0 +1,367 @@
+<style>
+  .preview-wrap {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+
+  .mock-dashboard {
+    border: 1px solid #dce5f0;
+    border-radius: 18px;
+    background: #f7faff;
+    padding: 16px;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+  }
+
+  .panel {
+    border: 1px solid #dce7f4;
+    border-radius: 16px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #edf2f8;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .thermo {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 24px;
+    font-weight: 900;
+  }
+
+  .kicker {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .main-title {
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1.1;
+  }
+
+  .status {
+    border-radius: 10px;
+    background: #e8f7ee;
+    color: #1f7a45;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  .body {
+    padding: 16px;
+  }
+
+  .summary-card {
+    overflow: hidden;
+    border-radius: 17px;
+    background: linear-gradient(135deg, #079fe0, #193fc2);
+    box-shadow: 0 14px 34px rgba(25, 63, 194, 0.22);
+    margin-bottom: 14px;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr .9fr;
+    gap: 1px;
+    background: rgba(255, 255, 255, .20);
+  }
+
+  .summary-block {
+    min-height: 94px;
+    padding: 16px;
+    color: #ffffff;
+    background: rgba(255, 255, 255, .06);
+  }
+
+  .summary-block span {
+    display: block;
+    color: rgba(255,255,255,.78);
+    font-size: 11px;
+    font-weight: 850;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+
+  .summary-block b {
+    display: block;
+    margin-top: 7px;
+    font-size: 28px;
+    font-weight: 950;
+    letter-spacing: 0;
+  }
+
+  .summary-block small {
+    display: block;
+    margin-top: 4px;
+    color: rgba(255,255,255,.80);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .summary-block.is-alarm {
+    background: linear-gradient(135deg, rgba(245, 158, 11, .26), rgba(239, 68, 68, .30));
+  }
+
+  .alarm-strip {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    background: #fff7ed;
+    color: #7c2d12;
+    border-top: 1px solid rgba(251, 146, 60, .42);
+  }
+
+  .alarm-pill {
+    width: fit-content;
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: #fed7aa;
+    color: #9a3412;
+    font-size: 11px;
+    font-weight: 950;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .alarm-text {
+    color: #7c2d12;
+    font-size: 12px;
+    line-height: 1.4;
+    font-weight: 750;
+  }
+
+  .grid-shell {
+    border: 1px solid #e1e9f3;
+    border-radius: 15px;
+    background: #fbfdff;
+    padding: 14px;
+  }
+
+  .readings {
+    display: grid;
+    grid-template-columns: 64px repeat(3, 1fr);
+    gap: 9px;
+  }
+
+  .axis,
+  .column {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+  }
+
+  .column {
+    text-align: center;
+    color: #334155;
+  }
+
+  .axis {
+    align-self: center;
+  }
+
+  .cell {
+    min-height: 76px;
+    border: 1px solid #dfe8f3;
+    border-radius: 14px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+
+  .cell strong {
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 950;
+  }
+
+  .thumb {
+    width: 58px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #42505e, #d8b78d 50%, #3fc766 51%, #13923a);
+  }
+
+  .rows {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .detail-row {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    border: 1px solid #e0e8f2;
+    border-radius: 14px;
+    background: #ffffff;
+    padding: 12px 14px;
+  }
+
+  .row-label {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .row-values {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mini-value {
+    border-radius: 10px;
+    background: #f4f8ff;
+    border: 1px solid #e1eaff;
+    padding: 8px 10px;
+    min-width: 0;
+  }
+
+  .mini-value span {
+    display: block;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+
+  .mini-value b {
+    display: block;
+    margin-top: 3px;
+    color: #10203b;
+    font-size: 13px;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+</style>
+
+<h2>Command Panel V3: Target + Alarm</h2>
+<p class="subtitle">Target range now belongs to the main AVG/CV summary. Source-of-truth CV alert is above 8.0%, so this saved sample warns on both AVG and CV.</p>
+
+<div class="preview-wrap">
+  <div class="mock-dashboard" data-choice="approved-command-gradient-v3-alarm" onclick="toggleSelect(this)">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="title-row">
+          <div class="thermo">&deg;</div>
+          <div>
+            <div class="kicker">Egg Storage</div>
+            <div class="main-title">Storage & Handling</div>
+            <div class="kicker" style="margin-top:5px;text-transform:none;letter-spacing:0">Medium storage &bull; 9-point check</div>
+          </div>
+        </div>
+        <div class="status">Completed</div>
+      </div>
+
+      <div class="body">
+        <div class="summary-card">
+          <div class="summary-grid">
+            <div class="summary-block is-alarm">
+              <span>Average</span>
+              <b>27.1&deg;C</b>
+              <small>High vs target</small>
+            </div>
+            <div class="summary-block">
+              <span>Target</span>
+              <b>18-20&deg;C</b>
+              <small>Medium storage</small>
+            </div>
+            <div class="summary-block is-alarm">
+              <span>CV%</span>
+              <b>8.8%</b>
+              <small>Limit <= 8.0%</small>
+            </div>
+          </div>
+          <div class="alarm-strip">
+            <div class="alarm-pill">Alarm</div>
+            <div class="alarm-text">Average is above the optimum storage range, and CV% is over the current app alert limit. This needs attention before the batch moves forward.</div>
+          </div>
+        </div>
+
+        <div class="grid-shell">
+          <div class="readings">
+            <div></div>
+            <div class="column">Front</div>
+            <div class="column">Middle</div>
+            <div class="column">Back</div>
+
+            <div class="axis">Top</div>
+            <div class="cell"><strong>28.7</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>28.5</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>27.8</strong><div class="thumb"></div></div>
+
+            <div class="axis">Middle</div>
+            <div class="cell"><strong>29.0</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>23.0</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+
+            <div class="axis">Bottom</div>
+            <div class="cell"><strong>28.7</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>23.0</strong><div class="thumb"></div></div>
+            <div class="cell"><strong>27.4</strong><div class="thumb"></div></div>
+          </div>
+        </div>
+
+        <div class="rows">
+          <div class="detail-row">
+            <div class="row-label">Upside Down Egg</div>
+            <div class="row-values">
+              <div class="mini-value"><span>Count</span><b>12 eggs</b></div>
+              <div class="mini-value"><span>Rate</span><b>4.0%</b></div>
+              <div class="mini-value"><span>Status</span><b>Recorded</b></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="row-label">Storage Checklist</div>
+            <div class="row-values">
+              <div class="mini-value"><span>Storage</span><b>6 days</b></div>
+              <div class="mini-value"><span>Turning</span><b>4 times</b></div>
+              <div class="mini-value"><span>Status</span><b>Recorded</b></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="row-label">Handling Metadata</div>
+            <div class="row-values">
+              <div class="mini-value"><span>Tray spacing</span><b>Adequate</b></div>
+              <div class="mini-value"><span>Cooler</span><b>Far</b></div>
+              <div class="mini-value"><span>Condensation</span><b>No</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">If this is the behavior you want, tell me “implement”.</p>

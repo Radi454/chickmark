@@ -75,6 +75,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   String? _mountedSessionId;
   bool _showSavedAnimation = false;
   bool _isSavingStation = false;
+  bool _isClearingStation = false;
 
   @override
   void dispose() {
@@ -471,6 +472,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final isLast = index == stationKeys.length - 1;
     final isFirst = index == 0;
     final stationProvider = _currentStationProvider;
+    final isBusy =
+        provider.isMovingToStation || _isSavingStation || _isClearingStation;
 
     return Container(
       key: const ValueKey('audit-session-navigation-footer'),
@@ -491,7 +494,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             if (!isFirst)
               OutlinedButton.icon(
                 key: const ValueKey('audit-session-back-action'),
-                onPressed: provider.isMovingToStation || _isSavingStation
+                onPressed: isBusy
                     ? null
                     : () => _handlePreviousStation(provider),
                 icon: const Icon(Icons.arrow_back, size: 18),
@@ -516,10 +519,35 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
               ),
               const SizedBox(width: 12),
             ],
+            OutlinedButton.icon(
+              key: const ValueKey('audit-session-clear-action'),
+              onPressed: isBusy || stationProvider == null
+                  ? null
+                  : () => _handleClearStation(provider),
+              icon: _isClearingStation
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Clear'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.statusError,
+                side: const BorderSide(color: AppColors.statusError),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: ElevatedButton.icon(
                 key: const ValueKey('audit-session-next-action'),
-                onPressed: provider.isMovingToStation || _isSavingStation
+                onPressed: isBusy
                     ? null
                     : () {
                         _handleNextOrSave(provider);
@@ -536,6 +564,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 label: Text(
                   _isSavingStation
                       ? 'Saving...'
+                      : _isClearingStation
+                      ? 'Clearing...'
                       : (isLast ? 'Save' : 'Next Station'),
                   style: const TextStyle(
                     fontSize: 15,
@@ -557,6 +587,66 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _handleClearStation(AuditSessionProvider provider) async {
+    if (_isSavingStation || _isClearingStation) return;
+    if (provider.currentSession == null ||
+        provider.currentStationIndex < 0 ||
+        provider.currentStationIndex >= provider.stationKeys.length) {
+      return;
+    }
+    final stationAuditProvider = _currentStationProvider;
+    if (stationAuditProvider == null) return;
+
+    final confirmed = await _showClearStationDialog();
+    if (!confirmed || !mounted) return;
+
+    final stationKey = provider.stationKeys[provider.currentStationIndex];
+    setState(() => _isClearingStation = true);
+    try {
+      final cleared = await stationAuditProvider.clearStationData(stationKey);
+      if (!mounted) return;
+      if (!cleared) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not clear station. Try again.')),
+        );
+        return;
+      }
+      await provider.removeCurrentStationCompletion();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Station cleared.')));
+    } finally {
+      if (mounted) setState(() => _isClearingStation = false);
+    }
+  }
+
+  Future<bool> _showClearStationDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Clear station?'),
+          content: const Text('Fields and saved rows will be removed.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.statusError,
+              ),
+              child: const Text('Clear'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed ?? false;
   }
 
   Widget _buildCurrentStationGoveeEntryPoint(
@@ -649,11 +739,18 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final sessionProvider = this.context.read<AuditSessionProvider>();
     final sessionId = sessionProvider.currentSession?.id;
     Navigator.of(this.context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (sessionProvider.currentSession?.id == sessionId) {
-        sessionProvider.clearCurrentSession();
-      }
-    });
+    _clearSessionAfterRoutePop(sessionProvider, sessionId);
+  }
+
+  Future<void> _clearSessionAfterRoutePop(
+    AuditSessionProvider sessionProvider,
+    String? sessionId,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(Duration.zero);
+    if (sessionProvider.currentSession?.id == sessionId) {
+      sessionProvider.clearCurrentSession();
+    }
   }
 
   Future<void> _handleNextOrSave(AuditSessionProvider provider) async {

@@ -1,0 +1,385 @@
+<style>
+  .style-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    align-items: start;
+  }
+
+  @media (max-width: 1080px) {
+    .style-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .style-card {
+    border: 1px solid #d9e2ef;
+    border-radius: 18px;
+    background: #f8fbff;
+    padding: 16px;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+
+  .style-card:hover {
+    transform: translateY(-2px);
+    border-color: #93b7ef;
+    box-shadow: 0 22px 55px rgba(15, 23, 42, 0.12);
+  }
+
+  .style-card.selected {
+    border-color: #2f74db;
+    box-shadow: 0 0 0 3px rgba(47, 116, 219, 0.14), 0 22px 55px rgba(15, 23, 42, 0.12);
+  }
+
+  .style-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .style-title h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    letter-spacing: 0;
+  }
+
+  .pill {
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: #e8f1ff;
+    color: #225db4;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mini-frame {
+    border: 1px solid #e0e7f1;
+    border-radius: 16px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .mini-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    border-bottom: 1px solid #edf2f8;
+  }
+
+  .mini-kicker {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .mini-name {
+    color: #0f172a;
+    font-size: 17px;
+    font-weight: 850;
+    line-height: 1.15;
+  }
+
+  .status {
+    border-radius: 10px;
+    background: #e8f7ee;
+    color: #1f7a45;
+    padding: 7px 9px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .mini-body {
+    padding: 14px;
+  }
+
+  .reading-grid {
+    display: grid;
+    grid-template-columns: 46px repeat(3, 1fr);
+    gap: 7px;
+    align-items: stretch;
+  }
+
+  .axis {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 750;
+    align-self: center;
+  }
+
+  .col-head {
+    color: #334155;
+    font-size: 10px;
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .reading {
+    min-height: 58px;
+    border: 1px solid #e3eaf4;
+    border-radius: 12px;
+    background: #fbfdff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .reading strong {
+    color: #0f172a;
+    font-size: 15px;
+  }
+
+  .thumb {
+    width: 42px;
+    height: 18px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, #44515f, #d6b28b 55%, #3bbd57 56%, #15963b);
+  }
+
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .metric {
+    border: 1px solid #d9e8ff;
+    border-radius: 13px;
+    background: #f4f8ff;
+    padding: 12px;
+    text-align: center;
+  }
+
+  .metric.green {
+    border-color: #cfe8d8;
+    background: #f3fbf6;
+  }
+
+  .metric span {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 750;
+  }
+
+  .metric b {
+    display: block;
+    margin-top: 4px;
+    color: #2f74db;
+    font-size: 20px;
+  }
+
+  .metric.green b {
+    color: #287547;
+  }
+
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .fact {
+    border: 1px solid #e4ebf5;
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 8px;
+  }
+
+  .fact span {
+    display: block;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 750;
+  }
+
+  .fact b {
+    display: block;
+    margin-top: 3px;
+    color: #111827;
+    font-size: 11px;
+  }
+
+  .option-copy {
+    margin-top: 12px;
+    color: #4b5563;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .split-card .mini-body {
+    display: grid;
+    grid-template-columns: 94px 1fr;
+    gap: 12px;
+  }
+
+  .side-rail {
+    display: grid;
+    gap: 8px;
+  }
+
+  .side-stat {
+    border-radius: 12px;
+    padding: 10px;
+    background: #0f2748;
+    color: white;
+  }
+
+  .side-stat span {
+    display: block;
+    font-size: 10px;
+    color: #bdd7ff;
+    font-weight: 750;
+  }
+
+  .side-stat b {
+    display: block;
+    margin-top: 4px;
+    font-size: 19px;
+  }
+
+  .report-card {
+    background: #fcfcfb;
+  }
+
+  .report-card .mini-frame {
+    border-color: #d8d2c8;
+    background: #fffdf8;
+  }
+
+  .report-card .mini-head {
+    border-bottom-color: #e8e0d3;
+  }
+
+  .report-card .reading {
+    border-color: #e2dacd;
+    background: #fffefa;
+    border-radius: 8px;
+  }
+</style>
+
+<h2>Which dashboard style feels right?</h2>
+<p class="subtitle">Same approved Egg content. Pick the visual direction that feels clean enough to build.</p>
+
+<div class="style-grid">
+  <div class="style-card" data-choice="a-clinical" onclick="toggleSelect(this)">
+    <div class="style-title">
+      <h3>A. Clinical Card</h3>
+      <span class="pill">Recommended</span>
+    </div>
+    <div class="mini-frame">
+      <div class="mini-head">
+        <div>
+          <div class="mini-kicker">Egg Storage</div>
+          <div class="mini-name">Storage & Handling</div>
+        </div>
+        <div class="status">Completed</div>
+      </div>
+      <div class="mini-body">
+        <div class="reading-grid">
+          <div></div><div class="col-head">Front</div><div class="col-head">Middle</div><div class="col-head">Back</div>
+          <div class="axis">Top</div>
+          <div class="reading"><strong>28.7</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>28.5</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>27.8</strong><div class="thumb"></div></div>
+          <div class="axis">Middle</div>
+          <div class="reading"><strong>29.0</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>23.0</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>27.4</strong><div class="thumb"></div></div>
+          <div class="axis">Bottom</div>
+          <div class="reading"><strong>28.7</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>23.0</strong><div class="thumb"></div></div>
+          <div class="reading"><strong>27.4</strong><div class="thumb"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric"><span>AVG</span><b>27.1°C</b></div>
+          <div class="metric green"><span>CV%</span><b>8.8%</b></div>
+        </div>
+        <div class="facts">
+          <div class="fact"><span>UPSIDE DOWN</span><b>12 eggs</b></div>
+          <div class="fact"><span>STORAGE</span><b>6 days</b></div>
+          <div class="fact"><span>TURNING</span><b>4 times</b></div>
+        </div>
+      </div>
+    </div>
+    <p class="option-copy">Cleanest dashboard feel. One strong card, softer borders, fewer nested boxes, metadata tucked into compact facts.</p>
+  </div>
+
+  <div class="style-card split-card" data-choice="b-command" onclick="toggleSelect(this)">
+    <div class="style-title">
+      <h3>B. Command Panel</h3>
+      <span class="pill">Dense</span>
+    </div>
+    <div class="mini-frame">
+      <div class="mini-head">
+        <div>
+          <div class="mini-kicker">Station 3</div>
+          <div class="mini-name">Egg Storage Check</div>
+        </div>
+        <div class="status">OK</div>
+      </div>
+      <div class="mini-body">
+        <div class="side-rail">
+          <div class="side-stat"><span>AVG</span><b>27.1°C</b></div>
+          <div class="side-stat"><span>CV</span><b>8.8%</b></div>
+          <div class="side-stat"><span>UPSIDE</span><b>12</b></div>
+        </div>
+        <div class="reading-grid">
+          <div></div><div class="col-head">F</div><div class="col-head">M</div><div class="col-head">B</div>
+          <div class="axis">T</div><div class="reading"><strong>28.7</strong></div><div class="reading"><strong>28.5</strong></div><div class="reading"><strong>27.8</strong></div>
+          <div class="axis">M</div><div class="reading"><strong>29.0</strong></div><div class="reading"><strong>23.0</strong></div><div class="reading"><strong>27.4</strong></div>
+          <div class="axis">B</div><div class="reading"><strong>28.7</strong></div><div class="reading"><strong>23.0</strong></div><div class="reading"><strong>27.4</strong></div>
+        </div>
+      </div>
+    </div>
+    <p class="option-copy">More operational and compact. Better for scanning numbers quickly, but it is less like the reference screenshot.</p>
+  </div>
+
+  <div class="style-card report-card" data-choice="c-report" onclick="toggleSelect(this)">
+    <div class="style-title">
+      <h3>C. Report Sheet</h3>
+      <span class="pill">Formal</span>
+    </div>
+    <div class="mini-frame">
+      <div class="mini-head">
+        <div>
+          <div class="mini-kicker">Completed Check</div>
+          <div class="mini-name">Egg Storage Report</div>
+        </div>
+        <div class="status">Confirmed</div>
+      </div>
+      <div class="mini-body">
+        <div class="metric-row">
+          <div class="metric"><span>Temperature AVG</span><b>27.1°C</b></div>
+          <div class="metric green"><span>Variation CV</span><b>8.8%</b></div>
+        </div>
+        <div class="reading-grid" style="margin-top:12px">
+          <div></div><div class="col-head">Front</div><div class="col-head">Middle</div><div class="col-head">Back</div>
+          <div class="axis">Top</div><div class="reading"><strong>28.7</strong></div><div class="reading"><strong>28.5</strong></div><div class="reading"><strong>27.8</strong></div>
+          <div class="axis">Middle</div><div class="reading"><strong>29.0</strong></div><div class="reading"><strong>23.0</strong></div><div class="reading"><strong>27.4</strong></div>
+          <div class="axis">Bottom</div><div class="reading"><strong>28.7</strong></div><div class="reading"><strong>23.0</strong></div><div class="reading"><strong>27.4</strong></div>
+        </div>
+        <div class="facts">
+          <div class="fact"><span>STORAGE</span><b>Medium</b></div>
+          <div class="fact"><span>TRAY</span><b>Adequate</b></div>
+          <div class="fact"><span>COOLER</span><b>Far</b></div>
+        </div>
+      </div>
+    </div>
+    <p class="option-copy">A softer audit-report look. Nice for print-like review, but maybe too calm for a working dashboard.</p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:20px">Click one option in the browser, or reply with A, B, C, or what you hate about all of them.</p>

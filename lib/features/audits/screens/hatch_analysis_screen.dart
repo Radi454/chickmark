@@ -770,6 +770,24 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final activeHouseOrNull = wasCompareMode
         ? _residueHouseKeyOrNull(provider.drafts[initialActiveIndex])
         : null;
+    final activeHouseKey = wasCompareMode
+        ? _residueHouseKey(
+            provider.drafts[initialActiveIndex],
+            initialActiveIndex,
+          )
+        : 'pool';
+    final existingMachineEntries = wasCompareMode
+        ? provider.drafts
+              .asMap()
+              .entries
+              .where(
+                (entry) =>
+                    _residueHouseKey(entry.value, entry.key) ==
+                        activeHouseKey &&
+                    _isResidueMachineDraft(entry.value),
+              )
+              .toList()
+        : const <MapEntry<int, AuditModel>>[];
     final activeDraftHasData = _residueDraftHasEnteredData(
       provider.drafts[initialActiveIndex],
     );
@@ -788,9 +806,12 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final nextIndex = shouldConvertActiveDraft
         ? initialActiveIndex
         : provider.activeHatchIndex;
+    final nextMachineNumber = existingMachineEntries.isEmpty
+        ? null
+        : _nextResidueMachineNumber(existingMachineEntries);
     provider.updateHatchField(nextIndex, 'houseId', activeHouseOrNull);
-    provider.updateHatchField(nextIndex, 'setterId', 'S');
-    provider.updateHatchField(nextIndex, 'hatcherId', 'H');
+    provider.updateHatchField(nextIndex, 'setterId', nextMachineNumber ?? 'S');
+    provider.updateHatchField(nextIndex, 'hatcherId', nextMachineNumber ?? 'H');
     _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, nextIndex);
   }
 
@@ -825,7 +846,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final nextSamples = [...samples, nextSampleWithHierarchy];
     _activeBreakoutSampleIndexes[hatchIndex] = nextSamples.length - 1;
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
-    _scrollToBreakoutSample(nextSampleWithHierarchy.id);
   }
 
   void _removeActiveResidueTrolley(
@@ -1048,6 +1068,30 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     while (existing.any(
       (value) => _machineLabelPart(value, prefix, '') == '$next',
     )) {
+      next++;
+    }
+    return '$next';
+  }
+
+  String _nextResidueMachineNumber(
+    List<MapEntry<int, AuditModel>> existingMachines,
+  ) {
+    final existingNumbers = <String>{};
+    var maxNumber = 0;
+    for (final entry in existingMachines) {
+      final audit = entry.value;
+      for (final part in [
+        _machineLabelPart(audit.setterId, 'S', ''),
+        _machineLabelPart(audit.hatcherId, 'H', ''),
+      ]) {
+        if (part.isEmpty) continue;
+        existingNumbers.add(part);
+        final parsed = int.tryParse(part);
+        if (parsed != null && parsed > maxNumber) maxNumber = parsed;
+      }
+    }
+    var next = maxNumber + 1;
+    while (existingNumbers.contains('$next')) {
       next++;
     }
     return '$next';
@@ -2207,7 +2251,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                   _persistBreakoutSamples(provider, hatchIndex, breakoutType, [
                     ...nextSamples,
                   ]);
-                  _scrollToBreakoutSample(nextSampleWithHierarchy.id);
                 },
         ),
         if (trayScopeActive) ...[

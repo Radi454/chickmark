@@ -41,6 +41,10 @@ radii, soft low-contrast shadows, and subtle default borders. Section cards may
 show small leading Material symbols in blue-tinted icon containers, and the
 Customers, Settings, and BMK reference surfaces use those simple symbols instead
 of decorative or emoji-led labeling.
+The add/edit flock bottom sheet uses compact input fields, local pill selectors
+for age source and availability, and quiet helper text while preserving the
+existing flock ID, breed, estimated age, depletion age, and active/sold save
+behavior.
 User-facing date labels use left-to-right `dd-MM-yyyy` formatting across Home,
 Audits, Customers, Activity Log, Dashboard Govee charts, and active Govee
 capture surfaces. Internal persistence keys and repository filters that depend
@@ -111,9 +115,10 @@ edge tucks it partly off-screen while leaving a visible strip for reopening.
 The shortcut is hidden while root modal routes such as bottom sheets are open,
 keeping station entry sheets unobstructed.
 
-The station-selection screen resets its Start Visit loading state when a pushed
-visit-session route returns, so backing out from an audit station leaves the
-selected visit order editable and the Start Visit button usable.
+The station-selection screen resets its Start Visit loading state after the
+pushed visit-session route has yielded a frame, so backing out from an audit
+station leaves the selected visit order editable and the Start Visit button
+usable without mutating the shell layout during the route-pop frame.
 When the same customer, flock, hatchery, and visit date already has an
 in-progress session, station selection resumes that session instead of creating
 a duplicate. Saved stations stay in the visit-order list with a visible `Saved`
@@ -231,6 +236,10 @@ Station save behavior:
   rows, validates the station core requirement, and then allows navigation.
   Incomplete stations prompt before navigation; when confirmed, the station can
   be skipped without adding it to `stationsCompleted`.
+- Each station footer includes a `Clear` action. After a short confirmation, it
+  removes the current station's local panel rows for the active visit session,
+  resets the visible station fields and added scopes/samples to the blank
+  single-sample state, and removes that station from `stationsCompleted`.
 - Re-saving a station in an already completed visit persists the edited station
   fields and keeps the visit marked completed only while that station still
   satisfies its core completion rule. If review edits remove core data, the
@@ -578,15 +587,20 @@ setter/hatcher machine row without creating a synthetic House scope. If House
 scope is still pooled, the House card remains `Pool`; if a House scope is
 active, the machine row inherits that active house. Machine rows show blank
 Setter and Hatcher fields and label the chip as prefix-only `SH` until either
-number field is entered. Entered values update chips as `S{setter}H{hatcher}`;
-the label itself is not separately editable. The Machine scope remove action is
-available as soon as a real machine chip is active; removing the only active
-machine returns the selected context to machine `Pool` without changing House
-scope. A `Trolley scope` card appears directly below Machine scope even while
-House and Machine are pooled. It shows `Pool` until a trolley is added. Pressing
+number field is entered. Additional Machine scope `+` actions in the same
+house or pooled context default to matching numeric Setter and Hatcher values,
+so chips advance like House and Trolley scopes: `SH`, `S1H1`, `S2H2`, and so
+on, with the numeric fields showing `1`, `2`, etc. Entered values update chips
+as `S{setter}H{hatcher}`; the label itself is not separately editable. The
+Machine scope remove action is available as soon as a real machine chip is
+active; removing the only active machine returns the selected context to
+machine `Pool` without changing House scope. A `Trolley scope` card appears
+directly below Machine scope even while House and Machine are pooled. It shows
+`Pool` until a trolley is added. Pressing
 Trolley scope `+` creates the first tray sample with a prefix-only `T` trolley
-placeholder, shows the active Trolley field blank, and labels the chip `T` until
-a number is entered. If House or Machine scope is active, the trolley sample
+placeholder, selects the new trolley without scrolling to the tray entry fields,
+shows the active Trolley field blank, and labels the chip `T` until a number is
+entered. If House or Machine scope is active, the trolley sample
 inherits that parent hierarchy; if they are pooled, the trolley comparison keeps
 House, Setter, and Hatcher blank. Entered trolley values update the chip as
 `T{trolley}`; adding more tray samples while a trolley is selected assigns those
@@ -629,7 +643,8 @@ Residue / Hatch Day. It has a dedicated `Tray scope` card that mirrors the
 House and Machine scope pattern. In pooled state the Tray scope card shows a
 selected `Pool` chip, the sample card records one aggregate pool sample, and no
 tray-local Trolley, Tray, or Position fields are shown. Pressing Tray scope `+`
-switches the active breakout type into tray comparison, creates `Tray 1`, and
+switches the active breakout type into tray comparison, creates `Tray 1`,
+selects the new tray without scrolling the page to the tray entry fields, and
 shows tray chips plus circular add and remove controls while keeping the tray
 entry panel tabbed: only the selected tray's entry card is rendered below the
 Tray scope tabs, so other trays are selected from the chip row instead of
@@ -1243,6 +1258,16 @@ discarding the failure context.
 
 ## 9. Change Log
 
+- 2026-06-03: Changed Hatch Analysis Machine scope additions so the first
+  machine stays prefix-only `SH`, while later machines in the same house or
+  pooled context default to numbered `S1H1`, `S2H2`, etc. chips with matching
+  numeric Setter/Hatcher fields.
+- 2026-06-03: Added a bottom `Clear` action to visit station footers. Confirmed
+  clears delete that station's saved panel rows for the active session, reset
+  fields/scopes/samples, and remove the station from completion progress.
+- 2026-06-03: Deferred audit-session provider clearing and station-selection
+  loading reset until after the route-pop frame so backing from a station to the
+  main station-selection screen does not mutate active `LayoutBuilder` layout.
 - 2026-05-26: Kept Hatch Analysis `Trolley scope` independent from House and
   Machine scope, so users can leave both pooled and start comparison at trolley.
 - 2026-05-26: Counted Hatch Analysis `Total eggs set` as meaningful panel data

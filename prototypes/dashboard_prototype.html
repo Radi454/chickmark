@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ChickMark — Audit Dashboard (Prototype)</title>
+<style>
+  :root {
+    --primary:#1769D8; --primary-light:#079FE0; --primary-dark:#193FC2;
+    --accent:#E65100; --accent-bg:#FFF3E0;
+    --bg:#F5F8FC; --surface:#FFFFFF; --surface-variant:#F9FAFB; --surface-raised:#F7FAFD;
+    --text:#111827; --text-2:#6B7280; --text-3:#9CA3AF; --text-disabled:#D1D5DB;
+    --border:#E5E7EB;
+    --good:#388E3C; --good-bg:#E8F5E9;
+    --warn:#E67E22; --warn-bg:#FFF3E0;
+    --error:#DC2626; --error-bg:#FEF2F2;
+    --active:#193FC2; --active-bg:#E8F2FF;
+    --grad: linear-gradient(135deg, #079FE0, #193FC2);
+    --radius:10px;
+    --shadow-card: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-grad: 0 12px 24px rgba(25,63,194,.16);
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px; line-height:1.4;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── App bar ── */
+  .appbar {
+    background:var(--grad); color:#fff; padding:16px 20px;
+    display:flex; align-items:center; gap:12px;
+    position:sticky; top:0; z-index:20; box-shadow:0 2px 8px rgba(25,63,194,.25);
+  }
+  .appbar .logo {
+    width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.18);
+    display:grid;place-items:center;font-size:20px;
+  }
+  .appbar h1 { font-size:19px; font-weight:800; margin:0; letter-spacing:.2px; }
+  .appbar .sub { font-size:12px; opacity:.85; font-weight:600; margin-top:1px; }
+  .appbar .spacer { flex:1; }
+  .appbar .proto-pill {
+    font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+    background:rgba(255,255,255,.16); padding:5px 10px; border-radius:999px;
+  }
+
+  .wrap { max-width:1100px; margin:0 auto; padding:16px; }
+
+  /* ── Filter card ── */
+  .filter-card {
+    background:var(--surface-variant); border:1px solid var(--border);
+    border-radius:var(--radius); padding:14px; margin-bottom:16px;
+    display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;
+  }
+  .field { display:flex; flex-direction:column; gap:5px; flex:1; min-width:150px; }
+  .field label { font-size:11px; font-weight:800; color:var(--text-2); text-transform:uppercase; letter-spacing:.4px; }
+  .field select {
+    appearance:none; -webkit-appearance:none;
+    padding:10px 30px 10px 12px; border:1px solid var(--border); border-radius:var(--radius);
+    background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 9px center;
+    font-size:14px; color:var(--text); cursor:pointer;
+  }
+  .field.age { flex:0 0 96px; min-width:96px; }
+  .clear-btn {
+    display:inline-flex; align-items:center; gap:6px; padding:10px 14px;
+    border:1px solid var(--border); background:var(--active-bg); color:var(--active);
+    border-radius:var(--radius); font-weight:700; cursor:pointer; font-size:13px;
+  }
+  .clear-btn:hover { filter:brightness(.97); }
+
+  /* ── KPI strip ── */
+  .kpi-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:18px; }
+  .kpi {
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px; box-shadow:var(--shadow-card);
+  }
+  .kpi .k-label { font-size:11px; font-weight:800; color:var(--text-2); text-transform:uppercase; letter-spacing:.4px; }
+  .kpi .k-value { font-size:26px; font-weight:900; margin-top:4px; line-height:1; }
+  .kpi .k-note { font-size:12px; color:var(--text-3); margin-top:5px; font-weight:600; }
+  .kpi.alarm .k-value { color:var(--error); }
+  .kpi.good .k-value { color:var(--good); }
+
+  /* ── Section card ── */
+  .section {
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden;
+  }
+  .hero {
+    display:flex; align-items:center; gap:14px; padding:16px;
+    cursor:pointer; user-select:none;
+    border:1px solid var(--border); border-radius:var(--radius); margin:14px 14px 0;
+    background:var(--surface);
+  }
+  .hero .icon {
+    width:44px;height:44px;border-radius:12px;flex:0 0 44px;
+    background:rgba(23,105,216,.10); color:var(--primary);
+    display:grid; place-items:center; font-size:24px;
+  }
+  .hero .htext { flex:1; min-width:0; }
+  .hero .htext .title { font-size:21px; font-weight:900; letter-spacing:.2px; }
+  .hero .htext .subtitle { font-size:13px; color:var(--text-2); font-weight:700; margin-top:2px; }
+  .badge {
+    display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:10px;
+    font-size:12px; font-weight:800; white-space:nowrap;
+  }
+  .badge .dot { width:9px;height:9px;border-radius:50%; }
+  .badge.good { background:rgba(56,142,60,.12); color:var(--good); border:1px solid rgba(56,142,60,.24); }
+  .badge.good .dot { background:var(--good); }
+  .badge.partial { background:rgba(156,163,175,.14); color:var(--text-2); border:1px solid rgba(156,163,175,.28); }
+  .badge.partial .dot { background:var(--text-3); }
+  .badge.alarm { background:var(--error-bg); color:var(--error); border:1px solid rgba(220,38,38,.28); }
+  .badge.alarm .dot { background:var(--error); }
+  .hero .chev { color:var(--text-3); font-size:18px; transition:transform .2s; }
+  .section.collapsed .chev { transform:rotate(-90deg); }
+  .section-body { padding:16px; }
+  .section.collapsed .section-body { display:none; }
+
+  /* panel inside section */
+  .panel { border:1px solid var(--border); border-radius:var(--radius); padding:14px; background:var(--surface); margin-top:14px; }
+  .panel:first-child { margin-top:0; }
+  .panel-title { font-size:14px; font-weight:900; margin-bottom:12px; letter-spacing:.2px; }
+
+  /* split layout: details + summary */
+  .split { display:grid; grid-template-columns:1fr 300px; gap:16px; align-items:start; }
+
+  /* gradient summary card */
+  .summary {
+    background:var(--grad); border-radius:16px; padding:16px; color:#fff;
+    box-shadow:var(--shadow-grad);
+  }
+  .summary .m { background:rgba(255,255,255,.07); border-radius:var(--radius); padding:10px 12px; margin-bottom:12px; }
+  .summary .m:last-child { margin-bottom:0; }
+  .summary .m.alarm { background:rgba(255,255,255,.14); }
+  .summary .m .m-label { font-size:11px; font-weight:900; letter-spacing:.5px; text-transform:uppercase; color:rgba(255,255,255,.82); }
+  .summary .m .m-value { font-size:23px; font-weight:900; margin-top:3px; }
+  .summary .m .m-note { font-size:11px; font-weight:700; color:rgba(255,255,255,.82); margin-top:3px; }
+  .summary .m.alarm .m-note { color:#FFE2E2; }
+  .summary-row { display:flex; gap:8px; }
+  .summary-row .m { flex:1; margin-bottom:0; }
+
+  /* alarm box */
+  .alarm-box {
+    background:var(--error-bg); border:1px solid rgba(220,38,38,.28); border-radius:var(--radius);
+    padding:11px 12px; margin-top:12px;
+  }
+  .alarm-box .a-title { font-size:11px; font-weight:900; color:var(--error); text-transform:uppercase; letter-spacing:.4px; }
+  .alarm-box .a-msg { font-size:12px; font-weight:700; color:#991B1B; margin-top:3px; }
+
+  /* metric detail grid */
+  .mgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
+  .tile {
+    border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; background:var(--surface-raised);
+  }
+  .tile .t-label { font-size:11px; font-weight:700; color:var(--text-2); }
+  .tile .t-value { font-size:18px; font-weight:900; margin-top:3px; display:flex; align-items:center; gap:7px; }
+  .tile .t-value .dot { width:10px;height:10px;border-radius:50%; }
+  .dot.good { background:var(--good); } .dot.warn { background:var(--warn); } .dot.err { background:var(--error); }
+  .t-value.good { color:var(--good); } .t-value.err { color:var(--error); }
+
+  /* metric rows (simple list) */
+  .mrow { display:flex; align-items:center; padding:8px 2px; border-bottom:1px dashed var(--border); }
+  .mrow:last-child { border-bottom:none; }
+  .mrow .ml { flex:1; color:var(--text-2); font-weight:600; }
+  .mrow .mv { font-weight:900; }
+  .mrow .dot { width:10px;height:10px;border-radius:50%; margin-left:8px; }
+
+  /* EST 3x3 grid */
+  .est { border:1px solid var(--border); border-radius:var(--radius); padding:12px; background:var(--surface); }
+  .est-head, .est-row { display:grid; grid-template-columns:64px 1fr 1fr 1fr; gap:8px; align-items:center; }
+  .est-head > div { text-align:center; font-weight:800; font-size:13px; color:var(--text); padding-bottom:6px; }
+  .est-head > div:first-child { text-align:left; }
+  .est-row { margin-bottom:8px; }
+  .est-row .rlabel { font-weight:800; font-size:13px; }
+  .cell {
+    border:1px solid var(--border); border-radius:10px; padding:8px; text-align:center;
+    background:var(--surface-variant);
+  }
+  .cell .ctemp { font-size:17px; font-weight:900; }
+  .cell .cphoto {
+    height:34px; margin-top:6px; border-radius:7px;
+    background:linear-gradient(135deg,#E8EEF6,#D7E2F0); display:grid; place-items:center;
+    color:#90A4C0; font-size:14px;
+  }
+
+  /* tabs */
+  .tabbar { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--border); margin-bottom:14px; }
+  .tab {
+    padding:10px 14px; font-weight:800; font-size:13px; color:var(--text-2);
+    border:none; background:none; cursor:pointer; white-space:nowrap; border-bottom:2.5px solid transparent;
+  }
+  .tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+  .tabpane { display:none; } .tabpane.active { display:block; }
+
+  /* pasgar defect row */
+  .defect { border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; background:var(--surface); }
+  .defect.alert { border-color:rgba(220,38,38,.35); background:var(--error-bg); }
+  .defect .d-top { display:flex; align-items:center; gap:8px; }
+  .defect .d-label { flex:1; font-weight:700; }
+  .defect .d-val { font-weight:900; }
+  .defect .d-cause { font-size:12px; color:var(--text-2); margin-top:6px; }
+
+  /* bar breakdown */
+  .bars { display:flex; flex-direction:column; gap:9px; }
+  .bar-row { display:grid; grid-template-columns:130px 1fr 52px; align-items:center; gap:10px; }
+  .bar-row .bl { font-size:12px; font-weight:700; color:var(--text-2); }
+  .bar-track { height:14px; background:var(--surface-variant); border-radius:999px; overflow:hidden; border:1px solid var(--border); }
+  .bar-fill { height:100%; border-radius:999px; }
+  .bar-row .bv { font-size:12px; font-weight:900; text-align:right; }
+
+  /* govee — detailed environmental monitoring */
+  .env-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:14px; }
+  .env-kpi { border:1px solid var(--border); border-radius:var(--radius); padding:11px 13px; background:var(--surface-raised); }
+  .env-kpi .ek-val { font-size:22px; font-weight:900; line-height:1; }
+  .env-kpi .ek-lbl { font-size:11px; font-weight:800; color:var(--text-2); text-transform:uppercase; letter-spacing:.4px; margin-top:5px; }
+  .env-kpi.alarm .ek-val { color:var(--error); }
+
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:14px; }
+  .chip { padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:var(--surface); color:var(--text-2); font-weight:800; font-size:12px; cursor:pointer; }
+  .chip.active { background:var(--active-bg); color:var(--active); border-color:rgba(25,63,194,.30); }
+
+  .cap { border:1px solid var(--border); border-radius:var(--radius); padding:14px; background:var(--surface); margin-bottom:12px; }
+  .cap-head { display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+  .cap-head .ch-main { flex:1; min-width:160px; }
+  .cap-head .ch-place { font-weight:900; font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .cap-head .ch-meta { font-size:12px; color:var(--text-2); font-weight:600; margin-top:3px; }
+  .station-chip { font-size:10px; font-weight:900; letter-spacing:.4px; text-transform:uppercase; padding:3px 8px; border-radius:999px; background:rgba(23,105,216,.10); color:var(--primary); }
+  .readings-badge { font-size:11px; font-weight:800; padding:5px 10px; border-radius:999px; background:var(--surface-variant); border:1px solid var(--border); color:var(--text-2); white-space:nowrap; }
+
+  .cap-tiles { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .stat { border:1px solid var(--border); border-radius:var(--radius); padding:11px 12px; background:var(--surface-raised); }
+  .stat.alarm { border-color:rgba(220,38,38,.35); background:var(--error-bg); }
+  .stat .st-top { display:flex; align-items:center; gap:7px; }
+  .stat .st-lbl { font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.5px; color:var(--text-2); flex:1; }
+  .stat .st-avg { font-size:24px; font-weight:900; margin-top:5px; line-height:1; }
+  .stat .st-avg small { font-size:13px; font-weight:800; color:var(--text-2); }
+  .stat.alarm .st-avg { color:var(--error); }
+  .stat .st-sub { font-size:12px; color:var(--text-2); font-weight:700; margin-top:5px; }
+  .stat .st-target { font-size:11px; color:var(--text-3); font-weight:700; margin-top:4px; }
+
+  .chart-wrap { margin-top:12px; border:1px solid var(--border); border-radius:var(--radius); padding:10px 8px 6px; background:var(--surface-raised); }
+  .chart-legend { display:flex; gap:14px; margin:6px 6px 2px; flex-wrap:wrap; }
+  .chart-legend span { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--text-2); }
+  .chart-legend .sw { width:14px; height:3px; border-radius:2px; display:inline-block; }
+  .chart-legend .sw.band { height:10px; border-radius:3px; }
+
+  .empty { padding:26px; text-align:center; color:var(--text-3); }
+  .empty .e-ico { font-size:38px; opacity:.5; }
+  .empty .e-msg { margin-top:8px; font-weight:700; }
+
+  .footnote { text-align:center; color:var(--text-3); font-size:12px; padding:8px 0 28px; }
+
+  @media (max-width:820px) {
+    .split { grid-template-columns:1fr; }
+    .summary { order:-1; }
+    .hero .htext .title { font-size:18px; }
+    .est-head, .est-row { grid-template-columns:48px 1fr 1fr 1fr; gap:5px; }
+    .cell { padding:6px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="logo">🐣</div>
+  <div>
+    <h1>Dashboard</h1>
+    <div class="sub">Hatchery Audit Insights</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="proto-pill">Prototype</div>
+</header>
+
+<div class="wrap">
+
+  <!-- ── Cascade filter ── -->
+  <div class="filter-card">
+    <div class="field">
+      <label>Customer</label>
+      <select>
+        <option>All customers</option>
+        <option selected>Al Wadi Poultry</option>
+        <option>Green Valley Farms</option>
+        <option>Delta Hatcheries</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Flock</label>
+      <select>
+        <option>All flocks</option>
+        <option selected>FLK-2207</option>
+        <option>FLK-2208</option>
+        <option>FLK-2211</option>
+      </select>
+    </div>
+    <div class="field age">
+      <label>Age</label>
+      <select>
+        <option>All</option>
+        <option>32w</option>
+        <option selected>45w</option>
+        <option>58w</option>
+      </select>
+    </div>
+    <button class="clear-btn">✕ Clear</button>
+  </div>
+
+  <!-- ── KPI overview strip ── -->
+  <div class="kpi-strip">
+    <div class="kpi"><div class="k-label">Hatchability</div><div class="k-value">84.2<span style="font-size:16px">%</span></div><div class="k-note">BMK 86.0% · −1.8</div></div>
+    <div class="kpi good"><div class="k-label">Fertility</div><div class="k-value">92.1<span style="font-size:16px">%</span></div><div class="k-note">Within target</div></div>
+    <div class="kpi"><div class="k-label">Hatch of Fertile</div><div class="k-value">91.4<span style="font-size:16px">%</span></div><div class="k-note">HOF</div></div>
+    <div class="kpi alarm"><div class="k-label">Active Alarms</div><div class="k-value">3</div><div class="k-note">Setter CV · Hatcher CO₂ · Pasgar navel</div></div>
+    <div class="kpi"><div class="k-label">Stations</div><div class="k-value">5<span style="font-size:16px">/5</span></div><div class="k-note">All recorded</div></div>
+  </div>
+
+  <!-- ════════════════ STATION 1 — EGG ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">🥚</div>
+      <div class="htext">
+        <div class="title">Egg Storage &amp; Handling</div>
+        <div class="subtitle">≤ 7 days storage · 19–21 °C · 9-Point Check</div>
+      </div>
+      <span class="badge good"><span class="dot"></span>Completed</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <!-- Temperature readings (EST 3x3) -->
+      <div class="panel">
+        <div class="panel-title">Temperature Readings (°C)</div>
+        <div class="split">
+          <div class="est">
+            <div class="est-head"><div></div><div>Front</div><div>Middle</div><div>Back</div></div>
+            <div class="est-row">
+              <div class="rlabel">Top</div>
+              <div class="cell"><div class="ctemp">20.3°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">20.1°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">19.9°</div><div class="cphoto">📷</div></div>
+            </div>
+            <div class="est-row">
+              <div class="rlabel">Middle</div>
+              <div class="cell"><div class="ctemp">20.2°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">20.0°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">19.8°</div><div class="cphoto">📷</div></div>
+            </div>
+            <div class="est-row">
+              <div class="rlabel">Bottom</div>
+              <div class="cell"><div class="ctemp">20.4°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">20.1°</div><div class="cphoto">📷</div></div>
+              <div class="cell"><div class="ctemp">19.7°</div><div class="cphoto">📷</div></div>
+            </div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Average</div><div class="m-value">20.0 °C</div><div class="m-note">Within 19–21 °C</div></div>
+            <div class="m"><div class="m-label">Target</div><div class="m-value">19–21 °C</div><div class="m-note">≤ 7 days storage</div></div>
+            <div class="m"><div class="m-label">CV%</div><div class="m-value">4.2%</div><div class="m-note">Limit ≤ 8.0%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Egg weights & uniformity -->
+      <div class="panel">
+        <div class="panel-title">Egg Weights &amp; Uniformity</div>
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Sample Size</div><div class="t-value">92/100</div></div>
+            <div class="tile"><div class="t-label">BMK Egg Weight</div><div class="t-value">63.0 g</div></div>
+            <div class="tile"><div class="t-label">Low Margin</div><div class="t-value">56.2 g</div></div>
+            <div class="tile"><div class="t-label">High Margin</div><div class="t-value">68.6 g</div></div>
+          </div>
+          <div class="summary">
+            <div class="summary-row">
+              <div class="m"><div class="m-label">Average</div><div class="m-value">62.4g</div><div class="m-note">Egg weight</div></div>
+              <div class="m"><div class="m-label">Unif.</div><div class="m-value">88.2%</div><div class="m-note">Target ≥ 85%</div></div>
+              <div class="m"><div class="m-label">C.V</div><div class="m-value">6.1%</div><div class="m-note">Limit ≤ 8%</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shell quality UV -->
+      <div class="panel">
+        <div class="panel-title">Shell Quality — UV</div>
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Cuticle Damage</div><div class="t-value">1.1%</div></div>
+            <div class="tile"><div class="t-label">Washed</div><div class="t-value">0.4%</div></div>
+            <div class="tile"><div class="t-label">Dirty</div><div class="t-value">0.8%</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Affected</div><div class="m-value">3.2%</div><div class="m-note">Within target</div></div>
+            <div class="m"><div class="m-label">Target</div><div class="m-value">≤ 5.0%</div><div class="m-note">UV affected</div></div>
+            <div class="m"><div class="m-label">Status</div><div class="m-value">Clear</div><div class="m-note">240 eggs</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Storage info + upside down -->
+      <div class="panel">
+        <div class="panel-title">Storage &amp; Handling</div>
+        <div class="mgrid">
+          <div class="tile"><div class="t-label">Storage</div><div class="t-value">4 days</div></div>
+          <div class="tile"><div class="t-label">Turning</div><div class="t-value">2×/day</div></div>
+          <div class="tile"><div class="t-label">Tray Spacing</div><div class="t-value" style="font-size:15px">Adequate</div></div>
+          <div class="tile"><div class="t-label">Cooler</div><div class="t-value" style="font-size:15px">Far</div></div>
+          <div class="tile"><div class="t-label">Condensation</div><div class="t-value" style="font-size:15px">No</div></div>
+          <div class="tile"><div class="t-label">Upside-Down</div><div class="t-value">6 <span style="font-size:12px;color:var(--text-3)">· 0.6%</span></div></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════ STATION 2 — CHICKS ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">🐤</div>
+      <div class="htext">
+        <div class="title">Chicks</div>
+        <div class="subtitle">Weights · Pasgar · CVT · YFBM · Culled · CHA Env</div>
+      </div>
+      <span class="badge alarm"><span class="dot"></span>1 Alarm</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="tabbar" data-tabs>
+        <button class="tab active" onclick="switchTab(this,'c-weights')">Weights</button>
+        <button class="tab" onclick="switchTab(this,'c-pasgar')">Pasgar</button>
+        <button class="tab" onclick="switchTab(this,'c-cvt')">CVT</button>
+        <button class="tab" onclick="switchTab(this,'c-yfbm')">YFBM</button>
+        <button class="tab" onclick="switchTab(this,'c-culled')">Culled</button>
+        <button class="tab" onclick="switchTab(this,'c-cha')">CHA Env</button>
+      </div>
+
+      <div class="tabpane active" id="c-weights">
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Avg Weight</div><div class="t-value">42.1 g</div></div>
+            <div class="tile"><div class="t-label">Uniformity</div><div class="t-value">86.0%</div></div>
+            <div class="tile"><div class="t-label">CV%</div><div class="t-value good">7.2% <span class="dot good"></span></div></div>
+            <div class="tile"><div class="t-label">BMK Chick Wt</div><div class="t-value">42.5 g</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Avg Weight</div><div class="m-value">42.1 g</div><div class="m-note">BMK 42.5 g</div></div>
+            <div class="m"><div class="m-label">CV%</div><div class="m-value">7.2%</div><div class="m-note">Limit ≤ 8.0%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="c-pasgar">
+        <div class="split">
+          <div>
+            <div class="defect"><div class="d-top"><span class="d-label">Reflexes</span><span class="d-val">2.0%</span><span class="dot good"></span></div></div>
+            <div class="defect"><div class="d-top"><span class="d-label">Beak</span><span class="d-val">4.0%</span><span class="dot good"></span></div></div>
+            <div class="defect alert">
+              <div class="d-top"><span class="d-label">Navel</span><span class="d-val">21.0%</span><span class="dot err"></span></div>
+              <div class="d-cause">- Unhealed / open navel above 20% alert limit<br>- Likely causes: high hatcher temp, late pull, low humidity</div>
+            </div>
+            <div class="defect"><div class="d-top"><span class="d-label">Belly</span><span class="d-val">6.0%</span><span class="dot good"></span></div></div>
+            <div class="defect"><div class="d-top"><span class="d-label">Leg</span><span class="d-val">3.0%</span><span class="dot good"></span></div></div>
+            <div class="defect"><div class="d-top"><span class="d-label">Feather Development</span><span class="d-val">1.0%</span><span class="dot good"></span></div></div>
+          </div>
+          <div class="summary">
+            <div class="m alarm"><div class="m-label">Final Score</div><div class="m-value">8.4 / 10</div><div class="m-note">Acceptable — 1 defect flagged</div></div>
+            <div class="alarm-box" style="margin-top:0">
+              <div class="a-title">Alarm</div>
+              <div class="a-msg">Navel defect rate is above the 20% app limit.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="c-cvt">
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Avg Temp (°F)</div><div class="t-value good">104.1 <span class="dot good"></span></div></div>
+            <div class="tile"><div class="t-label">CV%</div><div class="t-value good">5.5% <span class="dot good"></span></div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Average</div><div class="m-value">104.1 °F</div><div class="m-note">Target 103–105 °F</div></div>
+            <div class="m"><div class="m-label">CV%</div><div class="m-value">5.5%</div><div class="m-note">Limit ≤ 8.0%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="c-yfbm">
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Latest Avg%</div><div class="t-value good">9.1% <span class="dot good"></span></div></div>
+            <div class="tile"><div class="t-label">Target Band</div><div class="t-value">8–10%</div></div>
+            <div class="tile"><div class="t-label">Latest CV%</div><div class="t-value">6.0%</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">YFBM</div><div class="m-value">9.1%</div><div class="m-note">Within 8–10% band</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="c-culled">
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Status</div><div class="t-value good">Clear <span class="dot good"></span></div></div>
+            <div class="tile"><div class="t-label">Egg Set</div><div class="t-value">132,000</div></div>
+            <div class="tile"><div class="t-label">Affected</div><div class="t-value">0.420%</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Top Defect</div><div class="m-value" style="font-size:18px">Unhealed navel</div><div class="m-note">Navel · dominates defect mix</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="c-cha">
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">CO₂</div><div class="t-value good">2,450 <span class="dot good"></span></div></div>
+            <div class="tile"><div class="t-label">PM10</div><div class="t-value">38</div></div>
+            <div class="tile"><div class="t-label">PM2.5</div><div class="t-value">12</div></div>
+            <div class="tile"><div class="t-label">Air Velocity</div><div class="t-value">0.42</div></div>
+            <div class="tile"><div class="t-label">Noise</div><div class="t-value">68 dB</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">CO₂ (ppm)</div><div class="m-value">2,450</div><div class="m-note">Limit ≤ 3,000</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════ STATION 3 — HATCH ANALYSIS & BREAKOUTS ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">📊</div>
+      <div class="htext">
+        <div class="title">Hatch Analysis &amp; Egg Breakouts</div>
+        <div class="subtitle">Hatchability · Fertility · HOF · Residue breakdown</div>
+      </div>
+      <span class="badge partial"><span class="dot"></span>Below BMK</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="panel">
+        <div class="panel-title">Hatch Results</div>
+        <div class="split">
+          <div class="bars">
+            <div class="bar-row"><div class="bl">Hatched</div><div class="bar-track"><div class="bar-fill" style="width:84%;background:var(--good)"></div></div><div class="bv">12,125</div></div>
+            <div class="bar-row"><div class="bl">Infertile / Clear</div><div class="bar-track"><div class="bar-fill" style="width:8%;background:var(--text-3)"></div></div><div class="bv">1,140</div></div>
+            <div class="bar-row"><div class="bl">Early Dead</div><div class="bar-track"><div class="bar-fill" style="width:2.2%;background:var(--accent)"></div></div><div class="bv">320</div></div>
+            <div class="bar-row"><div class="bl">Mid Dead</div><div class="bar-track"><div class="bar-fill" style="width:0.8%;background:#C2410C"></div></div><div class="bv">110</div></div>
+            <div class="bar-row"><div class="bl">Late Dead</div><div class="bar-track"><div class="bar-fill" style="width:1.7%;background:#9A3412"></div></div><div class="bv">240</div></div>
+            <div class="bar-row"><div class="bl">Pipped (not out)</div><div class="bar-track"><div class="bar-fill" style="width:0.6%;background:var(--warn)"></div></div><div class="bv">90</div></div>
+            <div class="bar-row"><div class="bl">Contaminated</div><div class="bar-track"><div class="bar-fill" style="width:0.4%;background:var(--error)"></div></div><div class="bv">60</div></div>
+          </div>
+          <div class="summary">
+            <div class="m alarm"><div class="m-label">Hatchability</div><div class="m-value">84.2%</div><div class="m-note">BMK 86.0% · −1.8</div></div>
+            <div class="m"><div class="m-label">Fertility</div><div class="m-value">92.1%</div><div class="m-note">Fertile / set</div></div>
+            <div class="m"><div class="m-label">HOF</div><div class="m-value">91.4%</div><div class="m-note">Hatch of fertile</div></div>
+          </div>
+        </div>
+        <div style="margin-top:12px;color:var(--text-2);font-weight:700;font-size:13px">Total eggs set: 14,400 · Trays sampled: 4</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Egg Breakout</div>
+        <div class="tabbar" data-tabs>
+          <button class="tab active" onclick="switchTab(this,'b-fresh')">Fresh (0d)</button>
+          <button class="tab" onclick="switchTab(this,'b-candled')">Candled (10d)</button>
+          <button class="tab" onclick="switchTab(this,'b-residue')">Residue (21d)</button>
+        </div>
+        <div class="tabpane active" id="b-fresh">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Infertile</div><div class="t-value">7.9%</div></div>
+            <div class="tile"><div class="t-label">24h Dead</div><div class="t-value">1.2%</div></div>
+            <div class="tile"><div class="t-label">48h Dead</div><div class="t-value">0.9%</div></div>
+            <div class="tile"><div class="t-label">Blood Ring (72h)</div><div class="t-value">0.6%</div></div>
+          </div>
+        </div>
+        <div class="tabpane" id="b-candled">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Infertile</div><div class="t-value">7.7%</div></div>
+            <div class="tile"><div class="t-label">Early Dead</div><div class="t-value">2.1%</div></div>
+            <div class="tile"><div class="t-label">Black Eye</div><div class="t-value">1.4%</div></div>
+            <div class="tile"><div class="t-label">Clears Removed</div><div class="t-value">11.2%</div></div>
+          </div>
+        </div>
+        <div class="tabpane" id="b-residue">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Infertile</div><div class="t-value">7.9%</div></div>
+            <div class="tile"><div class="t-label">Early Dead</div><div class="t-value">2.2%</div></div>
+            <div class="tile"><div class="t-label">Mid Dead</div><div class="t-value">0.8%</div></div>
+            <div class="tile"><div class="t-label">Late Dead</div><div class="t-value err">3.4% <span class="dot err"></span></div></div>
+            <div class="tile"><div class="t-label">External Pip</div><div class="t-value">0.6%</div></div>
+            <div class="tile"><div class="t-label">Cracked</div><div class="t-value">0.3%</div></div>
+            <div class="tile"><div class="t-label">Contaminated</div><div class="t-value">0.4%</div></div>
+          </div>
+          <div class="alarm-box">
+            <div class="a-title">Alarm</div>
+            <div class="a-msg">Late dead 3.4% exceeds the 3.0% breakout limit — check hatcher temperature & ventilation.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════ STATION 4 — SETTERS ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">🌡️</div>
+      <div class="htext">
+        <div class="title">Setters</div>
+        <div class="subtitle">Setter S-03 · Multi-stage · Incubation day 12</div>
+      </div>
+      <span class="badge alarm"><span class="dot"></span>1 Alarm</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="panel">
+        <div class="panel-title">EST Monitoring (°F)</div>
+        <div class="split">
+          <div class="est">
+            <div class="est-head"><div></div><div>Front</div><div>Middle</div><div>Back</div></div>
+            <div class="est-row">
+              <div class="rlabel">Top</div>
+              <div class="cell"><div class="ctemp">100.9°</div></div>
+              <div class="cell"><div class="ctemp">100.4°</div></div>
+              <div class="cell"><div class="ctemp">99.6°</div></div>
+            </div>
+            <div class="est-row">
+              <div class="rlabel">Middle</div>
+              <div class="cell"><div class="ctemp">100.7°</div></div>
+              <div class="cell"><div class="ctemp">100.3°</div></div>
+              <div class="cell"><div class="ctemp">99.5°</div></div>
+            </div>
+            <div class="est-row">
+              <div class="rlabel">Bottom</div>
+              <div class="cell"><div class="ctemp">101.2°</div></div>
+              <div class="cell"><div class="ctemp">100.5°</div></div>
+              <div class="cell"><div class="ctemp">99.3°</div></div>
+            </div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">Average</div><div class="m-value">100.4 °F</div><div class="m-note">Target 100–101 °F</div></div>
+            <div class="m alarm"><div class="m-label">CV%</div><div class="m-value">9.1%</div><div class="m-note">Above 8.0% limit</div></div>
+            <div class="alarm-box" style="margin-top:0">
+              <div class="a-title">Alarm</div>
+              <div class="a-msg">EST CV% above app limit — uneven temperature front-to-back.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Machine Settings — Setpoint vs Actual</div>
+        <div class="mgrid">
+          <div class="tile"><div class="t-label">Temp Setpoint</div><div class="t-value">100.0 °F</div></div>
+          <div class="tile"><div class="t-label">Temp Actual</div><div class="t-value">100.4 °F</div></div>
+          <div class="tile"><div class="t-label">RH Setpoint</div><div class="t-value">55%</div></div>
+          <div class="tile"><div class="t-label">RH Actual</div><div class="t-value">53%</div></div>
+          <div class="tile"><div class="t-label">Turning Angle</div><div class="t-value">180°</div></div>
+          <div class="tile"><div class="t-label">CO₂</div><div class="t-value">2,900</div></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════ STATION 5 — HATCHERS ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">♨️</div>
+      <div class="htext">
+        <div class="title">Hatchers</div>
+        <div class="subtitle">Hatcher H-02 · Incubation day 19 · Transfer day 18</div>
+      </div>
+      <span class="badge alarm"><span class="dot"></span>1 Alarm</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="panel">
+        <div class="panel-title">Machine Settings — Setpoint vs Actual</div>
+        <div class="split">
+          <div class="mgrid">
+            <div class="tile"><div class="t-label">Temp Setpoint</div><div class="t-value">98.5 °F</div></div>
+            <div class="tile"><div class="t-label">Temp Actual</div><div class="t-value">98.7 °F</div></div>
+            <div class="tile"><div class="t-label">RH Setpoint</div><div class="t-value">60%</div></div>
+            <div class="tile"><div class="t-label">RH Actual</div><div class="t-value">62%</div></div>
+            <div class="tile"><div class="t-label">Chick Panting</div><div class="t-value" style="font-size:15px">No</div></div>
+            <div class="tile"><div class="t-label">Meconium</div><div class="t-value" style="font-size:15px">None</div></div>
+          </div>
+          <div class="summary">
+            <div class="m"><div class="m-label">CVT Avg</div><div class="m-value">103.8 °F</div><div class="m-note">Target 103–105 °F</div></div>
+            <div class="m alarm"><div class="m-label">CO₂</div><div class="m-value">3,100 ppm</div><div class="m-note">Above 3,000 limit</div></div>
+            <div class="alarm-box" style="margin-top:0">
+              <div class="a-title">Alarm</div>
+              <div class="a-msg">CO₂ above 3,000 ppm — increase hatcher ventilation.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════ GOVEE ENVIRONMENTAL ════════════════ -->
+  <section class="section" data-station>
+    <div class="hero" onclick="toggleSection(this)">
+      <div class="icon">📡</div>
+      <div class="htext">
+        <div class="title">Govee Environmental</div>
+        <div class="subtitle">Continuous temp &amp; RH · 7 monitored places · 24h captures</div>
+      </div>
+      <span class="badge alarm"><span class="dot"></span>3 Alarms</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="env-kpis" id="env-kpis"></div>
+      <div class="chips" id="govee-chips"></div>
+      <div id="govee-cards"></div>
+    </div>
+  </section>
+
+  <div class="footnote">ChickMark dashboard prototype · mock data for layout review · design tokens mirror lib/core/constants</div>
+
+</div>
+
+<script>
+  function toggleSection(hero) {
+    hero.closest('[data-station]').classList.toggle('collapsed');
+  }
+  function switchTab(btn, paneId) {
+    const bar = btn.closest('[data-tabs]');
+    bar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    // panes share the tab bar's parent container; groups never overlap
+    bar.parentElement.querySelectorAll('.tabpane').forEach(p => p.classList.remove('active'));
+    const target = document.getElementById(paneId);
+    if (target) target.classList.add('active');
+  }
+
+  /* ── Govee environmental: data-driven capture cards ── */
+  // Each entry mirrors a GoveeDailyCaptureModel: place, device, window, reading
+  // count, and temp/RH avg·min·max·SD·CV with a target band. Charts are
+  // generated from avg + amplitude so they read like a real 24h curve.
+  const GOVEE = [
+    { place:'Egg storage room', station:'Egg', key:'egg', device:'Govee H5179 · EGG-A', date:'2026-06-03', start:'08:00', end:'16:40', readings:288, unit:'°C',
+      temp:{avg:19.2,min:18.1,max:20.4,sd:0.42,cv:2.2,band:[18,20],amp:1.0,phase:0.3},
+      rh:{avg:61,min:55,max:67,sd:2.8,cv:4.6,band:[55,65],amp:5,phase:1.2} },
+    { place:'Setter room', station:'Setters', key:'setters', device:'Govee H5179 · SET-RM', date:'2026-06-03', start:'07:40', end:'16:10', readings:305, unit:'°C',
+      temp:{avg:24.3,min:23.1,max:25.6,sd:0.60,cv:2.5,band:[23,25],amp:1.1,phase:0.6},
+      rh:{avg:54,min:49,max:60,sd:3.1,cv:5.7,band:[50,60],amp:5,phase:0.9} },
+    { place:'Inside setter', station:'Setters', key:'setters', device:'Govee H5179 · SET-01', date:'2026-06-03', start:'09:00', end:'15:30', readings:196, unit:'°C',
+      temp:{avg:37.6,min:37.3,max:37.9,sd:0.12,cv:0.32,band:[37.5,37.8],amp:0.25,phase:0.5},
+      rh:{avg:52,min:49,max:55,sd:1.4,cv:2.7,band:[50,55],amp:2.2,phase:1.0} },
+    { place:'Hatcher room', station:'Hatchers', key:'hatchers', device:'Govee H5179 · HAT-RM', date:'2026-06-03', start:'07:50', end:'16:20', readings:301, unit:'°C',
+      temp:{avg:25.1,min:24.0,max:26.3,sd:0.70,cv:2.8,band:[24,26],amp:1.0,phase:0.4},
+      rh:{avg:67,min:60,max:73,sd:3.6,cv:5.4,band:[55,65],amp:5.5,phase:1.3} },
+    { place:'Inside hatcher', station:'Hatchers', key:'hatchers', device:'Govee H5179 · HAT-02', date:'2026-06-03', start:'09:10', end:'15:40', readings:188, unit:'°C',
+      temp:{avg:37.4,min:37.0,max:37.8,sd:0.18,cv:0.48,band:[36.7,37.2],amp:0.30,phase:0.7},
+      rh:{avg:60,min:55,max:66,sd:2.0,cv:3.3,band:[55,65],amp:4,phase:1.1} },
+    { place:'Chick holding area', station:'Chicks', key:'chicks', device:'Govee H5179 · CHK-A', date:'2026-06-03', start:'08:20', end:'16:00', readings:276, unit:'°C',
+      temp:{avg:27.4,min:25.9,max:28.6,sd:0.70,cv:2.6,band:[22,25],amp:1.1,phase:0.5},
+      rh:{avg:50,min:44,max:56,sd:3.0,cv:6.0,band:[45,55],amp:4.5,phase:0.8} },
+    { place:'Outside hatchery', station:'Outside', key:'outside', device:'Govee H5179 · OUT-A', date:'2026-06-03', start:'00:00', end:'23:55', readings:864, unit:'°C',
+      temp:{avg:31.2,min:27.0,max:35.4,sd:2.1,cv:6.7,band:[10,45],amp:3.5,phase:0.2},
+      rh:{avg:40,min:31,max:52,sd:4.0,cv:10.0,band:[0,100],amp:7,phase:0.7} },
+  ];
+
+  const outOfBand = (v,b) => v < b[0] || v > b[1];
+  function genSeries(avg, amp, n, phase) {
+    const a = [];
+    for (let i=0;i<n;i++){ const t=i/(n-1);
+      a.push(avg + amp*Math.sin(Math.PI*2*t+phase) + amp*0.28*Math.sin(Math.PI*6*t+phase*1.7)); }
+    return a;
+  }
+  const toMin = s => { const [h,m]=s.split(':').map(Number); return h*60+m; };
+  const fromMin = m => String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+
+  function goveeChart(cap) {
+    const n=24;
+    const T=genSeries(cap.temp.avg,cap.temp.amp,n,cap.temp.phase);
+    const R=genSeries(cap.rh.avg,cap.rh.amp,n,cap.rh.phase);
+    const x0=44,x1=596,y0=12,y1=132;
+    const tb=cap.temp.band, rb=cap.rh.band;
+    const tLo=Math.min(Math.min(...T),tb[0])-0.7, tHi=Math.max(Math.max(...T),tb[1])+0.7;
+    const rLo=Math.min(Math.min(...R),rb[0])-5, rHi=Math.max(Math.max(...R),rb[1])+5;
+    const xAt=i=>x0+(i/(n-1))*(x1-x0);
+    const tY=v=>y1-((v-tLo)/(tHi-tLo))*(y1-y0);
+    const rY=v=>y1-((v-rLo)/(rHi-rLo))*(y1-y0);
+    const tPts=T.map((v,i)=>xAt(i).toFixed(1)+','+tY(v).toFixed(1)).join(' ');
+    const rPts=R.map((v,i)=>xAt(i).toFixed(1)+','+rY(v).toFixed(1)).join(' ');
+    const bTop=tY(tb[1]).toFixed(1), bBot=tY(tb[0]).toFixed(1), avgY=tY(cap.temp.avg).toFixed(1);
+    const mid=fromMin(Math.round((toMin(cap.start)+toMin(cap.end))/2));
+    return `<svg viewBox="0 0 640 165" width="100%" preserveAspectRatio="none" style="height:165px;display:block">
+      <rect x="${x0}" y="${bTop}" width="${x1-x0}" height="${(bBot-bTop)}" fill="rgba(56,142,60,.10)"/>
+      <line x1="${x0}" y1="${bTop}" x2="${x1}" y2="${bTop}" stroke="rgba(56,142,60,.45)" stroke-width="1" stroke-dasharray="3 3"/>
+      <line x1="${x0}" y1="${bBot}" x2="${x1}" y2="${bBot}" stroke="rgba(56,142,60,.45)" stroke-width="1" stroke-dasharray="3 3"/>
+      <line x1="${x0}" y1="${avgY}" x2="${x1}" y2="${avgY}" stroke="#1769D8" stroke-width="1" stroke-dasharray="5 4" opacity=".45"/>
+      <polyline fill="none" stroke="#1769D8" stroke-width="2" points="${tPts}"/>
+      <polyline fill="none" stroke="#00897B" stroke-width="2" points="${rPts}"/>
+      <text x="6" y="${y0+8}" fill="#1769D8" font-size="10" font-weight="700">${tHi.toFixed(1)}</text>
+      <text x="6" y="${y1}" fill="#1769D8" font-size="10" font-weight="700">${tLo.toFixed(1)}</text>
+      <text x="602" y="${y0+8}" fill="#00897B" font-size="10" font-weight="700">${Math.round(rHi)}</text>
+      <text x="602" y="${y1}" fill="#00897B" font-size="10" font-weight="700">${Math.round(rLo)}</text>
+      <text x="${x0}" y="150" fill="#9CA3AF" font-size="10" font-weight="700">${cap.start}</text>
+      <text x="${(x0+x1)/2}" y="150" fill="#9CA3AF" font-size="10" font-weight="700" text-anchor="middle">${mid}</text>
+      <text x="${x1}" y="150" fill="#9CA3AF" font-size="10" font-weight="700" text-anchor="end">${cap.end}</text>
+    </svg>`;
+  }
+
+  function goveeAlarmMsg(c, tA, rA) {
+    const m=[];
+    if (tA){ const d=c.temp.avg>c.temp.band[1]?'above':'below'; m.push(`Temp avg ${c.temp.avg.toFixed(1)}${c.unit} ${d} target ${c.temp.band[0]}–${c.temp.band[1]}${c.unit}`); }
+    if (rA){ const d=c.rh.avg>c.rh.band[1]?'above':'below'; m.push(`RH avg ${Math.round(c.rh.avg)}% ${d} target ${c.rh.band[0]}–${c.rh.band[1]}%`); }
+    return m.join(' · ')+'.';
+  }
+
+  function goveeCard(c) {
+    const tA=outOfBand(c.temp.avg,c.temp.band), rA=outOfBand(c.rh.avg,c.rh.band), u=c.unit;
+    return `<div class="cap">
+      <div class="cap-head">
+        <div class="ch-main">
+          <div class="ch-place">${c.place} <span class="station-chip">${c.station}</span></div>
+          <div class="ch-meta">${c.device} · ${c.date} · ${c.start}–${c.end}</div>
+        </div>
+        <span class="readings-badge">${c.readings} readings</span>
+      </div>
+      <div class="cap-tiles">
+        <div class="stat ${tA?'alarm':''}">
+          <div class="st-top"><span class="st-lbl">Temperature</span><span class="dot ${tA?'err':'good'}"></span></div>
+          <div class="st-avg">${c.temp.avg.toFixed(1)}<small> ${u} avg</small></div>
+          <div class="st-sub">${c.temp.min.toFixed(1)} – ${c.temp.max.toFixed(1)}${u} · SD ${c.temp.sd.toFixed(2)} · CV ${c.temp.cv.toFixed(1)}%</div>
+          <div class="st-target">Target ${c.temp.band[0]}–${c.temp.band[1]}${u}</div>
+        </div>
+        <div class="stat ${rA?'alarm':''}">
+          <div class="st-top"><span class="st-lbl">Relative Humidity</span><span class="dot ${rA?'err':'good'}"></span></div>
+          <div class="st-avg">${Math.round(c.rh.avg)}<small> % avg</small></div>
+          <div class="st-sub">${Math.round(c.rh.min)} – ${Math.round(c.rh.max)}% · SD ${c.rh.sd.toFixed(1)} · CV ${c.rh.cv.toFixed(1)}%</div>
+          <div class="st-target">Target ${c.rh.band[0]}–${c.rh.band[1]}%</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        ${goveeChart(c)}
+        <div class="chart-legend">
+          <span><span class="sw" style="background:#1769D8"></span>Temp ${u}</span>
+          <span><span class="sw" style="background:#00897B"></span>RH %</span>
+          <span><span class="sw band" style="background:rgba(56,142,60,.25)"></span>Target band</span>
+          <span><span class="sw" style="background:#1769D8;opacity:.5"></span>Temp avg</span>
+        </div>
+      </div>
+      ${(tA||rA)?`<div class="alarm-box"><div class="a-title">Alarm</div><div class="a-msg">${goveeAlarmMsg(c,tA,rA)}</div></div>`:''}
+    </div>`;
+  }
+
+  function renderGovee(filter) {
+    const list = filter==='all' ? GOVEE : GOVEE.filter(c=>c.key===filter);
+    const host = document.getElementById('govee-cards');
+    host.innerHTML = list.length
+      ? list.map(goveeCard).join('')
+      : '<div class="empty"><div class="e-ico">📡</div><div class="e-msg">No captures for this place</div></div>';
+  }
+
+  function initGovee() {
+    const alarms = GOVEE.filter(c=>outOfBand(c.temp.avg,c.temp.band)||outOfBand(c.rh.avg,c.rh.band)).length;
+    const reads = GOVEE.reduce((s,c)=>s+c.readings,0);
+    document.getElementById('env-kpis').innerHTML = `
+      <div class="env-kpi"><div class="ek-val">${new Set(GOVEE.map(c=>c.place)).size}</div><div class="ek-lbl">Places monitored</div></div>
+      <div class="env-kpi"><div class="ek-val">6</div><div class="ek-lbl">Devices online</div></div>
+      <div class="env-kpi"><div class="ek-val">${reads.toLocaleString()}</div><div class="ek-lbl">Readings · 24h</div></div>
+      <div class="env-kpi ${alarms?'alarm':''}"><div class="ek-val">${alarms}</div><div class="ek-lbl">Env alarms</div></div>`;
+    const chips=[['all','All places'],['egg','Egg'],['setters','Setters'],['hatchers','Hatchers'],['chicks','Chicks'],['outside','Outside']];
+    const chipHost=document.getElementById('govee-chips');
+    chipHost.innerHTML = chips.map((c,i)=>`<button class="chip ${i===0?'active':''}" data-k="${c[0]}">${c[1]}</button>`).join('');
+    chipHost.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{
+      chipHost.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+      ch.classList.add('active');
+      renderGovee(ch.dataset.k);
+    });
+    renderGovee('all');
+  }
+  initGovee();
+</script>
+
+</body>
+</html>
