@@ -103,12 +103,8 @@ void main() {
     () {
       final panel = PanelSampleSchema.byTable('setter_optimizing');
 
-      expect(panel.allowedLayers, [
-        SamplingLayer.setter,
-        SamplingLayer.trolley,
-        SamplingLayer.tray,
-      ]);
-      expect(panel.hierarchyColumnNames, ['setter', 'trolley', 'tray']);
+      expect(panel.allowedLayers, [SamplingLayer.setter]);
+      expect(panel.hierarchyColumnNames, ['setter']);
       expect(
         panel.measurementColumns,
         containsAll([
@@ -128,12 +124,8 @@ void main() {
   test('hatcher optimizing schema includes machine setpoint readings', () {
     final panel = PanelSampleSchema.byTable('hatcher_optimizing');
 
-    expect(panel.allowedLayers, [
-      SamplingLayer.hatcher,
-      SamplingLayer.trolley,
-      SamplingLayer.tray,
-    ]);
-    expect(panel.hierarchyColumnNames, ['hatcher', 'trolley', 'tray']);
+    expect(panel.allowedLayers, [SamplingLayer.hatcher]);
+    expect(panel.hierarchyColumnNames, ['hatcher']);
     expect(
       panel.measurementColumns,
       containsAll([
@@ -166,7 +158,6 @@ void main() {
       SamplingLayer.setterHatcher,
       SamplingLayer.trolley,
       SamplingLayer.tray,
-      SamplingLayer.batch,
     ]);
     expect(
       PanelSampleSchema.byTable('fresh_egg_breakout').measurementColumns,
@@ -198,7 +189,9 @@ void main() {
   test('chick quality schema consolidates optional quality checks', () {
     final panel = PanelSampleSchema.byTable('chick_quality');
 
-    expect(panel.allowedLayers, contains(SamplingLayer.house));
+    // Spec: chick_quality = [pool, setterHatcher]. House was removed (the
+    // house scope belongs to the embedded chick_weights panel).
+    expect(panel.allowedLayers, isNot(contains(SamplingLayer.house)));
     expect(panel.allowedLayers, contains(SamplingLayer.setterHatcher));
     expect(
       panel.measurementColumns,

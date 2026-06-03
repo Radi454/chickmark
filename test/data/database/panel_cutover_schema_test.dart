@@ -117,14 +117,18 @@ void main() {
     final setterColumns = await _columnNames(db, 'setter_optimizing');
     final hatcherColumns = await _columnNames(db, 'hatcher_optimizing');
 
-    expect(setterColumns, containsAll(['setter', 'trolley', 'tray']));
+    expect(setterColumns, contains('setter'));
     expect(setterColumns, isNot(contains('house')));
     expect(setterColumns, isNot(contains('hatcher')));
+    expect(setterColumns, isNot(contains('trolley')));
+    expect(setterColumns, isNot(contains('tray')));
     expect(setterColumns, isNot(contains('position')));
 
-    expect(hatcherColumns, containsAll(['hatcher', 'trolley', 'tray']));
+    expect(hatcherColumns, contains('hatcher'));
     expect(hatcherColumns, isNot(contains('house')));
     expect(hatcherColumns, isNot(contains('setter')));
+    expect(hatcherColumns, isNot(contains('trolley')));
+    expect(hatcherColumns, isNot(contains('tray')));
     expect(hatcherColumns, isNot(contains('position')));
   });
 
@@ -200,9 +204,11 @@ void main() {
       final db = await DatabaseHelper().db;
       final columns = await _columnNames(db, 'setter_optimizing');
 
-      expect(columns, containsAll(['setter', 'trolley', 'tray']));
+      expect(columns, contains('setter'));
       expect(columns, isNot(contains('house')));
       expect(columns, isNot(contains('hatcher')));
+      expect(columns, isNot(contains('trolley')));
+      expect(columns, isNot(contains('tray')));
       expect(columns, isNot(contains('position')));
     },
   );
@@ -464,10 +470,10 @@ Set<String> _expectedCommonColumnsFor(String table) {
   final columns = _commonPanelColumns.toSet();
   switch (table) {
     case 'setter_optimizing':
-      columns.removeAll(['house', 'hatcher', 'position']);
+      columns.removeAll(['house', 'hatcher', 'position', 'trolley', 'tray']);
       break;
     case 'hatcher_optimizing':
-      columns.removeAll(['house', 'setter', 'position']);
+      columns.removeAll(['house', 'setter', 'position', 'trolley', 'tray']);
       break;
   }
   return columns;

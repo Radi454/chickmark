@@ -210,7 +210,7 @@ void main() {
       expect(find.byType(AuditSessionScreen), findsOneWidget);
 
       Navigator.of(tester.element(find.byType(AuditSessionScreen))).pop();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
 
       final startButton = tester.widget<ElevatedButton>(
         find.widgetWithText(ElevatedButton, 'Start Visit'),
@@ -1122,119 +1122,6 @@ void main() {
 
     expect(find.widgetWithText(TextField, '9'), findsNWidgets(2));
   });
-
-  testWidgets(
-    'resumed Egg station hydrates quality hierarchy when storage is pooled',
-    (tester) async {
-      final sessionRepository = MockAuditSessionRepository();
-      final auditRepository = MockAuditRepository();
-      final panelSampleRepository = MockPanelSampleRepository();
-      final activityLog = MockActivityLogRepository();
-      final supabase = MockSupabaseService();
-      final session = AuditSessionModel(
-        id: 'session-egg-hierarchy-resume',
-        customerId: SessionTestFixtures.testCustomerId,
-        flockId: SessionTestFixtures.testFlockId,
-        hatcheryId: SessionTestFixtures.testHatcheryId,
-        date: SessionTestFixtures.testVisitDate,
-        breed: SessionTestFixtures.testBreed,
-        status: 'in_progress',
-        selectedStationKeys: const ['egg'],
-        stationsCompleted: const ['egg'],
-        createdAt: SessionTestFixtures.testCreatedAt,
-        updatedAt: SessionTestFixtures.testUpdatedAt,
-      );
-      final provider = AuditSessionProvider(
-        repository: sessionRepository,
-        activityLogRepository: activityLog,
-        supabaseService: supabase,
-      );
-
-      when(
-        () => sessionRepository.getSessionById(session.id),
-      ).thenAnswer((_) async => session);
-      when(
-        () => activityLog.log(
-          any(),
-          any(),
-          entityType: any(named: 'entityType'),
-          entityId: any(named: 'entityId'),
-          details: any(named: 'details'),
-        ),
-      ).thenAnswer((_) async {});
-      when(
-        () =>
-            panelSampleRepository.getRowsBySessionId('egg_storage', session.id),
-      ).thenAnswer(
-        (_) async => [
-          _panelRow(
-            sessionId: session.id,
-            id: 'egg-storage-pooled',
-            values: const {'storagePeriodDays': 4},
-          ),
-        ],
-      );
-      when(
-        () =>
-            panelSampleRepository.getRowsBySessionId('egg_quality', session.id),
-      ).thenAnswer(
-        (_) async => [
-          _panelRow(
-            sessionId: session.id,
-            id: 'egg-quality-house-1',
-            house: 'H1',
-            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[50.0]'},
-          ),
-          _panelRow(
-            sessionId: session.id,
-            id: 'egg-quality-house-1-machine-1',
-            house: 'H1',
-            setter: 'S1',
-            hatcher: 'H1',
-            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[51.0]'},
-          ),
-          _panelRow(
-            sessionId: session.id,
-            id: 'egg-quality-house-1-machine-2',
-            house: 'H1',
-            setter: 'S2',
-            hatcher: 'H2',
-            values: const {'eggSampleSize': 1, 'eggWeightsJson': '[52.0]'},
-          ),
-        ],
-      );
-
-      await provider.resumeSession(session.id);
-
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: provider),
-            ChangeNotifierProvider(create: (_) => CustomersProvider()),
-            ChangeNotifierProvider(
-              create: (_) => AuthProvider(supabaseService: supabase),
-            ),
-            ChangeNotifierProvider(create: (_) => AppProvider()),
-            ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
-          ],
-          child: MaterialApp(
-            home: AuditSessionScreen(
-              auditRepository: auditRepository,
-              panelSampleRepository: panelSampleRepository,
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('House scope'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'H1'), findsOneWidget);
-      expect(find.text('Machine scope'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'S2H2'), findsOneWidget);
-    },
-  );
 
   testWidgets('resumed Chicks station hydrates saved comparison samples', (
     tester,

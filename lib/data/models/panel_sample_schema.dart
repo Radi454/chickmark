@@ -5,8 +5,7 @@ enum SamplingLayer {
   hatcher('hatcher'),
   setterHatcher('setter_hatcher'),
   trolley('trolley'),
-  tray('tray'),
-  batch('batch');
+  tray('tray');
 
   const SamplingLayer(this.dbValue);
 
@@ -58,7 +57,7 @@ class PanelSampleSchema {
   static const panels = <PanelSampleDefinition>[
     PanelSampleDefinition(
       tableName: 'egg_storage',
-      allowedLayers: [SamplingLayer.pool, SamplingLayer.house],
+      allowedLayers: [SamplingLayer.pool],
       measurementColumns: [
         'estReadingsJson TEXT',
         'estAvg REAL',
@@ -74,11 +73,7 @@ class PanelSampleSchema {
     ),
     PanelSampleDefinition(
       tableName: 'egg_quality',
-      allowedLayers: [
-        SamplingLayer.pool,
-        SamplingLayer.house,
-        SamplingLayer.setterHatcher,
-      ],
+      allowedLayers: [SamplingLayer.pool, SamplingLayer.house],
       measurementColumns: [
         'uvTrayEggCount INTEGER',
         'uvCuticleDamageCount INTEGER',
@@ -100,11 +95,7 @@ class PanelSampleSchema {
     ),
     PanelSampleDefinition(
       tableName: 'chick_quality',
-      allowedLayers: [
-        SamplingLayer.pool,
-        SamplingLayer.house,
-        SamplingLayer.setterHatcher,
-      ],
+      allowedLayers: [SamplingLayer.pool, SamplingLayer.setterHatcher],
       measurementColumns: [
         'pasgarSampleSize INTEGER',
         'pasgarReflexesCount INTEGER',
@@ -256,7 +247,6 @@ class PanelSampleSchema {
         SamplingLayer.setterHatcher,
         SamplingLayer.trolley,
         SamplingLayer.tray,
-        SamplingLayer.batch,
       ],
       measurementColumns: [
         'traySize INTEGER',
@@ -294,12 +284,8 @@ class PanelSampleSchema {
     ),
     PanelSampleDefinition(
       tableName: 'setter_optimizing',
-      allowedLayers: [
-        SamplingLayer.setter,
-        SamplingLayer.trolley,
-        SamplingLayer.tray,
-      ],
-      hierarchyColumnDefinitions: ['setter TEXT', 'trolley TEXT', 'tray TEXT'],
+      allowedLayers: [SamplingLayer.setter],
+      hierarchyColumnDefinitions: ['setter TEXT'],
       measurementColumns: [
         'machineType TEXT',
         'setpointF REAL',
@@ -326,12 +312,8 @@ class PanelSampleSchema {
     ),
     PanelSampleDefinition(
       tableName: 'hatcher_optimizing',
-      allowedLayers: [
-        SamplingLayer.hatcher,
-        SamplingLayer.trolley,
-        SamplingLayer.tray,
-      ],
-      hierarchyColumnDefinitions: ['hatcher TEXT', 'trolley TEXT', 'tray TEXT'],
+      allowedLayers: [SamplingLayer.hatcher],
+      hierarchyColumnDefinitions: ['hatcher TEXT'],
       measurementColumns: [
         'setpointF REAL',
         'setpointRh REAL',

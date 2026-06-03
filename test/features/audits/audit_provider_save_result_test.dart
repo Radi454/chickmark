@@ -241,6 +241,40 @@ void main() {
     verifyNever(() => stationSampleRepository.upsertSample(any()));
   });
 
+  test(
+    'clearStationData deletes station panel rows and resets samples',
+    () async {
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateSampleMetadata({'houseNo': 'H1', 'houseLabel': 'House 1'});
+      provider.updateField('esEggSampleSize', 12);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({'houseNo': 'H2', 'houseLabel': 'House 2'});
+
+      expect(provider.isCompareMode, isTrue);
+      expect(provider.stationSamples, hasLength(2));
+
+      final cleared = await provider.clearStationData('egg');
+
+      expect(cleared, isTrue);
+      expect(provider.isCompareMode, isFalse);
+      expect(provider.stationSamples, hasLength(1));
+      expect(provider.activeDraft.esEggSampleSize, isNull);
+      expect(provider.activeDraft.sessionId, 'session-1');
+      verify(
+        () => panelSampleRepository.deleteRowsBySessionId(
+          'egg_storage',
+          'session-1',
+        ),
+      ).called(1);
+      verify(
+        () => panelSampleRepository.deleteRowsBySessionId(
+          'egg_quality',
+          'session-1',
+        ),
+      ).called(1);
+    },
+  );
+
   test('saveSamplesWithResult skips untouched egg station panels', () async {
     expect(await provider.saveSamplesWithResult(), isTrue);
 
@@ -444,52 +478,6 @@ void main() {
       expect(qualityRows.map((row) => row.houseId), ['H1', '9']);
       expect(qualityRows.map((row) => row.sampleIndex), [1, 2]);
       verifyNever(() => auditRepository.insertAudit(any()));
-    },
-  );
-
-  test(
-    'egg quality machine scope writes setter hatcher quality rows',
-    () async {
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      provider.updateSampleMetadata({'houseNo': 'H1'});
-      provider.updateField('esEggWeights', jsonEncode([50.0]));
-      provider.updateField('esEggSampleSize', 1);
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      provider.updateSampleMetadata({
-        'houseNo': 'H2',
-        'setterNo': '12',
-        'hatcherNo': '34',
-      });
-      provider.updateField('esEggWeights', jsonEncode([51.0]));
-      provider.updateField('esEggSampleSize', 1);
-
-      expect(provider.sampleCount, 2);
-      expect(provider.drafts.map((draft) => draft.sampleMode), [
-        'comparison',
-        'comparison',
-      ]);
-      expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-        'SH',
-        'S12H34',
-      ]);
-
-      expect(await provider.saveSamplesWithResult(), isTrue);
-
-      final calls = capturedPanelCalls();
-      final qualityRows = calls
-          .where((call) => call.panel.tableName == 'egg_quality')
-          .expand((call) => call.samples)
-          .toList();
-
-      expect(qualityRows, hasLength(2));
-      expect(qualityRows.map((row) => row.scopeType.dbValue), [
-        'setter_hatcher',
-        'setter_hatcher',
-      ]);
-      expect(qualityRows.map((row) => row.scopeLabel), ['S/H', '12/34']);
-      expect(qualityRows.map((row) => row.setterId), ['S', '12']);
-      expect(qualityRows.map((row) => row.hatcherId), ['H', '34']);
-      expect(qualityRows.map((row) => row.houseId), ['H1', 'H2']);
     },
   );
 

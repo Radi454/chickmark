@@ -524,57 +524,6 @@ void main() {
     expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
 
-  testWidgets('removing a house removes its machine samples once', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
-
-    final h1Index = provider.stationSamples.indexWhere(
-      (sample) =>
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          sample.sampleLabel == 'H',
-    );
-    provider.switchSample(h1Index);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-    await tester.pumpAndSettle();
-
-    expect(
-      provider.stationSamples.where(
-        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
-      ),
-      hasLength(2),
-    );
-
-    provider.switchSample(h1Index);
-    await tester.pumpAndSettle();
-
-    final removeHouse = find.byTooltip('Remove active house sample');
-    expect(removeHouse, findsOneWidget);
-    await tester.tap(removeHouse);
-    await tester.pumpAndSettle();
-
-    expect(
-      provider.stationSamples.where(
-        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
-      ),
-      isEmpty,
-    );
-    expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'S2H2'), findsNothing);
-    expect(find.text('Pool'), findsOneWidget);
-  });
-
   testWidgets(
     'egg quality shows BMK egg weight from the default storage context',
     (tester) async {

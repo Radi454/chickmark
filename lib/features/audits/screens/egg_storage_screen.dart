@@ -1065,7 +1065,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       child: _buildEggScopeChips(
         auditProvider,
         active: auditProvider.isEggQualityHouseScopeActive,
-        sampleKind: StationSampleModel.sampleKindHouse,
         addTooltip: 'Add house sample',
         removeTooltip: 'Remove active house sample',
         addSample: () => _addEggHouseSample(auditProvider),
@@ -1130,35 +1129,26 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   Widget _buildEggScopeChips(
     AuditProvider auditProvider, {
     required bool active,
-    required String sampleKind,
     required String addTooltip,
     required String removeTooltip,
     required VoidCallback addSample,
     required ValueChanged<int> switchSample,
     required VoidCallback removeSample,
   }) {
-    final scopeEntries = _eggScopeEntries(auditProvider, sampleKind);
+    final scopeEntries = _eggScopeEntries(auditProvider);
     final hasEntries = scopeEntries.isNotEmpty;
     final hasSelectedEntry =
         active &&
         scopeEntries.any(
-          (entry) => _isEggScopeEntrySelected(auditProvider, sampleKind, entry),
+          (entry) => _isEggScopeEntrySelected(auditProvider, entry),
         );
-    final hasRemovableEntry =
-        (hasSelectedEntry ||
-        (sampleKind == StationSampleModel.sampleKindMachine &&
-            active &&
-            hasEntries));
+    final hasRemovableEntry = hasSelectedEntry;
     final chips = active && hasEntries
         ? [
             for (final entry in scopeEntries)
               _buildScopeChip(
                 label: entry.value.sampleLabel,
-                selected: _isEggScopeEntrySelected(
-                  auditProvider,
-                  sampleKind,
-                  entry,
-                ),
+                selected: _isEggScopeEntrySelected(auditProvider, entry),
                 enabled: !auditProvider.isReadOnly,
                 onSelected: () => switchSample(entry.key),
               ),
@@ -1225,112 +1215,51 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       children: [
         chipRow,
         const SizedBox(height: 10),
-        _buildEggScopeIdentityFields(auditProvider, sampleKind),
+        _buildEggScopeIdentityFields(auditProvider),
       ],
     );
   }
 
   List<MapEntry<int, StationSampleModel>> _eggScopeEntries(
     AuditProvider auditProvider,
-    String sampleKind,
   ) {
-    final entries = auditProvider.stationSamples.asMap().entries;
-    if (sampleKind == StationSampleModel.sampleKindHouse) {
-      return entries
-          .where(
-            (entry) =>
-                entry.value.sampleKind == StationSampleModel.sampleKindHouse,
-          )
-          .toList();
-    }
-
-    final machineEntries = entries
+    return auditProvider.stationSamples
+        .asMap()
+        .entries
         .where(
           (entry) =>
-              entry.value.sampleKind == StationSampleModel.sampleKindMachine,
+              entry.value.sampleKind == StationSampleModel.sampleKindHouse,
         )
         .toList();
-    final activeHouseNo = auditProvider.activeStationSample.houseNo?.trim();
-    if (activeHouseNo == null || activeHouseNo.isEmpty) {
-      return machineEntries;
-    }
-    final entriesForHouse = machineEntries
-        .where((entry) => entry.value.houseNo?.trim() == activeHouseNo)
-        .toList();
-    return entriesForHouse;
   }
 
   bool _isEggScopeEntrySelected(
     AuditProvider auditProvider,
-    String sampleKind,
     MapEntry<int, StationSampleModel> entry,
   ) {
-    if (sampleKind == StationSampleModel.sampleKindHouse) {
-      final entryHouseNo = entry.value.houseNo?.trim();
-      final activeHouseNo = auditProvider.activeStationSample.houseNo?.trim();
-      if (entryHouseNo != null &&
-          entryHouseNo.isNotEmpty &&
-          activeHouseNo != null &&
-          activeHouseNo.isNotEmpty) {
-        return entryHouseNo == activeHouseNo;
-      }
+    final entryHouseNo = entry.value.houseNo?.trim();
+    final activeHouseNo = auditProvider.activeStationSample.houseNo?.trim();
+    if (entryHouseNo != null &&
+        entryHouseNo.isNotEmpty &&
+        activeHouseNo != null &&
+        activeHouseNo.isNotEmpty) {
+      return entryHouseNo == activeHouseNo;
     }
     return entry.key == auditProvider.activeSampleIndex;
   }
 
-  Widget _buildEggScopeIdentityFields(
-    AuditProvider auditProvider,
-    String sampleKind,
-  ) {
+  Widget _buildEggScopeIdentityFields(AuditProvider auditProvider) {
     final sample = auditProvider.activeStationSample;
-    if (sampleKind == StationSampleModel.sampleKindHouse) {
-      return _buildScopeInputRow([
-        TextFormField(
-          key: ValueKey('egg-quality-house-${sample.id}'),
-          controller: _eggScopeIdentityController(
-            auditProvider,
-            sample,
-            'house',
-          ),
-          focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
-          enabled: !auditProvider.isReadOnly,
-          textInputAction: TextInputAction.done,
-          decoration: _scopeInputDecoration('House'),
-          onChanged: (value) {
-            auditProvider.updateSampleMetadata({'houseNo': value.trim()});
-          },
-        ),
-      ]);
-    }
     return _buildScopeInputRow([
       TextFormField(
-        key: ValueKey('egg-quality-setter-${sample.id}'),
-        controller: _eggScopeIdentityController(
-          auditProvider,
-          sample,
-          'setter',
-        ),
-        focusNode: _eggScopeIdentityFocusNode(sample, 'setter'),
-        enabled: !auditProvider.isReadOnly,
-        textInputAction: TextInputAction.next,
-        decoration: _scopeInputDecoration('Setter'),
-        onChanged: (value) {
-          auditProvider.updateSampleMetadata({'setterNo': value.trim()});
-        },
-      ),
-      TextFormField(
-        key: ValueKey('egg-quality-hatcher-${sample.id}'),
-        controller: _eggScopeIdentityController(
-          auditProvider,
-          sample,
-          'hatcher',
-        ),
-        focusNode: _eggScopeIdentityFocusNode(sample, 'hatcher'),
+        key: ValueKey('egg-quality-house-${sample.id}'),
+        controller: _eggScopeIdentityController(auditProvider, sample, 'house'),
+        focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
         enabled: !auditProvider.isReadOnly,
         textInputAction: TextInputAction.done,
-        decoration: _scopeInputDecoration('Hatcher'),
+        decoration: _scopeInputDecoration('House'),
         onChanged: (value) {
-          auditProvider.updateSampleMetadata({'hatcherNo': value.trim()});
+          auditProvider.updateSampleMetadata({'houseNo': value.trim()});
         },
       ),
     ]);
@@ -1369,9 +1298,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
   void _pruneEggScopeIdentityFields(List<StationSampleModel> samples) {
     final validKeys = <String>{
-      for (final sample in samples)
-        for (final field in const ['house', 'setter', 'hatcher'])
-          _eggScopeIdentityKey(sample, field),
+      for (final sample in samples) _eggScopeIdentityKey(sample, 'house'),
     };
 
     for (final key in _eggScopeIdentityControllers.keys.toList()) {
@@ -1396,8 +1323,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   ) {
     final value = switch (field) {
       'house' => sample.houseNo,
-      'setter' => sample.setterNo,
-      'hatcher' => sample.hatcherNo,
       _ => null,
     };
     final trimmed = value?.trim();
@@ -1407,47 +1332,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
         _isGeneratedHouseScopeValue(auditProvider, trimmed)) {
       return '';
     }
-    if (field == 'setter' &&
-        _isGeneratedMachineScopeValue(auditProvider, sample, trimmed, 'S')) {
-      return '';
-    }
-    if (field == 'hatcher' &&
-        _isGeneratedMachineScopeValue(auditProvider, sample, trimmed, 'H')) {
-      return '';
-    }
     return value ?? '';
-  }
-
-  bool _isGeneratedMachineScopeValue(
-    AuditProvider auditProvider,
-    StationSampleModel sample,
-    String value,
-    String prefix,
-  ) {
-    if (value == prefix) return true;
-    if (!RegExp('^$prefix\\d+\$').hasMatch(value)) return false;
-    return value == '$prefix${_eggScopeSerial(auditProvider, sample)}';
-  }
-
-  int _eggScopeSerial(AuditProvider auditProvider, StationSampleModel sample) {
-    final targetHouseNo = sample.houseNo?.trim();
-    var serial = 0;
-    for (final candidate in auditProvider.stationSamples) {
-      if (candidate.sampleKind != sample.sampleKind) continue;
-      if (sample.sampleKind == StationSampleModel.sampleKindMachine) {
-        final candidateHouseNo = candidate.houseNo?.trim();
-        if (targetHouseNo == null || targetHouseNo.isEmpty) {
-          if (candidateHouseNo != null && candidateHouseNo.isNotEmpty) {
-            continue;
-          }
-        } else if (candidateHouseNo != targetHouseNo) {
-          continue;
-        }
-      }
-      serial++;
-      if (candidate.id == sample.id) return serial;
-    }
-    return sample.sampleIndex;
   }
 
   bool _isGeneratedHouseScopeValue(AuditProvider auditProvider, String value) {

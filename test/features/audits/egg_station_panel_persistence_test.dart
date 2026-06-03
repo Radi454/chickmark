@@ -426,39 +426,6 @@ void main() {
   );
 
   test(
-    'egg quality skips parent house row once machine children exist',
-    () async {
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-      provider.switchSample(0);
-      provider.updateField('esEggWeights', jsonEncode([50.0]));
-      provider.updateField('esEggSampleSize', 1);
-
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      provider.updateSampleMetadata({'setterNo': '1', 'hatcherNo': '1'});
-      provider.updateField('esEggWeights', jsonEncode([51.0]));
-      provider.updateField('esEggSampleSize', 1);
-
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
-      provider.updateSampleMetadata({'setterNo': '2', 'hatcherNo': '2'});
-      provider.updateField('esEggWeights', jsonEncode([52.0]));
-      provider.updateField('esEggSampleSize', 1);
-
-      expect(await provider.saveSamplesWithResult(), isTrue);
-
-      final quality = await rows('egg_quality');
-
-      expect(quality, hasLength(2));
-      expect(quality.map((row) => row['house']), ['H', 'H']);
-      expect(quality.map((row) => row['setter']), ['1', '2']);
-      expect(quality.map((row) => row['hatcher']), ['1', '2']);
-      expect(quality.map((row) => row['eggWeightsJson']), [
-        jsonEncode([51.0]),
-        jsonEncode([52.0]),
-      ]);
-    },
-  );
-
-  test(
     'removing a reindexed egg quality scope deletes its saved row identity',
     () async {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
