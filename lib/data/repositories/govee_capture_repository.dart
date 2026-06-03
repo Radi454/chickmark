@@ -134,6 +134,37 @@ class GoveeCaptureRepository {
     return GoveeDailyCaptureModel.fromMap(rows.first).chartReadings;
   }
 
+  /// Full-resolution readings for a capture, ordered oldest first.
+  ///
+  /// Returns every stored sensor sample from govee_capture_readings so the chart
+  /// can render real detail on zoom. Empty for legacy captures saved before the
+  /// raw table existed; callers should fall back to the capture's overview.
+  Future<List<GoveePlaceReadingModel>> getRawReadings(String captureId) async {
+    final db = await _dbHelper.db;
+    final rows = await db.query(
+      'govee_capture_readings',
+      where: 'captureId = ?',
+      whereArgs: [captureId],
+      orderBy: 'recordedAtMs ASC',
+    );
+    return rows.asMap().entries.map((entry) {
+      final row = entry.value;
+      final recordedAt = DateTime.fromMillisecondsSinceEpoch(
+        (row['recordedAtMs'] as num?)?.toInt() ?? 0,
+      );
+      return GoveePlaceReadingModel(
+        id: row['id'] as String? ?? '$captureId-${entry.key}',
+        captureId: captureId,
+        readingIndex: entry.key,
+        recordedAt: recordedAt,
+        temperatureFahrenheit:
+            (row['temperatureFahrenheit'] as num?)?.toDouble() ?? 0,
+        humidity: (row['humidity'] as num?)?.toDouble() ?? 0,
+        createdAt: recordedAt,
+      );
+    }).toList(growable: false);
+  }
+
   Future<List<GoveeDailyCaptureModel>> getAllCaptures() async {
     final db = await _dbHelper.db;
     final rows = await db.query(

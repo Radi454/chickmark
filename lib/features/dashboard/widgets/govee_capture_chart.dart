@@ -6,6 +6,7 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/core/utils/temp_converter.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:provider/provider.dart';
@@ -27,14 +28,52 @@ const _goveeEndpointTextStyle = TextStyle(
   fontWeight: FontWeight.w600,
 );
 
-class GoveeCaptureChart extends StatelessWidget {
+class GoveeCaptureChart extends StatefulWidget {
   final GoveeCaptureSummary summary;
 
-  const GoveeCaptureChart({super.key, required this.summary});
+  /// Override the repository used to load full-resolution readings (tests).
+  final GoveeCaptureRepository? repository;
+
+  const GoveeCaptureChart({super.key, required this.summary, this.repository});
+
+  @override
+  State<GoveeCaptureChart> createState() => _GoveeCaptureChartState();
+}
+
+class _GoveeCaptureChartState extends State<GoveeCaptureChart> {
+  late final GoveeCaptureRepository _repository;
+  List<GoveeChartPoint>? _rawPoints;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? GoveeCaptureRepository();
+    _loadRawReadings();
+  }
+
+  /// Replace the downsampled overview with the full raw stream once loaded.
+  ///
+  /// Legacy captures (saved before the raw table existed) return nothing, so the
+  /// summary's overview keeps rendering. DB errors are swallowed for the same
+  /// reason — the chart always has the overview to fall back on.
+  Future<void> _loadRawReadings() async {
+    try {
+      final raw = await _repository.getRawReadings(widget.summary.capture.id);
+      if (!mounted || raw.isEmpty) return;
+      final points = GoveeCaptureSummary(
+        capture: widget.summary.capture,
+        readings: raw,
+      ).combinedPoints;
+      setState(() => _rawPoints = points);
+    } catch (_) {
+      // Keep the summary overview when raw readings are unavailable.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final points = summary.combinedPoints;
+    final summary = widget.summary;
+    final points = _rawPoints ?? summary.combinedPoints;
     final capture = summary.capture;
     final machineLabel = capture.machineId;
     final startedAt = summary.recordingStartedAt;
@@ -191,7 +230,7 @@ class GoveeMetricChart extends StatefulWidget {
 }
 
 class _GoveeMetricChartState extends State<GoveeMetricChart> {
-  static const double _maxScale = 8;
+  static const double _maxScale = 50;
   late final TransformationController _transformationController;
 
   @override

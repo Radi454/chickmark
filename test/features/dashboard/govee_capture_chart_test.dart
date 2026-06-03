@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -217,14 +219,67 @@ void main() {
     expect(chart.data.minX, lessThan(chart.data.maxX));
     expect(chart.data.minY, lessThan(chart.data.maxY));
   });
+
+  testWidgets(
+    'GoveeCaptureChart swaps in full-resolution raw readings when available',
+    (tester) async {
+      final repository = _MockGoveeCaptureRepository();
+      final now = DateTime(2026, 5, 2, 12);
+      when(() => repository.getRawReadings('capture-1')).thenAnswer(
+        (_) async => [
+          for (var i = 0; i < 5; i++)
+            GoveePlaceReadingModel(
+              id: 'raw-$i',
+              captureId: 'capture-1',
+              readingIndex: 0,
+              recordedAt: now.add(Duration(seconds: i)),
+              temperatureFahrenheit: 71 + i.toDouble(),
+              humidity: 56,
+              createdAt: now,
+            ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _chartHarness(_makeSummary(), repository: repository),
+      );
+      await tester.pumpAndSettle();
+
+      final chart = tester.widget<LineChart>(
+        find.byKey(const ValueKey('govee-temperature-chart-capture-1')),
+      );
+      // Summary carries the 100-point overview; raw load replaces it with the
+      // full 5-sample stream.
+      expect(chart.data.lineBarsData.single.spots, hasLength(5));
+    },
+  );
 }
 
-Widget _chartHarness(GoveeCaptureSummary summary) {
+class _MockGoveeCaptureRepository extends Mock
+    implements GoveeCaptureRepository {}
+
+GoveeCaptureRepository _emptyRawRepository() {
+  final repository = _MockGoveeCaptureRepository();
+  when(
+    () => repository.getRawReadings(any()),
+  ).thenAnswer((_) async => const []);
+  return repository;
+}
+
+Widget _chartHarness(
+  GoveeCaptureSummary summary, {
+  GoveeCaptureRepository? repository,
+}) {
   return MaterialApp(
     home: ChangeNotifierProvider(
       create: (_) => AppProvider(),
       child: Scaffold(
-        body: SingleChildScrollView(child: GoveeCaptureChart(summary: summary)),
+        body: SingleChildScrollView(
+          child: GoveeCaptureChart(
+            summary: summary,
+            repository: repository ?? _emptyRawRepository(),
+          ),
+        ),
       ),
     ),
   );

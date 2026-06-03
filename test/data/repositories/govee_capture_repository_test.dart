@@ -235,6 +235,44 @@ void main() {
     },
   );
 
+  test('getRawReadings maps full-resolution rows ordered by time', () async {
+    when(
+      () => db.query(
+        'govee_capture_readings',
+        where: 'captureId = ?',
+        whereArgs: ['new-capture'],
+        orderBy: 'recordedAtMs ASC',
+      ),
+    ).thenAnswer(
+      (_) async => [
+        {
+          'id': 'raw-0',
+          'captureId': 'new-capture',
+          'recordedAtMs':
+              DateTime.parse('2026-05-02T10:00:00').millisecondsSinceEpoch,
+          'temperatureFahrenheit': 70.5,
+          'humidity': 55.2,
+        },
+        {
+          'id': 'raw-1',
+          'captureId': 'new-capture',
+          'recordedAtMs':
+              DateTime.parse('2026-05-02T10:00:02').millisecondsSinceEpoch,
+          'temperatureFahrenheit': 70.7,
+          'humidity': 55.0,
+        },
+      ],
+    );
+
+    final result = await repository.getRawReadings('new-capture');
+
+    expect(result, hasLength(2));
+    expect(result.first.recordedAt, DateTime.parse('2026-05-02T10:00:00'));
+    expect(result.first.temperatureFahrenheit, 70.5);
+    expect(result.last.recordedAt, DateTime.parse('2026-05-02T10:00:02'));
+    expect(result.last.humidity, 55.0);
+  });
+
   test(
     'getCaptureForScope queries one machine-aware place date capture',
     () async {
