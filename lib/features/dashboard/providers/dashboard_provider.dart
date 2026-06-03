@@ -1,9 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:hatchaudit/data/repositories/audit_repository.dart';
-import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
-import 'package:hatchaudit/data/repositories/temperature_rh_repository.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/troubleshooting_repository.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
@@ -14,16 +13,20 @@ import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart'
 import 'package:hatchaudit/features/dashboard/models/egg_breakout_models.dart';
 import 'package:hatchaudit/features/dashboard/models/chick_quality_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
+import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
 
 class DashboardProvider extends ChangeNotifier {
-  final AuditRepository _auditRepo = AuditRepository();
-  final AuditSessionRepository _sessionRepo = AuditSessionRepository();
-  final CustomerRepository _customerRepo = CustomerRepository();
-  final FlockRepository _flockRepo = FlockRepository();
-  final TemperatureRhRepository _tempRepo = TemperatureRhRepository();
+  final PanelDashboardRepository _panelDashboardRepo =
+      PanelDashboardRepository();
   final TroubleshootingRepository _troubleshootingRepo =
       TroubleshootingRepository();
+  final CustomerRepository _customerRepo = CustomerRepository();
+  final FlockRepository _flockRepo = FlockRepository();
+  final GoveeCaptureRepository _goveeCaptureRepo;
+
+  DashboardProvider({GoveeCaptureRepository? goveeCaptureRepository})
+    : _goveeCaptureRepo = goveeCaptureRepository ?? GoveeCaptureRepository();
 
   String? _selectedCustomerId;
   String? _selectedFlockId;
@@ -52,6 +55,7 @@ class DashboardProvider extends ChangeNotifier {
   Map<String, TroubleshootingModel> _pasgarReferences = {};
   CvtAvg? _cvtAvg;
   List<YfbmTrend> _yfbmTrend = [];
+  CulledChicksAnalysisAvg? _culledChicksAnalysis;
   List<ChaEnvironmentalTrend> _chaTrend = [];
   List<String> _cvtPhotos = [];
   List<String> _yfbmPhotos = [];
@@ -71,6 +75,8 @@ class DashboardProvider extends ChangeNotifier {
   // Visit-session aggregation state (US6)
   List<VisitSessionSummary> _visitSessions = [];
   VisitSessionSummary? _selectedVisitSession;
+  List<GoveeCaptureSummary> _goveeCaptures = [];
+  bool _isLoadingGoveeCaptures = false;
 
   String? get selectedCustomerId => _selectedCustomerId;
   String? get selectedFlockId => _selectedFlockId;
@@ -112,6 +118,7 @@ class DashboardProvider extends ChangeNotifier {
   Map<String, TroubleshootingModel> get pasgarReferences => _pasgarReferences;
   CvtAvg? get cvtAvg => _cvtAvg;
   List<YfbmTrend> get yfbmTrend => _yfbmTrend;
+  CulledChicksAnalysisAvg? get culledChicksAnalysis => _culledChicksAnalysis;
   List<ChaEnvironmentalTrend> get chaTrend => _chaTrend;
   List<String> get cvtPhotos => _cvtPhotos;
   List<String> get yfbmPhotos => _yfbmPhotos;
@@ -132,6 +139,8 @@ class DashboardProvider extends ChangeNotifier {
   // Visit-session aggregation getters (US6)
   List<VisitSessionSummary> get visitSessions => _visitSessions;
   VisitSessionSummary? get selectedVisitSession => _selectedVisitSession;
+  List<GoveeCaptureSummary> get goveeCaptures => _goveeCaptures;
+  bool get isLoadingGoveeCaptures => _isLoadingGoveeCaptures;
   bool get canUseAllCustomers {
     final user = _currentUser;
     return user == null || !user.isCustomer;
@@ -172,14 +181,13 @@ class DashboardProvider extends ChangeNotifier {
         !_flocks.any((flock) => flock.id == _selectedFlockId)) {
       _selectedFlockId = null;
     }
-    await _loadEquipmentIds();
     await _loadBmkAges();
     await reload();
     notifyListeners();
   }
 
   Future<void> _loadBmkAges() async {
-    _availableBmkAges = await _auditRepo.getDistinctBmkAges(
+    _availableBmkAges = await _panelDashboardRepo.getDistinctBmkAges(
       customerId: _selectedCustomerId,
       flockId: _selectedFlockId,
     );
@@ -187,29 +195,6 @@ class DashboardProvider extends ChangeNotifier {
       _selectedBmkAge = null;
     }
     notifyListeners();
-  }
-
-  Future<void> _loadEquipmentIds() async {
-    final setters = await _auditRepo.getDistinctSetterIds(
-      customerId: _selectedCustomerId,
-      flockId: _selectedFlockId,
-    );
-    final hatchers = await _auditRepo.getDistinctHatcherIds(
-      customerId: _selectedCustomerId,
-      flockId: _selectedFlockId,
-    );
-    _availableSetterIds
-      ..clear()
-      ..addAll(setters);
-    _availableHatcherIds
-      ..clear()
-      ..addAll(hatchers);
-    _selectedSetterIds
-      ..clear()
-      ..addAll(setters);
-    _selectedHatcherIds
-      ..clear()
-      ..addAll(hatchers);
   }
 
   Future<void> setCustomer(String? customerId) async {
@@ -224,7 +209,6 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> setFlock(String? flockId) async {
     _selectedFlockId = flockId;
     _selectedBmkAge = null;
-    await _loadEquipmentIds();
     await _loadBmkAges();
     await reload();
   }
@@ -250,8 +234,12 @@ class DashboardProvider extends ChangeNotifier {
     reload();
   }
 
-  void selectVisitSession(VisitSessionSummary session) {
+  Future<void> selectVisitSession(VisitSessionSummary session) async {
     _selectedVisitSession = session;
+    _isLoadingGoveeCaptures = true;
+    notifyListeners();
+    await _loadGoveeCapturesForVisit(session);
+    _isLoadingGoveeCaptures = false;
     notifyListeners();
   }
 
@@ -284,56 +272,52 @@ class DashboardProvider extends ChangeNotifier {
         bmkAge: _selectedBmkAge,
       );
 
+      _clearHiddenSectorData();
+      _isLoadingGoveeCaptures = true;
       final futures = <Future<void>>[
-        _loadHatchAnalysis(filter),
-        _loadEggBreakout(filter),
-        _loadChickQuality(filter),
         _loadEggStorage(filter),
-        _loadSetterComparison(filter),
-        _loadHatcherComparison(filter),
-        _loadVisitSessions(filter),
+        _loadChickQuality(filter),
+        _loadSavedGoveeCaptures(filter),
       ];
 
       await Future.wait(futures);
+      _isLoadingGoveeCaptures = false;
 
       _bmkReference = null;
       if (_selectedBmkAge != null) {
-        _bmkReference = await _auditRepo.getBmkReferenceForAge(
+        _bmkReference = await _panelDashboardRepo.getBmkReferenceForAge(
           _selectedBmkAge!,
         );
       }
     } catch (e) {
       debugPrint('Error reloading dashboard: $e');
+      _isLoadingGoveeCaptures = false;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _loadHatchAnalysis(DashboardFilter filter) async {
-    _hatchAnalysisAvg = await _auditRepo.getHatchAnalysisAvg(filter);
-    _hatchAnalysisTrend = await _auditRepo.getHatchAnalysisTrend(filter) ?? [];
-  }
-
-  Future<void> _loadEggBreakout(DashboardFilter filter) async {
-    _eggBreakoutAvg = await _auditRepo.getEggBreakoutAvg(
+  Future<void> _loadEggStorage(DashboardFilter filter) async {
+    _eggStorageTrend =
+        await _panelDashboardRepo.getEggStorageTrend(filter) ?? [];
+    _eggStorageEstEvidence = await _panelDashboardRepo
+        .getLatestEggStorageEstEvidence(filter);
+    _shellTempPhotos = await _panelDashboardRepo.getEggStorageEstPhotoPaths(
       filter,
-      _selectedBreakoutType,
     );
-    _eggBreakoutTrend =
-        await _auditRepo.getEggBreakoutTrend(filter, _selectedBreakoutType) ??
-        [];
-    _eggBreakoutPhotos = await _auditRepo.getPhotoPaths(
+    _uvPhotos = await _panelDashboardRepo.getPhotoPaths(
       filter,
-      'hatch_analysis',
-      'egg_breakout',
+      'egg_quality',
+      'uv_inspection',
     );
   }
 
   Future<void> _loadChickQuality(DashboardFilter filter) async {
-    _chickWeightTrend = await _auditRepo.getChickWeightTrend(filter) ?? [];
-    _pasgarAvg = await _auditRepo.getPasgarAvg(filter);
-    _pasgarReferences = await _troubleshootingRepo.getByParameters([
+    _chickWeightTrend =
+        await _panelDashboardRepo.getChickWeightTrend(filter) ?? [];
+    _pasgarAvg = await _panelDashboardRepo.getPasgarAvg(filter);
+    _pasgarReferences = await _troubleshootingRepo.getByParameters(const [
       'pasgar_final_score',
       'pasgar_reflexes',
       'pasgar_beak',
@@ -342,88 +326,98 @@ class DashboardProvider extends ChangeNotifier {
       'pasgar_leg',
       'pasgar_feather_dev',
     ]);
-    _cvtAvg = await _auditRepo.getCvtAvg(filter);
-    _yfbmTrend = await _auditRepo.getYfbmTrend(filter) ?? [];
-    _chaTrend = await _auditRepo.getChaEnvironmentalTrend(filter) ?? [];
-    _cvtPhotos = await _auditRepo.getPhotoPaths(filter, 'chick_quality', 'cvt');
-    _yfbmPhotos = await _auditRepo.getPhotoPaths(
+    _cvtAvg = await _panelDashboardRepo.getCvtAvg(filter);
+    _yfbmTrend = await _panelDashboardRepo.getYfbmTrend(filter) ?? [];
+    _culledChicksAnalysis = await _panelDashboardRepo.getCulledChicksAnalysis(
+      filter,
+    );
+    _cvtPhotos = await _panelDashboardRepo.getPhotoPaths(
+      filter,
+      'chick_quality',
+      'cvt',
+    );
+    _yfbmPhotos = await _panelDashboardRepo.getPhotoPaths(
       filter,
       'chick_quality',
       'yfbm',
     );
-    _chaPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'chick_quality',
-      'cha_env',
-    );
   }
 
-  Future<void> _loadEggStorage(DashboardFilter filter) async {
-    _eggStorageTrend = await _auditRepo.getEggStorageTrend(filter) ?? [];
-    _eggStorageEstEvidence = await _auditRepo.getLatestEggStorageEstEvidence(
-      filter,
-    );
-    _shellTempPhotos = await _auditRepo.getEggStorageEstPhotoPaths(filter);
-    _uvPhotos = await _auditRepo.getPhotoPaths(
-      filter,
-      'egg_storage',
-      'uv_inspection',
-    );
-  }
-
-  Future<void> _loadSetterComparison(DashboardFilter filter) async {
-    if (_selectedSetterIds.isEmpty) {
-      _setterComparisons = [];
-      return;
-    }
-    _setterComparisons =
-        await _auditRepo.getSetterComparisons(
-          filter,
-          _selectedSetterIds.toList(),
-        ) ??
-        [];
-  }
-
-  Future<void> _loadHatcherComparison(DashboardFilter filter) async {
-    if (_selectedHatcherIds.isEmpty) {
-      _hatcherComparisons = [];
-      return;
-    }
-    _hatcherComparisons =
-        await _auditRepo.getHatcherComparisons(
-          filter,
-          _selectedHatcherIds.toList(),
-        ) ??
-        [];
-  }
-
-  Future<void> _loadVisitSessions(DashboardFilter filter) async {
+  Future<void> _loadSavedGoveeCaptures(DashboardFilter filter) async {
     try {
-      final sessions = await _sessionRepo.getCompletedSessions(
+      final captures = await _goveeCaptureRepo.getCapturesForDashboard(
         customerId: filter.customerId,
-        limit: 20,
       );
-      final summaries = <VisitSessionSummary>[];
-      for (final session in sessions) {
-        final audits = await _auditRepo.getAuditsBySessionId(session.id);
-        final temps = await _tempRepo.getCompletedSummariesByAuditSession(
-          session.id,
+      final summaries = <GoveeCaptureSummary>[];
+      for (final capture in captures) {
+        final readings = await _goveeCaptureRepo.getReadingsForCapture(
+          capture.id,
         );
         summaries.add(
-          VisitSessionSummary.fromSession(
-            session: session,
-            stationAudits: audits,
-            temperatureSummaries: temps,
-          ),
+          GoveeCaptureSummary(capture: capture, readings: readings),
         );
       }
-      _visitSessions = summaries;
-      _selectedVisitSession = summaries.isNotEmpty ? summaries.first : null;
+      _goveeCaptures = summaries;
     } catch (e) {
-      debugPrint('Error loading visit sessions: $e');
-      _visitSessions = [];
-      _selectedVisitSession = null;
+      debugPrint('Error loading saved Govee captures: $e');
+      _goveeCaptures = [];
     }
+  }
+
+  void _clearHiddenSectorData() {
+    _hatchAnalysisAvg = null;
+    _hatchAnalysisTrend = [];
+    _eggBreakoutAvg = null;
+    _eggBreakoutTrend = [];
+    _eggBreakoutPhotos = [];
+    _chickWeightTrend = [];
+    _pasgarAvg = null;
+    _pasgarReferences = {};
+    _cvtAvg = null;
+    _yfbmTrend = [];
+    _culledChicksAnalysis = null;
+    _chaTrend = [];
+    _cvtPhotos = [];
+    _yfbmPhotos = [];
+    _chaPhotos = [];
+    _setterComparisons = [];
+    _hatcherComparisons = [];
+    _visitSessions = [];
+    _selectedVisitSession = null;
+    _availableSetterIds.clear();
+    _availableHatcherIds.clear();
+    _selectedSetterIds.clear();
+    _selectedHatcherIds.clear();
+  }
+
+  Future<void> _loadGoveeCapturesForVisit(VisitSessionSummary visit) async {
+    try {
+      final session = visit.session;
+      final captures = await _goveeCaptureRepo.getCapturesForDashboard(
+        customerId: session.customerId,
+        hatcheryId: session.hatcheryId,
+        captureDate: _captureDateKey(session.date),
+      );
+      final summaries = <GoveeCaptureSummary>[];
+      for (final capture in captures) {
+        final readings = await _goveeCaptureRepo.getReadingsForCapture(
+          capture.id,
+        );
+        summaries.add(
+          GoveeCaptureSummary(capture: capture, readings: readings),
+        );
+      }
+      _goveeCaptures = summaries;
+    } catch (e) {
+      debugPrint('Error loading Govee captures: $e');
+      _goveeCaptures = [];
+    }
+  }
+
+  String _captureDateKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
   }
 
   List<CustomerModel> _scopeCustomers(List<CustomerModel> customers) {

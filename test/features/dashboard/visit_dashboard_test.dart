@@ -3,22 +3,76 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/utils/scorecard_formatter.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart';
+import 'package:mocktail/mocktail.dart';
+
+class _MockGoveeCaptureRepository extends Mock
+    implements GoveeCaptureRepository {}
 
 void main() {
+  group('DashboardProvider Govee captures', () {
+    late _MockGoveeCaptureRepository mockGoveeRepo;
+    late DashboardProvider provider;
+
+    setUp(() {
+      mockGoveeRepo = _MockGoveeCaptureRepository();
+      provider = DashboardProvider(goveeCaptureRepository: mockGoveeRepo);
+    });
+
+    test('loads Govee captures by customer hatchery and visit date', () async {
+      final capture = _makeGoveeCapture();
+      final readings = _makeGoveeReadings();
+
+      when(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: 'c1',
+          hatcheryId: 'h1',
+          captureDate: '2026-05-02',
+        ),
+      ).thenAnswer((_) async => [capture]);
+      when(
+        () => mockGoveeRepo.getReadingsForCapture('capture-1'),
+      ).thenAnswer((_) async => readings);
+
+      await provider.selectVisitSession(
+        VisitSessionSummary.fromSession(
+          session: _makeSession(date: DateTime(2026, 5, 2)),
+          stationAudits: [],
+        ),
+      );
+
+      expect(provider.goveeCaptures, hasLength(1));
+      expect(provider.goveeCaptures.single.capture.id, 'capture-1');
+      verify(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: 'c1',
+          hatcheryId: 'h1',
+          captureDate: '2026-05-02',
+        ),
+      ).called(1);
+      verifyNever(
+        () => mockGoveeRepo.getCapturesForDashboard(
+          customerId: any(named: 'customerId'),
+          hatcheryId: any(named: 'hatcheryId'),
+        ),
+      );
+    });
+  });
+
   group('VisitSessionSummary aggregation', () {
-    test('aggregates empty session with no audits or temps', () {
+    test('aggregates empty session with no audits', () {
       final session = _makeSession(stationsCompleted: []);
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.session.id, 's1');
       expect(summary.stationAudits, isEmpty);
-      expect(summary.temperatureSummaries, isEmpty);
       expect(summary.scorecards.length, supportedStationKeys.length);
       expect(summary.findingsSummary, isNull);
       expect(summary.pmScoreSummary, isNull);
@@ -33,16 +87,15 @@ void main() {
         stationsCompleted: supportedStationKeys,
       );
       final audits = [
-        _makeAudit(auditType: 'Egg Storage'),
-        _makeAudit(auditType: 'Chick Quality'),
-        _makeAudit(auditType: 'Hatch Analysis'),
-        _makeAudit(auditType: 'Setter Optimizing'),
-        _makeAudit(auditType: 'Hatcher Optimizing'),
+        _makeAudit(auditType: 'Egg'),
+        _makeAudit(auditType: 'Chicks'),
+        _makeAudit(auditType: 'Hatch Analysis & Egg Breakouts'),
+        _makeAudit(auditType: 'Setters'),
+        _makeAudit(auditType: 'Hatchers'),
       ];
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: audits,
-        temperatureSummaries: [],
       );
 
       expect(summary.isCompleted, true);
@@ -57,54 +110,54 @@ void main() {
 
     test('uses selected station subset for progress and scorecards', () {
       final session = _makeSession(
-        selectedStationKeys: const ['egg_storage', 'hatch_analysis'],
-        stationsCompleted: const ['egg_storage'],
+        selectedStationKeys: const ['egg', 'hatch_analysis_egg_breakouts'],
+        stationsCompleted: const ['egg'],
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
-        stationAudits: [_makeAudit(auditType: 'Egg Storage')],
-        temperatureSummaries: [],
+        stationAudits: [_makeAudit(auditType: 'Egg')],
       );
 
       expect(summary.selectedStationCount, 2);
       expect(summary.completedStationCount, 1);
       expect(summary.completionFraction, 0.5);
       expect(summary.scorecards.map((scorecard) => scorecard.stationKey), [
-        'egg_storage',
-        'hatch_analysis',
+        'egg',
+        'hatch_analysis_egg_breakouts',
       ]);
     });
 
     test('filters persisted scorecards to selected stations', () {
       final session = _makeSession(
-        selectedStationKeys: const ['hatch_analysis'],
+        selectedStationKeys: const ['hatch_analysis_egg_breakouts'],
         scorecardJson:
-            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"green"},{"stationKey":"hatch_analysis","stationLabel":"Hatch Analysis","status":"amber"}]',
+            '[{"stationKey":"egg","stationLabel":"Egg","status":"green"},{"stationKey":"hatch_analysis_egg_breakouts","stationLabel":"Hatch Analysis & Egg Breakouts","status":"amber"}]',
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.scorecards.length, 1);
-      expect(summary.scorecards.first.stationKey, 'hatch_analysis');
+      expect(
+        summary.scorecards.first.stationKey,
+        'hatch_analysis_egg_breakouts',
+      );
       expect(summary.scorecards.first.status, 'amber');
     });
 
     test('scorecard falls back to persisted JSON when available', () {
       final session = _makeSession(
         scorecardJson:
-            '[{"stationKey":"egg_storage","stationLabel":"Egg Storage","status":"amber","detail":"Review"}]',
+            '[{"stationKey":"egg","stationLabel":"Egg","status":"amber","detail":"Review"}]',
       );
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       final eggSc = summary.scorecards.firstWhere(
-        (sc) => sc.stationKey == 'egg_storage',
+        (sc) => sc.stationKey == 'egg',
       );
       expect(eggSc.stationLabel, 'Egg');
       expect(eggSc.status, 'amber');
@@ -118,7 +171,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
 
       expect(summary.findingsSummary, isNotNull);
@@ -133,62 +185,47 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: session,
         stationAudits: [],
-        temperatureSummaries: [],
       );
       expect(summary.findingsSummary, isNull);
     });
 
-    test('PM score summary aggregates lesions and deformities', () {
+    test('PM score summary aggregates lesions', () {
       final audit = _makeAudit(
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         pmOmphalitisCount: 2,
         pmGaseousCecaCount: 1,
-        pmExposedBrainCount: 1,
-        pmCrossedBeakCount: 1,
-        pmGaspingPresent: true,
-        pmGaspingType: 'Asphyxia',
       );
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
 
       expect(summary.pmScoreSummary, isNotNull);
       expect(summary.pmScoreSummary!.totalLesions, 3);
-      expect(summary.pmScoreSummary!.totalDeformities, 2);
-      expect(summary.pmScoreSummary!.gaspingPresent, true);
-      expect(summary.pmScoreSummary!.gaspingType, 'Asphyxia');
       expect(summary.pmScoreSummary!.overallSeverity, 'amber');
     });
 
-    test('PM severity is green when no lesions, deformities, or gasping', () {
-      final audit = _makeAudit(auditType: 'Chick Quality');
+    test('PM severity is green when no lesions are present', () {
+      final audit = _makeAudit(auditType: 'Chicks');
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
       expect(summary.pmScoreSummary!.overallSeverity, 'green');
     });
 
-    test('PM severity is red when many lesions or deformities', () {
-      final audit = _makeAudit(
-        auditType: 'Chick Quality',
-        pmOmphalitisCount: 6,
-        pmExposedBrainCount: 4,
-      );
+    test('PM severity is red when many lesions are present', () {
+      final audit = _makeAudit(auditType: 'Chicks', pmOmphalitisCount: 6);
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
       expect(summary.pmScoreSummary!.overallSeverity, 'red');
     });
 
     test('hatch budget summary reads from hatch analysis audit', () {
       final audit = _makeAudit(
-        auditType: 'Hatch Analysis',
+        auditType: 'Hatch Analysis & Egg Breakouts',
         haTotalEggsSet: 10000,
         haHatched: 8500,
         haCulled: 100,
@@ -200,7 +237,6 @@ void main() {
       final summary = VisitSessionSummary.fromSession(
         session: _makeSession(),
         stationAudits: [audit],
-        temperatureSummaries: [],
       );
 
       expect(summary.hatchBudgetSummary, isNotNull);
@@ -209,51 +245,6 @@ void main() {
       expect(summary.hatchBudgetSummary!.hatchabilityPct, 85.0);
       expect(summary.hatchBudgetSummary!.fertilityPct, 94.0);
       expect(summary.hatchBudgetSummary!.hofPct, 90.4);
-    });
-
-    test('temperature summaries map correctly', () {
-      final temp = TemperatureSessionModel(
-        id: 't1',
-        customerId: 'c1',
-        hatcheryId: 'h1',
-        startedAt: DateTime.now(),
-        activePlace: TemperaturePlace.eggStorageRoom,
-        status: 'completed',
-        tempAvg: 68.5,
-        tempMin: 66.0,
-        tempMax: 71.0,
-        alertCount: 0,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      final summary = VisitSessionSummary.fromSession(
-        session: _makeSession(),
-        stationAudits: [],
-        temperatureSummaries: [temp],
-      );
-
-      expect(summary.temperatureSummaries.length, 1);
-      final chip = TemperatureSummary.fromSession(temp);
-      expect(chip.placeLabel, 'Egg storage room');
-      expect(chip.avgTempF, 68.5);
-      expect(chip.status, 'green');
-    });
-
-    test('temperature summary is red when alerts exist', () {
-      final temp = TemperatureSessionModel(
-        id: 't1',
-        customerId: 'c1',
-        hatcheryId: 'h1',
-        startedAt: DateTime.now(),
-        activePlace: TemperaturePlace.incubatorRoom,
-        status: 'completed',
-        tempAvg: 99.0,
-        alertCount: 2,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      final chip = TemperatureSummary.fromSession(temp);
-      expect(chip.status, 'red');
     });
   });
 
@@ -299,9 +290,9 @@ void main() {
   group('StationScorecard heuristic derivation', () {
     test('unknown when station not completed', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: false,
-        audit: _makeAudit(auditType: 'Egg Storage'),
+        audit: _makeAudit(auditType: 'Egg'),
       );
       expect(sc.status, 'unknown');
       expect(sc.detail, 'Not completed');
@@ -309,27 +300,27 @@ void main() {
 
     test('red for egg storage shell temp > 21C', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg Storage', esShellTemp: 22.5),
+        audit: _makeAudit(auditType: 'Egg', esShellTemp: 22.5),
       );
       expect(sc.status, 'red');
     });
 
     test('amber for setter EST outside optimal range', () {
       final sc = StationScorecard.derive(
-        stationKey: 'setter_optimizing',
+        stationKey: 'setters',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Setter Optimizing', soEstAvg: 99.5),
+        audit: _makeAudit(auditType: 'Setters', soEstAvg: 99.5),
       );
       expect(sc.status, 'amber');
     });
 
     test('green when no critical alerts', () {
       final sc = StationScorecard.derive(
-        stationKey: 'egg_storage',
+        stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg Storage', esShellTemp: 20.0),
+        audit: _makeAudit(auditType: 'Egg', esShellTemp: 20.0),
       );
       expect(sc.status, 'green');
     });
@@ -341,6 +332,7 @@ void main() {
 AuditSessionModel _makeSession({
   String id = 's1',
   String status = 'in_progress',
+  DateTime? date,
   List<String> selectedStationKeys = supportedStationKeys,
   List<String> stationsCompleted = const [],
   String? findingsJson,
@@ -351,7 +343,7 @@ AuditSessionModel _makeSession({
     customerId: 'c1',
     flockId: 'f1',
     hatcheryId: 'h1',
-    date: DateTime(2026, 4, 20),
+    date: date ?? DateTime(2026, 4, 20),
     status: status,
     selectedStationKeys: selectedStationKeys,
     stationsCompleted: stationsCompleted,
@@ -362,6 +354,46 @@ AuditSessionModel _makeSession({
   );
 }
 
+GoveeDailyCaptureModel _makeGoveeCapture() {
+  final now = DateTime(2026, 5, 2, 12);
+  return GoveeDailyCaptureModel(
+    id: 'capture-1',
+    customerId: 'c1',
+    hatcheryId: 'h1',
+    place: TemperaturePlace.eggStorageRoom,
+    machineId: null,
+    captureDate: '2026-05-02',
+    deviceId: 'device-1',
+    deviceName: 'Govee H5051',
+    status: 'completed',
+    tempAvg: 72.5,
+    tempMin: 71,
+    tempMax: 74,
+    rhAvg: 58,
+    rhMin: 55,
+    rhMax: 61,
+    readingCount: 180,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+List<GoveePlaceReadingModel> _makeGoveeReadings() {
+  final startedAt = DateTime(2026, 5, 2, 12);
+  return [
+    for (var i = 0; i < 180; i++)
+      GoveePlaceReadingModel(
+        id: 'capture-1-reading-$i',
+        captureId: 'capture-1',
+        readingIndex: i,
+        recordedAt: startedAt.add(Duration(seconds: i)),
+        temperatureFahrenheit: 70 + (i / 100),
+        humidity: 55 + (i / 100),
+        createdAt: startedAt,
+      ),
+  ];
+}
+
 AuditModel _makeAudit({
   required String auditType,
   double? esShellTemp,
@@ -369,10 +401,6 @@ AuditModel _makeAudit({
   double? hoCvtAvg,
   int? pmOmphalitisCount,
   int? pmGaseousCecaCount,
-  int? pmExposedBrainCount,
-  int? pmCrossedBeakCount,
-  bool? pmGaspingPresent,
-  String? pmGaspingType,
   int? haTotalEggsSet,
   int? haHatched,
   int? haCulled,
@@ -396,10 +424,6 @@ AuditModel _makeAudit({
     hoCvtAvg: hoCvtAvg,
     pmOmphalitisCount: pmOmphalitisCount,
     pmGaseousCecaCount: pmGaseousCecaCount,
-    pmExposedBrainCount: pmExposedBrainCount,
-    pmCrossedBeakCount: pmCrossedBeakCount,
-    pmGaspingPresent: pmGaspingPresent,
-    pmGaspingType: pmGaspingType,
     haTotalEggsSet: haTotalEggsSet,
     haHatched: haHatched,
     haCulled: haCulled,

@@ -26,33 +26,22 @@ class UnsavedChangesGuard extends StatelessWidget {
         onBackAttempt?.call();
 
         final provider = context.read<AuditProvider>();
-        if (!provider.isDirty) {
+        if (!provider.hasPendingAutosave) {
           if (context.mounted) {
             Navigator.of(context).pop();
           }
           return;
         }
 
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Unsaved changes'),
-            content: const Text('Leave without saving this tab?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Stay'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Leave'),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmed == true && context.mounted) {
+        final saved = await provider.flushAutosave();
+        if (saved && context.mounted) {
           Navigator.of(context).pop();
+        } else if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not autosave. Press Save to retry.'),
+            ),
+          );
         }
       },
       child: child,

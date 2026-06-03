@@ -41,9 +41,10 @@ class EstGridData {
       final value = _toDouble(entry.value);
       if (rawKey == null || value == null) continue;
 
-      final canonicalKey = rawKey.startsWith('door_')
-          ? rawKey.replaceFirst('door_', 'front_')
-          : rawKey;
+      final normalizedKey = rawKey.trim().toLowerCase();
+      final canonicalKey = normalizedKey.startsWith('door_')
+          ? normalizedKey.replaceFirst('door_', 'front_')
+          : normalizedKey;
       if (_isKnownKey(canonicalKey)) {
         normalized[canonicalKey] = value;
       }

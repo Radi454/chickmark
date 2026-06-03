@@ -9,6 +9,18 @@ void main() {
     test('cvPercent([90,100,110]) known value', () {
       expect(CalculationUtils.cvPercent([90, 100, 110]), closeTo(10.0, 0.1));
     });
+    test('stdDev uses sample standard deviation by default', () {
+      expect(CalculationUtils.stdDev([70, 72, 74]), closeTo(2.0, 0.001));
+    });
+    test('cvPercent uses sample standard deviation', () {
+      expect(CalculationUtils.cvPercent([70, 72, 74]), 2.8);
+    });
+    test('percentOf rejects invalid counts unless over 100 is allowed', () {
+      expect(CalculationUtils.percentOf(101, 100), isNull);
+      expect(CalculationUtils.percentOf(101, 100, allowAbove100: true), 101.0);
+      expect(CalculationUtils.percentOf(-1, 100), isNull);
+      expect(CalculationUtils.percentOf(1, 0), isNull);
+    });
     test('uniformityPercent all-in-range = 100%', () {
       expect(
         CalculationUtils.uniformityPercent([100, 100, 100], 100, 100),
@@ -45,9 +57,15 @@ void main() {
     test('average([1,2,3]) == 2.0', () {
       expect(CalculationUtils.average([1, 2, 3]), 2.0);
     });
-    test('stdDev known value', () {
+    test('stdDev known sample value', () {
       expect(
         CalculationUtils.stdDev([2, 4, 4, 4, 5, 5, 7, 9]),
+        closeTo(2.138, 0.001),
+      );
+    });
+    test('populationStdDev remains available for full-population datasets', () {
+      expect(
+        CalculationUtils.populationStdDev([2, 4, 4, 4, 5, 5, 7, 9]),
         closeTo(2.0, 0.1),
       );
     });
@@ -55,15 +73,24 @@ void main() {
     group('shellTempZone / shellTempStatus', () {
       test('optimal at 19.0 °C', () {
         expect(CalculationUtils.shellTempZone(19.0), 'Optimal');
-        expect(CalculationUtils.shellTempStatus(19.0), TemperatureStatus.optimal);
+        expect(
+          CalculationUtils.shellTempStatus(19.0),
+          TemperatureStatus.optimal,
+        );
       });
       test('optimal at 21.0 °C', () {
         expect(CalculationUtils.shellTempZone(21.0), 'Optimal');
-        expect(CalculationUtils.shellTempStatus(21.0), TemperatureStatus.optimal);
+        expect(
+          CalculationUtils.shellTempStatus(21.0),
+          TemperatureStatus.optimal,
+        );
       });
       test('optimal at 20.0 °C', () {
         expect(CalculationUtils.shellTempZone(20.0), 'Optimal');
-        expect(CalculationUtils.shellTempStatus(20.0), TemperatureStatus.optimal);
+        expect(
+          CalculationUtils.shellTempStatus(20.0),
+          TemperatureStatus.optimal,
+        );
       });
       test('low below 19.0 °C', () {
         expect(CalculationUtils.shellTempZone(18.5), 'Low');
@@ -97,6 +124,39 @@ void main() {
       test('high above 101.0 °F', () {
         expect(CalculationUtils.estZone(102.0), 'High');
         expect(CalculationUtils.estStatus(102.0), TemperatureStatus.high);
+      });
+    });
+
+    group('setterEstZone / setterEstStatus', () {
+      test('optimal from 100.0 to 101.0 °F', () {
+        expect(CalculationUtils.setterEstZone(100.0), 'Optimal');
+        expect(
+          CalculationUtils.setterEstStatus(100.0),
+          TemperatureStatus.optimal,
+        );
+        expect(CalculationUtils.setterEstZone(101.0), 'Optimal');
+        expect(
+          CalculationUtils.setterEstStatus(101.0),
+          TemperatureStatus.optimal,
+        );
+      });
+
+      test('allowed outside optimum from 99.5 to 102.0 °F', () {
+        expect(CalculationUtils.setterEstZone(99.5), 'Allowed');
+        expect(CalculationUtils.setterEstStatus(99.5), TemperatureStatus.low);
+        expect(CalculationUtils.setterEstZone(99.9), 'Allowed');
+        expect(CalculationUtils.setterEstStatus(99.9), TemperatureStatus.low);
+        expect(CalculationUtils.setterEstZone(101.5), 'Allowed');
+        expect(CalculationUtils.setterEstStatus(101.5), TemperatureStatus.high);
+        expect(CalculationUtils.setterEstZone(102.0), 'Allowed');
+        expect(CalculationUtils.setterEstStatus(102.0), TemperatureStatus.high);
+      });
+
+      test('out of allowed range below 99.5 or above 102.0 °F', () {
+        expect(CalculationUtils.setterEstZone(99.4), 'Low');
+        expect(CalculationUtils.setterEstStatus(99.4), TemperatureStatus.low);
+        expect(CalculationUtils.setterEstZone(102.1), 'High');
+        expect(CalculationUtils.setterEstStatus(102.1), TemperatureStatus.high);
       });
     });
 

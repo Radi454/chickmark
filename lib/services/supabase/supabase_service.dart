@@ -4,9 +4,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/constants/supabase_config.dart';
+import '../../core/security/safe_debug_log.dart';
+import '../../core/security/security_policy.dart';
+import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/photo_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
+import 'supabase_initializer.dart';
 
 class AuthResult {
   final bool success;
@@ -20,62 +24,135 @@ class SupabasePullSummary {
   final int customers;
   final int flocks;
   final int hatcheries;
-  final int audits;
   final int auditSessions;
   final int photos;
   final int bmkBreeds;
   final int bmkEggBreakout;
-  final int temperatureSessions;
-  final int temperatureReadings;
+  final int goveeDailyCaptures;
+  final int panelRows;
+  final int syncTombstones;
 
   const SupabasePullSummary({
     this.customers = 0,
     this.flocks = 0,
     this.hatcheries = 0,
-    this.audits = 0,
     this.auditSessions = 0,
     this.photos = 0,
     this.bmkBreeds = 0,
     this.bmkEggBreakout = 0,
-    this.temperatureSessions = 0,
-    this.temperatureReadings = 0,
+    this.goveeDailyCaptures = 0,
+    this.panelRows = 0,
+    this.syncTombstones = 0,
   });
 
   int get total =>
       customers +
       flocks +
       hatcheries +
-      audits +
       auditSessions +
       photos +
       bmkBreeds +
       bmkEggBreakout +
-      temperatureSessions +
-      temperatureReadings;
+      goveeDailyCaptures +
+      panelRows +
+      syncTombstones;
+
+  SupabasePullSummary copyWith({
+    int? customers,
+    int? flocks,
+    int? hatcheries,
+    int? auditSessions,
+    int? photos,
+    int? bmkBreeds,
+    int? bmkEggBreakout,
+    int? goveeDailyCaptures,
+    int? panelRows,
+    int? syncTombstones,
+  }) {
+    return SupabasePullSummary(
+      customers: customers ?? this.customers,
+      flocks: flocks ?? this.flocks,
+      hatcheries: hatcheries ?? this.hatcheries,
+      auditSessions: auditSessions ?? this.auditSessions,
+      photos: photos ?? this.photos,
+      bmkBreeds: bmkBreeds ?? this.bmkBreeds,
+      bmkEggBreakout: bmkEggBreakout ?? this.bmkEggBreakout,
+      goveeDailyCaptures: goveeDailyCaptures ?? this.goveeDailyCaptures,
+      panelRows: panelRows ?? this.panelRows,
+      syncTombstones: syncTombstones ?? this.syncTombstones,
+    );
+  }
 }
 
 class SupabaseService {
-  final _userRepo = UserRepository();
+  final UserRepository _userRepo;
+  final bool Function() _isConfigured;
+  final Future<bool> Function() _initializeSupabase;
+  final Future<bool> Function() _checkNetworkAvailable;
+  final SupabaseClient Function() _clientProvider;
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client => _clientProvider();
 
-  bool get isAvailable => SupabaseConfig.isConfigured && _isNetworkAvailable;
-  bool get isConfigured => SupabaseConfig.isConfigured;
+  @visibleForTesting
+  SupabaseClient get clientForTesting => _client;
+
+  bool get isAvailable =>
+      _isConfigured() && _isNetworkAvailable && _supabaseInitialized;
+  bool get isConfigured => _isConfigured();
 
   bool _isNetworkAvailable = true;
+  bool _supabaseInitialized = false;
 
-  SupabaseService() {
+  SupabaseService({
+    UserRepository? userRepository,
+    bool Function()? isConfiguredForTesting,
+    Future<bool> Function()? initializeSupabaseForTesting,
+    Future<bool> Function()? checkNetworkAvailableForTesting,
+    SupabaseClient Function()? clientForTesting,
+  }) : _userRepo = userRepository ?? UserRepository(),
+       _isConfigured =
+           isConfiguredForTesting ?? (() => SupabaseConfig.isConfigured),
+       _initializeSupabase =
+           initializeSupabaseForTesting ??
+           SupabaseInitializer.ensureInitialized,
+       _checkNetworkAvailable =
+           checkNetworkAvailableForTesting ?? _defaultNetworkAvailable,
+       _clientProvider = clientForTesting ?? (() => Supabase.instance.client) {
     _checkNetworkAvailability();
   }
 
-  Future<void> _checkNetworkAvailability() async {
+  static Future<bool> _defaultNetworkAvailable() async {
     final connectivityResult = await Connectivity().checkConnectivity();
-    _isNetworkAvailable = !connectivityResult.contains(ConnectivityResult.none);
+    return !connectivityResult.contains(ConnectivityResult.none);
+  }
+
+  Future<void> _checkNetworkAvailability() async {
+    _isNetworkAvailable = await _checkNetworkAvailable();
   }
 
   Future<bool> refreshAvailability() async {
     await _checkNetworkAvailability();
-    return isAvailable;
+    return _ensureSupabaseReady();
+  }
+
+  Future<bool> _prepareRemoteAccess() async {
+    await _checkNetworkAvailability();
+    return _ensureSupabaseReady();
+  }
+
+  Future<bool> _ensureSupabaseReady() async {
+    if (!_isConfigured() || !_isNetworkAvailable) {
+      _supabaseInitialized = false;
+      return false;
+    }
+    try {
+      _supabaseInitialized = await _initializeSupabase();
+      return _supabaseInitialized;
+    } catch (e) {
+      _supabaseInitialized = false;
+      safeDebugLog('Supabase initialization unavailable', error: e);
+      return false;
+    }
   }
 
   Future<AuthResult> signIn(
@@ -85,7 +162,7 @@ class SupabaseService {
   }) async {
     try {
       await _checkNetworkAvailability();
-      if (!SupabaseConfig.isConfigured) {
+      if (!_isConfigured()) {
         return AuthResult(
           success: false,
           error:
@@ -94,6 +171,12 @@ class SupabaseService {
       }
       if (!_isNetworkAvailable) {
         return AuthResult(success: false, error: 'offline');
+      }
+      if (!await _ensureSupabaseReady()) {
+        return AuthResult(
+          success: false,
+          error: 'Supabase is still initializing. Try again in a moment.',
+        );
       }
 
       final response = await _client.auth.signInWithPassword(
@@ -128,7 +211,7 @@ class SupabaseService {
     } on SocketException {
       return AuthResult(success: false, error: 'offline');
     } catch (e) {
-      debugPrint('Supabase sign-in failed: $e');
+      safeDebugLog('Supabase sign-in failed', error: e);
       final msg = e.toString().toLowerCase();
       if (msg.contains('socket') ||
           msg.contains('failed host') ||
@@ -148,7 +231,7 @@ class SupabaseService {
   ) async {
     try {
       await _checkNetworkAvailability();
-      if (!SupabaseConfig.isConfigured) {
+      if (!_isConfigured()) {
         return AuthResult(
           success: false,
           error:
@@ -157,6 +240,12 @@ class SupabaseService {
       }
       if (!_isNetworkAvailable) {
         return AuthResult(success: false, error: 'offline');
+      }
+      if (!await _ensureSupabaseReady()) {
+        return AuthResult(
+          success: false,
+          error: 'Supabase is still initializing. Try again in a moment.',
+        );
       }
 
       final response = await _client.auth.signUp(
@@ -186,7 +275,7 @@ class SupabaseService {
     } on AuthException catch (e) {
       return AuthResult(success: false, error: e.message);
     } catch (e) {
-      debugPrint('Supabase sign-up failed: $e');
+      safeDebugLog('Supabase sign-up failed', error: e);
       return AuthResult(
         success: false,
         error: 'Account creation failed: ${_cleanError(e)}',
@@ -200,8 +289,7 @@ class SupabaseService {
 
   Future<bool> sendPasswordReset(String email) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return false;
+      if (!await _prepareRemoteAccess()) return false;
       await _client.auth.resetPasswordForEmail(email);
       return true;
     } on AuthException {
@@ -213,150 +301,128 @@ class SupabaseService {
 
   Future<void> signOut() async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _client.auth.signOut();
     } catch (_) {}
   }
 
-  Future<void> syncAudit(Map<String, dynamic> audit) async {
-    try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
-      await _upsertWithFallback('audits', audit);
-    } catch (e) {
-      debugPrint('Supabase audit sync failed: $e');
-    }
-  }
-
   Future<void> syncAuditSession(Map<String, dynamic> session) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('audit_sessions', session);
     } catch (e) {
-      debugPrint('Supabase audit session sync failed: $e');
-    }
-  }
-
-  Future<void> syncDeleteAudit(String id) async {
-    try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
-      await _client.from('audits').delete().eq('id', id);
-    } catch (e) {
-      debugPrint('Supabase audit delete sync failed: $e');
+      safeDebugLog('Supabase audit session sync failed', error: e);
     }
   }
 
   Future<void> syncCustomer(Map<String, dynamic> customer) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('customers', customer);
     } catch (e) {
-      debugPrint('Supabase customer sync failed: $e');
+      safeDebugLog('Supabase customer sync failed', error: e);
     }
   }
 
   Future<void> syncFlock(Map<String, dynamic> flock) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('flocks', flock);
     } catch (e) {
-      debugPrint('Supabase flock sync failed: $e');
+      safeDebugLog('Supabase flock sync failed', error: e);
     }
   }
 
   Future<void> syncHatchery(Map<String, dynamic> hatchery) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('hatcheries', hatchery);
     } catch (e) {
-      debugPrint('Supabase hatchery sync failed: $e');
-    }
-  }
-
-  Future<void> syncTemperatureSession(Map<String, dynamic> session) async {
-    try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
-      await _upsertWithFallback('temperature_sessions', session);
-    } catch (e) {
-      debugPrint('Supabase temperature session sync failed: $e');
-    }
-  }
-
-  Future<void> syncTemperatureReadings(
-    List<Map<String, dynamic>> readings,
-  ) async {
-    try {
-      await _checkNetworkAvailability();
-      if (!isAvailable || readings.isEmpty) return;
-      final rows = readings.map(_snakeCaseKeys).toList();
-      await _client.from('temperature_readings').upsert(rows);
-    } catch (e) {
-      debugPrint('Supabase temperature readings sync failed: $e');
+      safeDebugLog('Supabase hatchery sync failed', error: e);
     }
   }
 
   Future<void> upsertRows(String table, List<Map<String, dynamic>> rows) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable || rows.isEmpty) return;
+      if (rows.isEmpty || !await _prepareRemoteAccess()) return;
       await _upsertRowsWithFallback(table, rows);
     } catch (e) {
-      debugPrint('Supabase $table sync failed: $e');
+      safeDebugLog('Supabase sync failed for $table', error: e);
+    }
+  }
+
+  Future<void> upsertRowsStrict(
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (rows.isEmpty) return;
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
+    await _upsertRowsWithFallback(table, rows);
+  }
+
+  Future<void> deleteRows(String table, List<String> ids) async {
+    final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
+    if (rowIds.isEmpty || !await _prepareRemoteAccess()) return;
+    final idColumn = _remoteDeleteIdColumn(table);
+    try {
+      await _client.from(table).delete().inFilter(idColumn, rowIds);
+    } catch (_) {
+      await _client.from(table).delete().inFilter(_camelize(idColumn), rowIds);
     }
   }
 
   Future<void> syncUpdateFlock(Map<String, dynamic> flock) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _upsertWithFallback('flocks', flock);
     } catch (e) {
-      debugPrint('Supabase flock update sync failed: $e');
+      safeDebugLog('Supabase flock update sync failed', error: e);
     }
   }
 
   Future<void> syncDeleteFlock(String id) async {
     try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return;
+      if (!await _prepareRemoteAccess()) return;
       await _client.from('flocks').delete().eq('id', id);
     } catch (e) {
-      debugPrint('Supabase flock delete sync failed: $e');
+      safeDebugLog('Supabase flock delete sync failed', error: e);
     }
   }
 
   Future<void> uploadPhoto(PhotoModel photo) async {
-    await _checkNetworkAvailability();
-    if (!isAvailable) return;
+    if (!await _prepareRemoteAccess()) return;
 
     final file = File(photo.filePath);
     final bytes = await file.readAsBytes();
     final extension = _fileExtension(photo.filePath);
-    final storagePath = '${photo.auditId}/${photo.id}.$extension';
+    final storagePath =
+        '${photo.sessionId}/${photo.panelName}/${photo.panelRowId}/${photo.id}.$extension';
 
-    await _client.storage.from('photos').uploadBinary(
-      storagePath,
-      bytes,
-      fileOptions: FileOptions(
-        upsert: true,
-        contentType: _contentTypeForExtension(extension),
-      ),
-    );
+    await _client.storage
+        .from('photos')
+        .uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            upsert: true,
+            contentType: _contentTypeForExtension(extension),
+          ),
+        );
 
-    final publicUrl = _client.storage.from('photos').getPublicUrl(storagePath);
+    final remotePhotoPath = SupabaseSecurityPolicy.isPublicPhotoUrlEnabled
+        ? _client.storage.from('photos').getPublicUrl(storagePath)
+        : 'supabase://photos/$storagePath';
     await _upsertWithFallback('photos', {
       'id': photo.id,
-      'filePath': publicUrl,
+      'filePath': remotePhotoPath,
       'description': photo.description,
       'createdAt': photo.createdAt.toIso8601String(),
-      'auditId': photo.auditId,
+      'sessionId': photo.sessionId,
+      'panelName': photo.panelName,
+      'panelRowId': photo.panelRowId,
+      'fieldKey': photo.fieldKey,
       'uploadStatus': 'synced',
     });
   }
@@ -364,234 +430,102 @@ class SupabaseService {
   Future<SupabasePullSummary> pullFromSupabase({
     required Future<void> Function(Map<String, dynamic>) upsertCustomer,
     required Future<void> Function(Map<String, dynamic>) upsertFlock,
-    required Future<void> Function(Map<String, dynamic>) upsertAudit,
     Future<void> Function(Map<String, dynamic>)? upsertHatchery,
     Future<void> Function(Map<String, dynamic>)? upsertAuditSession,
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
-    Future<void> Function(Map<String, dynamic>)? upsertTemperatureSession,
-    Future<void> Function(Map<String, dynamic>)? upsertTemperatureReading,
+    Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
+    Future<void> Function(String table, Map<String, dynamic> row)?
+    upsertPanelRow,
+    Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     var summary = const SupabasePullSummary();
-    try {
-      await _checkNetworkAvailability();
-      if (!isAvailable) return summary;
-      final customers = await _client.from('customers').select();
-      summary = SupabasePullSummary(
-        customers: customers.length,
-        flocks: summary.flocks,
-        hatcheries: summary.hatcheries,
-        audits: summary.audits,
-        auditSessions: summary.auditSessions,
-        photos: summary.photos,
-        bmkBreeds: summary.bmkBreeds,
-        bmkEggBreakout: summary.bmkEggBreakout,
-        temperatureSessions: summary.temperatureSessions,
-        temperatureReadings: summary.temperatureReadings,
-      );
-      debugPrint('Supabase pull: ${customers.length} customers');
-      for (final row in customers) {
-        await upsertCustomer(Map<String, dynamic>.from(row));
-      }
-      final flocks = await _client.from('flocks').select();
-      summary = SupabasePullSummary(
-        customers: summary.customers,
-        flocks: flocks.length,
-        hatcheries: summary.hatcheries,
-        audits: summary.audits,
-        auditSessions: summary.auditSessions,
-        photos: summary.photos,
-        bmkBreeds: summary.bmkBreeds,
-        bmkEggBreakout: summary.bmkEggBreakout,
-        temperatureSessions: summary.temperatureSessions,
-        temperatureReadings: summary.temperatureReadings,
-      );
-      debugPrint('Supabase pull: ${flocks.length} flocks');
-      for (final row in flocks) {
-        await upsertFlock(Map<String, dynamic>.from(row));
-      }
-      if (upsertHatchery != null) {
-        try {
-          final hatcheries = await _client.from('hatcheries').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: hatcheries.length,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${hatcheries.length} hatcheries');
-          for (final row in hatcheries) {
-            await upsertHatchery(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase hatchery pull skipped: $e');
+    Future<int> pullTable(
+      String table,
+      Future<void> Function(Map<String, dynamic>) upsert, {
+      bool required = false,
+    }) async {
+      try {
+        final rows = await _client.from(table).select();
+        safeDebugLog('Supabase pull: ${rows.length} $table rows');
+        for (final row in rows) {
+          await upsert(Map<String, dynamic>.from(row));
         }
+        return rows.length;
+      } catch (e) {
+        if (required) rethrow;
+        safeDebugLog('Supabase $table pull skipped', error: e);
+        return 0;
       }
-      final audits = await _client.from('audits').select();
-      summary = SupabasePullSummary(
-        customers: summary.customers,
-        flocks: summary.flocks,
-        hatcheries: summary.hatcheries,
-        audits: audits.length,
-        auditSessions: summary.auditSessions,
-        photos: summary.photos,
-        bmkBreeds: summary.bmkBreeds,
-        bmkEggBreakout: summary.bmkEggBreakout,
-        temperatureSessions: summary.temperatureSessions,
-        temperatureReadings: summary.temperatureReadings,
+    }
+
+    try {
+      if (!await _prepareRemoteAccess()) return summary;
+      summary = summary.copyWith(
+        customers: await pullTable('customers', upsertCustomer, required: true),
       );
-      debugPrint('Supabase pull: ${audits.length} audits');
-      for (final row in audits) {
-        await upsertAudit(Map<String, dynamic>.from(row));
+      if (upsertHatchery != null) {
+        summary = summary.copyWith(
+          hatcheries: await pullTable('hatcheries', upsertHatchery),
+        );
+      }
+      summary = summary.copyWith(
+        flocks: await pullTable('flocks', upsertFlock, required: true),
+      );
+      if (upsertHatchery != null) {
+        // Already pulled before flocks so local FK dependencies are available.
       }
       if (upsertAuditSession != null) {
-        try {
-          final sessions = await _client.from('audit_sessions').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: sessions.length,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${sessions.length} audit sessions');
-          for (final row in sessions) {
-            await upsertAuditSession(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase audit session pull skipped: $e');
-        }
+        summary = summary.copyWith(
+          auditSessions: await pullTable('audit_sessions', upsertAuditSession),
+        );
       }
       if (upsertPhoto != null) {
-        try {
-          final photos = await _client.from('photos').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: photos.length,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${photos.length} photos');
-          for (final row in photos) {
-            await upsertPhoto(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase photo pull skipped: $e');
-        }
+        summary = summary.copyWith(
+          photos: await pullTable('photos', upsertPhoto),
+        );
       }
       if (upsertBmkBreed != null) {
-        try {
-          final breeds = await _client.from('bmk_breeds').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: breeds.length,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${breeds.length} BMK breed rows');
-          for (final row in breeds) {
-            await upsertBmkBreed(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase BMK breed pull skipped: $e');
-        }
+        summary = summary.copyWith(
+          bmkBreeds: await pullTable('bmk_breeds', upsertBmkBreed),
+        );
       }
       if (upsertBmkEggBreakout != null) {
-        try {
-          final breakout = await _client.from('bmk_egg_breakout').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: breakout.length,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${breakout.length} BMK egg breakout rows');
-          for (final row in breakout) {
-            await upsertBmkEggBreakout(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase BMK egg breakout pull skipped: $e');
-        }
+        summary = summary.copyWith(
+          bmkEggBreakout: await pullTable(
+            'bmk_egg_breakout',
+            upsertBmkEggBreakout,
+          ),
+        );
       }
-      if (upsertTemperatureSession != null) {
-        try {
-          final sessions = await _client.from('temperature_sessions').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: sessions.length,
-            temperatureReadings: summary.temperatureReadings,
-          );
-          debugPrint('Supabase pull: ${sessions.length} temperature sessions');
-          for (final row in sessions) {
-            await upsertTemperatureSession(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase temperature session pull skipped: $e');
-        }
+      if (upsertGoveeDailyCapture != null) {
+        summary = summary.copyWith(
+          goveeDailyCaptures: await pullTable(
+            'govee_daily_captures',
+            upsertGoveeDailyCapture,
+          ),
+        );
       }
-      if (upsertTemperatureReading != null) {
-        try {
-          final readings = await _client.from('temperature_readings').select();
-          summary = SupabasePullSummary(
-            customers: summary.customers,
-            flocks: summary.flocks,
-            hatcheries: summary.hatcheries,
-            audits: summary.audits,
-            auditSessions: summary.auditSessions,
-            photos: summary.photos,
-            bmkBreeds: summary.bmkBreeds,
-            bmkEggBreakout: summary.bmkEggBreakout,
-            temperatureSessions: summary.temperatureSessions,
-            temperatureReadings: readings.length,
-          );
-          debugPrint('Supabase pull: ${readings.length} temperature readings');
-          for (final row in readings) {
-            await upsertTemperatureReading(Map<String, dynamic>.from(row));
-          }
-        } catch (e) {
-          debugPrint('Supabase temperature reading pull skipped: $e');
+      if (upsertPanelRow != null) {
+        var count = 0;
+        for (final panel in PanelSampleSchema.panels) {
+          count += await pullTable(panel.tableName, (row) {
+            return upsertPanelRow(panel.tableName, row);
+          });
         }
+        summary = summary.copyWith(panelRows: count);
       }
-    } catch (e, stackTrace) {
-      debugPrint('Supabase pull failed: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      if (upsertSyncTombstone != null) {
+        summary = summary.copyWith(
+          syncTombstones: await pullTable(
+            'sync_tombstones',
+            upsertSyncTombstone,
+          ),
+        );
+      }
+    } catch (e) {
+      safeDebugLog('Supabase pull failed', error: e);
     }
     return summary;
   }
@@ -600,10 +534,11 @@ class SupabaseService {
     String table,
     Map<String, dynamic> row,
   ) async {
+    final safeRow = _stripLocalOnlyColumns(table, row);
     try {
-      await _client.from(table).upsert(_snakeCaseKeys(row));
+      await _client.from(table).upsert(_snakeCaseKeys(safeRow));
     } catch (_) {
-      await _client.from(table).upsert(row);
+      await _client.from(table).upsert(safeRow);
     }
   }
 
@@ -611,11 +546,19 @@ class SupabaseService {
     String table,
     List<Map<String, dynamic>> rows,
   ) async {
+    final safeRows = rows.map((row) => _stripLocalOnlyColumns(table, row));
     try {
-      await _client.from(table).upsert(rows.map(_snakeCaseKeys).toList());
+      await _client.from(table).upsert(safeRows.map(_snakeCaseKeys).toList());
     } catch (_) {
-      await _client.from(table).upsert(rows);
+      await _client.from(table).upsert(safeRows.toList());
     }
+  }
+
+  Map<String, dynamic> _stripLocalOnlyColumns(
+    String table,
+    Map<String, dynamic> row,
+  ) {
+    return row;
   }
 
   Map<String, dynamic> _snakeCaseKeys(Map<String, dynamic> row) {
@@ -631,6 +574,13 @@ class SupabaseService {
       buffer.write(char.toLowerCase());
     }
     return buffer.toString();
+  }
+
+  String _remoteDeleteIdColumn(String table) {
+    if (table.startsWith('sample_') && table.endsWith('_details')) {
+      return 'sample_record_id';
+    }
+    return 'id';
   }
 
   String _fileExtension(String filePath) {
@@ -666,7 +616,7 @@ class SupabaseService {
       if (rows.isEmpty) return null;
       return Map<String, dynamic>.from(rows.first);
     } catch (e) {
-      debugPrint('Supabase user profile fetch skipped: $e');
+      safeDebugLog('Supabase user profile fetch skipped', error: e);
       return null;
     }
   }

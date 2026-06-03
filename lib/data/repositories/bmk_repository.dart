@@ -1,9 +1,60 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
+import '../models/bmk_breed_model.dart';
+import '../models/bmk_egg_breakout_model.dart';
 
 class BmkRepository {
-  final dbHelper = DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  BmkRepository({DatabaseHelper? dbHelper})
+    : dbHelper = dbHelper ?? DatabaseHelper();
+
+  Future<List<int>> getBreedAges(String breed) async {
+    final db = await dbHelper.db;
+    final results = await db.rawQuery(
+      '''
+      SELECT DISTINCT ageWeek
+      FROM bmk_breeds
+      WHERE breed = ?
+      ORDER BY ageWeek ASC
+      ''',
+      [breed],
+    );
+    return results.map((row) => row['ageWeek'] as int).toList();
+  }
+
+  Future<BmkBreedModel?> getBreedBenchmark(String breed, int ageWeek) async {
+    final db = await dbHelper.db;
+    final results = await db.query(
+      'bmk_breeds',
+      where: 'breed = ? AND ageWeek = ?',
+      whereArgs: [breed, ageWeek],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+    return BmkBreedModel.fromMap(results.first);
+  }
+
+  Future<List<int>> getEggBreakoutAges() async {
+    final db = await dbHelper.db;
+    final results = await db.rawQuery(
+      'SELECT DISTINCT ageWeek FROM bmk_egg_breakout ORDER BY ageWeek ASC',
+    );
+    return results.map((row) => row['ageWeek'] as int).toList();
+  }
+
+  Future<BmkEggBreakoutModel?> getEggBreakoutBenchmark(int ageWeek) async {
+    final db = await dbHelper.db;
+    final results = await db.query(
+      'bmk_egg_breakout',
+      where: 'ageWeek = ?',
+      whereArgs: [ageWeek],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+    return BmkEggBreakoutModel.fromMap(results.first);
+  }
 
   Future<void> upsertBmkBreed(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
@@ -51,9 +102,6 @@ class BmkRepository {
       normalized[_camelize(entry.key)] = entry.value;
     }
     _copyAlias(normalized, from: 'ageWeeks', to: 'ageWeek');
-    _copyAlias(normalized, from: 'midDeadPct', to: 'earlyDeadPct');
-    _copyAlias(normalized, from: 'blackEyePct', to: 'midBlackEyePct');
-    _copyAlias(normalized, from: 'pippedInternalPct', to: 'internalPipPct');
     _copyAlias(normalized, from: 'pippedExternalPct', to: 'externalPipPct');
     return normalized;
   }

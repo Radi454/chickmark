@@ -14,14 +14,16 @@ class MockActivityLogRepository extends Mock implements ActivityLogRepository {}
 
 void main() {
   setUpAll(() {
-    registerFallbackValue(UserModel(
-      id: 'fallback',
-      fullName: 'Fallback',
-      email: 'fallback@example.com',
-      role: 'auditor',
-      status: 'approved',
-      createdAt: DateTime(2024),
-    ));
+    registerFallbackValue(
+      UserModel(
+        id: 'fallback',
+        fullName: 'Fallback',
+        email: 'fallback@example.com',
+        role: 'auditor',
+        status: 'approved',
+        createdAt: DateTime(2024),
+      ),
+    );
   });
 
   late MockSupabaseService mockSupabase;
@@ -32,41 +34,41 @@ void main() {
   const email = 'test@example.com';
   const password = 'Test.12345';
 
-  UserModel _approvedSupabaseUser() => UserModel(
-        id: 'supabase-user-123',
-        fullName: 'Test User',
-        email: email,
-        role: 'auditor',
-        status: 'approved',
-        accessToken: 'valid-token',
-        tokenExpiry: DateTime.now().add(const Duration(hours: 1)),
-        createdAt: DateTime.now(),
-        lastLoginAt: DateTime.now(),
-      );
+  UserModel approvedSupabaseUser() => UserModel(
+    id: 'supabase-user-123',
+    fullName: 'Test User',
+    email: email,
+    role: 'auditor',
+    status: 'approved',
+    accessToken: 'valid-token',
+    tokenExpiry: DateTime.now().add(const Duration(hours: 1)),
+    createdAt: DateTime.now(),
+    lastLoginAt: DateTime.now(),
+  );
 
-  UserModel _pendingSupabaseUser() => UserModel(
-        id: 'supabase-user-456',
-        fullName: 'Pending User',
-        email: email,
-        role: 'auditor',
-        status: 'pending',
-        accessToken: 'valid-token',
-        tokenExpiry: DateTime.now().add(const Duration(hours: 1)),
-        createdAt: DateTime.now(),
-        lastLoginAt: DateTime.now(),
-      );
+  UserModel pendingSupabaseUser() => UserModel(
+    id: 'supabase-user-456',
+    fullName: 'Pending User',
+    email: email,
+    role: 'auditor',
+    status: 'pending',
+    accessToken: 'valid-token',
+    tokenExpiry: DateTime.now().add(const Duration(hours: 1)),
+    createdAt: DateTime.now(),
+    lastLoginAt: DateTime.now(),
+  );
 
-  UserModel _localUser(String passwordHash) => UserModel(
-        id: 'local-test-abc',
-        fullName: 'Local User',
-        email: email,
-        role: 'auditor',
-        status: 'approved',
-        accessToken: passwordHash,
-        tokenExpiry: DateTime.now().add(const Duration(days: 30)),
-        createdAt: DateTime.now(),
-        lastLoginAt: DateTime.now(),
-      );
+  UserModel localUserFixture(String passwordHash) => UserModel(
+    id: 'local-test-abc',
+    fullName: 'Local User',
+    email: email,
+    role: 'auditor',
+    status: 'approved',
+    accessToken: passwordHash,
+    tokenExpiry: DateTime.now().add(const Duration(days: 30)),
+    createdAt: DateTime.now(),
+    lastLoginAt: DateTime.now(),
+  );
 
   setUp(() {
     mockSupabase = MockSupabaseService();
@@ -81,9 +83,29 @@ void main() {
   });
 
   group('checkCachedToken', () {
+    test(
+      'auth bypass request activates the development auditor in debug builds',
+      () async {
+        provider = AuthProvider(
+          userRepository: mockRepo,
+          activityLogRepository: mockActivityLog,
+          supabaseService: mockSupabase,
+          bypassAuth: true,
+        );
+        when(() => mockRepo.getCachedUser()).thenAnswer((_) async => null);
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.user?.email, 'dev-auditor@chickmark.local');
+        verifyNever(() => mockRepo.getCachedUser());
+      },
+    );
+
     test('authenticated when valid cached user exists', () async {
-      when(() => mockRepo.getCachedUser())
-          .thenAnswer((_) async => _approvedSupabaseUser());
+      when(
+        () => mockRepo.getCachedUser(),
+      ).thenAnswer((_) async => approvedSupabaseUser());
 
       await provider.checkCachedToken();
 
@@ -114,7 +136,7 @@ void main() {
           rememberSession: any(named: 'rememberSession'),
         ),
       ).thenAnswer(
-        (_) async => AuthResult(success: true, user: _approvedSupabaseUser()),
+        (_) async => AuthResult(success: true, user: approvedSupabaseUser()),
       );
 
       final result = await provider.login(email, password);
@@ -131,7 +153,7 @@ void main() {
           rememberSession: any(named: 'rememberSession'),
         ),
       ).thenAnswer(
-        (_) async => AuthResult(success: true, user: _pendingSupabaseUser()),
+        (_) async => AuthResult(success: true, user: pendingSupabaseUser()),
       );
 
       final result = await provider.login(email, password);
@@ -149,14 +171,13 @@ void main() {
           password,
           rememberSession: any(named: 'rememberSession'),
         ),
-      ).thenAnswer(
-        (_) async => AuthResult(success: false, error: 'offline'),
-      );
+      ).thenAnswer((_) async => AuthResult(success: false, error: 'offline'));
     });
 
     test('authenticated using cached Supabase session', () async {
-      when(() => mockRepo.getCachedUserByEmail(email))
-          .thenAnswer((_) async => _approvedSupabaseUser());
+      when(
+        () => mockRepo.getCachedUserByEmail(email),
+      ).thenAnswer((_) async => approvedSupabaseUser());
 
       final result = await provider.login(email, password);
 
@@ -165,14 +186,17 @@ void main() {
     });
 
     test('authenticated using local account with correct password', () async {
-      when(() => mockRepo.getCachedUserByEmail(email))
-          .thenAnswer((_) async => null);
-      final hash = provider.hashPasswordForTesting(password);
-      final localUser = _localUser(hash);
-      when(() => mockRepo.getUserByEmail(email))
-          .thenAnswer((_) async => localUser);
-      when(() => mockRepo.cacheToken(any(), any(), any()))
-          .thenAnswer((_) async {});
+      when(
+        () => mockRepo.getCachedUserByEmail(email),
+      ).thenAnswer((_) async => null);
+      final hash = provider.hashPasswordForTesting(password, iterations: 1000);
+      final localUser = localUserFixture(hash);
+      when(
+        () => mockRepo.getUserByEmail(email),
+      ).thenAnswer((_) async => localUser);
+      when(
+        () => mockRepo.cacheToken(any(), any(), any()),
+      ).thenAnswer((_) async {});
 
       final result = await provider.login(email, password);
 
@@ -181,8 +205,9 @@ void main() {
     });
 
     test('error when no cached user and no local account', () async {
-      when(() => mockRepo.getCachedUserByEmail(email))
-          .thenAnswer((_) async => null);
+      when(
+        () => mockRepo.getCachedUserByEmail(email),
+      ).thenAnswer((_) async => null);
       when(() => mockRepo.getUserByEmail(email)).thenAnswer((_) async => null);
 
       final result = await provider.login(email, password);
@@ -193,11 +218,16 @@ void main() {
     });
 
     test('error when local account has wrong password', () async {
-      when(() => mockRepo.getCachedUserByEmail(email))
-          .thenAnswer((_) async => null);
-      final wrongHash = provider.hashPasswordForTesting('wrong-password');
-      when(() => mockRepo.getUserByEmail(email))
-          .thenAnswer((_) async => _localUser(wrongHash));
+      when(
+        () => mockRepo.getCachedUserByEmail(email),
+      ).thenAnswer((_) async => null);
+      final wrongHash = provider.hashPasswordForTesting(
+        'wrong-password',
+        iterations: 1000,
+      );
+      when(
+        () => mockRepo.getUserByEmail(email),
+      ).thenAnswer((_) async => localUserFixture(wrongHash));
 
       final result = await provider.login(email, password);
 
@@ -238,9 +268,7 @@ void main() {
           password,
           rememberSession: any(named: 'rememberSession'),
         ),
-      ).thenAnswer(
-        (_) async => AuthResult(success: false, error: configError),
-      );
+      ).thenAnswer((_) async => AuthResult(success: false, error: configError));
 
       await provider.login(email, password);
 
@@ -250,18 +278,17 @@ void main() {
   });
 
   group('password hashing', () {
-    test('v2 hash verifies correctly', () {
-      final hash = provider.hashPasswordForTesting(password);
+    test('v3 PBKDF2 hash includes algorithm and iteration metadata', () {
+      final hash = provider.hashPasswordForTesting(password, iterations: 1000);
 
-      expect(hash, startsWith('v2:'));
-      // Verify via a second login with correct password succeeds
+      expect(hash, startsWith('v3:pbkdf2-sha256:1000:'));
       final parts = hash.split(':');
-      expect(parts.length, 3);
+      expect(parts.length, 5);
     });
 
     test('same password produces different hashes (salted)', () {
-      final hash1 = provider.hashPasswordForTesting(password);
-      final hash2 = provider.hashPasswordForTesting(password);
+      final hash1 = provider.hashPasswordForTesting(password, iterations: 1000);
+      final hash2 = provider.hashPasswordForTesting(password, iterations: 1000);
 
       expect(hash1, isNot(equals(hash2)));
     });

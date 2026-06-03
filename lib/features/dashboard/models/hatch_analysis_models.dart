@@ -1,3 +1,5 @@
+import '../../../core/utils/calculation_utils.dart';
+
 class HatchAnalysisAvg {
   final double hatchabilityPct;
   final double fertilityPct;
@@ -80,26 +82,17 @@ class HatchBudgetSummary {
     this.contaminatedExploders = 0,
   });
 
-  double get healthyHatchedPct =>
-      totalEggsSet > 0 ? (healthyHatched / totalEggsSet) * 100 : 0.0;
-  double get culledPct =>
-      totalEggsSet > 0 ? (culled / totalEggsSet) * 100 : 0.0;
-  double get deadAtHatchPct =>
-      totalEggsSet > 0 ? (deadAtHatch / totalEggsSet) * 100 : 0.0;
-  double get pippedPct =>
-      totalEggsSet > 0 ? (pipped / totalEggsSet) * 100 : 0.0;
-  double get infertileClearPct =>
-      totalEggsSet > 0 ? (infertileClear / totalEggsSet) * 100 : 0.0;
-  double get earlyDeadPct =>
-      totalEggsSet > 0 ? (earlyDead / totalEggsSet) * 100 : 0.0;
-  double get midDeadPct =>
-      totalEggsSet > 0 ? (midDead / totalEggsSet) * 100 : 0.0;
-  double get midLateDeadPct =>
-      totalEggsSet > 0 ? (midLateDead / totalEggsSet) * 100 : 0.0;
-  double get lateDeadPct =>
-      totalEggsSet > 0 ? (lateDead / totalEggsSet) * 100 : 0.0;
+  double get healthyHatchedPct => _pct(healthyHatched, totalEggsSet);
+  double get culledPct => _pct(culled, totalEggsSet);
+  double get deadAtHatchPct => _pct(deadAtHatch, totalEggsSet);
+  double get pippedPct => _pct(pipped, totalEggsSet);
+  double get infertileClearPct => _pct(infertileClear, totalEggsSet);
+  double get earlyDeadPct => _pct(earlyDead, totalEggsSet);
+  double get midDeadPct => _pct(midDead, totalEggsSet);
+  double get midLateDeadPct => _pct(midLateDead, totalEggsSet);
+  double get lateDeadPct => _pct(lateDead, totalEggsSet);
   double get contaminatedExplodersPct =>
-      totalEggsSet > 0 ? (contaminatedExploders / totalEggsSet) * 100 : 0.0;
+      _pct(contaminatedExploders, totalEggsSet);
 
   factory HatchBudgetSummary.fromMap(Map<String, dynamic> map) {
     return HatchBudgetSummary(
@@ -130,6 +123,10 @@ class HatchBudgetSummary {
     'lateDead': lateDeadPct,
     'contaminatedExploders': contaminatedExplodersPct,
   };
+}
+
+double _pct(num count, num total) {
+  return CalculationUtils.percentOf(count, total) ?? 0.0;
 }
 
 class HatchBenchmarkStatus {

@@ -2,13 +2,13 @@ class AppSizes {
   AppSizes._();
 
   // ── Radius ──
-  static const double cardRadius = 14.0;
-  static const double buttonRadius = 12.0;
+  static const double cardRadius = 10.0;
+  static const double buttonRadius = 10.0;
   static const double badgeRadius = 8.0;
-  static const double iconRadius = 12.0;
-  static const double inputRadius = 12.0;
-  static const double sheetRadius = 24.0;
-  static const double dialogRadius = 14.0;
+  static const double iconRadius = 10.0;
+  static const double inputRadius = 10.0;
+  static const double sheetRadius = 20.0;
+  static const double dialogRadius = 10.0;
   static const double pillRadius = 999.0;
 
   // ── Spacing (8pt grid) ──

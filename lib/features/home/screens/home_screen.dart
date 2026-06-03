@@ -6,24 +6,31 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/navigation/shell_navigation_scope.dart';
+import 'package:hatchaudit/core/security/security_policy.dart';
 import 'package:hatchaudit/core/utils/audit_type_labels.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
+import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
-import 'package:hatchaudit/data/models/audit_model.dart';
-import 'package:hatchaudit/widgets/status_badge.dart';
+import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
+import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
+import 'package:hatchaudit/features/audits/screens/audit_station_selection_screen.dart';
 import 'package:hatchaudit/features/customers/widgets/add_customer_sheet.dart';
 import 'package:hatchaudit/features/customers/screens/customer_detail_screen.dart';
-import 'package:hatchaudit/features/customers/screens/audit_detail_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/home/providers/home_provider.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
+import 'package:hatchaudit/widgets/chick_mark_logo.dart';
+import 'package:hatchaudit/widgets/flock_pair_icon.dart';
 import 'package:hatchaudit/widgets/scale_button.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final bool loadInitialData;
+
+  const HomeScreen({super.key, this.loadInitialData = true});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -38,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _homeProvider = HomeProvider();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!widget.loadInitialData) return;
       final currentUser = context.read<AuthProvider>().user;
       context.read<CustomersProvider>().loadCustomers(currentUser: currentUser);
       _homeProvider.load(currentUser: currentUser);
@@ -53,7 +61,20 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(title: 'ChickMark'),
+      appBar: const GradientAppBar(
+        title: 'ChickMark',
+        titleLeading: SizedBox(
+          key: ValueKey('home-appbar-logo'),
+          width: 30,
+          height: 30,
+          child: ChickMarkLogo(
+            logoSize: 30,
+            showWordmark: false,
+            showTagline: false,
+            compact: true,
+          ),
+        ),
+      ),
       body: ChangeNotifierProvider<HomeProvider>.value(
         value: _homeProvider,
         child: Consumer3<CustomersProvider, SettingsProvider, HomeProvider>(
@@ -72,29 +93,28 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSizes.spaceMd,
+                  AppSizes.spaceMd,
+                  AppSizes.spaceMd,
+                  AppSizes.cardPadding,
+                ),
                 children: [
                   _buildKpiRow(home),
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildQuickActions(context),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildRecentAudits(provider, home),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildAuditBreakdown(home),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildStatsRow(provider),
                   const SizedBox(height: AppSizes.spaceLg),
-                  _buildActionButtons(context),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildTodayFocus(provider),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildContinueActiveAudits(provider),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildAttentionNeeded(context, provider),
-                  const SizedBox(height: AppSizes.spaceXl),
+                  _buildRecentAudits(provider, home),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _buildTodayFocus(provider, home),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _buildContinueActiveAudits(provider, home),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _buildAttentionNeeded(context, provider, home),
+                  const SizedBox(height: AppSizes.spaceLg),
                   _buildQuickShortcuts(provider),
-                  const SizedBox(height: AppSizes.spaceXl),
-                  _buildSyncStatus(context, provider, settings),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _buildSyncStatus(context, provider, settings, home),
                   const SizedBox(height: AppSizes.fabBottomPadding),
                 ],
               ),
@@ -108,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildKpiRow(HomeProvider provider) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useRow = constraints.maxWidth >= 700;
+        final useRow = constraints.maxWidth >= 360;
         final cards = [
           _KpiCard(
             label: 'Audits this month',
@@ -118,7 +138,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _KpiCard(
             label: 'Active flocks',
             value: provider.activeFlocksCount.toString(),
-            icon: Icons.egg_alt_outlined,
+            iconWidget: const FlockPairIcon(
+              key: ValueKey('home-active-flocks-flock-icon'),
+              color: AppColors.primary,
+              size: 20,
+            ),
           ),
           _KpiCard(
             label: 'Last audit',
@@ -128,13 +152,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ];
 
         if (useRow) {
-          return Row(
-            children: [
-              for (var i = 0; i < cards.length; i++) ...[
-                if (i > 0) const SizedBox(width: AppSizes.spaceMd),
-                Expanded(child: cards[i]),
+          return SizedBox(
+            height: 104,
+            child: Row(
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSizes.spaceSm),
+                  Expanded(child: cards[i]),
+                ],
               ],
-            ],
+            ),
           );
         }
 
@@ -151,7 +178,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildQuickActions(BuildContext context) {
-    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+    final canEdit =
+        AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+        (context.watch<AuthProvider>().user?.canEditAudits ?? false);
     return _HomeSection(
       title: 'Quick Actions',
       child: Row(
@@ -160,10 +189,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _QuickActionButton(
               label: 'New Audit',
               icon: Icons.add_circle_outline,
+              isPrimary: true,
               onTap: canEdit ? () => _openAuditTypeSelection(context) : null,
             ),
           ),
-          const SizedBox(width: AppSizes.spaceMd),
+          const SizedBox(width: AppSizes.spaceSm),
           Expanded(
             child: _QuickActionButton(
               label: 'Dashboard',
@@ -179,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildRecentAudits(CustomersProvider customers, HomeProvider home) {
     return _HomeSection(
       title: 'Recent Audits',
-      child: home.recentAudits.isEmpty
+      child: home.recentSessions.isEmpty
           ? const _EmptyHomeMessage(
               icon: Icons.history_outlined,
               title: 'No recent audits',
@@ -188,26 +218,25 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : Column(
               children: [
-                for (var i = 0; i < home.recentAudits.length; i++) ...[
-                  _RecentAuditTile(
-                    audit: home.recentAudits[i],
+                for (var i = 0; i < home.recentSessions.length; i++) ...[
+                  _RecentSessionTile(
+                    session: home.recentSessions[i],
                     customerName:
                         customers
-                            .customerById(home.recentAudits[i].customerId)
+                            .customerById(home.recentSessions[i].customerId)
                             ?.name ??
-                        home.recentAudits[i].customerId,
+                        home.recentSessions[i].customerId,
                     flockLabel:
                         customers
-                            .flockById(home.recentAudits[i].flockId)
+                            .flockById(home.recentSessions[i].flockId)
                             ?.flockId ??
-                        home.recentAudits[i].flockId ??
-                        '--',
+                        home.recentSessions[i].flockId,
                     breed: customers
-                        .flockById(home.recentAudits[i].flockId)
+                        .flockById(home.recentSessions[i].flockId)
                         ?.breed,
-                    onTap: () => _openAuditDetail(home.recentAudits[i]),
+                    onTap: () => _openSession(home.recentSessions[i]),
                   ),
-                  if (i < home.recentAudits.length - 1)
+                  if (i < home.recentSessions.length - 1)
                     const SizedBox(height: AppSizes.spaceMd),
                 ],
               ],
@@ -215,119 +244,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAuditBreakdown(HomeProvider provider) {
-    return _HomeSection(
-      title: 'Audit Type Breakdown',
-      child: provider.auditsByType.isEmpty
-          ? const _EmptyHomeMessage(
-              icon: Icons.bar_chart_outlined,
-              title: 'No audits this month',
-              message: 'The monthly audit mix will appear here.',
-              color: AppColors.primary,
-            )
-          : Column(
-              children: provider.auditsByType.entries.map((entry) {
-                final total = provider.auditsByType.values.fold<int>(
-                  0,
-                  (sum, value) => sum + value,
-                );
-                final ratio = total == 0 ? 0.0 : entry.value / total;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
-                  child: _BreakdownBar(
-                    label: AuditTypeLabels.forAuditType(entry.key),
-                    count: entry.value,
-                    ratio: ratio,
-                  ),
-                );
-              }).toList(),
-            ),
-    );
-  }
-
-  Widget _buildStatsRow(CustomersProvider provider) {
-    return Row(
-      children: [
-        Expanded(child: _buildStatCard('Customers', provider.customersCount)),
-        const SizedBox(width: AppSizes.spaceMd),
-        Expanded(
-          child: _buildStatCard('Active Audits', provider.activeAuditsCount),
-        ),
-        const SizedBox(width: AppSizes.spaceMd),
-        Expanded(
-          child: _buildStatCard('Total Audits', provider.totalAuditsCount),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String label, int value) {
-    return AppCard(
-      padding: const EdgeInsets.all(AppSizes.spaceMd),
-      child: Column(
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.caption,
-          ),
-          const SizedBox(height: AppSizes.spaceXs),
-          Text(
-            '$value',
-            style: AppTextStyles.metricLarge.copyWith(color: AppColors.primary),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButtons(BuildContext context) {
-    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
-    if (!canEdit) {
-      return const SizedBox.shrink();
-    }
-
-    return Row(
-      children: [
-        Expanded(
-          child: ScaleButton(
-            onTap: () => _showAddCustomerSheet(context),
-            child: OutlinedButton.icon(
-              onPressed: () => _showAddCustomerSheet(context),
-              icon: const Icon(Icons.add_business_outlined, size: 18),
-              label: const Text('New Customer'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceMd),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSizes.spaceMd),
-        Expanded(
-          child: ScaleButton(
-            onTap: () => _openAuditTypeSelection(context),
-            child: ElevatedButton.icon(
-              onPressed: () => _openAuditTypeSelection(context),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('New Audit'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceMd),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTodayFocus(CustomersProvider provider) {
-    final activeAudits = _activeAudits(provider);
-    final attentionCount = _attentionItems(context, provider).length;
+  Widget _buildTodayFocus(CustomersProvider provider, HomeProvider home) {
+    final activeAudits = home.activeSessions;
+    final attentionItems = _attentionItems(context, provider, home);
+    final attentionCount = attentionItems.length;
+    final canEdit =
+        AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+        (context.watch<AuthProvider>().user?.canEditAudits ?? false);
     final readyCustomers = provider.allCustomers.where((customer) {
       final flockCount = provider.flockCounts[customer.id] ?? 0;
       final hatcheryCount = provider.hatcheryCounts[customer.id] ?? 0;
@@ -348,6 +271,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'active audit'
                   : 'active audits',
               color: AppColors.primary,
+              onTap: activeAudits.isEmpty
+                  ? null
+                  : () => _openSession(activeAudits.first),
             ),
             _FocusMetricCard(
               icon: Icons.priority_high_outlined,
@@ -355,6 +281,9 @@ class _HomeScreenState extends State<HomeScreen> {
               value: '$attentionCount',
               helper: attentionCount == 1 ? 'item to check' : 'items to check',
               color: AppColors.statusWarning,
+              onTap: attentionItems.isNotEmpty
+                  ? attentionItems.first.onAction
+                  : null,
             ),
             _FocusMetricCard(
               icon: Icons.fact_check_outlined,
@@ -364,6 +293,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'customer setup'
                   : 'customer setups',
               color: AppColors.completedText,
+              onTap: canEdit && readyCustomers > 0
+                  ? () => _openAuditTypeSelection(context)
+                  : null,
             ),
           ];
 
@@ -391,8 +323,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildContinueActiveAudits(CustomersProvider provider) {
-    final activeAudits = _activeAudits(provider);
+  Widget _buildContinueActiveAudits(
+    CustomersProvider provider,
+    HomeProvider home,
+  ) {
+    final activeAudits = home.activeSessions;
 
     return _HomeSection(
       title: 'Continue Active Audits',
@@ -414,27 +349,23 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : Column(
               children: [
-                for (final audit in activeAudits.take(3)) ...[
-                  _ActiveAuditCard(
-                    audit: audit,
+                for (final session in activeAudits.take(3)) ...[
+                  _ActiveSessionCard(
+                    session: session,
                     customerName:
-                        provider.customerById(audit.customerId)?.name ??
-                        audit.customerId,
+                        provider.customerById(session.customerId)?.name ??
+                        session.customerId,
                     flockLabel:
-                        provider.flockById(audit.flockId)?.flockId ??
-                        audit.flockId ??
-                        '--',
-                    breed:
-                        provider.flockById(audit.flockId)?.breed ??
-                        audit.soBreed ??
-                        audit.hoBreed,
+                        provider.flockById(session.flockId)?.flockId ??
+                        session.flockId,
+                    breed: provider.flockById(session.flockId)?.breed,
                     ageWeeks: provider
-                        .flockById(audit.flockId)
+                        .flockById(session.flockId)
                         ?.currentAgeWeeks
                         .round(),
-                    onTap: () => _openAuditDetail(audit),
+                    onTap: () => _openSession(session),
                   ),
-                  if (audit != activeAudits.take(3).last)
+                  if (session != activeAudits.take(3).last)
                     const SizedBox(height: AppSizes.spaceMd),
                 ],
               ],
@@ -445,8 +376,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildAttentionNeeded(
     BuildContext context,
     CustomersProvider provider,
+    HomeProvider home,
   ) {
-    final items = _attentionItems(context, provider);
+    final items = _attentionItems(context, provider, home);
 
     return _HomeSection(
       title: 'Attention Needed',
@@ -509,6 +441,7 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context,
     CustomersProvider provider,
     SettingsProvider settings,
+    HomeProvider home,
   ) {
     return _HomeSection(
       title: 'Sync & Offline',
@@ -540,7 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Text('Local database ready', style: AppTextStyles.title),
                       const SizedBox(height: AppSizes.spaceSm),
                       Text(
-                        _syncSubtitle(provider, settings),
+                        _syncSubtitle(provider, settings, home),
                         style: AppTextStyles.caption,
                       ),
                     ],
@@ -592,8 +525,11 @@ class _HomeScreenState extends State<HomeScreen> {
   List<_AttentionItem> _attentionItems(
     BuildContext context,
     CustomersProvider provider,
+    HomeProvider home,
   ) {
-    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+    final canEdit =
+        AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+        (context.watch<AuthProvider>().user?.canEditAudits ?? false);
     final items = <_AttentionItem>[];
 
     if (provider.allCustomers.isEmpty) {
@@ -663,7 +599,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    if (provider.totalAuditsCount == 0 && canEdit) {
+    if (home.recentSessions.isEmpty && canEdit) {
       items.add(
         _AttentionItem(
           icon: Icons.assignment_add,
@@ -735,32 +671,22 @@ class _HomeScreenState extends State<HomeScreen> {
     return shortcuts.take(5).toList();
   }
 
-  List<AuditModel> _activeAudits(CustomersProvider provider) {
-    final audits = provider.allAudits
-        .where((audit) => audit.status.toLowerCase() == 'active')
-        .toList();
-    audits.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return audits;
-  }
-
-  String _syncSubtitle(CustomersProvider provider, SettingsProvider settings) {
+  String _syncSubtitle(
+    CustomersProvider provider,
+    SettingsProvider settings,
+    HomeProvider home,
+  ) {
     final lastSync = settings.lastSyncTimestamp == null
         ? 'No manual sync yet'
         : 'Last sync ${_formatSyncTime(settings.lastSyncTimestamp!)}';
-    return '$lastSync · ${provider.activeAuditsCount} active local audits';
+    return '$lastSync · ${home.activeSessions.length} active local audits';
   }
 
   String _formatSyncTime(String timestamp) {
     final parsed = DateTime.tryParse(timestamp)?.toLocal();
     if (parsed == null) return timestamp;
-    return '${_formatDate(parsed)} ${_twoDigits(parsed.hour)}:${_twoDigits(parsed.minute)}';
+    return HatchDateUtils.formatDisplayDateTime(parsed);
   }
-
-  String _formatDate(DateTime date) {
-    return '${date.year}-${_twoDigits(date.month)}-${_twoDigits(date.day)}';
-  }
-
-  String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
   void _openAuditTypeSelection(BuildContext context) {
     Navigator.push(
@@ -769,10 +695,68 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openAuditDetail(AuditModel audit) {
-    Navigator.push(
+  Future<void> _openSession(AuditSessionModel session) async {
+    if (session.status == 'in_progress') {
+      await _openStationSelectionForSession(session);
+    } else {
+      await _openStationWorkflow(session, initialStationIndex: 0);
+    }
+
+    if (!mounted) return;
+    await _reloadHomeData();
+  }
+
+  Future<void> _openStationSelectionForSession(
+    AuditSessionModel session,
+  ) async {
+    final customersProvider = context.read<CustomersProvider>();
+    final selectedFlock = customersProvider.flockById(session.flockId);
+    if (selectedFlock == null) {
+      await _openStationWorkflow(session);
+      return;
+    }
+
+    await Navigator.push(
       context,
-      AppPageRoute(builder: (context) => AuditDetailScreen(audit: audit)),
+      AppPageRoute(
+        builder: (context) => AuditStationSelectionScreen(
+          customerId: session.customerId,
+          flockId: session.flockId,
+          hatcheryId: session.hatcheryId,
+          selectedFlock: selectedFlock,
+          visitDate: session.date,
+          existingSessionId: session.id,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStationWorkflow(
+    AuditSessionModel session, {
+    int? initialStationIndex,
+  }) async {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    await sessionProvider.resumeSession(
+      session.id,
+      initialStationIndex: initialStationIndex,
+    );
+
+    if (!mounted) return;
+    if (sessionProvider.error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      AppPageRoute(
+        builder: (context) => ChangeNotifierProvider.value(
+          value: sessionProvider,
+          child: const AuditSessionScreen(),
+        ),
+      ),
     );
   }
 
@@ -822,49 +806,72 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+
+  Future<void> _reloadHomeData() async {
+    final currentUser = context.read<AuthProvider>().user;
+    await context.read<CustomersProvider>().loadCustomers(
+      currentUser: currentUser,
+    );
+    await _homeProvider.load(currentUser: currentUser);
+  }
 }
 
 class _KpiCard extends StatelessWidget {
   final String label;
   final String value;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
 
   const _KpiCard({
     required this.label,
     required this.value,
-    required this.icon,
-  });
+    this.icon,
+    this.iconWidget,
+  }) : assert(icon != null || iconWidget != null);
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       margin: EdgeInsets.zero,
-      child: Row(
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: AppSizes.iconContainerMd,
-            height: AppSizes.iconContainerMd,
-            decoration: BoxDecoration(
-              color: AppColors.activeBg,
-              borderRadius: BorderRadius.circular(AppSizes.iconRadius),
-            ),
-            child: Icon(icon, color: AppColors.primary),
-          ),
-          const SizedBox(width: AppSizes.spaceMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: AppTextStyles.caption),
-                const SizedBox(height: AppSizes.spaceSm),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.heading,
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: AppColors.activeBg,
+                  borderRadius: BorderRadius.circular(AppSizes.iconRadius),
                 ),
-              ],
+                child: Center(
+                  child:
+                      iconWidget ??
+                      Icon(icon, color: AppColors.primary, size: 18),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: AppSizes.spaceXs),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.heading.copyWith(fontSize: 18, height: 1.1),
           ),
         ],
       ),
@@ -876,26 +883,41 @@ class _QuickActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onTap;
+  final bool isPrimary;
 
   const _QuickActionButton({
     required this.label,
     required this.icon,
     required this.onTap,
+    this.isPrimary = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final style = isPrimary
+        ? ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: AppColors.textDisabled,
+            disabledForegroundColor: AppColors.surface,
+            padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
+            minimumSize: const Size.fromHeight(42),
+          )
+        : ElevatedButton.styleFrom(
+            backgroundColor: AppColors.surface,
+            foregroundColor: AppColors.primary,
+            disabledBackgroundColor: AppColors.textDisabled,
+            disabledForegroundColor: AppColors.surface,
+            side: const BorderSide(color: AppColors.borderDefault),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
+            minimumSize: const Size.fromHeight(42),
+          );
     final button = ElevatedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: AppColors.textDisabled,
-        disabledForegroundColor: AppColors.surface,
-        padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceMd),
-      ),
+      icon: Icon(icon, size: 17),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      style: style,
     );
 
     if (onTap == null) {
@@ -906,15 +928,15 @@ class _QuickActionButton extends StatelessWidget {
   }
 }
 
-class _RecentAuditTile extends StatelessWidget {
-  final AuditModel audit;
+class _RecentSessionTile extends StatelessWidget {
+  final AuditSessionModel session;
   final String customerName;
   final String flockLabel;
   final String? breed;
   final VoidCallback onTap;
 
-  const _RecentAuditTile({
-    required this.audit,
+  const _RecentSessionTile({
+    required this.session,
     required this.customerName,
     required this.flockLabel,
     this.breed,
@@ -924,6 +946,11 @@ class _RecentAuditTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final breedPart = breed != null && breed!.isNotEmpty ? ' · $breed' : '';
+    final stationCount = session.selectedStationKeys.length;
+    final completedCount = session.stationsCompleted.length;
+    final statusColor = session.status == 'completed'
+        ? AppColors.completedText
+        : AppColors.primary;
     return AppCard(
       margin: EdgeInsets.zero,
       padding: EdgeInsets.zero,
@@ -935,52 +962,27 @@ class _RecentAuditTile extends StatelessWidget {
           color: AppColors.primary,
         ),
         title: Text(
-          AuditTypeLabels.forAuditType(audit.auditType),
+          session.status == 'completed' ? 'Completed visit' : 'Active visit',
           style: AppTextStyles.title,
         ),
         subtitle: Text(
-          '$customerName · $flockLabel$breedPart · ${audit.date.toIso8601String().split('T').first}',
+          '$customerName · $flockLabel$breedPart · ${HatchDateUtils.formatDisplayDate(session.date)}',
           style: AppTextStyles.caption,
         ),
-        trailing: const Icon(Icons.chevron_right, color: AppColors.primary),
-      ),
-    );
-  }
-}
-
-class _BreakdownBar extends StatelessWidget {
-  final String label;
-  final int count;
-  final double ratio;
-
-  const _BreakdownBar({
-    required this.label,
-    required this.count,
-    required this.ratio,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Expanded(child: Text(label, style: AppTextStyles.body)),
-            Text('$count', style: AppTextStyles.caption),
+            Text(
+              '$completedCount/$stationCount',
+              style: AppTextStyles.caption.copyWith(
+                color: statusColor,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.primary),
           ],
         ),
-        const SizedBox(height: AppSizes.spaceSm),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: AppSizes.spaceMd,
-            backgroundColor: AppColors.inactiveTab,
-            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -999,11 +1001,19 @@ class _HomeSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(title, style: AppTextStyles.sectionTitle)),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.title.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
             ?trailing,
           ],
         ),
-        const SizedBox(height: AppSizes.spaceMd),
+        const SizedBox(height: AppSizes.spaceSm),
         child,
       ],
     );
@@ -1016,6 +1026,7 @@ class _FocusMetricCard extends StatelessWidget {
   final String value;
   final String helper;
   final Color color;
+  final VoidCallback? onTap;
 
   const _FocusMetricCard({
     required this.icon,
@@ -1023,12 +1034,14 @@ class _FocusMetricCard extends StatelessWidget {
     required this.value,
     required this.helper,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       margin: EdgeInsets.zero,
+      onTap: onTap,
       child: Row(
         children: [
           Container(
@@ -1073,22 +1086,26 @@ class _FocusMetricCard extends StatelessWidget {
               ],
             ),
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: AppSizes.spaceSm),
+            Icon(Icons.chevron_right, color: color, size: AppSizes.iconSm),
+          ],
         ],
       ),
     );
   }
 }
 
-class _ActiveAuditCard extends StatelessWidget {
-  final AuditModel audit;
+class _ActiveSessionCard extends StatelessWidget {
+  final AuditSessionModel session;
   final String customerName;
   final String flockLabel;
   final String? breed;
   final int? ageWeeks;
   final VoidCallback onTap;
 
-  const _ActiveAuditCard({
-    required this.audit,
+  const _ActiveSessionCard({
+    required this.session,
     required this.customerName,
     required this.flockLabel,
     required this.breed,
@@ -1098,8 +1115,11 @@ class _ActiveAuditCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final setterId = audit.setterId ?? audit.soSetterId;
-    final hatcherId = audit.hatcherId ?? audit.hoHatcherId;
+    final completed = session.stationsCompleted.length;
+    final total = session.selectedStationKeys.length;
+    final stationLabel = session.selectedStationKeys
+        .map(AuditTypeLabels.forAuditType)
+        .join(', ');
 
     return AppCard(
       margin: EdgeInsets.zero,
@@ -1134,12 +1154,27 @@ class _ActiveAuditCard extends StatelessWidget {
                   style: AppTextStyles.title,
                 ),
               ),
-              StatusBadge(status: audit.status),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSizes.spaceSm,
+                  vertical: AppSizes.spaceXs,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.activeBg,
+                  borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+                ),
+                child: Text(
+                  '$completed/$total',
+                  style: AppTextStyles.badgeLabel.copyWith(
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSizes.spaceSm),
           Text(
-            '$flockLabel${breed != null ? ' · $breed' : ''} · ${audit.date.toString().split(' ')[0]}',
+            '$flockLabel${breed != null ? ' · $breed' : ''} · ${HatchDateUtils.formatDisplayDate(session.date)}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTextStyles.caption,
@@ -1149,7 +1184,7 @@ class _ActiveAuditCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${AuditTypeLabels.forAuditType(audit.auditType)}${setterId != null ? ' · $setterId' : ''}${hatcherId != null ? ' · $hatcherId' : ''}',
+                  stationLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.caption,

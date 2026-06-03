@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -19,7 +20,9 @@ class PhotoService {
 
       return saveCapturedPhotoPath(image.path);
     } catch (e) {
-      // Silent failure - degrade gracefully
+      if (kDebugMode) {
+        debugPrint('Photo pick failed: $e');
+      }
       return null;
     }
   }
@@ -34,7 +37,9 @@ class PhotoService {
       await File(sourcePath).copy(savedPath);
       return savedPath;
     } catch (e) {
-      // Silent failure - degrade gracefully
+      if (kDebugMode) {
+        debugPrint('Photo save failed from $sourcePath: $e');
+      }
       return null;
     }
   }
@@ -47,7 +52,9 @@ class PhotoService {
         await file.delete();
       }
     } catch (e) {
-      // Silent failure
+      if (kDebugMode) {
+        debugPrint('Photo delete failed for $filePath: $e');
+      }
     }
   }
 }

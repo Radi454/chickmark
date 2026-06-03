@@ -81,11 +81,8 @@ void main() {
 
   group('AuditSessionProvider - startSession', () {
     test('uses Egg as the visible label while preserving audit type', () {
-      expect(AuditSessionProvider.stationDisplayLabels['egg_storage'], 'Egg');
-      expect(
-        AuditSessionProvider.stationKeyToAuditType['egg_storage'],
-        'Egg Storage',
-      );
+      expect(AuditSessionProvider.stationDisplayLabels['egg'], 'Egg');
+      expect(AuditSessionProvider.stationKeyToAuditType['egg'], 'Egg');
     });
 
     test('creates new session with in_progress status', () async {
@@ -100,7 +97,7 @@ void main() {
       expect(provider.isResumed, isFalse);
     });
 
-    test('starts at station index 0 (Egg Storage)', () async {
+    test('starts at station index 0 (Egg)', () async {
       when(() => mockRepo.insertSession(any())).thenAnswer((_) async {});
 
       await provider.startSession(context: testContext, currentUser: testUser);
@@ -118,23 +115,17 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['hatcher_optimizing', 'egg_storage'],
+          selectedStationKeys: const ['hatchers', 'egg'],
         ),
         currentUser: testUser,
       );
 
-      expect(provider.stationKeys, ['hatcher_optimizing', 'egg_storage']);
-      expect(provider.currentSession!.selectedStationKeys, [
-        'hatcher_optimizing',
-        'egg_storage',
-      ]);
+      expect(provider.stationKeys, ['hatchers', 'egg']);
+      expect(provider.currentSession!.selectedStationKeys, ['hatchers', 'egg']);
       final captured =
           verify(() => mockRepo.insertSession(captureAny())).captured.single
               as AuditSessionModel;
-      expect(captured.selectedStationKeys, [
-        'hatcher_optimizing',
-        'egg_storage',
-      ]);
+      expect(captured.selectedStationKeys, ['hatchers', 'egg']);
     });
 
     test('syncs session to Supabase after creation', () async {
@@ -144,12 +135,84 @@ void main() {
 
       verify(() => mockSupabase.syncAuditSession(any())).called(1);
     });
+
+    test(
+      'resumes matching in-progress session instead of creating a duplicate',
+      () async {
+        final existing = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: 'existing-session',
+            selectedStationKeys: ['egg', 'chicks'],
+            stationsCompleted: ['egg'],
+          ),
+        );
+
+        when(
+          () => mockRepo.findInProgressSession(
+            customerId: SessionTestFixtures.testCustomerId,
+            flockId: SessionTestFixtures.testFlockId,
+            hatcheryId: SessionTestFixtures.testHatcheryId,
+            date: SessionTestFixtures.testVisitDate,
+          ),
+        ).thenAnswer((_) async => existing);
+
+        await provider.startOrResumeSession(
+          context: testContext.copyWith(
+            selectedStationKeys: const ['egg', 'chicks'],
+          ),
+          currentUser: testUser,
+        );
+
+        expect(provider.currentSession?.id, 'existing-session');
+        expect(provider.stationKeys, ['egg', 'chicks']);
+        expect(provider.stationsCompleted, ['egg']);
+        expect(provider.currentStationIndex, 1);
+        expect(provider.isResumed, isTrue);
+        verifyNever(() => mockRepo.insertSession(any()));
+      },
+    );
+
+    test(
+      'updates selected stations on an existing in-progress session',
+      () async {
+        final existing = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: 'existing-session',
+            selectedStationKeys: ['egg'],
+            stationsCompleted: ['egg'],
+          ),
+        );
+        final updated = existing.copyWith(
+          selectedStationKeys: const ['egg', 'chicks'],
+          stationsCompleted: const ['egg'],
+        );
+
+        when(
+          () => mockRepo.getSessionById(existing.id),
+        ).thenAnswer((_) async => existing);
+        when(
+          () => mockRepo.updateSelectedStationKeys('existing-session', const [
+            'egg',
+            'chicks',
+          ]),
+        ).thenAnswer((_) async {});
+        when(
+          () => mockRepo.getSessionById('existing-session'),
+        ).thenAnswer((_) async => updated);
+
+        await provider.resumeSession(existing.id, initialStationIndex: 0);
+        await provider.updateSelectedStationKeys(const ['egg', 'chicks']);
+
+        expect(provider.stationKeys, ['egg', 'chicks']);
+        expect(provider.stationsCompleted, ['egg']);
+      },
+    );
   });
 
   group('AuditSessionProvider - resumeSession', () {
     test('loads existing session and sets resumed flag', () async {
       final resumedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage', 'chick_quality'],
+        stationsCompleted: ['egg', 'chicks'],
       );
       final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -179,8 +242,8 @@ void main() {
 
     test('resumes using persisted custom station order', () async {
       final resumedRow = makeAuditSessionRow(
-        selectedStationKeys: ['setter_optimizing', 'hatcher_optimizing'],
-        stationsCompleted: ['setter_optimizing'],
+        selectedStationKeys: ['setters', 'hatchers'],
+        stationsCompleted: ['setters'],
       );
       final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -190,15 +253,62 @@ void main() {
 
       await provider.resumeSession(resumedSession.id);
 
-      expect(provider.stationKeys, ['setter_optimizing', 'hatcher_optimizing']);
+      expect(provider.stationKeys, ['setters', 'hatchers']);
       expect(provider.currentStationIndex, 1);
     });
+
+    test('completed sessions resume at the first station for review', () async {
+      final completedSession = AuditSessionModel.fromMap(
+        makeAuditSessionRow(
+          id: 'completed-session',
+          status: 'completed',
+          stationsCompleted: supportedStationKeys,
+          completedAt: DateTime(2026, 1, 2),
+        ),
+      );
+
+      when(
+        () => mockRepo.getSessionById(completedSession.id),
+      ).thenAnswer((_) async => completedSession);
+
+      await provider.resumeSession(completedSession.id);
+
+      expect(provider.isSessionComplete, isTrue);
+      expect(provider.currentStationIndex, 0);
+    });
+
+    test(
+      're-saving completed station keeps completed session complete',
+      () async {
+        final completedSession = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: 'completed-session',
+            status: 'completed',
+            stationsCompleted: supportedStationKeys,
+            completedAt: DateTime(2026, 1, 2),
+          ),
+        );
+
+        when(
+          () => mockRepo.getSessionById(completedSession.id),
+        ).thenAnswer((_) async => completedSession);
+        when(
+          () => mockRepo.markStationCompleted(completedSession.id, 'egg'),
+        ).thenAnswer((_) async {});
+
+        await provider.resumeSession(completedSession.id);
+        await provider.markCurrentStationCompleted();
+
+        expect(provider.isSessionComplete, isTrue);
+        expect(provider.currentSession?.completedAt, DateTime(2026, 1, 2));
+      },
+    );
 
     test(
       'resumes at the first missing station when completion order has gaps',
       () async {
         final resumedRow = makeAuditSessionRow(
-          stationsCompleted: ['egg_storage', 'hatch_analysis'],
+          stationsCompleted: ['egg', 'hatch_analysis_egg_breakouts'],
         );
         final resumedSession = AuditSessionModel.fromMap(resumedRow);
 
@@ -222,6 +332,43 @@ void main() {
       expect(provider.error, 'Session not found');
       expect(provider.currentSession, isNull);
     });
+
+    test(
+      'ignores stale resume results when a newer resume finishes first',
+      () async {
+        final slowSession = AuditSessionModel.fromMap(
+          makeAuditSessionRow(id: 'slow-session', stationsCompleted: ['egg']),
+        );
+        final latestSession = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: 'latest-session',
+            selectedStationKeys: ['setters', 'hatchers'],
+            stationsCompleted: ['setters'],
+          ),
+        );
+        final slowLoad = Future<AuditSessionModel?>.delayed(
+          const Duration(milliseconds: 20),
+          () => slowSession,
+        );
+
+        when(
+          () => mockRepo.getSessionById('slow-session'),
+        ).thenAnswer((_) => slowLoad);
+        when(
+          () => mockRepo.getSessionById('latest-session'),
+        ).thenAnswer((_) async => latestSession);
+
+        final first = provider.resumeSession('slow-session');
+        final second = provider.resumeSession('latest-session');
+
+        await second;
+        await first;
+
+        expect(provider.currentSession?.id, 'latest-session');
+        expect(provider.stationKeys, ['setters', 'hatchers']);
+        expect(provider.currentStationIndex, 1);
+      },
+    );
   });
 
   group('AuditSessionProvider - navigation', () {
@@ -296,7 +443,7 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['egg_storage', 'hatch_analysis'],
+          selectedStationKeys: const ['egg', 'hatch_analysis_egg_breakouts'],
         ),
         currentUser: testUser,
       );
@@ -320,13 +467,11 @@ void main() {
     });
 
     test('markCurrentStationCompleted updates progress', () async {
-      final updatedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage'],
-      );
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
       final updatedSession = AuditSessionModel.fromMap(updatedRow);
 
       when(
-        () => mockRepo.markStationCompleted(any(), 'egg_storage'),
+        () => mockRepo.markStationCompleted(any(), 'egg'),
       ).thenAnswer((_) async {});
       when(
         () => mockRepo.getSessionById(any()),
@@ -334,13 +479,11 @@ void main() {
 
       await provider.markCurrentStationCompleted();
 
-      expect(provider.currentSession!.stationsCompleted, ['egg_storage']);
+      expect(provider.currentSession!.stationsCompleted, ['egg']);
     });
 
     test('markCurrentStationCompleted syncs to Supabase', () async {
-      final updatedRow = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage'],
-      );
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
       final updatedSession = AuditSessionModel.fromMap(updatedRow);
 
       when(
@@ -353,6 +496,72 @@ void main() {
       await provider.markCurrentStationCompleted();
 
       verify(() => mockSupabase.syncAuditSession(any())).called(greaterThan(0));
+    });
+
+    test(
+      'removeCurrentStationCompletion removes station and reopens session',
+      () async {
+        final completed = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            selectedStationKeys: const ['egg', 'chicks'],
+            stationsCompleted: const ['egg', 'chicks'],
+            status: 'completed',
+            completedAt: DateTime(2026, 1, 1),
+          ),
+        );
+        final updated = AuditSessionModel.fromMap(
+          makeAuditSessionRow(
+            id: completed.id,
+            selectedStationKeys: const ['egg', 'chicks'],
+            stationsCompleted: const ['egg'],
+            status: 'in_progress',
+            completedAt: null,
+          ),
+        );
+        when(
+          () => mockRepo.updateSessionProgress(completed.id, const ['egg']),
+        ).thenAnswer((_) async {});
+        var getSessionCall = 0;
+        when(() => mockRepo.getSessionById(completed.id)).thenAnswer((_) async {
+          getSessionCall++;
+          return getSessionCall == 1 ? completed : updated;
+        });
+        when(
+          () => mockSupabase.syncAuditSession(any()),
+        ).thenAnswer((_) async {});
+
+        await provider.resumeSession(completed.id, initialStationIndex: 1);
+        provider.stationTransitionComplete();
+
+        await provider.removeCurrentStationCompletion();
+
+        expect(provider.stationsCompleted, ['egg']);
+        expect(provider.isSessionActive, isTrue);
+        verify(
+          () => mockRepo.updateSessionProgress(completed.id, const ['egg']),
+        ).called(1);
+      },
+    );
+
+    test('coalesces duplicate station completion requests', () async {
+      final updatedRow = makeAuditSessionRow(stationsCompleted: ['egg']);
+      final updatedSession = AuditSessionModel.fromMap(updatedRow);
+      final gate = Future<void>.delayed(const Duration(milliseconds: 20));
+
+      when(
+        () => mockRepo.markStationCompleted(any(), 'egg'),
+      ).thenAnswer((_) => gate);
+      when(
+        () => mockRepo.getSessionById(any()),
+      ).thenAnswer((_) async => updatedSession);
+
+      final first = provider.markCurrentStationCompleted();
+      final second = provider.markCurrentStationCompleted();
+
+      await Future.wait([first, second]);
+
+      verify(() => mockRepo.markStationCompleted(any(), 'egg')).called(1);
+      expect(provider.currentSession!.stationsCompleted, ['egg']);
     });
   });
 
@@ -395,23 +604,23 @@ void main() {
           flockId: SessionTestFixtures.testFlockId,
           date: SessionTestFixtures.testVisitDate,
           breed: SessionTestFixtures.testBreed,
-          selectedStationKeys: const ['chick_quality', 'hatch_analysis'],
+          selectedStationKeys: const ['chicks', 'hatch_analysis_egg_breakouts'],
         ),
         currentUser: testUser,
       );
 
       final completedRow = makeAuditSessionRow(
         status: 'completed',
-        selectedStationKeys: ['chick_quality', 'hatch_analysis'],
-        stationsCompleted: ['chick_quality', 'hatch_analysis'],
+        selectedStationKeys: ['chicks', 'hatch_analysis_egg_breakouts'],
+        stationsCompleted: ['chicks', 'hatch_analysis_egg_breakouts'],
         completedAt: DateTime.now(),
       );
       final completedSession = AuditSessionModel.fromMap(completedRow);
 
       when(
         () => mockRepo.updateSessionProgress(any(), [
-          'chick_quality',
-          'hatch_analysis',
+          'chicks',
+          'hatch_analysis_egg_breakouts',
         ]),
       ).thenAnswer((_) async {});
       when(
@@ -422,8 +631,8 @@ void main() {
 
       verify(
         () => mockRepo.updateSessionProgress(any(), [
-          'chick_quality',
-          'hatch_analysis',
+          'chicks',
+          'hatch_analysis_egg_breakouts',
         ]),
       ).called(1);
       expect(provider.isSessionComplete, isTrue);
@@ -486,4 +695,18 @@ void main() {
       expect(provider.currentStationIndex, 0);
     });
   });
+}
+
+extension _ContextCopy on AuditSessionContext {
+  AuditSessionContext copyWith({List<String>? selectedStationKeys}) {
+    return AuditSessionContext(
+      customerId: customerId,
+      hatcheryId: hatcheryId,
+      flockId: flockId,
+      date: date,
+      breed: breed,
+      flockAgeWeeks: flockAgeWeeks,
+      selectedStationKeys: selectedStationKeys ?? this.selectedStationKeys,
+    );
+  }
 }

@@ -37,7 +37,7 @@ void main() {
   testWidgets('opens sample mode help with chick quality explanation', (
     tester,
   ) async {
-    await pumpControls(tester, auditType: 'Chick Quality');
+    await pumpControls(tester, auditType: 'Chicks');
 
     expect(
       find.text('One sample representing the overall condition.'),
@@ -100,7 +100,7 @@ void main() {
   testWidgets('sample mode help shows shared sampling hierarchy', (
     tester,
   ) async {
-    await pumpControls(tester, auditType: 'Hatch Analysis');
+    await pumpControls(tester, auditType: 'Hatch Analysis & Egg Breakouts');
 
     await tester.tap(find.bySemanticsLabel('Help: Sample Mode explanation'));
     await tester.pumpAndSettle();

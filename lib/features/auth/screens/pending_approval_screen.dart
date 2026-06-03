@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../../widgets/section_card.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../services/supabase/supabase_service.dart';
 import '../providers/auth_provider.dart';
@@ -58,7 +59,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const ChickMarkLogo(logoSize: 100),
+            const ChickMarkLogo(logoSize: 100, animated: true),
             const SizedBox(height: 32),
             SectionCard(
               child: Column(
@@ -69,10 +70,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                     color: AppColors.primary,
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Awaiting Approval',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
+                  Text('Awaiting Approval', style: AppTextStyles.heading),
                   const SizedBox(height: 8),
                   const Text(
                     'Your account is currently pending approval from an administrator. You will receive an email once your account has been approved.',

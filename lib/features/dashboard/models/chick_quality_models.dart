@@ -1,3 +1,5 @@
+import '../../audits/models/culled_chicks_analysis.dart';
+
 class ChickWeightTrend {
   final String date;
   final double avgWeightG;
@@ -18,6 +20,47 @@ class ChickWeightTrend {
       uniformityPct: map['uniformityPct']?.toDouble() ?? 0.0,
       cvPct: map['cvPct']?.toDouble() ?? 0.0,
     );
+  }
+}
+
+class CulledChicksAnalysisAvg {
+  final int totalEggSet;
+  final double affectedPct;
+  final String? topCategory;
+  final CulledChickDefect? topDefect;
+  final Map<String, double> categoryPcts;
+  final List<CulledChicksAnalysisEntry> entries;
+
+  CulledChicksAnalysisAvg({
+    required this.totalEggSet,
+    required this.affectedPct,
+    required this.topCategory,
+    required this.topDefect,
+    required this.categoryPcts,
+    required this.entries,
+  });
+
+  factory CulledChicksAnalysisAvg.fromSummary(
+    CulledChicksAnalysisSummary summary,
+  ) {
+    return CulledChicksAnalysisAvg(
+      totalEggSet: summary.totalEggSet,
+      affectedPct: summary.affectedPct,
+      topCategory: summary.topCategory,
+      topDefect: summary.topDefect,
+      categoryPcts: summary.categoryPcts,
+      entries: summary.entries,
+    );
+  }
+
+  String? get topSubtype => topDefect?.subtype;
+
+  bool get needsReview => affectedPct > 0;
+
+  bool get hasDominantCategory {
+    final category = topCategory;
+    if (category == null || affectedPct <= 0) return false;
+    return ((categoryPcts[category] ?? 0) / affectedPct) >= 0.5;
   }
 }
 

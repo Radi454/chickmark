@@ -7,6 +7,7 @@ import '../core/theme/app_text_styles.dart';
 class SectionCard extends StatelessWidget {
   final Widget child;
   final String? title;
+  final IconData? icon;
   final EdgeInsets? padding;
   final bool isSaved;
   final VoidCallback? onEdit;
@@ -15,6 +16,7 @@ class SectionCard extends StatelessWidget {
     super.key,
     required this.child,
     this.title,
+    this.icon,
     this.padding,
     this.isSaved = false,
     this.onEdit,
@@ -40,14 +42,35 @@ class SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (title != null || (isSaved && onEdit != null))
+            if (title != null || icon != null || (isSaved && onEdit != null))
               Padding(
                 padding: const EdgeInsets.all(AppSizes.spaceLg),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    if (icon != null) ...[
+                      Container(
+                        width: AppSizes.iconContainerSm,
+                        height: AppSizes.iconContainerSm,
+                        decoration: BoxDecoration(
+                          color: AppColors.activeBg,
+                          borderRadius: BorderRadius.circular(
+                            AppSizes.iconRadius,
+                          ),
+                        ),
+                        child: Icon(
+                          icon,
+                          color: AppColors.primary,
+                          size: AppSizes.iconSm,
+                        ),
+                      ),
+                      const SizedBox(width: AppSizes.spaceMd),
+                    ],
                     if (title != null)
-                      Text(title!, style: AppTextStyles.sectionTitle),
+                      Expanded(
+                        child: Text(title!, style: AppTextStyles.sectionTitle),
+                      )
+                    else
+                      const Spacer(),
                     if (isSaved && onEdit != null)
                       TextButton.icon(
                         onPressed: onEdit,

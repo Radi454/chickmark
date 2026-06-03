@@ -1,12 +1,22 @@
 import 'dart:convert';
 
 const supportedStationKeys = [
-  'egg_storage',
-  'chick_quality',
-  'hatch_analysis',
-  'setter_optimizing',
-  'hatcher_optimizing',
+  'egg',
+  'chicks',
+  'hatch_analysis_egg_breakouts',
+  'setters',
+  'hatchers',
 ];
+
+const _legacyStationKeyAliases = {
+  'egg_storage': 'egg',
+  'chick_quality': 'chicks',
+  'hatch_analysis': 'hatch_analysis_egg_breakouts',
+  'setter_optimizing': 'setters',
+  'hatcher_optimizing': 'hatchers',
+};
+
+String normalizeStationKey(String key) => _legacyStationKeyAliases[key] ?? key;
 
 List<String> normalizeStationKeys(List<String>? stationKeys) {
   if (stationKeys == null || stationKeys.isEmpty) {
@@ -14,7 +24,8 @@ List<String> normalizeStationKeys(List<String>? stationKeys) {
   }
 
   final normalized = <String>[];
-  for (final key in stationKeys) {
+  for (final rawKey in stationKeys) {
+    final key = normalizeStationKey(rawKey);
     if (!supportedStationKeys.contains(key) || normalized.contains(key)) {
       continue;
     }
@@ -35,7 +46,8 @@ List<String> parseStationKeysJson(Object? raw, {required bool defaultToAll}) {
     final decoded = raw is String ? jsonDecode(raw) : raw;
     if (decoded is List) {
       final normalized = <String>[];
-      for (final key in decoded.map((e) => e.toString())) {
+      for (final rawKey in decoded.map((e) => e.toString())) {
+        final key = normalizeStationKey(rawKey);
         if (!supportedStationKeys.contains(key) || normalized.contains(key)) {
           continue;
         }

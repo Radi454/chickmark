@@ -4,11 +4,14 @@ import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/scorecard_formatter.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
+import '../../../features/dashboard/models/govee_capture_summary.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
+import '../../../features/dashboard/providers/dashboard_provider.dart';
+import '../../../features/dashboard/widgets/govee_capture_chart.dart';
 
 import '../../../providers/customers_provider.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -27,7 +30,12 @@ class VisitDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
     final customersProvider = context.watch<CustomersProvider>();
+    final dashboardProvider = context.watch<DashboardProvider>();
     final session = visit.session;
+    final goveeSummaries =
+        dashboardProvider.selectedVisitSession?.session.id == session.id
+        ? dashboardProvider.goveeCaptures
+        : const <GoveeCaptureSummary>[];
     final customerName =
         customersProvider.customerById(session.customerId)?.name ??
         session.customerId;
@@ -56,9 +64,9 @@ class VisitDetailScreen extends StatelessWidget {
             const SizedBox(height: 16),
             _buildHatchBudgetCard(visit.hatchBudgetSummary!),
           ],
-          if (visit.temperatureSummaries.isNotEmpty) ...[
+          if (goveeSummaries.isNotEmpty) ...[
             const SizedBox(height: 16),
-            _buildTemperatureCard(visit.temperatureSummaries),
+            _buildGoveeCard(goveeSummaries),
           ],
           if (visit.stationAudits.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -94,7 +102,7 @@ class VisitDetailScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Visit ${session.date.day}/${session.date.month}/${session.date.year}',
+                        'Visit ${HatchDateUtils.formatDisplayDate(session.date)}',
                         style: AppTextStyles.heading.copyWith(fontSize: 22),
                       ),
                       const SizedBox(height: 4),
@@ -287,12 +295,6 @@ class VisitDetailScreen extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _MetricChip(label: 'Lesions', value: '${pm.totalLesions}'),
-                _MetricChip(
-                  label: 'Deformities',
-                  value: '${pm.totalDeformities}',
-                ),
-                if (pm.gaspingPresent)
-                  _MetricChip(label: 'Gasping', value: pm.gaspingType ?? 'Yes'),
                 if (pm.overallSeverity != null)
                   _MetricChip(label: 'Severity', value: pm.overallSeverity!),
               ],
@@ -352,7 +354,7 @@ class VisitDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTemperatureCard(List<TemperatureSessionModel> temps) {
+  Widget _buildGoveeCard(List<GoveeCaptureSummary> summaries) {
     return Card(
       elevation: 0,
       color: Colors.white,
@@ -366,26 +368,15 @@ class VisitDetailScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Temperature Summaries',
+              'Govee Readings',
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: temps.map((t) {
-                final alertCount = t.alertCount ?? 0;
-                final color = alertCount > 0
-                    ? const Color(0xFFE24B4A)
-                    : const Color(0xFF3a9a5c);
-                return Chip(
-                  label: Text(
-                    '${t.activePlace.label}: ${t.tempAvg?.toStringAsFixed(1) ?? '--'}°F',
-                  ),
-                  backgroundColor: color.withValues(alpha: 0.10),
-                  side: BorderSide(color: color.withValues(alpha: 0.18)),
-                );
-              }).toList(),
+            ...summaries.map(
+              (summary) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: GoveeCaptureChart(summary: summary),
+              ),
             ),
           ],
         ),
@@ -457,7 +448,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
   List<_Metric> _metricsForAudit() {
     final List<_Metric> metrics = [];
     switch (audit.auditType) {
-      case 'Chick Quality':
+      case 'Chicks':
         if (audit.pasgarFinalScore != null) {
           metrics.add(
             _Metric('Pasgar', audit.pasgarFinalScore!.toStringAsFixed(1)),
@@ -481,7 +472,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
             _Metric('CVT avg', '${audit.cvtAvg!.toStringAsFixed(1)}°F'),
           );
         }
-      case 'Hatch Analysis':
+      case 'Hatch Analysis & Egg Breakouts':
         if (audit.haHatchability != null) {
           metrics.add(
             _Metric(
@@ -501,7 +492,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.haTotalEggsSet != null) {
           metrics.add(_Metric('Eggs set', '${audit.haTotalEggsSet}'));
         }
-      case 'Setter Optimizing':
+      case 'Setters':
         if (audit.soSetterId != null) {
           metrics.add(_Metric('Setter', audit.soSetterId!));
         }
@@ -513,7 +504,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.soCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.soCo2!.toStringAsFixed(0)} ppm'));
         }
-      case 'Hatcher Optimizing':
+      case 'Hatchers':
         if (audit.hoHatcherId != null) {
           metrics.add(_Metric('Hatcher', audit.hoHatcherId!));
         }
@@ -525,7 +516,7 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
         if (audit.hoCo2 != null) {
           metrics.add(_Metric('CO2', '${audit.hoCo2!.toStringAsFixed(0)} ppm'));
         }
-      case 'Egg Storage':
+      case 'Egg':
         if (audit.esShellTemp != null) {
           metrics.add(
             _Metric('Shell temp', '${audit.esShellTemp!.toStringAsFixed(1)}°F'),

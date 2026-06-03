@@ -1,4 +1,3 @@
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/utils/calculation_utils.dart';
 
@@ -9,12 +8,15 @@ void main() {
       expect(result, 0.0);
     });
 
-    test('calculates correct score with formula ((sampleSize * 10) - sum) / sampleSize', () {
-      // Example: sampleSize 40, defect counts [5, 3, 2, 4, 3] = sum 17
-      // Expected: ((40 * 10) - 17) / 40 = 383 / 40 = 9.575 → 9.6
-      final result = CalculationUtils.pasgarScore(40, [5, 3, 2, 4, 3]);
-      expect(result, 9.6);
-    });
+    test(
+      'calculates correct score with formula ((sampleSize * 10) - sum) / sampleSize',
+      () {
+        // Example: sampleSize 40, defect counts [5, 3, 2, 4, 3] = sum 17
+        // Expected: ((40 * 10) - 17) / 40 = 383 / 40 = 9.575 → 9.6
+        final result = CalculationUtils.pasgarScore(40, [5, 3, 2, 4, 3]);
+        expect(result, 9.6);
+      },
+    );
 
     test('returns 10.0 when no defects', () {
       final result = CalculationUtils.pasgarScore(40, [0, 0, 0, 0, 0]);
@@ -22,10 +24,15 @@ void main() {
     });
 
     test('handles edge case with maximum defects', () {
-      // All 40 chicks have defects in all 6 categories: sum = 240
-      // Expected: ((40 * 10) - 240) / 40 = 160 / 40 = 4.0
+      // Pasgar scores five official categories. Feather development is tracked
+      // separately and must not reduce the final score.
       final result = CalculationUtils.pasgarScore(40, [40, 40, 40, 40, 40, 40]);
-      expect(result, 4.0);
+      expect(result, 5.0);
+    });
+
+    test('does not award scores above 10 for negative defect input', () {
+      final result = CalculationUtils.pasgarScore(40, [-1, 0, 0, 0, 0]);
+      expect(result, 10.0);
     });
   });
 

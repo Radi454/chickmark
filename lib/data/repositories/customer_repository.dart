@@ -1,17 +1,14 @@
 import '../models/customer_model.dart';
 import '../database/database_helper.dart';
 import 'package:sqflite/sqflite.dart';
+import 'sync_tombstone_repository.dart';
 
 class CustomerRepository {
   final dbHelper = DatabaseHelper();
 
   Future<void> insertCustomer(CustomerModel customer) async {
     final db = await dbHelper.db;
-    await db.insert(
-      'customers',
-      customer.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _upsertById(db, 'customers', customer.toMap());
   }
 
   Future<List<CustomerModel>> getAllCustomers() async {
@@ -45,18 +42,35 @@ class CustomerRepository {
 
   Future<void> deleteCustomer(String id) async {
     final db = await dbHelper.db;
-    await db.delete('customers', where: 'id = ?', whereArgs: [id]);
+    await db.transaction<void>((txn) async {
+      await SyncTombstoneRepository.queueDeleteWithExecutor(
+        txn,
+        'customers',
+        id,
+      );
+      await txn.delete('customers', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<void> upsertCustomer(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'customers');
     final normalized = _filterColumns(_normalizeCustomerRow(row), columns);
-    await db.insert(
-      'customers',
-      normalized,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await _upsertById(db, 'customers', normalized);
+  }
+
+  Future<void> _upsertById(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final inserted = await db.insert(
+      table,
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    if (inserted != 0) return;
+    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
   Future<Set<String>> _tableColumns(Database db, String table) async {

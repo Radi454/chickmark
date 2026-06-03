@@ -6,9 +6,11 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_session_provider.dart';
+import '../widgets/chick_icon.dart';
 import 'audit_session_screen.dart';
 
 class AuditStationSelectionScreen extends StatefulWidget {
@@ -16,6 +18,8 @@ class AuditStationSelectionScreen extends StatefulWidget {
   final String flockId;
   final String hatcheryId;
   final FlockModel selectedFlock;
+  final DateTime? visitDate;
+  final String? existingSessionId;
 
   const AuditStationSelectionScreen({
     super.key,
@@ -23,6 +27,8 @@ class AuditStationSelectionScreen extends StatefulWidget {
     required this.flockId,
     required this.hatcheryId,
     required this.selectedFlock,
+    this.visitDate,
+    this.existingSessionId,
   });
 
   @override
@@ -33,39 +39,34 @@ class AuditStationSelectionScreen extends StatefulWidget {
 class _AuditStationSelectionScreenState
     extends State<AuditStationSelectionScreen> {
   final List<String> _orderedSelectedKeys = [];
+  final Set<String> _savedStationKeys = <String>{};
+  AuditSessionModel? _existingSession;
+  String? _selectedOpenStationKey;
   bool _isStarting = false;
 
   static const _allStations = [
+    {'key': 'egg', 'name': AuditTypeLabels.eggStationLabel, 'icon': Icons.egg},
+    {'key': 'chicks', 'name': 'Chicks', 'icon': Icons.cruelty_free},
     {
-      'key': 'egg_storage',
-      'name': AuditTypeLabels.eggStationLabel,
-      'icon': Icons.egg,
-    },
-    {
-      'key': 'chick_quality',
-      'name': 'Chick Quality',
-      'icon': Icons.cruelty_free,
-    },
-    {
-      'key': 'hatch_analysis',
-      'name': 'Hatch Analysis',
+      'key': 'hatch_analysis_egg_breakouts',
+      'name': 'Hatch Analysis & Egg Breakouts',
       'icon': Icons.bar_chart,
     },
-    {
-      'key': 'setter_optimizing',
-      'name': 'Setter Optimizing',
-      'icon': Icons.thermostat,
-    },
-    {
-      'key': 'hatcher_optimizing',
-      'name': 'Hatcher Optimizing',
-      'icon': Icons.device_thermostat,
-    },
+    {'key': 'setters', 'name': 'Setters', 'icon': Icons.thermostat},
+    {'key': 'hatchers', 'name': 'Hatchers', 'icon': Icons.device_thermostat},
   ];
 
   List<Map<String, dynamic>> get _availableStations => _allStations
       .where((s) => !_orderedSelectedKeys.contains(s['key'] as String))
       .toList();
+
+  DateTime get _visitDate => widget.visitDate ?? DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadExistingSession());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +123,7 @@ class _AuditStationSelectionScreenState
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _orderedSelectedKeys.length,
-              onReorder: _onReorder,
+              onReorderItem: _onReorder,
               itemBuilder: (context, index) {
                 return _buildSelectedTile(index);
               },
@@ -135,7 +136,6 @@ class _AuditStationSelectionScreenState
 
   void _onReorder(int oldIndex, int newIndex) {
     setState(() {
-      if (newIndex > oldIndex) newIndex--;
       final item = _orderedSelectedKeys.removeAt(oldIndex);
       _orderedSelectedKeys.insert(newIndex, item);
     });
@@ -147,8 +147,8 @@ class _AuditStationSelectionScreenState
       (s) => s['key'] == stationKey,
       orElse: () => {'key': '', 'name': '', 'icon': Icons.help},
     );
-    final icon = station['icon'] as IconData;
     final name = station['name'] as String;
+    final isSaved = _savedStationKeys.contains(stationKey);
 
     return Material(
       key: ValueKey(stationKey),
@@ -156,6 +156,12 @@ class _AuditStationSelectionScreenState
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: InkWell(
+          onTap: isSaved
+              ? () {
+                  setState(() => _selectedOpenStationKey = stationKey);
+                  _handleStartVisit();
+                }
+              : null,
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
@@ -180,12 +186,40 @@ class _AuditStationSelectionScreenState
                   ),
                 ),
                 const SizedBox(width: 12),
-                Icon(icon, color: AppColors.primary, size: 20),
+                _buildStationIcon(stationKey, AppColors.primary),
                 const SizedBox(width: 10),
                 Expanded(child: Text(name, style: AppTextStyles.body)),
+                if (isSaved) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.completedText.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+                      border: Border.all(
+                        color: AppColors.completedText.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      'Saved',
+                      style: AppTextStyles.badgeLabel.copyWith(
+                        color: AppColors.completedText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
+                  tooltip: 'Remove station',
                   onPressed: () {
-                    setState(() => _orderedSelectedKeys.removeAt(index));
+                    setState(() {
+                      final removed = _orderedSelectedKeys.removeAt(index);
+                      if (_selectedOpenStationKey == removed) {
+                        _selectedOpenStationKey = null;
+                      }
+                    });
                   },
                   icon: const Icon(Icons.close, size: 18),
                   color: Colors.grey,
@@ -238,7 +272,6 @@ class _AuditStationSelectionScreenState
   }
 
   Widget _buildAvailableTile(Map<String, dynamic> station) {
-    final icon = station['icon'] as IconData;
     final name = station['name'] as String;
     final stationKey = station['key'] as String;
 
@@ -259,7 +292,7 @@ class _AuditStationSelectionScreenState
               child: const Icon(Icons.add, size: 16, color: Colors.grey),
             ),
             const SizedBox(width: 12),
-            Icon(icon, color: Colors.grey, size: 20),
+            _buildStationIcon(stationKey, Colors.grey),
             const SizedBox(width: 10),
             Text(name, style: AppTextStyles.body.copyWith(color: Colors.grey)),
           ],
@@ -268,7 +301,22 @@ class _AuditStationSelectionScreenState
     );
   }
 
+  Widget _buildStationIcon(String stationKey, Color color) {
+    if (stationKey == 'chicks') {
+      return ChickIcon(key: const ValueKey('station-chick-icon'), color: color);
+    }
+
+    final station = _allStations.firstWhere(
+      (s) => s['key'] == stationKey,
+      orElse: () => {'icon': Icons.help},
+    );
+    return Icon(station['icon'] as IconData, color: color, size: 20);
+  }
+
   Widget _buildStartVisitButton() {
+    final buttonText = _existingSession == null
+        ? 'Start Visit'
+        : 'Continue Visit';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -307,8 +355,8 @@ class _AuditStationSelectionScreenState
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
-                : const Text(
-                    'Start Visit',
+                : Text(
+                    buttonText,
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
           ),
@@ -318,49 +366,104 @@ class _AuditStationSelectionScreenState
   }
 
   Future<void> _handleStartVisit() async {
+    if (_isStarting) return;
     setState(() => _isStarting = true);
 
     final sessionProvider = context.read<AuditSessionProvider>();
 
-    await sessionProvider.startSession(
-      context: AuditSessionContext(
-        customerId: widget.customerId,
-        hatcheryId: widget.hatcheryId,
-        flockId: widget.flockId,
-        date: DateTime.now(),
-        breed: widget.selectedFlock.breed,
-        flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
-        selectedStationKeys: _orderedSelectedKeys,
-      ),
-      currentUser: context.read<AuthProvider>().user,
-    );
+    try {
+      final existing = _existingSession;
+      if (existing != null) {
+        await sessionProvider.updateSelectedStationKeys(_orderedSelectedKeys);
+        final stationIndex = _selectedOpenStationKey == null
+            ? null
+            : _orderedSelectedKeys.indexOf(_selectedOpenStationKey!);
+        await sessionProvider.resumeSession(
+          existing.id,
+          initialStationIndex: stationIndex == null || stationIndex < 0
+              ? null
+              : stationIndex,
+        );
+      } else {
+        await sessionProvider.startOrResumeSession(
+          context: _sessionContext(),
+          currentUser: context.read<AuthProvider>().user,
+        );
+      }
 
-    if (!mounted) {
-      setState(() => _isStarting = false);
-      return;
-    }
+      if (!mounted) return;
 
-    if (sessionProvider.error != null) {
-      setState(() => _isStarting = false);
-      ScaffoldMessenger.of(
+      if (sessionProvider.error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
+        return;
+      }
+
+      await Navigator.push(
         context,
-      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
-      return;
-    }
-
-    if (!mounted) {
-      setState(() => _isStarting = false);
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChangeNotifierProvider.value(
-          value: sessionProvider,
-          child: const AuditSessionScreen(),
+        MaterialPageRoute(
+          builder: (context) => ChangeNotifierProvider.value(
+            value: sessionProvider,
+            child: const AuditSessionScreen(),
+          ),
         ),
-      ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isStarting = false);
+      }
+    }
+  }
+
+  Future<void> _loadExistingSession() async {
+    AuditSessionProvider sessionProvider;
+    AuthProvider authProvider;
+    try {
+      sessionProvider = context.read<AuditSessionProvider>();
+      authProvider = context.read<AuthProvider>();
+    } on ProviderNotFoundException {
+      return;
+    }
+
+    if (widget.existingSessionId != null) {
+      await sessionProvider.resumeSession(
+        widget.existingSessionId!,
+        initialStationIndex: 0,
+      );
+    } else {
+      await sessionProvider.loadMatchingSessionForStationSelection(
+        context: _sessionContext(selectedStationKeys: const []),
+        currentUser: authProvider.user,
+      );
+    }
+    if (!mounted) return;
+    final session = sessionProvider.currentSession;
+    if (session == null || !sessionProvider.isResumed) return;
+    setState(() {
+      _existingSession = session;
+      _orderedSelectedKeys
+        ..clear()
+        ..addAll(session.selectedStationKeys);
+      _savedStationKeys
+        ..clear()
+        ..addAll(session.stationsCompleted);
+      if (_selectedOpenStationKey != null &&
+          !_orderedSelectedKeys.contains(_selectedOpenStationKey)) {
+        _selectedOpenStationKey = null;
+      }
+    });
+  }
+
+  AuditSessionContext _sessionContext({List<String>? selectedStationKeys}) {
+    return AuditSessionContext(
+      customerId: widget.customerId,
+      hatcheryId: widget.hatcheryId,
+      flockId: widget.flockId,
+      date: _visitDate,
+      breed: widget.selectedFlock.breed,
+      flockAgeWeeks: widget.selectedFlock.currentAgeWeeks.toInt(),
+      selectedStationKeys: selectedStationKeys ?? _orderedSelectedKeys,
     );
   }
 }

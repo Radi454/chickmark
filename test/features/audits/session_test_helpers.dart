@@ -22,11 +22,11 @@ class SessionTestFixtures {
   static final DateTime testCreatedAt = DateTime(2026, 4, 24, 7, 55);
   static final DateTime testUpdatedAt = DateTime(2026, 4, 24, 8);
 
-  static const String stationEggStorage = 'egg_storage';
-  static const String stationChickQuality = 'chick_quality';
-  static const String stationHatchAnalysis = 'hatch_analysis';
-  static const String stationSetter = 'setter_optimizing';
-  static const String stationHatcher = 'hatcher_optimizing';
+  static const String stationEggStorage = 'egg';
+  static const String stationChickQuality = 'chicks';
+  static const String stationHatchAnalysis = 'hatch_analysis_egg_breakouts';
+  static const String stationSetter = 'setters';
+  static const String stationHatcher = 'hatchers';
 
   static const List<String> allStationKeys = [
     stationEggStorage,
@@ -101,9 +101,6 @@ AuditModel makeStationAudit({
   String? notes,
   String? sampleMode,
   String? compareGroupKey,
-  bool? esGoveeConnected,
-  double? esGoveeTemp,
-  double? esGoveeHumidity,
   double? esCo2,
   double? esShellTemp,
   int? esTurningTimes,
@@ -141,18 +138,12 @@ AuditModel makeStationAudit({
   String? soBreed,
   String? soSetterId,
   int? soIncubationAge,
-  bool? soGoveeConnected,
-  double? soGoveeTemp,
-  double? soGoveeHumidity,
   double? soCo2,
   double? soEstAvg,
   double? soEstCv,
   String? hoBreed,
   String? hoHatcherId,
   int? hoIncubationAge,
-  bool? hoGoveeConnected,
-  double? hoGoveeTemp,
-  double? hoGoveeHumidity,
   double? hoCo2,
   double? hoCvtAvg,
   double? hoCvtCv,
@@ -174,9 +165,6 @@ AuditModel makeStationAudit({
     notes: notes,
     sampleMode: sampleMode,
     compareGroupKey: compareGroupKey,
-    esGoveeConnected: esGoveeConnected,
-    esGoveeTemp: esGoveeTemp,
-    esGoveeHumidity: esGoveeHumidity,
     esCo2: esCo2,
     esShellTemp: esShellTemp,
     esTurningTimes: esTurningTimes,
@@ -214,18 +202,12 @@ AuditModel makeStationAudit({
     soBreed: soBreed,
     soSetterId: soSetterId,
     soIncubationAge: soIncubationAge,
-    soGoveeConnected: soGoveeConnected,
-    soGoveeTemp: soGoveeTemp,
-    soGoveeHumidity: soGoveeHumidity,
     soCo2: soCo2,
     soEstAvg: soEstAvg,
     soEstCv: soEstCv,
     hoBreed: hoBreed,
     hoHatcherId: hoHatcherId,
     hoIncubationAge: hoIncubationAge,
-    hoGoveeConnected: hoGoveeConnected,
-    hoGoveeTemp: hoGoveeTemp,
-    hoGoveeHumidity: hoGoveeHumidity,
     hoCo2: hoCo2,
     hoCvtAvg: hoCvtAvg,
     hoCvtCv: hoCvtCv,
@@ -236,10 +218,7 @@ AuditModel makeStationAudit({
 AuditModel makeEggStorageAudit({String id = 'audit-egg-storage-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Egg Storage',
-      esGoveeConnected: true,
-      esGoveeTemp: 72.5,
-      esGoveeHumidity: 65,
+      auditType: 'Egg',
       esCo2: 450,
       esShellTemp: 70.1,
       esTurningTimes: 4,
@@ -252,7 +231,7 @@ AuditModel makeEggStorageAudit({String id = 'audit-egg-storage-1'}) =>
 AuditModel makeChickQualityAudit({String id = 'audit-chick-quality-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Chick Quality',
+      auditType: 'Chicks',
       pasgarSampleSize: 40,
       pasgarReflexes: 2,
       pasgarBeak: 1,
@@ -278,7 +257,7 @@ AuditModel makeHatchAnalysisAudit({
   int hatchNumber = 1,
 }) => makeStationAudit(
   id: id,
-  auditType: 'Hatch Analysis',
+  auditType: 'Hatch Analysis & Egg Breakouts',
   hatchNumber: hatchNumber,
   haStorageDays: 7,
   haTotalEggsSet: 10000,
@@ -292,14 +271,11 @@ AuditModel makeHatchAnalysisAudit({
 
 AuditModel makeSetterAudit({String id = 'audit-setter-1'}) => makeStationAudit(
   id: id,
-  auditType: 'Setter Optimizing',
+  auditType: 'Setters',
   setterId: 'setter-1',
   soSetterId: 'setter-1',
   soBreed: SessionTestFixtures.testBreed,
   soIncubationAge: 10,
-  soGoveeConnected: true,
-  soGoveeTemp: 100.0,
-  soGoveeHumidity: 55.0,
   soCo2: 3800.0,
   soEstAvg: 99.7,
   soEstCv: 0.3,
@@ -308,14 +284,11 @@ AuditModel makeSetterAudit({String id = 'audit-setter-1'}) => makeStationAudit(
 AuditModel makeHatcherAudit({String id = 'audit-hatcher-1'}) =>
     makeStationAudit(
       id: id,
-      auditType: 'Hatcher Optimizing',
+      auditType: 'Hatchers',
       hatcherId: 'hatcher-1',
       hoHatcherId: 'hatcher-1',
       hoBreed: SessionTestFixtures.testBreed,
       hoIncubationAge: 18,
-      hoGoveeConnected: true,
-      hoGoveeTemp: 99.2,
-      hoGoveeHumidity: 65.0,
       hoCo2: 4200.0,
       hoCvtAvg: 104.1,
       hoCvtCv: 0.6,

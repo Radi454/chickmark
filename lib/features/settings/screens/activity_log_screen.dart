@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/gradient_app_bar.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../data/models/activity_log_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 
@@ -54,6 +55,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                       _formatDate(entry.timestamp),
                       style: Theme.of(context).textTheme.bodySmall,
                       textAlign: TextAlign.end,
+                      textDirection: TextDirection.ltr,
                     ),
                   );
                 },
@@ -75,9 +77,9 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
     await _repository.pruneOlderThan(const Duration(days: 90));
     await _load();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Logs older than 90 days cleared')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Logs older than 90 days cleared')),
+    );
   }
 
   IconData _iconFor(String action) {
@@ -114,11 +116,6 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   String _formatDate(DateTime value) {
-    final local = value.toLocal();
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '${local.year}-$month-$day\n$hour:$minute';
+    return HatchDateUtils.formatDisplayDateTime(value).replaceFirst(' ', '\n');
   }
 }

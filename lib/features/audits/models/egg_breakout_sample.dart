@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import '../../../core/utils/bmk_age_calculator.dart';
+import '../../../core/utils/calculation_utils.dart';
+
 enum EggBreakoutType {
   freshEggBreakout('freshEggBreakout', 'Fresh Egg'),
   candledEggBreakout('candledEggBreakout', 'Candled Egg'),
@@ -25,16 +28,20 @@ enum EggBreakoutType {
     required int? storageDays,
     int? candlingDay,
   }) {
-    if (currentFlockAgeDays == null || storageDays == null) return null;
-    if (storageDays < 0) return null;
+    if (currentFlockAgeDays == null) return null;
+    final effectiveStorageDays = storageDays ?? 0;
+    if (effectiveStorageDays < 0) return null;
     final extraDays = switch (this) {
       EggBreakoutType.freshEggBreakout => 0,
       EggBreakoutType.candledEggBreakout => candlingDay ?? 10,
       EggBreakoutType.residueHatchDay => 21,
     };
     if (extraDays < 0) return null;
-    final ageDays = currentFlockAgeDays - storageDays - extraDays;
-    return ageDays < 0 ? 0 : ageDays;
+    return BmkAgeCalculator.calculateDaysFromFlockAge(
+      currentFlockAgeDays: currentFlockAgeDays,
+      storageDays: effectiveStorageDays,
+      incubationOffsetDays: extraDays,
+    );
   }
 
   static EggBreakoutType fromStorageValue(String? value) {
@@ -96,34 +103,35 @@ class EggBreakoutCountField {
 
 const List<EggBreakoutCountField> freshCountFields = [
   EggBreakoutCountField('Infertile', 'infertile'),
-  EggBreakoutCountField('Early 24h', 'early24h'),
-  EggBreakoutCountField('Early 48h', 'early48h'),
-  EggBreakoutCountField('Early 72h / Blood ring', 'early72hBloodRing'),
+  EggBreakoutCountField('24 hours', 'early24h'),
+  EggBreakoutCountField('48 hours', 'early48h'),
+  EggBreakoutCountField('Blood Ring', 'early72hBloodRing'),
 ];
 
 const List<EggBreakoutCountField> candledCountFields = [
   ...freshCountFields,
-  EggBreakoutCountField('Black eye', 'blackEye'),
-  EggBreakoutCountField('Mid dead', 'midDead'),
+  EggBreakoutCountField('Black Eye', 'blackEye'),
 ];
 
 const List<EggBreakoutCountField> residueCountFields = [
-  ...candledCountFields,
-  EggBreakoutCountField('Late dead', 'lateDead'),
-  EggBreakoutCountField('Internal pip', 'internalPip'),
-  EggBreakoutCountField('External pip', 'externalPip'),
+  EggBreakoutCountField('Infertile', 'infertile'),
+  EggBreakoutCountField('Early Dead', 'earlyDead'),
+  EggBreakoutCountField('Mid Dead', 'midDead'),
+  EggBreakoutCountField('Late Dead', 'lateDead'),
+  EggBreakoutCountField('External Pip', 'externalPip'),
   EggBreakoutCountField('Cracked', 'cracked'),
   EggBreakoutCountField('Contaminated', 'contaminated'),
-  EggBreakoutCountField('Malposition', 'malposition'),
-  EggBreakoutCountField('Exposed brain', 'exposedBrain'),
-  EggBreakoutCountField('Crossed beak', 'crossedBeak'),
-  EggBreakoutCountField('Culled/Dead', 'culledDead'),
 ];
 
 class EggBreakoutSampleEntry {
   final String id;
   final EggBreakoutSampleMode sampleMode;
   final String label;
+  final String? house;
+  final String? setter;
+  final String? hatcher;
+  final String? trolley;
+  final String? tray;
   final String? position;
   final int? traySize;
   final int? numberOfTrays;
@@ -134,6 +142,11 @@ class EggBreakoutSampleEntry {
     required this.id,
     required this.sampleMode,
     required this.label,
+    this.house,
+    this.setter,
+    this.hatcher,
+    this.trolley,
+    this.tray,
     this.position,
     this.traySize,
     this.numberOfTrays,
@@ -144,6 +157,11 @@ class EggBreakoutSampleEntry {
   factory EggBreakoutSampleEntry.tray({
     required String id,
     required String label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     String? position,
     int? traySize = 150,
     EggBreakoutType breakoutType = EggBreakoutType.residueHatchDay,
@@ -153,6 +171,11 @@ class EggBreakoutSampleEntry {
       id: id,
       sampleMode: EggBreakoutSampleMode.tray,
       label: label,
+      house: house,
+      setter: setter,
+      hatcher: hatcher,
+      trolley: trolley,
+      tray: tray ?? label,
       position: position,
       traySize: traySize,
       breakoutType: breakoutType,
@@ -163,6 +186,11 @@ class EggBreakoutSampleEntry {
   factory EggBreakoutSampleEntry.pool({
     required String id,
     required String label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     int? numberOfTrays = 1,
     int? traySize = 150,
     EggBreakoutType breakoutType = EggBreakoutType.residueHatchDay,
@@ -172,6 +200,11 @@ class EggBreakoutSampleEntry {
       id: id,
       sampleMode: EggBreakoutSampleMode.pool,
       label: label,
+      house: house,
+      setter: setter,
+      hatcher: hatcher,
+      trolley: trolley,
+      tray: tray,
       numberOfTrays: numberOfTrays,
       traySize: traySize,
       breakoutType: breakoutType,
@@ -187,10 +220,12 @@ class EggBreakoutSampleEntry {
     final mode = EggBreakoutSampleMode.fromStorageValue(
       json['sampleMode'] as String?,
     );
-    final type = EggBreakoutType.fromStorageValue(
-      json['breakoutType'] as String?,
-    );
+    final rawBreakoutType = json['breakoutType'] as String?;
+    final type = rawBreakoutType == null
+        ? fallbackBreakoutType ?? EggBreakoutType.fromStorageValue(null)
+        : EggBreakoutType.fromStorageValue(rawBreakoutType);
     final label = (json['label'] as String?)?.trim();
+    final counts = _normalizeCountsForType(type, _readCounts(json['counts']));
     return EggBreakoutSampleEntry(
       id: (json['id'] as String?) ?? 'sample-$index',
       sampleMode: mode,
@@ -199,11 +234,18 @@ class EggBreakoutSampleEntry {
           : mode == EggBreakoutSampleMode.tray
           ? 'Tray $index'
           : 'Pool $index',
+      house: _readText(json['house']),
+      setter: _readText(json['setter']),
+      hatcher: _readText(json['hatcher']),
+      trolley: _readText(json['trolley']),
+      tray:
+          _readText(json['tray']) ??
+          (mode == EggBreakoutSampleMode.tray ? label : null),
       position: json['position'] as String?,
       traySize: _readNullableInt(json['traySize']) ?? 150,
       numberOfTrays: _readNullableInt(json['numberOfTrays']) ?? 1,
-      breakoutType: fallbackBreakoutType ?? type,
-      counts: _readCounts(json['counts']),
+      breakoutType: type,
+      counts: counts,
     );
   }
 
@@ -219,13 +261,18 @@ class EggBreakoutSampleEntry {
   double? percentageFor(String countKey) {
     final total = totalSample;
     if (total == null || total <= 0) return null;
-    return ((counts[countKey] ?? 0) / total) * 100;
+    return CalculationUtils.percentOf(counts[countKey] ?? 0, total);
   }
 
   EggBreakoutSampleEntry copyWith({
     String? id,
     EggBreakoutSampleMode? sampleMode,
     String? label,
+    String? house,
+    String? setter,
+    String? hatcher,
+    String? trolley,
+    String? tray,
     String? position,
     int? traySize,
     int? numberOfTrays,
@@ -236,6 +283,11 @@ class EggBreakoutSampleEntry {
       id: id ?? this.id,
       sampleMode: sampleMode ?? this.sampleMode,
       label: label ?? this.label,
+      house: house ?? this.house,
+      setter: setter ?? this.setter,
+      hatcher: hatcher ?? this.hatcher,
+      trolley: trolley ?? this.trolley,
+      tray: tray ?? this.tray,
       position: position ?? this.position,
       traySize: traySize ?? this.traySize,
       numberOfTrays: numberOfTrays ?? this.numberOfTrays,
@@ -249,6 +301,11 @@ class EggBreakoutSampleEntry {
       'id': id,
       'sampleMode': sampleMode.storageValue,
       'label': label,
+      if (house != null) 'house': house,
+      if (setter != null) 'setter': setter,
+      if (hatcher != null) 'hatcher': hatcher,
+      if (trolley != null) 'trolley': trolley,
+      if (tray != null) 'tray': tray,
       if (position != null) 'position': position,
       'traySize': traySize,
       if (sampleMode == EggBreakoutSampleMode.pool)
@@ -291,11 +348,27 @@ class EggBreakoutSampleEntry {
   static Map<String, int> _readCounts(Object? raw) {
     if (raw is! Map) return {};
     return Map<String, int>.fromEntries(
-      raw.entries.map(
-        (entry) =>
-            MapEntry(entry.key.toString(), _readNullableInt(entry.value) ?? 0),
-      ),
+      raw.entries.expand((entry) {
+        final count = _readNullableInt(entry.value);
+        if (count == null || count <= 0) return const <MapEntry<String, int>>[];
+        return [MapEntry(entry.key.toString(), count)];
+      }),
     );
+  }
+
+  static Map<String, int> _normalizeCountsForType(
+    EggBreakoutType type,
+    Map<String, int> counts,
+  ) {
+    if (type != EggBreakoutType.residueHatchDay) return counts;
+    final normalized = Map<String, int>.from(counts);
+    if (normalized.containsKey('earlyDead')) return normalized;
+    final legacyEarlyDead =
+        (counts['early24h'] ?? 0) +
+        (counts['early48h'] ?? 0) +
+        (counts['early72hBloodRing'] ?? 0);
+    if (legacyEarlyDead > 0) normalized['earlyDead'] = legacyEarlyDead;
+    return normalized;
   }
 
   static int? _readNullableInt(Object? value) {
@@ -304,5 +377,10 @@ class EggBreakoutSampleEntry {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value);
     return null;
+  }
+
+  static String? _readText(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 }

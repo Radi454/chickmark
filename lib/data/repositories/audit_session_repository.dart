@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import '../models/audit_session_model.dart';
+import '../models/panel_sample_schema.dart';
+import 'sync_tombstone_repository.dart';
 
 class AuditSessionRepository {
   final DatabaseHelper _dbHelper;
@@ -33,7 +35,44 @@ class AuditSessionRepository {
 
   Future<void> deleteSession(String id) async {
     final db = await _dbHelper.db;
-    await db.delete('audit_sessions', where: 'id = ?', whereArgs: [id]);
+    await db.transaction<void>((txn) async {
+      for (final panel in PanelSampleSchema.panels) {
+        final rows = await txn.query(
+          panel.tableName,
+          columns: ['id'],
+          where: 'sessionId = ?',
+          whereArgs: [id],
+        );
+        await SyncTombstoneRepository.queueDeletesWithExecutor(
+          txn,
+          panel.tableName,
+          rows.map((row) => row['id']),
+        );
+        await txn.delete(
+          panel.tableName,
+          where: 'sessionId = ?',
+          whereArgs: [id],
+        );
+      }
+      final photoRows = await txn.query(
+        'photos',
+        columns: ['id'],
+        where: 'sessionId = ?',
+        whereArgs: [id],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'photos',
+        photoRows.map((row) => row['id']),
+      );
+      await txn.delete('photos', where: 'sessionId = ?', whereArgs: [id]);
+      await SyncTombstoneRepository.queueDeleteWithExecutor(
+        txn,
+        'audit_sessions',
+        id,
+      );
+      await txn.delete('audit_sessions', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<AuditSessionModel?> getSessionById(String id) async {
@@ -109,6 +148,26 @@ class AuditSessionRepository {
     return result.map(AuditSessionModel.fromMap).toList();
   }
 
+  Future<AuditSessionModel?> findInProgressSession({
+    required String customerId,
+    required String flockId,
+    required String hatcheryId,
+    required DateTime date,
+  }) async {
+    final db = await _dbHelper.db;
+    final day = date.toIso8601String().split('T').first;
+    final result = await db.query(
+      'audit_sessions',
+      where:
+          'customerId = ? AND flockId = ? AND hatcheryId = ? AND status = ? AND substr(date, 1, 10) = ?',
+      whereArgs: [customerId, flockId, hatcheryId, 'in_progress', day],
+      orderBy: 'updatedAt DESC, createdAt DESC',
+      limit: 1,
+    );
+    if (result.isEmpty) return null;
+    return AuditSessionModel.fromMap(result.first);
+  }
+
   Future<List<AuditSessionModel>> getCompletedSessions({
     String? customerId,
     int limit = 50,
@@ -144,15 +203,49 @@ class AuditSessionRepository {
     }
     final validCompleted = _validCompletedStations(updated, selectedStations);
     final isComplete = _isComplete(validCompleted, selectedStations);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
     await db.update(
       'audit_sessions',
       {
         'stationsCompleted': validCompleted.isEmpty
             ? null
             : jsonEncode(validCompleted),
-        'updatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
-        'completedAt': isComplete ? DateTime.now().toIso8601String() : null,
+        'completedAt': completedAt,
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<void> updateSelectedStationKeys(
+    String sessionId,
+    List<String> selectedStationKeys,
+  ) async {
+    final db = await _dbHelper.db;
+    final current = await getSessionById(sessionId);
+    if (current == null) return;
+    final selected = normalizeStationKeys(selectedStationKeys);
+    final completed = current.stationsCompleted
+        .where((stationKey) => selected.contains(stationKey))
+        .toList(growable: false);
+    final isComplete = _isComplete(completed, selected);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
+    await db.update(
+      'audit_sessions',
+      {
+        'selectedStationKeys': jsonEncode(selected),
+        'stationsCompleted': completed.isEmpty ? null : jsonEncode(completed),
+        'updatedAt': now.toIso8601String(),
+        'status': isComplete ? 'completed' : 'in_progress',
+        'completedAt': completedAt,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -171,15 +264,19 @@ class AuditSessionRepository {
       selectedStations,
     );
     final isComplete = _isComplete(validStations, selectedStations);
+    final now = DateTime.now();
+    final completedAt = isComplete
+        ? current?.completedAt?.toIso8601String() ?? now.toIso8601String()
+        : null;
     await db.update(
       'audit_sessions',
       {
         'stationsCompleted': validStations.isEmpty
             ? null
             : jsonEncode(validStations),
-        'updatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
-        'completedAt': isComplete ? DateTime.now().toIso8601String() : null,
+        'completedAt': completedAt,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -227,6 +324,18 @@ class AuditSessionRepository {
     final db = await _dbHelper.db;
     final normalized = _normalize(row);
     await _upsertById(db, 'audit_sessions', normalized);
+  }
+
+  Future<Map<String, dynamic>?> getSessionRowById(String id) async {
+    final db = await _dbHelper.db;
+    final rows = await db.query(
+      'audit_sessions',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
   }
 
   Future<void> _upsertById(

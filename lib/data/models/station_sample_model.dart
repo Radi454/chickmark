@@ -1,4 +1,18 @@
 class StationSampleModel {
+  static const String sectorDefault = 'station';
+  static const String sectorEggQuality = 'egg_quality';
+  static const String sectorChickQuality = 'chick_quality';
+  static const String sectorChickWeights = 'chick_weights';
+  static const String sectorHatchBreakout = 'hatch_breakout';
+  static const String sectorSetterOptimizing = 'setter_optimizing';
+  static const String sectorHatcherOptimizing = 'hatcher_optimizing';
+
+  static const String sampleKindPooled = 'pooled';
+  static const String sampleKindHouse = 'house';
+  static const String sampleKindMachine = 'machine';
+  static const String sampleKindBatch = 'batch';
+  static const String sampleKindTray = 'tray';
+
   static const String sampleModePooled = 'pooled';
   static const String sampleModeComparison = 'comparison';
 
@@ -11,7 +25,7 @@ class StationSampleModel {
 
   static const String sampleTypeDefault = 'default';
   static const String sampleTypeChickQualityHatchedBatch =
-      'chick_quality_hatched_batch';
+      'chicks_hatched_batch';
   static const String sampleTypeBreakoutFresh = 'breakout_fresh';
   static const String sampleTypeBreakoutCandled10d = 'breakout_candled_10d';
   static const String sampleTypeBreakoutResidue21d = 'breakout_residue_21d';
@@ -24,6 +38,8 @@ class StationSampleModel {
   final String auditSessionId;
   final String? legacyAuditId;
   final String stationType;
+  final String sectorType;
+  final String sampleKind;
   final String sampleMode;
   final String? comparisonType;
   final int sampleIndex;
@@ -58,6 +74,8 @@ class StationSampleModel {
     required this.auditSessionId,
     this.legacyAuditId,
     required this.stationType,
+    String? sectorType,
+    String? sampleKind,
     String? sampleMode,
     this.comparisonType,
     required this.sampleIndex,
@@ -86,7 +104,9 @@ class StationSampleModel {
     this.notes,
     required this.createdAt,
     required this.updatedAt,
-  }) : sampleMode = normalizeSampleMode(sampleMode),
+  }) : sectorType = normalizeSectorType(sectorType),
+       sampleKind = normalizeSampleKind(sampleKind),
+       sampleMode = normalizeSampleMode(sampleMode),
        sampleType = normalizeSampleType(sampleType),
        sampleLabel = sampleLabel ?? 'Sample $sampleIndex';
 
@@ -96,6 +116,8 @@ class StationSampleModel {
       auditSessionId: map['auditSessionId'] as String,
       legacyAuditId: map['legacyAuditId'] as String?,
       stationType: map['stationType'] as String,
+      sectorType: map['sectorType'] as String?,
+      sampleKind: map['sampleKind'] as String?,
       sampleMode: map['sampleMode'] as String?,
       comparisonType: map['comparisonType'] as String?,
       sampleIndex: _asInt(map['sampleIndex']) ?? 1,
@@ -133,6 +155,8 @@ class StationSampleModel {
       'auditSessionId': auditSessionId,
       'legacyAuditId': legacyAuditId,
       'stationType': stationType,
+      'sectorType': sectorType,
+      'sampleKind': sampleKind,
       'sampleMode': sampleMode,
       'comparisonType': comparisonType,
       'sampleIndex': sampleIndex,
@@ -169,6 +193,8 @@ class StationSampleModel {
     String? auditSessionId,
     String? legacyAuditId,
     String? stationType,
+    String? sectorType,
+    String? sampleKind,
     String? sampleMode,
     String? comparisonType,
     int? sampleIndex,
@@ -203,6 +229,8 @@ class StationSampleModel {
       auditSessionId: auditSessionId ?? this.auditSessionId,
       legacyAuditId: legacyAuditId ?? this.legacyAuditId,
       stationType: stationType ?? this.stationType,
+      sectorType: sectorType ?? this.sectorType,
+      sampleKind: sampleKind ?? this.sampleKind,
       sampleMode: sampleMode ?? this.sampleMode,
       comparisonType: comparisonType ?? this.comparisonType,
       sampleIndex: sampleIndex ?? this.sampleIndex,
@@ -241,6 +269,23 @@ class StationSampleModel {
       return sampleModeComparison;
     }
     return sampleModePooled;
+  }
+
+  static String normalizeSectorType(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) return sectorDefault;
+    return normalized;
+  }
+
+  static String normalizeSampleKind(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    return switch (normalized) {
+      sampleKindHouse => sampleKindHouse,
+      sampleKindMachine => sampleKindMachine,
+      sampleKindBatch => sampleKindBatch,
+      sampleKindTray => sampleKindTray,
+      _ => sampleKindPooled,
+    };
   }
 
   static String normalizeSampleType(String? value) {

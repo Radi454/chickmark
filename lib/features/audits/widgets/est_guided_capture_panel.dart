@@ -26,6 +26,8 @@ class EstGuidedCapturePanel extends StatefulWidget {
     this.useCameraAppForCapture = false,
     this.canAutoScan = true,
     this.isConfirming = false,
+    this.unitSuffix = '°C',
+    this.targetLabelBuilder,
   });
 
   final EstGuidedCaptureState state;
@@ -44,6 +46,8 @@ class EstGuidedCapturePanel extends StatefulWidget {
   final bool useCameraAppForCapture;
   final bool canAutoScan;
   final bool isConfirming;
+  final String unitSuffix;
+  final String Function(String key)? targetLabelBuilder;
 
   @override
   State<EstGuidedCapturePanel> createState() => _EstGuidedCapturePanelState();
@@ -307,7 +311,7 @@ class _EstGuidedCapturePanelState extends State<EstGuidedCapturePanel> {
         Padding(
           padding: const EdgeInsets.only(bottom: 5),
           child: Text(
-            '°C',
+            widget.unitSuffix,
             style: AppTextStyles.body.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF111827),
@@ -355,7 +359,7 @@ class _EstGuidedCapturePanelState extends State<EstGuidedCapturePanel> {
             color: const Color(0xFF111827),
           ),
           decoration: InputDecoration(
-            suffixText: '°C',
+            suffixText: widget.unitSuffix,
             isDense: true,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             contentPadding: const EdgeInsets.symmetric(
@@ -382,6 +386,10 @@ class _EstGuidedCapturePanelState extends State<EstGuidedCapturePanel> {
   }
 
   String _targetLabel(String key) {
+    final customLabel = widget.targetLabelBuilder?.call(key);
+    if (customLabel != null && customLabel.trim().isNotEmpty) {
+      return customLabel;
+    }
     final parts = key.split('_');
     if (parts.length != 2) return key;
     return '${EstGridData.label(parts[0])} - ${EstGridData.label(parts[1])}';

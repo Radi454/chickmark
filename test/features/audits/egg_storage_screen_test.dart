@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
@@ -26,8 +29,13 @@ void main() {
         });
   });
 
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(connectivityChannel, null);
+  });
+
   AuditContextData contextData() => AuditContextData(
-    auditType: 'Egg Storage',
+    auditType: 'Egg',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
@@ -35,21 +43,58 @@ void main() {
     date: '2026-04-27',
   );
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(
+    WidgetTester tester, {
+    AuditContextData? auditContext,
+    EggBmkWeightLookup? bmkEggWeightLookup,
+  }) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => AuditProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuditProvider(autosaveEnabled: false),
+          ),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
           ),
           ChangeNotifierProvider(create: (_) => CustomersProvider()),
         ],
-        child: MaterialApp(home: EggStorageScreen(context: contextData())),
+        child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: EggStorageScreen(
+            context: auditContext ?? contextData(),
+            bmkEggWeightLookup: bmkEggWeightLookup,
+          ),
+        ),
       ),
     );
     await tester.pump();
   }
+
+  testWidgets('shows a default upside-down tray before the add tray action', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text('Upside Down Score'));
+    await tester.pump();
+    await tester.tap(find.text('Upside Down Score'));
+    await tester.pumpAndSettle();
+
+    final firstTray = find.text('Tray 1');
+    final addTray = find.text('Add Tray');
+
+    expect(firstTray, findsOneWidget);
+    expect(find.text('Upside Down: 0 eggs (0.0%)'), findsOneWidget);
+    expect(addTray, findsOneWidget);
+    expect(
+      tester.getBottomLeft(firstTray).dy,
+      lessThan(tester.getTopLeft(addTray).dy),
+    );
+  });
 
   testWidgets('renders split egg storage workbench controls', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
@@ -57,47 +102,564 @@ void main() {
 
     await pumpScreen(tester);
 
+    Finder expectBrandHero(String title) {
+      final hero = find.ancestor(
+        of: find.text(title),
+        matching: find.byWidgetPredicate((widget) {
+          final decoration = widget is Container ? widget.decoration : null;
+          return decoration is BoxDecoration &&
+              decoration.gradient is LinearGradient;
+        }),
+      );
+      expect(hero, findsOneWidget);
+      final decoration =
+          tester.widget<Container>(hero).decoration as BoxDecoration;
+      final gradient = decoration.gradient as LinearGradient;
+      expect(gradient.colors, [AppColors.primaryLight, AppColors.primaryDark]);
+      expect(gradient.begin, Alignment.topLeft);
+      expect(gradient.end, Alignment.bottomRight);
+      return hero;
+    }
+
     expect(find.text('Egg'), findsWidgets);
-    expect(find.text('Egg Storage & Handling'), findsNothing);
-    expect(find.text('Egg Shell Temperature'), findsOneWidget);
-    expect(find.text('19.0-21.0°C'), findsOneWidget);
-    expect(find.text('Upside Down Score'), findsOneWidget);
-    expect(find.text('Storage Checklist'), findsOneWidget);
-    expect(find.text('Egg Quality Assessment'), findsOneWidget);
-    expect(find.text('EQ'), findsNothing);
-    expect(find.text('Weight uniformity and benchmark context'), findsNothing);
-    expect(find.text('39 wks'), findsWidgets);
-    expect(find.text('Egg Sample Mode'), findsOneWidget);
-    expect(find.text('Multi House Samples'), findsOneWidget);
-
-    final multiHouseChip = find.widgetWithText(
-      ChoiceChip,
-      'Multi House Samples',
+    expect(find.text('Egg storage room'), findsOneWidget);
+    final storageHero = expectBrandHero('Egg storage room');
+    expect(
+      find.descendant(
+        of: storageHero,
+        matching: find.byIcon(Icons.inventory_2_outlined),
+      ),
+      findsNothing,
     );
-    await tester.ensureVisible(multiHouseChip);
+    expect(find.text('AUDIT STATION'), findsNothing);
+    expect(
+      find.text('Storage class, shell condition, and egg quality checks.'),
+      findsNothing,
+    );
+    expect(find.text('Shell range'), findsNothing);
+    expect(find.text('Egg Shell Temperature'), findsOneWidget);
+    expect(find.text('Storage class and shell readings'), findsNothing);
+    expect(find.text('19.0-21.0°C'), findsNothing);
+    expect(find.text('EST'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-EST')), findsNothing);
+    expect(find.text('Pending'), findsNothing);
+
+    final storageDaysField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Storage Days',
+    );
+    expect(storageDaysField, findsOneWidget);
+    expect(
+      tester.getTopLeft(storageDaysField).dy,
+      lessThan(tester.getTopLeft(find.text('Egg Shell Temperature')).dy),
+    );
+
+    expect(find.text('Upside Down Score'), findsOneWidget);
+    expect(find.text('Count incorrectly oriented eggs per tray'), findsNothing);
+    expect(find.text('UD'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-UD')), findsNothing);
+    expect(find.text('Avg 0.0%'), findsNothing);
+    final upsideDownHeader = find.ancestor(
+      of: find.text('Upside Down Score'),
+      matching: find.byType(ExpansionTile),
+    );
+    expect(upsideDownHeader, findsOneWidget);
+    expect(
+      find.descendant(
+        of: upsideDownHeader,
+        matching: find.byKey(const ValueKey('upside-down-inverted-egg-icon')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: upsideDownHeader,
+        matching: find.byIcon(Icons.flip_to_back),
+      ),
+      findsNothing,
+    );
+    expect(find.text('Storage Checklist'), findsOneWidget);
+    expect(find.text('Handling observations before set'), findsNothing);
+    expect(find.text('CHK'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-CHK')), findsNothing);
+    expect(find.text('0 of 4 set'), findsNothing);
+    expect(find.text('Egg quality'), findsOneWidget);
+    final qualityHero = expectBrandHero('Egg quality');
+    expect(
+      find.descendant(
+        of: qualityHero,
+        matching: find.byIcon(Icons.monitor_weight_outlined),
+      ),
+      findsNothing,
+    );
+    expect(find.text('EQ'), findsNothing);
+    expect(find.text('Sampling scope and 100-egg uniformity'), findsNothing);
+    expect(find.text('Sample setup'), findsNothing);
+    expect(find.text('Flock context and benchmark age'), findsNothing);
+    expect(find.text('Flock'), findsOneWidget);
+    expect(find.text('Breed'), findsOneWidget);
+    expect(find.text('BMK Age'), findsWidgets);
+    expect(find.text('39 wks'), findsWidgets);
+
+    final flockDetail = find.byKey(const ValueKey('audit-hero-detail-Flock'));
+    final breedDetail = find.byKey(const ValueKey('audit-hero-detail-Breed'));
+    final bmkAgeDetail = find.byKey(
+      const ValueKey('audit-hero-detail-BMK Age'),
+    );
+    expect(flockDetail, findsOneWidget);
+    expect(breedDetail, findsOneWidget);
+    expect(bmkAgeDetail, findsOneWidget);
+    final flockRect = tester.getRect(flockDetail);
+    final breedRect = tester.getRect(breedDetail);
+    final bmkAgeRect = tester.getRect(bmkAgeDetail);
+    expect(flockRect.top, breedRect.top);
+    expect(breedRect.top, bmkAgeRect.top);
+    expect((flockRect.width - breedRect.width).abs(), lessThan(1));
+    expect((breedRect.width - bmkAgeRect.width).abs(), lessThan(1));
+
+    expect(find.text('Sampling scope'), findsNothing);
+    expect(find.text('Record one house or compare houses'), findsNothing);
+    expect(find.text('One sample'), findsNothing);
+    expect(find.text('1 sample'), findsNothing);
+    expect(find.text('Multiple samples'), findsNothing);
+    expect(find.byType(SegmentedButton<bool>), findsNothing);
+    expect(
+      find.byKey(const ValueKey('egg-sample-mode-icon-single')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('egg-sample-mode-icon-multiple')),
+      findsNothing,
+    );
+    expect(find.text('House scope'), findsOneWidget);
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.text('Pool'), findsOneWidget);
+    expect(find.text('UV torch inspection by tray'), findsNothing);
+    expect(find.text('Optional station comments'), findsNothing);
+
+    await tester.ensureVisible(find.text('Egg Shell Temperature'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Egg Shell Temperature'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('19.0-21.0°C'), findsOneWidget);
+    expect(find.text('Storage duration'), findsOneWidget);
+    expect(find.text('EST target'), findsOneWidget);
+    expect(find.text('Storage class'), findsNothing);
+    expect(find.text('Shell target'), findsNothing);
+
+    await tester.ensureVisible(find.text('Upside Down Score'));
     await tester.pump();
-    await tester.tap(multiHouseChip);
+    expect(find.text('Add Tray'), findsNothing);
+
+    await tester.tap(find.text('Upside Down Score'));
     await tester.pumpAndSettle();
 
-    expect(find.text('House Samples'), findsOneWidget);
+    expect(find.text('Add Tray'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Storage Checklist'));
+    await tester.pump();
+    expect(find.text('Egg Turning'), findsNothing);
+
+    await tester.tap(find.text('Storage Checklist'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Egg Turning'), findsOneWidget);
+
+    expect(find.text('House Samples'), findsNothing);
+    expect(find.text('Same flock, compare egg quality by house'), findsNothing);
+    expect(find.text('Egg Weights & Uniformity'), findsOneWidget);
+    expect(find.text('EW'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-EW')), findsNothing);
+    expect(find.text('0/100'), findsNothing);
     expect(find.byTooltip('Add house sample'), findsOneWidget);
+    expect(find.byTooltip('Add machine sample'), findsNothing);
+    expect(
+      tester.getTopLeft(find.byTooltip('Add house sample')).dy,
+      lessThan(tester.getTopLeft(find.text('Egg Weights & Uniformity')).dy),
+    );
 
-    await tester.tap(find.byTooltip('Add house sample'));
+    await tester.ensureVisible(find.byTooltip('Add house sample'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add house sample'));
     await tester.pumpAndSettle();
 
-    final h3 = find.widgetWithText(ChoiceChip, 'H3');
+    final h = find.widgetWithText(ChoiceChip, 'H');
     final addHouse = find.byTooltip('Add house sample');
     final removeHouse = find.byTooltip('Remove active house sample');
 
-    expect(h3, findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
+    expect(h, findsOneWidget);
     expect(removeHouse, findsOneWidget);
-    expect(tester.getCenter(addHouse).dx, greaterThan(tester.getCenter(h3).dx));
+    expect(tester.getCenter(addHouse).dx, greaterThan(tester.getCenter(h).dx));
     expect(
       tester.getCenter(removeHouse).dx,
       greaterThan(tester.getCenter(addHouse).dx),
     );
     expect(tester.getTopLeft(addHouse).dy, tester.getTopLeft(removeHouse).dy);
+
+    await tester.tap(removeHouse);
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
+    expect(find.widgetWithText(ChoiceChip, 'H'), findsNothing);
+    expect(find.text('Pool'), findsOneWidget);
+    expect(find.byTooltip('Remove active house sample'), findsNothing);
+
+    await tester.ensureVisible(find.text('Egg Shell Quality'));
+    await tester.pump();
+    expect(find.text('UV'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-UV')), findsNothing);
+    expect(find.text('Avg affected 0.0%'), findsNothing);
+    expect(find.text('NT'), findsNothing);
+    expect(find.byKey(const ValueKey('egg-workbench-mark-NT')), findsNothing);
+    expect(find.text('Add UV Tray'), findsNothing);
+
+    await tester.tap(find.text('Egg Shell Quality'));
+    await tester.pumpAndSettle();
+
+    final uvSummary = find.byKey(const ValueKey('uv-percent-summary-card'));
+    expect(uvSummary, findsOneWidget);
+    expect(
+      find.descendant(of: uvSummary, matching: find.text('Cuticle Damage')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: uvSummary, matching: find.text('Washed')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: uvSummary, matching: find.text('Dirty')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: uvSummary, matching: find.text('Affected')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: uvSummary, matching: find.text('0.0%')),
+      findsNWidgets(4),
+    );
+    expect(find.text('Add UV Tray'), findsOneWidget);
+
+    expect(storageDaysField, findsOneWidget);
+    await tester.ensureVisible(storageDaysField);
+    await tester.pump();
+    expect(tester.widget<TextField>(storageDaysField).controller?.text, '0');
+
+    await tester.tap(storageDaysField);
+    await tester.pump();
+
+    expect(tester.widget<TextField>(storageDaysField).controller?.text, '');
+  });
+
+  testWidgets('egg quality BMK age follows quality storage days', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(1200, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(
+      tester,
+      auditContext: AuditContextData(
+        auditType: 'Egg',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        flockAgeWeeks: 42,
+        date: '2026-04-27',
+      ),
+    );
+
+    expect(find.text('39 wks'), findsWidgets);
+
+    final storageDaysField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Storage Days',
+    );
+    expect(storageDaysField, findsOneWidget);
+
+    await tester.enterText(storageDaysField, '14');
+    await tester.pump();
+
+    expect(find.text('39 wks'), findsWidgets);
+    expect(find.text('37 wks'), findsNothing);
+
+    final qualityStorageDaysField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Quality Storage Days',
+    );
+    expect(qualityStorageDaysField, findsOneWidget);
+
+    await tester.enterText(qualityStorageDaysField, '14');
+    await tester.pump();
+
+    expect(find.text('37 wks'), findsWidgets);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('egg quality house scope card edits active sample identities', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    await tester.pumpAndSettle();
+
+    final houseField = find.widgetWithText(TextFormField, 'House');
+    expect(houseField, findsOneWidget);
+
+    await tester.enterText(houseField, '9');
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ChoiceChip, 'H9'), findsOneWidget);
+    expect(provider.activeStationSample.houseNo, '9');
+    expect(provider.activeStationSample.houseLabel, 'House 9');
+
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
+  });
+
+  testWidgets('egg quality house field stays active while entering a number', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    await tester.pumpAndSettle();
+
+    final houseField = find.widgetWithText(TextFormField, 'House');
+    await tester.tap(houseField);
+    await tester.pump();
+
+    final editingFocus = FocusManager.instance.primaryFocus;
+    expect(editingFocus, isNotNull);
+
+    await tester.enterText(houseField, '1');
+    await tester.pump();
+
+    expect(find.widgetWithText(TextFormField, 'House'), findsOneWidget);
+    expect(FocusManager.instance.primaryFocus, same(editingFocus));
+    expect(tester.testTextInput.isVisible, isTrue);
+  });
+
+  testWidgets('egg quality house field syncs metadata changes while idle', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    await tester.pumpAndSettle();
+
+    provider.updateSampleMetadata({'houseNo': '8'});
+    await tester.pumpAndSettle();
+
+    final houseField = tester.widget<TextField>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == 'House',
+      ),
+    );
+    expect(houseField.controller?.text, '8');
+  });
+
+  testWidgets('egg quality generated house scope labels leave fields empty', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
+    expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is TextField &&
+                  widget.decoration?.labelText == 'House',
+            ),
+          )
+          .controller
+          ?.text,
+      '',
+    );
+
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.widgetWithText(ChoiceChip, 'SH'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
+  });
+
+  testWidgets('removing a house removes its machine samples once', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    await tester.pumpAndSettle();
+
+    final h1Index = provider.stationSamples.indexWhere(
+      (sample) =>
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          sample.sampleLabel == 'H',
+    );
+    provider.switchSample(h1Index);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindMachine);
+    await tester.pumpAndSettle();
+
+    expect(
+      provider.stationSamples.where(
+        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
+      ),
+      hasLength(2),
+    );
+
+    provider.switchSample(h1Index);
+    await tester.pumpAndSettle();
+
+    final removeHouse = find.byTooltip('Remove active house sample');
+    expect(removeHouse, findsOneWidget);
+    await tester.tap(removeHouse);
+    await tester.pumpAndSettle();
+
+    expect(
+      provider.stationSamples.where(
+        (sample) => sample.sampleKind == StationSampleModel.sampleKindMachine,
+      ),
+      isEmpty,
+    );
+    expect(find.widgetWithText(ChoiceChip, 'S1H1'), findsNothing);
+    expect(find.widgetWithText(ChoiceChip, 'S2H2'), findsNothing);
+    expect(find.text('Pool'), findsOneWidget);
+  });
+
+  testWidgets(
+    'egg quality shows BMK egg weight from the default storage context',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await tester.binding.setSurfaceSize(const Size(700, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await pumpScreen(
+        tester,
+        bmkEggWeightLookup: (breed, ageWeek) async {
+          expect(breed, 'Ross 308');
+          expect(ageWeek, 39);
+          return 68.0;
+        },
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Egg Weights & Uniformity'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Egg Weights & Uniformity'));
+      await tester.pumpAndSettle();
+
+      final summary = find.byKey(const ValueKey('egg-weight-metric-summary'));
+      expect(summary, findsOneWidget);
+      expect(
+        find.descendant(of: summary, matching: find.text('BMK Egg Weight')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: summary, matching: find.text('68.0g')),
+        findsOneWidget,
+      );
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets('egg weight summary follows chick weight card design', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text('Egg Weights & Uniformity'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Egg Weights & Uniformity'));
+    await tester.pumpAndSettle();
+
+    final summary = find.byKey(const ValueKey('egg-weight-metric-summary'));
+    expect(summary, findsOneWidget);
+    expect(
+      find.descendant(of: summary, matching: find.text('BMK Age')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: summary, matching: find.text('Min')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: summary, matching: find.text('Max')),
+      findsNothing,
+    );
+
+    final orderedLabels = [
+      'Sample Size',
+      'BMK Egg Weight',
+      'Avg Weight',
+      'Low Margin',
+      'High Margin',
+      'Uniformity',
+      'C.V',
+    ];
+
+    var previousTop = double.negativeInfinity;
+    for (final label in orderedLabels) {
+      final labelFinder = find.descendant(
+        of: summary,
+        matching: find.text(label),
+      );
+      expect(labelFinder, findsOneWidget);
+      final top = tester.getTopLeft(labelFinder).dy;
+      expect(top, greaterThan(previousTop));
+      previousTop = top;
+    }
   });
 }

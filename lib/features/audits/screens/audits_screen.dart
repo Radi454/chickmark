@@ -6,9 +6,9 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
-import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/core/utils/audit_type_labels.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
 
 import 'package:hatchaudit/widgets/status_badge.dart';
 import 'package:hatchaudit/features/customers/screens/audit_detail_screen.dart';
@@ -18,6 +18,7 @@ import 'package:hatchaudit/features/audits/widgets/audit_filter_sheet.dart';
 import 'package:hatchaudit/features/audits/widgets/audit_keyboard_dismiss.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
+import 'package:hatchaudit/features/audits/screens/audit_station_selection_screen.dart';
 
 class AuditsScreen extends StatefulWidget {
   const AuditsScreen({super.key});
@@ -27,9 +28,6 @@ class AuditsScreen extends StatefulWidget {
 }
 
 class _AuditsScreenState extends State<AuditsScreen> {
-  static const int _pageSize = 50;
-
-  final AuditRepository _auditRepository = AuditRepository();
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
   final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
@@ -37,9 +35,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
   List<AuditModel> _loadedAudits = [];
   List<AuditSessionModel> _loadedSessions = [];
   bool _isInitialLoading = true;
-  bool _isLoadingMore = false;
   bool _hasMore = true;
-  int _page = 0;
 
   @override
   void initState() {
@@ -320,7 +316,8 @@ class _AuditsScreenState extends State<AuditsScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                _formatSessionDate(session.date),
+                HatchDateUtils.formatDisplayDate(session.date),
+                textDirection: TextDirection.ltr,
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ],
@@ -336,65 +333,70 @@ class _AuditsScreenState extends State<AuditsScreen> {
         session.customerId;
   }
 
-  String _formatSessionDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthAbbreviation(date.month)} '
-        '${date.year}';
-  }
-
-  String _monthAbbreviation(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month - 1];
-  }
-
   Future<void> _openSession(AuditSessionModel session) async {
     if (session.status == 'in_progress') {
-      final sessionProvider = context.read<AuditSessionProvider>();
-      await sessionProvider.resumeSession(session.id);
-
-      if (!mounted) return;
-      if (sessionProvider.error != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
-        return;
-      }
-
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChangeNotifierProvider.value(
-            value: sessionProvider,
-            child: const AuditSessionScreen(),
-          ),
-        ),
-      );
+      await _openStationSelectionForSession(session);
     } else {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _SessionDetailScreen(session: session),
-        ),
-      );
+      await _openStationWorkflow(session, initialStationIndex: 0);
     }
 
     if (mounted) {
       await _refreshAudits();
     }
+  }
+
+  Future<void> _openStationSelectionForSession(
+    AuditSessionModel session,
+  ) async {
+    final customersProvider = context.read<CustomersProvider>();
+    final selectedFlock = customersProvider.flockById(session.flockId);
+    if (selectedFlock == null) {
+      await _openStationWorkflow(session);
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AuditStationSelectionScreen(
+          customerId: session.customerId,
+          flockId: session.flockId,
+          hatcheryId: session.hatcheryId,
+          selectedFlock: selectedFlock,
+          visitDate: session.date,
+          existingSessionId: session.id,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStationWorkflow(
+    AuditSessionModel session, {
+    int? initialStationIndex,
+  }) async {
+    final sessionProvider = context.read<AuditSessionProvider>();
+    await sessionProvider.resumeSession(
+      session.id,
+      initialStationIndex: initialStationIndex,
+    );
+
+    if (!mounted) return;
+    if (sessionProvider.error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(sessionProvider.error!)));
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChangeNotifierProvider.value(
+          value: sessionProvider,
+          child: const AuditSessionScreen(),
+        ),
+      ),
+    );
   }
 
   List<_AuditCustomerGroup> _filterAuditGroups(CustomersProvider provider) {
@@ -447,6 +449,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
         _matchesQuery(audit.hatcherId, query) ||
         _matchesQuery(audit.hoHatcherId, query) ||
         _matchesQuery(audit.status, query) ||
+        _matchesQuery(HatchDateUtils.formatDisplayDate(audit.date), query) ||
         _matchesQuery(audit.date.toIso8601String().split('T')[0], query);
   }
 
@@ -517,7 +520,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
         _isInitialLoading = true;
         _loadedAudits = [];
         _loadedSessions = [];
-        _page = 0;
         _hasMore = true;
       });
     }
@@ -527,7 +529,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
       currentUser: currentUser,
     );
 
-    final auditsFuture = _fetchPage(page: 0);
     final sessionsFuture =
         currentUser?.isCustomer == true && currentUser?.customerId != null
         ? _sessionRepository.getSessionsByCustomer(
@@ -536,51 +537,19 @@ class _AuditsScreenState extends State<AuditsScreen> {
           )
         : _sessionRepository.getAllSessions(limit: 50);
 
-    final results = await Future.wait([auditsFuture, sessionsFuture]);
+    final sessions = await sessionsFuture;
 
     if (!mounted) return;
     setState(() {
-      _loadedAudits = results[0] as List<AuditModel>;
-      _loadedSessions = results[1] as List<AuditSessionModel>;
-      _page = 1;
-      _hasMore = _loadedAudits.length == _pageSize;
+      _loadedAudits = const [];
+      _loadedSessions = sessions;
+      _hasMore = false;
       _isInitialLoading = false;
     });
   }
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
-    setState(() => _isLoadingMore = true);
-    final rows = await _fetchPage(page: _page);
-    if (!mounted) return;
-    setState(() {
-      _loadedAudits.addAll(rows);
-      _page += 1;
-      _hasMore = rows.length == _pageSize;
-      _isLoadingMore = false;
-    });
-  }
-
-  Future<List<AuditModel>> _fetchPage({required int page}) {
-    final currentUser = context.read<AuthProvider>().user;
-    final customerId = currentUser?.isCustomer == true
-        ? currentUser?.customerId
-        : null;
-    final effectiveFilter = customerId == null
-        ? _filter
-        : _filter.copyWith(customerId: customerId);
-    if (effectiveFilter.hasFilters) {
-      return _auditRepository.getFilteredAudits(
-        effectiveFilter,
-        limit: _pageSize,
-        offset: page * _pageSize,
-      );
-    }
-    return _auditRepository.getAllAudits(
-      limit: _pageSize,
-      offset: page * _pageSize,
-      customerId: customerId,
-    );
+    return;
   }
 
   int get _activeFilterCount {
@@ -613,12 +582,6 @@ class _AuditsScreenState extends State<AuditsScreen> {
   }
 
   Widget _buildPaginationFooter() {
-    if (_isLoadingMore) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
     if (!_hasMore && _loadedAudits.isNotEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -821,253 +784,3 @@ class _AuditCustomerGroup {
 }
 
 enum _AuditAction { edit, delete }
-
-class _SessionDetailScreen extends StatelessWidget {
-  final AuditSessionModel session;
-
-  const _SessionDetailScreen({required this.session});
-
-  @override
-  Widget build(BuildContext context) {
-    final stationKeys = session.selectedStationKeys;
-
-    return Scaffold(
-      appBar: const GradientAppBar(title: 'Visit Details'),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildHeaderCard(),
-          const SizedBox(height: 16),
-          Text(
-            'Station Progress',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF1F2937),
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...List.generate(stationKeys.length, (index) {
-            final stationKey = stationKeys[index];
-            final isCompleted = session.stationsCompleted.contains(stationKey);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _StationProgressTile(
-                number: index + 1,
-                label:
-                    AuditSessionProvider.stationDisplayLabels[stationKey] ??
-                    stationKey,
-                isCompleted: isCompleted,
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderCard() {
-    return Card(
-      elevation: 0,
-      color: AppColors.background,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hatchery Visit',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF1F2937),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDate(session.date),
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: session.status == 'completed'
-                        ? AppColors.completedText.withValues(alpha: 0.1)
-                        : AppColors.ageBadgeBg,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    session.status == 'completed' ? 'Completed' : 'In Progress',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: session.status == 'completed'
-                          ? AppColors.completedText
-                          : AppColors.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _InfoPill(label: 'Customer', value: session.customerId),
-                if (session.breed != null)
-                  _InfoPill(label: 'Breed', value: session.breed!),
-                _InfoPill(
-                  label: 'Stations',
-                  value:
-                      '${session.stationsCompleted.length}/${session.selectedStationKeys.length}',
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthAbbreviation(date.month)} '
-        '${date.year}';
-  }
-
-  String _monthAbbreviation(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month - 1];
-  }
-}
-
-class _StationProgressTile extends StatelessWidget {
-  final int number;
-  final String label;
-  final bool isCompleted;
-
-  const _StationProgressTile({
-    required this.number,
-    required this.label,
-    required this.isCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isCompleted
-              ? AppColors.completedText.withValues(alpha: 0.3)
-              : const Color(0xFFE5E7EB),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isCompleted
-                  ? AppColors.completedText
-                  : Colors.grey.shade300,
-            ),
-            child: Center(
-              child: isCompleted
-                  ? const Icon(Icons.check, size: 14, color: Colors.white)
-                  : Text(
-                      '$number',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: isCompleted ? FontWeight.w600 : FontWeight.w500,
-                color: isCompleted
-                    ? AppColors.completedText
-                    : const Color(0xFF1F2937),
-              ),
-            ),
-          ),
-          if (isCompleted)
-            const Icon(
-              Icons.check_circle,
-              color: AppColors.completedText,
-              size: 18,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoPill extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoPill({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: TextStyle(fontSize: 12, color: Colors.black87),
-          children: [
-            TextSpan(text: '$label: '),
-            TextSpan(
-              text: value,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

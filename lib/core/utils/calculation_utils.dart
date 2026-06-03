@@ -1,49 +1,51 @@
 import 'dart:math' as math;
 
 class CalculationUtils {
-  static double cvPercent(List<double> values) {
+  static const int pasgarScoredDefectCategoryCount = 5;
+  static const int pasgarTrackedDefectCategoryCount = 6;
+
+  static double cvPercent(
+    List<double> values, {
+    int decimalPlaces = 1,
+    bool sample = true,
+  }) {
     if (values.length < 2) return 0.0;
     final avg = average(values);
     if (avg == 0) return 0.0;
-    // Use sample standard deviation (n-1 denominator).
-    final mean = avg;
-    final sumSq = values
-        .map((v) => math.pow(v - mean, 2))
-        .reduce((a, b) => a + b);
-    final std = math.sqrt(sumSq / (values.length - 1));
-    return double.parse(((std / avg) * 100).toStringAsFixed(1));
+    final std = stdDev(values, sample: sample);
+    return roundTo((std / avg) * 100, decimalPlaces: decimalPlaces);
   }
 
   static double uniformityPercent(List<double> values, double min, double max) {
     if (values.isEmpty) return 0.0;
     final inRange = values.where((v) => v >= min && v <= max).length;
-    // Percent INSIDE range (AVG ± 10%)
-    return double.parse(((inRange / values.length) * 100).toStringAsFixed(1));
+    return percentOf(inRange, values.length) ?? 0.0;
   }
 
   static double pasgarScore(int sampleSize, List<int> defectCounts) {
-    if (sampleSize == 0) return 0.0;
-    final sum = defectCounts.fold(0, (a, b) => a + b);
-    // ((sampleSize * 10) - sum) / sampleSize
-    return double.parse(
-      (((sampleSize * 10) - sum) / sampleSize).toStringAsFixed(1),
-    );
+    if (sampleSize <= 0) return 0.0;
+    final sum = defectCounts
+        .take(pasgarScoredDefectCategoryCount)
+        .map((count) => count.clamp(0, sampleSize).toInt())
+        .fold(0, (a, b) => a + b);
+    final score = ((sampleSize * 10) - sum) / sampleSize;
+    return roundTo(score.clamp(5.0, 10.0));
   }
 
   static double fertility(int fertile, int clear) {
     final total = fertile + clear;
     if (total == 0) return 100.0;
-    return double.parse(((fertile / total) * 100).toStringAsFixed(1));
+    return percentOf(fertile, total) ?? 0.0;
   }
 
   static double hatchability(int hatched, int total) {
     if (total == 0) return 0.0;
-    return double.parse(((hatched / total) * 100).toStringAsFixed(1));
+    return percentOf(hatched, total) ?? 0.0;
   }
 
   static double hof(double hatchability, double fertility) {
     if (fertility == 0) return 0.0;
-    return double.parse(((hatchability / fertility) * 100).toStringAsFixed(1));
+    return percentOf(hatchability, fertility, allowAbove100: true) ?? 0.0;
   }
 
   static double average(List<double> values) {
@@ -52,13 +54,46 @@ class CalculationUtils {
     return sum / values.length;
   }
 
-  static double stdDev(List<double> values) {
+  static double? minValue(List<double> values) {
+    if (values.isEmpty) return null;
+    return values.reduce(math.min);
+  }
+
+  static double? maxValue(List<double> values) {
+    if (values.isEmpty) return null;
+    return values.reduce(math.max);
+  }
+
+  static double stdDev(List<double> values, {bool sample = true}) {
     if (values.isEmpty) return 0.0;
+    if (sample && values.length < 2) return 0.0;
     final avg = average(values);
     final sumSq = values
         .map((v) => math.pow(v - avg, 2))
         .reduce((a, b) => a + b);
-    return math.sqrt(sumSq / values.length);
+    final denominator = sample ? values.length - 1 : values.length;
+    return math.sqrt(sumSq / denominator);
+  }
+
+  static double populationStdDev(List<double> values) {
+    return stdDev(values, sample: false);
+  }
+
+  static double? percentOf(
+    num? count,
+    num? total, {
+    int decimalPlaces = 1,
+    bool allowAbove100 = false,
+  }) {
+    if (count == null || total == null) return null;
+    if (count < 0 || total <= 0) return null;
+    final pct = (count / total) * 100;
+    if (!allowAbove100 && pct > 100) return null;
+    return roundTo(pct.toDouble(), decimalPlaces: decimalPlaces);
+  }
+
+  static double roundTo(double value, {int decimalPlaces = 1}) {
+    return double.parse(value.toStringAsFixed(decimalPlaces));
   }
 
   /// Returns a shell-temperature zone label for °C readings.
@@ -90,6 +125,24 @@ class CalculationUtils {
     return TemperatureStatus.optimal;
   }
 
+  /// Returns setter EST zone label for °F readings.
+  /// Allowed: 99.5–102 °F. Optimal: 100–101 °F.
+  static String setterEstZone(double tempF) {
+    if (tempF < 99.5) return 'Low';
+    if (tempF > 102) return 'High';
+    if (tempF >= 100 && tempF <= 101) return 'Optimal';
+    return 'Allowed';
+  }
+
+  /// Returns setter EST color indicator for °F readings.
+  /// The three-state status keeps allowed-but-not-optimal values visible as
+  /// low/high warnings while the zone label carries the allowed range.
+  static TemperatureStatus setterEstStatus(double tempF) {
+    if (tempF >= 100 && tempF <= 101) return TemperatureStatus.optimal;
+    if (tempF > 101) return TemperatureStatus.high;
+    return TemperatureStatus.low;
+  }
+
   /// Returns CVT zone label for °F readings.
   /// Optimal: 103–105 °F.  Low: <103 °F.  High: >105 °F.
   static String cvtZone(double tempF) {
@@ -107,16 +160,14 @@ class CalculationUtils {
   /// Computes UV affected percentage from count and sample size.
   static double uvAffectedPct(int affectedCount, int sampleSize) {
     if (sampleSize == 0) return 0.0;
-    return double.parse(
-      ((affectedCount / sampleSize) * 100).toStringAsFixed(1),
-    );
+    return percentOf(affectedCount, sampleSize) ?? 0.0;
   }
 
   /// Aggregates multiple UV affected percentages into an overall average.
   static double overallUvAffectedAvg(List<double> percentages) {
     if (percentages.isEmpty) return 0.0;
     final sum = percentages.reduce((a, b) => a + b);
-    return double.parse((sum / percentages.length).toStringAsFixed(1));
+    return roundTo(sum / percentages.length);
   }
 }
 

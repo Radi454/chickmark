@@ -3,12 +3,13 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/scorecard_formatter.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/temperature_rh_model.dart';
+import '../../../features/dashboard/providers/dashboard_provider.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
 import '../../../features/customers/widgets/add_flock_sheet.dart';
 import '../../../features/customers/widgets/flock_management_sheet.dart';
@@ -231,9 +232,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
+        onTap: () async {
+          final dashboardProvider = context.read<DashboardProvider>();
+          final navigator = Navigator.of(context);
+          await dashboardProvider.selectVisitSession(visit);
+          if (!navigator.mounted) return;
+          await navigator.push(
             MaterialPageRoute(
               builder: (context) => VisitDetailScreen(visit: visit),
             ),
@@ -248,7 +252,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Visit ${visit.session.date.day}/${visit.session.date.month}/${visit.session.date.year}',
+                      'Visit ${HatchDateUtils.formatDisplayDate(visit.session.date)}',
                       style: AppTextStyles.body.copyWith(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -278,10 +282,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                   !visit.findingsSummary!.isEmpty) ...[
                 const SizedBox(height: 12),
                 _buildFindingsChips(visit.findingsSummary!),
-              ],
-              if (visit.temperatureSummaries.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _buildTemperatureChips(visit.temperatureSummaries),
               ],
             ],
           ),
@@ -345,15 +345,15 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   String _stationLabel(String key) {
     switch (key) {
-      case 'egg_storage':
+      case 'egg':
         return 'Egg';
-      case 'chick_quality':
+      case 'chicks':
         return 'Chick';
-      case 'hatch_analysis':
+      case 'hatch_analysis_egg_breakouts':
         return 'Hatch';
-      case 'setter_optimizing':
+      case 'setters':
         return 'Setter';
-      case 'hatcher_optimizing':
+      case 'hatchers':
         return 'Hatcher';
       default:
         return key;
@@ -390,34 +390,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           fontWeight: FontWeight.w600,
         ),
       ),
-    );
-  }
-
-  Widget _buildTemperatureChips(List<TemperatureSessionModel> temps) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: temps.map((t) {
-        final alertCount = t.alertCount ?? 0;
-        final color = alertCount > 0
-            ? const Color(0xFFE24B4A)
-            : const Color(0xFF3a9a5c);
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.18)),
-          ),
-          child: Text(
-            '${t.activePlace.label}: ${t.tempAvg?.toStringAsFixed(1) ?? '--'}°F',
-            style: AppTextStyles.caption.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 
@@ -694,7 +666,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
+    return HatchDateUtils.formatDisplayDate(date);
   }
 
   void _showFlockManagementSheet(BuildContext context) {

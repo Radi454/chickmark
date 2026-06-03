@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../../../core/security/safe_debug_log.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
@@ -56,6 +57,8 @@ class AuditSessionProvider extends ChangeNotifier {
   UserModel? _currentUser;
   String? _error;
   List<String>? _selectedStationKeys;
+  int _loadOperation = 0;
+  bool _isDisposed = false;
 
   // Getters
   AuditSessionModel? get currentSession => _currentSession;
@@ -80,20 +83,33 @@ class AuditSessionProvider extends ChangeNotifier {
       stationsCompleted.contains(stationKeys[_currentStationIndex]);
   String? get error => _error;
 
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
+  }
+
+  void _notifyListeners() {
+    if (!_isDisposed) notifyListeners();
+  }
+
+  bool _isCurrentLoad(int operation) =>
+      !_isDisposed && operation == _loadOperation;
+
   static const Map<String, String> stationDisplayLabels = {
-    'egg_storage': AuditTypeLabels.eggStationLabel,
-    'chick_quality': 'Chick Quality',
-    'hatch_analysis': 'Hatch Analysis',
-    'setter_optimizing': 'Setter Optimizing',
-    'hatcher_optimizing': 'Hatcher Optimizing',
+    'egg': AuditTypeLabels.eggStationLabel,
+    'chicks': 'Chicks',
+    'hatch_analysis_egg_breakouts': 'Hatch Analysis & Egg Breakouts',
+    'setters': 'Setters',
+    'hatchers': 'Hatchers',
   };
 
   static const Map<String, String> stationKeyToAuditType = {
-    'egg_storage': 'Egg Storage',
-    'chick_quality': 'Chick Quality',
-    'hatch_analysis': 'Hatch Analysis',
-    'setter_optimizing': 'Setter Optimizing',
-    'hatcher_optimizing': 'Hatcher Optimizing',
+    'egg': 'Egg',
+    'chicks': 'Chicks',
+    'hatch_analysis_egg_breakouts': 'Hatch Analysis & Egg Breakouts',
+    'setters': 'Setters',
+    'hatchers': 'Hatchers',
   };
 
   /// Start a new audit session.
@@ -101,11 +117,12 @@ class AuditSessionProvider extends ChangeNotifier {
     required AuditSessionContext context,
     UserModel? currentUser,
   }) async {
+    final operation = ++_loadOperation;
     _currentUser = currentUser;
     _selectedStationKeys = normalizeStationKeys(context.selectedStationKeys);
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
 
     try {
       final now = DateTime.now();
@@ -129,60 +146,207 @@ class AuditSessionProvider extends ChangeNotifier {
       );
 
       await _repository.insertSession(session);
+      if (!_isCurrentLoad(operation)) return;
       _currentSession = session;
       _currentStationIndex = 0;
+      _targetStationIndex = 0;
       _isResumed = false;
 
-      await _logActivity('session_start', session.id);
+      await _safeLogActivity('session_start', session.id);
 
       unawaited(_supabaseService.syncAuditSession(session.toMap()));
     } catch (e) {
+      if (!_isCurrentLoad(operation)) return;
       _error = 'Failed to start visit session';
-      if (kDebugMode) print('Error starting session: $e');
+      safeDebugLog('Error starting session', error: e);
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
+    }
+  }
+
+  /// Start a visit, or resume the matching in-progress visit for this context.
+  Future<void> startOrResumeSession({
+    required AuditSessionContext context,
+    UserModel? currentUser,
+  }) async {
+    final operation = ++_loadOperation;
+    _currentUser = currentUser;
+    _selectedStationKeys = normalizeStationKeys(context.selectedStationKeys);
+    _isLoading = true;
+    _error = null;
+    _notifyListeners();
+
+    try {
+      final existing = await _repository.findInProgressSession(
+        customerId: context.customerId,
+        flockId: context.flockId,
+        hatcheryId: context.hatcheryId,
+        date: context.date,
+      );
+      if (!_isCurrentLoad(operation)) return;
+      if (existing != null) {
+        _currentSession = existing;
+        _selectedStationKeys = normalizeStationKeys(
+          existing.selectedStationKeys,
+        );
+        _isResumed = true;
+        _setResumeStationIndex(existing);
+        await _safeLogActivity('session_resume', existing.id);
+        return;
+      }
+    } catch (e) {
+      if (!_isCurrentLoad(operation)) return;
+      _error = 'Failed to resume visit session';
+      safeDebugLog('Error finding session to resume', error: e);
+      return;
+    } finally {
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
+    }
+
+    await startSession(context: context, currentUser: currentUser);
+  }
+
+  /// Load a matching in-progress session for Select Stations without creating.
+  Future<bool> loadMatchingSessionForStationSelection({
+    required AuditSessionContext context,
+    UserModel? currentUser,
+  }) async {
+    final operation = ++_loadOperation;
+    _currentUser = currentUser;
+    _isLoading = true;
+    _error = null;
+    _notifyListeners();
+
+    try {
+      final existing = await _repository.findInProgressSession(
+        customerId: context.customerId,
+        flockId: context.flockId,
+        hatcheryId: context.hatcheryId,
+        date: context.date,
+      );
+      if (!_isCurrentLoad(operation)) return false;
+      if (existing == null) {
+        _currentSession = null;
+        _currentStationIndex = 0;
+        _targetStationIndex = 0;
+        _isResumed = false;
+        return false;
+      }
+      _currentSession = existing;
+      _selectedStationKeys = normalizeStationKeys(existing.selectedStationKeys);
+      _isResumed = true;
+      _setResumeStationIndex(existing, initialStationIndex: 0);
+      await _safeLogActivity('session_resume', existing.id);
+      return true;
+    } catch (e) {
+      if (_isCurrentLoad(operation)) {
+        _error = 'Failed to resume visit session';
+        safeDebugLog('Error finding session to resume', error: e);
+      }
+      return false;
+    } finally {
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
     }
   }
 
   /// Resume an existing session from its last completed station.
-  Future<void> resumeSession(String sessionId) async {
+  Future<void> resumeSession(
+    String sessionId, {
+    int? initialStationIndex,
+  }) async {
+    final operation = ++_loadOperation;
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
 
     try {
       final session = await _repository.getSessionById(sessionId);
+      if (!_isCurrentLoad(operation)) return;
       if (session == null) {
         _error = 'Session not found';
         _isLoading = false;
-        notifyListeners();
+        _notifyListeners();
         return;
       }
 
       _currentSession = session;
+      _selectedStationKeys = normalizeStationKeys(session.selectedStationKeys);
       _isResumed = true;
+      _setResumeStationIndex(session, initialStationIndex: initialStationIndex);
 
-      final completed = session.stationsCompleted;
-      if (completed.length >= stationKeys.length) {
-        _currentStationIndex = stationKeys.length - 1;
-      } else {
-        _currentStationIndex = stationKeys.indexWhere(
-          (stationKey) => !completed.contains(stationKey),
-        );
-        if (_currentStationIndex == -1) {
-          _currentStationIndex = 0;
-        }
-      }
-
-      await _logActivity('session_resume', sessionId);
+      await _safeLogActivity('session_resume', sessionId);
     } catch (e) {
+      if (!_isCurrentLoad(operation)) return;
       _error = 'Failed to resume visit session';
-      if (kDebugMode) print('Error resuming session: $e');
+      safeDebugLog('Error resuming session', error: e);
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_isCurrentLoad(operation)) {
+        _isLoading = false;
+        _notifyListeners();
+      }
     }
+  }
+
+  Future<void> updateSelectedStationKeys(
+    List<String> selectedStationKeys,
+  ) async {
+    if (_currentSession == null) return;
+
+    try {
+      await _repository.updateSelectedStationKeys(
+        _currentSession!.id,
+        selectedStationKeys,
+      );
+      final updated = await _repository.getSessionById(_currentSession!.id);
+      if (updated != null) {
+        _currentSession = updated;
+        _selectedStationKeys = normalizeStationKeys(
+          updated.selectedStationKeys,
+        );
+        _setResumeStationIndex(updated);
+        unawaited(_supabaseService.syncAuditSession(updated.toMap()));
+      }
+      _notifyListeners();
+    } catch (e) {
+      _error = 'Failed to update visit stations';
+      safeDebugLog('Error updating selected station keys', error: e);
+    }
+  }
+
+  void _setResumeStationIndex(
+    AuditSessionModel session, {
+    int? initialStationIndex,
+  }) {
+    final keys = normalizeStationKeys(session.selectedStationKeys);
+    if (initialStationIndex != null &&
+        initialStationIndex >= 0 &&
+        initialStationIndex < keys.length) {
+      _currentStationIndex = initialStationIndex;
+      _targetStationIndex = initialStationIndex;
+      return;
+    }
+
+    final completed = session.stationsCompleted;
+    if (completed.length >= keys.length) {
+      _currentStationIndex = 0;
+    } else {
+      _currentStationIndex = keys.indexWhere(
+        (stationKey) => !completed.contains(stationKey),
+      );
+      if (_currentStationIndex == -1) {
+        _currentStationIndex = 0;
+      }
+    }
+    _targetStationIndex = _currentStationIndex;
   }
 
   /// Navigate to the next station.
@@ -190,7 +354,7 @@ class AuditSessionProvider extends ChangeNotifier {
     if (_currentStationIndex < stationKeys.length - 1) {
       _targetStationIndex = _currentStationIndex + 1;
       _isMovingToStation = true;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -199,7 +363,7 @@ class AuditSessionProvider extends ChangeNotifier {
     if (_currentStationIndex > 0) {
       _targetStationIndex = _currentStationIndex - 1;
       _isMovingToStation = true;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -208,7 +372,7 @@ class AuditSessionProvider extends ChangeNotifier {
     if (index >= 0 && index < stationKeys.length) {
       _targetStationIndex = index;
       _isMovingToStation = true;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -216,15 +380,15 @@ class AuditSessionProvider extends ChangeNotifier {
   void stationTransitionComplete() {
     _currentStationIndex = _targetStationIndex;
     _isMovingToStation = false;
-    notifyListeners();
+    _notifyListeners();
   }
 
   /// Mark the current station as completed and persist progress.
   Future<void> markCurrentStationCompleted() async {
-    if (_currentSession == null) return;
+    if (_currentSession == null || _isLoading) return;
 
     _isLoading = true;
-    notifyListeners();
+    _notifyListeners();
 
     try {
       final stationKey = stationKeys[_currentStationIndex];
@@ -235,7 +399,7 @@ class AuditSessionProvider extends ChangeNotifier {
         _currentSession = updated;
       }
 
-      await _logActivity(
+      await _safeLogActivity(
         'station_complete',
         _currentSession!.id,
         detail: stationKey,
@@ -243,10 +407,11 @@ class AuditSessionProvider extends ChangeNotifier {
 
       unawaited(_supabaseService.syncAuditSession(_currentSession!.toMap()));
     } catch (e) {
-      if (kDebugMode) print('Error marking station completed: $e');
+      _error = 'Failed to save station progress';
+      safeDebugLog('Error marking station completed', error: e);
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -263,18 +428,34 @@ class AuditSessionProvider extends ChangeNotifier {
 
       unawaited(_supabaseService.syncAuditSession(_currentSession!.toMap()));
 
-      notifyListeners();
+      _notifyListeners();
     } catch (e) {
-      if (kDebugMode) print('Error updating session progress: $e');
+      _error = 'Failed to save session progress';
+      safeDebugLog('Error updating session progress', error: e);
     }
+  }
+
+  /// Remove the visible station from completion progress and reopen if needed.
+  Future<void> removeCurrentStationCompletion() async {
+    if (_currentSession == null) return;
+    if (_currentStationIndex < 0 ||
+        _currentStationIndex >= stationKeys.length) {
+      return;
+    }
+    final stationKey = stationKeys[_currentStationIndex];
+    if (!stationsCompleted.contains(stationKey)) return;
+    final nextCompleted = stationsCompleted
+        .where((completedKey) => completedKey != stationKey)
+        .toList(growable: false);
+    await updateProgress(nextCompleted);
   }
 
   /// Complete the entire visit session.
   Future<void> completeSession() async {
-    if (_currentSession == null) return;
+    if (_currentSession == null || _isLoading) return;
 
     _isLoading = true;
-    notifyListeners();
+    _notifyListeners();
 
     try {
       await _repository.updateSessionProgress(
@@ -287,14 +468,15 @@ class AuditSessionProvider extends ChangeNotifier {
         _currentSession = updated;
       }
 
-      await _logActivity('session_complete', _currentSession!.id);
+      await _safeLogActivity('session_complete', _currentSession!.id);
 
       unawaited(_supabaseService.syncAuditSession(_currentSession!.toMap()));
     } catch (e) {
-      if (kDebugMode) print('Error completing session: $e');
+      _error = 'Failed to complete visit session';
+      safeDebugLog('Error completing session', error: e);
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -303,6 +485,7 @@ class AuditSessionProvider extends ChangeNotifier {
     try {
       return await _repository.getInProgressSessions();
     } catch (e) {
+      safeDebugLog('Error loading in-progress sessions', error: e);
       return [];
     }
   }
@@ -320,6 +503,7 @@ class AuditSessionProvider extends ChangeNotifier {
         offset: offset,
       );
     } catch (e) {
+      safeDebugLog('Error loading completed sessions', error: e);
       return [];
     }
   }
@@ -333,10 +517,11 @@ class AuditSessionProvider extends ChangeNotifier {
         _currentSession = null;
         _currentStationIndex = 0;
         _isResumed = false;
-        notifyListeners();
+        _notifyListeners();
       }
     } catch (e) {
-      if (kDebugMode) print('Error deleting session: $e');
+      _error = 'Failed to delete visit session';
+      safeDebugLog('Error deleting session', error: e);
     }
   }
 
@@ -349,7 +534,8 @@ class AuditSessionProvider extends ChangeNotifier {
     _isResumed = false;
     _selectedStationKeys = null;
     _error = null;
-    notifyListeners();
+    _loadOperation++;
+    _notifyListeners();
   }
 
   Future<void> _logActivity(
@@ -366,5 +552,17 @@ class AuditSessionProvider extends ChangeNotifier {
       entityId: sessionId,
       details: detail,
     );
+  }
+
+  Future<void> _safeLogActivity(
+    String action,
+    String sessionId, {
+    String? detail,
+  }) async {
+    try {
+      await _logActivity(action, sessionId, detail: detail);
+    } catch (e) {
+      safeDebugLog('Error logging audit session activity', error: e);
+    }
   }
 }

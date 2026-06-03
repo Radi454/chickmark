@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/sample_mode.dart';
 
 void main() {
   group('AuditModel round-trip serialization', () {
@@ -12,7 +13,7 @@ void main() {
     AuditModel baseEggStorage() {
       return AuditModel(
         id: 'test-id',
-        auditType: 'Egg Storage',
+        auditType: 'Egg',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -26,7 +27,7 @@ void main() {
     AuditModel baseSetter() {
       return AuditModel(
         id: 'test-setter',
-        auditType: 'Setter Optimizing',
+        auditType: 'Setters',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -40,7 +41,7 @@ void main() {
     AuditModel baseHatcher() {
       return AuditModel(
         id: 'test-hatcher',
-        auditType: 'Hatcher Optimizing',
+        auditType: 'Hatchers',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -54,7 +55,7 @@ void main() {
     AuditModel baseChickQuality() {
       return AuditModel(
         id: 'test-pm',
-        auditType: 'Chick Quality',
+        auditType: 'Chicks',
         customerId: 'cust-1',
         flockId: 'flock-1',
         date: fixedDate,
@@ -72,7 +73,7 @@ void main() {
       return AuditModel.fromMap(map);
     }
 
-    test('Egg Storage expanded EST grid fields round-trip', () {
+    test('Egg expanded EST grid fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_estReadingsJson':
             '{"door_top":19.5,"door_middle":20.1,"door_bottom":20.3,"middle_top":19.8,"middle_middle":20.0,"middle_bottom":20.2,"back_top":19.7,"back_middle":19.9,"back_bottom":20.4}',
@@ -89,7 +90,7 @@ void main() {
       expect(restored.esEstCv, original.esEstCv);
     });
 
-    test('Egg Storage expanded UV inspection fields round-trip', () {
+    test('Egg expanded UV inspection fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_uvSampleSize': 50,
         'es_uvCuticleDamageCount': 3,
@@ -114,7 +115,7 @@ void main() {
       expect(restored.esUvPhotosJson, original.esUvPhotosJson);
     });
 
-    test('Egg Storage expanded egg quality fields round-trip', () {
+    test('Egg expanded egg quality fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_crackPct': 2.5,
         'es_brokenPct': 1.0,
@@ -136,7 +137,7 @@ void main() {
       expect(restored.esEggColorDistJson, original.esEggColorDistJson);
     });
 
-    test('Egg Storage expanded storage checklist fields round-trip', () {
+    test('Egg expanded storage checklist fields round-trip', () {
       final original = fromMapWith(baseEggStorage(), {
         'es_eggOrientation': 'Point Down',
         'es_traySpacing': 'Adequate',
@@ -154,7 +155,7 @@ void main() {
       expect(restored.esCondensation, true);
     });
 
-    test('Egg Storage condensation false round-trip', () {
+    test('Egg condensation false round-trip', () {
       final original = fromMapWith(baseEggStorage(), {'es_condensation': 0});
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
@@ -162,43 +163,66 @@ void main() {
       expect(restored.esCondensation, false);
     });
 
-    test(
-      'Setter Optimizing expanded machine type and turning angle round-trip',
-      () {
-        final original = fromMapWith(baseSetter(), {
-          'so_machineType': 'Single Stage',
-          'so_turningAngle': 45.0,
-          'soEstAvg': 100.5,
-          'soEstCv': 0.3,
-        });
-        final map = original.toMap();
-        final restored = AuditModel.fromMap(map);
+    test('Setters expanded machine type and turning angle round-trip', () {
+      final original = fromMapWith(baseSetter(), {
+        'so_machineType': 'Single',
+        'so_turningAngle': 45.0,
+        'so_setpointF': 100.0,
+        'so_actualF': 100.4,
+        'so_setpointRh': 55.0,
+        'so_actualRh': 57.5,
+        'so_machineScreenPhoto': '/photos/setter-screen.jpg',
+        'so_batchSize': 19200,
+        'so_batchCount': 3,
+        'so_totalEggsSet': 57600,
+        'so_estSamplesJson':
+            '[{"id":"sample-1","breed":"Ross308","incubationAge":7,"incubationHours":4,"estReadings":{"front_top":100.5},"estPhotos":{"front_top":"/photos/front.jpg"},"estAvg":100.5,"estCv":0.0}]',
+        'soEstAvg': 100.5,
+        'soEstCv': 0.3,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
 
-        expect(restored.soMachineType, 'Single Stage');
-        expect(restored.soTurningAngle, 45.0);
-        expect(restored.soEstAvg, 100.5);
-        expect(restored.soEstCv, 0.3);
-      },
-    );
+      expect(restored.soMachineType, 'Single');
+      expect(restored.soTurningAngle, 45.0);
+      expect(restored.soSetpointF, 100.0);
+      expect(restored.soActualF, 100.4);
+      expect(restored.soSetpointRh, 55.0);
+      expect(restored.soActualRh, 57.5);
+      expect(restored.soMachineScreenPhoto, '/photos/setter-screen.jpg');
+      expect(restored.soBatchSize, 19200);
+      expect(restored.soBatchCount, 3);
+      expect(restored.soTotalEggsSet, 57600);
+      expect(restored.soEstSamplesJson, contains('"breed":"Ross308"'));
+      expect(restored.soEstAvg, 100.5);
+      expect(restored.soEstCv, 0.3);
+    });
 
-    test(
-      'Hatcher Optimizing expanded meconium and transfer day round-trip',
-      () {
-        final original = fromMapWith(baseHatcher(), {
-          'ho_meconium': 'Normal',
-          'ho_transferDay': 18,
-          'hoCvtAvg': 104.2,
-          'hoCvtCv': 0.5,
-        });
-        final map = original.toMap();
-        final restored = AuditModel.fromMap(map);
+    test('Hatchers expanded meconium and transfer day round-trip', () {
+      final original = fromMapWith(baseHatcher(), {
+        'ho_setpointF': 99.5,
+        'ho_setpointRh': 58.0,
+        'ho_meconium': 'Normal',
+        'ho_transferDay': 18,
+        'hoCvtAvg': 104.2,
+        'hoCvtCv': 0.5,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
 
-        expect(restored.hoMeconium, 'Normal');
-        expect(restored.hoTransferDay, 18);
-        expect(restored.hoCvtAvg, 104.2);
-        expect(restored.hoCvtCv, 0.5);
-      },
-    );
+      expect(restored.hoSetpointF, 99.5);
+      expect(restored.hoSetpointRh, 58.0);
+      expect(restored.hoMeconium, 'Normal');
+      expect(restored.hoTransferDay, 18);
+      expect(restored.hoCvtAvg, 104.2);
+      expect(restored.hoCvtCv, 0.5);
+    });
+
+    test('Hatchers unanswered chick panting stays null', () {
+      final restored = AuditModel.fromMap(baseHatcher().toMap());
+
+      expect(restored.hoChickPanting, isNull);
+    });
 
     test('PM Necropsy lesion and severity fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
@@ -222,6 +246,18 @@ void main() {
         'pm_stuntedOrgansCount': 0,
         'pm_pulmonaryHemorrhageCount': 2,
         'pm_pulmonaryHemorrhageSeverity': 'Moderate',
+        'pm_gizzardErosionsCount': 4,
+        'pm_gizzardErosionsSeverity': 'Severe',
+        'pm_airSacCaseationsCount': 5,
+        'pm_airSacCaseationsSeverity': 'Moderate',
+        'pm_urolithiasisCount': 2,
+        'pm_urolithiasisSeverity': 'Mild',
+        'pm_nephritisCount': 6,
+        'pm_nephritisSeverity': 'Mild',
+        'pm_generalSepticemiaCount': 7,
+        'pm_generalSepticemiaSeverity': 'Severe',
+        'pm_otherLesionsJson':
+            '[{"name":"Retained shell","count":2,"severity":"Mild"}]',
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
@@ -235,55 +271,51 @@ void main() {
       expect(restored.pmUnabsorbedYolkCount, 5);
       expect(restored.pmPericarditisCount, 2);
       expect(restored.pmPericarditisSeverity, 'Severe');
-    });
-
-    test('PM Necropsy gasping and deformity fields round-trip', () {
-      final original = fromMapWith(baseChickQuality(), {
-        'pm_gaspingPresent': 1,
-        'pm_gaspingType': 'Abdominal',
-        'pm_exposedBrainCount': 1,
-        'pm_ectopicVisceraCount': 0,
-        'pm_extraLegsCount': 0,
-        'pm_crossedBeakCount': 2,
-        'pm_absentEyeBothCount': 0,
-        'pm_absentEyeOneCount': 1,
-        'pm_smallEyeCount': 0,
-        'pm_hydrocephalyCount': 1,
-        'pm_starGazerCount': 0,
-        'pm_curledToesCount': 1,
-        'pm_shortLegsCount': 0,
-        'pm_spinalDeformityCount': 0,
-        'pm_cardiacAnomalyCount': 0,
-        'pm_conjoinedCount': 0,
-        'pm_otherDeformityCount': 3,
-        'pm_otherDeformityText': 'Missing wing feather',
-      });
-      final map = original.toMap();
-      final restored = AuditModel.fromMap(map);
-
-      expect(restored.pmGaspingPresent, true);
-      expect(restored.pmGaspingType, 'Abdominal');
-      expect(restored.pmExposedBrainCount, 1);
-      expect(restored.pmCrossedBeakCount, 2);
-      expect(restored.pmAbsentEyeOneCount, 1);
-      expect(restored.pmHydrocephalyCount, 1);
-      expect(restored.pmCurledToesCount, 1);
-      expect(restored.pmOtherDeformityCount, 3);
-      expect(restored.pmOtherDeformityText, 'Missing wing feather');
+      expect(restored.pmGizzardErosionsCount, 4);
+      expect(restored.pmGizzardErosionsSeverity, 'Severe');
+      expect(restored.pmAirSacCaseationsCount, 5);
+      expect(restored.pmAirSacCaseationsSeverity, 'Moderate');
+      expect(restored.toMap()['pm_urolithiasisCount'], 2);
+      expect(restored.toMap()['pm_urolithiasisSeverity'], 'Mild');
+      expect(restored.pmNephritisCount, 6);
+      expect(restored.pmNephritisSeverity, 'Mild');
+      expect(restored.pmGeneralSepticemiaCount, 7);
+      expect(restored.pmGeneralSepticemiaSeverity, 'Severe');
+      expect(
+        restored.pmOtherLesionsJson,
+        '[{"name":"Retained shell","count":2,"severity":"Mild"}]',
+      );
     });
 
     test('PM Necropsy cause and photo fields round-trip', () {
       final original = fromMapWith(baseChickQuality(), {
-        'pm_suspectedCauseAuto': 'Omphalitis + Unabsorbed Yolk',
+        'pm_suspectedCauseAuto': 'Omphalitis + Gizzard Erosions',
         'pm_suspectedCauseManual': 'Poor sanitation',
         'pm_photosJson': '["pm_photo1.jpg","pm_photo2.jpg"]',
       });
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
-      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Unabsorbed Yolk');
+      expect(restored.pmSuspectedCauseAuto, 'Omphalitis + Gizzard Erosions');
       expect(restored.pmSuspectedCauseManual, 'Poor sanitation');
       expect(restored.pmPhotosJson, '["pm_photo1.jpg","pm_photo2.jpg"]');
+    });
+
+    test('Chicks CVT grid fields round-trip', () {
+      final original = fromMapWith(baseChickQuality(), {
+        'cvtReadingsJson':
+            '{"front_top":104.0,"front_middle":103.8,"front_bottom":103.6}',
+        'cvtPhotosJson': '{"front_top":"/photos/cvt-front-top.jpg"}',
+        'cvtAvg': 103.8,
+        'cvtCvPct': 0.2,
+      });
+      final map = original.toMap();
+      final restored = AuditModel.fromMap(map);
+
+      expect(restored.cvtReadingsJson, original.cvtReadingsJson);
+      expect(restored.cvtPhotosJson, original.cvtPhotosJson);
+      expect(restored.cvtAvg, original.cvtAvg);
+      expect(restored.cvtCvPct, original.cvtCvPct);
     });
 
     test('null new fields do not break round-trip', () {
@@ -312,13 +344,14 @@ void main() {
       expect(restored.esTraySpacing, isNull);
       expect(restored.esCoolerProximity, isNull);
       expect(restored.esWallProximity, isNull);
-      expect(restored.esCondensation, isFalse);
+      expect(restored.esCondensation, isNull);
       expect(restored.soMachineType, isNull);
       expect(restored.soTurningAngle, isNull);
       expect(restored.hoMeconium, isNull);
       expect(restored.hoTransferDay, isNull);
+      expect(restored.cvtReadingsJson, isNull);
+      expect(restored.cvtPhotosJson, isNull);
       expect(restored.pmSampleSize, isNull);
-      expect(restored.pmGaspingPresent, isFalse);
       expect(restored.pmPhotosJson, isNull);
     });
 
@@ -350,7 +383,7 @@ void main() {
       final map = original.toMap();
       final restored = AuditModel.fromMap(map);
 
-      expect(restored.sampleMode, 'compare');
+      expect(restored.sampleMode, SampleMode.compare);
       expect(restored.compareGroupKey, 'compare-visit-1');
       expect(restored.ebTrayBreakoutJson, original.ebTrayBreakoutJson);
     });

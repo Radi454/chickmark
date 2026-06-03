@@ -1,19 +1,23 @@
 ENV_FILE := .env
 DART_DEFINES := --dart-define-from-file=$(ENV_FILE)
+DEBUG_AUTH_BYPASS ?= true
+DEV_DART_DEFINES := $(DART_DEFINES) --dart-define=CHICKMARK_DEBUG_AUTH_BYPASS=$(DEBUG_AUTH_BYPASS)
 WEB_HOST ?= 127.0.0.1
-WEB_PORT ?= 57861
+WEB_PORT ?= 57863
 
-run:
-	flutter run $(DART_DEFINES)
+run: restart-web
 
 run-web:
 	WEB_HOST=$(WEB_HOST) WEB_PORT=$(WEB_PORT) scripts/run_flutter_web.sh
 
+restart-web:
+	RESTART=1 WEB_HOST=$(WEB_HOST) WEB_PORT=$(WEB_PORT) scripts/run_flutter_web.sh
+
 run-ios:
-	flutter run $(DART_DEFINES) -d iPhone
+	flutter run $(DEV_DART_DEFINES) -d iPhone
 
 run-android:
-	flutter run $(DART_DEFINES) -d android
+	flutter run $(DEV_DART_DEFINES) -d android
 
 build-ios:
 	flutter build ios $(DART_DEFINES)
@@ -21,4 +25,4 @@ build-ios:
 build-apk:
 	flutter build apk $(DART_DEFINES)
 
-.PHONY: run run-web run-ios run-android build-ios build-apk
+.PHONY: run run-web restart-web run-ios run-android build-ios build-apk

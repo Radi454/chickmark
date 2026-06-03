@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'core/constants/supabase_config.dart';
 import 'core/debug/startup_timer.dart';
+import 'core/security/safe_debug_log.dart';
 import 'data/database/database_factory_initializer.dart';
 import 'data/database/database_helper.dart';
 import 'data/repositories/user_repository.dart';
 import 'services/notifications/notification_service.dart';
+import 'services/supabase/supabase_initializer.dart';
 import 'app.dart';
 
 void main() async {
@@ -31,26 +33,31 @@ void main() async {
 void _initBackgroundServices() {
   // Token migration, notification init, and Supabase init are not
   // required before the first frame. Run them in background.
-  UserRepository().migrateRemoteTokensToSecureStorage().then((_) {
-    StartupTimer.lap('token_migration_complete');
-  }).catchError((e) {
-    debugPrint('Secure token migration failed: $e');
-  });
+  UserRepository()
+      .migrateRemoteTokensToSecureStorage()
+      .then((_) {
+        StartupTimer.lap('token_migration_complete');
+      })
+      .catchError((e) {
+        safeDebugLog('Secure token migration failed', error: e);
+      });
 
-  NotificationService.init().then((_) {
-    StartupTimer.lap('notification_init_complete');
-  }).catchError((e) {
-    debugPrint('Notification initialization failed: $e');
-  });
+  NotificationService.init()
+      .then((_) {
+        StartupTimer.lap('notification_init_complete');
+      })
+      .catchError((e) {
+        safeDebugLog('Notification initialization failed', error: e);
+      });
 
-  if (SupabaseConfig.isConfigured) {
-    Supabase.initialize(
-      url: SupabaseConfig.url,
-      anonKey: SupabaseConfig.anonKey,
-    ).then((_) {
-      StartupTimer.lap('supabase_init_complete');
-    }).catchError((e) {
-      debugPrint('Supabase initialization failed: $e');
-    });
-  }
+  unawaited(
+    SupabaseInitializer.ensureInitialized()
+        .then((initialized) {
+          if (!initialized) return;
+          StartupTimer.lap('supabase_init_complete');
+        })
+        .catchError((e) {
+          safeDebugLog('Supabase initialization failed', error: e);
+        }),
+  );
 }

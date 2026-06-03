@@ -35,10 +35,12 @@ class StationSampleMapper {
       auditSessionId: sessionId,
       legacyAuditId: audit.id,
       stationType: stationType,
+      sectorType: _sectorType(stationType),
+      sampleKind: _sampleKind(stationType),
       sampleMode: sampleMode,
       comparisonType: _comparisonType(stationType, sampleMode),
       sampleIndex: audit.hatchNumber,
-      sampleLabel: _sampleLabel(stationType, audit.hatchNumber),
+      sampleLabel: _sampleLabel(stationType, audit.hatchNumber, audit),
       sampleType: _sampleType(stationType, breakoutType),
       breakoutType: breakoutType,
       groupKey: audit.compareGroupKey,
@@ -90,21 +92,23 @@ class StationSampleMapper {
       patch['hoHatcherId'] = sample.hatcherNo;
     }
     if (sample.storageDays != null) {
-      patch['esEggStorageDays'] = sample.storageDays;
-      patch['chickStorageDays'] = sample.storageDays;
-      patch['haStorageDays'] = sample.storageDays;
-      patch['ebStorageDays'] = sample.storageDays;
+      final storageKey = _legacyStorageDaysKey(sample);
+      if (storageKey != null) {
+        patch[storageKey] = sample.storageDays;
+      }
     }
     if (sample.incubationDay != null) {
-      patch['soIncubationAge'] = sample.incubationDay;
-      patch['hoIncubationAge'] = sample.incubationDay;
+      final incubationKey = _legacyIncubationDayKey(sample);
+      if (incubationKey != null) {
+        patch[incubationKey] = sample.incubationDay;
+      }
     }
     final legacyWeek = _legacyWeek(sample.calculatedBmkAgeDays);
     if (legacyWeek != null) {
-      patch['esEggBmkAge'] = legacyWeek;
-      patch['chickBmkAge'] = legacyWeek;
-      patch['haBmkAge'] = legacyWeek;
-      patch['ebBmkAge'] = legacyWeek;
+      final bmkKey = _legacyBmkAgeKey(sample);
+      if (bmkKey != null) {
+        patch[bmkKey] = legacyWeek;
+      }
     }
     if (sample.breakoutType != null) {
       patch['ebBreakoutType'] = sample.breakoutType;
@@ -112,18 +116,53 @@ class StationSampleMapper {
     return patch;
   }
 
+  static String? _legacyStorageDaysKey(StationSampleModel sample) {
+    if (sample.stationType == 'egg') {
+      return sample.sectorType == StationSampleModel.sectorEggQuality
+          ? 'esEggQualityStorageDays'
+          : 'esEggStorageDays';
+    }
+    if (sample.stationType == 'chicks') return 'chickStorageDays';
+    if (sample.stationType == 'hatch_analysis_egg_breakouts') {
+      return _isEggBreakoutSample(sample) ? 'ebStorageDays' : 'haStorageDays';
+    }
+    return null;
+  }
+
+  static String? _legacyBmkAgeKey(StationSampleModel sample) {
+    if (sample.stationType == 'egg') return 'esEggBmkAge';
+    if (sample.stationType == 'chicks') return 'chickBmkAge';
+    if (sample.stationType == 'hatch_analysis_egg_breakouts') {
+      return _isEggBreakoutSample(sample) ? 'ebBmkAge' : 'haBmkAge';
+    }
+    return null;
+  }
+
+  static String? _legacyIncubationDayKey(StationSampleModel sample) {
+    if (sample.stationType == 'setters') return 'soIncubationAge';
+    if (sample.stationType == 'hatchers') return 'hoIncubationAge';
+    return null;
+  }
+
+  static bool _isEggBreakoutSample(StationSampleModel sample) {
+    if (sample.breakoutType != null) return true;
+    return sample.sampleType == StationSampleModel.sampleTypeBreakoutFresh ||
+        sample.sampleType == StationSampleModel.sampleTypeBreakoutCandled10d ||
+        sample.sampleType == StationSampleModel.sampleTypeBreakoutResidue21d;
+  }
+
   static String stationTypeForAuditType(String auditType) {
     switch (auditType) {
-      case 'Egg Storage':
-        return 'egg_storage';
-      case 'Chick Quality':
-        return 'chick_quality';
-      case 'Hatch Analysis':
-        return 'hatch_analysis';
-      case 'Setter Optimizing':
-        return 'setter_optimizing';
-      case 'Hatcher Optimizing':
-        return 'hatcher_optimizing';
+      case 'Egg':
+        return 'egg';
+      case 'Chicks':
+        return 'chicks';
+      case 'Hatch Analysis & Egg Breakouts':
+        return 'hatch_analysis_egg_breakouts';
+      case 'Setters':
+        return 'setters';
+      case 'Hatchers':
+        return 'hatchers';
       default:
         return auditType.trim().toLowerCase().replaceAll(' ', '_');
     }
@@ -149,24 +188,46 @@ class StationSampleMapper {
   static String? _comparisonType(String stationType, String sampleMode) {
     if (sampleMode != StationSampleModel.sampleModeComparison) return null;
     switch (stationType) {
-      case 'egg_storage':
+      case 'egg':
         return StationSampleModel.comparisonTypeHouse;
-      case 'setter_optimizing':
-      case 'hatcher_optimizing':
+      case 'setters':
+      case 'hatchers':
+      case 'chicks':
         return StationSampleModel.comparisonTypeMachine;
-      case 'chick_quality':
-      case 'hatch_analysis':
+      case 'hatch_analysis_egg_breakouts':
         return StationSampleModel.comparisonTypeBatch;
       default:
         return null;
     }
   }
 
+  static String _sectorType(String stationType) {
+    return switch (stationType) {
+      'egg' => StationSampleModel.sectorEggQuality,
+      'chicks' => StationSampleModel.sectorChickQuality,
+      'hatch_analysis_egg_breakouts' => StationSampleModel.sectorHatchBreakout,
+      'setters' => StationSampleModel.sectorSetterOptimizing,
+      'hatchers' => StationSampleModel.sectorHatcherOptimizing,
+      _ => StationSampleModel.sectorDefault,
+    };
+  }
+
+  static String _sampleKind(String stationType) {
+    return switch (stationType) {
+      'egg' => StationSampleModel.sampleKindHouse,
+      'chicks' ||
+      'setters' ||
+      'hatchers' => StationSampleModel.sampleKindMachine,
+      'hatch_analysis_egg_breakouts' => StationSampleModel.sampleKindBatch,
+      _ => StationSampleModel.sampleKindPooled,
+    };
+  }
+
   static String _sampleType(String stationType, String? breakoutType) {
-    if (stationType == 'chick_quality') {
+    if (stationType == 'chicks') {
       return StationSampleModel.sampleTypeChickQualityHatchedBatch;
     }
-    if (stationType == 'hatch_analysis') {
+    if (stationType == 'hatch_analysis_egg_breakouts') {
       switch (breakoutType) {
         case StationSampleModel.breakoutTypeFresh:
           return StationSampleModel.sampleTypeBreakoutFresh;
@@ -179,24 +240,87 @@ class StationSampleMapper {
     return StationSampleModel.sampleTypeDefault;
   }
 
-  static String _sampleLabel(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'H$sampleIndex';
+  static String _sampleLabel(
+    String stationType,
+    int sampleIndex,
+    AuditModel audit,
+  ) {
+    if (stationType == 'egg') return 'H$sampleIndex';
+    if (stationType == 'chicks') {
+      return _chickMachineSampleLabel(
+        setterNo: audit.setterId ?? audit.soSetterId,
+        hatcherNo: audit.hatcherId ?? audit.hoHatcherId,
+        fallbackIndex: sampleIndex,
+      );
+    }
+    if (stationType == 'setters') {
+      return _machineSampleLabel(
+        audit.setterId ?? audit.soSetterId,
+        prefix: 'S',
+        fallbackIndex: sampleIndex,
+      );
+    }
+    if (stationType == 'hatchers') {
+      return _machineSampleLabel(
+        audit.hatcherId ?? audit.hoHatcherId,
+        prefix: 'H',
+        fallbackIndex: sampleIndex,
+      );
+    }
     return 'Sample $sampleIndex';
   }
 
   static String? _groupLabel(String stationType, String? groupKey) {
     if (groupKey == null || groupKey.isEmpty) return null;
-    if (stationType == 'egg_storage') return 'House comparison';
+    if (stationType == 'egg') return 'House comparison';
+    if (stationType == 'chicks') return 'Machine comparison';
+    if (stationType == 'setters') return 'Setter comparison';
+    if (stationType == 'hatchers') return 'Hatcher comparison';
     return 'Comparison';
   }
 
+  static String _machineSampleLabel(
+    String? raw, {
+    required String prefix,
+    required int fallbackIndex,
+  }) {
+    final trimmed = raw?.trim() ?? '';
+    if (trimmed.isEmpty) return '$prefix$fallbackIndex';
+    final digits = RegExp(
+      r'\d+',
+    ).allMatches(trimmed).map((match) => match.group(0)).join();
+    if (digits.isNotEmpty) return '$prefix$digits';
+    final withoutPrefix = trimmed.toLowerCase().startsWith(prefix.toLowerCase())
+        ? trimmed.substring(1).trim()
+        : trimmed;
+    return '$prefix$withoutPrefix';
+  }
+
+  static String _chickMachineSampleLabel({
+    required String? setterNo,
+    required String? hatcherNo,
+    required int fallbackIndex,
+  }) {
+    final setterLabel = _machineSampleLabel(
+      setterNo,
+      prefix: 'S',
+      fallbackIndex: fallbackIndex,
+    );
+    final hatcherLabel = _machineSampleLabel(
+      hatcherNo,
+      prefix: 'H',
+      fallbackIndex: fallbackIndex,
+    );
+    return '$setterLabel$hatcherLabel';
+  }
+
   static String? _houseNo(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'H$sampleIndex';
+    if (stationType == 'egg') return 'H$sampleIndex';
     return null;
   }
 
   static String? _houseLabel(String stationType, int sampleIndex) {
-    if (stationType == 'egg_storage') return 'House $sampleIndex';
+    if (stationType == 'egg') return 'House $sampleIndex';
     return null;
   }
 
@@ -221,10 +345,17 @@ class StationSampleMapper {
   }
 
   static int? _storageDays(AuditModel audit) {
-    return audit.esEggStorageDays ??
+    final storageDays =
+        audit.esEggQualityStorageDays ??
+        audit.esEggStorageDays ??
         audit.chickStorageDays ??
         audit.haStorageDays ??
         audit.ebStorageDays;
+    if (storageDays != null) return storageDays;
+    return switch (audit.auditType) {
+      'Egg' || 'Chicks' || 'Hatch Analysis & Egg Breakouts' => 0,
+      _ => null,
+    };
   }
 
   static int? _legacyBmkWeeks(AuditModel audit) {
@@ -235,7 +366,6 @@ class StationSampleMapper {
   }
 
   static int? _legacyWeek(int? calculatedBmkAgeDays) {
-    if (calculatedBmkAgeDays == null) return null;
-    return (calculatedBmkAgeDays / 7.0).ceil();
+    return BmkAgeCalculator.displayWeekForDays(calculatedBmkAgeDays);
   }
 }

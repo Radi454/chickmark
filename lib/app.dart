@@ -1,23 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import 'core/debug/startup_timer.dart';
-import 'providers/app_provider.dart';
-import 'providers/customers_provider.dart';
-import 'features/auth/providers/auth_provider.dart';
-import 'features/auth/screens/login_screen.dart';
-import 'features/auth/screens/register_screen.dart';
-import 'features/auth/screens/pending_approval_screen.dart';
+import 'core/navigation/modal_route_visibility_observer.dart';
+import 'core/security/security_policy.dart';
+import 'core/theme/app_theme.dart';
 import 'features/audits/providers/audit_provider.dart';
 import 'features/audits/providers/audit_session_provider.dart';
-import 'features/temperature/providers/temperature_rh_provider.dart';
-import 'features/temperature/widgets/temperature_rh_launcher.dart';
-import 'features/home/widgets/main_shell.dart';
+import 'features/auth/providers/auth_provider.dart';
+import 'features/auth/screens/login_screen.dart';
+import 'features/auth/screens/pending_approval_screen.dart';
+import 'features/auth/screens/register_screen.dart';
 import 'features/bmk/providers/bmk_provider.dart';
-import 'features/settings/providers/settings_provider.dart';
 import 'features/dashboard/providers/dashboard_provider.dart';
+import 'features/govee/providers/govee_capture_provider.dart';
+import 'features/govee/widgets/govee_global_overlay.dart';
+import 'features/home/widgets/main_shell.dart';
+import 'features/settings/providers/settings_provider.dart';
 import 'features/sync/screens/startup_sync_screen.dart';
-import 'core/constants/app_colors.dart';
-import 'core/theme/app_theme.dart';
+import 'providers/app_provider.dart';
+import 'providers/customers_provider.dart';
 
 class HatchAuditApp extends StatefulWidget {
   const HatchAuditApp({super.key});
@@ -27,27 +29,34 @@ class HatchAuditApp extends StatefulWidget {
 }
 
 class _HatchAuditAppState extends State<HatchAuditApp> {
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final AuthProvider _authProvider;
-  String? _currentRoute;
-  String? _pendingRoute;
-  bool _hasObservedRoute = false;
-  bool _currentRouteIsPageRoute = true;
-  bool _pendingRouteIsPageRoute = true;
-  bool _routeUpdateScheduled = false;
-
-  static const Set<String> _measureHiddenRoutes = {'/login'};
+  late final bool _authBypassEnabled;
+  late final ModalRouteVisibilityObserver _modalRouteObserver;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final ValueNotifier<bool> _hasModalRoute = ValueNotifier<bool>(false);
+  bool _showGlobalLauncher = false;
 
   @override
   void initState() {
     super.initState();
-    _authProvider = AuthProvider();
+    _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
+    _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
+    _modalRouteObserver = ModalRouteVisibilityObserver(_hasModalRoute);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StartupTimer.lap('first_frame_rendered');
+      if (mounted) {
+        setState(() => _showGlobalLauncher = true);
+      }
       _authProvider.checkCachedToken().then((_) {
         StartupTimer.lap('auth_check_complete');
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _hasModalRoute.dispose();
+    super.dispose();
   }
 
   @override
@@ -59,32 +68,49 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => CustomersProvider()),
         ChangeNotifierProvider(create: (_) => AuditProvider()),
         ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
-        ChangeNotifierProvider(create: (_) => TemperatureRhProvider()),
+        ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ChangeNotifierProvider(create: (_) => BmkProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
+          final initialRoute = _getInitialRoute(authProvider.state);
+          final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
             navigatorKey: _navigatorKey,
-            navigatorObservers: [
-              _RouteNameObserver(onRouteChanged: _handleRouteChanged),
-            ],
+            navigatorObservers: [_modalRouteObserver],
             title: 'ChickMark',
             theme: AppTheme.light(),
-            initialRoute: _getInitialRoute(authProvider.state),
-            builder: (context, child) => _AppMeasureOverlay(
-              showMeasure: _shouldShowMeasure(authProvider.state),
-              panelContextBuilder: () => _navigatorKey.currentContext,
-              child: child ?? const SizedBox.shrink(),
-            ),
-            routes: {
-              '/login': (context) => const LoginScreen(),
-              '/register': (context) => const RegisterScreen(),
-              '/pending-approval': (context) => const PendingApprovalScreen(),
-              '/startup-sync': (context) => const StartupSyncScreen(),
-              '/main': (context) => const MainShell(),
+            initialRoute: initialRoute,
+            onGenerateInitialRoutes: (initialRouteName) {
+              final routeName = routes.containsKey(initialRouteName)
+                  ? initialRouteName
+                  : initialRoute;
+              return [_buildInitialRoute(routeName, routes)];
+            },
+            routes: routes,
+            builder: (context, child) {
+              final showGoveeLauncher =
+                  _showGlobalLauncher &&
+                  (_authBypassEnabled ||
+                      authProvider.state == AuthState.authenticated);
+              final isGoveeRecording = context
+                  .select<GoveeCaptureProvider, bool>(
+                    (provider) => provider.isRecording,
+                  );
+              return ValueListenableBuilder<bool>(
+                valueListenable: _hasModalRoute,
+                child: child ?? const SizedBox.shrink(),
+                builder: (context, hasModalRoute, navigatorChild) {
+                  return GoveeGlobalOverlay(
+                    showLauncher: showGoveeLauncher && !hasModalRoute,
+                    isRecording: isGoveeRecording,
+                    panelContextBuilder: () => _navigatorKey.currentContext,
+                    child: navigatorChild ?? const SizedBox.shrink(),
+                  );
+                },
+              );
             },
           );
         },
@@ -106,293 +132,35 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
     }
   }
 
-  bool _shouldShowMeasure(AuthState state) {
-    if (state != AuthState.authenticated) {
-      return false;
+  Map<String, WidgetBuilder> _buildRoutes(bool authBypassEnabled) {
+    if (authBypassEnabled) {
+      return {
+        '/login': (context) => const MainShell(),
+        '/register': (context) => const MainShell(),
+        '/pending-approval': (context) => const MainShell(),
+        '/startup-sync': (context) => const MainShell(),
+        '/main': (context) => const MainShell(),
+      };
     }
 
-    if (_hasObservedRoute && !_currentRouteIsPageRoute) {
-      return false;
-    }
-
-    final routeName = _hasObservedRoute
-        ? _currentRoute
-        : _getInitialRoute(state);
-    return !_measureHiddenRoutes.contains(routeName);
+    return {
+      '/login': (context) => const LoginScreen(),
+      '/register': (context) => const RegisterScreen(),
+      '/pending-approval': (context) => const PendingApprovalScreen(),
+      '/startup-sync': (context) => const StartupSyncScreen(),
+      '/main': (context) => const MainShell(),
+    };
   }
 
-  void _handleRouteChanged(Route<dynamic>? route) {
-    final routeName = route?.settings.name;
-    final isPageRoute = route == null || route is PageRoute<dynamic>;
-    if (_hasObservedRoute &&
-        _currentRoute == routeName &&
-        _currentRouteIsPageRoute == isPageRoute) {
-      return;
-    }
-
-    _pendingRoute = routeName;
-    _pendingRouteIsPageRoute = isPageRoute;
-    if (_routeUpdateScheduled) return;
-
-    _routeUpdateScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _routeUpdateScheduled = false;
-      if (!mounted) return;
-
-      final nextRoute = _pendingRoute;
-      final nextIsPageRoute = _pendingRouteIsPageRoute;
-      _pendingRoute = null;
-      if (_hasObservedRoute &&
-          _currentRoute == nextRoute &&
-          _currentRouteIsPageRoute == nextIsPageRoute) {
-        return;
-      }
-
-      setState(() {
-        _hasObservedRoute = true;
-        _currentRoute = nextRoute;
-        _currentRouteIsPageRoute = nextIsPageRoute;
-      });
-    });
-  }
-}
-
-class _RouteNameObserver extends NavigatorObserver {
-  final ValueChanged<Route<dynamic>?> onRouteChanged;
-
-  _RouteNameObserver({required this.onRouteChanged});
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    onRouteChanged(route);
-  }
-
-  @override
-  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    onRouteChanged(newRoute);
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    onRouteChanged(previousRoute);
-  }
-}
-
-class _AppMeasureOverlay extends StatefulWidget {
-  final Widget child;
-  final bool showMeasure;
-  final BuildContext? Function() panelContextBuilder;
-
-  const _AppMeasureOverlay({
-    required this.child,
-    required this.showMeasure,
-    required this.panelContextBuilder,
-  });
-
-  @override
-  State<_AppMeasureOverlay> createState() => _AppMeasureOverlayState();
-}
-
-class _AppMeasureOverlayState extends State<_AppMeasureOverlay> {
-  static const double _launcherWidth = 64;
-  static const double _launcherHeight = 64;
-  static const double _edgePadding = 34;
-  static const double _defaultBottomOffset = 96;
-  static const double _dockHandleWidth = 38;
-  static const double _dockHandleHeight = 72;
-  static const double _dockThreshold = 42;
-
-  bool _panelOpen = false;
-  Offset? _launcherOffset;
-  _DockSide? _dockSide;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final padding = MediaQuery.paddingOf(context);
-        final overlaySize = Size(constraints.maxWidth, constraints.maxHeight);
-        final offset = _resolvedOffset(overlaySize, padding);
-
-        return Stack(
-          children: [
-            widget.child,
-            if (widget.showMeasure && !_panelOpen)
-              if (_dockSide == null)
-                Positioned(
-                  left: offset.dx,
-                  top: offset.dy,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onPanUpdate: (details) =>
-                        _moveLauncher(details.delta, overlaySize, padding),
-                    onPanEnd: (_) => _settleLauncher(overlaySize, padding),
-                    child: TemperatureRhLauncher(
-                      panelContextBuilder: widget.panelContextBuilder,
-                      onPanelVisibilityChanged: _setPanelOpen,
-                    ),
-                  ),
-                )
-              else
-                Positioned(
-                  left: _dockSide == _DockSide.left ? 0 : null,
-                  right: _dockSide == _DockSide.right ? 0 : null,
-                  top: offset.dy + (_launcherHeight - _dockHandleHeight) / 2,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _pullLauncherBack(overlaySize, padding),
-                    onHorizontalDragEnd: (_) =>
-                        _pullLauncherBack(overlaySize, padding),
-                    child: _MeasurePullTab(side: _dockSide!),
-                  ),
-                ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _setPanelOpen(bool isOpen) {
-    if (_panelOpen == isOpen || !mounted) return;
-    setState(() {
-      _panelOpen = isOpen;
-    });
-  }
-
-  Offset _resolvedOffset(Size overlaySize, EdgeInsets padding) {
-    return _clampOffset(
-      _launcherOffset ??
-          Offset(
-            overlaySize.width - _launcherWidth - _edgePadding,
-            overlaySize.height -
-                padding.bottom -
-                _launcherHeight -
-                _defaultBottomOffset,
-          ),
-      overlaySize,
-      padding,
-      allowDockRange: _dockSide == null,
-    );
-  }
-
-  Offset _clampOffset(
-    Offset offset,
-    Size overlaySize,
-    EdgeInsets padding, {
-    required bool allowDockRange,
-  }) {
-    final minTop = padding.top + _edgePadding;
-    final rawMaxTop =
-        overlaySize.height - padding.bottom - _launcherHeight - _edgePadding;
-    final minLeft = allowDockRange ? -_launcherWidth + _dockHandleWidth : 0.0;
-    final rawMaxLeft = allowDockRange
-        ? overlaySize.width - _dockHandleWidth
-        : overlaySize.width - _launcherWidth;
-    final maxTop = rawMaxTop < minTop ? minTop : rawMaxTop;
-    final maxLeft = rawMaxLeft < minLeft ? minLeft : rawMaxLeft;
-
-    return Offset(
-      offset.dx.clamp(minLeft, maxLeft).toDouble(),
-      offset.dy.clamp(minTop, maxTop).toDouble(),
-    );
-  }
-
-  void _moveLauncher(Offset delta, Size overlaySize, EdgeInsets padding) {
-    setState(() {
-      _dockSide = null;
-      _launcherOffset = _clampOffset(
-        _resolvedOffset(overlaySize, padding) + delta,
-        overlaySize,
-        padding,
-        allowDockRange: true,
-      );
-    });
-  }
-
-  void _settleLauncher(Size overlaySize, EdgeInsets padding) {
-    final offset = _resolvedOffset(overlaySize, padding);
-    final shouldDockLeft = offset.dx <= _dockThreshold;
-    final shouldDockRight =
-        offset.dx + _launcherWidth >= overlaySize.width - _dockThreshold;
-
-    setState(() {
-      if (shouldDockLeft) {
-        _dockSide = _DockSide.left;
-        _launcherOffset = Offset(-_launcherWidth + _dockHandleWidth, offset.dy);
-      } else if (shouldDockRight) {
-        _dockSide = _DockSide.right;
-        _launcherOffset = Offset(
-          overlaySize.width - _dockHandleWidth,
-          offset.dy,
-        );
-      } else {
-        _dockSide = null;
-        _launcherOffset = _clampOffset(
-          offset,
-          overlaySize,
-          padding,
-          allowDockRange: false,
-        );
-      }
-    });
-  }
-
-  void _pullLauncherBack(Size overlaySize, EdgeInsets padding) {
-    final side = _dockSide;
-    if (side == null) return;
-
-    setState(() {
-      _dockSide = null;
-      _launcherOffset = _clampOffset(
-        Offset(
-          side == _DockSide.left
-              ? _edgePadding
-              : overlaySize.width - _launcherWidth - _edgePadding,
-          _resolvedOffset(overlaySize, padding).dy,
-        ),
-        overlaySize,
-        padding,
-        allowDockRange: false,
-      );
-    });
-  }
-}
-
-enum _DockSide { left, right }
-
-class _MeasurePullTab extends StatelessWidget {
-  final _DockSide side;
-
-  const _MeasurePullTab({required this.side});
-
-  @override
-  Widget build(BuildContext context) {
-    final isLeft = side == _DockSide.left;
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: _AppMeasureOverlayState._dockHandleWidth,
-        height: _AppMeasureOverlayState._dockHandleHeight,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.horizontal(
-            left: isLeft ? Radius.zero : const Radius.circular(24),
-            right: isLeft ? const Radius.circular(24) : Radius.zero,
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x240B2D5C),
-              blurRadius: 14,
-              offset: Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Icon(
-          isLeft ? Icons.chevron_right : Icons.chevron_left,
-          color: AppColors.primary,
-          size: 30,
-        ),
-      ),
+  Route<dynamic> _buildInitialRoute(
+    String routeName,
+    Map<String, WidgetBuilder> routes,
+  ) {
+    final builder =
+        routes[routeName] ?? routes['/login'] ?? routes.values.first;
+    return MaterialPageRoute<void>(
+      settings: RouteSettings(name: routeName),
+      builder: builder,
     );
   }
 }

@@ -6,6 +6,7 @@ class AuditModel {
   final String auditType;
   final String customerId;
   final String? flockId;
+  final String? houseId;
   final String? setterId;
   final String? hatcherId;
   final DateTime date;
@@ -19,8 +20,7 @@ class AuditModel {
   final String sampleMode;
   final String? compareGroupKey;
 
-  // --- Chick Quality: CHA Environmental ---
-  final bool? chaGoveeConnected;
+  // --- Chicks: CHA Environmental ---
   final double? chaCo2;
   final String? chaCo2Photo;
   final double? chaPm10;
@@ -40,7 +40,7 @@ class AuditModel {
   final double? chaNoiseLevel;
   final String? chaNoiseLevelPhoto;
 
-  // --- Chick Quality: Pasgar ---
+  // --- Chicks: Pasgar ---
   final int? pasgarSampleSize;
   final int? pasgarReflexes;
   final String? pasgarReflexesPhoto;
@@ -56,7 +56,7 @@ class AuditModel {
   final String? pasgarFeatherDevPhoto;
   final double? pasgarFinalScore;
 
-  // --- Chick Quality: Weights ---
+  // --- Chicks: Weights ---
   final int? chickStorageDays;
   final int? chickSampleSize;
   final String? chickWeights;
@@ -66,13 +66,13 @@ class AuditModel {
   final int? chickBmkAge;
   final double? chickBmkWeight;
 
-  // --- Chick Quality: YFBM ---
+  // --- Chicks: YFBM ---
   final String? yfbmPhoto;
   final String? yfbmEntries;
   final double? yfbmAvgPct;
   final double? yfbmCvPct;
 
-  // --- Chick Quality: CVT ---
+  // --- Chicks: CVT ---
   final int? cvtSampleSize;
   final String? cvtTopBasket;
   final double? cvtTopTemp;
@@ -85,8 +85,10 @@ class AuditModel {
   final String? cvtBottomPhoto;
   final double? cvtAvg;
   final double? cvtCvPct;
+  final String? cvtReadingsJson;
+  final String? cvtPhotosJson;
 
-  // --- Chick Quality: PM Necropsy ---
+  // --- Chicks: PM Necropsy ---
   final int? pmSampleSize;
   final String? pmCollectionPoint;
   final int? pmOmphalitisCount;
@@ -111,29 +113,29 @@ class AuditModel {
   final String? pmStuntedOrgansSeverity;
   final int? pmPulmonaryHemorrhageCount;
   final String? pmPulmonaryHemorrhageSeverity;
-  final bool? pmGaspingPresent;
-  final String? pmGaspingType;
-  final int? pmExposedBrainCount;
-  final int? pmEctopicVisceraCount;
-  final int? pmExtraLegsCount;
-  final int? pmCrossedBeakCount;
-  final int? pmAbsentEyeBothCount;
-  final int? pmAbsentEyeOneCount;
-  final int? pmSmallEyeCount;
-  final int? pmHydrocephalyCount;
-  final int? pmStarGazerCount;
-  final int? pmCurledToesCount;
-  final int? pmShortLegsCount;
-  final int? pmSpinalDeformityCount;
-  final int? pmCardiacAnomalyCount;
-  final int? pmConjoinedCount;
-  final int? pmOtherDeformityCount;
-  final String? pmOtherDeformityText;
+  final int? pmGizzardErosionsCount;
+  final String? pmGizzardErosionsSeverity;
+  final int? pmAirSacCaseationsCount;
+  final String? pmAirSacCaseationsSeverity;
+  final int? pmUrolithiasisCount;
+  final String? pmUrolithiasisSeverity;
+  final int? pmNephritisCount;
+  final String? pmNephritisSeverity;
+  final int? pmGeneralSepticemiaCount;
+  final String? pmGeneralSepticemiaSeverity;
+  final String? pmOtherLesionsJson;
   final String? pmSuspectedCauseAuto;
   final String? pmSuspectedCauseManual;
   final String? pmPhotosJson;
 
-  // --- Hatch Analysis: Hatch Results ---
+  // --- Chicks: Culled Chicks Analysis ---
+  final int? culledChicksTotalEggSet;
+  final String? culledChicksAnalysisJson;
+  final double? culledChicksAffectedPct;
+  final String? culledChicksTopCategory;
+  final String? culledChicksTopSubtype;
+
+  // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
   final int? haStorageDays;
   final int? haTotalEggsSet;
   final int? haHatched;
@@ -153,7 +155,7 @@ class AuditModel {
   final int? haContaminatedExploders;
   final String? haBenchmarkStatusesJson;
 
-  // --- Hatch Analysis: Egg Breakout ---
+  // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
   final int? ebTraySize;
   final String? ebBreakoutType;
   final int? ebBreakoutAgeDays;
@@ -174,13 +176,11 @@ class AuditModel {
   final int? ebCrossedBeakCount;
   final int? ebCulledDeadCount;
 
-  // --- Setter Optimizing ---
+  // --- Setters ---
   final String? soBreed;
   final String? soSetterId;
   final int? soIncubationAge;
-  final bool? soGoveeConnected;
-  final double? soGoveeTemp;
-  final double? soGoveeHumidity;
+  final int? soIncubationHours;
   final double? soCo2;
   final String? soCo2Photo;
   final String? soEstReadings;
@@ -189,14 +189,23 @@ class AuditModel {
   final double? soEstCv;
   final String? soMachineType;
   final double? soTurningAngle;
+  final double? soSetpointF;
+  final double? soActualF;
+  final double? soSetpointRh;
+  final double? soActualRh;
+  final String? soMachineScreenPhoto;
+  final int? soBatchSize;
+  final int? soBatchCount;
+  final int? soTotalEggsSet;
+  final String? soEstSamplesJson;
 
-  // --- Hatcher Optimizing ---
+  // --- Hatchers ---
   final String? hoBreed;
   final String? hoHatcherId;
   final int? hoIncubationAge;
-  final bool? hoGoveeConnected;
-  final double? hoGoveeTemp;
-  final double? hoGoveeHumidity;
+  final int? hoIncubationHours;
+  final double? hoSetpointF;
+  final double? hoSetpointRh;
   final double? hoCo2;
   final String? hoCo2Photo;
   final String? hoCvtReadings;
@@ -208,10 +217,7 @@ class AuditModel {
   final String? hoMeconium;
   final int? hoTransferDay;
 
-  // --- Egg Storage ---
-  final bool? esGoveeConnected;
-  final double? esGoveeTemp;
-  final double? esGoveeHumidity;
+  // --- Egg ---
   final double? esCo2;
   final String? esCo2Photo;
   final double? esShellTemp;
@@ -219,6 +225,7 @@ class AuditModel {
   final int? esTurningTimes;
   final String? esUvTrays;
   final int? esEggStorageDays;
+  final int? esEggQualityStorageDays;
   final int? esEggSampleSize;
   final String? esEggWeights;
   final double? esEggAvgWeight;
@@ -260,6 +267,7 @@ class AuditModel {
     required this.createdBy,
     required this.createdAt,
     required this.updatedAt,
+    this.houseId,
     this.setterId,
     this.hatcherId,
     this.hatchNumber = 1,
@@ -267,8 +275,7 @@ class AuditModel {
     this.sessionId,
     String? sampleMode,
     this.compareGroupKey,
-    // --- Chick Quality: CHA Environmental ---
-    this.chaGoveeConnected,
+    // --- Chicks: CHA Environmental ---
     this.chaCo2,
     this.chaCo2Photo,
     this.chaPm10,
@@ -287,7 +294,7 @@ class AuditModel {
     this.chaAirOutletPhoto,
     this.chaNoiseLevel,
     this.chaNoiseLevelPhoto,
-    // --- Chick Quality: Pasgar ---
+    // --- Chicks: Pasgar ---
     this.pasgarSampleSize,
     this.pasgarReflexes,
     this.pasgarReflexesPhoto,
@@ -302,7 +309,7 @@ class AuditModel {
     this.pasgarFeatherDev,
     this.pasgarFeatherDevPhoto,
     this.pasgarFinalScore,
-    // --- Chick Quality: Weights ---
+    // --- Chicks: Weights ---
     this.chickStorageDays,
     this.chickSampleSize,
     this.chickWeights,
@@ -311,12 +318,12 @@ class AuditModel {
     this.chickCvPct,
     this.chickBmkAge,
     this.chickBmkWeight,
-    // --- Chick Quality: YFBM ---
+    // --- Chicks: YFBM ---
     this.yfbmPhoto,
     this.yfbmEntries,
     this.yfbmAvgPct,
     this.yfbmCvPct,
-    // --- Chick Quality: CVT ---
+    // --- Chicks: CVT ---
     this.cvtSampleSize,
     this.cvtTopBasket,
     this.cvtTopTemp,
@@ -329,7 +336,9 @@ class AuditModel {
     this.cvtBottomPhoto,
     this.cvtAvg,
     this.cvtCvPct,
-    // --- Chick Quality: PM Necropsy ---
+    this.cvtReadingsJson,
+    this.cvtPhotosJson,
+    // --- Chicks: PM Necropsy ---
     this.pmSampleSize,
     this.pmCollectionPoint,
     this.pmOmphalitisCount,
@@ -354,28 +363,27 @@ class AuditModel {
     this.pmStuntedOrgansSeverity,
     this.pmPulmonaryHemorrhageCount,
     this.pmPulmonaryHemorrhageSeverity,
-    this.pmGaspingPresent,
-    this.pmGaspingType,
-    this.pmExposedBrainCount,
-    this.pmEctopicVisceraCount,
-    this.pmExtraLegsCount,
-    this.pmCrossedBeakCount,
-    this.pmAbsentEyeBothCount,
-    this.pmAbsentEyeOneCount,
-    this.pmSmallEyeCount,
-    this.pmHydrocephalyCount,
-    this.pmStarGazerCount,
-    this.pmCurledToesCount,
-    this.pmShortLegsCount,
-    this.pmSpinalDeformityCount,
-    this.pmCardiacAnomalyCount,
-    this.pmConjoinedCount,
-    this.pmOtherDeformityCount,
-    this.pmOtherDeformityText,
+    this.pmGizzardErosionsCount,
+    this.pmGizzardErosionsSeverity,
+    this.pmAirSacCaseationsCount,
+    this.pmAirSacCaseationsSeverity,
+    this.pmUrolithiasisCount,
+    this.pmUrolithiasisSeverity,
+    this.pmNephritisCount,
+    this.pmNephritisSeverity,
+    this.pmGeneralSepticemiaCount,
+    this.pmGeneralSepticemiaSeverity,
+    this.pmOtherLesionsJson,
     this.pmSuspectedCauseAuto,
     this.pmSuspectedCauseManual,
     this.pmPhotosJson,
-    // --- Hatch Analysis: Hatch Results ---
+    // --- Chicks: Culled Chicks Analysis ---
+    this.culledChicksTotalEggSet,
+    this.culledChicksAnalysisJson,
+    this.culledChicksAffectedPct,
+    this.culledChicksTopCategory,
+    this.culledChicksTopSubtype,
+    // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
     this.haStorageDays,
     this.haTotalEggsSet,
     this.haHatched,
@@ -394,7 +402,7 @@ class AuditModel {
     this.haLateDead,
     this.haContaminatedExploders,
     this.haBenchmarkStatusesJson,
-    // --- Hatch Analysis: Egg Breakout ---
+    // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
     this.ebTraySize,
     this.ebBreakoutType,
     this.ebBreakoutAgeDays,
@@ -414,13 +422,11 @@ class AuditModel {
     this.ebExposedBrainCount,
     this.ebCrossedBeakCount,
     this.ebCulledDeadCount,
-    // --- Setter Optimizing ---
+    // --- Setters ---
     this.soBreed,
     this.soSetterId,
     this.soIncubationAge,
-    this.soGoveeConnected,
-    this.soGoveeTemp,
-    this.soGoveeHumidity,
+    this.soIncubationHours,
     this.soCo2,
     this.soCo2Photo,
     this.soEstReadings,
@@ -429,13 +435,22 @@ class AuditModel {
     this.soEstCv,
     this.soMachineType,
     this.soTurningAngle,
-    // --- Hatcher Optimizing ---
+    this.soSetpointF,
+    this.soActualF,
+    this.soSetpointRh,
+    this.soActualRh,
+    this.soMachineScreenPhoto,
+    this.soBatchSize,
+    this.soBatchCount,
+    this.soTotalEggsSet,
+    this.soEstSamplesJson,
+    // --- Hatchers ---
     this.hoBreed,
     this.hoHatcherId,
     this.hoIncubationAge,
-    this.hoGoveeConnected,
-    this.hoGoveeTemp,
-    this.hoGoveeHumidity,
+    this.hoIncubationHours,
+    this.hoSetpointF,
+    this.hoSetpointRh,
     this.hoCo2,
     this.hoCo2Photo,
     this.hoCvtReadings,
@@ -446,10 +461,7 @@ class AuditModel {
     this.hoChickPantingPhoto,
     this.hoMeconium,
     this.hoTransferDay,
-    // --- Egg Storage ---
-    this.esGoveeConnected,
-    this.esGoveeTemp,
-    this.esGoveeHumidity,
+    // --- Egg ---
     this.esCo2,
     this.esCo2Photo,
     this.esShellTemp,
@@ -457,6 +469,7 @@ class AuditModel {
     this.esTurningTimes,
     this.esUvTrays,
     this.esEggStorageDays,
+    this.esEggQualityStorageDays,
     this.esEggSampleSize,
     this.esEggWeights,
     this.esEggAvgWeight,
@@ -501,14 +514,14 @@ class AuditModel {
       createdBy: map['createdBy'] ?? 'unknown',
       createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updatedAt'] ?? '') ?? DateTime.now(),
+      houseId: map['houseId'],
       setterId: map['setterId'],
       hatcherId: map['hatcherId'],
       notes: map['notes'],
       sessionId: map['sessionId'],
       sampleMode: map['sampleMode'],
       compareGroupKey: map['compareGroupKey'],
-      // --- Chick Quality: CHA Environmental ---
-      chaGoveeConnected: map['chaGoveeConnected'] == 1,
+      // --- Chicks: CHA Environmental ---
       chaCo2: map['chaCo2']?.toDouble(),
       chaCo2Photo: map['chaCo2Photo'],
       chaPm10: map['chaPm10']?.toDouble(),
@@ -527,7 +540,7 @@ class AuditModel {
       chaAirOutletPhoto: map['chaAirOutletPhoto'],
       chaNoiseLevel: map['chaNoiseLevel']?.toDouble(),
       chaNoiseLevelPhoto: map['chaNoiseLevelPhoto'],
-      // --- Chick Quality: Pasgar ---
+      // --- Chicks: Pasgar ---
       pasgarSampleSize: map['pasgarSampleSize'],
       pasgarReflexes: map['pasgarReflexes'],
       pasgarReflexesPhoto: map['pasgarReflexesPhoto'],
@@ -542,7 +555,7 @@ class AuditModel {
       pasgarFeatherDev: map['pasgarFeatherDev'],
       pasgarFeatherDevPhoto: map['pasgarFeatherDevPhoto'],
       pasgarFinalScore: map['pasgarFinalScore']?.toDouble(),
-      // --- Chick Quality: Weights ---
+      // --- Chicks: Weights ---
       chickStorageDays: map['chickStorageDays'],
       chickSampleSize: map['chickSampleSize'],
       chickWeights: map['chickWeights'],
@@ -551,12 +564,12 @@ class AuditModel {
       chickCvPct: map['chickCvPct']?.toDouble(),
       chickBmkAge: map['chickBmkAge'],
       chickBmkWeight: map['chickBmkWeight']?.toDouble(),
-      // --- Chick Quality: YFBM ---
+      // --- Chicks: YFBM ---
       yfbmPhoto: map['yfbmPhoto'],
       yfbmEntries: map['yfbmEntries'],
       yfbmAvgPct: map['yfbmAvgPct']?.toDouble(),
       yfbmCvPct: map['yfbmCvPct']?.toDouble(),
-      // --- Chick Quality: CVT ---
+      // --- Chicks: CVT ---
       cvtSampleSize: map['cvtSampleSize'],
       cvtTopBasket: map['cvtTopBasket'],
       cvtTopTemp: map['cvtTopTemp']?.toDouble(),
@@ -569,7 +582,9 @@ class AuditModel {
       cvtBottomPhoto: map['cvtBottomPhoto'],
       cvtAvg: map['cvtAvg']?.toDouble(),
       cvtCvPct: map['cvtCvPct']?.toDouble(),
-      // --- Chick Quality: PM Necropsy ---
+      cvtReadingsJson: map['cvtReadingsJson'],
+      cvtPhotosJson: map['cvtPhotosJson'],
+      // --- Chicks: PM Necropsy ---
       pmSampleSize: map['pm_sampleSize'],
       pmCollectionPoint: map['pm_collectionPoint'],
       pmOmphalitisCount: map['pm_omphalitisCount'],
@@ -594,28 +609,28 @@ class AuditModel {
       pmStuntedOrgansSeverity: map['pm_stuntedOrgansSeverity'],
       pmPulmonaryHemorrhageCount: map['pm_pulmonaryHemorrhageCount'],
       pmPulmonaryHemorrhageSeverity: map['pm_pulmonaryHemorrhageSeverity'],
-      pmGaspingPresent: map['pm_gaspingPresent'] == 1,
-      pmGaspingType: map['pm_gaspingType'],
-      pmExposedBrainCount: map['pm_exposedBrainCount'],
-      pmEctopicVisceraCount: map['pm_ectopicVisceraCount'],
-      pmExtraLegsCount: map['pm_extraLegsCount'],
-      pmCrossedBeakCount: map['pm_crossedBeakCount'],
-      pmAbsentEyeBothCount: map['pm_absentEyeBothCount'],
-      pmAbsentEyeOneCount: map['pm_absentEyeOneCount'],
-      pmSmallEyeCount: map['pm_smallEyeCount'],
-      pmHydrocephalyCount: map['pm_hydrocephalyCount'],
-      pmStarGazerCount: map['pm_starGazerCount'],
-      pmCurledToesCount: map['pm_curledToesCount'],
-      pmShortLegsCount: map['pm_shortLegsCount'],
-      pmSpinalDeformityCount: map['pm_spinalDeformityCount'],
-      pmCardiacAnomalyCount: map['pm_cardiacAnomalyCount'],
-      pmConjoinedCount: map['pm_conjoinedCount'],
-      pmOtherDeformityCount: map['pm_otherDeformityCount'],
-      pmOtherDeformityText: map['pm_otherDeformityText'],
+      pmGizzardErosionsCount: map['pm_gizzardErosionsCount'],
+      pmGizzardErosionsSeverity: map['pm_gizzardErosionsSeverity'],
+      pmAirSacCaseationsCount: map['pm_airSacCaseationsCount'],
+      pmAirSacCaseationsSeverity: map['pm_airSacCaseationsSeverity'],
+      pmUrolithiasisCount: map['pm_urolithiasisCount'],
+      pmUrolithiasisSeverity: map['pm_urolithiasisSeverity'],
+      pmNephritisCount: map['pm_nephritisCount'],
+      pmNephritisSeverity: map['pm_nephritisSeverity'],
+      pmGeneralSepticemiaCount: map['pm_generalSepticemiaCount'],
+      pmGeneralSepticemiaSeverity: map['pm_generalSepticemiaSeverity'],
+      pmOtherLesionsJson: map['pm_otherLesionsJson'],
       pmSuspectedCauseAuto: map['pm_suspectedCauseAuto'],
       pmSuspectedCauseManual: map['pm_suspectedCauseManual'],
       pmPhotosJson: map['pm_photosJson'],
-      // --- Hatch Analysis: Hatch Results ---
+      // --- Chicks: Culled Chicks Analysis ---
+      culledChicksTotalEggSet:
+          map['culledChicksTotalEggSet'] ?? map['culledChicksSampleSize'],
+      culledChicksAnalysisJson: map['culledChicksAnalysisJson'],
+      culledChicksAffectedPct: map['culledChicksAffectedPct']?.toDouble(),
+      culledChicksTopCategory: map['culledChicksTopCategory'],
+      culledChicksTopSubtype: map['culledChicksTopSubtype'],
+      // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       haStorageDays: map['haStorageDays'],
       haTotalEggsSet: map['haTotalEggsSet'],
       haHatched: map['haHatched'],
@@ -634,7 +649,7 @@ class AuditModel {
       haLateDead: map['haLateDead'],
       haContaminatedExploders: map['haContaminatedExploders'],
       haBenchmarkStatusesJson: map['haBenchmarkStatusesJson'],
-      // --- Hatch Analysis: Egg Breakout ---
+      // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
       ebTraySize: map['ebTraySize'],
       ebBreakoutType: map['ebBreakoutType'],
       ebBreakoutAgeDays: map['ebBreakoutAgeDays'],
@@ -654,13 +669,11 @@ class AuditModel {
       ebExposedBrainCount: map['ebExposedBrainCount'],
       ebCrossedBeakCount: map['ebCrossedBeakCount'],
       ebCulledDeadCount: map['ebCulledDeadCount'],
-      // --- Setter Optimizing ---
+      // --- Setters ---
       soBreed: map['soBreed'],
       soSetterId: map['soSetterId'],
       soIncubationAge: map['soIncubationAge'],
-      soGoveeConnected: map['soGoveeConnected'] == 1,
-      soGoveeTemp: map['soGoveeTemp']?.toDouble(),
-      soGoveeHumidity: map['soGoveeHumidity']?.toDouble(),
+      soIncubationHours: map['soIncubationHours'],
       soCo2: map['soCo2']?.toDouble(),
       soCo2Photo: map['soCo2Photo'],
       soEstReadings: map['soEstReadings'],
@@ -669,27 +682,35 @@ class AuditModel {
       soEstCv: map['soEstCv']?.toDouble(),
       soMachineType: map['so_machineType'],
       soTurningAngle: map['so_turningAngle']?.toDouble(),
-      // --- Hatcher Optimizing ---
+      soSetpointF: map['so_setpointF']?.toDouble(),
+      soActualF: map['so_actualF']?.toDouble(),
+      soSetpointRh: map['so_setpointRh']?.toDouble(),
+      soActualRh: map['so_actualRh']?.toDouble(),
+      soMachineScreenPhoto: map['so_machineScreenPhoto'],
+      soBatchSize: (map['so_batchSize'] as num?)?.toInt(),
+      soBatchCount: (map['so_batchCount'] as num?)?.toInt(),
+      soTotalEggsSet: (map['so_totalEggsSet'] as num?)?.toInt(),
+      soEstSamplesJson: map['so_estSamplesJson'],
+      // --- Hatchers ---
       hoBreed: map['hoBreed'],
       hoHatcherId: map['hoHatcherId'],
       hoIncubationAge: map['hoIncubationAge'],
-      hoGoveeConnected: map['hoGoveeConnected'] == 1,
-      hoGoveeTemp: map['hoGoveeTemp']?.toDouble(),
-      hoGoveeHumidity: map['hoGoveeHumidity']?.toDouble(),
+      hoIncubationHours: map['hoIncubationHours'],
+      hoSetpointF: map['ho_setpointF']?.toDouble(),
+      hoSetpointRh: map['ho_setpointRh']?.toDouble(),
       hoCo2: map['hoCo2']?.toDouble(),
       hoCo2Photo: map['hoCo2Photo'],
       hoCvtReadings: map['hoCvtReadings'],
       hoCvtPhotos: map['hoCvtPhotos'],
       hoCvtAvg: map['hoCvtAvg']?.toDouble(),
       hoCvtCv: map['hoCvtCv']?.toDouble(),
-      hoChickPanting: map['hoChickPanting'] == 1,
+      hoChickPanting: map['hoChickPanting'] == null
+          ? null
+          : map['hoChickPanting'] == 1 || map['hoChickPanting'] == true,
       hoChickPantingPhoto: map['hoChickPantingPhoto'],
       hoMeconium: map['ho_meconium'],
       hoTransferDay: map['ho_transferDay'],
-      // --- Egg Storage ---
-      esGoveeConnected: map['esGoveeConnected'] == 1,
-      esGoveeTemp: map['esGoveeTemp']?.toDouble(),
-      esGoveeHumidity: map['esGoveeHumidity']?.toDouble(),
+      // --- Egg ---
       esCo2: map['esCo2']?.toDouble(),
       esCo2Photo: map['esCo2Photo'],
       esShellTemp: map['esShellTemp']?.toDouble(),
@@ -697,6 +718,7 @@ class AuditModel {
       esTurningTimes: map['esTurningTimes'],
       esUvTrays: map['esUvTrays'],
       esEggStorageDays: map['esEggStorageDays'],
+      esEggQualityStorageDays: map['esEggQualityStorageDays'],
       esEggSampleSize: map['esEggSampleSize'],
       esEggWeights: map['esEggWeights'],
       esEggAvgWeight: map['esEggAvgWeight']?.toDouble(),
@@ -726,7 +748,9 @@ class AuditModel {
       esTraySpacing: map['es_traySpacing'],
       esCoolerProximity: map['es_coolerProximity'],
       esWallProximity: map['es_wallProximity'],
-      esCondensation: map['es_condensation'] == 1,
+      esCondensation: map['es_condensation'] == null
+          ? null
+          : map['es_condensation'] == 1,
     );
   }
 
@@ -742,16 +766,14 @@ class AuditModel {
       'createdBy': createdBy,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'houseId': houseId,
       'setterId': setterId,
       'hatcherId': hatcherId,
       'notes': notes,
       'sessionId': sessionId,
       'sampleMode': sampleMode,
       'compareGroupKey': compareGroupKey,
-      // --- Chick Quality: CHA Environmental ---
-      'chaGoveeConnected': chaGoveeConnected == null
-          ? null
-          : (chaGoveeConnected! ? 1 : 0),
+      // --- Chicks: CHA Environmental ---
       'chaCo2': chaCo2,
       'chaCo2Photo': chaCo2Photo,
       'chaPm10': chaPm10,
@@ -770,7 +792,7 @@ class AuditModel {
       'chaAirOutletPhoto': chaAirOutletPhoto,
       'chaNoiseLevel': chaNoiseLevel,
       'chaNoiseLevelPhoto': chaNoiseLevelPhoto,
-      // --- Chick Quality: Pasgar ---
+      // --- Chicks: Pasgar ---
       'pasgarSampleSize': pasgarSampleSize,
       'pasgarReflexes': pasgarReflexes,
       'pasgarReflexesPhoto': pasgarReflexesPhoto,
@@ -785,7 +807,7 @@ class AuditModel {
       'pasgarFeatherDev': pasgarFeatherDev,
       'pasgarFeatherDevPhoto': pasgarFeatherDevPhoto,
       'pasgarFinalScore': pasgarFinalScore,
-      // --- Chick Quality: Weights ---
+      // --- Chicks: Weights ---
       'chickStorageDays': chickStorageDays,
       'chickSampleSize': chickSampleSize,
       'chickWeights': chickWeights,
@@ -794,12 +816,12 @@ class AuditModel {
       'chickCvPct': chickCvPct,
       'chickBmkAge': chickBmkAge,
       'chickBmkWeight': chickBmkWeight,
-      // --- Chick Quality: YFBM ---
+      // --- Chicks: YFBM ---
       'yfbmPhoto': yfbmPhoto,
       'yfbmEntries': yfbmEntries,
       'yfbmAvgPct': yfbmAvgPct,
       'yfbmCvPct': yfbmCvPct,
-      // --- Chick Quality: CVT ---
+      // --- Chicks: CVT ---
       'cvtSampleSize': cvtSampleSize,
       'cvtTopBasket': cvtTopBasket,
       'cvtTopTemp': cvtTopTemp,
@@ -812,7 +834,9 @@ class AuditModel {
       'cvtBottomPhoto': cvtBottomPhoto,
       'cvtAvg': cvtAvg,
       'cvtCvPct': cvtCvPct,
-      // --- Chick Quality: PM Necropsy ---
+      'cvtReadingsJson': cvtReadingsJson,
+      'cvtPhotosJson': cvtPhotosJson,
+      // --- Chicks: PM Necropsy ---
       'pm_sampleSize': pmSampleSize,
       'pm_collectionPoint': pmCollectionPoint,
       'pm_omphalitisCount': pmOmphalitisCount,
@@ -837,30 +861,27 @@ class AuditModel {
       'pm_stuntedOrgansSeverity': pmStuntedOrgansSeverity,
       'pm_pulmonaryHemorrhageCount': pmPulmonaryHemorrhageCount,
       'pm_pulmonaryHemorrhageSeverity': pmPulmonaryHemorrhageSeverity,
-      'pm_gaspingPresent': pmGaspingPresent == null
-          ? null
-          : (pmGaspingPresent! ? 1 : 0),
-      'pm_gaspingType': pmGaspingType,
-      'pm_exposedBrainCount': pmExposedBrainCount,
-      'pm_ectopicVisceraCount': pmEctopicVisceraCount,
-      'pm_extraLegsCount': pmExtraLegsCount,
-      'pm_crossedBeakCount': pmCrossedBeakCount,
-      'pm_absentEyeBothCount': pmAbsentEyeBothCount,
-      'pm_absentEyeOneCount': pmAbsentEyeOneCount,
-      'pm_smallEyeCount': pmSmallEyeCount,
-      'pm_hydrocephalyCount': pmHydrocephalyCount,
-      'pm_starGazerCount': pmStarGazerCount,
-      'pm_curledToesCount': pmCurledToesCount,
-      'pm_shortLegsCount': pmShortLegsCount,
-      'pm_spinalDeformityCount': pmSpinalDeformityCount,
-      'pm_cardiacAnomalyCount': pmCardiacAnomalyCount,
-      'pm_conjoinedCount': pmConjoinedCount,
-      'pm_otherDeformityCount': pmOtherDeformityCount,
-      'pm_otherDeformityText': pmOtherDeformityText,
+      'pm_gizzardErosionsCount': pmGizzardErosionsCount,
+      'pm_gizzardErosionsSeverity': pmGizzardErosionsSeverity,
+      'pm_airSacCaseationsCount': pmAirSacCaseationsCount,
+      'pm_airSacCaseationsSeverity': pmAirSacCaseationsSeverity,
+      'pm_urolithiasisCount': pmUrolithiasisCount,
+      'pm_urolithiasisSeverity': pmUrolithiasisSeverity,
+      'pm_nephritisCount': pmNephritisCount,
+      'pm_nephritisSeverity': pmNephritisSeverity,
+      'pm_generalSepticemiaCount': pmGeneralSepticemiaCount,
+      'pm_generalSepticemiaSeverity': pmGeneralSepticemiaSeverity,
+      'pm_otherLesionsJson': pmOtherLesionsJson,
       'pm_suspectedCauseAuto': pmSuspectedCauseAuto,
       'pm_suspectedCauseManual': pmSuspectedCauseManual,
       'pm_photosJson': pmPhotosJson,
-      // --- Hatch Analysis: Hatch Results ---
+      // --- Chicks: Culled Chicks Analysis ---
+      'culledChicksTotalEggSet': culledChicksTotalEggSet,
+      'culledChicksAnalysisJson': culledChicksAnalysisJson,
+      'culledChicksAffectedPct': culledChicksAffectedPct,
+      'culledChicksTopCategory': culledChicksTopCategory,
+      'culledChicksTopSubtype': culledChicksTopSubtype,
+      // --- Hatch Analysis & Egg Breakouts: Hatch Results ---
       'haStorageDays': haStorageDays,
       'haTotalEggsSet': haTotalEggsSet,
       'haHatched': haHatched,
@@ -879,7 +900,7 @@ class AuditModel {
       'haLateDead': haLateDead,
       'haContaminatedExploders': haContaminatedExploders,
       'haBenchmarkStatusesJson': haBenchmarkStatusesJson,
-      // --- Hatch Analysis: Egg Breakout ---
+      // --- Hatch Analysis & Egg Breakouts: Egg Breakout ---
       'ebTraySize': ebTraySize,
       'ebBreakoutType': ebBreakoutType,
       'ebBreakoutAgeDays': ebBreakoutAgeDays,
@@ -899,15 +920,11 @@ class AuditModel {
       'ebExposedBrainCount': ebExposedBrainCount,
       'ebCrossedBeakCount': ebCrossedBeakCount,
       'ebCulledDeadCount': ebCulledDeadCount,
-      // --- Setter Optimizing ---
+      // --- Setters ---
       'soBreed': soBreed,
       'soSetterId': soSetterId,
       'soIncubationAge': soIncubationAge,
-      'soGoveeConnected': soGoveeConnected == null
-          ? null
-          : (soGoveeConnected! ? 1 : 0),
-      'soGoveeTemp': soGoveeTemp,
-      'soGoveeHumidity': soGoveeHumidity,
+      'soIncubationHours': soIncubationHours,
       'soCo2': soCo2,
       'soCo2Photo': soCo2Photo,
       'soEstReadings': soEstReadings,
@@ -916,15 +933,22 @@ class AuditModel {
       'soEstCv': soEstCv,
       'so_machineType': soMachineType,
       'so_turningAngle': soTurningAngle,
-      // --- Hatcher Optimizing ---
+      'so_setpointF': soSetpointF,
+      'so_actualF': soActualF,
+      'so_setpointRh': soSetpointRh,
+      'so_actualRh': soActualRh,
+      'so_machineScreenPhoto': soMachineScreenPhoto,
+      'so_batchSize': soBatchSize,
+      'so_batchCount': soBatchCount,
+      'so_totalEggsSet': soTotalEggsSet,
+      'so_estSamplesJson': soEstSamplesJson,
+      // --- Hatchers ---
       'hoBreed': hoBreed,
       'hoHatcherId': hoHatcherId,
       'hoIncubationAge': hoIncubationAge,
-      'hoGoveeConnected': hoGoveeConnected == null
-          ? null
-          : (hoGoveeConnected! ? 1 : 0),
-      'hoGoveeTemp': hoGoveeTemp,
-      'hoGoveeHumidity': hoGoveeHumidity,
+      'hoIncubationHours': hoIncubationHours,
+      'ho_setpointF': hoSetpointF,
+      'ho_setpointRh': hoSetpointRh,
       'hoCo2': hoCo2,
       'hoCo2Photo': hoCo2Photo,
       'hoCvtReadings': hoCvtReadings,
@@ -937,12 +961,7 @@ class AuditModel {
       'hoChickPantingPhoto': hoChickPantingPhoto,
       'ho_meconium': hoMeconium,
       'ho_transferDay': hoTransferDay,
-      // --- Egg Storage ---
-      'esGoveeConnected': esGoveeConnected == null
-          ? null
-          : (esGoveeConnected! ? 1 : 0),
-      'esGoveeTemp': esGoveeTemp,
-      'esGoveeHumidity': esGoveeHumidity,
+      // --- Egg ---
       'esCo2': esCo2,
       'esCo2Photo': esCo2Photo,
       'esShellTemp': esShellTemp,
@@ -950,6 +969,7 @@ class AuditModel {
       'esTurningTimes': esTurningTimes,
       'esUvTrays': esUvTrays,
       'esEggStorageDays': esEggStorageDays,
+      'esEggQualityStorageDays': esEggQualityStorageDays,
       'esEggSampleSize': esEggSampleSize,
       'esEggWeights': esEggWeights,
       'esEggAvgWeight': esEggAvgWeight,

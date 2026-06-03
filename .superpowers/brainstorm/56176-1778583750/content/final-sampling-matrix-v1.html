@@ -1,0 +1,147 @@
+<h2>Sampling Data Model: Clean Matrix</h2>
+<p class="subtitle">Pool is the default everywhere. Compare is optional per panel. Main panel rows store context/settings; sample rows store Random or compared groups.</p>
+
+<div class="section">
+  <div class="label">Global storage rule</div>
+  <div class="mockup">
+    <div class="mockup-header">Same pattern across all screens</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+        <div class="placeholder" style="text-align:left;min-height:150px">
+          <h3>Main panel table</h3>
+          <p>One row per session + panel.</p>
+          <p>Stores dashboard context: session, customer, flock, date, hatchery, breed, flock age.</p>
+          <p>Stores panel settings: <code>mode</code>, <code>compareLayer</code>.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:150px">
+          <h3>Sample table</h3>
+          <p>Every panel has <code>{panel}_samples</code>.</p>
+          <p>Pool mode saves one row: <code>scopeType=pool</code>, <code>scopeLabel=Random</code>.</p>
+          <p>Compare mode saves one row per compared group.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:150px">
+          <h3>Detail tables</h3>
+          <p>Only when needed.</p>
+          <p>Weights use JSON on sample rows plus summary columns.</p>
+          <p>Hatch breakout trays use one physical tray per row.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Screen matrix</div>
+  <div class="mockup">
+    <div class="mockup-header">Valid comparison layers by panel</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1.15fr 1.3fr 1fr 1.25fr;gap:8px;font-size:14px">
+        <div class="placeholder"><strong>Panel table</strong></div>
+        <div class="placeholder"><strong>Default sample</strong></div>
+        <div class="placeholder"><strong>Compare layer</strong></div>
+        <div class="placeholder"><strong>Important data</strong></div>
+
+        <div class="placeholder" style="text-align:left"><strong>egg_storage</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">None</div>
+        <div class="placeholder" style="text-align:left">Storage room assessment fields</div>
+
+        <div class="placeholder" style="text-align:left"><strong>egg_quality</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">House</div>
+        <div class="placeholder" style="text-align:left">Quality assessment counts/percentages</div>
+
+        <div class="placeholder" style="text-align:left"><strong>egg_weights</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random + flock context</div>
+        <div class="placeholder" style="text-align:left">House</div>
+        <div class="placeholder" style="text-align:left">weightsJson, avg, CV, uniformity, min, max</div>
+
+        <div class="placeholder" style="text-align:left"><strong>chick_weights</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random + flock context</div>
+        <div class="placeholder" style="text-align:left">House</div>
+        <div class="placeholder" style="text-align:left">weightsJson, avg, CV, uniformity, min, max</div>
+
+        <div class="placeholder" style="text-align:left"><strong>chick_pasgar</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">Setter+Hatcher</div>
+        <div class="placeholder" style="text-align:left">PASGAR score and defect fields</div>
+
+        <div class="placeholder" style="text-align:left"><strong>chick_yfbm</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">Setter+Hatcher</div>
+        <div class="placeholder" style="text-align:left">YFBM counts/percentages</div>
+
+        <div class="placeholder" style="text-align:left"><strong>chick_cvt</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">Setter+Hatcher</div>
+        <div class="placeholder" style="text-align:left">CVT avg, CV, readings/grid JSON if needed</div>
+
+        <div class="placeholder" style="text-align:left"><strong>chick_pm</strong></div>
+        <div class="placeholder" style="text-align:left">Pool / Random</div>
+        <div class="placeholder" style="text-align:left">Setter+Hatcher</div>
+        <div class="placeholder" style="text-align:left">PM lesion counts/severity; collection point as metadata</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Hatch Analysis special hierarchy</div>
+  <div class="mockup">
+    <div class="mockup-header">House is compact by default, tray rows remain physical tray rows</div>
+    <div class="mockup-body">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+        <button class="mock-button">House: Random</button>
+        <span style="color:#64748b">House grouping expands only when needed.</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div class="placeholder" style="text-align:left;min-height:250px">
+          <h3>fresh_egg_breakout</h3>
+          <p><strong>Path:</strong> House → Tray</p>
+          <p><strong>Compare:</strong> House or Tray</p>
+          <p><strong>Rows:</strong> <code>fresh_egg_breakout_samples</code> + <code>fresh_egg_breakout_trays</code></p>
+          <p>Each tray row stores direct count and percent columns.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:250px">
+          <h3>candled_egg_breakout</h3>
+          <p><strong>Path:</strong> House → Setter → Trolley → Tray</p>
+          <p><strong>Compare:</strong> House, Setter, Trolley, or Tray</p>
+          <p><strong>Rows:</strong> <code>candled_egg_breakout_samples</code> + <code>candled_egg_breakout_trays</code></p>
+          <p>Tray card top shows House + Setter ID.</p>
+        </div>
+        <div class="placeholder" style="text-align:left;min-height:250px">
+          <h3>residue_breakout</h3>
+          <p><strong>Path:</strong> House → Setter+Hatcher → Trolley → Tray</p>
+          <p><strong>Compare:</strong> House, Setter+Hatcher, Trolley, or Tray</p>
+          <p><strong>Rows:</strong> <code>residue_breakout_samples</code> + <code>residue_breakout_trays</code></p>
+          <p>Tray card top shows House + Setter ID + Hatcher ID.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Setter / Hatcher Optimizing</div>
+  <div class="mockup">
+    <div class="mockup-header">Stage-specific machine flow</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="placeholder" style="text-align:left">
+          <h3>Setter Optimizing</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Valid compare:</strong> Setter, Trolley</p>
+          <p><strong>Deepest path:</strong> Setter → Trolley</p>
+          <p>Only setter id is required for machine-stage comparison.</p>
+        </div>
+        <div class="placeholder" style="text-align:left">
+          <h3>Hatcher Optimizing</h3>
+          <p><strong>Default:</strong> Pool / Random</p>
+          <p><strong>Valid compare:</strong> Hatcher, Trolley</p>
+          <p><strong>Deepest path:</strong> Hatcher → Trolley</p>
+          <p>Only hatcher id is required for machine-stage comparison.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

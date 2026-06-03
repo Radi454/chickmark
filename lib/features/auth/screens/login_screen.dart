@@ -174,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
               key: _formKey,
               child: Column(
                 children: [
-                  const ChickMarkLogo(logoSize: 120),
+                  const ChickMarkLogo(logoSize: 120, animated: true),
                   const SizedBox(height: 32),
                   SectionCard(
                     child: Column(

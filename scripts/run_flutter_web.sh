@@ -5,8 +5,21 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
-WEB_PORT="${WEB_PORT:-57861}"
+WEB_PORT="${WEB_PORT:-57863}"
+RESTART="${RESTART:-0}"
+FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
+DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS:-true}"
+WEB_BUILD_MODE="${WEB_BUILD_MODE:-profile}"
 APP_URL="http://${WEB_HOST}:${WEB_PORT}/#/main"
+
+case "${WEB_BUILD_MODE}" in
+  debug | profile | release)
+    ;;
+  *)
+    echo "WEB_BUILD_MODE must be debug, profile, or release."
+    exit 2
+    ;;
+esac
 
 is_port_in_use() {
   if command -v nc >/dev/null 2>&1 &&
@@ -18,9 +31,65 @@ is_port_in_use() {
     >/dev/null 2>&1
 }
 
+find_web_server_pids() {
+  ps -ax -o pid=,command= |
+    awk -v port="${WEB_PORT}" '
+      $0 ~ /web-server/ &&
+      ($0 ~ "--web-port=" port || $0 ~ "--web-port " port) {
+        print $1
+      }
+    '
+}
+
+stop_web_server() {
+  local pids=()
+  local pid
+
+  while IFS= read -r pid; do
+    if [[ -n "${pid}" ]]; then
+      pids+=("${pid}")
+    fi
+  done < <(find_web_server_pids)
+
+  if [[ "${#pids[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo
+  echo "Stopping existing ChickMark web server on ${WEB_HOST}:${WEB_PORT}..."
+  kill "${pids[@]}" >/dev/null 2>&1 || true
+
+  local attempts=0
+  while is_port_in_use && [[ "${attempts}" -lt 20 ]]; do
+    sleep 0.5
+    attempts=$((attempts + 1))
+  done
+
+  if is_port_in_use; then
+    kill -9 "${pids[@]}" >/dev/null 2>&1 || true
+  fi
+
+  attempts=0
+  while is_port_in_use && [[ "${attempts}" -lt 10 ]]; do
+    sleep 0.5
+    attempts=$((attempts + 1))
+  done
+
+  if is_port_in_use; then
+    echo "Port ${WEB_HOST}:${WEB_PORT} is still in use after restart cleanup."
+    exit 1
+  fi
+}
+
+if [[ "${RESTART}" == "1" || "${RESTART}" == "true" ]]; then
+  stop_web_server
+fi
+
 if is_port_in_use; then
   echo
   echo "ChickMark is already running."
+  echo "Restart current code on the stable data port with:"
+  echo "  make restart-web"
   echo "Open this in the Codex side browser:"
   echo "${APP_URL}"
   echo
@@ -29,6 +98,7 @@ fi
 
 echo
 echo "Starting ChickMark..."
+echo "Using ${WEB_BUILD_MODE} web-server build with local Flutter web resources."
 echo "Open this in the Codex side browser when Flutter is ready:"
 echo "${APP_URL}"
 echo
@@ -37,8 +107,11 @@ LOG_FILE="$(mktemp -t chickmark_flutter_web.XXXXXX.log)"
 trap 'rm -f "${LOG_FILE}"' EXIT
 
 set +e
-flutter run \
+"${FLUTTER_BIN}" run \
+  --"${WEB_BUILD_MODE}" \
+  --no-web-resources-cdn \
   --dart-define-from-file=.env \
+  --dart-define=CHICKMARK_DEBUG_AUTH_BYPASS="${DEBUG_AUTH_BYPASS}" \
   -d web-server \
   --web-hostname="${WEB_HOST}" \
   --web-port="${WEB_PORT}" 2>&1 | tee "${LOG_FILE}"
@@ -49,6 +122,8 @@ if [[ "${FLUTTER_STATUS}" -ne 0 ]] &&
   grep -q "Address already in use" "${LOG_FILE}"; then
   echo
   echo "ChickMark is already running."
+  echo "Restart current code on the stable data port with:"
+  echo "  make restart-web"
   echo "Open this in the Codex side browser:"
   echo "${APP_URL}"
   echo

@@ -70,5 +70,38 @@ void main() {
       expect(BmkAgeCalculator.benchmarkWeekForDays(283), 40);
       expect(BmkAgeCalculator.benchmarkWeekForDays(284), 41);
     });
+
+    test('converts stored BMK days to display and legacy storage weeks', () {
+      expect(BmkAgeCalculator.displayWeekForDays(280), 40);
+      expect(BmkAgeCalculator.displayWeekForDays(281), 41);
+      expect(BmkAgeCalculator.displayWeekForDays(0), 0);
+      expect(BmkAgeCalculator.displayWeekForDays(null), isNull);
+    });
+
+    test('derives current flock days from weeks or entry date', () {
+      expect(
+        BmkAgeCalculator.currentFlockAgeDays(
+          flockAgeWeeks: 42,
+          flockEntryDate: DateTime(2026, 1, 1),
+          auditDate: DateTime(2026, 4, 27),
+        ),
+        294,
+      );
+      expect(
+        BmkAgeCalculator.currentFlockAgeDays(
+          flockEntryDate: DateTime(2026, 4, 20),
+          auditDate: DateTime(2026, 4, 27),
+        ),
+        7,
+      );
+      expect(
+        BmkAgeCalculator.currentFlockAgeDays(
+          flockAgeWeeks: 0,
+          flockEntryDate: DateTime(2025, 8, 1),
+          auditDate: DateTime(2026, 5, 8),
+        ),
+        280,
+      );
+    });
   });
 }

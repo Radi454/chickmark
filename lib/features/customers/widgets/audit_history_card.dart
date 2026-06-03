@@ -57,7 +57,11 @@ class AuditHistoryCard extends StatelessWidget {
                 style: AppTextStyles.caption,
               ),
               const SizedBox(height: 8),
-              Text(_formatDate(audit.date), style: AppTextStyles.caption),
+              Text(
+                HatchDateUtils.formatDisplayDate(audit.date),
+                textDirection: TextDirection.ltr,
+                style: AppTextStyles.caption,
+              ),
               if (audit.setterId != null) ...[
                 const SizedBox(height: 8),
                 Text('Setter: ${audit.setterId}', style: AppTextStyles.caption),
@@ -91,29 +95,5 @@ class AuditHistoryCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthAbbreviation(date.month)} '
-        '${date.year}';
-  }
-
-  String _monthAbbreviation(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month - 1];
   }
 }

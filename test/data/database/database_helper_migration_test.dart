@@ -1,262 +1,201 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
-import 'package:mocktail/mocktail.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-class MockDatabase extends Mock implements Database {}
+const _panelTables = [
+  'egg_storage',
+  'egg_quality',
+  'chick_quality',
+  'chick_weights',
+  'fresh_egg_breakout',
+  'candled_egg_breakout',
+  'residue_breakout',
+  'setter_optimizing',
+  'hatcher_optimizing',
+];
 
-class MockTransaction extends Mock implements Transaction {}
-
-List<Map<String, Object?>> _stationSampleColumns({
-  bool includeHouse = false,
-  bool includeCustom = false,
-}) {
-  final names = [
-    'id',
-    'auditSessionId',
-    'legacyAuditId',
-    'stationType',
-    'sampleMode',
-    'sampleIndex',
-    'createdAt',
-    'updatedAt',
-    if (includeHouse) ...['houseNo', 'houseLabel'],
-    if (includeCustom) 'customMetric',
-  ];
-  return [
-    for (var i = 0; i < names.length; i++)
-      {
-        'cid': i,
-        'name': names[i],
-        'type': names[i] == 'sampleIndex' || names[i] == 'customMetric'
-            ? 'INTEGER'
-            : 'TEXT',
-        'notnull': names[i] == 'id' ? 1 : 0,
-        'dflt_value': null,
-        'pk': names[i] == 'id' ? 1 : 0,
-      },
-  ];
-}
-
-List<Map<String, Object?>> _stationSampleForeignKeys() => [
-  {
-    'id': 0,
-    'seq': 0,
-    'table': 'audits',
-    'from': 'legacyAuditId',
-    'to': 'id',
-    'on_update': 'NO ACTION',
-    'on_delete': 'CASCADE',
-    'match': 'NONE',
-  },
-  {
-    'id': 1,
-    'seq': 0,
-    'table': 'audit_sessions',
-    'from': 'auditSessionId',
-    'to': 'id',
-    'on_update': 'NO ACTION',
-    'on_delete': 'CASCADE',
-    'match': 'NONE',
-  },
+const _legacyTables = [
+  'audits',
+  'station_samples',
+  'sample_records',
+  'sample_house_details',
+  'sample_machine_details',
+  'sample_batch_details',
+  'sample_timing_details',
+  'egg_quality_samples',
+  'chick_pasgar',
+  'chick_pasgar_samples',
+  'govee_place_readings',
+  'govee_spot_captures',
+  'govee_spot_readings',
+  'temperature_sessions',
+  'temperature_readings',
 ];
 
 void main() {
-  test('v18 migration adds columns without recreating tables', () async {
-    final db = MockDatabase();
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-    when(() => db.rawQuery(any())).thenAnswer((_) async => []);
-    when(() => db.execute(any())).thenAnswer((_) async {});
-    when(
-      () => db.insert(
-        any(),
-        any(),
-        conflictAlgorithm: any(named: 'conflictAlgorithm'),
-      ),
-    ).thenAnswer((_) async => 1);
-
-    await DatabaseHelper().applyV18UpgradeForTest(db);
-
-    final executedSql = verify(
-      () => db.execute(captureAny()),
-    ).captured.cast<String>().toList();
-
-    expect(
-      executedSql,
-      contains(
-        predicate<String>(
-          (sql) => sql.contains('ALTER TABLE audits ADD COLUMN sampleMode'),
-        ),
+  setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final databaseDir = Directory(
+      p.join(
+        Directory.systemTemp.path,
+        'chickmark_migration_${DateTime.now().microsecondsSinceEpoch}',
       ),
     );
-    expect(
-      executedSql,
-      contains(
-        predicate<String>(
-          (sql) =>
-              sql.contains('ALTER TABLE audits ADD COLUMN compareGroupKey'),
-        ),
-      ),
-    );
-    expect(
-      executedSql,
-      contains(
-        predicate<String>(
-          (sql) =>
-              sql.contains('ALTER TABLE audits ADD COLUMN ebTrayBreakoutJson'),
-        ),
-      ),
-    );
-    expect(
-      executedSql,
-      contains(
-        predicate<String>(
-          (sql) => sql.contains(
-            'ALTER TABLE troubleshooting ADD COLUMN benchmarkJson',
-          ),
-        ),
-      ),
-    );
-    expect(executedSql.any((sql) => sql.contains('DROP TABLE')), isFalse);
-    expect(executedSql.any((sql) => sql.contains('CREATE TABLE')), isFalse);
+    await databaseDir.create(recursive: true);
+    await databaseFactory.setDatabasesPath(databaseDir.path);
   });
 
-  test('v19 migration creates station samples table and indexes', () async {
-    final db = MockDatabase();
+  setUp(_resetDatabase);
 
-    when(() => db.execute(any())).thenAnswer((_) async {});
-
-    await DatabaseHelper().applyV19UpgradeForTest(db);
-
-    final executedSql = verify(
-      () => db.execute(captureAny()),
-    ).captured.cast<String>().toList();
-
-    expect(
-      executedSql,
-      contains(
-        predicate<String>(
-          (sql) =>
-              sql.contains('CREATE TABLE IF NOT EXISTS station_samples') &&
-              sql.contains('auditSessionId TEXT NOT NULL') &&
-              sql.contains('sampleMode TEXT NOT NULL') &&
-              sql.contains('comparisonType TEXT') &&
-              sql.contains('sampleIndex INTEGER NOT NULL') &&
-              sql.contains('houseNo TEXT') &&
-              sql.contains('houseLabel TEXT') &&
-              sql.contains('resultSummaryJson TEXT') &&
-              sql.contains(
-                'FOREIGN KEY (auditSessionId) REFERENCES audit_sessions(id)',
-              ) &&
-              sql.contains('FOREIGN KEY (legacyAuditId) REFERENCES audits(id)'),
-        ),
-      ),
-    );
-    expect(
-      executedSql.join('\n'),
-      allOf(
-        contains('idx_station_samples_session_station'),
-        contains('idx_station_samples_group'),
-        contains('idx_station_samples_legacy_audit'),
-        contains('idx_station_samples_bmk_age'),
-      ),
-    );
-    expect(executedSql.join('\n'), isNot(contains('trayNo')));
-    expect(executedSql.join('\n'), isNot(contains('trayLevel')));
-    expect(executedSql.join('\n'), isNot(contains('trayDepth')));
-    expect(executedSql.join('\n'), isNot(contains('machineLabel')));
-    expect(executedSql.any((sql) => sql.contains('DROP TABLE')), isFalse);
-    expect(
-      executedSql.any(
-        (sql) =>
-            sql.contains('CREATE TABLE') &&
-            RegExp(
-              r'CREATE TABLE(?: IF NOT EXISTS)? audits\s*\(',
-            ).hasMatch(sql),
-      ),
-      isFalse,
-    );
+  tearDown(() async {
+    await DatabaseHelper().close();
   });
 
   test(
-    'v20 migration adds nullable house fields when foreign keys exist',
+    'upgrading a legacy database performs the v41 panel-only cutover',
     () async {
-      final db = MockDatabase();
+      await _createLegacyDatabase(version: 35);
 
-      when(
-        () => db.rawQuery('PRAGMA table_info(station_samples)'),
-      ).thenAnswer((_) async => _stationSampleColumns());
-      when(
-        () => db.rawQuery('PRAGMA foreign_key_list(station_samples)'),
-      ).thenAnswer((_) async => _stationSampleForeignKeys());
-      when(() => db.execute(any())).thenAnswer((_) async {});
+      final db = await DatabaseHelper().db;
+      final tables = await _tableNames(db);
 
-      await DatabaseHelper().applyV20UpgradeForTest(db);
-
-      final executedSql = verify(
-        () => db.execute(captureAny()),
-      ).captured.cast<String>().toList();
-
+      expect(tables, containsAll(_panelTables));
+      for (final table in _legacyTables) {
+        expect(tables, isNot(contains(table)), reason: table);
+      }
       expect(
-        executedSql,
-        contains('ALTER TABLE station_samples ADD COLUMN houseNo TEXT'),
+        tables.where((table) => table.endsWith('_samples')),
+        isEmpty,
+        reason: 'panel child sample tables are removed in the hard cutover',
       );
-      expect(
-        executedSql,
-        contains('ALTER TABLE station_samples ADD COLUMN houseLabel TEXT'),
-      );
-      expect(executedSql.any((sql) => sql.contains('DROP TABLE')), isFalse);
     },
   );
 
-  test(
-    'v20 migration rebuilds in a transaction and preserves unknown columns',
-    () async {
-      final db = MockDatabase();
-      final txn = MockTransaction();
+  test('cutover panel tables expose current common columns', () async {
+    await _createLegacyDatabase(version: 40);
 
-      when(
-        () => db.rawQuery('PRAGMA table_info(station_samples)'),
-      ).thenAnswer((_) async => _stationSampleColumns(includeCustom: true));
-      when(
-        () => db.rawQuery('PRAGMA foreign_key_list(station_samples)'),
-      ).thenAnswer((_) async => []);
-      when(() => txn.execute(any())).thenAnswer((_) async {});
-      when(() => db.transaction<void>(any())).thenAnswer((invocation) {
-        final action =
-            invocation.positionalArguments.single
-                as Future<void> Function(Transaction);
-        return action(txn);
-      });
+    final db = await DatabaseHelper().db;
+    final eggQualityColumns = await _columnNames(db, 'egg_quality');
+    final chickQualityColumns = await _columnNames(db, 'chick_quality');
 
-      await DatabaseHelper().applyV20UpgradeForTest(db);
+    expect(
+      eggQualityColumns,
+      containsAll([
+        'sessionId',
+        'customerId',
+        'hatcheryId',
+        'house',
+        'setter',
+        'hatcher',
+        'storagePeriodDays',
+        'eggWeightsJson',
+        'eggSampleSize',
+        'eggAvgWeight',
+      ]),
+    );
+    expect(
+      chickQualityColumns,
+      containsAll([
+        'sessionId',
+        'customerId',
+        'house',
+        'setter',
+        'hatcher',
+        'pasgarSampleSize',
+        'cvtReadingsJson',
+        'culledChicksAnalysisJson',
+      ]),
+    );
+    expect(eggQualityColumns, isNot(contains('scopeType')));
+    expect(chickQualityColumns, isNot(contains('sampleIndex')));
+  });
+}
 
-      verify(() => db.transaction<void>(any())).called(1);
-      final executedSql = verify(
-        () => txn.execute(captureAny()),
-      ).captured.cast<String>().toList();
-      final joinedSql = executedSql.join('\n');
-
-      expect(joinedSql, contains('"customMetric" INTEGER'));
-      expect(joinedSql, contains('houseNo TEXT'));
-      expect(joinedSql, contains('houseLabel TEXT'));
-      expect(joinedSql, contains('FOREIGN KEY ("auditSessionId")'));
-      expect(joinedSql, contains('FOREIGN KEY ("legacyAuditId")'));
-      expect(joinedSql, contains('"customMetric"'));
-      expect(joinedSql, contains('INSERT INTO "station_samples__v20_rebuild"'));
-      expect(joinedSql, contains('SELECT "id", "auditSessionId"'));
-      expect(joinedSql, contains('NULL, NULL'));
-      expect(joinedSql, contains('DROP TABLE station_samples'));
-      expect(
-        joinedSql,
-        contains(
-          'ALTER TABLE "station_samples__v20_rebuild" RENAME TO station_samples',
-        ),
-      );
-      expect(joinedSql, contains('idx_station_samples_session_station'));
-      expect(joinedSql, contains('idx_station_samples_group'));
-      expect(joinedSql, contains('idx_station_samples_legacy_audit'));
-      expect(joinedSql, contains('idx_station_samples_bmk_age'));
-    },
+Future<void> _createLegacyDatabase({required int version}) async {
+  await DatabaseHelper().close();
+  final dbPath = p.join(
+    await databaseFactory.getDatabasesPath(),
+    'hatchaudit.db',
   );
+  final legacyDb = await databaseFactory.openDatabase(
+    dbPath,
+    options: OpenDatabaseOptions(
+      version: version,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onCreate: (db, _) async {
+        await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE audits (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE station_samples (id TEXT PRIMARY KEY)');
+        await db.execute('CREATE TABLE sample_records (id TEXT PRIMARY KEY)');
+        await db.execute(
+          'CREATE TABLE sample_house_details (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE sample_machine_details (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE sample_batch_details (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE sample_timing_details (id TEXT PRIMARY KEY)',
+        );
+        await db.execute('CREATE TABLE egg_quality (id TEXT PRIMARY KEY)');
+        await db.execute(
+          'CREATE TABLE egg_quality_samples (id TEXT PRIMARY KEY)',
+        );
+        await db.execute('CREATE TABLE chick_pasgar (id TEXT PRIMARY KEY)');
+        await db.execute(
+          'CREATE TABLE chick_pasgar_samples (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE govee_place_readings (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE govee_spot_captures (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE govee_spot_readings (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE temperature_sessions (id TEXT PRIMARY KEY)',
+        );
+        await db.execute(
+          'CREATE TABLE temperature_readings (id TEXT PRIMARY KEY)',
+        );
+      },
+    ),
+  );
+  await legacyDb.close();
+}
+
+Future<void> _resetDatabase() async {
+  await DatabaseHelper().close();
+  final dbPath = p.join(
+    await databaseFactory.getDatabasesPath(),
+    'hatchaudit.db',
+  );
+  await databaseFactory.deleteDatabase(dbPath);
+}
+
+Future<Set<String>> _tableNames(Database db) async {
+  final rows = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+  );
+  return rows.map((row) => row['name']! as String).toSet();
+}
+
+Future<Set<String>> _columnNames(Database db, String table) async {
+  final rows = await db.rawQuery('PRAGMA table_info($table)');
+  return rows.map((row) => row['name']! as String).toSet();
 }

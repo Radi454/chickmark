@@ -27,11 +27,11 @@ class EstGridWidget extends StatelessWidget {
   final String? title;
 
   /// Temperature zone evaluator. Defaults to EST (°F 100-101).
-  /// Pass [CalculationUtils.shellTempStatus] for Egg Storage °C grids.
+  /// Pass [CalculationUtils.shellTempStatus] for Egg °C grids.
   final TemperatureStatus Function(double)? tempStatusFn;
 
   /// Optional zone label builder. Defaults to [CalculationUtils.estZone].
-  /// Pass [CalculationUtils.shellTempZone] for Egg Storage °C grids.
+  /// Pass [CalculationUtils.shellTempZone] for Egg °C grids.
   final String Function(double)? tempZoneFn;
 
   /// Unit suffix shown in each grid cell, e.g. '°C' or '°F'.
@@ -182,6 +182,7 @@ class EstGridWidget extends StatelessWidget {
 
     final isHighlighted = highlightedKey == key;
     final numberField = AuditNumericField(
+      key: ValueKey('est-grid-input-$key'),
       controller: controller,
       focusNode: focusNode,
       enabled: enabled,

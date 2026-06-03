@@ -1,0 +1,248 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/hatchery_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
+import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/data/repositories/bmk_repository.dart';
+import 'package:hatchaudit/data/repositories/customer_repository.dart';
+import 'package:hatchaudit/data/repositories/flock_repository.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
+import 'package:hatchaudit/data/repositories/photo_repository.dart';
+import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
+import 'package:hatchaudit/services/photo/photo_sync_service.dart';
+import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
+import 'package:hatchaudit/services/supabase/supabase_service.dart';
+
+class _MockSupabaseService extends Mock implements SupabaseService {}
+
+class _MockCustomerRepository extends Mock implements CustomerRepository {}
+
+class _MockFlockRepository extends Mock implements FlockRepository {}
+
+class _MockHatcheryRepository extends Mock implements HatcheryRepository {}
+
+class _MockActivityLogRepository extends Mock
+    implements ActivityLogRepository {}
+
+class _MockPhotoRepository extends Mock implements PhotoRepository {}
+
+class _MockBmkRepository extends Mock implements BmkRepository {}
+
+class _MockAuditSessionRepository extends Mock
+    implements AuditSessionRepository {}
+
+class _MockGoveeCaptureRepository extends Mock
+    implements GoveeCaptureRepository {}
+
+class _MockPanelSampleRepository extends Mock
+    implements PanelSampleRepository {}
+
+class _MockSyncTombstoneRepository extends Mock
+    implements SyncTombstoneRepository {}
+
+class _MockPhotoSyncService extends Mock implements PhotoSyncService {}
+
+void main() {
+  late _MockSupabaseService supabase;
+  late _MockCustomerRepository customers;
+  late _MockFlockRepository flocks;
+  late _MockHatcheryRepository hatcheries;
+  late _MockActivityLogRepository activityLog;
+  late _MockPhotoRepository photos;
+  late _MockBmkRepository bmk;
+  late _MockAuditSessionRepository sessions;
+  late _MockGoveeCaptureRepository govee;
+  late _MockPanelSampleRepository panels;
+  late _MockSyncTombstoneRepository tombstones;
+  late _MockPhotoSyncService photoSync;
+
+  setUpAll(() {
+    registerFallbackValue(<Map<String, dynamic>>[]);
+  });
+
+  setUp(() {
+    supabase = _MockSupabaseService();
+    customers = _MockCustomerRepository();
+    flocks = _MockFlockRepository();
+    hatcheries = _MockHatcheryRepository();
+    activityLog = _MockActivityLogRepository();
+    photos = _MockPhotoRepository();
+    bmk = _MockBmkRepository();
+    sessions = _MockAuditSessionRepository();
+    govee = _MockGoveeCaptureRepository();
+    panels = _MockPanelSampleRepository();
+    tombstones = _MockSyncTombstoneRepository();
+    photoSync = _MockPhotoSyncService();
+
+    when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+    when(() => customers.getAllCustomers()).thenAnswer((_) async => [
+      CustomerModel(
+        id: 'customer-1',
+        name: 'Customer 1',
+        createdAt: DateTime(2026, 5, 1),
+        createdBy: 'tester',
+      ),
+    ]);
+    when(() => hatcheries.getAllHatcheries()).thenAnswer((_) async => [
+      HatcheryModel(
+        id: 'hatchery-1',
+        customerId: 'customer-1',
+        name: 'Hatchery 1',
+        createdAt: DateTime(2026, 5, 1),
+        createdBy: 'tester',
+      ),
+    ]);
+    when(() => flocks.getAllFlocks()).thenAnswer((_) async => [
+      FlockModel(
+        id: 'flock-1',
+        customerId: 'customer-1',
+        flockId: 'Flock 1',
+        breed: 'Ross308',
+        entryDate: DateTime(2026, 1, 1),
+      ),
+    ]);
+    when(() => sessions.getAllSessions(limit: any(named: 'limit')))
+        .thenAnswer((_) async => [
+              AuditSessionModel(
+                id: 'session-1',
+                customerId: 'customer-1',
+                flockId: 'flock-1',
+                hatcheryId: 'hatchery-1',
+                date: DateTime(2026, 5, 1),
+                createdAt: DateTime(2026, 5, 1),
+                updatedAt: DateTime(2026, 5, 1),
+              ),
+            ]);
+    when(() => panels.getAllPanelRows(any())).thenAnswer((invocation) async {
+      final table = invocation.positionalArguments.first as String;
+      if (table == 'egg_storage') {
+        return [
+          {
+            'id': 'row-1',
+            'sessionId': 'session-1',
+            'customerId': 'customer-1',
+            'date': '2026-05-01',
+            'mode': 'pool',
+            'scopeType': 'pool',
+            'scopeLabel': 'Random',
+            'sampleIndex': 0,
+            'createdAt': '2026-05-01T00:00:00.000Z',
+            'updatedAt': '2026-05-01T00:00:00.000Z',
+          },
+        ];
+      }
+      return const [];
+    });
+    when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
+    when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
+    when(() => govee.getAllCaptures()).thenAnswer((_) async => const []);
+    when(() => photos.getAllPhotos()).thenAnswer((_) async => const []);
+    when(() => tombstones.getPendingDeletes()).thenAnswer((_) async => const []);
+    when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {});
+    when(() => photoSync.syncPending()).thenAnswer((_) async {});
+    when(() => supabase.upsertRows(any(), any())).thenAnswer((_) async {});
+    when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((_) async {});
+    when(() => supabase.deleteRows(any(), any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => supabase.pullFromSupabase(
+        upsertCustomer: any(named: 'upsertCustomer'),
+        upsertFlock: any(named: 'upsertFlock'),
+        upsertHatchery: any(named: 'upsertHatchery'),
+        upsertPhoto: any(named: 'upsertPhoto'),
+        upsertBmkBreed: any(named: 'upsertBmkBreed'),
+        upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+        upsertAuditSession: any(named: 'upsertAuditSession'),
+        upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+        upsertPanelRow: any(named: 'upsertPanelRow'),
+        upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+      ),
+    ).thenAnswer((_) async => const SupabasePullSummary(panelRows: 1));
+  });
+
+  StartupSyncService service() => StartupSyncService(
+    supabaseService: supabase,
+    customerRepository: customers,
+    flockRepository: flocks,
+    hatcheryRepository: hatcheries,
+    activityLogRepository: activityLog,
+    photoRepository: photos,
+    bmkRepository: bmk,
+    auditSessionRepository: sessions,
+    goveeCaptureRepository: govee,
+    panelSampleRepository: panels,
+    syncTombstoneRepository: tombstones,
+    photoSyncService: photoSync,
+  );
+
+  test('pushes panel tables and never pushes legacy audit or sample tables', () async {
+    await service().run();
+
+    verify(() => supabase.upsertRows('customers', any())).called(1);
+    verify(() => supabase.upsertRows('hatcheries', any())).called(1);
+    verify(() => supabase.upsertRows('flocks', any())).called(1);
+    verify(() => supabase.upsertRows('audit_sessions', any())).called(1);
+    verify(() => supabase.upsertRows('egg_storage', any())).called(1);
+    verifyNever(() => supabase.upsertRows('audits', any()));
+    verifyNever(() => supabase.upsertRows('sample_records', any()));
+    for (final panel in PanelSampleSchema.panels) {
+      verifyNever(() => supabase.upsertRows('${panel.tableName}_samples', any()));
+    }
+  });
+
+  test('pull callback exposes panel tables without legacy audit callbacks', () async {
+    await service().run();
+
+    final verification = verify(
+      () => supabase.pullFromSupabase(
+        upsertCustomer: captureAny(named: 'upsertCustomer'),
+        upsertFlock: captureAny(named: 'upsertFlock'),
+        upsertHatchery: captureAny(named: 'upsertHatchery'),
+        upsertPhoto: captureAny(named: 'upsertPhoto'),
+        upsertBmkBreed: captureAny(named: 'upsertBmkBreed'),
+        upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
+        upsertAuditSession: captureAny(named: 'upsertAuditSession'),
+        upsertGoveeDailyCapture: captureAny(named: 'upsertGoveeDailyCapture'),
+        upsertPanelRow: captureAny(named: 'upsertPanelRow'),
+        upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
+      ),
+    );
+    final callback = verification.captured[8]
+        as Future<void> Function(String, Map<String, dynamic>);
+    await callback('egg_storage', {
+      'id': 'row-remote',
+      'updatedAt': '2026-05-02T00:00:00.000Z',
+    });
+
+    verify(() => panels.getRowById('egg_storage', 'row-remote')).called(1);
+    verify(
+      () => panels.upsertPanelRow(
+        'egg_storage',
+        any(that: containsPair('id', 'row-remote')),
+      ),
+    ).called(1);
+  });
+
+  test('sync tombstones delete panel tables before owning tables', () {
+    final order = SyncTombstoneRepository.deleteOrder;
+
+    expect(order, contains('egg_storage'));
+    expect(order, isNot(contains('audits')));
+    expect(order, isNot(contains('sample_records')));
+    expect(order.where((table) => table.endsWith('_samples')), isEmpty);
+    expect(order.indexOf('egg_storage'), lessThan(order.indexOf('audit_sessions')));
+  });
+}

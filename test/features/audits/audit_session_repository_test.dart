@@ -6,12 +6,15 @@ import 'package:sqflite/sqflite.dart';
 
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'session_test_helpers.dart';
 
 class MockDatabase extends Mock implements Database {}
 
 class MockDatabaseHelper extends Mock implements DatabaseHelper {}
+
+class MockTransaction extends Mock implements Transaction {}
 
 void main() {
   setUpAll(() {
@@ -116,12 +119,10 @@ void main() {
     });
 
     test('fromMap handles selectedStationKeys JSON', () {
-      final row = makeAuditSessionRow(
-        selectedStationKeys: ['chick_quality', 'egg_storage'],
-      );
+      final row = makeAuditSessionRow(selectedStationKeys: ['chicks', 'egg']);
       final model = AuditSessionModel.fromMap(row);
 
-      expect(model.selectedStationKeys, ['chick_quality', 'egg_storage']);
+      expect(model.selectedStationKeys, ['chicks', 'egg']);
     });
 
     test('fromMap defaults missing selectedStationKeys to all stations', () {
@@ -142,12 +143,10 @@ void main() {
     });
 
     test('fromMap handles stationsCompleted JSON', () {
-      final row = makeAuditSessionRow(
-        stationsCompleted: ['egg_storage', 'chick_quality'],
-      );
+      final row = makeAuditSessionRow(stationsCompleted: ['egg', 'chicks']);
       final model = AuditSessionModel.fromMap(row);
 
-      expect(model.stationsCompleted, ['egg_storage', 'chick_quality']);
+      expect(model.stationsCompleted, ['egg', 'chicks']);
     });
 
     test('fromMap handles null stationsCompleted gracefully', () {
@@ -332,7 +331,7 @@ void main() {
         ),
       ).thenAnswer((_) async => 1);
 
-      await repository.markStationCompleted(testSession.id, 'egg_storage');
+      await repository.markStationCompleted(testSession.id, 'egg');
 
       verify(
         () => mockDb.update(
@@ -387,10 +386,10 @@ void main() {
       () async {
         final row = makeAuditSessionRow(
           stationsCompleted: [
-            'egg_storage',
-            'chick_quality',
-            'hatch_analysis',
-            'setter_optimizing',
+            'egg',
+            'chicks',
+            'hatch_analysis_egg_breakouts',
+            'setters',
           ],
         );
 
@@ -417,10 +416,7 @@ void main() {
           return 1;
         });
 
-        await repository.markStationCompleted(
-          testSession.id,
-          'hatcher_optimizing',
-        );
+        await repository.markStationCompleted(testSession.id, 'hatchers');
 
         expect(capturedUpdates.isNotEmpty, isTrue);
         final update = capturedUpdates.first;
@@ -431,8 +427,8 @@ void main() {
 
     test('markStationCompleted completes selected station subset', () async {
       final row = makeAuditSessionRow(
-        selectedStationKeys: ['egg_storage', 'chick_quality'],
-        stationsCompleted: ['egg_storage'],
+        selectedStationKeys: ['egg', 'chicks'],
+        stationsCompleted: ['egg'],
       );
 
       when(
@@ -458,16 +454,18 @@ void main() {
         return 1;
       });
 
-      await repository.markStationCompleted(testSession.id, 'chick_quality');
+      await repository.markStationCompleted(testSession.id, 'chicks');
 
       final update = capturedUpdates.first;
       expect(update['status'], 'completed');
       expect(update['completedAt'], isNotNull);
-      expect(update['stationsCompleted'], contains('chick_quality'));
+      expect(update['stationsCompleted'], contains('chicks'));
     });
 
     test('updateSessionProgress filters to selected station subset', () async {
-      final row = makeAuditSessionRow(selectedStationKeys: ['hatch_analysis']);
+      final row = makeAuditSessionRow(
+        selectedStationKeys: ['hatch_analysis_egg_breakouts'],
+      );
 
       when(
         () => mockDb.query(
@@ -493,12 +491,15 @@ void main() {
       });
 
       await repository.updateSessionProgress(testSession.id, [
-        'egg_storage',
-        'hatch_analysis',
+        'egg',
+        'hatch_analysis_egg_breakouts',
       ]);
 
       final update = capturedUpdates.first;
-      expect(update['stationsCompleted'], jsonEncode(['hatch_analysis']));
+      expect(
+        update['stationsCompleted'],
+        jsonEncode(['hatch_analysis_egg_breakouts']),
+      );
       expect(update['status'], 'completed');
     });
   });
@@ -564,18 +565,55 @@ void main() {
 
   group('AuditSessionRepository - deleteSession', () {
     test('deleteSession calls database delete', () async {
+      final txn = MockTransaction();
+      when(() => mockDb.transaction<void>(any())).thenAnswer((invocation) {
+        final action =
+            invocation.positionalArguments.single
+                as Future<void> Function(Transaction);
+        return action(txn);
+      });
       when(
-        () => mockDb.delete(
-          'audit_sessions',
-          where: 'id = ?',
+        () => txn.query(
+          any(),
+          columns: any(named: 'columns'),
+          where: any(named: 'where'),
+          whereArgs: any(named: 'whereArgs'),
+        ),
+      ).thenAnswer((_) async => <Map<String, Object?>>[]);
+      when(
+        () => txn.insert(
+          any(),
+          any(),
+          conflictAlgorithm: any(named: 'conflictAlgorithm'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => txn.update(
+          'audits',
+          any(),
+          where: 'sessionId = ?',
           whereArgs: [testSession.id],
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => txn.delete(
+          any(),
+          where: any(named: 'where'),
+          whereArgs: any(named: 'whereArgs'),
         ),
       ).thenAnswer((_) async => 1);
 
       await repository.deleteSession(testSession.id);
 
       verify(
-        () => mockDb.delete(
+        () => txn.delete(
+          PanelSampleSchema.panels.first.tableName,
+          where: 'sessionId = ?',
+          whereArgs: [testSession.id],
+        ),
+      ).called(1);
+      verify(
+        () => txn.delete(
           'audit_sessions',
           where: 'id = ?',
           whereArgs: [testSession.id],

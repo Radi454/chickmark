@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/security/security_policy.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/utils/date_utils.dart';
 import '../../../data/models/audit_model.dart';
 
 import '../../../widgets/status_badge.dart';
@@ -29,7 +31,7 @@ Future<void> openAuditEditor(
     auditType: audit.auditType,
     customerId: audit.customerId,
     flockId: audit.flockId ?? '',
-    breed: audit.soBreed ?? audit.hoBreed,
+    breed: audit.soBreed ?? audit.hoBreed ?? flock?.breed,
     setterId: audit.setterId ?? audit.soSetterId,
     hatcherId: audit.hatcherId ?? audit.hoHatcherId,
     flockEntryDate: flock?.entryDate,
@@ -38,27 +40,27 @@ Future<void> openAuditEditor(
   );
 
   final screen = switch (audit.auditType) {
-    'Chick Quality' => ChickQualityScreen(
+    'Chicks' => ChickQualityScreen(
       context: contextData,
       initialAudit: audit,
       initialTabIndex: sectionIndex,
     ),
-    'Hatch Analysis' => HatchAnalysisScreen(
+    'Hatch Analysis & Egg Breakouts' => HatchAnalysisScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Setter Optimizing' => SetterOptimizingScreen(
+    'Setters' => SetterOptimizingScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Hatcher Optimizing' => HatcherOptimizingScreen(
+    'Hatchers' => HatcherOptimizingScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
     ),
-    'Egg Storage' => EggStorageScreen(
+    'Egg' => EggStorageScreen(
       context: contextData,
       initialAudit: audit,
       initialSectionIndex: sectionIndex,
@@ -83,7 +85,9 @@ class AuditDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
+    final canEdit =
+        AuthSecurityPolicy.isDebugAuthBypassEnabled ||
+        (context.watch<AuthProvider>().user?.canEditAudits ?? false);
     final sections = _sectionsForAudit();
 
     return Scaffold(
@@ -158,7 +162,8 @@ class AuditDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _formatDate(audit.date),
+                        HatchDateUtils.formatDisplayDate(audit.date),
+                        textDirection: TextDirection.ltr,
                         style: AppTextStyles.caption,
                       ),
                     ],
@@ -212,11 +217,11 @@ class AuditDetailScreen extends StatelessWidget {
 
   List<_AuditSummarySection> _sectionsForAudit() {
     return switch (audit.auditType) {
-      'Chick Quality' => _chickQualitySections(),
-      'Hatch Analysis' => _hatchAnalysisSections(),
-      'Setter Optimizing' => _setterSections(),
-      'Hatcher Optimizing' => _hatcherSections(),
-      'Egg Storage' => _eggStorageSections(),
+      'Chicks' => _chickQualitySections(),
+      'Hatch Analysis & Egg Breakouts' => _hatchAnalysisSections(),
+      'Setters' => _setterSections(),
+      'Hatchers' => _hatcherSections(),
+      'Egg' => _eggStorageSections(),
       _ => [],
     };
   }
@@ -328,11 +333,7 @@ class AuditDetailScreen extends StatelessWidget {
         title: 'Environment',
         icon: Icons.sensors,
         sectionIndex: 1,
-        metrics: [
-          _metric('Govee temp', _celsius(audit.soGoveeTemp)),
-          _metric('Humidity', _percent(audit.soGoveeHumidity)),
-          _metric('CO2', _ppm(audit.soCo2)),
-        ],
+        metrics: [_metric('CO2', _ppm(audit.soCo2))],
       ),
       _section(
         title: 'Egg Shell Temperature',
@@ -363,11 +364,7 @@ class AuditDetailScreen extends StatelessWidget {
         title: 'Environment',
         icon: Icons.sensors,
         sectionIndex: 1,
-        metrics: [
-          _metric('Govee temp', _celsius(audit.hoGoveeTemp)),
-          _metric('Humidity', _percent(audit.hoGoveeHumidity)),
-          _metric('CO2', _ppm(audit.hoCo2)),
-        ],
+        metrics: [_metric('CO2', _ppm(audit.hoCo2))],
       ),
       _section(
         title: 'Chick Vent Temperature',
@@ -532,30 +529,6 @@ class AuditDetailScreen extends StatelessWidget {
       return null;
     }
     return null;
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthAbbreviation(date.month)} '
-        '${date.year}';
-  }
-
-  String _monthAbbreviation(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month - 1];
   }
 
   Future<void> _openAuditScreen(BuildContext context, {int sectionIndex = 0}) =>
