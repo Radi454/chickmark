@@ -20,26 +20,6 @@ class AuditModel {
   final String sampleMode;
   final String? compareGroupKey;
 
-  // --- Chicks: CHA Environmental ---
-  final double? chaCo2;
-  final String? chaCo2Photo;
-  final double? chaPm10;
-  final String? chaPm10Photo;
-  final double? chaPm25;
-  final String? chaPm25Photo;
-  final double? chaAirVelocitySpot1;
-  final String? chaAirVelocitySpot1Photo;
-  final double? chaAirVelocitySpot2;
-  final String? chaAirVelocitySpot2Photo;
-  final double? chaAirVelocitySpot3;
-  final String? chaAirVelocitySpot3Photo;
-  final double? chaAirInlet;
-  final String? chaAirInletPhoto;
-  final double? chaAirOutlet;
-  final String? chaAirOutletPhoto;
-  final double? chaNoiseLevel;
-  final String? chaNoiseLevelPhoto;
-
   // --- Chicks: Pasgar ---
   final int? pasgarSampleSize;
   final int? pasgarReflexes;
@@ -275,25 +255,6 @@ class AuditModel {
     this.sessionId,
     String? sampleMode,
     this.compareGroupKey,
-    // --- Chicks: CHA Environmental ---
-    this.chaCo2,
-    this.chaCo2Photo,
-    this.chaPm10,
-    this.chaPm10Photo,
-    this.chaPm25,
-    this.chaPm25Photo,
-    this.chaAirVelocitySpot1,
-    this.chaAirVelocitySpot1Photo,
-    this.chaAirVelocitySpot2,
-    this.chaAirVelocitySpot2Photo,
-    this.chaAirVelocitySpot3,
-    this.chaAirVelocitySpot3Photo,
-    this.chaAirInlet,
-    this.chaAirInletPhoto,
-    this.chaAirOutlet,
-    this.chaAirOutletPhoto,
-    this.chaNoiseLevel,
-    this.chaNoiseLevelPhoto,
     // --- Chicks: Pasgar ---
     this.pasgarSampleSize,
     this.pasgarReflexes,
@@ -521,25 +482,6 @@ class AuditModel {
       sessionId: map['sessionId'],
       sampleMode: map['sampleMode'],
       compareGroupKey: map['compareGroupKey'],
-      // --- Chicks: CHA Environmental ---
-      chaCo2: map['chaCo2']?.toDouble(),
-      chaCo2Photo: map['chaCo2Photo'],
-      chaPm10: map['chaPm10']?.toDouble(),
-      chaPm10Photo: map['chaPm10Photo'],
-      chaPm25: map['chaPm25']?.toDouble(),
-      chaPm25Photo: map['chaPm25Photo'],
-      chaAirVelocitySpot1: map['chaAirVelocitySpot1']?.toDouble(),
-      chaAirVelocitySpot1Photo: map['chaAirVelocitySpot1Photo'],
-      chaAirVelocitySpot2: map['chaAirVelocitySpot2']?.toDouble(),
-      chaAirVelocitySpot2Photo: map['chaAirVelocitySpot2Photo'],
-      chaAirVelocitySpot3: map['chaAirVelocitySpot3']?.toDouble(),
-      chaAirVelocitySpot3Photo: map['chaAirVelocitySpot3Photo'],
-      chaAirInlet: map['chaAirInlet']?.toDouble(),
-      chaAirInletPhoto: map['chaAirInletPhoto'],
-      chaAirOutlet: map['chaAirOutlet']?.toDouble(),
-      chaAirOutletPhoto: map['chaAirOutletPhoto'],
-      chaNoiseLevel: map['chaNoiseLevel']?.toDouble(),
-      chaNoiseLevelPhoto: map['chaNoiseLevelPhoto'],
       // --- Chicks: Pasgar ---
       pasgarSampleSize: map['pasgarSampleSize'],
       pasgarReflexes: map['pasgarReflexes'],
@@ -773,25 +715,6 @@ class AuditModel {
       'sessionId': sessionId,
       'sampleMode': sampleMode,
       'compareGroupKey': compareGroupKey,
-      // --- Chicks: CHA Environmental ---
-      'chaCo2': chaCo2,
-      'chaCo2Photo': chaCo2Photo,
-      'chaPm10': chaPm10,
-      'chaPm10Photo': chaPm10Photo,
-      'chaPm25': chaPm25,
-      'chaPm25Photo': chaPm25Photo,
-      'chaAirVelocitySpot1': chaAirVelocitySpot1,
-      'chaAirVelocitySpot1Photo': chaAirVelocitySpot1Photo,
-      'chaAirVelocitySpot2': chaAirVelocitySpot2,
-      'chaAirVelocitySpot2Photo': chaAirVelocitySpot2Photo,
-      'chaAirVelocitySpot3': chaAirVelocitySpot3,
-      'chaAirVelocitySpot3Photo': chaAirVelocitySpot3Photo,
-      'chaAirInlet': chaAirInlet,
-      'chaAirInletPhoto': chaAirInletPhoto,
-      'chaAirOutlet': chaAirOutlet,
-      'chaAirOutletPhoto': chaAirOutletPhoto,
-      'chaNoiseLevel': chaNoiseLevel,
-      'chaNoiseLevelPhoto': chaNoiseLevelPhoto,
       // --- Chicks: Pasgar ---
       'pasgarSampleSize': pasgarSampleSize,
       'pasgarReflexes': pasgarReflexes,

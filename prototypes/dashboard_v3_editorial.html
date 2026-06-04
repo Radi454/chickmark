@@ -1,0 +1,1966 @@
+<!-- ChickMark Dashboard — Design V3: Editorial Minimal -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ChickMark — Audit Dashboard (Editorial)</title>
+<style>
+/* ─────────────────────────────────────────────
+   DESIGN V3: Editorial Minimal
+   Typography-first, hairline rules, no cards,
+   deep navy accent, red only for alarms.
+───────────────────────────────────────────── */
+:root {
+  --ink:        #111111;
+  --ink-2:      #6B7280;
+  --ink-3:      #9CA3AF;
+  --ink-4:      #D1D5DB;
+  --rule:       #E5E7EB;
+  --bg:         #FFFFFF;
+  --accent:     #15315B;
+  --alarm:      #C0152F;
+  --alarm-bg:   #FEF3F4;
+  --good:       #1A6B3A;
+  --warn:       #92510A;
+  --warn-bg:    #FFFBF0;
+  --max-w:      960px;
+  font-size:    15px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Top bar ── */
+.appbar {
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+  position: sticky; top: 0; z-index: 30;
+}
+.appbar-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 18px 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.appbar-wordmark {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  color: var(--accent);
+}
+.appbar-sub {
+  font-size: .78rem;
+  color: var(--ink-2);
+  font-weight: 400;
+  letter-spacing: .3px;
+}
+.appbar-spacer { flex: 1; }
+.proto-pill {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 2px;
+}
+
+/* ── Layout wrapper ── */
+.wrap {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+/* ── Filter row ── */
+.filter-row {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 40px;
+}
+.filter-field { display: flex; flex-direction: column; gap: 4px; }
+.filter-field label {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.filter-field select {
+  appearance: none; -webkit-appearance: none;
+  border: none;
+  border-bottom: 1.5px solid var(--ink);
+  background: transparent;
+  font-size: .9rem;
+  color: var(--ink);
+  font-weight: 600;
+  padding: 4px 20px 4px 0;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+}
+.filter-field select:focus { outline: none; border-bottom-color: var(--accent); }
+.clear-btn {
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  letter-spacing: .3px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.clear-btn:hover { color: var(--ink); }
+
+/* ── Section ── */
+.section { margin-bottom: 52px; }
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1.5px solid var(--ink);
+  margin-bottom: 28px;
+  cursor: pointer;
+  user-select: none;
+}
+.section-number {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  flex: 0 0 auto;
+  padding-top: 3px;
+}
+.section-title {
+  font-size: 1.35rem;
+  font-weight: 300;
+  letter-spacing: -.3px;
+  color: var(--ink);
+  flex: 1;
+}
+.section-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+.section-badge.alarm { color: var(--alarm); }
+.section-badge.good  { color: var(--good);  }
+.section-badge.warn  { color: var(--warn);  }
+.section-badge.muted { color: var(--ink-2); }
+.section-chev {
+  font-size: .9rem;
+  color: var(--ink-3);
+  transition: transform .18s;
+  flex: 0 0 auto;
+}
+.section.collapsed .section-chev { transform: rotate(-90deg); }
+.section.collapsed .section-body { display: none; }
+
+/* ── Sub-heading (panel title) ── */
+.sub-head {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 16px;
+}
+.sub-head.mt { margin-top: 32px; }
+
+/* ── Hairline divider ── */
+.rule { border: none; border-top: 1px solid var(--rule); margin: 24px 0; }
+
+/* ── Alarm summary strip ── */
+.alarm-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-bottom: 32px;
+}
+.astrip-cell {
+  text-align: center;
+  padding: 16px 0;
+  border-right: 1px solid var(--rule);
+}
+.astrip-cell:first-child { text-align: left; padding-left: 0; }
+.astrip-cell:last-child  { border-right: none; }
+.astrip-num {
+  font-size: 2.4rem;
+  font-weight: 200;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.astrip-num.alarm { color: var(--alarm); }
+.astrip-num.warn  { color: var(--warn);  }
+.astrip-num.good  { color: var(--good);  }
+.astrip-lbl {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-top: 6px;
+}
+
+/* ── Alarm list ── */
+.alarm-group-label {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 12px;
+}
+.alarm-list { margin-bottom: 28px; }
+.alarm-row {
+  display: grid;
+  grid-template-columns: 60px auto 1fr auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.alarm-row:first-child { border-top: 1px solid var(--rule); }
+.alarm-sev {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+}
+.alarm-sev.critical { color: var(--alarm); }
+.alarm-sev.watch    { color: var(--warn);  }
+.alarm-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.station-chip {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--ink-2);
+  background: #F9FAFB;
+  white-space: nowrap;
+}
+.scope-tag {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  padding: 2px 7px;
+  border: 1px solid rgba(21,49,91,.25);
+  border-radius: 2px;
+  color: var(--accent);
+  background: rgba(21,49,91,.05);
+  white-space: nowrap;
+}
+.alarm-body { display: flex; flex-direction: column; gap: 3px; }
+.alarm-metric { font-size: .85rem; font-weight: 600; }
+.alarm-val {
+  font-size: .85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.alarm-val.critical { color: var(--alarm); }
+.alarm-val.watch    { color: var(--warn);  }
+.alarm-limit { font-size: .78rem; color: var(--ink-2); margin-top: 2px; }
+.alarm-action { font-size: .78rem; color: var(--ink-2); font-style: italic; margin-top: 2px; }
+.alarm-right { text-align: right; }
+
+/* ── Metric key-value stacks ── */
+.kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0;
+}
+.kv-cell {
+  padding: 14px 16px 14px 0;
+  border-right: 1px solid var(--rule);
+}
+.kv-cell:last-child { border-right: none; }
+.kv-label {
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 5px;
+}
+.kv-value {
+  font-size: 1.5rem;
+  font-weight: 300;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.kv-value.sm { font-size: 1.1rem; font-weight: 500; }
+.kv-value.alarm { color: var(--alarm); font-weight: 500; }
+.kv-value.good  { color: var(--good);  }
+.kv-value.warn  { color: var(--warn);  }
+.kv-note { font-size: .72rem; color: var(--ink-3); margin-top: 4px; }
+
+/* ── Inline metric row (label … value) ── */
+.mrow {
+  display: flex;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+  gap: 12px;
+}
+.mrow:first-child { border-top: 1px solid var(--rule); }
+.mrow .ml { flex: 1; font-size: .82rem; color: var(--ink-2); }
+.mrow .mv {
+  font-size: .88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.mrow .mv.alarm { color: var(--alarm); }
+.mrow .mv.good  { color: var(--good);  }
+.mrow .mv.warn  { color: var(--warn);  }
+.mrow .mdot {
+  width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+}
+.mdot.alarm { background: var(--alarm); }
+.mdot.good  { background: var(--good);  }
+.mdot.warn  { background: var(--warn);  }
+
+/* ── Alarm callout ── */
+.alarm-callout {
+  background: var(--alarm-bg);
+  border-left: 3px solid var(--alarm);
+  padding: 12px 16px;
+  margin: 20px 0;
+}
+.alarm-callout .ac-label {
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--alarm);
+  margin-bottom: 4px;
+}
+.alarm-callout .ac-msg {
+  font-size: .82rem;
+  color: #7B0F1F;
+  font-weight: 500;
+}
+
+/* ── 3×3 temperature grid ── */
+.temp-grid-wrap { margin: 0 0 20px; }
+.temp-grid-head, .temp-grid-row {
+  display: grid;
+  grid-template-columns: 72px repeat(3, 1fr);
+  gap: 2px;
+}
+.temp-grid-head { margin-bottom: 2px; }
+.tgh-cell {
+  text-align: center;
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding: 0 0 6px;
+}
+.tgh-cell:first-child { text-align: left; }
+.temp-grid-row { margin-bottom: 2px; }
+.tgr-label {
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  padding: 10px 0;
+  letter-spacing: .3px;
+}
+.tgr-cell {
+  text-align: center;
+  padding: 10px 4px;
+  border: 1px solid var(--rule);
+  font-size: 1.05rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: #FAFAFA;
+}
+.tgr-cell.alarm { background: var(--alarm-bg); color: var(--alarm); border-color: rgba(192,21,47,.3); }
+
+/* ── Bar chart ── */
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 64px;
+  gap: 12px;
+  align-items: center;
+}
+.bar-label { font-size: .78rem; color: var(--ink-2); font-weight: 500; }
+.bar-track { height: 3px; background: var(--rule); }
+.bar-fill { height: 100%; background: var(--ink-3); }
+.bar-fill.hatched { background: var(--good); }
+.bar-fill.alarm   { background: var(--alarm); }
+.bar-fill.warn    { background: var(--warn);  }
+.bar-value {
+  font-size: .78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+}
+
+/* ── Tabs ── */
+.tabbar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+.tab {
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: none;
+  border: none;
+  padding: 10px 18px 10px 0;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--ink); }
+.tabpane { display: none; }
+.tabpane.active { display: block; }
+
+/* ── Defect list (Pasgar) ── */
+.defect-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.defect-row:first-child { border-top: 1px solid var(--rule); }
+.defect-label { flex: 1; font-size: .82rem; color: var(--ink-2); }
+.defect-val {
+  font-size: .88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.defect-val.alarm { color: var(--alarm); }
+.defect-cause {
+  font-size: .75rem;
+  color: var(--ink-3);
+  font-style: italic;
+  margin-top: 3px;
+  padding-left: 12px;
+  grid-column: 1 / -1;
+}
+.defect-note {
+  font-size: .72rem;
+  color: var(--ink-3);
+  margin-left: 8px;
+}
+
+/* ── Summary inline block ── */
+.inline-summary {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding: 16px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+.is-item { display: flex; flex-direction: column; gap: 3px; }
+.is-label {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.is-value {
+  font-size: 1.3rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+.is-value.alarm { color: var(--alarm); }
+.is-value.good  { color: var(--good);  }
+.is-value.warn  { color: var(--warn);  }
+.is-note { font-size: .72rem; color: var(--ink-3); }
+
+/* ── Govee section ── */
+.govee-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+.govee-kpi-cell {
+  padding: 0 16px 0 0;
+  border-right: 1px solid var(--rule);
+}
+.govee-kpi-cell:last-child { border-right: none; }
+.govee-kpi-num {
+  font-size: 2rem;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.govee-kpi-num.alarm { color: var(--alarm); }
+.govee-kpi-label {
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-top: 6px;
+}
+
+/* ── Place filter chips ── */
+.chips-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.chip {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+  border-radius: 2px;
+}
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(21,49,91,.05);
+}
+
+/* ── Unit toggle ── */
+.unit-toggle {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ut-btn {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .6px;
+  padding: 5px 10px;
+  border: none;
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ut-btn.active { background: var(--accent); color: #fff; }
+.ut-btn + .ut-btn { border-left: 1px solid var(--rule); }
+
+/* ── Govee card ── */
+.govee-card {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.govee-card:first-child { border-top: 1px solid var(--rule); }
+.govee-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.govee-place-name {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.govee-meta { font-size: .72rem; color: var(--ink-3); margin-top: 3px; }
+.govee-readings-badge {
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  padding: 4px 10px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.govee-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  margin-bottom: 20px;
+}
+.govee-stat { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.govee-stat-label {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.govee-stat-avg {
+  font-size: 1.6rem;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+}
+.govee-stat-avg.alarm { color: var(--alarm); }
+.govee-stat-sub { font-size: .72rem; color: var(--ink-3); margin-top: 4px; }
+.govee-stat-target { font-size: .68rem; color: var(--ink-3); font-style: italic; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.status-dot.good  { background: var(--good);  }
+.status-dot.alarm { background: var(--alarm); }
+
+/* ── Govee chart (SVG inline) ── */
+.govee-chart-area { margin: 0 0 8px; }
+.govee-chart-area svg { display: block; width: 100%; overflow: visible; }
+.chart-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: .65rem;
+  color: var(--ink-3);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Scope section ── */
+.scope-wrap { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--rule); }
+.scope-wrap-title {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.scope-pill {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 2px;
+}
+.scope-sector { margin-bottom: 28px; }
+.scope-sector-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.scope-sector-title { font-size: .88rem; font-weight: 600; color: var(--ink); }
+.layer-chip {
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+  border-radius: 2px;
+}
+.layer-chip.base { border-color: var(--accent); color: var(--accent); }
+.scope-note { font-size: .72rem; color: var(--ink-3); margin-bottom: 12px; font-style: italic; }
+
+/* ── Scope matrix table ── */
+.scope-table-wrap { overflow-x: auto; }
+table.scope-table { border-collapse: collapse; width: 100%; font-size: .78rem; min-width: 480px; }
+.scope-table th, .scope-table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.scope-table thead th {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: #FAFAFA;
+}
+.scope-table td:first-child { font-weight: 600; }
+.scope-table td.col-avg { font-weight: 700; color: var(--accent); }
+.scope-table thead th.col-avg { background: var(--accent); color: #fff; }
+.scope-table td.cell-err { color: var(--alarm); font-weight: 700; }
+.scope-table td.cell-warn { color: var(--warn); font-weight: 700; }
+.scope-empty {
+  font-size: .78rem;
+  color: var(--ink-3);
+  font-style: italic;
+  padding: 16px 0;
+}
+
+/* ── Pick chips (scope comparison) ── */
+.scope-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.pick-chip {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pick-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(21,49,91,.04); }
+.pick-chip.avg.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.hdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+.hdot.good  { background: var(--good);  }
+.hdot.warn  { background: var(--warn);  }
+.hdot.err   { background: var(--alarm); }
+
+/* ── Tile grid (small metric boxes) ── */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-left: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+.tile {
+  padding: 14px 12px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.tile-label {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.tile-value {
+  font-size: 1.1rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.tile-value.alarm { color: var(--alarm); font-weight: 600; }
+.tile-value.good  { color: var(--good);  }
+.tile-value.warn  { color: var(--warn);  }
+
+/* ── Photo grid ── */
+.photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+.photo-tile { text-align: center; }
+.cap-photo {
+  aspect-ratio: 4/3;
+  background: linear-gradient(150deg, #dcd6c9, #a59a88);
+  border: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 5px;
+}
+.cap-photo .lcd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .78rem;
+  font-weight: 700;
+  color: #163a1f;
+  padding: 2px 6px;
+  background: linear-gradient(#c4e9c6, #a2d4a8);
+  border: 1px solid #7cb887;
+  border-radius: 2px;
+}
+.photo-cap {
+  font-size: .62rem;
+  color: var(--ink-3);
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+
+/* ── Two-col split ── */
+.split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+@media (max-width: 680px) { .split-2 { grid-template-columns: 1fr; gap: 20px; } }
+
+/* ── Footnote ── */
+.footnote {
+  font-size: .72rem;
+  color: var(--ink-3);
+  text-align: center;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  margin-top: 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .alarm-row { grid-template-columns: 1fr; gap: 4px; }
+  .alarm-summary-strip { grid-template-columns: 1fr 1fr; }
+  .kv-grid { grid-template-columns: 1fr 1fr; }
+  .govee-kpi-row { grid-template-columns: 1fr 1fr; }
+  .govee-stats { grid-template-columns: 1fr; }
+  .split-2 { grid-template-columns: 1fr; gap: 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── App bar ── -->
+<header class="appbar">
+  <div class="appbar-inner">
+    <span class="appbar-wordmark">ChickMark</span>
+    <span class="appbar-sub">Hatchery Audit Insights</span>
+    <div class="appbar-spacer"></div>
+    <span class="proto-pill">Prototype</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ── Cascade filter ── -->
+  <div class="filter-row">
+    <div class="filter-field">
+      <label>Customer</label>
+      <select>
+        <option>All customers</option>
+        <option selected>Al Wadi Poultry</option>
+        <option>Green Valley Farms</option>
+        <option>Delta Hatcheries</option>
+      </select>
+    </div>
+    <div class="filter-field">
+      <label>Flock</label>
+      <select>
+        <option>All flocks</option>
+        <option selected>FLK-2207</option>
+        <option>FLK-2208</option>
+        <option>FLK-2211</option>
+      </select>
+    </div>
+    <div class="filter-field">
+      <label>Age</label>
+      <select>
+        <option>All</option>
+        <option>32w</option>
+        <option selected>45w</option>
+        <option>58w</option>
+      </select>
+    </div>
+    <button class="clear-btn" type="button">Clear filters</button>
+  </div>
+
+  <!-- ════ ALARMS & CRITICAL POINTS ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Triage</span>
+      <span class="section-title">Alarms &amp; Critical Points</span>
+      <span class="section-badge alarm">5 critical · 4 watch</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="alarm-summary-strip">
+        <div class="astrip-cell">
+          <div class="astrip-num alarm">5</div>
+          <div class="astrip-lbl">Critical</div>
+        </div>
+        <div class="astrip-cell">
+          <div class="astrip-num warn">4</div>
+          <div class="astrip-lbl">Watch</div>
+        </div>
+        <div class="astrip-cell">
+          <div class="astrip-num">3</div>
+          <div class="astrip-lbl">Stations hit</div>
+        </div>
+        <div class="astrip-cell">
+          <div class="astrip-num good">11</div>
+          <div class="astrip-lbl">In target</div>
+        </div>
+      </div>
+
+      <div class="alarm-group-label">Critical — action required</div>
+      <div class="alarm-list">
+        <div class="alarm-row">
+          <div class="alarm-sev critical">Critical</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Hatch</span>
+            <span class="scope-tag">Pooled</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Hatchability</span> — <span class="alarm-val critical">84.2%</span> <span class="alarm-limit">BMK 86.0% · −1.8</span></div>
+            <div class="alarm-action">Below benchmark — driven by late dead + navel. Review setter profile &amp; egg storage.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev critical">Critical</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Setters</span>
+            <span class="scope-tag">S-03</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">EST CV%</span> — <span class="alarm-val critical">9.1%</span> <span class="alarm-limit">limit ≤ 8.0%</span></div>
+            <div class="alarm-action">Setter S-03 — uneven temperature front-to-back. Check airflow, loading pattern, sensor placement.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev critical">Critical</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Hatchers</span>
+            <span class="scope-tag">H-02</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">CO₂</span> — <span class="alarm-val critical">3,100 ppm</span> <span class="alarm-limit">limit ≤ 3,000</span></div>
+            <div class="alarm-action">Hatcher H-02 — increase ventilation / fresh-air damper before next pull.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev critical">Critical</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Chicks</span>
+            <span class="scope-tag">S2·H2</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Pasgar navel</span> — <span class="alarm-val critical">21.0%</span> <span class="alarm-limit">limit ≤ 20%</span></div>
+            <div class="alarm-action">Unhealed navel high — likely high hatcher temp / late pull / low humidity.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev critical">Critical</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Hatch</span>
+            <span class="scope-tag">H1·S1H1·Tr1·Ty2</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Residue late dead</span> — <span class="alarm-val critical">3.4%</span> <span class="alarm-limit">limit ≤ 3.0%</span></div>
+            <div class="alarm-action">Late embryo death elevated — check hatcher temperature &amp; turning in transfer window.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="alarm-group-label">Watch — near threshold</div>
+      <div class="alarm-list">
+        <div class="alarm-row">
+          <div class="alarm-sev watch">Watch</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Govee</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Hatcher room RH</span> — <span class="alarm-val warn">67%</span> <span class="alarm-limit">target ≤ 65%</span></div>
+            <div class="alarm-action">Humidity drifting high in hatcher hall — trend climbing since 12:00.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev watch">Watch</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Govee</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Inside hatcher</span> — <span class="alarm-val warn">37.4 °C</span> <span class="alarm-limit">band 36.7–37.2 °C</span></div>
+            <div class="alarm-action">Slightly above band — corroborates the Pasgar navel / late-dead signal.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev watch">Watch</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Govee</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Chick holding</span> — <span class="alarm-val warn">27.4 °C</span> <span class="alarm-limit">target ≤ 25 °C</span></div>
+            <div class="alarm-action">Holding area warm — risk to chick comfort before dispatch.</div>
+          </div>
+        </div>
+        <div class="alarm-row">
+          <div class="alarm-sev watch">Watch</div>
+          <div class="alarm-chips">
+            <span class="station-chip">Chicks</span>
+            <span class="scope-tag">House B</span>
+          </div>
+          <div class="alarm-body">
+            <div><span class="alarm-metric">Weight CV%</span> — <span class="alarm-val warn">7.2%</span> <span class="alarm-limit">limit ≤ 8.0%</span></div>
+            <div class="alarm-action">Approaching uniformity limit — monitor next visit.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════ STATION 1 — EGG STORAGE ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Station 1</span>
+      <span class="section-title">Egg Storage &amp; Handling</span>
+      <span class="section-badge good">Completed</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="inline-summary">
+        <div class="is-item">
+          <span class="is-label">Average</span>
+          <span class="is-value">20.0 °C</span>
+          <span class="is-note">Within 19–21 °C</span>
+        </div>
+        <div class="is-item">
+          <span class="is-label">CV%</span>
+          <span class="is-value">4.2%</span>
+          <span class="is-note">Limit ≤ 8.0%</span>
+        </div>
+      </div>
+
+      <div class="sub-head">Temperature Readings — 3×3 Grid (°C)</div>
+      <div class="temp-grid-wrap">
+        <div class="temp-grid-head">
+          <div class="tgh-cell"></div>
+          <div class="tgh-cell">Front</div>
+          <div class="tgh-cell">Middle</div>
+          <div class="tgh-cell">Back</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Top</div>
+          <div class="tgr-cell">20.3°</div>
+          <div class="tgr-cell">20.1°</div>
+          <div class="tgr-cell">19.9°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Middle</div>
+          <div class="tgr-cell">20.2°</div>
+          <div class="tgr-cell">20.0°</div>
+          <div class="tgr-cell">19.8°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Bottom</div>
+          <div class="tgr-cell">20.4°</div>
+          <div class="tgr-cell">20.1°</div>
+          <div class="tgr-cell">19.7°</div>
+        </div>
+      </div>
+
+      <div class="photo-grid">
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.3</span></div><div class="photo-cap">Top · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.1</span></div><div class="photo-cap">Top · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">19.9</span></div><div class="photo-cap">Top · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.2</span></div><div class="photo-cap">Middle · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.0</span></div><div class="photo-cap">Middle · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">19.8</span></div><div class="photo-cap">Middle · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.4</span></div><div class="photo-cap">Bottom · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">20.1</span></div><div class="photo-cap">Bottom · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">19.7</span></div><div class="photo-cap">Bottom · Back</div></div>
+      </div>
+
+      <div class="sub-head mt">Egg Weights &amp; Uniformity</div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">Sample Size</div><div class="tile-value">92 / 100</div></div>
+        <div class="tile"><div class="tile-label">Avg Weight</div><div class="tile-value">62.4 g</div></div>
+        <div class="tile"><div class="tile-label">Uniformity</div><div class="tile-value good">88.2%</div></div>
+        <div class="tile"><div class="tile-label">CV%</div><div class="tile-value">6.1%</div></div>
+        <div class="tile"><div class="tile-label">BMK Weight</div><div class="tile-value">63.0 g</div></div>
+        <div class="tile"><div class="tile-label">Low Margin</div><div class="tile-value">56.2 g</div></div>
+        <div class="tile"><div class="tile-label">High Margin</div><div class="tile-value">68.6 g</div></div>
+      </div>
+
+      <div class="sub-head">Shell Quality — UV</div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">Affected Total</div><div class="tile-value good">3.2%</div></div>
+        <div class="tile"><div class="tile-label">Target</div><div class="tile-value">≤ 5.0%</div></div>
+        <div class="tile"><div class="tile-label">Cuticle Damage</div><div class="tile-value">1.1%</div></div>
+        <div class="tile"><div class="tile-label">Washed</div><div class="tile-value">0.4%</div></div>
+        <div class="tile"><div class="tile-label">Dirty</div><div class="tile-value">0.8%</div></div>
+        <div class="tile"><div class="tile-label">Status</div><div class="tile-value good">Clear</div></div>
+      </div>
+
+      <div class="sub-head">Storage &amp; Handling</div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">Storage</div><div class="tile-value">4 days</div></div>
+        <div class="tile"><div class="tile-label">Turning</div><div class="tile-value">2×/day</div></div>
+        <div class="tile"><div class="tile-label">Tray Spacing</div><div class="tile-value">Adequate</div></div>
+        <div class="tile"><div class="tile-label">Cooler</div><div class="tile-value">Far</div></div>
+        <div class="tile"><div class="tile-label">Condensation</div><div class="tile-value">No</div></div>
+        <div class="tile"><div class="tile-label">Upside-Down</div><div class="tile-value">6 · 0.6%</div></div>
+      </div>
+
+      <!-- Scopes injected here by JS -->
+    </div>
+  </section>
+
+  <!-- ════ STATION 2 — CHICKS ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Station 2</span>
+      <span class="section-title">Chicks</span>
+      <span class="section-badge alarm">1 Alarm</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="tabbar" data-tabs>
+        <button class="tab active" onclick="switchTab(this,'c-weights')">Weights</button>
+        <button class="tab" onclick="switchTab(this,'c-pasgar')">Pasgar</button>
+        <button class="tab" onclick="switchTab(this,'c-cvt')">CVT</button>
+        <button class="tab" onclick="switchTab(this,'c-yfbm')">YFBM</button>
+        <button class="tab" onclick="switchTab(this,'c-culled')">Culled</button>
+        <button class="tab" onclick="switchTab(this,'c-cha')">CHA Env</button>
+      </div>
+
+      <!-- Weights -->
+      <div class="tabpane active" id="c-weights">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Avg Weight</div><div class="tile-value">42.1 g</div></div>
+          <div class="tile"><div class="tile-label">BMK Chick Wt</div><div class="tile-value">42.5 g</div></div>
+          <div class="tile"><div class="tile-label">CV%</div><div class="tile-value good">7.2%</div></div>
+          <div class="tile"><div class="tile-label">Uniformity</div><div class="tile-value">86.0%</div></div>
+        </div>
+        <div class="mrow"><span class="ml">Limit CV%</span><span class="mv">≤ 8.0%</span><span class="mdot good"></span></div>
+        <div class="mrow"><span class="ml">Target uniformity</span><span class="mv">≥ 85%</span><span class="mdot good"></span></div>
+      </div>
+
+      <!-- Pasgar -->
+      <div class="tabpane" id="c-pasgar">
+        <div class="split-2">
+          <div>
+            <div class="defect-row">
+              <span class="defect-label">Reflexes</span>
+              <span class="defect-val">2.0%</span>
+              <span class="mdot good"></span>
+            </div>
+            <div class="defect-row">
+              <span class="defect-label">Beak</span>
+              <span class="defect-val">4.0%</span>
+              <span class="mdot good"></span>
+            </div>
+            <div class="defect-row" style="flex-wrap:wrap">
+              <span class="defect-label">Navel</span>
+              <span class="defect-val alarm">21.0%</span>
+              <span class="mdot alarm"></span>
+              <span class="defect-cause">Unhealed / open navel above 20% alert limit. Likely: high hatcher temp, late pull, low humidity.</span>
+            </div>
+            <div class="defect-row">
+              <span class="defect-label">Belly</span>
+              <span class="defect-val">6.0%</span>
+              <span class="mdot good"></span>
+            </div>
+            <div class="defect-row">
+              <span class="defect-label">Leg</span>
+              <span class="defect-val">3.0%</span>
+              <span class="mdot good"></span>
+            </div>
+            <div class="defect-row">
+              <span class="defect-label">Feather Development</span>
+              <span class="defect-val">1.0%</span>
+              <span class="mdot good"></span>
+            </div>
+          </div>
+          <div>
+            <div class="is-item" style="margin-bottom:16px">
+              <span class="is-label">Final Score</span>
+              <span class="is-value" style="font-size:2.4rem;font-weight:200">8.4 <span style="font-size:1.1rem;color:var(--ink-2)">/10</span></span>
+              <span class="is-note">Acceptable — 1 defect flagged</span>
+            </div>
+            <div class="alarm-callout">
+              <div class="ac-label">Alarm</div>
+              <div class="ac-msg">Navel defect rate is above the 20% app limit.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CVT -->
+      <div class="tabpane" id="c-cvt">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Avg Temp</div><div class="tile-value good">104.1 °F</div></div>
+          <div class="tile"><div class="tile-label">CV%</div><div class="tile-value good">5.5%</div></div>
+          <div class="tile"><div class="tile-label">Target</div><div class="tile-value">103–105 °F</div></div>
+          <div class="tile"><div class="tile-label">CV% Limit</div><div class="tile-value">≤ 8.0%</div></div>
+        </div>
+      </div>
+
+      <!-- YFBM -->
+      <div class="tabpane" id="c-yfbm">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Latest Avg%</div><div class="tile-value good">9.1%</div></div>
+          <div class="tile"><div class="tile-label">Target Band</div><div class="tile-value">8–10%</div></div>
+          <div class="tile"><div class="tile-label">Latest CV%</div><div class="tile-value">6.0%</div></div>
+        </div>
+        <div class="mrow"><span class="ml">Status</span><span class="mv good">Within band</span><span class="mdot good"></span></div>
+      </div>
+
+      <!-- Culled -->
+      <div class="tabpane" id="c-culled">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Status</div><div class="tile-value good">Clear</div></div>
+          <div class="tile"><div class="tile-label">Egg Set</div><div class="tile-value">132,000</div></div>
+          <div class="tile"><div class="tile-label">Affected</div><div class="tile-value">0.420%</div></div>
+        </div>
+        <div class="mrow"><span class="ml">Top defect</span><span class="mv">Unhealed navel</span></div>
+      </div>
+
+      <!-- CHA Env -->
+      <div class="tabpane" id="c-cha">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">CO₂ (ppm)</div><div class="tile-value good">2,450</div></div>
+          <div class="tile"><div class="tile-label">PM10</div><div class="tile-value">38</div></div>
+          <div class="tile"><div class="tile-label">PM2.5</div><div class="tile-value">12</div></div>
+          <div class="tile"><div class="tile-label">Air Velocity</div><div class="tile-value">0.42 m/s</div></div>
+          <div class="tile"><div class="tile-label">Noise</div><div class="tile-value">68 dB</div></div>
+        </div>
+        <div class="mrow"><span class="ml">CO₂ limit</span><span class="mv">≤ 3,000 ppm</span><span class="mdot good"></span></div>
+      </div>
+
+      <!-- Scopes injected here by JS -->
+    </div>
+  </section>
+
+  <!-- ════ STATION 3 — HATCH ANALYSIS ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Station 3</span>
+      <span class="section-title">Hatch Analysis &amp; Egg Breakouts</span>
+      <span class="section-badge warn">Below BMK</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="sub-head">Hatch Results</div>
+      <div class="split-2" style="gap:32px">
+        <div class="bars">
+          <div class="bar-row">
+            <div class="bar-label">Hatched</div>
+            <div class="bar-track"><div class="bar-fill hatched" style="width:84%"></div></div>
+            <div class="bar-value">12,125</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Infertile / Clear</div>
+            <div class="bar-track"><div class="bar-fill" style="width:8%"></div></div>
+            <div class="bar-value">1,140</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Early Dead</div>
+            <div class="bar-track"><div class="bar-fill warn" style="width:2.2%"></div></div>
+            <div class="bar-value">320</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Mid Dead</div>
+            <div class="bar-track"><div class="bar-fill warn" style="width:0.8%"></div></div>
+            <div class="bar-value">110</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Late Dead</div>
+            <div class="bar-track"><div class="bar-fill alarm" style="width:1.7%"></div></div>
+            <div class="bar-value">240</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Pipped (not out)</div>
+            <div class="bar-track"><div class="bar-fill" style="width:0.6%"></div></div>
+            <div class="bar-value">90</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Contaminated</div>
+            <div class="bar-track"><div class="bar-fill alarm" style="width:0.4%"></div></div>
+            <div class="bar-value">60</div>
+          </div>
+        </div>
+        <div>
+          <div class="mrow"><span class="ml">Hatchability</span><span class="mv alarm">84.2%</span><span class="mdot alarm"></span></div>
+          <div class="mrow"><span class="ml">Benchmark</span><span class="mv">86.0% · −1.8</span></div>
+          <div class="mrow"><span class="ml">Fertility</span><span class="mv">92.1%</span></div>
+          <div class="mrow"><span class="ml">HOF</span><span class="mv">91.4%</span></div>
+          <div class="mrow"><span class="ml">Total eggs set</span><span class="mv">14,400</span></div>
+          <div class="mrow"><span class="ml">Trays sampled</span><span class="mv">4</span></div>
+        </div>
+      </div>
+
+      <div class="sub-head mt">Egg Breakout</div>
+      <div class="tabbar" data-tabs>
+        <button class="tab active" onclick="switchTab(this,'b-fresh')">Fresh (0d)</button>
+        <button class="tab" onclick="switchTab(this,'b-candled')">Candled (10d)</button>
+        <button class="tab" onclick="switchTab(this,'b-residue')">Residue (21d)</button>
+      </div>
+
+      <div class="tabpane active" id="b-fresh">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Infertile</div><div class="tile-value">7.9%</div></div>
+          <div class="tile"><div class="tile-label">24h Dead</div><div class="tile-value">1.2%</div></div>
+          <div class="tile"><div class="tile-label">48h Dead</div><div class="tile-value">0.9%</div></div>
+          <div class="tile"><div class="tile-label">Blood Ring (72h)</div><div class="tile-value">0.6%</div></div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="b-candled">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Infertile</div><div class="tile-value">7.7%</div></div>
+          <div class="tile"><div class="tile-label">Early Dead</div><div class="tile-value">2.1%</div></div>
+          <div class="tile"><div class="tile-label">Black Eye</div><div class="tile-value">1.4%</div></div>
+          <div class="tile"><div class="tile-label">Clears Removed</div><div class="tile-value">11.2%</div></div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="b-residue">
+        <div class="tile-grid">
+          <div class="tile"><div class="tile-label">Infertile</div><div class="tile-value">7.9%</div></div>
+          <div class="tile"><div class="tile-label">Early Dead</div><div class="tile-value">2.2%</div></div>
+          <div class="tile"><div class="tile-label">Mid Dead</div><div class="tile-value">0.8%</div></div>
+          <div class="tile"><div class="tile-label">Late Dead</div><div class="tile-value alarm">3.4%</div></div>
+          <div class="tile"><div class="tile-label">External Pip</div><div class="tile-value">0.6%</div></div>
+          <div class="tile"><div class="tile-label">Cracked</div><div class="tile-value">0.3%</div></div>
+          <div class="tile"><div class="tile-label">Contaminated</div><div class="tile-value">0.4%</div></div>
+        </div>
+        <div class="alarm-callout">
+          <div class="ac-label">Alarm</div>
+          <div class="ac-msg">Late dead 3.4% exceeds the 3.0% breakout limit — check hatcher temperature &amp; ventilation.</div>
+        </div>
+      </div>
+
+      <!-- Scopes injected here by JS -->
+    </div>
+  </section>
+
+  <!-- ════ STATION 4 — SETTERS ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Station 4</span>
+      <span class="section-title">Setters</span>
+      <span class="section-badge alarm">1 Alarm</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div style="font-size:.78rem;color:var(--ink-2);margin-bottom:20px">Setter S-03 · Multi-stage · Incubation day 12</div>
+
+      <div class="inline-summary">
+        <div class="is-item">
+          <span class="is-label">Average</span>
+          <span class="is-value">100.4 °F</span>
+          <span class="is-note">Target 100–101 °F</span>
+        </div>
+        <div class="is-item">
+          <span class="is-label">CV%</span>
+          <span class="is-value alarm">9.1%</span>
+          <span class="is-note">Above 8.0% limit</span>
+        </div>
+      </div>
+
+      <div class="alarm-callout">
+        <div class="ac-label">Alarm</div>
+        <div class="ac-msg">EST CV% above app limit — uneven temperature front-to-back.</div>
+      </div>
+
+      <div class="sub-head mt">EST Monitoring — 3×3 Grid (°F)</div>
+      <div class="temp-grid-wrap">
+        <div class="temp-grid-head">
+          <div class="tgh-cell"></div>
+          <div class="tgh-cell">Front</div>
+          <div class="tgh-cell">Middle</div>
+          <div class="tgh-cell">Back</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Top</div>
+          <div class="tgr-cell">100.9°</div>
+          <div class="tgr-cell">100.4°</div>
+          <div class="tgr-cell">99.6°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Middle</div>
+          <div class="tgr-cell">100.7°</div>
+          <div class="tgr-cell">100.3°</div>
+          <div class="tgr-cell">99.5°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Bottom</div>
+          <div class="tgr-cell">101.2°</div>
+          <div class="tgr-cell">100.5°</div>
+          <div class="tgr-cell">99.3°</div>
+        </div>
+      </div>
+
+      <div class="photo-grid" style="margin-bottom:24px">
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">100.9</span></div><div class="photo-cap">Top · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">100.4</span></div><div class="photo-cap">Top · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">99.6</span></div><div class="photo-cap">Top · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">100.7</span></div><div class="photo-cap">Middle · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">100.3</span></div><div class="photo-cap">Middle · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">99.5</span></div><div class="photo-cap">Middle · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">101.2</span></div><div class="photo-cap">Bottom · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">100.5</span></div><div class="photo-cap">Bottom · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">99.3</span></div><div class="photo-cap">Bottom · Back</div></div>
+      </div>
+
+      <div class="sub-head">Machine Settings — Setpoint vs Actual</div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">Temp Setpoint</div><div class="tile-value">100.0 °F</div></div>
+        <div class="tile"><div class="tile-label">Temp Actual</div><div class="tile-value">100.4 °F</div></div>
+        <div class="tile"><div class="tile-label">RH Setpoint</div><div class="tile-value">55%</div></div>
+        <div class="tile"><div class="tile-label">RH Actual</div><div class="tile-value">53%</div></div>
+        <div class="tile"><div class="tile-label">Turning Angle</div><div class="tile-value">180°</div></div>
+        <div class="tile"><div class="tile-label">CO₂</div><div class="tile-value">2,900 ppm</div></div>
+      </div>
+
+      <!-- Scopes injected here by JS -->
+    </div>
+  </section>
+
+  <!-- ════ STATION 5 — HATCHERS ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Station 5</span>
+      <span class="section-title">Hatchers</span>
+      <span class="section-badge alarm">1 Alarm</span>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div style="font-size:.78rem;color:var(--ink-2);margin-bottom:20px">Hatcher H-02 · Incubation day 19 · Transfer day 18</div>
+
+      <div class="inline-summary">
+        <div class="is-item">
+          <span class="is-label">CVT Average</span>
+          <span class="is-value">104.0 °F</span>
+          <span class="is-note">Target 103–105 °F</span>
+        </div>
+        <div class="is-item">
+          <span class="is-label">CV%</span>
+          <span class="is-value good">0.2%</span>
+          <span class="is-note">Limit ≤ 8.0%</span>
+        </div>
+      </div>
+
+      <div class="sub-head">CVT Monitoring — 3×3 Grid (°F)</div>
+      <div class="temp-grid-wrap">
+        <div class="temp-grid-head">
+          <div class="tgh-cell"></div>
+          <div class="tgh-cell">Front</div>
+          <div class="tgh-cell">Middle</div>
+          <div class="tgh-cell">Back</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Top</div>
+          <div class="tgr-cell">104.1°</div>
+          <div class="tgr-cell">103.8°</div>
+          <div class="tgr-cell">104.0°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Middle</div>
+          <div class="tgr-cell">103.9°</div>
+          <div class="tgr-cell">104.2°</div>
+          <div class="tgr-cell">103.7°</div>
+        </div>
+        <div class="temp-grid-row">
+          <div class="tgr-label">Bottom</div>
+          <div class="tgr-cell">104.0°</div>
+          <div class="tgr-cell">103.8°</div>
+          <div class="tgr-cell">104.1°</div>
+        </div>
+      </div>
+
+      <div class="photo-grid" style="margin-bottom:24px">
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">104.1</span></div><div class="photo-cap">Top · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">103.8</span></div><div class="photo-cap">Top · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">104.0</span></div><div class="photo-cap">Top · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">103.9</span></div><div class="photo-cap">Middle · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">104.2</span></div><div class="photo-cap">Middle · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">103.7</span></div><div class="photo-cap">Middle · Back</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">104.0</span></div><div class="photo-cap">Bottom · Front</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">103.8</span></div><div class="photo-cap">Bottom · Middle</div></div>
+        <div class="photo-tile"><div class="cap-photo"><span class="lcd">104.1</span></div><div class="photo-cap">Bottom · Back</div></div>
+      </div>
+
+      <div class="sub-head">Machine Settings — Setpoint vs Actual</div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">Temp Setpoint</div><div class="tile-value">98.5 °F</div></div>
+        <div class="tile"><div class="tile-label">Temp Actual</div><div class="tile-value">98.7 °F</div></div>
+        <div class="tile"><div class="tile-label">RH Setpoint</div><div class="tile-value">60%</div></div>
+        <div class="tile"><div class="tile-label">RH Actual</div><div class="tile-value">62%</div></div>
+        <div class="tile"><div class="tile-label">Chick Panting</div><div class="tile-value">No</div></div>
+        <div class="tile"><div class="tile-label">Meconium</div><div class="tile-value">None</div></div>
+      </div>
+
+      <div class="alarm-callout">
+        <div class="ac-label">Alarm</div>
+        <div class="ac-msg">CO₂ 3,100 ppm above 3,000 limit — increase hatcher ventilation.</div>
+      </div>
+      <div class="tile-grid">
+        <div class="tile"><div class="tile-label">CO₂</div><div class="tile-value alarm">3,100 ppm</div></div>
+        <div class="tile"><div class="tile-label">Limit</div><div class="tile-value">≤ 3,000 ppm</div></div>
+        <div class="tile"><div class="tile-label">CVT Avg (machine)</div><div class="tile-value">103.8 °F</div></div>
+      </div>
+
+      <!-- Scopes injected here by JS -->
+    </div>
+  </section>
+
+  <!-- ════ GOVEE ENVIRONMENTAL ════ -->
+  <section class="section" data-station>
+    <div class="section-header" onclick="toggleSection(this)">
+      <span class="section-number">Govee</span>
+      <span class="section-title">Environmental Monitoring</span>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="unit-toggle" onclick="event.stopPropagation()" role="group" aria-label="Temperature unit">
+          <button class="ut-btn active" data-u="C" onclick="setGoveeUnit('C')">°C</button>
+          <button class="ut-btn" data-u="F" onclick="setGoveeUnit('F')">°F</button>
+        </div>
+        <span class="section-badge alarm">3 Alarms</span>
+      </div>
+      <span class="section-chev">▾</span>
+    </div>
+    <div class="section-body">
+
+      <div class="govee-kpi-row" id="govee-kpis"></div>
+      <div class="chips-row" id="govee-chips"></div>
+      <div id="govee-cards"></div>
+
+    </div>
+  </section>
+
+  <div class="footnote">ChickMark dashboard prototype · mock data for layout review · design tokens mirror lib/core/constants</div>
+
+</div><!-- /.wrap -->
+
+<script>
+/* ── Section collapse ── */
+function toggleSection(header) {
+  header.closest('[data-station]').classList.toggle('collapsed');
+}
+
+/* ── Tab switching ── */
+function switchTab(btn, paneId) {
+  const bar = btn.closest('[data-tabs]');
+  bar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  bar.parentElement.querySelectorAll('.tabpane').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById(paneId);
+  if (target) target.classList.add('active');
+}
+
+/* ═══════════════════════════════════════════
+   GOVEE ENVIRONMENTAL — data-driven
+═══════════════════════════════════════════ */
+const GOVEE = [
+  { place:'Egg storage room', station:'Egg', key:'egg', device:'Govee H5179 · EGG-A', date:'2026-06-03', start:'08:00', end:'16:40', readings:288, unit:'°C',
+    temp:{avg:19.2,min:18.1,max:20.4,sd:0.42,cv:2.2,band:[18,20],amp:1.0,phase:0.3},
+    rh:{avg:61,min:55,max:67,sd:2.8,cv:4.6,band:[55,65],amp:5,phase:1.2} },
+  { place:'Setter room', station:'Setters', key:'setters', device:'Govee H5179 · SET-RM', date:'2026-06-03', start:'07:40', end:'16:10', readings:305, unit:'°C',
+    temp:{avg:24.3,min:23.1,max:25.6,sd:0.60,cv:2.5,band:[23,25],amp:1.1,phase:0.6},
+    rh:{avg:54,min:49,max:60,sd:3.1,cv:5.7,band:[50,60],amp:5,phase:0.9} },
+  { place:'Inside setter', station:'Setters', key:'setters', device:'Govee H5179 · SET-01', date:'2026-06-03', start:'09:00', end:'15:30', readings:196, unit:'°C',
+    temp:{avg:37.6,min:37.3,max:37.9,sd:0.12,cv:0.32,band:[37.5,37.8],amp:0.25,phase:0.5},
+    rh:{avg:52,min:49,max:55,sd:1.4,cv:2.7,band:[50,55],amp:2.2,phase:1.0} },
+  { place:'Hatcher room', station:'Hatchers', key:'hatchers', device:'Govee H5179 · HAT-RM', date:'2026-06-03', start:'07:50', end:'16:20', readings:301, unit:'°C',
+    temp:{avg:25.1,min:24.0,max:26.3,sd:0.70,cv:2.8,band:[24,26],amp:1.0,phase:0.4},
+    rh:{avg:67,min:60,max:73,sd:3.6,cv:5.4,band:[55,65],amp:5.5,phase:1.3} },
+  { place:'Inside hatcher', station:'Hatchers', key:'hatchers', device:'Govee H5179 · HAT-02', date:'2026-06-03', start:'09:10', end:'15:40', readings:188, unit:'°C',
+    temp:{avg:37.4,min:37.0,max:37.8,sd:0.18,cv:0.48,band:[36.7,37.2],amp:0.30,phase:0.7},
+    rh:{avg:60,min:55,max:66,sd:2.0,cv:3.3,band:[55,65],amp:4,phase:1.1} },
+  { place:'Chick holding area', station:'Chicks', key:'chicks', device:'Govee H5179 · CHK-A', date:'2026-06-03', start:'08:20', end:'16:00', readings:276, unit:'°C',
+    temp:{avg:27.4,min:25.9,max:28.6,sd:0.70,cv:2.6,band:[22,25],amp:1.1,phase:0.5},
+    rh:{avg:50,min:44,max:56,sd:3.0,cv:6.0,band:[45,55],amp:4.5,phase:0.8} },
+  { place:'Outside hatchery', station:'Outside', key:'outside', device:'Govee H5179 · OUT-A', date:'2026-06-03', start:'00:00', end:'23:55', readings:864, unit:'°C',
+    temp:{avg:31.2,min:27.0,max:35.4,sd:2.1,cv:6.7,band:[10,45],amp:3.5,phase:0.2},
+    rh:{avg:40,min:31,max:52,sd:4.0,cv:10.0,band:[0,100],amp:7,phase:0.7} },
+];
+
+const outOfBand = (v, b) => v < b[0] || v > b[1];
+
+function genSeries(avg, amp, n, phase) {
+  const a = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    a.push(avg
+      + amp * Math.sin(Math.PI * 2 * t + phase)
+      + amp * 0.30 * Math.sin(Math.PI * 6 * t + phase * 1.7)
+      + amp * 0.16 * Math.sin(Math.PI * 17 * t + phase * 2.3)
+      + amp * 0.09 * Math.sin(Math.PI * 41 * t + phase * 0.7));
+  }
+  return a;
+}
+
+let GOVEE_UNIT = 'C', GOVEE_FILTER = 'all';
+const _c2f = v => v * 9 / 5 + 32;
+function tConv(m) {
+  if (GOVEE_UNIT !== 'F') return m;
+  return { avg: _c2f(m.avg), min: _c2f(m.min), max: _c2f(m.max),
+           sd: m.sd * 9 / 5, cv: m.cv,
+           band: [_c2f(m.band[0]), _c2f(m.band[1])], amp: m.amp * 9 / 5, phase: m.phase };
+}
+const unitLabel = () => GOVEE_UNIT === 'F' ? '°F' : '°C';
+const fmtT = v => v.toFixed(1);
+const fmtRH = v => Math.round(v);
+
+function setGoveeUnit(u) {
+  GOVEE_UNIT = u;
+  document.querySelectorAll('.unit-toggle .ut-btn').forEach(b => b.classList.toggle('active', b.dataset.u === u));
+  renderGovee(GOVEE_FILTER);
+}
+
+/* ── Static SVG chart (editorial: thin 1px line, no fill, neutral) ── */
+function buildChart(avg, amp, phase, n, label) {
+  const S = genSeries(avg, amp, n, phase);
+  const sMax = Math.max(...S), sMin = Math.min(...S);
+  const span = (sMax - sMin) || 1;
+  const lo = sMin - span * 0.18, hi = sMax + span * 0.18;
+  const W = 800, H = 72;
+  const xAt = i => (i / (n - 1)) * W;
+  const yAt = v => H - ((v - lo) / (hi - lo)) * H;
+  const pts = S.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+  const yAvg = yAt(avg).toFixed(1);
+  const yMax = yAt(sMax).toFixed(1);
+  const yMin = yAt(sMin).toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:72px">
+    <line x1="0" y1="${yAvg}" x2="${W}" y2="${yAvg}" stroke="#D1D5DB" stroke-width="1" stroke-dasharray="4 4"/>
+    <line x1="0" y1="${yMax}" x2="${W}" y2="${yMax}" stroke="#E5E7EB" stroke-width="1"/>
+    <line x1="0" y1="${yMin}" x2="${W}" y2="${yMin}" stroke="#E5E7EB" stroke-width="1"/>
+    <polyline fill="none" stroke="#6B7280" stroke-width="1" points="${pts}" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function goveeCard(c) {
+  const tA = outOfBand(c.temp.avg, c.temp.band);
+  const rA = outOfBand(c.rh.avg, c.rh.band);
+  const T = tConv(c.temp);
+  const u = unitLabel();
+  const N = 64;
+
+  const alarmMsgs = [];
+  if (tA) {
+    const d = c.temp.avg > c.temp.band[1] ? 'above' : 'below';
+    alarmMsgs.push(`Temp avg ${fmtT(T.avg)}${u} ${d} target ${fmtT(T.band[0])}–${fmtT(T.band[1])}${u}`);
+  }
+  if (rA) {
+    const d = c.rh.avg > c.rh.band[1] ? 'above' : 'below';
+    alarmMsgs.push(`RH avg ${fmtRH(c.rh.avg)}% ${d} target ${c.rh.band[0]}–${c.rh.band[1]}%`);
+  }
+
+  return `<div class="govee-card">
+    <div class="govee-card-head">
+      <div style="flex:1">
+        <div class="govee-place-name">${c.place} <span class="station-chip">${c.station}</span></div>
+        <div class="govee-meta">${c.device} · ${c.date} · ${c.start}–${c.end}</div>
+      </div>
+      <span class="govee-readings-badge">${c.readings} readings</span>
+    </div>
+    <div class="govee-stats">
+      <div class="govee-stat">
+        <div class="govee-stat-label">Temperature <span class="status-dot ${tA ? 'alarm' : 'good'}"></span></div>
+        <div class="govee-stat-avg ${tA ? 'alarm' : ''}">${fmtT(T.avg)}<span style="font-size:.9rem;color:var(--ink-2)"> ${u} avg</span></div>
+        <div class="govee-stat-sub">${fmtT(T.min)} – ${fmtT(T.max)} ${u} &nbsp;·&nbsp; SD ${T.sd.toFixed(2)} &nbsp;·&nbsp; CV ${T.cv.toFixed(1)}%</div>
+        <div class="govee-stat-target">Target ${fmtT(T.band[0])}–${fmtT(T.band[1])} ${u}</div>
+      </div>
+      <div class="govee-stat">
+        <div class="govee-stat-label">Relative Humidity <span class="status-dot ${rA ? 'alarm' : 'good'}"></span></div>
+        <div class="govee-stat-avg ${rA ? 'alarm' : ''}">${fmtRH(c.rh.avg)}<span style="font-size:.9rem;color:var(--ink-2)"> % avg</span></div>
+        <div class="govee-stat-sub">${fmtRH(c.rh.min)} – ${fmtRH(c.rh.max)}% &nbsp;·&nbsp; SD ${c.rh.sd.toFixed(1)} &nbsp;·&nbsp; CV ${c.rh.cv.toFixed(1)}%</div>
+        <div class="govee-stat-target">Target ${c.rh.band[0]}–${c.rh.band[1]}%</div>
+      </div>
+    </div>
+    <div class="sub-head" style="margin-bottom:8px">Temperature — 24h</div>
+    <div class="govee-chart-area">${buildChart(T.avg, T.amp, T.phase, N, 'Temp')}</div>
+    <div class="chart-meta"><span>${c.start}</span><span style="color:var(--ink-2)">${fmtT(T.avg)} ${u} avg &nbsp; max ${fmtT(T.max)} &nbsp; min ${fmtT(T.min)}</span><span>${c.end}</span></div>
+    <div class="sub-head mt" style="margin-top:20px;margin-bottom:8px">Relative Humidity — 24h</div>
+    <div class="govee-chart-area">${buildChart(c.rh.avg, c.rh.amp, c.rh.phase, N, 'RH')}</div>
+    <div class="chart-meta"><span>${c.start}</span><span style="color:var(--ink-2)">${fmtRH(c.rh.avg)}% avg &nbsp; max ${fmtRH(c.rh.max)}% &nbsp; min ${fmtRH(c.rh.min)}%</span><span>${c.end}</span></div>
+    ${alarmMsgs.length ? `<div class="alarm-callout" style="margin-top:16px"><div class="ac-label">Alarm</div><div class="ac-msg">${alarmMsgs.join(' · ')}.</div></div>` : ''}
+  </div>`;
+}
+
+function renderGovee(filter) {
+  GOVEE_FILTER = filter;
+  const list = filter === 'all' ? GOVEE : GOVEE.filter(c => c.key === filter);
+  const host = document.getElementById('govee-cards');
+  host.innerHTML = list.length ? list.map(goveeCard).join('') : '<div style="padding:24px 0;color:var(--ink-3);font-style:italic">No captures for this filter.</div>';
+}
+
+function initGovee() {
+  const alarms = GOVEE.filter(c => outOfBand(c.temp.avg, c.temp.band) || outOfBand(c.rh.avg, c.rh.band)).length;
+  const reads = GOVEE.reduce((s, c) => s + c.readings, 0);
+  document.getElementById('govee-kpis').innerHTML = `
+    <div class="govee-kpi-cell"><div class="govee-kpi-num">${new Set(GOVEE.map(c => c.place)).size}</div><div class="govee-kpi-label">Places monitored</div></div>
+    <div class="govee-kpi-cell"><div class="govee-kpi-num">6</div><div class="govee-kpi-label">Devices online</div></div>
+    <div class="govee-kpi-cell"><div class="govee-kpi-num">${reads.toLocaleString()}</div><div class="govee-kpi-label">Readings · 24h</div></div>
+    <div class="govee-kpi-cell"><div class="govee-kpi-num alarm">${alarms}</div><div class="govee-kpi-label">Env alarms</div></div>`;
+
+  const chipDefs = [
+    ['all','All places'], ['egg','Egg'], ['setters','Setters'],
+    ['hatchers','Hatchers'], ['chicks','Chicks'], ['outside','Outside']
+  ];
+  const chipHost = document.getElementById('govee-chips');
+  chipHost.innerHTML = chipDefs.map((c, i) =>
+    `<button class="chip ${i === 0 ? 'active' : ''}" data-k="${c[0]}">${c[1]}</button>`
+  ).join('');
+  chipHost.querySelectorAll('.chip').forEach(ch => ch.onclick = () => {
+    chipHost.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+    ch.classList.add('active');
+    renderGovee(ch.dataset.k);
+  });
+  renderGovee('all');
+}
+initGovee();
+
+/* ═══════════════════════════════════════════
+   SCOPES & PARAMETERS — injected at end of each station body
+═══════════════════════════════════════════ */
+const SCOPE_DEMO = {
+  'Egg Storage & Handling': [
+    { sector:'Egg Storage — station scope', allowed:['station'],
+      note:'Pool only · customer · hatchery · flock · breed (no added layer).',
+      params:['EST avg °C','EST CV%','Shell °C','CO₂','Storage d','Turn/day','Tray sp.','Cooler','Condens.','UpsideDn %'],
+      scopes:[{ path:'Pool', layer:'pool', cells:['20.0','4.2%','20.1','2450','4','2','Adequate','Far','No','0.6%'] }] },
+    { sector:'Egg Quality — pool · house', allowed:['pool','house'],
+      note:'Scoped by house → one row per house, no pool row.',
+      params:['Sample','Avg wt g','Unif %','CV%','BMK wt','UV aff %','Cuticle %','Washed %','Dirty %'],
+      scopes:[
+        { path:'House A', layer:'house', cells:['92/100','62.4','88.2%','6.1%','63.0','3.2%','1.1%','0.4%','0.8%'] },
+        { path:'House B', layer:'house', cells:['88/100','61.2','83.4%|warn','8.6%|err','63.0','4.1%','1.6%','0.6%','1.2%'] },
+      ] },
+  ],
+  'Chicks': [
+    { sector:'Chick Quality — pool · setter+hatcher', allowed:['pool','setterHatcher'],
+      note:'Scoped by machine pair → one row per S#H#.',
+      params:['Pasgar','Reflex %','Beak %','Navel %','Belly %','Leg %','Feather %','CVT °F','CVT CV%','YFBM %'],
+      scopes:[
+        { path:'S1·H1', layer:'setterHatcher', cells:['8.7','2.0%','3.0%','9.0%','5.0%','3.0%','1.0%','104.1','5.5%','9.1%'] },
+        { path:'S2·H2', layer:'setterHatcher', cells:['8.4|warn','2.0%','4.0%','21.0%|err','6.0%','3.0%','1.0%','104.0','6.0%','9.4%'] },
+      ] },
+    { sector:'Chick Weights — pool · house', allowed:['pool','house'],
+      note:'Scoped by house.',
+      params:['Sample','Avg wt g','Unif %','CV%','BMK wt'],
+      scopes:[
+        { path:'House A', layer:'house', cells:['100','42.3','87.0%','6.8%','42.5'] },
+        { path:'House B', layer:'house', cells:['100','41.8','85.0%','7.2%|warn','42.5'] },
+      ] },
+    { sector:'CHA Environmental — station scope', allowed:['station'],
+      note:'Chick-handling area, pooled.',
+      params:['CO₂','PM10','PM2.5','Air vel','Noise dB'],
+      scopes:[{ path:'Pool', layer:'pool', cells:['2450','38','12','0.42','68'] }] },
+  ],
+  'Hatch Analysis & Egg Breakouts': [
+    { sector:'Hatch Results — station scope', allowed:['station'],
+      note:'Pooled tally → hatchability / fertility / HOF.',
+      params:['Set','Hatched','Hatch %','Fert %','HOF %','Infert','Early','Mid','Late','Contam'],
+      scopes:[{ path:'Pool', layer:'pool', cells:['14400','12125','84.2%|warn','92.1%','91.4%','1140','320','110','240','60'] }] },
+    { sector:'Fresh Breakout — pool · house · tray', allowed:['pool','house','tray'],
+      note:'0-day · house + tray leaves.',
+      params:['Tray size','Infert %','24h %','48h %','Blood ring %'],
+      scopes:[
+        { path:'House A · Tray 1', layer:'tray', cells:['150','7.9%','1.2%','0.9%','0.6%'] },
+        { path:'House A · Tray 2', layer:'tray', cells:['150','8.4%','1.4%','1.1%','0.7%'] },
+      ] },
+    { sector:'Candled Breakout — pool · house · S#H# · trolley · tray', allowed:['pool','house','setterHatcher','trolley','tray'],
+      note:'10-day · full hierarchy leaves.',
+      params:['Tray size','Infert %','24h %','48h %','Blood ring %','Black eye %'],
+      scopes:[
+        { path:'H1·S1H1·Tr2·Ty5', layer:'tray', cells:['150','7.7%','2.0%','1.0%','0.8%','1.4%'] },
+        { path:'H1·S1H1·Tr2·Ty6', layer:'tray', cells:['150','8.1%','2.2%','1.2%','0.9%','1.6%'] },
+      ] },
+    { sector:'Residue Breakout — pool · house · S#H# · trolley · tray', allowed:['pool','house','setterHatcher','trolley','tray'],
+      note:'21-day · 4 of 16 leaves shown.',
+      params:['Infert %','Early %','Mid %','Late %','Ext pip %','Crack %','Contam %','Fert %'],
+      scopes:[
+        { path:'H1·S1H1·Tr1·Ty1', layer:'tray', cells:['7.9%','2.2%','0.8%','3.0%','0.6%','0.3%','0.4%','92.1%'] },
+        { path:'H1·S1H1·Tr1·Ty2', layer:'tray', cells:['8.0%','2.1%','0.9%','3.4%|err','0.5%','0.4%','0.5%','92.0%'] },
+        { path:'H1·S2H2·Tr2·Ty1', layer:'tray', cells:['7.6%','2.4%','1.0%','2.8%','0.7%','0.3%','0.6%','92.4%'] },
+        { path:'H2·S1H1·Tr1·Ty1', layer:'tray', cells:['8.2%','2.6%','1.1%','2.9%','0.6%','0.5%','0.4%','91.8%'] },
+      ] },
+  ],
+  'Setters': [
+    { sector:'Setter Optimizing — setter scope', allowed:['setter'],
+      note:'Per setter machine.',
+      params:['Setpt °F','Act °F','Setpt RH','Act RH','Turn °','CO₂','EST °F','EST CV%','Batch sz','Batches'],
+      scopes:[
+        { path:'S-01', layer:'setter', cells:['100.0','100.2','55','54','180','2700','100.3','6.4%','14400','1'] },
+        { path:'S-03', layer:'setter', cells:['100.0','100.4','55','53','180','2900','100.4','9.1%|err','14400','1'] },
+      ] },
+  ],
+  'Hatchers': [
+    { sector:'Hatcher Optimizing — hatcher scope', allowed:['hatcher'],
+      note:'Per hatcher machine.',
+      params:['Setpt °F','Act °F','Setpt RH','Act RH','CO₂','CVT °F','CVT CV%','Panting','Meconium','Transfer d'],
+      scopes:[
+        { path:'H-01', layer:'hatcher', cells:['98.5','98.6','60','61','2800','103.6','6.1%','No','None','18'] },
+        { path:'H-02', layer:'hatcher', cells:['98.5','98.7','60','62','3100|err','103.8','6.5%','No','None','18'] },
+      ] },
+  ],
+};
+
+/* ── Scope rendering helpers ── */
+const _SCOPE_REG = {};
+let _scopeUid = 0;
+
+function _parseCell(raw) {
+  const [v, sev] = String(raw).split('|');
+  return { text: v, sev: sev || null };
+}
+
+function _scopeSeverity(scope) {
+  let sev = scope.layer === 'pool' ? 'pool' : 'good';
+  for (const c of scope.cells) {
+    const s = c.split('|')[1];
+    if (s === 'err') return 'err';
+    if (s === 'warn') sev = 'warn';
+  }
+  return sev;
+}
+
+function _parseNum(raw) {
+  const v = String(raw).split('|')[0];
+  const m = v.match(/-?\d+(\.\d+)?/);
+  const pct = v.includes('%');
+  const decs = (v.split('.')[1] || '').replace('%', '').length;
+  return { num: m ? parseFloat(m[0]) : null, pct, decs };
+}
+
+function _columnStats(sec) {
+  return sec.params.map((p, j) => {
+    const parsed = sec.scopes.map(sc => _parseNum(sc.cells[j]));
+    const nums = parsed.filter(x => x.num !== null);
+    const pct = parsed.some(x => x.pct);
+    const decs = Math.max(0, ...parsed.map(x => x.decs));
+    let avgText = '—';
+    if (nums.length) {
+      const vals = nums.map(x => x.num);
+      avgText = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(decs) + (pct ? '%' : '');
+    } else {
+      const uniq = [...new Set(parsed.map(x => String(sec.scopes[0].cells[j]).split('|')[0]))];
+      avgText = uniq.length === 1 ? uniq[0] : '—';
+    }
+    let worst = null;
+    sec.scopes.forEach((sc, i) => {
+      const s = _parseCell(sc.cells[j]).sev;
+      if (s === 'err') worst = { path: sc.path, sev: 'err' };
+      else if (s === 'warn' && (!worst || worst.sev !== 'err')) worst = { path: sc.path, sev: 'warn' };
+    });
+    return { param: p, avgText, worst };
+  });
+}
+
+function renderScopeMatrix(uid) {
+  const sec = _SCOPE_REG[uid];
+  const host = document.getElementById(uid + '-matrix');
+  if (!sec || !host) return;
+  const picks = [...document.querySelectorAll('#' + uid + '-pick .pick-chip.active')].map(b => b.dataset.col);
+  if (!picks.length) { host.innerHTML = '<div class="scope-empty">Pick at least one scope to compare.</div>'; return; }
+  const stats = _columnStats(sec);
+  const head = '<th>Parameter</th>' + picks.map(col => {
+    if (col === 'avg') return '<th class="col-avg">⌀ Avg</th>';
+    const i = +col.slice(1), sev = _scopeSeverity(sec.scopes[i]);
+    const c = sev === 'err' ? 'err' : sev === 'warn' ? 'warn' : 'good';
+    return `<th>${sec.scopes[i].path} <span class="hdot ${c}"></span></th>`;
+  }).join('');
+  const rows = sec.params.map((p, j) => {
+    const cells = picks.map(col => {
+      if (col === 'avg') return `<td class="col-avg">${stats[j].avgText}</td>`;
+      const i = +col.slice(1), pc = _parseCell(sec.scopes[i].cells[j]);
+      return `<td class="${pc.sev ? 'cell-' + pc.sev : ''}">${pc.text}</td>`;
+    }).join('');
+    return `<tr><td>${p}</td>${cells}</tr>`;
+  }).join('');
+  host.innerHTML = `<div class="scope-table-wrap"><table class="scope-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function toggleScopeCol(btn) {
+  btn.classList.toggle('active');
+  renderScopeMatrix(btn.closest('.scope-pick').dataset.uid);
+}
+
+function renderScopeTiles(sec, sc) {
+  const tiles = sc.cells.map((c, j) => {
+    const pc = _parseCell(c);
+    const cls = pc.sev === 'err' ? 'alarm' : pc.sev === 'warn' ? 'warn' : '';
+    return `<div class="tile"><div class="tile-label">${sec.params[j]}</div><div class="tile-value ${cls}">${pc.text}</div></div>`;
+  }).join('');
+  return `<div class="tile-grid" style="margin-top:12px">${tiles}</div>`;
+}
+
+function renderScopeSector(sec) {
+  const uid = 'scp' + (_scopeUid++);
+  _SCOPE_REG[uid] = sec;
+  const chips = sec.allowed.map((l, i) => `<span class="layer-chip ${i === 0 ? 'base' : ''}">${l}</span>`).join('');
+  const head = `<div class="scope-sector-head">
+    <span class="scope-sector-title">${sec.sector}</span>
+    <span style="display:flex;gap:4px;flex-wrap:wrap">${chips}</span>
+  </div>
+  <div class="scope-note">${sec.note}</div>`;
+
+  if (sec.scopes.length === 1) {
+    return `<div class="scope-sector">${head}${renderScopeTiles(sec, sec.scopes[0])}</div>`;
+  }
+
+  const pick = [`<button class="pick-chip avg active" data-col="avg" onclick="toggleScopeCol(this)">⌀ Avg</button>`]
+    .concat(sec.scopes.map((sc, i) => {
+      const sev = _scopeSeverity(sc), c = sev === 'err' ? 'err' : sev === 'warn' ? 'warn' : 'good';
+      return `<button class="pick-chip active" data-col="s${i}" onclick="toggleScopeCol(this)"><span class="hdot ${c}"></span>${sc.path}</button>`;
+    })).join('');
+
+  return `<div class="scope-sector">${head}
+    <div class="scope-pick" id="${uid}-pick" data-uid="${uid}">${pick}</div>
+    <div id="${uid}-matrix"></div>
+  </div>`;
+}
+
+function initScopeDemo() {
+  const stationMap = {
+    'Egg Storage & Handling': 'Station 1',
+    'Chicks':                 'Station 2',
+    'Hatch Analysis & Egg Breakouts': 'Station 3',
+    'Setters':                'Station 4',
+    'Hatchers':               'Station 5',
+  };
+  for (const [station, sectors] of Object.entries(SCOPE_DEMO)) {
+    const num = stationMap[station];
+    const headers = [...document.querySelectorAll('.section-header .section-number')];
+    const h = headers.find(x => x.textContent.trim() === num);
+    if (!h) continue;
+    const body = h.closest('.section').querySelector('.section-body');
+    if (!body) continue;
+    const wrap = document.createElement('div');
+    wrap.className = 'scope-wrap';
+    wrap.innerHTML = `<div class="scope-wrap-title"><span class="scope-pill">Scopes</span>Scopes &amp; Parameters — full audit example</div>`
+      + sectors.map(renderScopeSector).join('');
+    body.appendChild(wrap);
+  }
+  document.querySelectorAll('.scope-pick').forEach(p => renderScopeMatrix(p.dataset.uid));
+}
+initScopeDemo();
+</script>
+</body>
+</html>

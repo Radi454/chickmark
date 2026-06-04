@@ -160,10 +160,6 @@ class AuditRepository {
 
   Future<List<YfbmTrend>?> getYfbmTrend(DashboardFilter filter) async => null;
 
-  Future<List<ChaEnvironmentalTrend>?> getChaEnvironmentalTrend(
-    DashboardFilter filter,
-  ) async => null;
-
   Future<List<EggStorageTrend>?> getEggStorageTrend(
     DashboardFilter filter,
   ) async => null;

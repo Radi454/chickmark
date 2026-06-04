@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -47,6 +48,9 @@ class ChickQualityScreen extends StatefulWidget {
 
 class _ChickQualityScreenState extends State<ChickQualityScreen> {
   static const double _wideWorkbenchBreakpoint = 980;
+  static const Duration _weightUpdateDebounceDuration = Duration(
+    milliseconds: 350,
+  );
 
   final List<TextEditingController> _weightControllers = List.generate(
     100,
@@ -57,6 +61,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     (_) => FocusNode(),
   );
   String? _loadedWeightsAuditId;
+  Timer? _weightUpdateDebounce;
+  bool _hasPendingWeightUpdate = false;
 
   @override
   void initState() {
@@ -89,6 +95,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
 
   @override
   void dispose() {
+    _weightUpdateDebounce?.cancel();
     for (final controller in _weightControllers) {
       controller.dispose();
     }
@@ -178,6 +185,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: PasgarTab(
+            key: ValueKey('pasgar-${audit.id}'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -191,6 +199,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: YfbmTab(
+            key: ValueKey('yfbm-${audit.id}'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -204,6 +213,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: CvtTab(
+            key: ValueKey('cvt-${audit.id}'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -217,6 +227,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: PmNecropsyTab(
+            key: ValueKey('pm-${audit.id}'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -230,6 +241,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: CulledChicksAnalysisTab(
+            key: ValueKey('culled-${audit.id}'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -291,7 +303,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       ),
       builder: (sheetContext) {
         return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
+          builder: (sheetContext, _) {
             return AuditKeyboardDismiss(
               child: Padding(
                 padding: EdgeInsets.only(
@@ -352,8 +364,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                                     if (!mounted || !sheetContext.mounted) {
                                       return;
                                     }
-                                    _updateWeightCalculations();
-                                    setSheetState(() {});
+                                    _scheduleWeightCalculationUpdate();
                                   },
                                 ),
                               ),
@@ -370,6 +381,9 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         );
       },
     );
+    if (mounted) {
+      _flushPendingWeightUpdate();
+    }
   }
 
   String _chickWeightSheetTitle(AuditProvider provider) {
@@ -420,6 +434,23 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       }
     }
     _loadedWeightsAuditId = weightSampleId;
+  }
+
+  void _scheduleWeightCalculationUpdate() {
+    _hasPendingWeightUpdate = true;
+    _weightUpdateDebounce?.cancel();
+    _weightUpdateDebounce = Timer(_weightUpdateDebounceDuration, () {
+      if (!mounted) return;
+      _flushPendingWeightUpdate();
+    });
+  }
+
+  void _flushPendingWeightUpdate() {
+    if (!_hasPendingWeightUpdate) return;
+    _weightUpdateDebounce?.cancel();
+    _weightUpdateDebounce = null;
+    _hasPendingWeightUpdate = false;
+    _updateWeightCalculations();
   }
 
   void _updateWeightCalculations() {

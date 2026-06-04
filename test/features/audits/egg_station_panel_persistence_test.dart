@@ -208,6 +208,22 @@ void main() {
     expect(await rows('egg_quality'), isEmpty);
   });
 
+  test(
+    'Egg metadata without EST or quality inputs does not create rows',
+    () async {
+      provider.updateField('esEggStorageDays', 5);
+      provider.updateField('esEggQualityStorageDays', 7);
+      provider.updateField('esEggBmkAge', 40);
+      provider.updateField('esEggBmkWeight', 62.5);
+      provider.updateField('notes', 'metadata only');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      expect(await rows('egg_storage'), isEmpty);
+      expect(await rows('egg_quality'), isEmpty);
+    },
+  );
+
   Future<void> insertStaleEggStorageHouseRows() async {
     for (final house in ['H1', 'H2', 'H3']) {
       await db.insert('egg_storage', {

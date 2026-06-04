@@ -446,12 +446,6 @@ class PanelDashboardRepository {
     return CulledChicksAnalysisAvg.fromSummary(summary);
   }
 
-  Future<List<ChaEnvironmentalTrend>?> getChaEnvironmentalTrend(
-    DashboardFilter filter,
-  ) async {
-    return null;
-  }
-
   Future<List<EggStorageTrend>?> getEggStorageTrend(
     DashboardFilter filter,
   ) async {

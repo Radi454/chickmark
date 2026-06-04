@@ -56,10 +56,8 @@ class DashboardProvider extends ChangeNotifier {
   CvtAvg? _cvtAvg;
   List<YfbmTrend> _yfbmTrend = [];
   CulledChicksAnalysisAvg? _culledChicksAnalysis;
-  List<ChaEnvironmentalTrend> _chaTrend = [];
   List<String> _cvtPhotos = [];
   List<String> _yfbmPhotos = [];
-  List<String> _chaPhotos = [];
 
   List<EggStorageTrend> _eggStorageTrend = [];
   EggStorageEstEvidence? _eggStorageEstEvidence;
@@ -119,10 +117,8 @@ class DashboardProvider extends ChangeNotifier {
   CvtAvg? get cvtAvg => _cvtAvg;
   List<YfbmTrend> get yfbmTrend => _yfbmTrend;
   CulledChicksAnalysisAvg? get culledChicksAnalysis => _culledChicksAnalysis;
-  List<ChaEnvironmentalTrend> get chaTrend => _chaTrend;
   List<String> get cvtPhotos => _cvtPhotos;
   List<String> get yfbmPhotos => _yfbmPhotos;
-  List<String> get chaPhotos => _chaPhotos;
 
   List<EggStorageTrend> get eggStorageTrend => _eggStorageTrend;
   EggStorageTrend? get eggStorageLatest =>
@@ -376,10 +372,8 @@ class DashboardProvider extends ChangeNotifier {
     _cvtAvg = null;
     _yfbmTrend = [];
     _culledChicksAnalysis = null;
-    _chaTrend = [];
     _cvtPhotos = [];
     _yfbmPhotos = [];
-    _chaPhotos = [];
     _setterComparisons = [];
     _hatcherComparisons = [];
     _visitSessions = [];

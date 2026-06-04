@@ -2503,7 +2503,7 @@ class AuditProvider extends ChangeNotifier {
     final draft = _pooledEggStorageDraft([
       for (final pair in pairs) pair.draft,
     ]);
-    if (!_hasMeaningfulEggStorageData(draft)) {
+    if (!_hasSavableEggStorageData(draft)) {
       await _panelSampleRepository.deleteRowsBySessionId(
         'egg_storage',
         sessionId,
@@ -2608,11 +2608,7 @@ class AuditProvider extends ChangeNotifier {
           'esEggStorageDays',
           draft.esEggStorageDays,
         ) ||
-        _hasMeaningfulJsonObject(draft.esEstReadingsJson) ||
-        _hasMeaningfulJsonObject(draft.esEstPhotosJson) ||
-        draft.esEstAvg != null ||
-        draft.esEstCv != null ||
-        draft.esShellTemp != null ||
+        _hasSavableEggStorageData(draft) ||
         draft.esTurningTimes != null ||
         _hasText(draft.esTraySpacing) ||
         _hasText(draft.esCoolerProximity) ||
@@ -2621,11 +2617,20 @@ class AuditProvider extends ChangeNotifier {
         _hasText(draft.notes);
   }
 
+  bool _hasSavableEggStorageData(AuditModel draft) {
+    return _hasMeaningfulJsonObject(draft.esEstReadingsJson) ||
+        _hasMeaningfulJsonObject(draft.esEstPhotosJson) ||
+        draft.esEstAvg != null ||
+        draft.esEstCv != null ||
+        draft.esShellTemp != null;
+  }
+
   bool _hasAnyMeaningfulStationData(AuditModel draft) {
     return switch (draft.auditType) {
       'Egg' =>
         _hasMeaningfulEggStorageData(draft) ||
-            _hasMeaningfulEggQualityData(draft),
+            _hasMeaningfulEggQualityData(draft) ||
+            _hasMeaningfulEggQualityMetadata(draft),
       'Chicks' => _hasMeaningfulChickData(draft),
       'Hatch Analysis & Egg Breakouts' => _hasMeaningfulHatchData(draft),
       'Setters' => _hasMeaningfulSetterData(draft),
@@ -2655,51 +2660,15 @@ class AuditProvider extends ChangeNotifier {
   }
 
   bool _hasMeaningfulEggStorageCoreData(AuditModel draft) {
-    return _isMeaningfulPooledEggStorageValue(
-          'esEggStorageDays',
-          draft.esEggStorageDays,
-        ) ||
-        _hasMeaningfulJsonObject(draft.esEstReadingsJson) ||
-        _hasMeaningfulJsonObject(draft.esEstPhotosJson) ||
-        draft.esEstAvg != null ||
-        draft.esEstCv != null ||
-        draft.esShellTemp != null ||
-        draft.esTurningTimes != null ||
-        _hasText(draft.esTraySpacing) ||
-        _hasText(draft.esCoolerProximity) ||
-        draft.esCondensation != null ||
-        _hasMeaningfulEggStorageTrayData(draft.esUvTrays);
+    return _hasSavableEggStorageData(draft);
   }
 
   bool _hasMeaningfulEggQualityCoreData(AuditModel draft) {
-    return _hasMeaningfulEggQualityTrayData(draft.esUvTrays) ||
-        _hasMeaningfulWeightList(draft.esEggWeights) ||
-        (draft.esEggSampleSize ?? 0) > 0 ||
-        draft.esEggAvgWeight != null ||
-        draft.esEggUniformityPct != null ||
-        draft.esEggCvPct != null;
+    return _hasMeaningfulEggQualityData(draft);
   }
 
   bool _hasMeaningfulChickData(AuditModel draft) {
     return _hasMeaningfulChickCoreData(draft) ||
-        draft.chaCo2 != null ||
-        _hasText(draft.chaCo2Photo) ||
-        draft.chaPm10 != null ||
-        _hasText(draft.chaPm10Photo) ||
-        draft.chaPm25 != null ||
-        _hasText(draft.chaPm25Photo) ||
-        draft.chaAirVelocitySpot1 != null ||
-        _hasText(draft.chaAirVelocitySpot1Photo) ||
-        draft.chaAirVelocitySpot2 != null ||
-        _hasText(draft.chaAirVelocitySpot2Photo) ||
-        draft.chaAirVelocitySpot3 != null ||
-        _hasText(draft.chaAirVelocitySpot3Photo) ||
-        draft.chaAirInlet != null ||
-        _hasText(draft.chaAirInletPhoto) ||
-        draft.chaAirOutlet != null ||
-        _hasText(draft.chaAirOutletPhoto) ||
-        draft.chaNoiseLevel != null ||
-        _hasText(draft.chaNoiseLevelPhoto) ||
         _hasText(draft.yfbmPhoto) ||
         _hasMeaningfulJsonData(draft.yfbmEntries) ||
         draft.yfbmAvgPct != null ||
@@ -3068,7 +3037,7 @@ class AuditProvider extends ChangeNotifier {
 
   bool _hasMeaningfulPanelTableData(String tableName, AuditModel draft) {
     return switch (tableName) {
-      'egg_storage' => _hasMeaningfulEggStorageData(draft),
+      'egg_storage' => _hasSavableEggStorageData(draft),
       'egg_quality' => _hasMeaningfulEggQualityData(draft),
       'chick_quality' => _hasMeaningfulChickData(draft),
       'fresh_egg_breakout' ||
@@ -3309,7 +3278,16 @@ class AuditProvider extends ChangeNotifier {
         (draft.esEggSampleSize ?? 0) > 0 ||
         draft.esEggAvgWeight != null ||
         draft.esEggUniformityPct != null ||
-        draft.esEggCvPct != null ||
+        draft.esEggCvPct != null;
+  }
+
+  bool _hasMeaningfulEggQualityMetadata(AuditModel draft) {
+    return _isMeaningfulPooledEggStorageValue(
+          'esEggQualityStorageDays',
+          draft.esEggQualityStorageDays,
+        ) ||
+        draft.esEggBmkAge != null ||
+        draft.esEggBmkWeight != null ||
         _hasText(draft.notes);
   }
 
@@ -3725,24 +3703,6 @@ class AuditProvider extends ChangeNotifier {
       'pasgarLegPct': _pct(draft.pasgarLeg, size),
       'pasgarFeatherDevPct': _pct(draft.pasgarFeatherDev, size),
       'pasgarFinalScore': draft.pasgarFinalScore,
-      'co2Ppm': draft.chaCo2,
-      'co2Photo': draft.chaCo2Photo,
-      'pm10': draft.chaPm10,
-      'pm10Photo': draft.chaPm10Photo,
-      'pm25': draft.chaPm25,
-      'pm25Photo': draft.chaPm25Photo,
-      'airVelocitySpot1': draft.chaAirVelocitySpot1,
-      'airVelocitySpot1Photo': draft.chaAirVelocitySpot1Photo,
-      'airVelocitySpot2': draft.chaAirVelocitySpot2,
-      'airVelocitySpot2Photo': draft.chaAirVelocitySpot2Photo,
-      'airVelocitySpot3': draft.chaAirVelocitySpot3,
-      'airVelocitySpot3Photo': draft.chaAirVelocitySpot3Photo,
-      'airInlet': draft.chaAirInlet,
-      'airInletPhoto': draft.chaAirInletPhoto,
-      'airOutlet': draft.chaAirOutlet,
-      'airOutletPhoto': draft.chaAirOutletPhoto,
-      'noiseLevel': draft.chaNoiseLevel,
-      'noiseLevelPhoto': draft.chaNoiseLevelPhoto,
       'yfbmPhoto': draft.yfbmPhoto,
       'yfbmEntriesJson': draft.yfbmEntries,
       'yfbmEntryCount': _decodedListLength(draft.yfbmEntries),

@@ -12,6 +12,7 @@ import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
+import 'package:hatchaudit/features/audits/widgets/audit_numeric_keyboard.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
@@ -203,6 +204,50 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('machine switch reloads each machine Pasgar values', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    provider.addChickQualityMachineScopeSample();
+    provider.updateSampleMetadata({'setterNo': 'S1', 'hatcherNo': 'H1'});
+    provider.updateField('pasgarSampleSize', 40);
+    provider.updateField('pasgarReflexes', 3);
+    provider.updateField('pasgarBeak', 1);
+
+    provider.addChickQualityMachineScopeSample();
+    provider.updateSampleMetadata({'setterNo': 'S2', 'hatcherNo': 'H2'});
+    provider.updateField('pasgarSampleSize', 40);
+    provider.updateField('pasgarReflexes', 7);
+    provider.updateField('pasgarBeak', 2);
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Pasgar Score'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pasgar Score'));
+    await tester.pumpAndSettle();
+
+    String pasgarFieldText(int index) {
+      final fields = tester.widgetList<AuditNumericField>(
+        find.descendant(
+          of: find.byKey(const ValueKey('pasgar-defect-counts-card')),
+          matching: find.byType(AuditNumericField),
+        ),
+      );
+      return fields.elementAt(index).controller.text;
+    }
+
+    expect(pasgarFieldText(0), '7');
+    expect(pasgarFieldText(1), '2');
+
+    provider.switchSample(0);
+    await tester.pumpAndSettle();
+
+    expect(pasgarFieldText(0), '3');
+    expect(pasgarFieldText(1), '1');
   });
 
   testWidgets('culled chicks analysis panel follows PM and updates draft', (
@@ -779,6 +824,45 @@ void main() {
     expect(find.text('Chick Weight Sheet'), findsOneWidget);
     expect(find.byKey(const ValueKey('weight-grid-widget')), findsOneWidget);
     expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+  });
+
+  testWidgets('weight entry updates the draft after a short debounce', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Enter Weights'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Enter Weights'));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey('chick-quality-weight-sheet'));
+    final weightFields = find.descendant(
+      of: sheet,
+      matching: find.byType(TextField),
+    );
+    expect(weightFields, findsWidgets);
+
+    await tester.tap(weightFields.at(0));
+    await tester.pumpAndSettle();
+    for (final digit in ['1', '2']) {
+      await tester.tap(find.text(digit).last);
+      await tester.pump();
+    }
+
+    expect(provider.activeDraft.chickSampleSize, isNull);
+    expect(provider.activeDraft.chickAvgWeight, isNull);
+
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(provider.activeDraft.chickSampleSize, 1);
+    expect(provider.activeDraft.chickAvgWeight, 12.0);
   });
 
   testWidgets('chick weight metric summary follows reviewer order', (

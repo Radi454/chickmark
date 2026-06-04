@@ -119,7 +119,7 @@ class _ChickQualitySectionState extends State<ChickQualitySection>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 6, vsync: this);
+    _tab = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -147,7 +147,6 @@ class _ChickQualitySectionState extends State<ChickQualitySection>
                   Tab(text: 'CVT'),
                   Tab(text: 'YFBM'),
                   Tab(text: 'Culled'),
-                  Tab(text: 'CHA Env'),
                 ],
               ),
               SizedBox(
@@ -160,7 +159,6 @@ class _ChickQualitySectionState extends State<ChickQualitySection>
                     _CvtTab(provider: provider),
                     _YfbmTab(provider: provider),
                     _CulledChicksTab(provider: provider),
-                    _ChaTab(provider: provider),
                   ],
                 ),
               ),
@@ -510,51 +508,6 @@ class _YfbmTab extends StatelessWidget {
           ),
         ),
         _photoSection(context, provider.yfbmPhotos),
-      ],
-    );
-  }
-}
-
-class _ChaTab extends StatelessWidget {
-  final DashboardProvider provider;
-  const _ChaTab({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    final trend = provider.chaTrend;
-    if (provider.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (trend.isEmpty) return _emptySection('CHA environmental');
-
-    final latest = trend.last;
-    final co2Spots = trend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.co2))
-        .toList();
-
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        _sectionHeader(context, 'CO₂ (ppm)'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 100,
-            child: BmkLineChart(
-              dataPoints: co2Spots,
-              bmkValue: 3000,
-              yLabel: 'ppm',
-            ),
-          ),
-        ),
-        const Divider(),
-        _metricRow('Latest PM10', latest.pm10.toStringAsFixed(1)),
-        _metricRow('Latest PM2.5', latest.pm25.toStringAsFixed(1)),
-        _metricRow('Air Velocity Avg', latest.airVelocity.toStringAsFixed(2)),
-        _metricRow('Noise', latest.noiseLevel.toStringAsFixed(1)),
-        _photoSection(context, provider.chaPhotos),
       ],
     );
   }

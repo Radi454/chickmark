@@ -229,22 +229,9 @@ class AuditDetailScreen extends StatelessWidget {
   List<_AuditSummarySection> _chickQualitySections() {
     return [
       _section(
-        title: 'CHA Environmental',
-        icon: Icons.air,
-        sectionIndex: 0,
-        metrics: [
-          _metric('CO2', _ppm(audit.chaCo2)),
-          _metric('PM10', _unit(audit.chaPm10, 'ug/m3')),
-          _metric('PM2.5', _unit(audit.chaPm25, 'ug/m3')),
-          _metric('Air inlet', _celsius(audit.chaAirInlet)),
-          _metric('Air outlet', _celsius(audit.chaAirOutlet)),
-          _metric('Noise', _unit(audit.chaNoiseLevel, 'dB')),
-        ],
-      ),
-      _section(
         title: 'Pasgar',
         icon: Icons.fact_check_outlined,
-        sectionIndex: 1,
+        sectionIndex: 0,
         metrics: [
           _metric('Sample', audit.pasgarSampleSize?.toString()),
           _metric('Final score', _fixed(audit.pasgarFinalScore)),
@@ -255,7 +242,7 @@ class AuditDetailScreen extends StatelessWidget {
       _section(
         title: 'Weights',
         icon: Icons.monitor_weight_outlined,
-        sectionIndex: 2,
+        sectionIndex: 1,
         metrics: [
           _metric('Avg weight', _grams(audit.chickAvgWeight)),
           _metric('Uniformity', _percent(audit.chickUniformityPct)),
@@ -266,7 +253,7 @@ class AuditDetailScreen extends StatelessWidget {
       _section(
         title: 'YFBM',
         icon: Icons.percent,
-        sectionIndex: 3,
+        sectionIndex: 2,
         metrics: [
           _metric('Average', _percent(audit.yfbmAvgPct)),
           _metric('CV', _percent(audit.yfbmCvPct)),
@@ -276,7 +263,7 @@ class AuditDetailScreen extends StatelessWidget {
       _section(
         title: 'CVT',
         icon: Icons.thermostat_outlined,
-        sectionIndex: 4,
+        sectionIndex: 3,
         metrics: [
           _metric('Average', _celsius(audit.cvtAvg)),
           _metric('CV', _percent(audit.cvtCvPct)),
@@ -492,11 +479,6 @@ class AuditDetailScreen extends StatelessWidget {
   String? _ppm(double? value) {
     final formatted = _fixed(value, decimals: 0);
     return formatted == null ? null : '$formatted ppm';
-  }
-
-  String? _unit(double? value, String unit) {
-    final formatted = _fixed(value);
-    return formatted == null ? null : '$formatted $unit';
   }
 
   String? _days(int? value) => value == null ? null : '$value days';

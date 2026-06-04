@@ -125,32 +125,3 @@ class YfbmTrend {
     );
   }
 }
-
-class ChaEnvironmentalTrend {
-  final String date;
-  final double co2;
-  final double pm10;
-  final double pm25;
-  final double airVelocity;
-  final double noiseLevel;
-
-  ChaEnvironmentalTrend({
-    required this.date,
-    this.co2 = 0.0,
-    this.pm10 = 0.0,
-    this.pm25 = 0.0,
-    this.airVelocity = 0.0,
-    this.noiseLevel = 0.0,
-  });
-
-  factory ChaEnvironmentalTrend.fromMap(Map<String, dynamic> map) {
-    return ChaEnvironmentalTrend(
-      date: map['date'] ?? '',
-      co2: map['co2']?.toDouble() ?? 0.0,
-      pm10: map['pm10']?.toDouble() ?? 0.0,
-      pm25: map['pm25']?.toDouble() ?? 0.0,
-      airVelocity: map['airVelocity']?.toDouble() ?? 0.0,
-      noiseLevel: map['noiseLevel']?.toDouble() ?? 0.0,
-    );
-  }
-}

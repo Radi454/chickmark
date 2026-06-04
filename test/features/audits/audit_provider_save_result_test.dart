@@ -200,6 +200,7 @@ void main() {
 
   test('saveSamplesWithResult writes egg station panels only', () async {
     provider.updateField('esEggStorageDays', 4);
+    provider.updateField('es_estReadingsJson', jsonEncode({'front_top': 19.4}));
     provider.updateField(
       'esUvTrays',
       jsonEncode([
@@ -319,9 +320,48 @@ void main() {
   );
 
   test(
+    'saveSamplesWithResult skips egg storage when only storage days are entered',
+    () async {
+      provider.updateField('esEggStorageDays', 5);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      verifyNever(
+        () => panelSampleRepository.savePanelWithSamples(
+          panel: any(named: 'panel'),
+          samples: any(named: 'samples'),
+        ),
+      );
+    },
+  );
+
+  test(
+    'saveSamplesWithResult skips egg quality without weights or shell quality',
+    () async {
+      provider.updateField('esEggQualityStorageDays', 6);
+      provider.updateField('esEggBmkAge', 38);
+      provider.updateField('esEggBmkWeight', 67.0);
+      provider.updateField('notes', 'Quality metadata only');
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      verifyNever(
+        () => panelSampleRepository.savePanelWithSamples(
+          panel: any(named: 'panel'),
+          samples: any(named: 'samples'),
+        ),
+      );
+    },
+  );
+
+  test(
     'saveSamplesWithResult keeps storage-only tray totals out of egg quality',
     () async {
       provider.updateField('esEggStorageDays', 38);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
       provider.updateField('esEggQualityStorageDays', 38);
       provider.updateField('esEggBmkAge', 38);
       provider.updateField('esEggBmkWeight', 67.0);
@@ -380,6 +420,10 @@ void main() {
     'saveSamplesWithResult writes egg quality storage with quality data',
     () async {
       provider.updateField('esEggStorageDays', 4);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
       provider.updateField('esEggQualityStorageDays', 9);
       provider.updateField(
         'esUvTrays',
@@ -417,6 +461,10 @@ void main() {
     () async {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
       provider.updateField('esEggStorageDays', 3);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.2}),
+      );
       provider.updateField('esEggQualityStorageDays', 3);
       provider.updateField(
         'esUvTrays',
@@ -434,6 +482,10 @@ void main() {
       provider.addSample();
       provider.updateSampleMetadata({'houseNo': '9'});
       provider.updateField('esEggStorageDays', 7);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.1}),
+      );
       provider.updateField('esEggQualityStorageDays', 7);
       provider.updateField(
         'esUvTrays',
@@ -927,6 +979,10 @@ void main() {
     'saveSamplesWithResult returns false when panel persistence fails',
     () async {
       provider.updateField('esEggStorageDays', 4);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
       when(
         () => panelSampleRepository.savePanelWithSamples(
           panel: any(named: 'panel'),
@@ -1267,6 +1323,10 @@ void main() {
         notify: false,
       );
 
+      autosaveProvider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
       autosaveProvider.updateField('esEggStorageDays', 3);
       await tester.pump(const Duration(milliseconds: 5));
       autosaveProvider.updateField('esEggStorageDays', 8);
@@ -1326,6 +1386,10 @@ void main() {
         notify: false,
       );
 
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
       provider.updateField('esEggStorageDays', 3);
       await tester.pump(const Duration(milliseconds: 11));
       await tester.pump();
@@ -1360,7 +1424,10 @@ void main() {
     });
 
     test('egg storage data marks station complete', () async {
-      provider.updateField('esEggStorageDays', 4);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.4}),
+      );
 
       expect(await provider.saveSamplesWithResult(), isTrue);
 
@@ -1759,8 +1826,6 @@ void main() {
           sessionId: 'session-1',
           notify: false,
         );
-        provider.updateField('chaCo2', 1200.0);
-        provider.updateField('chaCo2Photo', '/tmp/chick-co2.jpg');
         provider.updateField('cvtTopPhoto', '/tmp/cvt-top.jpg');
         provider.updateField('pm_photosJson', jsonEncode(['pm-photo.jpg']));
 
@@ -1769,8 +1834,6 @@ void main() {
         final quality = capturedPanelCalls().singleWhere(
           (call) => call.panel.tableName == 'chick_quality',
         );
-        expect(quality.panel.values['co2Ppm'], 1200.0);
-        expect(quality.panel.values['co2Photo'], '/tmp/chick-co2.jpg');
         expect(quality.panel.values['cvtTopPhoto'], '/tmp/cvt-top.jpg');
         expect(
           quality.panel.values['pmPhotosJson'],

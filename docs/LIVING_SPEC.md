@@ -348,6 +348,9 @@ Quality cards, and station notes.
   zero when focused for faster replacement. The target summary labels are
   Storage duration and EST target. Shell targets are 19.0-21.0°C for short
   storage, 18.0-20.0°C for medium storage, and 16.0-18.0°C for long storage.
+  Egg Storage panel persistence is EST-gated: Storage Days, upside-down counts,
+  checklist fields, and notes can accompany the storage row, but they do not
+  create an `egg_storage` row until EST data is entered.
 - Egg Shell Quality: expandable UV tray inspection with up to 10 UV tray entries
   and a top UV Summary card showing Cuticle Damage %, Washed %, Dirty %, and
   total Affected %. Fresh or empty tray data shows a default Tray 1 editor
@@ -391,7 +394,10 @@ Quality cards, and station notes.
   switching from `H` to `H2` does not require re-entering
   storage metadata and does not blank BMK values. Per-scope Egg Quality
   measurements such as weights remain
-  independent. The station removes helper explanations from the EST, Upside
+  independent. Egg Quality panel persistence requires either Egg Weights &
+  Uniformity data or Egg Shell Quality UV data; Quality Storage Days, BMK
+  values, and notes alone do not create an `egg_quality` row. The station
+  removes helper explanations from the EST, Upside
   Down, Storage Checklist, Egg quality hero, Egg scope card, Egg Weights &
   Uniformity card, Egg Shell Quality card, and Notes panel so only the
   operational labels remain. Egg workbench headers
@@ -540,8 +546,11 @@ render as one compact summary list instead of a nested card grid, and the
 100-chick weight entry grid opens from an
 egg-weight-style draggable Enter Weights modal sheet and persists each active
 house sample's own weights, sample size, average, uniformity, and CV% into its
-`chick_weights` row. New or blank comparison-house samples do not inherit the
-previous active house's weight grid or calculated metrics.
+`chick_weights` row. Weight entry changes are staged briefly while the user is
+typing and then committed after a short debounce, or immediately when the sheet
+closes, so the full Chicks station does not rebuild on every keypad tap. New or
+blank comparison-house samples do not inherit the previous active house's
+weight grid or calculated metrics.
 Dashboard chick-weight trends do not read those legacy audit fields.
 
 Hatch Analysis & Egg Breakouts is an egg breakout entry screen rather than a
@@ -597,18 +606,24 @@ active; removing the only active machine returns the selected context to
 machine `Pool` without changing House scope. A `Trolley scope` card appears
 directly below Machine scope even while House and Machine are pooled. It shows
 `Pool` until a trolley is added. Pressing
-Trolley scope `+` creates the first tray sample with a prefix-only `T` trolley
-placeholder, selects the new trolley without scrolling to the tray entry fields,
-shows the active Trolley field blank, and labels the chip `T` until a number is
-entered. If House or Machine scope is active, the trolley sample
+Trolley scope `+` attaches the trolley to the pooled breakout sample with a
+prefix-only `T` trolley placeholder, so the Tray scope stays on `Pool` and adding
+a trolley never starts tray comparison on its own. It selects the new trolley
+without scrolling to the tray entry fields, shows the active Trolley field blank,
+and labels the chip `T` until a number is entered. A second trolley in the same
+scope adds another pooled sample, so trolleys can be compared while the Tray
+scope is still pooled. If House or Machine scope is active, the trolley sample
 inherits that parent hierarchy; if they are pooled, the trolley comparison keeps
 House, Setter, and Hatcher blank. Entered trolley values update the chip as
-`T{trolley}`; adding more tray samples while a trolley is selected assigns those
-trays to the same trolley. Selecting an existing Trolley chip switches the
-active trolley without scrolling the page to the tray entry fields. Switching to
-another machine shows that machine's own trolley scope instead of sharing
-trolley chips across machines. Removing the active trolley clears that trolley
-assignment from its tray samples without deleting the trays. The selected House,
+`T{trolley}`. The active trolley only breaks into trays when Tray scope `+` is
+pressed, and the first tray inherits the active trolley; adding more tray samples
+while a trolley is selected assigns those trays to the same trolley. Selecting an
+existing Trolley chip switches the active trolley without scrolling the page to
+the tray entry fields. Switching to another machine shows that machine's own
+trolley scope instead of sharing trolley chips across machines. Removing the
+active trolley drops that trolley's pooled sample when other trolleys remain, or
+clears the trolley label back to plain `Pool` when it is the only trolley,
+without deleting trays in an active tray comparison. The selected House,
 Setter, Hatcher, and Trolley values are shared by Hatch Results and all tray
 samples in that scope, while unactivated pooled tray rows save without hidden
 House/Setter/Hatcher/Trolley hierarchy. Each residue machine keeps its own total
@@ -642,7 +657,9 @@ Breakout Samples sits below the main card, and below the Hatch Results card for
 Residue / Hatch Day. It has a dedicated `Tray scope` card that mirrors the
 House and Machine scope pattern. In pooled state the Tray scope card shows a
 selected `Pool` chip, the sample card records one aggregate pool sample, and no
-tray-local Trolley, Tray, or Position fields are shown. Pressing Tray scope `+`
+tray-local Trolley, Tray, or Position fields are shown. Adding a Trolley scope
+keeps the Tray scope on `Pool`; only Tray scope `+` starts tray comparison.
+Pressing Tray scope `+`
 switches the active breakout type into tray comparison, creates `Tray 1`,
 selects the new tray without scrolling the page to the tray entry fields, and
 shows tray chips plus circular add and remove controls while keeping the tray
@@ -1258,6 +1275,21 @@ discarding the failure context.
 
 ## 9. Change Log
 
+- 2026-06-03: Debounced Chicks weight-sheet calculation commits so keypad entry
+  updates the draft after a short pause or sheet close instead of rebuilding the
+  full Chicks station on every tap.
+- 2026-06-03: Changed Hatch Analysis Trolley scope so adding a trolley attaches
+  it to the pooled breakout sample and keeps the Tray scope on `Pool`. The Tray
+  scope only enters tray comparison when Tray scope `+` is pressed, and the first
+  tray inherits the active trolley. Removing a trolley drops its pooled sample
+  when other trolleys remain, or reverts to plain `Pool` when it is the last one.
+- 2026-06-03: Tightened Egg panel persistence so `egg_storage` rows are created
+  only after EST data is entered, and `egg_quality` rows are created only after
+  Egg Weights & Uniformity or Egg Shell Quality UV data is entered.
+- 2026-06-03: Fixed Chicks machine-scope panel forms so switching setter/hatcher
+  machine chips reloads that machine's own Pasgar, YFBM, CVT, PM Necropsy, and
+  Culled Chicks Analysis draft values instead of leaving stale form-controller
+  values from the previously selected machine visible.
 - 2026-06-03: Changed Hatch Analysis Machine scope additions so the first
   machine stays prefix-only `SH`, while later machines in the same house or
   pooled context default to numbered `S1H1`, `S2H2`, etc. chips with matching
