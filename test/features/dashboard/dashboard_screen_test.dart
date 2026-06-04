@@ -8,6 +8,7 @@ import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/dashboard/models/chick_quality_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
+import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/screens/dashboard_screen.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
@@ -61,7 +62,9 @@ class _StaticDashboardProvider extends DashboardProvider {
 }
 
 void main() {
-  testWidgets('dashboard renders Egg and Govee sectors only', (tester) async {
+  testWidgets('dashboard renders Egg, Govee, and Scopes sections', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -72,6 +75,7 @@ void main() {
               bypassAuth: true,
             ),
           ),
+          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
           ChangeNotifierProvider<DashboardProvider>(
             create: (_) => _StaticDashboardProvider(
               customers: [
@@ -95,17 +99,28 @@ void main() {
 
     expect(find.text('Dashboard'), findsOneWidget);
     expect(find.text('Egg Quality'), findsOneWidget);
-    expect(find.text('Hatch Analysis & Egg Breakouts'), findsNothing);
-    expect(find.text('21-Day Hatch Residue Breakout'), findsNothing);
+    // Old per-section stub widgets stay unmounted.
     expect(find.byType(ChickQualitySection, skipOffstage: false), findsNothing);
-    expect(find.text('Chicks', skipOffstage: false), findsNothing);
-    expect(find.text('Setters'), findsNothing);
-    expect(find.text('Hatchers'), findsNothing);
+    expect(find.text('21-Day Hatch Residue Breakout'), findsNothing);
     expect(find.text('Visit Sessions'), findsNothing);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -600));
-    await tester.pumpAndSettle();
+    // The new Scopes & Parameters section renders, grouped by station.
+    expect(
+      find.text('Scopes & Parameters — full audit', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('Chicks', skipOffstage: false), findsWidgets);
+    expect(
+      find.text('Hatch Analysis & Egg Breakouts', skipOffstage: false),
+      findsWidgets,
+    );
+    expect(find.text('Setters', skipOffstage: false), findsWidgets);
 
+    await tester.scrollUntilVisible(
+      find.text('Govee Environmental Readings'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Govee Environmental Readings'), findsWidgets);
   });
 
@@ -127,6 +142,7 @@ void main() {
               bypassAuth: true,
             ),
           ),
+          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
           ChangeNotifierProvider<DashboardProvider>(
             create: (_) => _StaticDashboardProvider(
               customers: [

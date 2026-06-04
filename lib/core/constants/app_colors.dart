@@ -37,6 +37,8 @@ class AppColors {
   static const Color statusErrorBg = Color(0xFFFEF2F2);
   static const Color statusActive = Color(0xFF193FC2);
   static const Color statusActiveBg = Color(0xFFE8F2FF);
+  // Warn cell text in the scope matrix (prototype's --warn cell text #9A6112).
+  static const Color scopeWarnText = Color(0xFF9A6112);
   static const Color statusNeutralBg = Color(0xFFF3F4F6);
   static const Color statusNeutralText = Color(0xFF4B5563);
 

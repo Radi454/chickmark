@@ -5,6 +5,8 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
+import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -32,6 +34,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
+        // Keep the scope comparison in sync with the dashboard filter
+        // (idempotent: only reloads when the filter actually changes).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          context.read<ScopeComparisonProvider>().applyFilter(
+                customerId: provider.selectedCustomerId,
+                flockId: provider.selectedFlockId,
+                bmkAge: provider.selectedBmkAge,
+              );
+        });
         return Scaffold(
           appBar: const GradientAppBar(title: 'Dashboard'),
           body: Column(
@@ -234,6 +246,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           captures: provider.goveeCaptures,
           isLoading: provider.isLoadingGoveeCaptures,
         ),
+        const SizedBox(height: AppSizes.spaceLg),
+        const ScopeInsightsSection(),
       ],
     );
   }

@@ -13,6 +13,7 @@ import 'features/auth/screens/pending_approval_screen.dart';
 import 'features/auth/screens/register_screen.dart';
 import 'features/bmk/providers/bmk_provider.dart';
 import 'features/dashboard/providers/dashboard_provider.dart';
+import 'features/dashboard/providers/scope_comparison_provider.dart';
 import 'features/govee/providers/govee_capture_provider.dart';
 import 'features/govee/widgets/govee_global_overlay.dart';
 import 'features/home/widgets/main_shell.dart';
@@ -72,6 +73,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => BmkProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
+        ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
