@@ -15,10 +15,16 @@ const double kThermoScanBlurThreshold = 1.0;
 const double kThermoScanBrightnessThreshold = 34;
 const double kThermoScanMinimumDigitSize = 0.14;
 const Duration kThermoScanOcrTimeout = Duration(milliseconds: 1800);
+const Duration kThermoScanAutoScanInterval = Duration(milliseconds: 1800);
 const Duration kThermoScanHintThrottle = Duration(milliseconds: 1300);
 const int kThermoScanMaxConsecutiveAutoScanFailures = 12;
+const double kThermoScanConsensusToleranceCelsius = 0.15;
 
 enum ThermoScanQualityRejection { blur, lighting, distance }
+
+enum ThermoScanOcrConfidence { none, low, medium, high }
+
+enum _ThermoScanPreprocessVariant { balanced, highContrast, binary }
 
 class ThermoScanCropFrame {
   const ThermoScanCropFrame({
@@ -84,6 +90,10 @@ class ThermoScanPreprocessResult {
 class ThermoScanOcrResult {
   const ThermoScanOcrResult({
     this.readingCelsius,
+    this.confidence = ThermoScanOcrConfidence.none,
+    this.confidenceScore = 0,
+    this.supportingReadings = 0,
+    this.attemptedVariants = 0,
     this.hint,
     this.rawText,
     this.rejectionReason,
@@ -94,6 +104,10 @@ class ThermoScanOcrResult {
   });
 
   final double? readingCelsius;
+  final ThermoScanOcrConfidence confidence;
+  final double confidenceScore;
+  final int supportingReadings;
+  final int attemptedVariants;
   final String? hint;
   final String? rawText;
   final ThermoScanQualityRejection? rejectionReason;
@@ -103,14 +117,37 @@ class ThermoScanOcrResult {
   final Duration scanDuration;
 }
 
+class ThermoScanReadingEstimate {
+  const ThermoScanReadingEstimate({
+    this.readingCelsius,
+    this.confidence = ThermoScanOcrConfidence.none,
+    this.confidenceScore = 0,
+    this.supportingReadings = 0,
+  });
+
+  final double? readingCelsius;
+  final ThermoScanOcrConfidence confidence;
+  final double confidenceScore;
+  final int supportingReadings;
+}
+
 class OcrService {
+  final Future<String?> Function(String imagePath)? _textRecognizerOverride;
   bool _isAvailable = false;
   bool _recognitionInFlight = false;
+  TextRecognizer? _recognizer;
 
   bool get isAvailable => _isAvailable;
 
-  OcrService() {
-    _checkCameraAvailability();
+  OcrService({
+    Future<String?> Function(String imagePath)? textRecognizer,
+    bool? isAvailableOverride,
+  }) : _textRecognizerOverride = textRecognizer {
+    if (isAvailableOverride != null) {
+      _isAvailable = isAvailableOverride;
+    } else {
+      _checkCameraAvailability();
+    }
   }
 
   Future<void> _checkCameraAvailability() async {
@@ -125,20 +162,20 @@ class OcrService {
   }
 
   Future<String?> recognizeText(String imagePath) async {
+    final override = _textRecognizerOverride;
+    if (override != null) {
+      return override(imagePath);
+    }
     if (!isAvailable) {
       return null;
     }
     try {
       final inputImage = InputImage.fromFilePath(imagePath);
-      final textRecognizer = TextRecognizer(
+      final recognizer = _recognizer ??= TextRecognizer(
         script: TextRecognitionScript.latin,
       );
-      try {
-        final recognizedText = await textRecognizer.processImage(inputImage);
-        return recognizedText.text;
-      } finally {
-        await textRecognizer.close();
-      }
+      final recognizedText = await recognizer.processImage(inputImage);
+      return recognizedText.text;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('OCR text recognition failed for $imagePath: $e');
@@ -147,8 +184,23 @@ class OcrService {
     }
   }
 
-  Future<double?> recognizeThermoScanReadingCelsius(String imagePath) async {
-    final result = await analyzeThermoScanReadingCelsius(imagePath);
+  /// Releases the long-lived MLKit recognizer. Call from the owner's dispose.
+  Future<void> dispose() async {
+    final recognizer = _recognizer;
+    _recognizer = null;
+    await recognizer?.close();
+  }
+
+  Future<double?> recognizeThermoScanReadingCelsius(
+    String imagePath, {
+    ThermoScanCropFrame? cropFrame,
+    bool fanOutVariants = true,
+  }) async {
+    final result = await analyzeThermoScanReadingCelsius(
+      imagePath,
+      cropFrame: cropFrame,
+      fanOutVariants: fanOutVariants,
+    );
     return result.readingCelsius;
   }
 
@@ -157,29 +209,33 @@ class OcrService {
     ThermoScanCropFrame? cropFrame,
     bool enableQualityChecks = kThermoScanQualityChecksEnabled,
     Duration ocrTimeout = kThermoScanOcrTimeout,
+    bool fanOutVariants = true,
   }) async {
     final stopwatch = Stopwatch()..start();
     if (_recognitionInFlight) {
       return ThermoScanOcrResult(busy: true, scanDuration: stopwatch.elapsed);
     }
-    String? preparedPath;
+    final preparedPaths = <String>[];
     var deferPreparedDeletion = false;
     try {
-      final prepared = await _prepareThermoScanImageForOcr(
+      final primaryPrepared = await _prepareThermoScanImageVariantForOcr(
         imagePath,
+        variant: _ThermoScanPreprocessVariant.balanced,
         cropFrame: cropFrame,
         enableQualityChecks: enableQualityChecks,
       );
-      preparedPath = prepared.outputPath;
-      if (!prepared.shouldRunOcr) {
+      final primaryPath = primaryPrepared.outputPath;
+      if (primaryPath != null) preparedPaths.add(primaryPath);
+
+      if (!primaryPrepared.shouldRunOcr) {
         _debugLog(
-          quality: prepared.rejectionReason?.name ?? 'skipped',
-          rejectedReason: prepared.rejectionReason?.name,
+          quality: primaryPrepared.rejectionReason?.name ?? 'skipped',
+          rejectedReason: primaryPrepared.rejectionReason?.name,
           duration: stopwatch.elapsed,
         );
         return ThermoScanOcrResult(
-          hint: prepared.hint,
-          rejectionReason: prepared.rejectionReason,
+          hint: primaryPrepared.hint,
+          rejectionReason: primaryPrepared.rejectionReason,
           scanDuration: stopwatch.elapsed,
         );
       }
@@ -189,59 +245,116 @@ class OcrService {
       }
 
       _recognitionInFlight = true;
-      String? text;
-      final pathForDeferredDeletion = preparedPath;
-      final recognitionFuture = recognizeText(preparedPath ?? imagePath)
-          .whenComplete(() async {
-            _recognitionInFlight = false;
-            if (deferPreparedDeletion &&
-                pathForDeferredDeletion != null &&
-                pathForDeferredDeletion != imagePath) {
-              try {
-                await File(pathForDeferredDeletion).delete();
-              } catch (_) {
-                // Temporary OCR frames are best-effort cleanup only.
-              }
-            }
-          });
+      final texts = <String>[];
+      var attemptedVariants = 0;
       try {
-        text = await recognitionFuture.timeout(ocrTimeout);
+        final primaryText = await recognizeText(
+          primaryPath ?? imagePath,
+        ).timeout(ocrTimeout);
+        attemptedVariants = 1;
+        if (primaryText != null && primaryText.trim().isNotEmpty) {
+          texts.add(primaryText);
+          final primaryEstimate = estimateThermoScanReadingCelsius(texts);
+          if (primaryEstimate.readingCelsius != null) {
+            final rawText = texts.join('\n---\n');
+            _debugLog(
+              quality: primaryPrepared.qualityChecksRan
+                  ? 'primary-checked'
+                  : 'primary',
+              rawText: rawText,
+              attemptedVariants: attemptedVariants,
+              confidence: primaryEstimate.confidence,
+              readingCelsius: primaryEstimate.readingCelsius,
+              duration: stopwatch.elapsed,
+            );
+            return ThermoScanOcrResult(
+              readingCelsius: primaryEstimate.readingCelsius,
+              confidence: primaryEstimate.confidence,
+              confidenceScore: primaryEstimate.confidenceScore,
+              supportingReadings: primaryEstimate.supportingReadings,
+              attemptedVariants: attemptedVariants,
+              rawText: rawText,
+              didRunOcr: true,
+              scanDuration: stopwatch.elapsed,
+            );
+          }
+        }
+
+        if (fanOutVariants) {
+          for (final variant in const [
+            _ThermoScanPreprocessVariant.highContrast,
+            _ThermoScanPreprocessVariant.binary,
+          ]) {
+            final prepared = await _prepareThermoScanImageVariantForOcr(
+              imagePath,
+              variant: variant,
+              cropFrame: cropFrame,
+              enableQualityChecks: false,
+            );
+            final preparedPath = prepared.outputPath;
+            if (preparedPath != null) preparedPaths.add(preparedPath);
+            attemptedVariants++;
+            final fallbackText = await recognizeText(
+              preparedPath ?? imagePath,
+            ).timeout(ocrTimeout);
+            if (fallbackText != null && fallbackText.trim().isNotEmpty) {
+              texts.add(fallbackText);
+            }
+          }
+        }
       } on TimeoutException {
         deferPreparedDeletion = true;
-        preparedPath = null;
-        _debugLog(quality: 'timeout', duration: stopwatch.elapsed);
+        _debugLog(
+          quality: 'timeout',
+          attemptedVariants: attemptedVariants,
+          duration: stopwatch.elapsed,
+        );
         return ThermoScanOcrResult(
           timedOut: true,
           didRunOcr: true,
+          attemptedVariants: attemptedVariants,
           scanDuration: stopwatch.elapsed,
         );
+      } finally {
+        _recognitionInFlight = false;
       }
-      if (text == null) {
-        _debugLog(quality: 'no-text', duration: stopwatch.elapsed);
+      if (texts.isEmpty) {
+        _debugLog(
+          quality: 'no-text',
+          attemptedVariants: attemptedVariants,
+          duration: stopwatch.elapsed,
+        );
         return ThermoScanOcrResult(
           didRunOcr: true,
+          attemptedVariants: attemptedVariants,
           scanDuration: stopwatch.elapsed,
         );
       }
-      final reading = extractThermoScanReadingCelsius(text);
+      final estimate = estimateThermoScanReadingCelsius(texts);
+      final rawText = texts.join('\n---\n');
       _debugLog(
-        quality: prepared.qualityChecksRan ? 'checked' : 'skipped',
-        rawText: text,
+        quality: primaryPrepared.qualityChecksRan
+            ? 'fallback-checked'
+            : 'fallback',
+        rawText: rawText,
+        attemptedVariants: attemptedVariants,
+        confidence: estimate.confidence,
+        readingCelsius: estimate.readingCelsius,
         duration: stopwatch.elapsed,
       );
       return ThermoScanOcrResult(
-        readingCelsius: reading,
-        rawText: text,
+        readingCelsius: estimate.readingCelsius,
+        confidence: estimate.confidence,
+        confidenceScore: estimate.confidenceScore,
+        supportingReadings: estimate.supportingReadings,
+        attemptedVariants: attemptedVariants,
+        rawText: rawText,
         didRunOcr: true,
         scanDuration: stopwatch.elapsed,
       );
     } finally {
-      if (preparedPath != null && preparedPath != imagePath) {
-        try {
-          await File(preparedPath).delete();
-        } catch (_) {
-          // Temporary OCR frames are best-effort cleanup only.
-        }
+      if (!deferPreparedDeletion) {
+        await _deleteTemporaryFiles(preparedPaths, originalPath: imagePath);
       }
     }
   }
@@ -257,6 +370,7 @@ class OcrService {
       'outputPath': outputPath,
       'cropFrame': cropFrame?.toJson(),
       'enableQualityChecks': enableQualityChecks,
+      'variant': _ThermoScanPreprocessVariant.balanced.name,
     });
     return ThermoScanPreprocessResult.fromJson(raw);
   }
@@ -272,8 +386,9 @@ class OcrService {
     ).then((result) => result.prepared && result.shouldRunOcr);
   }
 
-  Future<ThermoScanPreprocessResult> _prepareThermoScanImageForOcr(
+  Future<ThermoScanPreprocessResult> _prepareThermoScanImageVariantForOcr(
     String imagePath, {
+    required _ThermoScanPreprocessVariant variant,
     ThermoScanCropFrame? cropFrame,
     required bool enableQualityChecks,
   }) async {
@@ -287,39 +402,102 @@ class OcrService {
 
     final tempPath = path.join(
       Directory.systemTemp.path,
-      'thermoscan_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      'thermoscan_ocr_${DateTime.now().microsecondsSinceEpoch}_${variant.name}.jpg',
     );
-    final processed = await prepareThermoScanImageForOcr(
-      sourcePath: imagePath,
-      outputPath: tempPath,
-      cropFrame: cropFrame,
-      enableQualityChecks: enableQualityChecks,
-    );
-    return processed;
+    final raw = await compute(_preprocessThermoScanImageForOcr, {
+      'sourcePath': imagePath,
+      'outputPath': tempPath,
+      'cropFrame': cropFrame?.toJson(),
+      'enableQualityChecks': enableQualityChecks,
+      'variant': variant.name,
+    });
+    return ThermoScanPreprocessResult.fromJson(raw);
+  }
+
+  Future<void> _deleteTemporaryFiles(
+    Iterable<String> filePaths, {
+    required String originalPath,
+  }) async {
+    for (final filePath in filePaths.toSet()) {
+      if (filePath == originalPath) continue;
+      try {
+        await File(filePath).delete();
+      } catch (_) {
+        // Temporary OCR frames are best-effort cleanup only.
+      }
+    }
   }
 
   void _debugLog({
     required String quality,
     String? rawText,
     String? rejectedReason,
+    int? attemptedVariants,
+    ThermoScanOcrConfidence? confidence,
+    double? readingCelsius,
     required Duration duration,
   }) {
     if (!kDebugMode) return;
     debugPrint(
       'ThermoScan OCR quality=$quality '
       'rejected=${rejectedReason ?? 'none'} '
+      'variants=${attemptedVariants ?? '-'} '
+      'confidence=${confidence?.name ?? '-'} '
+      'readingC=${readingCelsius?.toStringAsFixed(2) ?? '-'} '
       'durationMs=${duration.inMilliseconds} '
       'rawText=${rawText == null ? 'null' : rawText.replaceAll('\n', ' | ')}',
     );
   }
 
   static double? extractThermoScanReadingCelsius(String text) {
+    return estimateThermoScanReadingCelsius([text]).readingCelsius;
+  }
+
+  static ThermoScanReadingEstimate estimateThermoScanReadingCelsius(
+    Iterable<String> texts,
+  ) {
     final candidates = <_ThermoScanCandidate>[
-      ..._splitSevenSegmentCandidates(text),
-      ..._numericTokenCandidates(text),
+      for (final text in texts) ...[
+        ..._splitSevenSegmentCandidates(text),
+        ..._numericTokenCandidates(text),
+      ],
     ];
-    candidates.sort((a, b) => b.score.compareTo(a.score));
-    return candidates.firstOrNull?.celsius;
+    if (candidates.isEmpty) return const ThermoScanReadingEstimate();
+
+    final clusters = <_ThermoScanCandidateCluster>[];
+    for (final candidate in candidates) {
+      _ThermoScanCandidateCluster? matchedCluster;
+      for (final cluster in clusters) {
+        if ((cluster.averageCelsius - candidate.celsius).abs() <=
+            kThermoScanConsensusToleranceCelsius) {
+          matchedCluster = cluster;
+          break;
+        }
+      }
+      matchedCluster ??= _ThermoScanCandidateCluster()..add(candidate);
+      if (!clusters.contains(matchedCluster)) {
+        clusters.add(matchedCluster);
+      } else {
+        matchedCluster.add(candidate);
+      }
+    }
+
+    clusters.sort((a, b) => b.clusterScore.compareTo(a.clusterScore));
+    final best = clusters.first;
+    final confidenceScore = best.confidenceScore;
+    return ThermoScanReadingEstimate(
+      readingCelsius: best.averageCelsius,
+      confidence: _confidenceForScore(confidenceScore),
+      confidenceScore: confidenceScore,
+      supportingReadings: best.count,
+    );
+  }
+
+  static ThermoScanOcrConfidence _confidenceForScore(double score) {
+    if (score >= 0.82) return ThermoScanOcrConfidence.high;
+    if (score >= 0.62) return ThermoScanOcrConfidence.medium;
+    if (score > 0) return ThermoScanOcrConfidence.low;
+    return ThermoScanOcrConfidence.none;
   }
 
   static Iterable<_ThermoScanCandidate> _numericTokenCandidates(String text) {
@@ -378,15 +556,27 @@ class OcrService {
     final candidates = <_ThermoScanCandidate>[];
     final normalizedUnit = unit?.toUpperCase();
 
-    void addCelsius(double temp, int score) {
+    void addCelsius(double temp, int score, {bool recoveredDecimal = false}) {
       if (_isReasonableCelsius(temp)) {
-        candidates.add(_ThermoScanCandidate(temp, score));
+        candidates.add(
+          _ThermoScanCandidate(temp, score, recoveredDecimal: recoveredDecimal),
+        );
       }
     }
 
-    void addFahrenheit(double temp, int score) {
+    void addFahrenheit(
+      double temp,
+      int score, {
+      bool recoveredDecimal = false,
+    }) {
       if (_isReasonableFahrenheit(temp)) {
-        candidates.add(_ThermoScanCandidate(_fahrenheitToCelsius(temp), score));
+        candidates.add(
+          _ThermoScanCandidate(
+            _fahrenheitToCelsius(temp),
+            score,
+            recoveredDecimal: recoveredDecimal,
+          ),
+        );
       }
     }
 
@@ -403,13 +593,13 @@ class OcrService {
     final recovered = _recoverMissedDecimal(rawValue);
     if (recovered != null && recovered != value) {
       if (normalizedUnit == 'C') {
-        addCelsius(recovered, baseScore + 10);
+        addCelsius(recovered, baseScore + 10, recoveredDecimal: true);
       } else if (normalizedUnit == 'F') {
-        addFahrenheit(recovered, baseScore + 10);
+        addFahrenheit(recovered, baseScore + 10, recoveredDecimal: true);
       } else if (recovered >= 45) {
-        addFahrenheit(recovered, baseScore - 5);
+        addFahrenheit(recovered, baseScore - 5, recoveredDecimal: true);
       } else {
-        addCelsius(recovered, baseScore - 5);
+        addCelsius(recovered, baseScore - 5, recoveredDecimal: true);
       }
     }
 
@@ -442,10 +632,58 @@ class OcrService {
 }
 
 class _ThermoScanCandidate {
-  const _ThermoScanCandidate(this.celsius, this.score);
+  const _ThermoScanCandidate(
+    this.celsius,
+    this.score, {
+    this.recoveredDecimal = false,
+  });
 
   final double celsius;
   final int score;
+  final bool recoveredDecimal;
+}
+
+class _ThermoScanCandidateCluster {
+  final List<_ThermoScanCandidate> _candidates = [];
+
+  int get count => _candidates.length;
+
+  double get averageCelsius {
+    if (_candidates.isEmpty) return 0;
+    final total = _candidates.fold<double>(
+      0,
+      (sum, candidate) => sum + candidate.celsius,
+    );
+    return total / _candidates.length;
+  }
+
+  int get bestCandidateScore {
+    return _candidates.fold<int>(
+      0,
+      (best, candidate) => math.max(best, candidate.score),
+    );
+  }
+
+  bool get hasRecoveredDecimal {
+    return _candidates.any((candidate) => candidate.recoveredDecimal);
+  }
+
+  double get clusterScore {
+    return bestCandidateScore + (count * 36);
+  }
+
+  double get confidenceScore {
+    if (_candidates.isEmpty) return 0;
+    if (count >= 2) {
+      return math.min(1, 0.82 + (count - 2) * 0.06);
+    }
+    final base = bestCandidateScore >= 100 ? 0.74 : 0.66;
+    return hasRecoveredDecimal ? math.min(base, 0.7) : base;
+  }
+
+  void add(_ThermoScanCandidate candidate) {
+    _candidates.add(candidate);
+  }
 }
 
 Future<Map<String, Object?>> _preprocessThermoScanImageForOcr(
@@ -496,9 +734,9 @@ Future<Map<String, Object?>> _preprocessThermoScanImageForOcr(
       }
     }
 
-    final grayscaled = image.grayscale(cropped);
-    final contrasted = image.contrast(grayscaled, contrast: 112);
-    final outputBytes = image.encodeJpg(contrasted, quality: 86);
+    final variant = _preprocessVariantFromName(args['variant'] as String?);
+    final prepared = _prepareVariantImage(cropped, variant);
+    final outputBytes = image.encodeJpg(prepared, quality: 86);
     await File(outputPath).writeAsBytes(outputBytes, flush: true);
     return _preprocessResult(
       prepared: true,
@@ -540,6 +778,46 @@ Map<String, Object?> _preprocessResult({
   'qualityChecksRan': qualityChecksRan,
   'qualityChecksFailed': qualityChecksFailed,
 };
+
+_ThermoScanPreprocessVariant _preprocessVariantFromName(String? name) {
+  for (final variant in _ThermoScanPreprocessVariant.values) {
+    if (variant.name == name) return variant;
+  }
+  return _ThermoScanPreprocessVariant.balanced;
+}
+
+image.Image _prepareVariantImage(
+  image.Image cropped,
+  _ThermoScanPreprocessVariant variant,
+) {
+  final grayscaled = image.grayscale(cropped);
+  return switch (variant) {
+    _ThermoScanPreprocessVariant.balanced => image.contrast(
+      grayscaled,
+      contrast: 112,
+    ),
+    _ThermoScanPreprocessVariant.highContrast => image.contrast(
+      grayscaled,
+      contrast: 138,
+    ),
+    _ThermoScanPreprocessVariant.binary => _thresholdImage(
+      image.contrast(grayscaled, contrast: 132),
+    ),
+  };
+}
+
+image.Image _thresholdImage(image.Image source) {
+  final thresholded = image.Image.from(source);
+  for (final pixel in thresholded) {
+    final value = _luma(pixel) >= 128 ? 255 : 0;
+    pixel
+      ..r = value
+      ..g = value
+      ..b = value
+      ..a = 255;
+  }
+  return thresholded;
+}
 
 ({int x, int y, int width, int height}) _cropRectForImage(
   image.Image normalized,

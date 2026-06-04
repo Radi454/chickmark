@@ -1253,9 +1253,25 @@ longer writes separate generic Temp/RH session or reading rows.
 
 OCR uses Google ML Kit text recognition when available, with preprocessing,
 quality checks, timeouts, and temporary-file cleanup for thermometer scan
-capture. OCR and photo pick/save/delete failures keep the same recoverable
-return behavior and emit debug logs in development builds instead of silently
-discarding the failure context.
+capture. Thermometer OCR reads the balanced crop first and returns that primary
+result immediately when it parses a plausible temperature. High-contrast and
+binary-threshold crop variants are used as fallbacks only when the primary OCR
+text has no accepted reading. Fallback outputs are combined with the primary OCR
+text through a confidence-scored consensus of plausible Celsius/Fahrenheit
+candidates. Single recovered-decimal readings remain accepted with lower
+confidence, while repeated matching fallback outputs produce high confidence.
+Guided thermometer auto-scan uses a shared 1.8-second capture/OCR interval
+across EST and CVT screens to reduce repeated camera and ML work on mobile
+devices while scanning. Inline scanner captures pass the visible scan-frame crop
+to OCR, and auto-scan attempts use the primary crop without fallback fan-out so a
+missed frame retries on the next timer tick instead of doing extra ML work in the
+same tick. Inline camera focus and exposure are configured after initialization
+instead of before every capture to avoid repeated focus hunting during auto-scan.
+OCR correction telemetry is not currently stored. OCR and photo pick/save/delete
+failures keep the same recoverable return behavior and emit debug logs in
+development builds instead of silently discarding the failure context. Thermometer
+OCR debug logs include attempted variant count, confidence, and accepted Celsius
+reading when available so mobile runs can confirm the active OCR path.
 
 ## 8. Known Technical Debt
 
@@ -1275,6 +1291,10 @@ discarding the failure context.
 
 ## 9. Change Log
 
+- 2026-06-04: Enhanced thermometer OCR with primary-first fallback
+  preprocessing, confidence-scored reading consensus, a shared lower-CPU
+  auto-scan cadence, and testable OCR-reader injection while leaving correction
+  telemetry out of scope.
 - 2026-06-03: Debounced Chicks weight-sheet calculation commits so keypad entry
   updates the draft after a short pause or sheet close instead of rebuilding the
   full Chicks station on every tap.

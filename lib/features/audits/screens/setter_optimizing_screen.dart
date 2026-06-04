@@ -54,7 +54,7 @@ enum _EstScanAction { confirm, retake, skip }
 
 class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     with WidgetsBindingObserver {
-  static const Duration _estAutoScanInterval = Duration(milliseconds: 1000);
+  static const Duration _estAutoScanInterval = kThermoScanAutoScanInterval;
   static const TextStyle _prominentFloatingLabelStyle = TextStyle(
     color: AppColors.primary,
     fontSize: 14,
@@ -392,6 +392,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
     _batchCountController.dispose();
     _turningAngleController.dispose();
     _co2Controller.dispose();
+    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -1463,7 +1464,11 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       return;
     }
 
-    final reading = await _recognizeThermoScanReadingFahrenheit(sourcePath);
+    final reading = await _recognizeThermoScanReadingFahrenheit(
+      sourcePath,
+      cropFrame: inlineCamera?.ocrCropFrame,
+      fanOutVariants: false,
+    );
     if (!_isCurrentEstCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(sourcePath));
       return;
@@ -1596,7 +1601,12 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
       return;
     }
 
-    final reading = await _recognizeThermoScanReadingFahrenheit(savedPath);
+    final reading = await _recognizeThermoScanReadingFahrenheit(
+      savedPath,
+      cropFrame: shouldUseNativeCamera
+          ? null
+          : _estCameraKey.currentState?.ocrCropFrame,
+    );
     if (!_isCurrentEstCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(savedPath));
       return;
@@ -1958,10 +1968,14 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen>
   }
 
   Future<double?> _recognizeThermoScanReadingFahrenheit(
-    String imagePath,
-  ) async {
+    String imagePath, {
+    ThermoScanCropFrame? cropFrame,
+    bool fanOutVariants = true,
+  }) async {
     final celsius = await _ocrService.recognizeThermoScanReadingCelsius(
       imagePath,
+      cropFrame: cropFrame,
+      fanOutVariants: fanOutVariants,
     );
     if (celsius == null) return null;
     return TempConverter.toFahrenheit(celsius);

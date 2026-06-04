@@ -58,7 +58,7 @@ class _CvtTabState extends State<CvtTab> {
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
 
-  static const Duration _autoScanInterval = Duration(milliseconds: 1200);
+  static const Duration _autoScanInterval = kThermoScanAutoScanInterval;
 
   EstGuidedCaptureState? _captureState;
   String? _highlightedKey;
@@ -100,6 +100,7 @@ class _CvtTabState extends State<CvtTab> {
       node.dispose();
     }
     _guidedValueController.dispose();
+    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -546,6 +547,8 @@ class _CvtTabState extends State<CvtTab> {
 
     final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
       sourcePath,
+      cropFrame: inlineCamera?.ocrCropFrame,
+      fanOutVariants: false,
     );
     if (!_isCurrentCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(sourcePath));
@@ -639,6 +642,9 @@ class _CvtTabState extends State<CvtTab> {
 
     final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
       savedPath,
+      cropFrame: shouldUseNativeCamera
+          ? null
+          : _cameraKey.currentState?.ocrCropFrame,
     );
     if (!_isCurrentCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(savedPath));

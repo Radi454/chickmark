@@ -50,7 +50,7 @@ class HatcherOptimizingScreen extends StatefulWidget {
 }
 
 class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
-  static const Duration _cvtAutoScanInterval = Duration(milliseconds: 1200);
+  static const Duration _cvtAutoScanInterval = kThermoScanAutoScanInterval;
 
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
@@ -248,6 +248,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _setpointController.dispose();
     _setpointRhController.dispose();
     _co2Controller.dispose();
+    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -1175,7 +1176,11 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       return;
     }
 
-    final reading = await _recognizeThermoScanReadingFahrenheit(sourcePath);
+    final reading = await _recognizeThermoScanReadingFahrenheit(
+      sourcePath,
+      cropFrame: inlineCamera?.ocrCropFrame,
+      fanOutVariants: false,
+    );
     if (!_isCurrentCvtCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(sourcePath));
       return;
@@ -1263,7 +1268,12 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       return;
     }
 
-    final reading = await _recognizeThermoScanReadingFahrenheit(savedPath);
+    final reading = await _recognizeThermoScanReadingFahrenheit(
+      savedPath,
+      cropFrame: shouldUseNativeCamera
+          ? null
+          : _cvtCameraKey.currentState?.ocrCropFrame,
+    );
     if (!_isCurrentCvtCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(savedPath));
       return;
@@ -1600,8 +1610,16 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     }
   }
 
-  Future<double?> _recognizeThermoScanReadingFahrenheit(String path) async {
-    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(path);
+  Future<double?> _recognizeThermoScanReadingFahrenheit(
+    String path, {
+    ThermoScanCropFrame? cropFrame,
+    bool fanOutVariants = true,
+  }) async {
+    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
+      path,
+      cropFrame: cropFrame,
+      fanOutVariants: fanOutVariants,
+    );
     if (readingC == null) return null;
     return TempConverter.toFahrenheit(readingC);
   }

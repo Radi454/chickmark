@@ -53,7 +53,6 @@ class InlineCameraCapture extends StatefulWidget {
 class InlineCameraCaptureState extends State<InlineCameraCapture>
     with WidgetsBindingObserver {
   static const Duration _cameraInitTimeout = Duration(seconds: 5);
-  static const Duration _focusSettleDelay = Duration(milliseconds: 120);
   static const Duration _captureCooldown = Duration(milliseconds: 400);
 
   CameraController? _controller;
@@ -119,8 +118,6 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
       }
       await _waitForCaptureCooldown();
       if (!mounted || _cameraPaused || _errorMessage != null) return null;
-      await _prepareCameraForCapture(controller);
-      if (!mounted || _cameraPaused || _errorMessage != null) return null;
       final file = await controller.takePicture();
       _lastCaptureAt = DateTime.now();
       return file.path;
@@ -162,7 +159,10 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
     await Future.delayed(_captureCooldown - elapsed);
   }
 
-  Future<void> _prepareCameraForCapture(CameraController controller) async {
+  /// Configures continuous auto-focus/exposure on the scan frame center ONCE
+  /// after init. Re-triggering these per capture makes the camera hunt focus,
+  /// which is the main source of auto-scan lag and CPU load.
+  Future<void> _configureCameraForScanning(CameraController controller) async {
     try {
       await controller.setFocusMode(FocusMode.auto);
     } catch (_) {
@@ -183,7 +183,6 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
     } catch (_) {
       // Exposure point APIs are device-dependent; capture should still continue.
     }
-    await Future.delayed(_focusSettleDelay);
   }
 
   Future<void> _initializeCamera({bool notifyState = true}) async {
@@ -240,6 +239,11 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
       }
 
       await _disposeController(notifyReady: false);
+      if (!_isActiveGeneration(generation)) {
+        await controller.dispose();
+        return;
+      }
+      await _configureCameraForScanning(controller);
       if (!_isActiveGeneration(generation)) {
         await controller.dispose();
         return;

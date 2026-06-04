@@ -80,7 +80,7 @@ class EggStorageStationController {
 
 class _EggStorageScreenState extends State<EggStorageScreen>
     with WidgetsBindingObserver {
-  static const Duration _estAutoScanInterval = Duration(milliseconds: 1000);
+  static const Duration _estAutoScanInterval = kThermoScanAutoScanInterval;
 
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
@@ -367,6 +367,7 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     for (final focusNode in _eggScopeIdentityFocusNodes.values) {
       focusNode.dispose();
     }
+    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -2234,6 +2235,8 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     final reading = await _ocrService.recognizeThermoScanReadingCelsius(
       sourcePath,
+      cropFrame: inlineCamera?.ocrCropFrame,
+      fanOutVariants: false,
     );
     if (!_isCurrentEstCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(sourcePath));
@@ -2369,6 +2372,9 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     final reading = await _ocrService.recognizeThermoScanReadingCelsius(
       savedPath,
+      cropFrame: shouldUseNativeCamera
+          ? null
+          : _estCameraKey.currentState?.ocrCropFrame,
     );
     if (!_isCurrentEstCaptureGeneration(generation)) {
       unawaited(_photoService.deletePhoto(savedPath));
