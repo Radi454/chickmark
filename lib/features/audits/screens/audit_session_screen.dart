@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/security/safe_debug_log.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
@@ -93,6 +95,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!AuditAccess.allowed(context)) return const AuditAccessDenied();
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -758,6 +761,18 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final wasSessionCompleted = provider.isSessionComplete;
     final isLast =
         provider.currentStationIndex == provider.stationKeys.length - 1;
+
+    // Reviewing a completed visit: Next is pure navigation. Skipping the
+    // save/validate path keeps already-completed stations from being un-marked
+    // when their persisted data no longer satisfies the latest core-data rules.
+    if (wasSessionCompleted && !isLast) {
+      provider.goToNextStation();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        provider.stationTransitionComplete();
+      });
+      return;
+    }
+
     final decision = await _confirmStationExit(
       intent: isLast
           ? _StationExitIntent.finalSave
@@ -1054,7 +1069,16 @@ class _StationFrameState extends State<_StationFrame> {
         stationAudits: stationAudits,
         stationSamples: samples,
       );
-    } catch (_) {
+    } catch (e, st) {
+      // Never silently swallow a reconstruction failure: a thrown mapper or
+      // malformed row would otherwise look identical to "no saved data" and
+      // leave the station blank with no trace. Log, then degrade to empty.
+      safeDebugLog(
+        'Failed reconstructing panel data for station ${widget.stationKey} '
+        '(session ${widget.sessionId})',
+        error: e,
+        stackTrace: st,
+      );
       return const _StationInitialData();
     }
   }

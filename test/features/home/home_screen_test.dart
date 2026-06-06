@@ -69,7 +69,9 @@ void main() {
       tester.getCenter(appBarLogo).dx,
       lessThan(tester.getCenter(title).dx),
     );
-    expect(tester.getSize(appBarLogo).height, lessThanOrEqualTo(32));
+    // The app-bar brand mark is an egg-shaped badge (40×52) — taller than the
+    // old inline 30px logo. Guard that it still fits within the toolbar.
+    expect(tester.getSize(appBarLogo).height, lessThanOrEqualTo(52));
   });
 
   testWidgets('active flocks KPI uses a poultry flock icon', (tester) async {

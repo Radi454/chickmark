@@ -23,6 +23,11 @@ class EstGridWidget extends StatelessWidget {
   final ValueChanged<String>? onMissingPhotoRequested;
   final ValueChanged<String>? onClearRequested;
 
+  /// When non-null, tapping a cell reports its key (tap-to-select). Used by the
+  /// full-screen OCR capture flow; null on the inline audit-screen grids so
+  /// taps keep focusing the field for manual entry (unchanged behaviour).
+  final ValueChanged<String>? onCellSelected;
+
   /// Display label shown above the grid, e.g. 'Shell Temperature (°C) - Optimum: 19-21 °C'
   final String? title;
 
@@ -49,6 +54,7 @@ class EstGridWidget extends StatelessWidget {
     required this.onPhotoCaptured,
     this.onMissingPhotoRequested,
     this.onClearRequested,
+    this.onCellSelected,
     this.title,
     this.tempStatusFn,
     this.tempZoneFn,
@@ -209,7 +215,7 @@ class EstGridWidget extends StatelessWidget {
     final canClear =
         enabled && onClearRequested != null && (hasValue || hasPhoto);
 
-    return AnimatedContainer(
+    final cell = AnimatedContainer(
       duration: const Duration(milliseconds: 260),
       constraints: BoxConstraints(minHeight: showPhotoCapture ? 52 : 82),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
@@ -292,6 +298,14 @@ class EstGridWidget extends StatelessWidget {
             ),
         ],
       ),
+    );
+
+    if (onCellSelected == null) return cell;
+    return GestureDetector(
+      key: ValueKey('est-grid-cell-$key'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onCellSelected!(key),
+      child: cell,
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
+import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -463,6 +464,36 @@ void main() {
     expect(entries.first['yolkWeight'], 4.0);
   });
 
+  testWidgets('CVT Scan readings launches the reusable OCR capture screen', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-cvt')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chick Vent Temperature'));
+    await tester.pumpAndSettle();
+
+    final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+    await tester.ensureVisible(scanButton);
+    await tester.tap(scanButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(OcrCaptureScreen), findsOneWidget);
+    expect(find.text('Step 1 of 9'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(OcrCaptureScreen), findsNothing);
+  });
+
   testWidgets('CVT uses an EST-style grid with target and capture action', (
     tester,
   ) async {
@@ -476,7 +507,7 @@ void main() {
     await tester.tap(find.text('Chick Vent Temperature'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Guided CVT capture'), findsOneWidget);
+    expect(find.text('Scan readings'), findsOneWidget);
     expect(find.text('103-105°F / 39.4-40.6°C'), findsOneWidget);
     expect(find.byKey(const ValueKey('cvt-temperature-grid')), findsOneWidget);
     expect(find.byKey(const ValueKey('cvt-unit-toggle')), findsNothing);

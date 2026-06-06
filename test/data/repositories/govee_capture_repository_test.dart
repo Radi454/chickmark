@@ -151,13 +151,20 @@ void main() {
           whereArgs: [oldCapture.id],
         ),
       ).called(1);
-      verify(
-        () => txn.insert('govee_daily_captures', {
-          ...newCapture.toMap(),
-          'machineId': '',
-          'chartPointsJson': GoveePlaceReadingModel.listToJson(newReadings),
-        }),
-      ).called(1);
+      // The local write is stamped dirty: syncStatus=pending + a non-deterministic
+      // dirtyAt timestamp. Capture the row and assert the rest matches.
+      final inserted =
+          verify(
+                () => txn.insert('govee_daily_captures', captureAny()),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(inserted['syncStatus'], 'pending');
+      expect(inserted['dirtyAt'], isNotNull);
+      expect({...inserted, 'dirtyAt': null}, {
+        ...newCapture.toMap(),
+        'machineId': '',
+        'chartPointsJson': GoveePlaceReadingModel.listToJson(newReadings),
+      });
       verifyNever(
         () => txn.insert(
           'govee_spot_captures',

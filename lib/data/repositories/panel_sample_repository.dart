@@ -23,7 +23,7 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
+          _stampDirty(await _withoutOrphanedPanelHatcheryId(txn, panel.toMap())),
         );
         return;
       }
@@ -31,9 +31,11 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          await _withoutOrphanedPanelHatcheryId(
-            txn,
-            _rowFromLegacySample(panel, sample),
+          _stampDirty(
+            await _withoutOrphanedPanelHatcheryId(
+              txn,
+              _rowFromLegacySample(panel, sample),
+            ),
           ),
         );
       }
@@ -384,11 +386,115 @@ class PanelSampleRepository {
     return Map<String, dynamic>.from(rows.first);
   }
 
+  /// Sync-pull write: rows arriving from Supabase are in sync with the cloud,
+  /// so mark them synced. Only reached when the conflict check let the remote
+  /// row win (a newer local edit short circuits earlier, keeping it pending).
   Future<void> upsertPanelRow(
     String tableName,
     Map<String, dynamic> row,
   ) async {
-    await upsertRow(tableName: tableName, row: _normalizeRow(row));
+    await upsertRow(
+      tableName: tableName,
+      row: _markRowSynced(_normalizeRow(row)),
+    );
+  }
+
+  /// Panel rows awaiting a push (locally edited or last push failed).
+  Future<List<Map<String, dynamic>>> getDirtyRows(String tableName) async {
+    final definition = PanelSampleSchema.byTable(tableName);
+    final database = await _databaseHelper.db;
+    final rows = await database.query(
+      definition.tableName,
+      where: "syncStatus IN ('pending', 'failed')",
+      orderBy: 'dirtyAt ASC',
+    );
+    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  Future<void> markRowsSynced(String tableName, Iterable<String> ids) async {
+    final idList = ids.toList(growable: false);
+    if (idList.isEmpty) return;
+    final definition = PanelSampleSchema.byTable(tableName);
+    final database = await _databaseHelper.db;
+    final placeholders = List.filled(idList.length, '?').join(', ');
+    await database.update(
+      definition.tableName,
+      {
+        'syncStatus': 'synced',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+        'dirtyAt': null,
+        'syncError': null,
+      },
+      where: 'id IN ($placeholders)',
+      whereArgs: idList,
+    );
+  }
+
+  Future<void> markRowsFailed(
+    String tableName,
+    Iterable<String> ids,
+    Object error,
+  ) async {
+    final idList = ids.toList(growable: false);
+    if (idList.isEmpty) return;
+    final definition = PanelSampleSchema.byTable(tableName);
+    final database = await _databaseHelper.db;
+    final placeholders = List.filled(idList.length, '?').join(', ');
+    await database.update(
+      definition.tableName,
+      {'syncStatus': 'failed', 'syncError': error.toString()},
+      where: 'id IN ($placeholders)',
+      whereArgs: idList,
+    );
+  }
+
+  /// Per-session, per-panel-table sync rollup for the Audits screen. Runs one
+  /// grouped query per panel table (constant — no N+1 over sessions) and returns
+  /// `sessionId -> tableName -> syncStatus -> count`. Callers fold table names
+  /// into stations and statuses into a single station/session rollup.
+  Future<Map<String, Map<String, Map<String, int>>>>
+  getStationRollupForSessions(Iterable<String> sessionIds) async {
+    final ids = sessionIds.toList(growable: false);
+    final result = <String, Map<String, Map<String, int>>>{};
+    if (ids.isEmpty) return result;
+    final database = await _databaseHelper.db;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    for (final panel in PanelSampleSchema.panels) {
+      final rows = await database.rawQuery(
+        'SELECT sessionId, syncStatus, COUNT(*) AS c FROM ${panel.tableName} '
+        'WHERE sessionId IN ($placeholders) GROUP BY sessionId, syncStatus',
+        ids,
+      );
+      for (final row in rows) {
+        final sessionId = row['sessionId'] as String?;
+        if (sessionId == null) continue;
+        final status = (row['syncStatus'] as String?) ?? 'synced';
+        final count = (row['c'] as int?) ?? 0;
+        final byTable = result.putIfAbsent(sessionId, () => {});
+        final byStatus = byTable.putIfAbsent(panel.tableName, () => {});
+        byStatus[status] = (byStatus[status] ?? 0) + count;
+      }
+    }
+    return result;
+  }
+
+  Map<String, Object?> _stampDirty(Map<String, Object?> row) {
+    return {
+      ...row,
+      'syncStatus': 'pending',
+      'dirtyAt': DateTime.now().toIso8601String(),
+      'syncError': null,
+    };
+  }
+
+  Map<String, Object?> _markRowSynced(Map<String, Object?> row) {
+    return {
+      ...row,
+      'syncStatus': 'synced',
+      'lastSyncedAt': DateTime.now().toIso8601String(),
+      'dirtyAt': null,
+      'syncError': null,
+    };
   }
 
   @Deprecated('Panel sample child tables were removed.')

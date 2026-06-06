@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
@@ -67,6 +68,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!AuditAccess.allowed(context)) return const AuditAccessDenied();
     final customersProvider = context.watch<CustomersProvider>();
     final customers = customersProvider.filteredCustomers;
 

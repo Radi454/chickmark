@@ -17,12 +17,11 @@ import '../../../../providers/app_provider.dart';
 import '../../../../services/ocr/ocr_service.dart';
 import '../../../../services/photo/photo_service.dart';
 import '../../models/est_grid_data.dart';
-import '../../models/est_guided_capture_state.dart';
+import '../../ocr_capture/ocr_capture_config.dart';
+import '../../ocr_capture/ocr_capture_launcher.dart';
 import '../../providers/audit_provider.dart';
 import '../audit_numeric_keyboard.dart';
 import '../est_grid_widget.dart';
-import '../est_guided_capture_panel.dart';
-import '../inline_camera_capture.dart';
 
 class CvtTab extends StatefulWidget {
   final AuditModel audit;
@@ -52,22 +51,10 @@ class _CvtTabState extends State<CvtTab> {
   final Map<String, String?> _photos = {
     for (final key in EstGridData.scanKeys) key: null,
   };
-  final GlobalKey<InlineCameraCaptureState> _cameraKey = GlobalKey();
-  final TextEditingController _guidedValueController = TextEditingController();
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
 
-  static const Duration _autoScanInterval = kThermoScanAutoScanInterval;
-
-  EstGuidedCaptureState? _captureState;
-  String? _highlightedKey;
-  bool _inlineCameraUnavailable = false;
-  bool _inlineCameraReady = false;
-  bool _isConfirmingCapture = false;
-  int _captureGeneration = 0;
-  int _successPulse = 0;
-  Timer? _autoScanTimer;
   @override
   void initState() {
     super.initState();
@@ -83,23 +70,18 @@ class _CvtTabState extends State<CvtTab> {
       _clearGrid();
       _loadReadings(widget.audit);
       _loadPhotos(widget.audit);
-      _captureState = null;
-      _highlightedKey = null;
-      _guidedValueController.clear();
       _updateCalculations(notify: false);
     }
   }
 
   @override
   void dispose() {
-    _autoScanTimer?.cancel();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
     for (final node in _focusNodes.values) {
       node.dispose();
     }
-    _guidedValueController.dispose();
     unawaited(_ocrService.dispose());
     super.dispose();
   }
@@ -258,31 +240,6 @@ class _CvtTabState extends State<CvtTab> {
     };
   }
 
-  void _toggleGuidedCapture() {
-    if (_captureState == null) {
-      _nextCaptureGeneration();
-      setState(() {
-        _captureState = EstGuidedCaptureState.initial(
-          readings: _currentReadingsF(),
-          photos: _currentPhotoPaths(),
-        );
-        _guidedValueController.clear();
-        _highlightedKey = null;
-        _inlineCameraUnavailable = false;
-        _inlineCameraReady = false;
-        _isConfirmingCapture = false;
-      });
-      return;
-    }
-    _finishInlineCapture(showMessage: false);
-  }
-
-  int _nextCaptureGeneration() => ++_captureGeneration;
-
-  bool _isCurrentCaptureGeneration(int generation) {
-    return mounted && generation == _captureGeneration;
-  }
-
   @override
   Widget build(BuildContext context) {
     final readings = _currentReadingsF();
@@ -334,17 +291,12 @@ class _CvtTabState extends State<CvtTab> {
               children: [
                 _buildGridHeader(),
                 const SizedBox(height: 12),
-                if (_captureState != null) ...[
-                  _buildInlineCapturePanel(context.read<AuditProvider>()),
-                  const SizedBox(height: 12),
-                ],
                 EstGridWidget(
                   key: const ValueKey('cvt-temperature-grid'),
                   controllers: _controllers,
                   focusNodes: _focusNodes,
                   photos: _photos,
                   enabled: !widget.isReadOnly,
-                  highlightedKey: _highlightedKey,
                   showPhotoCapture: false,
                   unitSuffix: '°F',
                   tempStatusFn: CalculationUtils.cvtStatus,
@@ -400,52 +352,12 @@ class _CvtTabState extends State<CvtTab> {
         Align(
           alignment: Alignment.centerRight,
           child: OutlinedButton.icon(
-            onPressed: widget.isReadOnly ? null : _toggleGuidedCapture,
-            icon: Icon(
-              _captureState == null ? Icons.photo_camera : Icons.close,
-            ),
-            label: Text(
-              _captureState == null ? 'Guided CVT capture' : 'Close capture',
-            ),
+            onPressed: widget.isReadOnly ? null : _openCapture,
+            icon: const Icon(Icons.document_scanner_outlined),
+            label: const Text('Scan readings'),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildInlineCapturePanel(AuditProvider provider) {
-    final state = _captureState!;
-    return EstGuidedCapturePanel(
-      state: state,
-      valueController: _guidedValueController,
-      unitSuffix: '°F',
-      targetLabelBuilder: _targetLabel,
-      preview: InlineCameraCapture(
-        key: _cameraKey,
-        capturedImagePath: state.capturedImagePath,
-        isScanning: state.capturedImagePath == null,
-        successPulse: _successPulse,
-        onCameraReadyChanged: _handleInlineCameraReadyChanged,
-        onCameraError: _handleInlineCameraError,
-      ),
-      useCameraAppForCapture: _inlineCameraUnavailable,
-      canAutoScan: _inlineCameraReady && !_inlineCameraUnavailable,
-      isConfirming: _isConfirmingCapture,
-      onCapture: () => unawaited(_captureInlineReading(useNativeCamera: false)),
-      onUseNativeCamera: () =>
-          unawaited(_captureInlineReading(useNativeCamera: true)),
-      onAutoScan: _startAutoScan,
-      onStopAutoScan: () => _stopAutoScan(message: 'Auto scan stopped.'),
-      onRetake: _retakeInlineCapture,
-      onSkip: _skipInlineCapture,
-      onFinish: _finishInlineCapture,
-      onValueChanged: (value) {
-        final current = _captureState;
-        if (current == null) return;
-        setState(() => _captureState = current.valueEdited(value));
-      },
-      onConfirm: () => unawaited(_confirmInlineCapture(provider)),
-      onRejectAutoScanReading: _rejectInlineAutoScanReading,
     );
   }
 
@@ -475,287 +387,37 @@ class _CvtTabState extends State<CvtTab> {
     );
   }
 
-  void _startAutoScan() {
-    final current = _captureState;
-    if (current == null ||
-        current.isProcessing ||
-        current.isOcrProcessing ||
-        !_inlineCameraReady ||
-        _inlineCameraUnavailable) {
-      return;
-    }
-
-    _nextCaptureGeneration();
-    final nextState = current.startAutoScan();
-    setState(() {
-      _captureState = nextState;
-      if (nextState.isAutoScanning) _guidedValueController.clear();
+  /// Launch the reusable full-screen OCR capture flow (CVT, °F), pre-populated
+  /// with the current grid, then merge confirmed readings via [_savePoint]
+  /// (+ evidence photo records). Persistence + sync unchanged.
+  Future<void> _openCapture() async {
+    if (widget.isReadOnly) return;
+    final result = await OcrCaptureLauncher.push(
+      context,
+      OcrCaptureConfig(
+        title: 'Chick Vent Temperature',
+        unitSuffix: '°F',
+        convertCelsiusToFahrenheit: true,
+        initialReadings: _currentReadingsF(),
+        initialPhotos: _currentPhotoPaths(),
+        tempStatusFn: CalculationUtils.cvtStatus,
+        tempZoneFn: CalculationUtils.cvtZone,
+        targetLabelBuilder: _targetLabel,
+        readOnly: widget.isReadOnly,
+      ),
+      ocrService: _ocrService,
+      photoService: _photoService,
+    );
+    if (result == null || result.isEmpty || !mounted) return;
+    final draftId = context.read<AuditProvider>().activeDraft.id;
+    OcrCaptureLauncher.apply(result, (key, path, value) {
+      _savePoint(key, path, value);
+      if (path.isNotEmpty) unawaited(_saveEvidencePhotoRecord(draftId, path));
     });
-
-    if (nextState.isAutoScanning) _ensureAutoScanTimer();
-  }
-
-  void _ensureAutoScanTimer() {
-    if (_autoScanTimer?.isActive ?? false) return;
-    _autoScanTimer = Timer.periodic(_autoScanInterval, (_) {
-      unawaited(_runAutoScanAttempt());
-    });
-  }
-
-  void _cancelAutoScanTimer() {
-    _autoScanTimer?.cancel();
-    _autoScanTimer = null;
-  }
-
-  void _stopAutoScan({String? message}) {
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    final current = _captureState;
-    if (!mounted || current == null) return;
-    setState(() => _captureState = current.stopAutoScan(message: message));
-  }
-
-  Future<void> _runAutoScanAttempt() async {
     if (!mounted) return;
-    final current = _captureState;
-    if (current == null || !current.canStartOcrAttempt) return;
-    final generation = _captureGeneration;
-
-    setState(() => _captureState = current.autoScanAttemptStarted());
-
-    final inlineCamera = _cameraKey.currentState;
-    final sourcePath = await inlineCamera?.takePictureForAutoScan();
-    if (!_isCurrentCaptureGeneration(generation)) {
-      if (sourcePath != null) unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    if (sourcePath == null) {
-      _cancelAutoScanTimer();
-      final state = _captureState;
-      if (state == null) return;
-      setState(() {
-        if (inlineCamera?.hasCameraError ?? false) {
-          _inlineCameraUnavailable = true;
-        }
-        _captureState = state.stopAutoScan(
-          message: 'Auto scan stopped. Use Capture or Camera app.',
-        );
-      });
-      return;
-    }
-
-    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
-      sourcePath,
-      cropFrame: inlineCamera?.ocrCropFrame,
-      fanOutVariants: false,
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Saved ${result.readings.length} CVT readings.')),
     );
-    if (!_isCurrentCaptureGeneration(generation)) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    final state = _captureState;
-    if (state == null) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    final reading = readingC == null
-        ? null
-        : TempConverter.toFahrenheit(readingC);
-
-    if (reading == null) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      setState(() {
-        _guidedValueController.clear();
-        _captureState = state.autoScanAttemptResolved(
-          photoPath: sourcePath,
-          ocrValue: null,
-        );
-      });
-      return;
-    }
-
-    _cancelAutoScanTimer();
-    setState(() {
-      _guidedValueController.text = reading.toStringAsFixed(1);
-      _captureState = state.autoScanAttemptResolved(
-        photoPath: sourcePath,
-        ocrValue: reading,
-      );
-    });
-  }
-
-  Future<void> _captureInlineReading({required bool useNativeCamera}) async {
-    final current = _captureState;
-    if (current == null ||
-        current.isProcessing ||
-        current.isOcrProcessing ||
-        _isConfirmingCapture) {
-      return;
-    }
-
-    final generation = _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    _discardUnconfirmedPhoto(current);
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _captureState = current.captureStarted();
-      _guidedValueController.clear();
-    });
-
-    String? savedPath;
-    final shouldUseNativeCamera = useNativeCamera || _inlineCameraUnavailable;
-    var usedInlineFallback = false;
-    if (shouldUseNativeCamera) {
-      savedPath = await _photoService.pickPhoto(fromCamera: true);
-    } else {
-      final inlineCamera = _cameraKey.currentState;
-      final sourcePath = await inlineCamera?.takePicture();
-      if (sourcePath != null) {
-        savedPath = await _photoService.saveCapturedPhotoPath(sourcePath);
-        unawaited(_photoService.deletePhoto(sourcePath));
-      } else if (inlineCamera?.hasCameraError ?? false) {
-        usedInlineFallback = true;
-        savedPath = await _photoService.pickPhoto(fromCamera: true);
-      }
-    }
-
-    if (!_isCurrentCaptureGeneration(generation)) {
-      if (savedPath != null) unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-    if (savedPath == null) {
-      final state = _captureState;
-      if (state == null) return;
-      setState(() {
-        if (usedInlineFallback) _inlineCameraUnavailable = true;
-        _captureState = state.captureFailed(
-          shouldUseNativeCamera || usedInlineFallback
-              ? 'No image captured.'
-              : 'Inline camera is still starting. Try again or use Camera app.',
-        );
-      });
-      return;
-    }
-
-    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
-      savedPath,
-      cropFrame: shouldUseNativeCamera
-          ? null
-          : _cameraKey.currentState?.ocrCropFrame,
-    );
-    if (!_isCurrentCaptureGeneration(generation)) {
-      unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-
-    final state = _captureState;
-    if (state == null) {
-      unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-    final reading = readingC == null
-        ? null
-        : TempConverter.toFahrenheit(readingC);
-    if (reading == null) {
-      unawaited(_photoService.deletePhoto(savedPath));
-    }
-    setState(() {
-      if (usedInlineFallback) _inlineCameraUnavailable = true;
-      _guidedValueController.text = reading == null
-          ? ''
-          : reading.toStringAsFixed(1);
-      _captureState = state.captureResolved(
-        photoPath: savedPath!,
-        ocrValue: reading,
-      );
-    });
-  }
-
-  void _retakeInlineCapture() {
-    final state = _captureState;
-    if (state == null || state.isProcessing || state.isOcrProcessing) return;
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    _discardUnconfirmedPhoto(state);
-    setState(() {
-      _isConfirmingCapture = false;
-      _captureState = state.retake();
-      _guidedValueController.clear();
-    });
-  }
-
-  void _skipInlineCapture() {
-    final state = _captureState;
-    if (state == null || state.isProcessing || state.isOcrProcessing) return;
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    _discardUnconfirmedPhoto(state);
-    if (state.isLastStep) {
-      _finishInlineCapture();
-      return;
-    }
-    setState(() {
-      _isConfirmingCapture = false;
-      _captureState = state.skip();
-      _guidedValueController.clear();
-    });
-  }
-
-  Future<void> _confirmInlineCapture(AuditProvider provider) async {
-    final state = _captureState;
-    if (state == null || !state.canConfirm || _isConfirmingCapture) return;
-    final generation = _nextCaptureGeneration();
-    final confirmedKey = state.currentKey;
-    _cancelAutoScanTimer();
-    setState(() => _isConfirmingCapture = true);
-
-    var evidencePath = state.capturedImagePath!;
-    if (state.isAutoScanReview) {
-      final savedPath = await _photoService.saveCapturedPhotoPath(evidencePath);
-      if (!_isCurrentCaptureGeneration(generation)) {
-        unawaited(_photoService.deletePhoto(evidencePath));
-        if (savedPath != null) unawaited(_photoService.deletePhoto(savedPath));
-        return;
-      }
-      if (savedPath == null) {
-        setState(() {
-          _isConfirmingCapture = false;
-          _captureState = state.stopAutoScan(
-            message: 'Could not save evidence photo. Try again.',
-          );
-        });
-        return;
-      }
-      unawaited(_photoService.deletePhoto(evidencePath));
-      evidencePath = savedPath;
-    }
-
-    if (!_isCurrentCaptureGeneration(generation)) return;
-    _savePoint(confirmedKey, evidencePath, state.ocrValue!);
-    unawaited(_saveEvidencePhotoRecord(provider.activeDraft.id, evidencePath));
-    unawaited(_persistActiveAuditRow(provider));
-
-    if (!_isCurrentCaptureGeneration(generation)) return;
-    setState(() {
-      _captureState = state.confirm(photoPath: evidencePath);
-      _guidedValueController.clear();
-      _highlightedKey = confirmedKey;
-      _successPulse++;
-      _isConfirmingCapture = false;
-    });
-
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!_isCurrentCaptureGeneration(generation)) return;
-      if (_highlightedKey == confirmedKey) {
-        setState(() => _highlightedKey = null);
-      }
-      if (state.isLastStep && _captureState?.lastConfirmedKey == confirmedKey) {
-        _finishInlineCapture();
-      }
-    });
   }
 
   void _savePoint(String key, String path, double displayValue) {
@@ -773,7 +435,6 @@ class _CvtTabState extends State<CvtTab> {
         (existingPhoto == null || existingPhoto.trim().isEmpty)) {
       setState(() {
         _photos[key] = path;
-        _highlightedKey = key;
       });
       _updateCalculations();
       await _saveEvidencePhotoRecord(
@@ -833,7 +494,6 @@ class _CvtTabState extends State<CvtTab> {
     if (!mounted || path == null || path.trim().isEmpty) return;
     setState(() {
       _photos[key] = path;
-      _highlightedKey = key;
     });
     _updateCalculations();
     await _saveEvidencePhotoRecord(
@@ -876,80 +536,8 @@ class _CvtTabState extends State<CvtTab> {
     setState(() {
       controller.clear();
       _photos[key] = null;
-      _highlightedKey = null;
-      if (_captureState != null) {
-        _guidedValueController.clear();
-        _isConfirmingCapture = false;
-        _captureState = EstGuidedCaptureState.initial(
-          readings: _currentReadingsF(),
-          photos: _currentPhotoPaths(),
-        );
-      }
     });
     _updateCalculations();
-  }
-
-  void _rejectInlineAutoScanReading() {
-    final state = _captureState;
-    if (state == null || state.capturedImagePath == null) return;
-
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    final shouldResumeAutoScan = state.isAutoScanReview;
-    _discardUnconfirmedPhoto(state);
-    setState(() {
-      _guidedValueController.clear();
-      _isConfirmingCapture = false;
-      _captureState = shouldResumeAutoScan
-          ? state.rejectAutoScanReading()
-          : state.retake();
-    });
-    if (shouldResumeAutoScan) _ensureAutoScanTimer();
-  }
-
-  void _discardUnconfirmedPhoto(EstGuidedCaptureState? state) {
-    if (state == null || state.isCurrentPointConfirmed) return;
-    final path = state.capturedImagePath;
-    if (path == null || path.isEmpty) return;
-    unawaited(_photoService.deletePhoto(path));
-  }
-
-  void _handleInlineCameraReadyChanged(bool isReady) {
-    if (!mounted || _inlineCameraReady == isReady) return;
-    setState(() {
-      _inlineCameraReady = isReady;
-      if (isReady) _inlineCameraUnavailable = false;
-    });
-  }
-
-  void _handleInlineCameraError(String message) {
-    final current = _captureState;
-    if (!mounted || current == null || current.isProcessing) return;
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    setState(() {
-      _inlineCameraUnavailable = true;
-      _inlineCameraReady = false;
-      _captureState = current.captureFailed(message);
-    });
-  }
-
-  void _finishInlineCapture({bool showMessage = true}) {
-    final count = _currentReadingsF().length;
-    _nextCaptureGeneration();
-    _cancelAutoScanTimer();
-    _discardUnconfirmedPhoto(_captureState);
-    setState(() {
-      _captureState = null;
-      _guidedValueController.clear();
-      _highlightedKey = null;
-      _isConfirmingCapture = false;
-    });
-
-    if (!showMessage || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('CVT capture saved $count readings.')),
-    );
   }
 
   Future<void> _saveEvidencePhotoRecord(String draftId, String path) async {
@@ -973,14 +561,6 @@ class _CvtTabState extends State<CvtTab> {
       uploadStatus: existing?.uploadStatus ?? 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
-  }
-
-  Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
-    try {
-      return provider.saveSamplesWithResult(tabIndex: 0);
-    } catch (_) {
-      return false;
-    }
   }
 
   String _targetLabel(String key) {

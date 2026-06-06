@@ -60,6 +60,46 @@ class PanelDashboardRepository {
     );
   }
 
+  /// Per-age Act-vs-BMK series for the Hatch Result charts: actual hatchability /
+  /// fertility / HOF averaged per benchmark age, each paired with that age's BMK.
+  Future<List<HatchAgePoint>> getHatchByAge(DashboardFilter filter) async {
+    final db = await _dbHelper.db;
+    final (:clause, :args) = _where(
+      filter,
+      'residue_breakout',
+      bmkColumn: 'bmkAgeWeeks',
+    );
+    final rows = await db.rawQuery('''
+      SELECT bmkAgeWeeks AS age,
+        AVG(hatchabilityPct) AS h,
+        AVG(fertilityPct) AS f,
+        AVG(hofPct) AS o
+      FROM residue_breakout
+      $clause AND bmkAgeWeeks IS NOT NULL
+      GROUP BY bmkAgeWeeks
+      ORDER BY bmkAgeWeeks ASC
+    ''', args);
+
+    final out = <HatchAgePoint>[];
+    for (final row in rows) {
+      final age = _asInt(row['age']);
+      if (age == null) continue;
+      final bmk = await getBmkReferenceForAge(age);
+      out.add(
+        HatchAgePoint(
+          age: age,
+          hatchAct: _asDouble(row['h']),
+          fertAct: _asDouble(row['f']),
+          hofAct: _asDouble(row['o']),
+          hatchBmk: bmk?.hatchabilityPct,
+          fertBmk: bmk?.fertilityPct,
+          hofBmk: bmk?.hofPct,
+        ),
+      );
+    }
+    return out;
+  }
+
   Future<List<String>> getDistinctSetterIds({
     String? customerId,
     String? flockId,

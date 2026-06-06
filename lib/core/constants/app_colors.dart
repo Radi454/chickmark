@@ -69,6 +69,9 @@ class AppColors {
   static const Color chartGridH = Color(0xFFE2EAF2);
   static const Color chartGridV = Color(0xFFEAF0F6);
   static const Color chartEmptyBorder = Color(0xFFE0E7EF);
+  // Benchmark (STD) bars — a soft slate so they read as a reference, not a
+  // competing series against the severity-colored Act bars.
+  static const Color chartBenchmark = Color(0xFFCBD5E1);
 
   // ── Dividers ──
   static const Color divider = Color(0xFFE5E7EB);

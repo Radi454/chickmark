@@ -164,7 +164,7 @@ void main() {
 
   group('config integrity', () {
     test('all sectors present and grouped by station', () {
-      expect(ScopeConfigRegistry.sectors.length, 11);
+      expect(ScopeConfigRegistry.sectors.length, 10);
       expect(ScopeConfigRegistry.stations, [
         ScopeConfigRegistry.stationStorage,
         ScopeConfigRegistry.stationChicks,
@@ -177,7 +177,6 @@ void main() {
     test('single-scope sectors detected', () {
       expect(ScopeConfigRegistry.byId('egg_storage').isSingleScope, isTrue);
       expect(ScopeConfigRegistry.byId('hatch_results').isSingleScope, isTrue);
-      expect(ScopeConfigRegistry.byId('cha_environmental').isSingleScope, isTrue);
       expect(ScopeConfigRegistry.byId('residue_breakout').isSingleScope, isFalse);
     });
   });

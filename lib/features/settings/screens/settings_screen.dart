@@ -10,6 +10,7 @@ import 'package:hatchaudit/widgets/status_badge.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
+import 'package:hatchaudit/features/admin/screens/admin_users_screen.dart';
 import 'package:hatchaudit/features/settings/screens/activity_log_screen.dart';
 import 'package:hatchaudit/services/backup/backup_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
@@ -23,22 +24,28 @@ class SettingsScreen extends StatelessWidget {
       appBar: const GradientAppBar(title: 'Settings'),
       body: Consumer3<AppProvider, SettingsProvider, AuthProvider>(
         builder: (context, app, settings, auth, child) {
+          final currentUser = auth.user ?? app.currentUser;
+          final isCustomer = currentUser?.isCustomer ?? false;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(AppSizes.cardPadding),
             child: Column(
-              children: [
-                _buildAccountSection(context, app, auth),
-                const SizedBox(height: 16),
-                _buildPreferencesSection(context, app, settings),
-                const SizedBox(height: 16),
-                _buildSyncSection(context, settings),
-                const SizedBox(height: 16),
-                if ((auth.user ?? app.currentUser)?.isAdmin ?? false) ...[
-                  _buildAdminSection(context),
-                  const SizedBox(height: 16),
-                ],
-                _buildAppSection(),
-              ],
+              // Read-only customers get account + sign-out only — no
+              // preferences, sync controls, admin tools or app internals.
+              children: isCustomer
+                  ? [_buildAccountSection(context, app, auth)]
+                  : [
+                      _buildAccountSection(context, app, auth),
+                      const SizedBox(height: 16),
+                      _buildPreferencesSection(context, app, settings),
+                      const SizedBox(height: 16),
+                      _buildSyncSection(context, settings),
+                      const SizedBox(height: 16),
+                      if ((auth.user ?? app.currentUser)?.isAdmin ?? false) ...[
+                        _buildAdminSection(context),
+                        const SizedBox(height: 16),
+                      ],
+                      _buildAppSection(),
+                    ],
             ),
           );
         },
@@ -125,17 +132,14 @@ class SettingsScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Temperature Unit', style: AppTextStyles.title),
-          const SizedBox(height: 8),
-          SegmentedButton<TempUnit>(
-            segments: const [
-              ButtonSegment(value: TempUnit.fahrenheit, label: Text('°F')),
-              ButtonSegment(value: TempUnit.celsius, label: Text('°C')),
+          Row(
+            children: [
+              const Expanded(
+                flex: 2,
+                child: Text('Temperature Unit', style: AppTextStyles.body),
+              ),
+              _buildTempUnitToggle(app),
             ],
-            selected: {app.tempUnit},
-            onSelectionChanged: (selected) {
-              app.setTempUnit(selected.first);
-            },
           ),
           const SizedBox(height: 16),
           _buildNumberField(
@@ -167,6 +171,46 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildTempUnitToggle(AppProvider app) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _tempUnitOption(app, TempUnit.fahrenheit, '°F'),
+          _tempUnitOption(app, TempUnit.celsius, '°C'),
+        ],
+      ),
+    );
+  }
+
+  Widget _tempUnitOption(AppProvider app, TempUnit unit, String label) {
+    final selected = app.tempUnit == unit;
+    return GestureDetector(
+      onTap: () => app.setTempUnit(unit),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.body.copyWith(
+            color: selected ? Colors.white : AppColors.textSecondary,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildNumberField(
     String label,
     int value,
@@ -193,6 +237,31 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _buildSyncSection(BuildContext context, SettingsProvider settings) {
+    final Color statusColor;
+    final IconData statusIcon;
+    final String statusLabel;
+    if (settings.isSyncing) {
+      statusColor = AppColors.primary;
+      statusIcon = Icons.sync;
+      statusLabel = 'Syncing…';
+    } else if (settings.lastSyncError != null) {
+      statusColor = Colors.red;
+      statusIcon = Icons.error_outline;
+      statusLabel = 'Last sync failed';
+    } else if (!settings.hasSyncedBefore) {
+      statusColor = AppColors.textDisabled;
+      statusIcon = Icons.cloud_off_outlined;
+      statusLabel = 'Not synced yet';
+    } else if (!settings.lastSyncOnline) {
+      statusColor = AppColors.statusWarning;
+      statusIcon = Icons.cloud_off_outlined;
+      statusLabel = 'Offline — using local data';
+    } else {
+      statusColor = AppColors.completedText;
+      statusIcon = Icons.cloud_done_outlined;
+      statusLabel = 'Connected';
+    }
+
     return SectionCard(
       title: 'Sync',
       icon: Icons.cloud_sync_outlined,
@@ -201,31 +270,70 @@ class SettingsScreen extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: AppColors.completedText,
-                  shape: BoxShape.circle,
-                ),
-              ),
+              Icon(statusIcon, size: 18, color: statusColor),
               const SizedBox(width: 8),
-              const Text('Connected', style: AppTextStyles.title),
+              Text(
+                statusLabel,
+                style: AppTextStyles.title.copyWith(color: statusColor),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          if (settings.lastSyncTimestamp != null)
+          Row(
+            children: [
+              Expanded(
+                child: _syncStat(
+                  Icons.arrow_upward,
+                  'Uploaded',
+                  settings.lastSyncPushed,
+                  AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _syncStat(
+                  Icons.arrow_downward,
+                  'Downloaded',
+                  settings.lastSyncPulled,
+                  AppColors.completedText,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            settings.lastSyncTimestamp == null
+                ? 'No sync yet'
+                : 'Last synced: ${_formatSyncTime(settings.lastSyncTimestamp!)}',
+            style: AppTextStyles.caption,
+          ),
+          if (settings.lastSyncError != null) ...[
+            const SizedBox(height: 4),
             Text(
-              'Last synced: ${settings.lastSyncTimestamp}',
-              style: AppTextStyles.caption,
+              settings.lastSyncError!,
+              style: AppTextStyles.caption.copyWith(color: Colors.red),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
+          ],
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => _syncNow(context, settings),
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync Now'),
+              onPressed: settings.isSyncing
+                  ? null
+                  : () => _syncNow(context, settings),
+              icon: settings.isSyncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync),
+              label: Text(settings.isSyncing ? 'Syncing…' : 'Sync Now'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
@@ -235,6 +343,39 @@ class SettingsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _syncStat(IconData icon, String label, int value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: AppTextStyles.caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text('$value', style: AppTextStyles.title.copyWith(color: color)),
+        ],
+      ),
+    );
+  }
+
+  String _formatSyncTime(String timestamp) {
+    final parsed = DateTime.tryParse(timestamp)?.toLocal();
+    if (parsed == null) return timestamp;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${parsed.year}-${two(parsed.month)}-${two(parsed.day)} '
+        '${two(parsed.hour)}:${two(parsed.minute)}';
   }
 
   Widget _buildAppSection() {
@@ -258,6 +399,18 @@ class SettingsScreen extends StatelessWidget {
       icon: Icons.admin_panel_settings_outlined,
       child: Column(
         children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('User access'),
+            subtitle: const Text('Roles, approval & customer assignments'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
+              );
+            },
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.history),
@@ -320,13 +473,38 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _syncNow(BuildContext context, SettingsProvider settings) async {
     final customersProvider = context.read<CustomersProvider>();
     final currentUser = context.read<AuthProvider>().user;
-    await StartupSyncService().run(userId: currentUser?.id);
-    await customersProvider.loadCustomers(currentUser: currentUser);
-    await settings.updateLastSync(DateTime.now().toIso8601String());
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Sync complete')));
+    settings.markSyncing();
+    try {
+      final outcome = await StartupSyncService().run(userId: currentUser?.id);
+      await customersProvider.loadCustomers(currentUser: currentUser);
+      await settings.recordSync(
+        online: outcome.online,
+        pushed: outcome.pushed,
+        pulled: outcome.pulled,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              outcome.online
+                  ? 'Sync complete · ↑${outcome.pushed} ↓${outcome.pulled}'
+                  : 'Offline — using local data',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      await settings.recordSync(
+        online: false,
+        pushed: 0,
+        pulled: 0,
+        error: error.toString(),
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sync failed: $error')));
+      }
     }
   }
 

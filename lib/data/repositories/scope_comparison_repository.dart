@@ -30,7 +30,7 @@ class ScopeComparisonRepository {
     DashboardFilter filter,
   ) async {
     final table = sector.tableName;
-    if (table == null) return const []; // dummy-only sector (e.g. CHA)
+    if (table == null) return const []; // dummy-only sector (no backing table)
 
     final def = PanelSampleSchema.byTable(table);
     final existing = <String>{
@@ -99,6 +99,29 @@ class ScopeComparisonRepository {
       }
       return ScopeLeafRow(layerSegments: segments, cells: cells);
     }).toList();
+  }
+
+  /// The most common bmkAgeWeeks present in the breakout data for this filter,
+  /// used to pick a BMK reference for severity when no age is explicitly chosen.
+  Future<int?> dominantBmkAge(DashboardFilter filter) async {
+    final db = await _dbHelper.db;
+    for (final table in const [
+      'residue_breakout',
+      'candled_egg_breakout',
+      'fresh_egg_breakout',
+    ]) {
+      final (:clause, :args) = _where(filter, bmkColumn: 'bmkAgeWeeks');
+      final rows = await db.rawQuery(
+        'SELECT bmkAgeWeeks AS age, COUNT(*) AS c FROM $table $clause '
+        'AND bmkAgeWeeks IS NOT NULL GROUP BY bmkAgeWeeks ORDER BY c DESC LIMIT 1',
+        args,
+      );
+      if (rows.isNotEmpty) {
+        final age = _asNum(rows.first['age']);
+        if (age != null) return age.toInt();
+      }
+    }
+    return null;
   }
 
   String? _segmentFor(SamplingLayer layer, Map<String, Object?> row) {

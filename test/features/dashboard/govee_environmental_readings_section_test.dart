@@ -20,7 +20,9 @@ void main() {
     expect(find.text('Egg storage room'), findsWidgets);
   });
 
-  testWidgets('saved captures are grouped by place', (tester) async {
+  testWidgets('multiple places render as tabs, only selected group shown', (
+    tester,
+  ) async {
     await _pumpSection(
       tester,
       captures: [
@@ -33,27 +35,37 @@ void main() {
       ],
     );
 
+    // A tab exists for every place.
+    expect(
+      find.byKey(const ValueKey('govee-place-tab-eggStorageRoom')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('govee-place-tab-insideSetter')),
+      findsOneWidget,
+    );
+
+    // The first place (lowest enum index) is selected by default, so only
+    // its group and capture card are mounted.
     expect(
       find.byKey(const ValueKey('govee-place-group-eggStorageRoom')),
       findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('govee-place-group-insideSetter')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('Egg storage room'), findsWidgets);
-    expect(find.text('Inside setter'), findsWidgets);
     expect(
       find.byKey(const ValueKey('govee-capture-card-egg')),
       findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('govee-capture-card-setter-1')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 
-  testWidgets('each place group shows only captures from that place', (
+  testWidgets('tapping a place tab switches the visible group', (
     tester,
   ) async {
     await _pumpSection(
@@ -64,32 +76,36 @@ void main() {
       ],
     );
 
-    final eggGroup = find.byKey(
-      const ValueKey('govee-place-group-eggStorageRoom'),
-    );
-    final chickGroup = find.byKey(
-      const ValueKey('govee-place-group-chickHoldingArea'),
-    );
-
+    // Egg storage room is selected first.
     expect(
-      find.descendant(
-        of: eggGroup,
-        matching: find.byKey(const ValueKey('govee-capture-card-egg')),
-      ),
+      find.byKey(const ValueKey('govee-capture-card-egg')),
       findsOneWidget,
     );
     expect(
-      find.descendant(
-        of: eggGroup,
-        matching: find.byKey(const ValueKey('govee-capture-card-chicks')),
-      ),
+      find.byKey(const ValueKey('govee-capture-card-chicks')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('govee-place-tab-chickHoldingArea')),
+    );
+    await tester.pumpAndSettle();
+
+    // Now only the chick holding area group is mounted.
+    expect(
+      find.byKey(const ValueKey('govee-capture-card-chicks')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('govee-capture-card-egg')),
       findsNothing,
     );
     expect(
-      find.descendant(
-        of: chickGroup,
-        matching: find.byKey(const ValueKey('govee-capture-card-chicks')),
-      ),
+      find.byKey(const ValueKey('govee-place-group-eggStorageRoom')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('govee-place-group-chickHoldingArea')),
       findsOneWidget,
     );
   });

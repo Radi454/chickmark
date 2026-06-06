@@ -93,10 +93,13 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
             },
             routes: routes,
             builder: (context, child) {
+              // Govee capture is an auditing tool — never expose it to
+              // read-only customers, only auditors/admins (or dev bypass).
               final showGoveeLauncher =
                   _showGlobalLauncher &&
                   (_authBypassEnabled ||
-                      authProvider.state == AuthState.authenticated);
+                      (authProvider.state == AuthState.authenticated &&
+                          (authProvider.user?.canEditAudits ?? false)));
               final isGoveeRecording = context
                   .select<GoveeCaptureProvider, bool>(
                     (provider) => provider.isRecording,

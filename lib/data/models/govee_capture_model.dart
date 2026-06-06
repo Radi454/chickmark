@@ -30,6 +30,13 @@ class GoveeDailyCaptureModel {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Per-row sync state: 'pending' (local edit awaiting push), 'synced', or
+  /// 'failed' (last push errored).
+  final String syncStatus;
+  final DateTime? dirtyAt;
+  final DateTime? lastSyncedAt;
+  final String? syncError;
+
   GoveeDailyCaptureModel({
     required this.id,
     required this.customerId,
@@ -57,6 +64,10 @@ class GoveeDailyCaptureModel {
     String? chartPointsJson,
     required this.createdAt,
     required this.updatedAt,
+    this.syncStatus = 'pending',
+    this.dirtyAt,
+    this.lastSyncedAt,
+    this.syncError,
   }) : stationKey = _normalizedStationKey(stationKey, place),
        machineId = _asNullableString(machineId),
        chartPointsJson = _normalizedChartPointsJson(chartPointsJson);
@@ -90,6 +101,10 @@ class GoveeDailyCaptureModel {
       chartPointsJson: map['chartPointsJson'] as String?,
       createdAt: _parseDate(map['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(map['updatedAt']) ?? DateTime.now(),
+      syncStatus: map['syncStatus'] as String? ?? 'synced',
+      dirtyAt: _parseDate(map['dirtyAt']),
+      lastSyncedAt: _parseDate(map['lastSyncedAt']),
+      syncError: map['syncError'] as String?,
     );
   }
 
@@ -121,6 +136,10 @@ class GoveeDailyCaptureModel {
       'chartPointsJson': chartPointsJson,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'syncStatus': syncStatus,
+      'dirtyAt': dirtyAt?.toIso8601String(),
+      'lastSyncedAt': lastSyncedAt?.toIso8601String(),
+      'syncError': syncError,
     };
   }
 
@@ -151,6 +170,10 @@ class GoveeDailyCaptureModel {
     String? chartPointsJson,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? syncStatus,
+    Object? dirtyAt = _copyUnset,
+    Object? lastSyncedAt = _copyUnset,
+    Object? syncError = _copyUnset,
   }) {
     final nextPlace = place ?? this.place;
     return GoveeDailyCaptureModel(
@@ -190,6 +213,16 @@ class GoveeDailyCaptureModel {
       chartPointsJson: chartPointsJson ?? this.chartPointsJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      dirtyAt: identical(dirtyAt, _copyUnset)
+          ? this.dirtyAt
+          : dirtyAt as DateTime?,
+      lastSyncedAt: identical(lastSyncedAt, _copyUnset)
+          ? this.lastSyncedAt
+          : lastSyncedAt as DateTime?,
+      syncError: identical(syncError, _copyUnset)
+          ? this.syncError
+          : syncError as String?,
     );
   }
 

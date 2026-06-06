@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../audits/widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -85,6 +86,7 @@ class AuditDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!AuditAccess.allowed(context)) return const AuditAccessDenied();
     final canEdit =
         AuthSecurityPolicy.isDebugAuthBypassEnabled ||
         (context.watch<AuthProvider>().user?.canEditAudits ?? false);

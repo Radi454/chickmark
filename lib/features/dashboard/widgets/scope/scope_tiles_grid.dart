@@ -6,6 +6,7 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../providers/scope_comparison_provider.dart';
 import '../../scope/scope_config.dart';
 import '../../scope/scope_models.dart';
+import '../../scope/scope_severity.dart';
 import 'scope_severity_style.dart';
 
 /// Read-only tile grid for single-scope (pooled) sectors — label + value + dot.
@@ -21,6 +22,7 @@ class ScopeTilesGrid extends StatelessWidget {
     final groups = provider.groupsFor(sectorId);
     if (groups.isEmpty) return const SizedBox.shrink();
     final cells = groups.first.cells;
+    final bmk = provider.bmkFor(sectorId);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -41,8 +43,9 @@ class ScopeTilesGrid extends StatelessWidget {
                 SizedBox(
                   width: tileW,
                   child: _ScopeTile(
-                    label: sector.params[j].label,
+                    param: sector.params[j],
                     cell: cells[j],
+                    bmk: bmkLookup(bmk, sector.params[j].bmkField),
                   ),
                 ),
             ],
@@ -54,14 +57,17 @@ class ScopeTilesGrid extends StatelessWidget {
 }
 
 class _ScopeTile extends StatelessWidget {
-  final String label;
+  final ScopeParam param;
   final ScopeCell cell;
+  final num? bmk;
 
-  const _ScopeTile({required this.label, required this.cell});
+  const _ScopeTile({required this.param, required this.cell, this.bmk});
 
   @override
   Widget build(BuildContext context) {
     final style = ScopeSeverityStyle.of(cell.severity);
+    final bmkValue = bmk;
+    final actual = cell.value;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -74,7 +80,7 @@ class _ScopeTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            label,
+            param.label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
@@ -105,6 +111,20 @@ class _ScopeTile extends StatelessWidget {
               StatusDot(ScopeSeverityStyle.dotColor(cell.severity)),
             ],
           ),
+          if (param.bmkField != null && bmkValue != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              'BMK ${param.formatValue(bmkValue)}'
+              '${actual == null ? '' : '  ${param.formatGap(actual - bmkValue)}'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: AppColors.statusNeutralText,
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -1,15 +1,16 @@
 import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/constants/supabase_config.dart';
+import '../../core/network/network_reachability.dart';
 import '../../core/security/safe_debug_log.dart';
 import '../../core/security/security_policy.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/photo_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
+import 'sync_meta.dart';
 import 'supabase_initializer.dart';
 
 class AuthResult {
@@ -121,10 +122,8 @@ class SupabaseService {
     _checkNetworkAvailability();
   }
 
-  static Future<bool> _defaultNetworkAvailable() async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    return !connectivityResult.contains(ConnectivityResult.none);
-  }
+  static Future<bool> _defaultNetworkAvailable() =>
+      NetworkReachability.isOnline();
 
   Future<void> _checkNetworkAvailability() async {
     _isNetworkAvailable = await _checkNetworkAvailable();
@@ -309,7 +308,7 @@ class SupabaseService {
   Future<void> syncAuditSession(Map<String, dynamic> session) async {
     try {
       if (!await _prepareRemoteAccess()) return;
-      await _upsertWithFallback('audit_sessions', session);
+      await _upsertWithFallback('audit_sessions', stripSyncMeta(session));
     } catch (e) {
       safeDebugLog('Supabase audit session sync failed', error: e);
     }
@@ -609,7 +608,7 @@ class SupabaseService {
   Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
     try {
       final rows = await _client
-          .from('users')
+          .from('profiles')
           .select()
           .eq('id', userId)
           .limit(1);

@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 
-void safeDebugLog(String message, {Object? error}) {
+void safeDebugLog(String message, {Object? error, StackTrace? stackTrace}) {
   if (!kDebugMode) return;
   if (error == null) {
     debugPrint(message);
-    return;
+  } else {
+    debugPrint('$message: ${sanitizeLogValue(error)}');
   }
-  debugPrint('$message: ${sanitizeLogValue(error)}');
+  if (stackTrace != null) {
+    debugPrint(sanitizeLogValue(stackTrace));
+  }
 }
 
 @visibleForTesting

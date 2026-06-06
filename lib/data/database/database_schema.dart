@@ -1,5 +1,84 @@
 part of 'database_helper.dart';
 
+/// Core table DDL extracted from `_onCreate` so the surgical repair path can
+/// re-issue idempotent CREATE TABLE IF NOT EXISTS statements without nuking
+/// data. Every statement is safe to run when the table already exists.
+Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    fullName TEXT,
+    email TEXT UNIQUE,
+    role TEXT,
+    status TEXT,
+    customerId TEXT,
+    accessToken TEXT,
+    tokenExpiry TEXT,
+    createdAt TEXT,
+    lastLoginAt TEXT
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    location TEXT,
+    phone TEXT,
+    email TEXT,
+    createdAt TEXT,
+    createdBy TEXT
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS flocks (
+    id TEXT PRIMARY KEY,
+    customerId TEXT,
+    flockId TEXT,
+    breed TEXT,
+    entryDate TEXT,
+    isAgeEstimated INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
+    soldAt TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS bmk_breeds (
+    id TEXT PRIMARY KEY,
+    breed TEXT NOT NULL,
+    ageWeek INTEGER NOT NULL,
+    hatchabilityPct REAL DEFAULT 0.0,
+    fertilityPct REAL DEFAULT 0.0,
+    hofPct REAL DEFAULT 0.0,
+    productionPct REAL DEFAULT 0.0,
+    eggWeightG REAL DEFAULT 0.0,
+    chickWeightG REAL DEFAULT 0.0
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS troubleshooting (
+    id TEXT PRIMARY KEY,
+    hatcheryCauses TEXT,
+    farmFlockCauses TEXT,
+    benchmarkJson TEXT,
+    interpretationJson TEXT,
+    sourceRefsJson TEXT
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS photos (
+    id TEXT PRIMARY KEY,
+    filePath TEXT,
+    description TEXT,
+    createdAt TEXT,
+    sessionId TEXT NOT NULL,
+    panelName TEXT NOT NULL,
+    panelRowId TEXT NOT NULL,
+    fieldKey TEXT NOT NULL,
+    uploadStatus TEXT NOT NULL DEFAULT 'local',
+    FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS activity_log (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entityType TEXT,
+    entityId TEXT,
+    details TEXT,
+    timestamp TEXT NOT NULL
+  )''');
+}
+
 Future<void> _createCleanBmkEggBreakoutTable(DatabaseExecutor db) async {
   await db.execute('''CREATE TABLE IF NOT EXISTS bmk_egg_breakout (
     id TEXT PRIMARY KEY,
@@ -73,6 +152,10 @@ Future<void> _createAuditSessionTables(Database db) async {
     createdAt TEXT,
     updatedAt TEXT,
     completedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
     FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
@@ -82,6 +165,9 @@ Future<void> _createAuditSessionTables(Database db) async {
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_audit_sessions_flock_date ON audit_sessions (flockId, date DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_audit_sessions_sync ON audit_sessions (syncStatus)',
   );
 }
 
@@ -176,6 +262,7 @@ Future<void> _createPanelTable(
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
     lastSyncedAt TEXT,
     syncError TEXT$extraColumns,
     FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
@@ -189,6 +276,9 @@ Future<void> _createPanelTable(
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
   );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_${tableName}_sync ON $tableName (syncStatus)',
+  );
   await db.execute(_panelUniqueRowIndexSql(panel));
 }
 
@@ -199,6 +289,23 @@ String _panelUniqueRowIndexSql(PanelSampleDefinition panel) {
     ...panel.hierarchyColumnNames.map((column) => "IFNULL($column, '')"),
   ].join(', ');
   return 'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName ($columns)';
+}
+
+Future<void> _createSyncConflictTable(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS sync_conflicts (
+    id TEXT PRIMARY KEY,
+    tableName TEXT NOT NULL,
+    rowId TEXT NOT NULL,
+    localUpdatedAt TEXT,
+    remoteUpdatedAt TEXT,
+    winner TEXT NOT NULL,
+    detectedAt TEXT NOT NULL,
+    reviewedAt TEXT,
+    reviewedBy TEXT
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_sync_conflicts_open ON sync_conflicts (reviewedAt, detectedAt DESC)',
+  );
 }
 
 Future<void> _createSyncTombstoneTable(DatabaseExecutor db) async {
@@ -255,6 +362,10 @@ Future<void> _createGoveeCaptureTables(Database db) async {
     chartPointsJson TEXT NOT NULL DEFAULT '[]',
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
     UNIQUE(customerId, hatcheryId, place, machineId, captureDate)$foreignKeys
   )''');
   await db.execute(

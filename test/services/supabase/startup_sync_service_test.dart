@@ -4,8 +4,10 @@ import 'package:mocktail/mocktail.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
@@ -65,6 +67,8 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(<Map<String, dynamic>>[]);
+    registerFallbackValue(<String>[]);
+    registerFallbackValue(Object());
   });
 
   setUp(() {
@@ -120,7 +124,21 @@ void main() {
                 updatedAt: DateTime(2026, 5, 1),
               ),
             ]);
-    when(() => panels.getAllPanelRows(any())).thenAnswer((invocation) async {
+    // Per-row dirty-tracking push: the service pulls only dirty sessions/panel
+    // rows and confirms them synced after upload.
+    when(() => sessions.getDirtySessionRows()).thenAnswer((_) async => [
+      AuditSessionModel(
+        id: 'session-1',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        hatcheryId: 'hatchery-1',
+        date: DateTime(2026, 5, 1),
+        createdAt: DateTime(2026, 5, 1),
+        updatedAt: DateTime(2026, 5, 1),
+      ),
+    ]);
+    when(() => sessions.markSessionsSynced(any())).thenAnswer((_) async {});
+    when(() => panels.getDirtyRows(any())).thenAnswer((invocation) async {
       final table = invocation.positionalArguments.first as String;
       if (table == 'egg_storage') {
         return [
@@ -133,6 +151,7 @@ void main() {
             'scopeType': 'pool',
             'scopeLabel': 'Random',
             'sampleIndex': 0,
+            'syncStatus': 'pending',
             'createdAt': '2026-05-01T00:00:00.000Z',
             'updatedAt': '2026-05-01T00:00:00.000Z',
           },
@@ -140,9 +159,13 @@ void main() {
       }
       return const [];
     });
+    when(
+      () => panels.markRowsSynced(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
     when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
-    when(() => govee.getAllCaptures()).thenAnswer((_) async => const []);
+    when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => const []);
+    when(() => govee.markCapturesSynced(any())).thenAnswer((_) async {});
     when(() => photos.getAllPhotos()).thenAnswer((_) async => const []);
     when(() => tombstones.getPendingDeletes()).thenAnswer((_) async => const []);
     when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {});
@@ -188,18 +211,87 @@ void main() {
     photoSyncService: photoSync,
   );
 
-  test('pushes panel tables and never pushes legacy audit or sample tables', () async {
+  test('pushes only dirty sessions/panels and never legacy audit or sample tables', () async {
     await service().run();
 
+    // Reference data stays on the bulk push.
     verify(() => supabase.upsertRows('customers', any())).called(1);
     verify(() => supabase.upsertRows('hatcheries', any())).called(1);
     verify(() => supabase.upsertRows('flocks', any())).called(1);
-    verify(() => supabase.upsertRows('audit_sessions', any())).called(1);
-    verify(() => supabase.upsertRows('egg_storage', any())).called(1);
+
+    // Audit data uses the strict (confirmable) dirty-row push, then is marked
+    // synced.
+    verify(() => supabase.upsertRowsStrict('audit_sessions', any())).called(1);
+    verify(() => sessions.markSessionsSynced(any())).called(1);
+    verify(() => supabase.upsertRowsStrict('egg_storage', any())).called(1);
+    verify(() => panels.markRowsSynced('egg_storage', any())).called(1);
+
+    // Sessions/panels are never sent via the silent bulk push.
+    verifyNever(() => supabase.upsertRows('audit_sessions', any()));
+    verifyNever(() => supabase.upsertRows('egg_storage', any()));
+
     verifyNever(() => supabase.upsertRows('audits', any()));
+    verifyNever(() => supabase.upsertRowsStrict('audits', any()));
     verifyNever(() => supabase.upsertRows('sample_records', any()));
     for (final panel in PanelSampleSchema.panels) {
       verifyNever(() => supabase.upsertRows('${panel.tableName}_samples', any()));
+    }
+  });
+
+  test('pushes dirty Govee captures and marks them synced', () async {
+    when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => [
+      GoveeDailyCaptureModel(
+        id: 'g1',
+        customerId: 'customer-1',
+        hatcheryId: 'hatchery-1',
+        place: TemperaturePlace.setterRoom,
+        captureDate: '2026-05-01',
+        status: 'completed',
+        readingCount: 5,
+        createdAt: DateTime(2026, 5, 1),
+        updatedAt: DateTime(2026, 5, 1),
+      ),
+    ]);
+
+    await service().run();
+
+    verify(
+      () => supabase.upsertRowsStrict('govee_daily_captures', any()),
+    ).called(1);
+    verify(() => govee.markCapturesSynced(any())).called(1);
+    verifyNever(() => supabase.upsertRows('govee_daily_captures', any()));
+  });
+
+  test('marks dirty rows failed when the strict push throws', () async {
+    when(
+      () => supabase.upsertRowsStrict('audit_sessions', any()),
+    ).thenThrow(StateError('offline'));
+    when(
+      () => supabase.upsertRowsStrict('egg_storage', any()),
+    ).thenThrow(StateError('offline'));
+    when(
+      () => sessions.markSessionsFailed(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => panels.markRowsFailed(any(), any(), any()),
+    ).thenAnswer((_) async {});
+
+    await service().run();
+
+    verify(() => sessions.markSessionsFailed(any(), any())).called(1);
+    verify(() => panels.markRowsFailed('egg_storage', any(), any())).called(1);
+    verifyNever(() => sessions.markSessionsSynced(any()));
+  });
+
+  test('strips device-local sync columns from pushed payloads', () async {
+    await service().run();
+
+    final captured = verify(
+      () => supabase.upsertRowsStrict('audit_sessions', captureAny()),
+    ).captured.single as List<Map<String, dynamic>>;
+    expect(captured, isNotEmpty);
+    for (final key in ['syncStatus', 'dirtyAt', 'lastSyncedAt', 'syncError']) {
+      expect(captured.single.keys, isNot(contains(key)));
     }
   });
 

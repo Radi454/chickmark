@@ -591,15 +591,11 @@ class OcrService {
     }
 
     final recovered = _recoverMissedDecimal(rawValue);
-    if (recovered != null && recovered != value) {
+    if (recovered != null && recovered != value && normalizedUnit != null) {
       if (normalizedUnit == 'C') {
         addCelsius(recovered, baseScore + 10, recoveredDecimal: true);
       } else if (normalizedUnit == 'F') {
         addFahrenheit(recovered, baseScore + 10, recoveredDecimal: true);
-      } else if (recovered >= 45) {
-        addFahrenheit(recovered, baseScore - 5, recoveredDecimal: true);
-      } else {
-        addCelsius(recovered, baseScore - 5, recoveredDecimal: true);
       }
     }
 

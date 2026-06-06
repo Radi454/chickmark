@@ -1259,7 +1259,9 @@ binary-threshold crop variants are used as fallbacks only when the primary OCR
 text has no accepted reading. Fallback outputs are combined with the primary OCR
 text through a confidence-scored consensus of plausible Celsius/Fahrenheit
 candidates. Single recovered-decimal readings remain accepted with lower
-confidence, while repeated matching fallback outputs produce high confidence.
+confidence when OCR also captures a nearby Celsius/Fahrenheit unit. Isolated
+bare digit tokens such as `230` or `2301` are not accepted as recovered-decimal
+temperatures. Repeated matching fallback outputs produce high confidence.
 Guided thermometer auto-scan uses a shared 1.8-second capture/OCR interval
 across EST and CVT screens to reduce repeated camera and ML work on mobile
 devices while scanning. Inline scanner captures pass the visible scan-frame crop

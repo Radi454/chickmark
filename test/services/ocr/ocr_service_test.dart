@@ -96,6 +96,22 @@ void main() {
       expect(estimate.confidence, ThermoScanOcrConfidence.medium);
       expect(estimate.supportingReadings, 1);
     });
+
+    test(
+      'rejects isolated recovered-decimal digit noise without a unit',
+      () {
+        for (final text in const ['230', '2301', '211\n2301']) {
+          final estimate = OcrService.estimateThermoScanReadingCelsius([text]);
+
+          expect(
+            estimate.readingCelsius,
+            isNull,
+            reason: 'Unexpected reading from "$text"',
+          );
+          expect(estimate.confidence, ThermoScanOcrConfidence.none);
+        }
+      },
+    );
   });
 
   group('OcrService.analyzeThermoScanReadingCelsius', () {

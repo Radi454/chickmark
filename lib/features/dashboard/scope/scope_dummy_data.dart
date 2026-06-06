@@ -4,7 +4,7 @@ import 'scope_config.dart';
 import 'scope_models.dart';
 
 /// Example data transcribed from the prototype's SCOPE_DEMO. Used as a fallback
-/// when a sector has no live rows (or has no backing table, e.g. CHA), so the
+/// when a sector has no live rows (or has no backing table), so the
 /// dashboard always renders something. Dummy leaves carry only a `value` (no
 /// traySize/count), so the engine's percent path degrades to the simple mean —
 /// reproducing the prototype's exact example numbers.
@@ -64,9 +64,6 @@ class ScopeDummyData {
           _leaf('chick_weights', {SamplingLayer.house: 'House B'}, const [
             100, 41.8, 85.0, 7.2, 42.5,
           ]),
-        ],
-    'cha_environmental': () => [
-          _leaf('cha_environmental', const {}, const [2450, 38, 12, 0.42, 68]),
         ],
     'hatch_results': () => [
           _leaf('hatch_results', const {}, const [

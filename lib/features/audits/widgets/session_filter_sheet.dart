@@ -1,42 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../data/models/flock_model.dart';
-import '../../../core/utils/audit_type_labels.dart';
+import '../../../core/constants/app_sizes.dart';
 import '../../../core/utils/date_utils.dart';
+import '../../../data/models/flock_model.dart';
 import '../../../providers/customers_provider.dart';
-import '../models/audit_filter.dart';
+import '../models/session_filter.dart';
 
-class AuditFilterSheet extends StatefulWidget {
-  final AuditFilter initialFilter;
+/// Collapsible bottom sheet for filtering audit sessions by status, sync state,
+/// date range, customer, and flock. Returns the chosen [SessionFilter] (or null
+/// if dismissed).
+class SessionFilterSheet extends StatefulWidget {
+  final SessionFilter initialFilter;
 
-  const AuditFilterSheet({super.key, required this.initialFilter});
+  const SessionFilterSheet({super.key, required this.initialFilter});
 
   @override
-  State<AuditFilterSheet> createState() => _AuditFilterSheetState();
+  State<SessionFilterSheet> createState() => _SessionFilterSheetState();
 }
 
-class _AuditFilterSheetState extends State<AuditFilterSheet> {
-  static const Map<String, String> _auditTypeLabels = {
-    'Chicks': 'Chicks',
-    'Hatch Analysis & Egg Breakouts': 'Hatch Analysis & Egg Breakouts',
-    AuditTypeLabels.eggAuditType: AuditTypeLabels.eggStationLabel,
-    'Setters': 'Setters',
-    'Hatchers': 'Hatchers',
+class _SessionFilterSheetState extends State<SessionFilterSheet> {
+  static const _statusLabels = {
+    'in_progress': 'In Progress',
+    'completed': 'Completed',
+  };
+  static const _syncLabels = {
+    'pending': 'Pending',
+    'synced': 'Synced',
+    'failed': 'Failed',
   };
 
-  AuditFilter _filter = AuditFilter.empty;
-
-  @override
-  void initState() {
-    super.initState();
-    _filter = widget.initialFilter;
-  }
+  late SessionFilter _filter = widget.initialFilter;
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CustomersProvider>();
-    final flocks = _availableFlocks(provider);
+    final flocks = _flocksForCustomer(provider);
 
     return SafeArea(
       child: Padding(
@@ -55,7 +54,7 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Filter Audits',
+                      'Filter Visits',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -63,47 +62,27 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () {
-                      setState(() => _filter = AuditFilter.empty);
-                    },
+                    onPressed: () =>
+                        setState(() => _filter = SessionFilter.empty),
                     child: const Text('Reset'),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
+              _sectionLabel('Status'),
+              _chips(_statusLabels, _filter.statuses, (next) {
+                setState(() => _filter = _filter.copyWith(statuses: next));
+              }),
+              const SizedBox(height: 16),
+              _sectionLabel('Sync status'),
+              _chips(_syncLabels, _filter.syncStatuses, (next) {
+                setState(() => _filter = _filter.copyWith(syncStatuses: next));
+              }),
+              const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: _pickDateRange,
                 icon: const Icon(Icons.date_range_outlined),
                 label: Text(_dateRangeLabel()),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Audit Types',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _auditTypeLabels.entries.map((entry) {
-                  final type = entry.key;
-                  final selected = _filter.auditTypes.contains(type);
-                  return FilterChip(
-                    label: Text(entry.value),
-                    selected: selected,
-                    onSelected: (value) {
-                      final next = [..._filter.auditTypes];
-                      if (value) {
-                        next.add(type);
-                      } else {
-                        next.remove(type);
-                      }
-                      setState(
-                        () => _filter = _filter.copyWith(auditTypes: next),
-                      );
-                    },
-                  );
-                }).toList(),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String?>(
@@ -158,33 +137,6 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
                   });
                 },
               ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                initialValue: _filter.status,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('All statuses'),
-                  ),
-                  DropdownMenuItem<String?>(
-                    value: 'active',
-                    child: Text('Active'),
-                  ),
-                  DropdownMenuItem<String?>(
-                    value: 'completed',
-                    child: Text('Completed'),
-                  ),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    _filter = _filter.copyWith(
-                      status: value,
-                      clearStatus: value == null,
-                    );
-                  });
-                },
-              ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -200,19 +152,44 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
     );
   }
 
-  List<FlockModel> _availableFlocks(CustomersProvider provider) {
-    final seen = <String, FlockModel>{};
-    for (final audit in provider.allAudits) {
-      if (_filter.customerId != null &&
-          audit.customerId != _filter.customerId) {
-        continue;
-      }
-      final flock = provider.flockById(audit.flockId);
-      if (flock != null) {
-        seen[flock.id] = flock;
-      }
-    }
-    final values = seen.values.toList()
+  Widget _sectionLabel(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+  );
+
+  Widget _chips(
+    Map<String, String> options,
+    Set<String> selected,
+    ValueChanged<Set<String>> onChanged,
+  ) {
+    return Wrap(
+      spacing: AppSizes.spaceSm,
+      runSpacing: AppSizes.spaceSm,
+      children: options.entries.map((entry) {
+        final isSelected = selected.contains(entry.key);
+        return FilterChip(
+          label: Text(entry.value),
+          selected: isSelected,
+          onSelected: (value) {
+            final next = {...selected};
+            if (value) {
+              next.add(entry.key);
+            } else {
+              next.remove(entry.key);
+            }
+            onChanged(next);
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  List<FlockModel> _flocksForCustomer(CustomersProvider provider) {
+    final customerId = _filter.customerId;
+    final flocks = customerId == null
+        ? provider.flocks
+        : provider.flocks.where((flock) => flock.customerId == customerId);
+    final values = flocks.toList()
       ..sort((a, b) => a.flockId.compareTo(b.flockId));
     return values;
   }
@@ -236,8 +213,7 @@ class _AuditFilterSheetState extends State<AuditFilterSheet> {
     if (_filter.dateFrom == null || _filter.dateTo == null) {
       return 'Any date';
     }
-    final from = _filter.dateFrom!;
-    final to = _filter.dateTo!;
-    return '${HatchDateUtils.formatDisplayDate(from)} to ${HatchDateUtils.formatDisplayDate(to)}';
+    return '${HatchDateUtils.formatDisplayDate(_filter.dateFrom!)} '
+        'to ${HatchDateUtils.formatDisplayDate(_filter.dateTo!)}';
   }
 }

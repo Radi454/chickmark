@@ -3,12 +3,13 @@ import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../support/test_database.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedAppDatabase();
   });
 
   setUp(_resetDatabase);

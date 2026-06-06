@@ -5,14 +5,17 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/debug/startup_timer.dart';
 import '../../../core/navigation/shell_navigation_scope.dart';
+import '../../../data/models/user_model.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../services/sync/bg_sync_service.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/screens/home_screen.dart';
+import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
+import '../../govee/screens/govee_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -29,39 +32,85 @@ class _MainShellState extends State<MainShell> {
   final List<int> _tabHistory = [];
   bool _syncTriggered = false;
 
-  static const List<_ShellDestination> _destinations = [
-    _ShellDestination(
-      label: AppStrings.homeTab,
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
-    ),
-    _ShellDestination(
-      label: AppStrings.dashboardTab,
-      icon: Icons.bar_chart_outlined,
-      selectedIcon: Icons.bar_chart,
-    ),
-    _ShellDestination(
-      label: AppStrings.customersTab,
-      icon: Icons.people_outline,
-      selectedIcon: Icons.people,
-    ),
-    _ShellDestination(
-      label: AppStrings.auditsTab,
-      icon: Icons.assignment_outlined,
-      selectedIcon: Icons.assignment,
-    ),
-    _ShellDestination(
-      label: AppStrings.bmkTab,
-      icon: Icons.science_outlined,
-      selectedIcon: Icons.science,
-    ),
-    _ShellDestination(
-      label: AppStrings.settingsTab,
-      icon: Icons.settings_outlined,
-      selectedIcon: Icons.settings,
-    ),
-  ];
+  // Tabs a read-only customer is allowed to see. Everything else (Home,
+  // Customers, Audits) is auditor/admin only. Settings stays so customers can
+  // still reach account + sign-out. The real boundary is RLS on the server;
+  // this just hides what they cannot use.
+  static const Set<String> _customerTabKeys = {'dashboard', 'bmk', 'settings'};
 
+  List<_ShellTab> _tabsFor(UserModel? user) {
+    final all = <_ShellTab>[
+      _ShellTab(
+        'home',
+        const _ShellDestination(
+          label: AppStrings.homeTab,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+        ),
+        () => const HomeScreen(),
+      ),
+      _ShellTab(
+        'dashboard',
+        const _ShellDestination(
+          label: AppStrings.dashboardTab,
+          icon: Icons.bar_chart_outlined,
+          selectedIcon: Icons.bar_chart,
+        ),
+        () => const DashboardScreen(),
+      ),
+      _ShellTab(
+        'customers',
+        const _ShellDestination(
+          label: AppStrings.customersTab,
+          icon: Icons.people_outline,
+          selectedIcon: Icons.people,
+        ),
+        () => const CustomersScreen(),
+      ),
+      _ShellTab(
+        'audits',
+        const _ShellDestination(
+          label: AppStrings.auditsTab,
+          icon: Icons.assignment_outlined,
+          selectedIcon: Icons.assignment,
+        ),
+        () => const AuditsScreen(),
+      ),
+      _ShellTab(
+        'govee',
+        const _ShellDestination(
+          label: AppStrings.temperatureTab,
+          icon: Icons.device_thermostat_outlined,
+          selectedIcon: Icons.device_thermostat,
+        ),
+        () => const GoveeScreen(),
+      ),
+      _ShellTab(
+        'bmk',
+        const _ShellDestination(
+          label: AppStrings.bmkTab,
+          icon: Icons.science_outlined,
+          selectedIcon: Icons.science,
+        ),
+        () => const BmkScreen(),
+      ),
+      _ShellTab(
+        'settings',
+        const _ShellDestination(
+          label: AppStrings.settingsTab,
+          icon: Icons.settings_outlined,
+          selectedIcon: Icons.settings,
+        ),
+        () => const SettingsScreen(),
+      ),
+    ];
+    if (user?.isCustomer == true) {
+      return all.where((t) => _customerTabKeys.contains(t.key)).toList();
+    }
+    return all;
+  }
+
+  late List<_ShellTab> _tabs = _tabsFor(null);
   final Map<int, Widget> _builtScreens = {};
   bool _homeLoaded = false;
 
@@ -77,17 +126,33 @@ class _MainShellState extends State<MainShell> {
     StartupTimer.lap('bg_sync_triggering');
     final authProvider = context.read<AuthProvider>();
     final customersProvider = context.read<CustomersProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
     final bgSync = BgSyncService();
     bgSync.runBackgroundSync(
       authProvider: authProvider,
       customersProvider: customersProvider,
+      settingsProvider: settingsProvider,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthProvider>().user;
+    final nextTabs = _tabsFor(user);
+    // If the role-visible tab set changed (e.g. role resolved after login),
+    // reset to the first tab and drop cached screens that no longer apply.
+    if (nextTabs.length != _tabs.length ||
+        !_tabsHaveSameKeys(nextTabs, _tabs)) {
+      _tabs = nextTabs;
+      _builtScreens.clear();
+      _tabHistory.clear();
+      _currentIndex = 0;
+      _homeLoaded = false;
+    }
+    if (_currentIndex >= _tabs.length) _currentIndex = 0;
+
     if (!_homeLoaded) {
-      _builtScreens[0] = _buildScreen(0);
+      _builtScreens[_currentIndex] = _buildScreen(_currentIndex);
       _homeLoaded = true;
       StartupTimer.lap('home_screen_built');
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -104,6 +169,7 @@ class _MainShellState extends State<MainShell> {
           drawer: useNavigationRail
               ? null
               : _ShellNavigationDrawer(
+                  destinations: _tabs.map((t) => t.destination).toList(),
                   currentIndex: _currentIndex,
                   onDestinationSelected: _selectDestination,
                 ),
@@ -117,6 +183,7 @@ class _MainShellState extends State<MainShell> {
               children: [
                 if (useNavigationRail)
                   _ShellNavigationRail(
+                    destinations: _tabs.map((t) => t.destination).toList(),
                     currentIndex: _currentIndex,
                     onDestinationSelected: _selectDestination,
                   ),
@@ -129,38 +196,25 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _buildScreen(int index) {
-    switch (index) {
-      case 0:
-        return const HomeScreen();
-      case 1:
-        return const DashboardScreen();
-      case 2:
-        return const CustomersScreen();
-      case 3:
-        return const AuditsScreen();
-      case 4:
-        return const BmkScreen();
-      case 5:
-        return const SettingsScreen();
-      default:
-        return const HomeScreen();
+  bool _tabsHaveSameKeys(List<_ShellTab> a, List<_ShellTab> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].key != b[i].key) return false;
     }
+    return true;
+  }
+
+  Widget _buildScreen(int index) {
+    if (index < 0 || index >= _tabs.length) return const HomeScreen();
+    return _tabs[index].builder();
   }
 
   void _selectDestination(int index) {
+    if (index < 0 || index >= _tabs.length) return;
     if (_currentIndex != index) {
       if (!_builtScreens.containsKey(index)) {
-        final tabNames = [
-          'home',
-          'dashboard',
-          'customers',
-          'audits',
-          'bmk',
-          'settings',
-        ];
         _builtScreens[index] = _buildScreen(index);
-        StartupTimer.lap('${tabNames[index]}_tab_first_load');
+        StartupTimer.lap('${_tabs[index].key}_tab_first_load');
       }
       setState(() {
         _tabHistory.remove(index);
@@ -182,6 +236,14 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
+class _ShellTab {
+  final String key;
+  final _ShellDestination destination;
+  final Widget Function() builder;
+
+  const _ShellTab(this.key, this.destination, this.builder);
+}
+
 class _ShellDestination {
   final String label;
   final IconData icon;
@@ -195,10 +257,12 @@ class _ShellDestination {
 }
 
 class _ShellNavigationDrawer extends StatelessWidget {
+  final List<_ShellDestination> destinations;
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
 
   const _ShellNavigationDrawer({
+    required this.destinations,
     required this.currentIndex,
     required this.onDestinationSelected,
   });
@@ -229,8 +293,8 @@ class _ShellNavigationDrawer extends StatelessWidget {
             children: [
               const _NavigationHeader(),
               const SizedBox(height: 18),
-              ...List.generate(_MainShellState._destinations.length, (index) {
-                final destination = _MainShellState._destinations[index];
+              ...List.generate(destinations.length, (index) {
+                final destination = destinations[index];
                 return _NavigationItem(
                   destination: destination,
                   isSelected: index == currentIndex,
@@ -301,10 +365,12 @@ class _NavigationItem extends StatelessWidget {
 }
 
 class _ShellNavigationRail extends StatelessWidget {
+  final List<_ShellDestination> destinations;
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
 
   const _ShellNavigationRail({
+    required this.destinations,
     required this.currentIndex,
     required this.onDestinationSelected,
   });
@@ -344,7 +410,7 @@ class _ShellNavigationRail extends StatelessWidget {
             padding: EdgeInsets.only(top: 14, bottom: 22),
             child: ChickMarkLogo(logoSize: 58, compact: true),
           ),
-          destinations: _MainShellState._destinations.map((destination) {
+          destinations: destinations.map((destination) {
             return NavigationRailDestination(
               icon: Icon(destination.icon),
               selectedIcon: Icon(destination.selectedIcon),

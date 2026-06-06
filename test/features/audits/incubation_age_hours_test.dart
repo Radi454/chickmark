@@ -8,6 +8,7 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatcher_optimizing_screen.dart';
@@ -152,6 +153,28 @@ void main() {
     await tester.pumpAndSettle();
     return auditProvider;
   }
+
+  testWidgets('Setter Scan readings launches the OCR capture screen (EST)', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpSetterScreen(tester);
+
+    final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+    await tester.ensureVisible(scanButton);
+    await tester.tap(scanButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(OcrCaptureScreen), findsOneWidget);
+    expect(find.text('Step 1 of 9'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(OcrCaptureScreen), findsNothing);
+  });
 
   testWidgets('Hatcher incubation age and hours use entry fields', (
     tester,
@@ -541,6 +564,33 @@ void main() {
     expect(find.text('Breed from flock'), findsNothing);
   });
 
+  testWidgets('Scan readings launches the reusable OCR capture screen (CVT)', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await tester.binding.setSurfaceSize(const Size(1000, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await pumpHatcherScreen(tester);
+
+      final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+      await tester.ensureVisible(scanButton);
+      await tester.tap(scanButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byType(OcrCaptureScreen), findsOneWidget);
+      expect(find.text('Step 1 of 9'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(OcrCaptureScreen), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('Hatcher screen uses setter-style hatcher hierarchy', (
     tester,
   ) async {
@@ -558,7 +608,7 @@ void main() {
       expect(find.byTooltip('Add machine sample'), findsOneWidget);
       expect(find.text('Add hatcher'), findsNothing);
       expect(find.text('Add sample'), findsNothing);
-      expect(find.text('Guided CVT capture'), findsOneWidget);
+      expect(find.text('Scan readings'), findsOneWidget);
       expect(find.text('CVT BMK 103-105°F'), findsNothing);
       expect(find.text('Chick vent temp.'), findsNothing);
       expect(find.text('Hatcher type'), findsNothing);
@@ -583,7 +633,7 @@ void main() {
       );
       expect(
         tester.getTopLeft(find.text('Hatcher settings')).dy,
-        lessThan(tester.getTopLeft(find.text('Guided CVT capture')).dy),
+        lessThan(tester.getTopLeft(find.text('Scan readings')).dy),
       );
 
       await tester.enterText(

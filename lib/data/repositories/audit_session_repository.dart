@@ -20,14 +20,14 @@ class AuditSessionRepository {
       hatcheryId: session.hatcheryId,
     );
     final db = await _dbHelper.db;
-    await _upsertById(db, 'audit_sessions', session.toMap());
+    await _upsertById(db, 'audit_sessions', _stampDirty(session.toMap()));
   }
 
   Future<void> updateSession(AuditSessionModel session) async {
     final db = await _dbHelper.db;
     await db.update(
       'audit_sessions',
-      session.toMap(),
+      _stampDirty(session.toMap()),
       where: 'id = ?',
       whereArgs: [session.id],
     );
@@ -216,6 +216,9 @@ class AuditSessionRepository {
         'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
         'completedAt': completedAt,
+        'syncStatus': 'pending',
+        'dirtyAt': now.toIso8601String(),
+        'syncError': null,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -246,6 +249,9 @@ class AuditSessionRepository {
         'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
         'completedAt': completedAt,
+        'syncStatus': 'pending',
+        'dirtyAt': now.toIso8601String(),
+        'syncError': null,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -277,6 +283,9 @@ class AuditSessionRepository {
         'updatedAt': now.toIso8601String(),
         'status': isComplete ? 'completed' : 'in_progress',
         'completedAt': completedAt,
+        'syncStatus': 'pending',
+        'dirtyAt': now.toIso8601String(),
+        'syncError': null,
       },
       where: 'id = ?',
       whereArgs: [sessionId],
@@ -320,10 +329,121 @@ class AuditSessionRepository {
     return result.map(AuditSessionModel.fromMap).toList();
   }
 
+  /// Sync-pull write: data coming from Supabase is, by definition, in sync with
+  /// the cloud, so mark it synced rather than dirty. Only reached when the
+  /// conflict check decided the remote row wins (a newer local edit short
+  /// circuits before here, preserving its pending state).
   Future<void> upsertSessionRow(Map<String, dynamic> row) async {
     final db = await _dbHelper.db;
-    final normalized = _normalize(row);
+    final normalized = _markRowSynced(_normalize(row));
     await _upsertById(db, 'audit_sessions', normalized);
+  }
+
+  /// Sessions awaiting a push (locally edited or last push failed).
+  Future<List<AuditSessionModel>> getDirtySessionRows() async {
+    final db = await _dbHelper.db;
+    final result = await db.query(
+      'audit_sessions',
+      where: "syncStatus IN ('pending', 'failed')",
+      orderBy: 'dirtyAt ASC',
+    );
+    return result.map(AuditSessionModel.fromMap).toList();
+  }
+
+  Future<void> markSessionsSynced(Iterable<String> ids) async {
+    final idList = ids.toList(growable: false);
+    if (idList.isEmpty) return;
+    final db = await _dbHelper.db;
+    final placeholders = List.filled(idList.length, '?').join(', ');
+    await db.update(
+      'audit_sessions',
+      {
+        'syncStatus': 'synced',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+        'dirtyAt': null,
+        'syncError': null,
+      },
+      where: 'id IN ($placeholders)',
+      whereArgs: idList,
+    );
+  }
+
+  Future<void> markSessionsFailed(Iterable<String> ids, Object error) async {
+    final idList = ids.toList(growable: false);
+    if (idList.isEmpty) return;
+    final db = await _dbHelper.db;
+    final placeholders = List.filled(idList.length, '?').join(', ');
+    await db.update(
+      'audit_sessions',
+      {'syncStatus': 'failed', 'syncError': error.toString()},
+      where: 'id IN ($placeholders)',
+      whereArgs: idList,
+    );
+  }
+
+  /// Paged session query for the Audits management screen. SQL filters status /
+  /// date / customer / flock; free-text search and sync-status filtering are
+  /// applied in Dart on the loaded page (sync status depends on panel rows).
+  Future<List<AuditSessionModel>> querySessions({
+    List<String>? statuses,
+    String? dateFrom,
+    String? dateTo,
+    String? customerId,
+    String? flockId,
+    int limit = 30,
+    int offset = 0,
+  }) async {
+    final db = await _dbHelper.db;
+    final where = <String>[];
+    final args = <Object?>[];
+    if (statuses != null && statuses.isNotEmpty) {
+      where.add('status IN (${List.filled(statuses.length, '?').join(', ')})');
+      args.addAll(statuses);
+    }
+    if (dateFrom != null) {
+      where.add('substr(date, 1, 10) >= ?');
+      args.add(dateFrom);
+    }
+    if (dateTo != null) {
+      where.add('substr(date, 1, 10) <= ?');
+      args.add(dateTo);
+    }
+    if (customerId != null) {
+      where.add('customerId = ?');
+      args.add(customerId);
+    }
+    if (flockId != null) {
+      where.add('flockId = ?');
+      args.add(flockId);
+    }
+    final result = await db.query(
+      'audit_sessions',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'date DESC, createdAt DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return result.map(AuditSessionModel.fromMap).toList();
+  }
+
+  Map<String, dynamic> _stampDirty(Map<String, dynamic> row) {
+    return {
+      ...row,
+      'syncStatus': 'pending',
+      'dirtyAt': DateTime.now().toIso8601String(),
+      'syncError': null,
+    };
+  }
+
+  Map<String, dynamic> _markRowSynced(Map<String, dynamic> row) {
+    return {
+      ...row,
+      'syncStatus': 'synced',
+      'lastSyncedAt': DateTime.now().toIso8601String(),
+      'dirtyAt': null,
+      'syncError': null,
+    };
   }
 
   Future<Map<String, dynamic>?> getSessionRowById(String id) async {

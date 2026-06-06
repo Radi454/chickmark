@@ -7,11 +7,13 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/navigation/shell_navigation_scope.dart';
 import 'package:hatchaudit/core/security/security_policy.dart';
-import 'package:hatchaudit/core/utils/audit_type_labels.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/incoming_change.dart';
+import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/data/repositories/sync_conflict_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
@@ -37,8 +39,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _isSyncing = false;
   late final HomeProvider _homeProvider;
+  // Tracks the previously observed cloud status so we only fire the offline
+  // SnackBar on a transition INTO offline (online→offline, syncing→offline,
+  // error→offline). This avoids:
+  //  - spamming the bar on every rebuild while still offline,
+  //  - missing a re-offline event after the user briefly went online again.
+  CloudStatus? _lastSeenStatus;
 
   @override
   void initState() {
@@ -52,6 +59,25 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _maybeShowOfflineSnackBar(SettingsProvider settings) {
+    final current = settings.cloudStatus;
+    final previous = _lastSeenStatus;
+    // Update synchronously — multiple builds inside one frame must not each
+    // schedule a SnackBar callback.
+    _lastSeenStatus = current;
+    if (current != CloudStatus.offline) return;
+    if (previous == CloudStatus.offline) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Offline — sync paused. Local data still available.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
   @override
   void dispose() {
     _homeProvider.dispose();
@@ -61,17 +87,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(
+      appBar: GradientAppBar(
         title: 'ChickMark',
-        titleLeading: SizedBox(
+        titleLeading: const SizedBox(
           key: ValueKey('home-appbar-logo'),
-          width: 30,
-          height: 30,
-          child: ChickMarkLogo(
-            logoSize: 30,
-            showWordmark: false,
-            showTagline: false,
-            compact: true,
+          width: 44,
+          height: 52,
+          child: Center(
+            child: ChickMarkLogo(
+              logoSize: 44,
+              showWordmark: false,
+              showTagline: false,
+              compact: true,
+            ),
           ),
         ),
       ),
@@ -79,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
         value: _homeProvider,
         child: Consumer3<CustomersProvider, SettingsProvider, HomeProvider>(
           builder: (context, provider, settings, home, child) {
+            _maybeShowOfflineSnackBar(settings);
             if (provider.isLoading &&
                 provider.allCustomers.isEmpty &&
                 home.isLoading) {
@@ -108,11 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildTodayFocus(provider, home),
                   const SizedBox(height: AppSizes.spaceLg),
-                  _buildContinueActiveAudits(provider, home),
-                  const SizedBox(height: AppSizes.spaceLg),
                   _buildAttentionNeeded(context, provider, home),
-                  const SizedBox(height: AppSizes.spaceLg),
-                  _buildQuickShortcuts(provider),
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildSyncStatus(context, provider, settings, home),
                   const SizedBox(height: AppSizes.fabBottomPadding),
@@ -152,9 +177,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ];
 
         if (useRow) {
-          return SizedBox(
-            height: 104,
+          return IntrinsicHeight(
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (var i = 0; i < cards.length; i++) ...[
                   if (i > 0) const SizedBox(width: AppSizes.spaceSm),
@@ -323,56 +348,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildContinueActiveAudits(
-    CustomersProvider provider,
-    HomeProvider home,
-  ) {
-    final activeAudits = home.activeSessions;
-
-    return _HomeSection(
-      title: 'Continue Active Audits',
-      trailing: activeAudits.length > 3
-          ? Text(
-              '+${activeAudits.length - 3} more',
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            )
-          : null,
-      child: activeAudits.isEmpty
-          ? const _EmptyHomeMessage(
-              icon: Icons.check_circle_outline,
-              title: 'No active audits',
-              message: 'Open audit work is clear.',
-              color: AppColors.completedText,
-            )
-          : Column(
-              children: [
-                for (final session in activeAudits.take(3)) ...[
-                  _ActiveSessionCard(
-                    session: session,
-                    customerName:
-                        provider.customerById(session.customerId)?.name ??
-                        session.customerId,
-                    flockLabel:
-                        provider.flockById(session.flockId)?.flockId ??
-                        session.flockId,
-                    breed: provider.flockById(session.flockId)?.breed,
-                    ageWeeks: provider
-                        .flockById(session.flockId)
-                        ?.currentAgeWeeks
-                        .round(),
-                    onTap: () => _openSession(session),
-                  ),
-                  if (session != activeAudits.take(3).last)
-                    const SizedBox(height: AppSizes.spaceMd),
-                ],
-              ],
-            ),
-    );
-  }
-
   Widget _buildAttentionNeeded(
     BuildContext context,
     CustomersProvider provider,
@@ -401,41 +376,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickShortcuts(CustomersProvider provider) {
-    final shortcuts = _shortcuts(provider);
-
-    return _HomeSection(
-      title: 'Quick Shortcuts',
-      child: shortcuts.isEmpty
-          ? const _EmptyHomeMessage(
-              icon: Icons.shortcut_outlined,
-              title: 'No shortcuts yet',
-              message: 'Recent customers and flocks will appear here.',
-              color: AppColors.primary,
-            )
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                final useTwoColumns = constraints.maxWidth >= 620;
-                final tileWidth = useTwoColumns
-                    ? (constraints.maxWidth - AppSizes.spaceMd) / 2
-                    : constraints.maxWidth;
-
-                return Wrap(
-                  spacing: AppSizes.spaceMd,
-                  runSpacing: AppSizes.spaceMd,
-                  children: shortcuts
-                      .map(
-                        (shortcut) => SizedBox(
-                          width: tileWidth,
-                          child: _ShortcutTile(shortcut: shortcut),
-                        ),
-                      )
-                      .toList(),
-                );
-              },
-            ),
-    );
-  }
 
   Widget _buildSyncStatus(
     BuildContext context,
@@ -443,83 +383,200 @@ class _HomeScreenState extends State<HomeScreen> {
     SettingsProvider settings,
     HomeProvider home,
   ) {
+    final visuals = _cloudStatusVisuals(settings.cloudStatus);
     return _HomeSection(
       title: 'Sync & Offline',
-      child: AppCard(
-        margin: EdgeInsets.zero,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final useRow = constraints.maxWidth >= 620;
-            final statusContent = Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: AppSizes.iconContainerMd,
-                  height: AppSizes.iconContainerMd,
-                  decoration: BoxDecoration(
-                    color: AppColors.infoBg,
-                    borderRadius: BorderRadius.circular(AppSizes.iconRadius),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (settings.hasIncomingChanges) ...[
+            _buildIncomingChangesCard(context, settings),
+            const SizedBox(height: AppSizes.spaceMd),
+          ],
+          AppCard(
+            margin: EdgeInsets.zero,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final useRow = constraints.maxWidth >= 620;
+                final statusContent = Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: AppSizes.iconContainerMd,
+                      height: AppSizes.iconContainerMd,
+                      decoration: BoxDecoration(
+                        color: visuals.bg,
+                        borderRadius: BorderRadius.circular(
+                          AppSizes.iconRadius,
+                        ),
+                      ),
+                      child: Icon(visuals.icon, color: visuals.fg),
+                    ),
+                    const SizedBox(width: AppSizes.spaceMd),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(visuals.title, style: AppTextStyles.title),
+                          const SizedBox(height: AppSizes.spaceSm),
+                          Text(
+                            _syncSubtitle(provider, settings, home),
+                            style: AppTextStyles.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+
+                final syncButton = ElevatedButton.icon(
+                  onPressed: settings.isSyncing
+                      ? null
+                      : () => _syncNow(context, settings),
+                  icon: settings.isSyncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          settings.isOffline ? Icons.cloud_off : Icons.sync,
+                          size: 18,
+                        ),
+                  label: Text(
+                    settings.isSyncing
+                        ? 'Syncing'
+                        : (settings.isOffline ? 'Retry' : 'Sync Now'),
                   ),
-                  child: const Icon(
-                    Icons.cloud_done_outlined,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                );
+
+                if (useRow) {
+                  return Row(
+                    children: [
+                      Expanded(child: statusContent),
+                      const SizedBox(width: AppSizes.spaceLg),
+                      syncButton,
+                    ],
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    statusContent,
+                    const SizedBox(height: AppSizes.spaceLg),
+                    syncButton,
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Highlighted notice at the top of the Sync sector listing audit sessions
+  /// that arrived from another device. Tapping one opens it (and acknowledges
+  /// just that item); "Dismiss all" clears the whole set.
+  Widget _buildIncomingChangesCard(
+    BuildContext context,
+    SettingsProvider settings,
+  ) {
+    final sessions = settings.incomingChanges;
+    final other = settings.otherIncomingCount;
+    final total = sessions.length + other;
+    final shown = sessions.take(3).toList();
+    final moreSessions = sessions.length - shown.length;
+
+    return AppCard(
+      margin: EdgeInsets.zero,
+      color: AppColors.infoBg,
+      border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.cloud_download_outlined,
+                color: AppColors.infoText,
+                size: AppSizes.iconSm,
+              ),
+              const SizedBox(width: AppSizes.spaceSm),
+              Expanded(
+                child: Text(
+                  total == 1 ? '1 new from cloud' : '$total new from cloud',
+                  style: AppTextStyles.title.copyWith(
                     color: AppColors.infoText,
                   ),
                 ),
-                const SizedBox(width: AppSizes.spaceMd),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Local database ready', style: AppTextStyles.title),
-                      const SizedBox(height: AppSizes.spaceSm),
-                      Text(
-                        _syncSubtitle(provider, settings, home),
-                        style: AppTextStyles.caption,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-
-            final syncButton = ElevatedButton.icon(
-              onPressed: _isSyncing ? null : () => _syncNow(context, settings),
-              icon: _isSyncing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.sync, size: 18),
-              label: Text(_isSyncing ? 'Syncing' : 'Sync Now'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
               ),
-            );
-
-            if (useRow) {
-              return Row(
-                children: [
-                  Expanded(child: statusContent),
-                  const SizedBox(width: AppSizes.spaceLg),
-                  syncButton,
-                ],
-              );
-            }
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                statusContent,
-                const SizedBox(height: AppSizes.spaceLg),
-                syncButton,
-              ],
-            );
-          },
-        ),
+              TextButton(
+                onPressed: () => settings.clearIncomingChanges(),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSizes.spaceSm,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Dismiss all'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceXs),
+          const Text(
+            'Synced from another device',
+            style: AppTextStyles.caption,
+          ),
+          if (shown.isNotEmpty) const SizedBox(height: AppSizes.spaceMd),
+          for (var i = 0; i < shown.length; i++) ...[
+            _IncomingChangeTile(
+              item: shown[i],
+              onTap: () => _openIncomingSession(shown[i], settings),
+            ),
+            if (i < shown.length - 1) const SizedBox(height: AppSizes.spaceSm),
+          ],
+          if (moreSessions > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSizes.spaceSm),
+              child: Text(
+                '+$moreSessions more session${moreSessions == 1 ? '' : 's'}',
+                style: AppTextStyles.caption,
+              ),
+            ),
+          if (other > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSizes.spaceXs),
+              child: Text(
+                'and $other other record${other == 1 ? '' : 's'} updated',
+                style: AppTextStyles.caption,
+              ),
+            ),
+        ],
       ),
     );
+  }
+
+  Future<void> _openIncomingSession(
+    IncomingChange item,
+    SettingsProvider settings,
+  ) async {
+    await settings.acknowledgeIncomingChange(item.key);
+    final session = await AuditSessionRepository().getSessionById(item.rowId);
+    if (!mounted) return;
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That audit is no longer available.')),
+      );
+      return;
+    }
+    await _openSession(session);
   }
 
   List<_AttentionItem> _attentionItems(
@@ -581,6 +638,22 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    if (canEdit && home.openConflictCount > 0) {
+      items.add(
+        _AttentionItem(
+          icon: Icons.merge_type_outlined,
+          title:
+              '${home.openConflictCount} sync conflict'
+              '${home.openConflictCount == 1 ? '' : 's'} — review',
+          message:
+              'Local edits won over cloud on these rows. Confirm or restore.',
+          color: AppColors.statusWarning,
+          actionLabel: 'Review',
+          onAction: () => _openSyncConflicts(),
+        ),
+      );
+    }
+
     final estimatedCustomers = provider.allCustomers
         .where((customer) => provider.customerHasEstimatedFlockAge(customer.id))
         .toList();
@@ -615,62 +688,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return items.take(4).toList();
   }
 
-  List<_HomeShortcut> _shortcuts(CustomersProvider provider) {
-    final shortcuts = <_HomeShortcut>[];
-    final seenCustomerIds = <String>{};
-    final recentCustomerIds = <String>[];
-
-    for (final audit in provider.allAudits) {
-      if (seenCustomerIds.add(audit.customerId)) {
-        recentCustomerIds.add(audit.customerId);
-      }
-      if (recentCustomerIds.length == 3) break;
-    }
-
-    for (final customer in provider.allCustomers) {
-      if (recentCustomerIds.length == 3) break;
-      if (seenCustomerIds.add(customer.id)) {
-        recentCustomerIds.add(customer.id);
-      }
-    }
-
-    for (final customerId in recentCustomerIds) {
-      final customer = provider.customerById(customerId);
-      if (customer == null) continue;
-      final flockCount = provider.flockCounts[customer.id] ?? 0;
-      final hatcheryCount = provider.hatcheryCounts[customer.id] ?? 0;
-      shortcuts.add(
-        _HomeShortcut(
-          icon: Icons.business_outlined,
-          title: customer.name,
-          subtitle: '$flockCount flocks · $hatcheryCount hatcheries',
-          onTap: () => _openCustomerDetail(customer),
-        ),
-      );
-    }
-
-    final seenFlockIds = <String>{};
-    for (final audit in provider.allAudits) {
-      final flockId = audit.flockId;
-      if (flockId == null || !seenFlockIds.add(flockId)) continue;
-      final flock = provider.flockById(flockId);
-      if (flock == null) continue;
-      final customer = provider.customerById(flock.customerId);
-      shortcuts.add(
-        _HomeShortcut(
-          icon: Icons.egg_outlined,
-          title: flock.flockId,
-          subtitle:
-              '${customer?.name ?? flock.customerId} · ${flock.currentAgeWeeks.round()}w',
-          onTap: customer == null ? null : () => _openCustomerDetail(customer),
-        ),
-      );
-      if (seenFlockIds.length == 2) break;
-    }
-
-    return shortcuts.take(5).toList();
-  }
-
   String _syncSubtitle(
     CustomersProvider provider,
     SettingsProvider settings,
@@ -678,8 +695,41 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     final lastSync = settings.lastSyncTimestamp == null
         ? 'No manual sync yet'
-        : 'Last sync ${_formatSyncTime(settings.lastSyncTimestamp!)}';
+        : 'Last sync ${_formatSyncTime(settings.lastSyncTimestamp!)} · ↑${settings.lastSyncPushed} ↓${settings.lastSyncPulled}';
     return '$lastSync · ${home.activeSessions.length} active local audits';
+  }
+
+  _CloudStatusVisuals _cloudStatusVisuals(CloudStatus status) {
+    switch (status) {
+      case CloudStatus.online:
+        return const _CloudStatusVisuals(
+          icon: Icons.cloud_done_outlined,
+          bg: AppColors.infoBg,
+          fg: AppColors.infoText,
+          title: 'Local database ready',
+        );
+      case CloudStatus.syncing:
+        return const _CloudStatusVisuals(
+          icon: Icons.cloud_sync_outlined,
+          bg: AppColors.infoBg,
+          fg: AppColors.infoText,
+          title: 'Syncing with cloud',
+        );
+      case CloudStatus.offline:
+        return _CloudStatusVisuals(
+          icon: Icons.cloud_off_outlined,
+          bg: AppColors.statusWarning.withValues(alpha: 0.1),
+          fg: AppColors.statusWarning,
+          title: 'Offline — using local data',
+        );
+      case CloudStatus.error:
+        return _CloudStatusVisuals(
+          icon: Icons.cloud_off,
+          bg: AppColors.statusWarning.withValues(alpha: 0.1),
+          fg: AppColors.statusWarning,
+          title: 'Sync error — tap Retry',
+        );
+    }
   }
 
   String _formatSyncTime(String timestamp) {
@@ -769,6 +819,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _openSyncConflicts() async {
+    final repo = SyncConflictRepository();
+    final conflicts = await repo.getOpenConflicts();
+    if (!mounted) return;
+    final user = context.read<AuthProvider>().user;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _SyncConflictsSheet(
+        conflicts: conflicts,
+        onMarkAllReviewed: () async {
+          await repo.markAllReviewed(reviewedBy: user?.id ?? 'unknown');
+        },
+      ),
+    );
+    if (!mounted) return;
+    await _homeProvider.load(currentUser: user);
+  }
+
   Future<void> _showAddCustomerSheet(BuildContext context) async {
     final customer = await showModalBottomSheet<CustomerModel>(
       context: context,
@@ -781,29 +851,47 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _syncNow(BuildContext context, SettingsProvider settings) async {
-    setState(() => _isSyncing = true);
+    final collectIncoming = settings.hasSyncedBefore;
+    settings.markSyncing();
     try {
       final currentUser = context.read<AuthProvider>().user;
-      await StartupSyncService().run(userId: currentUser?.id);
+      final outcome = await StartupSyncService().run(
+        userId: currentUser?.id,
+        collectIncoming: collectIncoming,
+      );
       if (!context.mounted) return;
       await context.read<CustomersProvider>().loadCustomers(
         currentUser: currentUser,
       );
       await _homeProvider.load(currentUser: currentUser);
-      await settings.updateLastSync(DateTime.now().toIso8601String());
+      await settings.recordSync(
+        online: outcome.online,
+        pushed: outcome.pushed,
+        pulled: outcome.pulled,
+        incoming: outcome.incomingSessions,
+        otherIncoming: outcome.otherIncomingCount,
+      );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Sync complete')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome.online
+                ? 'Sync complete · ↑${outcome.pushed} ↓${outcome.pulled}'
+                : 'Offline — using local data',
+          ),
+        ),
+      );
     } catch (error) {
+      await settings.recordSync(
+        online: false,
+        pushed: 0,
+        pulled: 0,
+        error: error.toString(),
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Sync could not finish: $error')));
-    } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
-      }
     }
   }
 
@@ -990,9 +1078,8 @@ class _RecentSessionTile extends StatelessWidget {
 class _HomeSection extends StatelessWidget {
   final String title;
   final Widget child;
-  final Widget? trailing;
 
-  const _HomeSection({required this.title, required this.child, this.trailing});
+  const _HomeSection({required this.title, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -1010,12 +1097,83 @@ class _HomeSection extends StatelessWidget {
                 ),
               ),
             ),
-            ?trailing,
           ],
         ),
         const SizedBox(height: AppSizes.spaceSm),
         child,
       ],
+    );
+  }
+}
+
+class _IncomingChangeTile extends StatelessWidget {
+  final IncomingChange item;
+  final VoidCallback onTap;
+
+  const _IncomingChangeTile({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = item.isNew;
+    final chipFg = isNew ? AppColors.statusGood : AppColors.statusActive;
+    final chipBg = isNew ? AppColors.statusGoodBg : AppColors.statusActiveBg;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceXs),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.title.copyWith(
+                      fontSize: 13,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.caption,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSizes.spaceSm),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSizes.spaceSm,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: chipBg,
+                borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+              ),
+              child: Text(
+                isNew ? 'NEW' : 'UPDATED',
+                style: AppTextStyles.caption.copyWith(
+                  color: chipFg,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.primary,
+              size: AppSizes.iconSm,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1096,114 +1254,18 @@ class _FocusMetricCard extends StatelessWidget {
   }
 }
 
-class _ActiveSessionCard extends StatelessWidget {
-  final AuditSessionModel session;
-  final String customerName;
-  final String flockLabel;
-  final String? breed;
-  final int? ageWeeks;
-  final VoidCallback onTap;
+class _CloudStatusVisuals {
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final String title;
 
-  const _ActiveSessionCard({
-    required this.session,
-    required this.customerName,
-    required this.flockLabel,
-    required this.breed,
-    required this.ageWeeks,
-    required this.onTap,
+  const _CloudStatusVisuals({
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    required this.title,
   });
-
-  @override
-  Widget build(BuildContext context) {
-    final completed = session.stationsCompleted.length;
-    final total = session.selectedStationKeys.length;
-    final stationLabel = session.selectedStationKeys
-        .map(AuditTypeLabels.forAuditType)
-        .join(', ');
-
-    return AppCard(
-      margin: EdgeInsets.zero,
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSizes.spaceSm,
-                  vertical: AppSizes.spaceXs,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.ageBadgeBg,
-                  borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
-                ),
-                child: Text(
-                  ageWeeks != null ? '${ageWeeks}w' : '--',
-                  style: AppTextStyles.badgeLabel.copyWith(
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSizes.spaceSm),
-              Expanded(
-                child: Text(
-                  customerName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.title,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSizes.spaceSm,
-                  vertical: AppSizes.spaceXs,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.activeBg,
-                  borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
-                ),
-                child: Text(
-                  '$completed/$total',
-                  style: AppTextStyles.badgeLabel.copyWith(
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSizes.spaceSm),
-          Text(
-            '$flockLabel${breed != null ? ' · $breed' : ''} · ${HatchDateUtils.formatDisplayDate(session.date)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.caption,
-          ),
-          const SizedBox(height: AppSizes.spaceSm),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  stationLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.caption,
-                ),
-              ),
-              const SizedBox(width: AppSizes.spaceMd),
-              Text(
-                'Continue',
-                style: AppTextStyles.caption.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _AttentionItem {
@@ -1279,70 +1341,6 @@ class _AttentionTile extends StatelessWidget {
   }
 }
 
-class _HomeShortcut {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-
-  const _HomeShortcut({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-}
-
-class _ShortcutTile extends StatelessWidget {
-  final _HomeShortcut shortcut;
-
-  const _ShortcutTile({required this.shortcut});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      margin: EdgeInsets.zero,
-      onTap: shortcut.onTap,
-      child: Row(
-        children: [
-          Container(
-            width: AppSizes.iconContainerSm,
-            height: AppSizes.iconContainerSm,
-            decoration: BoxDecoration(
-              color: AppColors.infoBg,
-              borderRadius: BorderRadius.circular(AppSizes.iconRadius),
-            ),
-            child: Icon(shortcut.icon, color: AppColors.infoText),
-          ),
-          const SizedBox(width: AppSizes.spaceMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  shortcut.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.title,
-                ),
-                const SizedBox(height: AppSizes.spaceXs),
-                Text(
-                  shortcut.subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.caption,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSizes.spaceSm),
-          const Icon(Icons.chevron_right, color: AppColors.primary),
-        ],
-      ),
-    );
-  }
-}
-
 class _EmptyHomeMessage extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1384,6 +1382,133 @@ class _EmptyHomeMessage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SyncConflictsSheet extends StatelessWidget {
+  final List<SyncConflict> conflicts;
+  final Future<void> Function() onMarkAllReviewed;
+
+  const _SyncConflictsSheet({
+    required this.conflicts,
+    required this.onMarkAllReviewed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSizes.spaceLg,
+                  AppSizes.spaceMd,
+                  AppSizes.spaceLg,
+                  AppSizes.spaceSm,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Sync conflicts (${conflicts.length})',
+                        style: AppTextStyles.heading.copyWith(fontSize: 16),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: AppSizes.spaceLg),
+                child: Text(
+                  'These rows were edited on this device after the cloud copy. Local edits were kept. Mark reviewed once confirmed.',
+                  style: AppTextStyles.caption,
+                ),
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              Expanded(
+                child: conflicts.isEmpty
+                    ? const Center(child: Text('No open conflicts'))
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSizes.spaceLg,
+                        ),
+                        itemCount: conflicts.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSizes.spaceSm),
+                        itemBuilder: (context, index) {
+                          final conflict = conflicts[index];
+                          return AppCard(
+                            margin: EdgeInsets.zero,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${conflict.tableName} · ${conflict.rowId}',
+                                  style: AppTextStyles.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: AppSizes.spaceXs),
+                                Text(
+                                  'Local: ${conflict.localUpdatedAt?.toLocal() ?? '—'}',
+                                  style: AppTextStyles.caption,
+                                ),
+                                Text(
+                                  'Cloud: ${conflict.remoteUpdatedAt?.toLocal() ?? '—'}',
+                                  style: AppTextStyles.caption,
+                                ),
+                                Text(
+                                  'Kept: ${conflict.winner}',
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.statusWarning,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSizes.spaceLg),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: conflicts.isEmpty
+                        ? null
+                        : () async {
+                            await onMarkAllReviewed();
+                            if (context.mounted) Navigator.of(context).pop();
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Mark all reviewed'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

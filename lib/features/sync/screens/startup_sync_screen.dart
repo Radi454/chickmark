@@ -8,6 +8,7 @@ import '../../../providers/customers_provider.dart';
 import '../../../services/supabase/startup_sync_service.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../settings/providers/settings_provider.dart';
 
 class StartupSyncScreen extends StatefulWidget {
   const StartupSyncScreen({super.key});
@@ -30,10 +31,38 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
   }
 
   Future<void> _runStartupSync() async {
-    final syncFuture = _syncService.run().catchError(
-      (Object error, StackTrace stackTrace) {},
-    );
-    await Future.any<void>([
+    final settings = context.read<SettingsProvider>();
+    // Don't flag incoming changes on the very first sync (nothing local yet) —
+    // only once the device has synced before.
+    final collectIncoming = settings.hasSyncedBefore;
+    settings.markSyncing();
+    // Wrap the sync future so outcomes (online + counts) land in
+    // SettingsProvider regardless of whether the grace-period timer wins.
+    final syncFuture = _syncService
+        .run(
+          userId: context.read<AuthProvider>().user?.id,
+          collectIncoming: collectIncoming,
+        )
+        .then((outcome) async {
+          await settings.recordSync(
+            online: outcome.online,
+            pushed: outcome.pushed,
+            pulled: outcome.pulled,
+            incoming: outcome.incomingSessions,
+            otherIncoming: outcome.otherIncomingCount,
+          );
+          return outcome;
+        })
+        .catchError((Object error, StackTrace stackTrace) async {
+          await settings.recordSync(
+            online: false,
+            pushed: 0,
+            pulled: 0,
+            error: error.toString(),
+          );
+          return SyncOutcome.offline;
+        });
+    await Future.any<dynamic>([
       syncFuture,
       Future<void>.delayed(_startupSyncGracePeriod),
     ]);

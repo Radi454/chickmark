@@ -7,7 +7,7 @@ import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart'
 import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 
-class GoveeEnvironmentalReadingsSection extends StatelessWidget {
+class GoveeEnvironmentalReadingsSection extends StatefulWidget {
   final List<GoveeCaptureSummary> captures;
   final bool isLoading;
 
@@ -18,46 +18,111 @@ class GoveeEnvironmentalReadingsSection extends StatelessWidget {
   });
 
   @override
+  State<GoveeEnvironmentalReadingsSection> createState() =>
+      _GoveeEnvironmentalReadingsSectionState();
+}
+
+class _GoveeEnvironmentalReadingsSectionState
+    extends State<GoveeEnvironmentalReadingsSection> {
+  int _selected = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final placeGroups = _placeGroups(captures);
+    final placeGroups = _placeGroups(widget.captures);
+    final isLoading = widget.isLoading;
+    final selected = placeGroups.isEmpty
+        ? 0
+        : _selected.clamp(0, placeGroups.length - 1);
 
     return AppCard(
       margin: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Govee Environmental Readings',
-                  style: AppTextStyles.sectionTitle,
-                ),
-              ),
-              if (isLoading)
-                const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-            ],
-          ),
-          if (isLoading) ...[
-            const SizedBox(height: AppSizes.spaceSm),
-            const LinearProgressIndicator(minHeight: 2),
-          ],
-          if (placeGroups.isNotEmpty) ...[
-            const SizedBox(height: AppSizes.spaceMd),
-            ...placeGroups.map(_GoveePlaceGroup.new),
-          ] else if (!isLoading) ...[
-            const SizedBox(height: AppSizes.spaceMd),
-            Text(
-              'No saved Govee readings yet',
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.textSecondary,
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: AppColors.brandGradient,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(AppSizes.cardRadius),
               ),
             ),
-          ],
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSizes.cardPadding,
+              vertical: AppSizes.spaceMd,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Govee Environmental Readings',
+                        style: AppTextStyles.sectionTitle.copyWith(
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Continuous temp & RH · monitored places · 24h captures',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: 0.82),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isLoading)
+                  const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(AppSizes.cardPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isLoading) ...[
+                  const LinearProgressIndicator(minHeight: 2),
+                  const SizedBox(height: AppSizes.spaceMd),
+                ],
+                if (placeGroups.isNotEmpty) ...[
+                  if (placeGroups.length > 1) ...[
+                    _GoveePlaceTabs(
+                      groups: placeGroups,
+                      selected: selected,
+                      onSelected: (i) => setState(() => _selected = i),
+                    ),
+                    const SizedBox(height: AppSizes.spaceMd),
+                  ],
+                  _GoveePlaceGroup(
+                    placeGroups[selected],
+                    showLabel: placeGroups.length == 1,
+                  ),
+                ] else if (!isLoading)
+                  Text(
+                    'No saved Govee readings yet',
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -97,10 +162,112 @@ class _GoveePlaceCaptures {
   const _GoveePlaceCaptures({required this.place, required this.captures});
 }
 
+class _GoveePlaceTabs extends StatelessWidget {
+  final List<_GoveePlaceCaptures> groups;
+  final int selected;
+  final ValueChanged<int> onSelected;
+
+  const _GoveePlaceTabs({
+    required this.groups,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: EdgeInsets.zero,
+      child: Row(
+        children: [
+          for (var i = 0; i < groups.length; i++)
+            Padding(
+              key: ValueKey('govee-place-tab-${groups[i].place.name}'),
+              padding: EdgeInsets.only(
+                right: i == groups.length - 1 ? 0 : AppSizes.spaceSm,
+              ),
+              child: _GoveePlaceTab(
+                label: groups[i].place.label,
+                count: groups[i].captures.length,
+                isActive: i == selected,
+                onTap: () => onSelected(i),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoveePlaceTab extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _GoveePlaceTab({
+    required this.label,
+    required this.count,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isActive ? AppColors.primary : AppColors.surfaceVariant,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSizes.spaceMd,
+            vertical: AppSizes.spaceSm,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: isActive ? AppColors.primary : AppColors.borderDefault,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: isActive
+                      ? AppColors.textOnPrimary
+                      : AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: isActive
+                      ? AppColors.textOnPrimary.withValues(alpha: 0.85)
+                      : AppColors.textTertiary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GoveePlaceGroup extends StatelessWidget {
   final _GoveePlaceCaptures group;
+  final bool showLabel;
 
-  const _GoveePlaceGroup(this.group);
+  const _GoveePlaceGroup(this.group, {this.showLabel = true});
 
   @override
   Widget build(BuildContext context) {
@@ -113,7 +280,9 @@ class _GoveePlaceGroup extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(group.place.label, style: AppTextStyles.title),
+                child: showLabel
+                    ? Text(group.place.label, style: AppTextStyles.title)
+                    : const SizedBox.shrink(),
               ),
               Text(
                 '${group.captures.length} record${group.captures.length == 1 ? '' : 's'}',

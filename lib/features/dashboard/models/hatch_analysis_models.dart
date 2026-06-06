@@ -1,5 +1,28 @@
 import '../../../core/utils/calculation_utils.dart';
 
+/// One age point on the Hatch Result charts: the flock's actual hatchability /
+/// fertility / HOF at a benchmark age, paired with the benchmark for that age.
+/// Drives the per-metric Act-vs-BMK bar charts (X = age, Y = value).
+class HatchAgePoint {
+  final int age;
+  final double? hatchAct;
+  final double? fertAct;
+  final double? hofAct;
+  final double? hatchBmk;
+  final double? fertBmk;
+  final double? hofBmk;
+
+  const HatchAgePoint({
+    required this.age,
+    this.hatchAct,
+    this.fertAct,
+    this.hofAct,
+    this.hatchBmk,
+    this.fertBmk,
+    this.hofBmk,
+  });
+}
+
 class HatchAnalysisAvg {
   final double hatchabilityPct;
   final double fertilityPct;

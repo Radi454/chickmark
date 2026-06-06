@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/settings/providers/settings_provider.dart';
 import '../../providers/customers_provider.dart';
 import '../supabase/startup_sync_service.dart';
 import '../../core/debug/startup_timer.dart';
@@ -17,11 +18,13 @@ class BgSyncService extends ChangeNotifier {
   double get progress => _progress;
 
   bool get isSyncing => _state == BgSyncState.syncing;
-  bool get isComplete => _state == BgSyncState.completed || _state == BgSyncState.failed;
+  bool get isComplete =>
+      _state == BgSyncState.completed || _state == BgSyncState.failed;
 
   Future<void> runBackgroundSync({
     required AuthProvider authProvider,
     required CustomersProvider customersProvider,
+    SettingsProvider? settingsProvider,
   }) async {
     if (_state == BgSyncState.syncing) return;
 
@@ -29,14 +32,17 @@ class BgSyncService extends ChangeNotifier {
     _message = 'Syncing...';
     _progress = 0;
     notifyListeners();
+    settingsProvider?.markSyncing();
     StartupTimer.lap('bg_sync_start');
 
     try {
       final user = authProvider.user;
       final syncService = StartupSyncService();
 
-      await syncService.run(
+      final outcome = await syncService.run(
         userId: user?.id,
+        canPush: user?.canEditAudits ?? true,
+        collectIncoming: settingsProvider?.hasSyncedBefore ?? false,
         onProgress: (progress) {
           _progress = progress.value;
           _message = progress.message;
@@ -55,12 +61,25 @@ class BgSyncService extends ChangeNotifier {
       _state = BgSyncState.completed;
       _message = 'Sync complete';
       _progress = 1;
+      await settingsProvider?.recordSync(
+        online: outcome.online,
+        pushed: outcome.pushed,
+        pulled: outcome.pulled,
+        incoming: outcome.incomingSessions,
+        otherIncoming: outcome.otherIncomingCount,
+      );
     } catch (e) {
       debugPrint('[BG_SYNC] Background sync failed: $e');
       StartupTimer.lap('bg_sync_failed');
       _state = BgSyncState.failed;
       _message = 'Sync failed — offline data available';
       _progress = 1;
+      await settingsProvider?.recordSync(
+        online: false,
+        pushed: 0,
+        pulled: 0,
+        error: e.toString(),
+      );
     }
 
     notifyListeners();

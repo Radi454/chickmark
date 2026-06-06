@@ -7,14 +7,15 @@ import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../support/test_database.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late PanelDashboardRepository repository;
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedAppDatabase();
   });
 
   setUp(() async {

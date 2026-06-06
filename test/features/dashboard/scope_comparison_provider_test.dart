@@ -1,14 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_config.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
 
-/// Returns no live rows → provider must fall back to dummy data for every sector.
+/// Returns no live rows → demo customer falls back to dummy; others go empty.
 class _EmptyScopeRepo extends ScopeComparisonRepository {
   @override
   Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async => const [];
+  @override
+  Future<int?> dominantBmkAge(filter) async => null;
 }
 
 void main() {
@@ -16,7 +19,16 @@ void main() {
 
   setUp(() async {
     provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
-    await provider.applyFilter(); // no bmkAge → no DB call for BMK
+    // Demo customer → example fallback when a sector has no live rows.
+    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+  });
+
+  test('real customer with no rows shows empty state (no dummy)', () async {
+    final real = ScopeComparisonProvider(repository: _EmptyScopeRepo());
+    await real.applyFilter(customerId: 'cust-real-123');
+    expect(real.isDummyFor('residue_breakout'), isFalse);
+    expect(real.isEmptyFor('residue_breakout'), isTrue);
+    expect(real.groupsFor('residue_breakout'), isEmpty);
   });
 
   test('falls back to dummy data when no live rows', () {
@@ -74,7 +86,7 @@ void main() {
     expect(anyFlagged, isTrue);
   });
 
-  test('all 11 sectors load', () {
+  test('all 10 sectors load', () {
     for (final s in ScopeConfigRegistry.sectors) {
       expect(provider.groupsFor(s.id), isNotEmpty, reason: s.id);
     }

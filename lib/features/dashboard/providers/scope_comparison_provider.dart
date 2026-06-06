@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../data/database/seeds/dashboard_demo_seeds.dart';
 import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/repositories/panel_dashboard_repository.dart';
 import '../../../data/repositories/scope_comparison_repository.dart';
 import '../models/dashboard_filter.dart';
 import '../models/egg_storage_models.dart';
+import '../models/hatch_analysis_models.dart';
 import '../scope/scope_config.dart';
 import '../scope/scope_dummy_data.dart';
 import '../scope/scope_engine.dart';
@@ -34,12 +36,23 @@ class ScopeComparisonProvider extends ChangeNotifier {
 
   final Map<String, List<ScopeLeafRow>> _leaves = {};
   final Map<String, bool> _isDummy = {};
+  final Map<String, bool> _isEmpty = {};
   final Map<String, BmkReference?> _sectorBmk = {};
   final Map<String, List<SamplingLayer>> _selectedLayers = {};
   final Map<String, Set<int>> _hidden = {};
   final Map<String, List<ScopeGroup>> _groups = {};
+  final Map<String, bool> _chartMode = {};
+  final Map<String, int> _chartParam = {};
+  final Map<String, int> _chartScope = {};
+
+  /// Per-age Act-vs-BMK series for the Hatch Result charts (X = age). Loaded
+  /// lazily when that chart is opened, not on the common applyFilter path.
+  List<HatchAgePoint> _hatchByAge = const [];
+  DashboardFilter? _lastFilter;
 
   bool get isLoading => _isLoading;
+
+  List<HatchAgePoint> get hatchAgeSeries => _hatchByAge;
 
   /// Load every sector for the given filter (idempotent per filter). Pulls the
   /// BMK reference once and reuses it across live sectors.
@@ -59,11 +72,17 @@ class ScopeComparisonProvider extends ChangeNotifier {
       flockId: flockId,
       bmkAge: bmkAge,
     );
+    _lastFilter = filter;
 
+    // Example/dummy data is limited to the demo customer; real customers show
+    // live data or an empty state.
+    final isDemo = customerId == kDashboardDemoCustomerId;
     BmkReference? liveBmk;
     try {
-      if (bmkAge != null) {
-        liveBmk = await _panelRepo.getBmkReferenceForAge(bmkAge);
+      // Pick a BMK reference: explicit age, else the dominant age in the data.
+      final refAge = bmkAge ?? await _repo.dominantBmkAge(filter);
+      if (refAge != null) {
+        liveBmk = await _panelRepo.getBmkReferenceForAge(refAge);
       }
       for (final sector in ScopeConfigRegistry.sectors) {
         List<ScopeLeafRow> leaves = const [];
@@ -72,13 +91,20 @@ class ScopeComparisonProvider extends ChangeNotifier {
         } catch (e) {
           debugPrint('Scope load failed for ${sector.id}: $e');
         }
-        if (leaves.isEmpty) {
-          _leaves[sector.id] = ScopeDummyData.leavesFor(sector.id);
-          _isDummy[sector.id] = true;
-          _sectorBmk[sector.id] = ScopeDummyData.demoBmk;
-        } else {
+        if (leaves.isNotEmpty) {
           _leaves[sector.id] = leaves;
           _isDummy[sector.id] = false;
+          _isEmpty[sector.id] = false;
+          _sectorBmk[sector.id] = liveBmk;
+        } else if (isDemo) {
+          _leaves[sector.id] = ScopeDummyData.leavesFor(sector.id);
+          _isDummy[sector.id] = true;
+          _isEmpty[sector.id] = false;
+          _sectorBmk[sector.id] = ScopeDummyData.demoBmk;
+        } else {
+          _leaves[sector.id] = const [];
+          _isDummy[sector.id] = false;
+          _isEmpty[sector.id] = true;
           _sectorBmk[sector.id] = liveBmk;
         }
         _selectedLayers.putIfAbsent(
@@ -93,6 +119,9 @@ class ScopeComparisonProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+    // Refresh the lazily-loaded Hatch age chart if it's already open so a filter
+    // change updates it. Fire-and-forget — never blocks the main load.
+    if (isChartMode('hatch_results')) _loadHatchAgeSeries();
   }
 
   // ── interaction ──────────────────────────────────────────────────────────
@@ -121,6 +150,50 @@ class ScopeComparisonProvider extends ChangeNotifier {
   // ── reads ──────────────────────────────────────────────────────────────
 
   bool isDummyFor(String sectorId) => _isDummy[sectorId] ?? false;
+
+  /// True when a real customer has no rows for this sector (show empty state).
+  bool isEmptyFor(String sectorId) => _isEmpty[sectorId] ?? false;
+
+  // ── table ↔ chart toggle ──────────────────────────────────────────────────
+  bool isChartMode(String sectorId) => _chartMode[sectorId] ?? false;
+
+  void toggleChartMode(String sectorId) {
+    final on = !isChartMode(sectorId);
+    _chartMode[sectorId] = on;
+    // Hatch Result's chart is a per-age series fetched on demand — kept off the
+    // common applyFilter path so a slow/unavailable DB never stalls the load.
+    if (on && sectorId == 'hatch_results') _loadHatchAgeSeries();
+    notifyListeners();
+  }
+
+  Future<void> _loadHatchAgeSeries() async {
+    final filter = _lastFilter;
+    if (filter == null) return;
+    try {
+      _hatchByAge = await _panelRepo.getHatchByAge(filter);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Hatch age series load failed: $e');
+      _hatchByAge = const [];
+    }
+  }
+
+  int chartParamIndex(String sectorId) => _chartParam[sectorId] ?? 0;
+
+  void setChartParam(String sectorId, int index) {
+    _chartParam[sectorId] = index;
+    notifyListeners();
+  }
+
+  /// Selected scope (group index) for the chart's Act-vs-STD view.
+  int chartScopeIndex(String sectorId) => _chartScope[sectorId] ?? 0;
+
+  void setChartScope(String sectorId, int index) {
+    _chartScope[sectorId] = index;
+    notifyListeners();
+  }
+
+  BmkReference? bmkFor(String sectorId) => _sectorBmk[sectorId];
 
   List<SamplingLayer> selectedLayersFor(String sectorId) =>
       _selectedLayers[sectorId] ?? const [];

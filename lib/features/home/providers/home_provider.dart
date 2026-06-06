@@ -4,17 +4,22 @@ import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/audit_session_repository.dart';
 import '../../../data/repositories/flock_repository.dart';
+import '../../../data/repositories/sync_conflict_repository.dart';
 import '../../../core/utils/date_utils.dart';
 
 class HomeProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepository;
   final FlockRepository _flockRepository;
+  final SyncConflictRepository _syncConflictRepository;
 
   HomeProvider({
     AuditSessionRepository? sessionRepository,
     FlockRepository? flockRepository,
+    SyncConflictRepository? syncConflictRepository,
   }) : _sessionRepository = sessionRepository ?? AuditSessionRepository(),
-       _flockRepository = flockRepository ?? FlockRepository();
+       _flockRepository = flockRepository ?? FlockRepository(),
+       _syncConflictRepository =
+           syncConflictRepository ?? SyncConflictRepository();
 
   int _auditsThisMonth = 0;
   int _activeFlocksCount = 0;
@@ -22,6 +27,7 @@ class HomeProvider extends ChangeNotifier {
   List<AuditSessionModel> _recentSessions = [];
   List<AuditSessionModel> _activeSessions = [];
   Map<String, int> _auditsByType = {};
+  int _openConflictCount = 0;
   bool _isLoading = false;
 
   int get auditsThisMonth => _auditsThisMonth;
@@ -32,6 +38,7 @@ class HomeProvider extends ChangeNotifier {
   List<AuditSessionModel> get activeSessions =>
       List.unmodifiable(_activeSessions);
   Map<String, int> get auditsByType => Map.unmodifiable(_auditsByType);
+  int get openConflictCount => _openConflictCount;
   bool get isLoading => _isLoading;
 
   Future<void> load({required UserModel? currentUser}) async {
@@ -87,6 +94,12 @@ class HomeProvider extends ChangeNotifier {
       _activeFlocksCount = scopedFlocks
           .where((flock) => flock.status == 'active')
           .length;
+
+      try {
+        _openConflictCount = await _syncConflictRepository.getOpenCount();
+      } catch (_) {
+        _openConflictCount = 0;
+      }
     } finally {
       _isLoading = false;
       notifyListeners();

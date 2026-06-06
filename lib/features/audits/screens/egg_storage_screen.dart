@@ -23,14 +23,13 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
 import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
-import '../models/est_guided_capture_state.dart';
+import '../ocr_capture/ocr_capture_config.dart';
+import '../ocr_capture/ocr_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
-import '../widgets/est_guided_capture_panel.dart';
-import '../widgets/inline_camera_capture.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/photo_button.dart';
 import '../widgets/weight_grid_widget.dart';
@@ -78,10 +77,7 @@ class EggStorageStationController {
   }
 }
 
-class _EggStorageScreenState extends State<EggStorageScreen>
-    with WidgetsBindingObserver {
-  static const Duration _estAutoScanInterval = kThermoScanAutoScanInterval;
-
+class _EggStorageScreenState extends State<EggStorageScreen> {
   final ScrollController _scrollController = ScrollController();
   late final List<GlobalKey> _sectionKeys = List.generate(
     5,
@@ -93,11 +89,8 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
-  final GlobalKey<InlineCameraCaptureState> _estCameraKey = GlobalKey();
   final FocusNode _storageDaysFocusNode = FocusNode();
   final FocusNode _eggQualityStorageDaysFocusNode = FocusNode();
-  final TextEditingController _estGuidedValueController =
-      TextEditingController();
   final TextEditingController _storageDaysController = TextEditingController();
   final TextEditingController _eggQualityStorageDaysController =
       TextEditingController();
@@ -119,21 +112,12 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   String? _coolerProximity;
   bool? _condensation;
   double? _bmkEggWeight;
-  EstGuidedCaptureState? _estCaptureState;
-  String? _estHighlightedKey;
-  int _estSuccessPulse = 0;
-  bool _estInlineCameraUnavailable = false;
-  bool _estInlineCameraReady = false;
-  bool _isConfirmingEstCapture = false;
-  int _estCaptureGeneration = 0;
   String? _activeAuditId;
-  Timer? _estAutoScanTimer;
 
   @override
   void initState() {
     super.initState();
     widget.stationController?._attach(this);
-    WidgetsBinding.instance.addObserver(this);
     for (final level in EstGridData.levels) {
       for (final location in EstGridData.locations) {
         final key = EstGridData.key(location, level);
@@ -183,20 +167,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       oldWidget.stationController?._detach(this);
       widget.stationController?._attach(this);
     }
-    if (_isDifferentAuditContext(oldWidget.context, widget.context)) {
-      _nextEstCaptureGeneration();
-      _stopEstAutoScan(message: 'Auto scan stopped.');
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _nextEstCaptureGeneration();
-      _stopEstAutoScan(message: 'Auto scan stopped.');
-    }
   }
 
   void _initializeFormState(AuditModel audit) {
@@ -239,11 +209,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   void _syncActiveSampleForm(AuditModel audit) {
     if (_activeAuditId == audit.id) return;
     _activeAuditId = audit.id;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _estCaptureState = _estCaptureState?.stopAutoScan(
-      message: 'Auto scan stopped.',
-    );
     _initializeFormState(audit);
   }
 
@@ -329,10 +294,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
   @override
   void dispose() {
     widget.stationController?._detach(this);
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(_estCaptureState);
-    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     _storageDaysFocusNode
       ..removeListener(_handleStorageDaysFocusChange)
@@ -340,7 +301,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     _eggQualityStorageDaysFocusNode
       ..removeListener(_handleEggQualityStorageDaysFocusChange)
       ..dispose();
-    _estGuidedValueController.dispose();
     _storageDaysController.dispose();
     _eggQualityStorageDaysController.dispose();
     for (final controller in _estControllers.values) {
@@ -371,11 +331,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     super.dispose();
   }
 
-  int _nextEstCaptureGeneration() => ++_estCaptureGeneration;
-
-  bool _isCurrentEstCaptureGeneration(int generation) =>
-      mounted && generation == _estCaptureGeneration;
-
   @override
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
@@ -385,7 +340,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
-      onBackAttempt: _handleEstBackAttempt,
       child: Scaffold(
         appBar: widget.context.sessionId != null
             ? null
@@ -727,27 +681,18 @@ class _EggStorageScreenState extends State<EggStorageScreen>
             OutlinedButton.icon(
               onPressed: auditProvider.isReadOnly
                   ? null
-                  : () => _toggleEstGuidedCapture(auditProvider),
-              icon: Icon(
-                _estCaptureState == null ? Icons.photo_camera : Icons.close,
-              ),
-              label: Text(
-                _estCaptureState == null ? 'Guided capture' : 'Close capture',
-              ),
+                  : () => _openEstCapture(auditProvider),
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: const Text('Scan readings'),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        if (_estCaptureState != null) ...[
-          _buildInlineEstCapturePanel(auditProvider),
-          const SizedBox(height: 12),
-        ],
         EstGridWidget(
           controllers: _estControllers,
           focusNodes: _estFocusNodes,
           photos: _estPhotos,
           enabled: !auditProvider.isReadOnly,
-          highlightedKey: _estHighlightedKey,
           showPhotoCapture: false,
           title: null,
           unitSuffix: '°C',
@@ -2066,482 +2011,42 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       ? Colors.orange
       : Colors.red;
 
-  bool _isDifferentAuditContext(
-    AuditContextData previous,
-    AuditContextData next,
-  ) {
-    return previous.auditType != next.auditType ||
-        previous.customerId != next.customerId ||
-        previous.flockId != next.flockId ||
-        previous.sessionId != next.sessionId ||
-        previous.setterId != next.setterId ||
-        previous.hatcherId != next.hatcherId ||
-        previous.date != next.date;
-  }
-
-  void _toggleEstGuidedCapture(AuditProvider provider) {
-    if (_estCaptureState == null) {
-      _nextEstCaptureGeneration();
-      setState(() {
-        _estCaptureState = EstGuidedCaptureState.initial(
-          readings: _currentEstReadings(),
-          photos: _currentEstPhotoPaths(),
-        );
-        _estGuidedValueController.clear();
-        _estHighlightedKey = null;
-        _estInlineCameraUnavailable = false;
-        _estInlineCameraReady = false;
-        _isConfirmingEstCapture = false;
-      });
-      return;
-    }
-
-    _finishInlineEstCapture(showMessage: false);
-  }
-
-  Widget _buildInlineEstCapturePanel(AuditProvider provider) {
-    final state = _estCaptureState!;
-
-    return EstGuidedCapturePanel(
-      state: state,
-      valueController: _estGuidedValueController,
-      preview: InlineCameraCapture(
-        key: _estCameraKey,
-        capturedImagePath: state.capturedImagePath,
-        isScanning: state.capturedImagePath == null,
-        successPulse: _estSuccessPulse,
-        onCameraReadyChanged: _handleInlineCameraReadyChanged,
-        onCameraError: _handleInlineCameraError,
+  /// Launch the reusable full-screen OCR capture flow, pre-populated with the
+  /// current grid, then merge confirmed readings back via [_saveEstPoint]
+  /// (persistence + sync unchanged).
+  Future<void> _openEstCapture(AuditProvider provider) async {
+    if (provider.isReadOnly) return;
+    final storageDays = int.tryParse(_storageDaysController.text);
+    final target = _shellStorageTarget(storageDays);
+    final result = await OcrCaptureLauncher.push(
+      context,
+      OcrCaptureConfig(
+        title: 'Eggshell Temperature',
+        unitSuffix: '°C',
+        initialReadings: _currentEstReadings(),
+        initialPhotos: _currentEstPhotoPaths(),
+        tempStatusFn: target.status,
+        tempZoneFn: target.zone,
+        targetLabelBuilder: _estTargetLabel,
+        readOnly: provider.isReadOnly,
       ),
-      useCameraAppForCapture: _estInlineCameraUnavailable,
-      canAutoScan: _estInlineCameraReady && !_estInlineCameraUnavailable,
-      isConfirming: _isConfirmingEstCapture,
-      onCapture: () =>
-          unawaited(_captureInlineEstReading(useNativeCamera: false)),
-      onUseNativeCamera: () =>
-          unawaited(_captureInlineEstReading(useNativeCamera: true)),
-      onAutoScan: _startEstAutoScan,
-      onStopAutoScan: () => _stopEstAutoScan(message: 'Auto scan stopped.'),
-      onRetake: _retakeInlineEstCapture,
-      onSkip: _skipInlineEstCapture,
-      onFinish: _finishInlineEstCapture,
-      onValueChanged: (value) {
-        final current = _estCaptureState;
-        if (current == null) return;
-        setState(() => _estCaptureState = current.valueEdited(value));
-      },
-      onConfirm: () => unawaited(_confirmInlineEstCapture(provider)),
-      onRejectAutoScanReading: _rejectInlineAutoScanReading,
+      ocrService: _ocrService,
+      photoService: _photoService,
     );
-  }
-
-  void _startEstAutoScan() {
-    final current = _estCaptureState;
-    if (current == null ||
-        current.isProcessing ||
-        current.isOcrProcessing ||
-        !_estInlineCameraReady ||
-        _estInlineCameraUnavailable) {
-      return;
-    }
-
-    _nextEstCaptureGeneration();
-    final nextState = current.startAutoScan();
-    setState(() {
-      _estCaptureState = nextState;
-      if (nextState.isAutoScanning) _estGuidedValueController.clear();
-    });
-
-    if (nextState.isAutoScanning) {
-      _ensureEstAutoScanTimer();
-    }
-  }
-
-  void _ensureEstAutoScanTimer() {
-    if (_estAutoScanTimer?.isActive ?? false) return;
-    _estAutoScanTimer = Timer.periodic(_estAutoScanInterval, (_) {
-      unawaited(_runEstAutoScanAttempt());
-    });
-  }
-
-  void _cancelEstAutoScanTimer() {
-    _estAutoScanTimer?.cancel();
-    _estAutoScanTimer = null;
-  }
-
-  void _stopEstAutoScan({String? message}) {
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    final current = _estCaptureState;
-    if (!mounted || current == null) return;
-    setState(() {
-      _estCaptureState = current.stopAutoScan(message: message);
-    });
-  }
-
-  void _handleEstBackAttempt() {
-    final current = _estCaptureState;
-    if (current == null) return;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    if (current.capturedImagePath == null) {
-      if (!mounted) return;
-      setState(() {
-        _estCaptureState = current.stopAutoScan(message: 'Auto scan stopped.');
-      });
-      return;
-    }
-
-    _discardUnconfirmedEstPhoto(current);
+    if (result == null || result.isEmpty || !mounted) return;
+    OcrCaptureLauncher.apply(
+      result,
+      (key, path, value) => _saveEstPoint(provider, key, path, value),
+    );
     if (!mounted) return;
-    setState(() {
-      _isConfirmingEstCapture = false;
-      _estGuidedValueController.clear();
-      _estCaptureState = current.retake();
-    });
-  }
-
-  Future<void> _runEstAutoScanAttempt() async {
-    if (!mounted) return;
-    final current = _estCaptureState;
-    if (current == null || !current.canStartOcrAttempt) return;
-    final generation = _estCaptureGeneration;
-
-    setState(() {
-      _estCaptureState = current.autoScanAttemptStarted();
-    });
-
-    final inlineCamera = _estCameraKey.currentState;
-    final sourcePath = await inlineCamera?.takePictureForAutoScan();
-    if (!_isCurrentEstCaptureGeneration(generation)) {
-      if (sourcePath != null) unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    if (sourcePath == null) {
-      _cancelEstAutoScanTimer();
-      final state = _estCaptureState;
-      if (state == null) return;
-      setState(() {
-        if (inlineCamera?.hasCameraError ?? false) {
-          _estInlineCameraUnavailable = true;
-        }
-        _estCaptureState = state.stopAutoScan(
-          message: 'Auto scan stopped. Use Capture or Camera app.',
-        );
-      });
-      return;
-    }
-
-    final reading = await _ocrService.recognizeThermoScanReadingCelsius(
-      sourcePath,
-      cropFrame: inlineCamera?.ocrCropFrame,
-      fanOutVariants: false,
-    );
-    if (!_isCurrentEstCaptureGeneration(generation)) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    final state = _estCaptureState;
-    if (state == null) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      return;
-    }
-
-    if (reading == null) {
-      unawaited(_photoService.deletePhoto(sourcePath));
-      setState(() {
-        _estGuidedValueController.clear();
-        _estCaptureState = state.autoScanAttemptResolved(
-          photoPath: sourcePath,
-          ocrValue: null,
-        );
-      });
-      return;
-    }
-
-    _cancelEstAutoScanTimer();
-    setState(() {
-      _estGuidedValueController.text = reading.toStringAsFixed(1);
-      _estCaptureState = state.autoScanAttemptResolved(
-        photoPath: sourcePath,
-        ocrValue: reading,
-      );
-    });
-  }
-
-  void _rejectInlineAutoScanReading() {
-    final state = _estCaptureState;
-    if (state == null || state.capturedImagePath == null) return;
-
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    final shouldResumeAutoScan = state.isAutoScanReview;
-    _discardUnconfirmedEstPhoto(state);
-    setState(() {
-      _estGuidedValueController.clear();
-      _isConfirmingEstCapture = false;
-      _estCaptureState = shouldResumeAutoScan
-          ? state.rejectAutoScanReading()
-          : state.retake();
-    });
-    if (shouldResumeAutoScan) _ensureEstAutoScanTimer();
-  }
-
-  void _discardUnconfirmedEstPhoto(EstGuidedCaptureState? state) {
-    if (state == null || state.isCurrentPointConfirmed) return;
-    final path = state.capturedImagePath;
-    if (path == null || path.isEmpty) return;
-    unawaited(_photoService.deletePhoto(path));
-  }
-
-  void _handleInlineCameraReadyChanged(bool isReady) {
-    if (!mounted || _estInlineCameraReady == isReady) return;
-    setState(() {
-      _estInlineCameraReady = isReady;
-      if (isReady) _estInlineCameraUnavailable = false;
-    });
-  }
-
-  void _handleInlineCameraError(String message) {
-    final current = _estCaptureState;
-    if (!mounted || current == null || current.isProcessing) return;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    setState(() {
-      _estInlineCameraUnavailable = true;
-      _estInlineCameraReady = false;
-      _estCaptureState = current.captureFailed(message);
-    });
-  }
-
-  Future<void> _captureInlineEstReading({required bool useNativeCamera}) async {
-    final current = _estCaptureState;
-    if (current == null ||
-        current.isProcessing ||
-        current.isOcrProcessing ||
-        _isConfirmingEstCapture) {
-      return;
-    }
-
-    final generation = _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(current);
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _estCaptureState = current.captureStarted();
-      _estGuidedValueController.clear();
-    });
-
-    String? savedPath;
-    final shouldUseNativeCamera =
-        useNativeCamera || _estInlineCameraUnavailable;
-    var usedInlineFallback = false;
-    if (shouldUseNativeCamera) {
-      savedPath = await _photoService.pickPhoto(fromCamera: true);
-    } else {
-      final inlineCamera = _estCameraKey.currentState;
-      final sourcePath = await inlineCamera?.takePicture();
-      if (sourcePath != null) {
-        savedPath = await _photoService.saveCapturedPhotoPath(sourcePath);
-        unawaited(_photoService.deletePhoto(sourcePath));
-      } else if (inlineCamera?.hasCameraError ?? false) {
-        usedInlineFallback = true;
-        savedPath = await _photoService.pickPhoto(fromCamera: true);
-      }
-    }
-
-    if (!_isCurrentEstCaptureGeneration(generation)) {
-      if (savedPath != null) unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-    if (savedPath == null) {
-      final state = _estCaptureState;
-      if (state == null) return;
-      setState(() {
-        if (usedInlineFallback) _estInlineCameraUnavailable = true;
-        _estCaptureState = state.captureFailed(
-          shouldUseNativeCamera || usedInlineFallback
-              ? 'No image captured.'
-              : 'Inline camera is still starting. Try again or use Camera app.',
-        );
-      });
-      return;
-    }
-
-    final reading = await _ocrService.recognizeThermoScanReadingCelsius(
-      savedPath,
-      cropFrame: shouldUseNativeCamera
-          ? null
-          : _estCameraKey.currentState?.ocrCropFrame,
-    );
-    if (!_isCurrentEstCaptureGeneration(generation)) {
-      unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-
-    final state = _estCaptureState;
-    if (state == null) {
-      unawaited(_photoService.deletePhoto(savedPath));
-      return;
-    }
-    if (reading == null) {
-      unawaited(_photoService.deletePhoto(savedPath));
-    }
-    setState(() {
-      if (usedInlineFallback) _estInlineCameraUnavailable = true;
-      _estGuidedValueController.text = reading == null
-          ? ''
-          : reading.toStringAsFixed(1);
-      _estCaptureState = state.captureResolved(
-        photoPath: savedPath!,
-        ocrValue: reading,
-      );
-    });
-  }
-
-  void _retakeInlineEstCapture() {
-    final state = _estCaptureState;
-    if (state == null || state.isProcessing || state.isOcrProcessing) return;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(state);
-    setState(() {
-      _isConfirmingEstCapture = false;
-      _estCaptureState = state.retake();
-      _estGuidedValueController.clear();
-    });
-  }
-
-  void _skipInlineEstCapture() {
-    final state = _estCaptureState;
-    if (state == null || state.isProcessing || state.isOcrProcessing) return;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(state);
-    if (state.isLastStep) {
-      _finishInlineEstCapture();
-      return;
-    }
-    setState(() {
-      _isConfirmingEstCapture = false;
-      _estCaptureState = state.skip();
-      _estGuidedValueController.clear();
-    });
-  }
-
-  Future<void> _confirmInlineEstCapture(AuditProvider provider) async {
-    final state = _estCaptureState;
-    if (state == null || !state.canConfirm || _isConfirmingEstCapture) return;
-    if (state.isCurrentPointConfirmed) {
-      setState(() {
-        _estCaptureState = state.captureFailed(
-          'This EST point is already saved. Retake to replace it.',
-        );
-      });
-      return;
-    }
-
-    final generation = _nextEstCaptureGeneration();
-    final confirmedKey = state.currentKey;
-    _cancelEstAutoScanTimer();
-    setState(() => _isConfirmingEstCapture = true);
-
-    var evidencePath = state.capturedImagePath!;
-    if (state.isAutoScanReview) {
-      final savedPath = await _photoService.saveCapturedPhotoPath(evidencePath);
-      if (!_isCurrentEstCaptureGeneration(generation)) {
-        unawaited(_photoService.deletePhoto(evidencePath));
-        if (savedPath != null) unawaited(_photoService.deletePhoto(savedPath));
-        return;
-      }
-      if (savedPath == null) {
-        setState(() {
-          _isConfirmingEstCapture = false;
-          _estCaptureState = state.stopAutoScan(
-            message: 'Could not save evidence photo. Try again.',
-          );
-        });
-        return;
-      }
-      unawaited(_photoService.deletePhoto(evidencePath));
-      evidencePath = savedPath;
-    }
-
-    if (!_isCurrentEstCaptureGeneration(generation)) return;
-    _saveEstPoint(provider, confirmedKey, evidencePath, state.ocrValue!);
-
-    if (!_isCurrentEstCaptureGeneration(generation)) return;
-    setState(() {
-      _estCaptureState = state.confirm(photoPath: evidencePath);
-      _estGuidedValueController.clear();
-      _estHighlightedKey = confirmedKey;
-      _estSuccessPulse++;
-      _isConfirmingEstCapture = false;
-    });
-
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!_isCurrentEstCaptureGeneration(generation)) return;
-      if (_estHighlightedKey == confirmedKey) {
-        setState(() => _estHighlightedKey = null);
-      }
-      if (state.isLastStep &&
-          _estCaptureState?.lastConfirmedKey == confirmedKey) {
-        _finishInlineEstCapture();
-      }
-    });
-  }
-
-  void _finishInlineEstCapture({bool showMessage = true}) {
-    final count = _structuredEstReadings().length;
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(_estCaptureState);
-    setState(() {
-      _estCaptureState = null;
-      _estGuidedValueController.clear();
-      _estHighlightedKey = null;
-      _isConfirmingEstCapture = false;
-    });
-
-    if (!showMessage || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('EST capture saved $count readings.')),
+      SnackBar(content: Text('Saved ${result.readings.length} EST readings.')),
     );
   }
 
-  Future<bool> _prepareForStationExit() async {
-    final current = _estCaptureState;
-    if (current == null) return true;
-
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(current);
-
-    final inlineCamera = _estCameraKey.currentState;
-    final shouldWaitForCamera =
-        inlineCamera?.isCameraReady == true ||
-        inlineCamera?.isPreviewActive == true;
-    if (shouldWaitForCamera) {
-      await inlineCamera!.closeCameraForStationExit().timeout(
-        const Duration(milliseconds: 1500),
-        onTimeout: () {},
-      );
-    } else {
-      unawaited(inlineCamera?.closeCameraForStationExit());
-    }
-
-    if (!mounted) return true;
-    setState(() {
-      _estCaptureState = null;
-      _estGuidedValueController.clear();
-      _estHighlightedKey = null;
-      _isConfirmingEstCapture = false;
-      _estInlineCameraReady = false;
-    });
-    return true;
-  }
+  // Camera now lives in the pushed OcrCaptureScreen, which tears itself down on
+  // pop, so the station no longer owns an inline camera to close.
+  Future<bool> _prepareForStationExit() async => true;
 
   Future<void> _handleEstPhotoCaptured(
     AuditProvider provider,
@@ -2587,7 +2092,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
 
     setState(() {
       _estPhotos[key] = path;
-      _estHighlightedKey = key;
     });
     _updateEstPhotos(provider);
     await _saveEstEvidencePhotoRecord(provider, key, path);
@@ -2642,44 +2146,22 @@ class _EggStorageScreenState extends State<EggStorageScreen>
     final previousAvgText = _estAvgController.text;
     final previousCvText = _estCvController.text;
 
-    _nextEstCaptureGeneration();
-    _cancelEstAutoScanTimer();
-    _discardUnconfirmedEstPhoto(_estCaptureState);
-
     setState(() {
       controller.clear();
       _estPhotos[key] = null;
-      _estHighlightedKey = null;
-      if (_estCaptureState != null) {
-        _estGuidedValueController.clear();
-        _isConfirmingEstCapture = false;
-        _estCaptureState = EstGuidedCaptureState.initial(
-          readings: _currentEstReadings(),
-          photos: _currentEstPhotoPaths(),
-        );
-      }
     });
     _updateEstPhotos(provider);
     _updateEstCalculations(provider);
 
     final persisted = await _persistActiveAuditRow(provider);
     if (!mounted) return;
-    if (persisted) {
-      setState(() => _estSuccessPulse++);
-      return;
-    }
+    if (persisted) return;
 
     setState(() {
       controller.text = previousValue;
       _estPhotos[key] = previousPhoto;
       _estAvgController.text = previousAvgText;
       _estCvController.text = previousCvText;
-      if (_estCaptureState != null) {
-        _estCaptureState = EstGuidedCaptureState.initial(
-          readings: _currentEstReadings(),
-          photos: _currentEstPhotoPaths(),
-        );
-      }
     });
     provider.updateField('es_estReadingsJson', previousReadingsJson);
     provider.updateField('es_estPhotosJson', previousPhotosJson);
@@ -2830,10 +2312,6 @@ class _EggStorageScreenState extends State<EggStorageScreen>
       }
     }
     return photos;
-  }
-
-  List<Map<String, Object>> _structuredEstReadings() {
-    return EstGridData.toStructuredReadings(_currentEstReadings());
   }
 
   void _updateEstPhotos(AuditProvider provider) {

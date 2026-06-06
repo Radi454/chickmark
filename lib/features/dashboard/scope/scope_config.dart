@@ -78,6 +78,28 @@ class ScopeParam {
       higherIsBetter = false,
       thresholds = null,
       absoluteLimit = null;
+
+  /// Format a raw scalar (e.g. a BMK benchmark) for display, honoring this
+  /// param's [format]/[decimals]. (Distinct from [ScopeEngine] cell formatting,
+  /// which aggregates accumulators; this is for plain benchmark/gap numbers.)
+  String formatValue(num? v) {
+    if (v == null) return '—';
+    switch (format) {
+      case ScopeValueFormat.percent:
+        return '${v.toStringAsFixed(decimals)}%';
+      case ScopeValueFormat.integer:
+        return v.round().toString();
+      case ScopeValueFormat.number:
+      case ScopeValueFormat.text:
+        return v.toStringAsFixed(decimals);
+    }
+  }
+
+  /// Signed difference (Act − BMK) for display, e.g. `+0.5%` / `−5.8%`.
+  String formatGap(num gap) {
+    final sign = gap > 0 ? '+' : (gap < 0 ? '−' : '±');
+    return '$sign${formatValue(gap.abs())}';
+  }
 }
 
 /// Declarative equivalent of the prototype's SCOPE_DEMO sector, pointing at real
@@ -89,7 +111,7 @@ class ScopeSectorConfig {
   final String station;
   final String note;
 
-  /// Source table; null = dummy-only sector (e.g. CHA Environmental — no table).
+  /// Source table; null = dummy-only sector (no backing table → example data).
   final String? tableName;
 
   final List<SamplingLayer> allowedLayers;
@@ -149,7 +171,7 @@ class ScopeConfigRegistry {
     // ── Egg Storage & Handling ──────────────────────────────────────────
     ScopeSectorConfig(
       id: 'egg_storage',
-      title: 'Egg Storage — station scope',
+      title: 'Egg Storage',
       station: stationStorage,
       note: 'Pool only · customer · hatchery · flock · breed (no added layer).',
       tableName: 'egg_storage',
@@ -169,7 +191,7 @@ class ScopeConfigRegistry {
     ),
     ScopeSectorConfig(
       id: 'egg_quality',
-      title: 'Egg Quality — pool · house',
+      title: 'Egg Quality',
       station: stationStorage,
       note: 'Scoped by house → one row per house, no pool row.',
       tableName: 'egg_quality',
@@ -190,7 +212,7 @@ class ScopeConfigRegistry {
     // ── Chicks ──────────────────────────────────────────────────────────
     ScopeSectorConfig(
       id: 'chick_quality',
-      title: 'Chick Quality — pool · setter+hatcher',
+      title: 'Chick Quality',
       station: stationChicks,
       note: 'Scoped by machine pair → one row per S#H#.',
       tableName: 'chick_quality',
@@ -211,7 +233,7 @@ class ScopeConfigRegistry {
     ),
     ScopeSectorConfig(
       id: 'chick_weights',
-      title: 'Chick Weights — pool · house',
+      title: 'Chick Weights',
       station: stationChicks,
       note: 'Scoped by house.',
       tableName: 'chick_weights',
@@ -224,56 +246,33 @@ class ScopeConfigRegistry {
         ScopeParam.number('BMK wt', 'bmkWeight'),
       ],
     ),
-    // CHA Environmental — no backing table → dummy-only.
-    ScopeSectorConfig(
-      id: 'cha_environmental',
-      title: 'CHA Environmental — station scope',
-      station: stationChicks,
-      note: 'Chick-handling area, pooled. (Example data — no audit table yet.)',
-      tableName: null,
-      allowedLayers: const [SamplingLayer.pool],
-      params: const [
-        ScopeParam.integer('CO₂ ppm', 'co2'),
-        ScopeParam.number('PM10', 'pm10'),
-        ScopeParam.number('PM2.5', 'pm25'),
-        ScopeParam.number('Air vel', 'airVelocity'),
-        ScopeParam.integer('Noise dB', 'noiseDb'),
-      ],
-    ),
-
     // ── Hatch Analysis & Egg Breakouts ──────────────────────────────────
     ScopeSectorConfig(
       id: 'hatch_results',
-      title: 'Hatch Results — station scope',
+      title: 'Hatch Result',
       station: stationHatch,
       note: 'Pooled tally → hatchability / fertility / HOF.',
       tableName: 'residue_breakout',
       allowedLayers: const [SamplingLayer.pool], // pooled readout (tiles)
+      // Headline rates only; the per-age Act-vs-BMK charts live in chart mode
+      // (see HatchAgeChart). Counts (Set/Hatched/Infert/…) intentionally dropped.
       params: const [
-        ScopeParam.integer('Set', 'totalEggsSet'),
-        ScopeParam.integer('Hatched', 'hatchedCount'),
         ScopeParam.percent('Hatch %', 'hatchabilityPct',
             bmkField: 'hatchabilityPct', higherIsBetter: true),
         ScopeParam.percent('Fert %', 'fertilityPct',
             bmkField: 'fertilityPct', higherIsBetter: true),
         ScopeParam.percent('HOF %', 'hofPct',
             bmkField: 'hofPct', higherIsBetter: true),
-        ScopeParam.integer('Infert', 'infertileCount'),
-        ScopeParam.integer('Early', 'earlyDeadCount'),
-        ScopeParam.integer('Mid', 'midDeadCount'),
-        ScopeParam.integer('Late', 'lateDeadCount'),
-        ScopeParam.integer('Contam', 'contaminatedCount'),
       ],
     ),
     ScopeSectorConfig(
       id: 'fresh_egg_breakout',
-      title: 'Fresh Breakout — pool · house · tray',
+      title: 'Fresh Breakout',
       station: stationHatch,
       note: '0-day · house + tray leaves.',
       tableName: 'fresh_egg_breakout',
       allowedLayers: _layersOf('fresh_egg_breakout'),
       params: const [
-        ScopeParam.integer('Tray size', 'traySize'),
         ScopeParam.percent('Infert %', 'infertilePct',
             countColumn: 'infertileCount', bmkField: 'infertilePct'),
         ScopeParam.percent('24h %', 'early24hPct',
@@ -286,13 +285,12 @@ class ScopeConfigRegistry {
     ),
     ScopeSectorConfig(
       id: 'candled_egg_breakout',
-      title: 'Candled Breakout — pool · house · S#H# · trolley · tray',
+      title: 'Candled Breakout',
       station: stationHatch,
       note: '10-day · full hierarchy leaves.',
       tableName: 'candled_egg_breakout',
       allowedLayers: _layersOf('candled_egg_breakout'),
       params: const [
-        ScopeParam.integer('Tray size', 'traySize'),
         ScopeParam.percent('Infert %', 'infertilePct',
             countColumn: 'infertileCount', bmkField: 'infertilePct'),
         ScopeParam.percent('24h %', 'early24hPct',
@@ -307,7 +305,7 @@ class ScopeConfigRegistry {
     ),
     ScopeSectorConfig(
       id: 'residue_breakout',
-      title: 'Residue Breakout — pool · house · S#H# · trolley · tray',
+      title: 'Residue Breakout',
       station: stationHatch,
       note:
           '21-day · 2 house × 2 machine × 2 trolley × 2 tray = 16 leaves.',
@@ -328,15 +326,13 @@ class ScopeConfigRegistry {
             countColumn: 'crackedCount', bmkField: 'crackedPct'),
         ScopeParam.percent('Contam %', 'contaminatedPct',
             countColumn: 'contaminatedCount', bmkField: 'contamPct'),
-        ScopeParam.percent('Fert %', 'fertilityPct',
-            bmkField: 'fertilityPct', higherIsBetter: true),
       ],
     ),
 
     // ── Setters ─────────────────────────────────────────────────────────
     ScopeSectorConfig(
       id: 'setter_optimizing',
-      title: 'Setter Optimizing — setter scope',
+      title: 'Setter Optimizing',
       station: stationSetters,
       note:
           'Per setter machine. Trolley/tray live in the EST grid, not as scope chips.',
@@ -359,7 +355,7 @@ class ScopeConfigRegistry {
     // ── Hatchers ────────────────────────────────────────────────────────
     ScopeSectorConfig(
       id: 'hatcher_optimizing',
-      title: 'Hatcher Optimizing — hatcher scope',
+      title: 'Hatcher Optimizing',
       station: stationHatchers,
       note:
           'Per hatcher machine. Trolley/tray live in the CVT grid, not as scope chips.',

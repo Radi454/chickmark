@@ -6,6 +6,7 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
+import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
 import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
@@ -70,6 +71,34 @@ void main() {
     );
     await tester.pump();
   }
+
+  testWidgets('Scan readings launches the reusable OCR capture screen', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text('Egg Shell Temperature'));
+    await tester.tap(find.text('Egg Shell Temperature'));
+    await tester.pumpAndSettle();
+
+    final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+    await tester.ensureVisible(scanButton);
+    await tester.pump();
+    await tester.tap(scanButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(OcrCaptureScreen), findsOneWidget);
+    expect(find.text('Eggshell Temperature'), findsOneWidget);
+
+    // Close the pushed screen so the inline camera disposes its init timer.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(OcrCaptureScreen), findsNothing);
+  });
 
   testWidgets('shows a default upside-down tray before the add tray action', (
     tester,

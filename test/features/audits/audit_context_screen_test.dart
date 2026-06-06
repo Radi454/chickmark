@@ -12,6 +12,8 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../support/test_database.dart';
+
 class MockSupabaseService extends Mock implements SupabaseService {}
 
 class _TestCustomersProvider extends CustomersProvider {
@@ -25,9 +27,8 @@ class _TestCustomersProvider extends CustomersProvider {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedAppDatabase();
   });
 
   setUp(_resetDatabase);

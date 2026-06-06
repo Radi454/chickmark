@@ -29,6 +29,7 @@ class PanelRecord {
     this.notes,
     String? metricsJson,
     this.syncStatus = 'pending',
+    this.dirtyAt,
     this.lastSyncedAt,
     this.syncError,
     Map<String, Object?>? values,
@@ -74,6 +75,7 @@ class PanelRecord {
   final String? groupLabel;
   final String? notes;
   final String syncStatus;
+  final DateTime? dirtyAt;
   final DateTime? lastSyncedAt;
   final String? syncError;
   final Map<String, Object?> values;
@@ -108,6 +110,7 @@ class PanelRecord {
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
       'syncStatus': syncStatus,
+      'dirtyAt': dirtyAt?.toUtc().toIso8601String(),
       'lastSyncedAt': lastSyncedAt?.toUtc().toIso8601String(),
       'syncError': syncError,
       ...values,
@@ -142,6 +145,7 @@ class PanelRecord {
       'createdAt',
       'updatedAt',
       'syncStatus',
+      'dirtyAt',
       'lastSyncedAt',
       'syncError',
     };
@@ -173,6 +177,7 @@ class PanelRecord {
       groupLabel: map['groupLabel'] as String?,
       notes: map['notes'] as String?,
       syncStatus: map['syncStatus'] as String? ?? 'synced',
+      dirtyAt: _parseDate(map['dirtyAt']),
       lastSyncedAt: _parseDate(map['lastSyncedAt']),
       syncError: map['syncError'] as String?,
       values: Map.fromEntries(

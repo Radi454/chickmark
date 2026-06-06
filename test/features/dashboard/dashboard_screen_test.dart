@@ -62,7 +62,7 @@ class _StaticDashboardProvider extends DashboardProvider {
 }
 
 void main() {
-  testWidgets('dashboard renders Egg, Govee, and Scopes sections', (
+  testWidgets('dashboard renders Govee and Scopes sections (egg via scope only)', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -98,15 +98,20 @@ void main() {
     await tester.pump();
 
     expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Egg Quality'), findsOneWidget);
-    // Old per-section stub widgets stay unmounted.
+    // Legacy bespoke egg cards must NOT render on the dashboard — egg is shown
+    // by the Scopes section only, so each sector appears exactly once.
+    expect(find.byType(EggStorageSection, skipOffstage: false), findsNothing);
+    expect(find.byType(EggQualitySection, skipOffstage: false), findsNothing);
     expect(find.byType(ChickQualitySection, skipOffstage: false), findsNothing);
     expect(find.text('21-Day Hatch Residue Breakout'), findsNothing);
     expect(find.text('Visit Sessions'), findsNothing);
 
-    // The new Scopes & Parameters section renders, grouped by station.
+    // The Scopes & Parameters section renders, grouped by station. The section
+    // header band was removed; the station cards are the render guard now.
+    // Egg Storage & Handling is a single scope station card (no duplicate from
+    // the old legacy section) — the regression guard for repeated sectors.
     expect(
-      find.text('Scopes & Parameters — full audit', skipOffstage: false),
+      find.text('Egg Storage & Handling', skipOffstage: false),
       findsOneWidget,
     );
     expect(find.text('Chicks', skipOffstage: false), findsWidgets);
@@ -184,7 +189,10 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(ChickQualitySection, skipOffstage: false), findsNothing);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    // Target the vertical body list explicitly — a horizontal filter strip is
+    // also a ListView, so a bare byType(ListView) finder is ambiguous.
+    await tester.drag(find.byType(ListView).first, const Offset(0, -900));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

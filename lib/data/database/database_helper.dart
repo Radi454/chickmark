@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/panel_sample_schema.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
+import 'seeds/dashboard_demo_seeds.dart';
 import 'seeds/dummy_data_seeds.dart';
 import 'seeds/troubleshooting_seeds.dart';
 
@@ -17,6 +18,11 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static Database? _db;
+
+  /// When true, a database open seeds the Dashboard demo customer (debug aid).
+  /// Off by default so unit/widget tests open a clean DB; the app turns it on
+  /// at startup (see `main`) and end-to-end seed tests opt in explicitly.
+  static bool seedDemoData = false;
 
   Future<Database> get db async {
     if (_db != null) return _db!;
@@ -38,18 +44,20 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 41,
+      version: 44,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onOpen: (db) async {
+        await _surgicalSchemaRepair(db);
         await _dropPanelUniqueRowIndexes(db);
         await _dropDeprecatedPanelColumns(db);
         await _ensurePanelSampleSchemaColumns(db);
         await _ensurePanelUniqueRowIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
+        if (seedDemoData) await ensureDashboardDemoData(db);
       },
     );
   }
@@ -79,84 +87,13 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''CREATE TABLE users (
-      id TEXT PRIMARY KEY,
-      fullName TEXT,
-      email TEXT UNIQUE,
-      role TEXT,
-      status TEXT,
-      customerId TEXT,
-      accessToken TEXT,
-      tokenExpiry TEXT,
-      createdAt TEXT,
-      lastLoginAt TEXT
-    )''');
-    await db.execute('''CREATE TABLE customers (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      location TEXT,
-      phone TEXT,
-      email TEXT,
-      createdAt TEXT,
-      createdBy TEXT
-    )''');
-    await db.execute('''CREATE TABLE flocks (
-      id TEXT PRIMARY KEY,
-      customerId TEXT,
-      flockId TEXT,
-      breed TEXT,
-      entryDate TEXT,
-      isAgeEstimated INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'active',
-      depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
-      soldAt TEXT,
-      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
-    )''');
-    await db.execute('''CREATE TABLE bmk_breeds (
-      id TEXT PRIMARY KEY,
-      breed TEXT NOT NULL,
-      ageWeek INTEGER NOT NULL,
-      hatchabilityPct REAL DEFAULT 0.0,
-      fertilityPct REAL DEFAULT 0.0,
-      hofPct REAL DEFAULT 0.0,
-      productionPct REAL DEFAULT 0.0,
-      eggWeightG REAL DEFAULT 0.0,
-      chickWeightG REAL DEFAULT 0.0
-    )''');
+    await _createCoreTablesIfMissing(db);
     await _createCleanBmkEggBreakoutTable(db);
-    await db.execute('''CREATE TABLE troubleshooting (
-      id TEXT PRIMARY KEY,
-      hatcheryCauses TEXT,
-      farmFlockCauses TEXT,
-      benchmarkJson TEXT,
-      interpretationJson TEXT,
-      sourceRefsJson TEXT
-    )''');
-    await db.execute('''CREATE TABLE photos (
-      id TEXT PRIMARY KEY,
-      filePath TEXT,
-      description TEXT,
-      createdAt TEXT,
-      sessionId TEXT NOT NULL,
-      panelName TEXT NOT NULL,
-      panelRowId TEXT NOT NULL,
-      fieldKey TEXT NOT NULL,
-      uploadStatus TEXT NOT NULL DEFAULT 'local',
-      FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE
-    )''');
-    await db.execute('''CREATE TABLE activity_log (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL,
-      action TEXT NOT NULL,
-      entityType TEXT,
-      entityId TEXT,
-      details TEXT,
-      timestamp TEXT NOT NULL
-    )''');
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
     await _createSyncTombstoneTable(db);
+    await _createSyncConflictTable(db);
     await _createGoveeCaptureTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
@@ -187,6 +124,203 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     await _resetForPanelCutover(db, newVersion);
+  }
+
+  /// Critical tables the surgical repair pass guarantees exist. Panel sample
+  /// tables are appended dynamically from `PanelSampleSchema.panels`.
+  static const _criticalTables = <String>[
+    'users',
+    'customers',
+    'flocks',
+    'hatcheries',
+    'audit_sessions',
+    'photos',
+    'activity_log',
+    'sync_tombstones',
+    'sync_conflicts',
+    'bmk_breeds',
+    'bmk_egg_breakout',
+    'troubleshooting',
+    'govee_daily_captures',
+  ];
+
+  /// Expected columns for tables most likely to drift after manual edits or
+  /// future migrations. Missing columns are added via ALTER TABLE ADD COLUMN
+  /// during surgical repair. Existing rows keep their values (NULL for new
+  /// columns without DEFAULT clauses).
+  static const Map<String, List<String>> _criticalColumns = {
+    'audit_sessions': [
+      'customerId TEXT NOT NULL',
+      'flockId TEXT NOT NULL',
+      'hatcheryId TEXT NOT NULL',
+      'date TEXT NOT NULL',
+      'breed TEXT',
+      'flockAgeWeeks INTEGER',
+      "status TEXT DEFAULT 'in_progress'",
+      'selectedStationKeys TEXT',
+      'stationsCompleted TEXT',
+      'findingsJson TEXT',
+      'scorecardJson TEXT',
+      'notes TEXT',
+      'createdBy TEXT',
+      'createdAt TEXT',
+      'updatedAt TEXT',
+      'completedAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'sync_conflicts': [
+      'tableName TEXT NOT NULL',
+      'rowId TEXT NOT NULL',
+      'localUpdatedAt TEXT',
+      'remoteUpdatedAt TEXT',
+      'winner TEXT NOT NULL',
+      'detectedAt TEXT NOT NULL',
+      'reviewedAt TEXT',
+      'reviewedBy TEXT',
+    ],
+    'sync_tombstones': [
+      'tableName TEXT NOT NULL',
+      'rowId TEXT NOT NULL',
+      'deletedAt TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      'syncedAt TEXT',
+      'lastError TEXT',
+    ],
+    // Per-row dirty-tracking columns added to the bulk-synced Govee table so an
+    // existing database gains them via ALTER (no destructive reset needed).
+    'govee_daily_captures': [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+  };
+
+  /// Surgical schema repair: detect missing tables/columns/indexes and restore
+  /// them in place. **Never drops, recreates, or reseeds intact tables** — only
+  /// the specific objects detected as missing are created. Existing user data
+  /// is preserved bit-for-bit.
+  ///
+  /// Replaces the previous destructive heal, which reset the entire DB if a
+  /// single table was missing.
+  Future<void> _surgicalSchemaRepair(Database db) async {
+    final report = <String>[];
+
+    final missingTables = <String>[];
+    for (final table in _criticalTables) {
+      if (!await _tableExists(db, table)) missingTables.add(table);
+    }
+    for (final panel in PanelSampleSchema.panels) {
+      if (!await _tableExists(db, panel.tableName)) {
+        missingTables.add(panel.tableName);
+      }
+    }
+
+    // Step 1: column-level repair FIRST. An existing critical table that
+    // drifted (missing columns) gets them via ALTER before any index below
+    // references them — otherwise CREATE INDEX idx_audit_sessions_sync ON
+    // (syncStatus), which lives inside _createAuditSessionTables, throws
+    // "no such column: syncStatus" on a pre-existing drifted table. Guarded by
+    // _tableExists, so genuinely missing tables are skipped here and created
+    // whole (columns + indexes) in Step 2.
+    final addedColumns = await _repairCriticalColumns(db);
+    if (addedColumns.isNotEmpty) {
+      report.add('columns added: ${addedColumns.join(", ")}');
+    }
+
+    // Step 2: idempotent CREATE TABLE / INDEX IF NOT EXISTS for every critical
+    // table. Tables that already exist are untouched; their indexes now find
+    // the columns repaired in Step 1. Missing tables are created whole.
+    await _createCoreTablesIfMissing(db);
+    await _createCleanBmkEggBreakoutTable(db);
+    await _createHatcheryTables(db);
+    await _createAuditSessionTables(db);
+    await _createPanelSampleSchemaTables(db);
+    await _createSyncTombstoneTable(db);
+    await _createSyncConflictTable(db);
+    await _createGoveeCaptureTables(db);
+
+    if (missingTables.isNotEmpty) {
+      report.add('tables restored: ${missingTables.join(", ")}');
+    }
+
+    // Step 3: idempotent CREATE INDEX IF NOT EXISTS for operational indexes
+    // and panel unique row indexes.
+    await _createOperationalIndexes(db);
+    await _createActivityLogIndexes(db);
+    await _ensurePanelUniqueRowIndexes(db);
+
+    // Step 4: re-seed reference data **only for tables that were missing**.
+    // Intact bmk_breeds / bmk_egg_breakout / troubleshooting rows (including
+    // any user overrides) are not touched.
+    if (missingTables.contains('bmk_breeds') ||
+        missingTables.contains('bmk_egg_breakout')) {
+      await _reseedReferenceBmkData(db);
+      report.add('reseeded bmk reference rows');
+    }
+    if (missingTables.contains('troubleshooting')) {
+      await _seedTroubleshooting(db);
+      report.add('reseeded troubleshooting');
+    }
+
+    if (report.isNotEmpty) {
+      debugPrint('[DB REPAIR] ${report.join(" | ")}');
+    }
+  }
+
+  /// For every entry in [_criticalColumns], ALTER TABLE ADD COLUMN any missing
+  /// columns. Returns a list of `table.column` strings actually added.
+  Future<List<String>> _repairCriticalColumns(Database db) async {
+    final added = <String>[];
+    for (final entry in _criticalColumns.entries) {
+      final table = entry.key;
+      if (!await _tableExists(db, table)) continue;
+      final existing = _columnNames(
+        await db.rawQuery('PRAGMA table_info($table)'),
+      );
+      for (final definition in entry.value) {
+        final name = _columnNameFromDefinition(definition);
+        if (existing.contains(name)) continue;
+        // SQLite forbids ADD COLUMN with NOT NULL unless a DEFAULT or the
+        // table is empty. Strip a bare NOT NULL constraint to keep the add
+        // safe; the application layer enforces non-nullness at write time.
+        final safeDefinition = definition.replaceAll(
+          RegExp(r'\s+NOT\s+NULL', caseSensitive: false),
+          '',
+        );
+        await db.execute('ALTER TABLE $table ADD COLUMN $safeDefinition');
+        added.add('$table.$name');
+      }
+    }
+    return added;
+  }
+
+  /// Re-apply BMK reference data using REPLACE. Existing rows that share a
+  /// seed PK are refreshed; user-added rows with other PKs survive untouched.
+  Future<void> _reseedReferenceBmkData(Database db) async {
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final seed in kBmkBreedSeeds) {
+        batch.insert(
+          'bmk_breeds',
+          seed,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final seed in kBmkEggBreakoutSeeds) {
+        batch.insert(
+          'bmk_egg_breakout',
+          _cleanBmkEggBreakoutSeed(seed),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    await _ensureCompleteBmkBreedSeedData(db);
+    await _backfillEggBreakoutAliases(db);
   }
 
   Future<void> _resetForPanelCutover(Database db, int newVersion) async {
@@ -234,6 +368,7 @@ class DatabaseHelper {
       'temperature_sessions',
       'temperature_readings',
       'sync_tombstones',
+      'sync_conflicts',
       'audits',
       'audit_sessions',
       'hatcheries',

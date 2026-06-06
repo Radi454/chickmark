@@ -8,6 +8,22 @@ const supportedStationKeys = [
   'hatchers',
 ];
 
+/// Canonical map of a station key to the panel tables that store its data.
+/// Single source of truth for "does this station have data" and per-station
+/// sync rollups (mirrors `_panelTablesForStationKey` used inside the audit
+/// workflow screens).
+const kStationPanelTables = <String, List<String>>{
+  'egg': ['egg_storage', 'egg_quality'],
+  'chicks': ['chick_quality', 'chick_weights'],
+  'hatch_analysis_egg_breakouts': [
+    'fresh_egg_breakout',
+    'candled_egg_breakout',
+    'residue_breakout',
+  ],
+  'setters': ['setter_optimizing'],
+  'hatchers': ['hatcher_optimizing'],
+};
+
 const _legacyStationKeyAliases = {
   'egg_storage': 'egg',
   'chick_quality': 'chicks',
@@ -78,6 +94,15 @@ class AuditSessionModel {
   final DateTime updatedAt;
   final DateTime? completedAt;
 
+  /// Per-row sync state: 'pending' (local edit awaiting push), 'synced'
+  /// (confirmed in Supabase), or 'failed' (last push errored).
+  final String syncStatus;
+
+  /// When the row last became dirty (local edit). Null once synced.
+  final DateTime? dirtyAt;
+  final DateTime? lastSyncedAt;
+  final String? syncError;
+
   const AuditSessionModel({
     required this.id,
     required this.customerId,
@@ -96,6 +121,10 @@ class AuditSessionModel {
     required this.createdAt,
     required this.updatedAt,
     this.completedAt,
+    this.syncStatus = 'pending',
+    this.dirtyAt,
+    this.lastSyncedAt,
+    this.syncError,
   });
 
   factory AuditSessionModel.fromMap(Map<String, dynamic> map) {
@@ -132,6 +161,14 @@ class AuditSessionModel {
       completedAt: map['completedAt'] == null
           ? null
           : DateTime.tryParse(map['completedAt'] as String),
+      syncStatus: map['syncStatus'] as String? ?? 'synced',
+      dirtyAt: map['dirtyAt'] == null
+          ? null
+          : DateTime.tryParse(map['dirtyAt'] as String),
+      lastSyncedAt: map['lastSyncedAt'] == null
+          ? null
+          : DateTime.tryParse(map['lastSyncedAt'] as String),
+      syncError: map['syncError'] as String?,
     );
   }
 
@@ -158,6 +195,10 @@ class AuditSessionModel {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
+      'syncStatus': syncStatus,
+      'dirtyAt': dirtyAt?.toIso8601String(),
+      'lastSyncedAt': lastSyncedAt?.toIso8601String(),
+      'syncError': syncError,
     };
   }
 
@@ -176,6 +217,10 @@ class AuditSessionModel {
     String? createdBy,
     DateTime? updatedAt,
     DateTime? completedAt,
+    String? syncStatus,
+    DateTime? dirtyAt,
+    DateTime? lastSyncedAt,
+    String? syncError,
   }) {
     return AuditSessionModel(
       id: id,
@@ -195,6 +240,10 @@ class AuditSessionModel {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      dirtyAt: dirtyAt ?? this.dirtyAt,
+      lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+      syncError: syncError ?? this.syncError,
     );
   }
 }

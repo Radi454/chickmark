@@ -8,7 +8,6 @@ import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart'
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
-import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 
@@ -60,9 +59,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildCascadeFilter(DashboardProvider provider) {
     return AppCard(
       margin: const EdgeInsets.fromLTRB(
-        AppSizes.cardPadding,
-        AppSizes.cardPadding,
-        AppSizes.cardPadding,
+        AppSizes.spaceSm,
+        AppSizes.spaceSm,
+        AppSizes.spaceSm,
         0,
       ),
       color: AppColors.surfaceVariant,
@@ -236,12 +235,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceSm,
+        vertical: AppSizes.spaceMd,
+      ),
       children: [
-        const EggStorageSection(),
-        const SizedBox(height: AppSizes.spaceLg),
-        const EggQualitySection(),
-        const SizedBox(height: AppSizes.spaceLg),
+        // Egg Storage & Egg Quality are presented by the Scopes section below
+        // (same station card as every other audit station). The legacy bespoke
+        // EggStorageSection / EggQualitySection cards were dropped to avoid
+        // showing those two sectors twice on the dashboard.
         GoveeEnvironmentalReadingsSection(
           captures: provider.goveeCaptures,
           isLoading: provider.isLoadingGoveeCaptures,
