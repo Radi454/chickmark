@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/govee_capture_model.dart';
 import '../models/temperature_rh_model.dart';
+import 'sync_tombstone_repository.dart';
 
 class GoveeCaptureRepository {
   final DatabaseHelper _dbHelper;
@@ -57,6 +58,13 @@ class GoveeCaptureRepository {
       );
 
       for (final row in existing) {
+        // Re-recording mints a new row id, so the old row must be tombstoned
+        // or it lingers in the cloud after the next push.
+        await SyncTombstoneRepository.queueDeleteWithExecutor(
+          txn,
+          'govee_daily_captures',
+          row['id'],
+        );
         await txn.delete(
           'govee_daily_captures',
           where: 'id = ?',
@@ -74,6 +82,21 @@ class GoveeCaptureRepository {
           ),
         ),
       );
+    });
+  }
+
+  /// Hard-deletes one place capture and queues a cloud tombstone so the row is
+  /// removed remotely on the next sync. Readings live inline on the row, so a
+  /// single delete drops the whole capture.
+  Future<void> deleteCapture(String id) async {
+    final db = await _dbHelper.db;
+    await db.transaction<void>((txn) async {
+      await SyncTombstoneRepository.queueDeleteWithExecutor(
+        txn,
+        'govee_daily_captures',
+        id,
+      );
+      await txn.delete('govee_daily_captures', where: 'id = ?', whereArgs: [id]);
     });
   }
 

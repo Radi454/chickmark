@@ -38,7 +38,7 @@ class ScopeDummyData {
   static final Map<String, List<ScopeLeafRow> Function()> _builders = {
     'egg_storage': () => [
           _leaf('egg_storage', const {}, const [
-            20.0, 4.2, 20.1, 4, 2, 'Adequate', 'Far', 0, 0.6,
+            20.0, 4.2, 4, 2, 'Adequate', 'Far', 0, 0.6,
           ]),
         ],
     'egg_quality': () => [

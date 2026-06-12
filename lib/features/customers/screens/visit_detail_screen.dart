@@ -517,9 +517,9 @@ class _StationAuditReadOnlyCard extends StatelessWidget {
           metrics.add(_Metric('CO2', '${audit.hoCo2!.toStringAsFixed(0)} ppm'));
         }
       case 'Egg':
-        if (audit.esShellTemp != null) {
+        if (audit.esEstAvg != null) {
           metrics.add(
-            _Metric('Shell temp', '${audit.esShellTemp!.toStringAsFixed(1)}°F'),
+            _Metric('EST', '${audit.esEstAvg!.toStringAsFixed(1)}°C'),
           );
         }
         if (audit.esTurningTimes != null) {

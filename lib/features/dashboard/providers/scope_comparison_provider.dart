@@ -7,10 +7,12 @@ import '../../../data/repositories/scope_comparison_repository.dart';
 import '../models/dashboard_filter.dart';
 import '../models/egg_storage_models.dart';
 import '../models/hatch_analysis_models.dart';
+import '../models/scope_cumulative.dart';
 import '../scope/scope_config.dart';
 import '../scope/scope_dummy_data.dart';
 import '../scope/scope_engine.dart';
 import '../scope/scope_models.dart';
+import '../scope/scope_severity.dart';
 
 /// Drives the "Scopes & Parameters" comparison sections. Holds per-sector layer
 /// selection + column visibility, caches the fetched leaves, and recomputes
@@ -45,6 +47,17 @@ class ScopeComparisonProvider extends ChangeNotifier {
   final Map<String, int> _chartParam = {};
   final Map<String, int> _chartScope = {};
 
+  /// Per-sector Incremental (false, default) ⇄ Cumulative (true) view mode.
+  /// Additive: Incremental keeps the existing tiles/matrix/chart behavior.
+  final Map<String, bool> _cumulative = {};
+
+  /// Available axis points (ages/visits) per sector, and the picked period
+  /// (null = All). Cumulative series are cached per sector, loaded on demand.
+  final Map<String, List<ScopePeriod>> _periods = {};
+  final Map<String, ScopePeriod?> _selectedPeriod = {};
+  final Map<String, CumulativeSeries> _cumSeries = {};
+  final Set<String> _cumLoading = {};
+
   /// Per-age Act-vs-BMK series for the Hatch Result charts (X = age). Loaded
   /// lazily when that chart is opened, not on the common applyFilter path.
   List<HatchAgePoint> _hatchByAge = const [];
@@ -64,6 +77,11 @@ class ScopeComparisonProvider extends ChangeNotifier {
     final key = '$customerId|$flockId|$bmkAge';
     if (key == _filterKey && _groups.isNotEmpty) return;
     _filterKey = key;
+    // New filter → drop per-sector period/cumulative caches so they re-derive.
+    _selectedPeriod.clear();
+    _periods.clear();
+    _cumSeries.clear();
+    _cumLoading.clear();
     _isLoading = true;
     notifyListeners();
 
@@ -112,6 +130,12 @@ class ScopeComparisonProvider extends ChangeNotifier {
           () => ScopeEngine.nonPoolLayers(sector),
         );
         _recompute(sector.id);
+        try {
+          _periods[sector.id] = await _repo.distinctPeriods(sector, filter);
+        } catch (e) {
+          debugPrint('Periods load failed for ${sector.id}: $e');
+          _periods[sector.id] = const [];
+        }
       }
     } catch (e) {
       debugPrint('Scope applyFilter error: $e');
@@ -122,6 +146,18 @@ class ScopeComparisonProvider extends ChangeNotifier {
     // Refresh the lazily-loaded Hatch age chart if it's already open so a filter
     // change updates it. Fire-and-forget — never blocks the main load.
     if (isChartMode('hatch_results')) _loadHatchAgeSeries();
+  }
+
+  /// Pull-to-refresh: force a re-query for the current filter, bypassing the
+  /// idempotency guard in [applyFilter].
+  Future<void> refresh() {
+    final f = _lastFilter;
+    _filterKey = null;
+    return applyFilter(
+      customerId: f?.customerId,
+      flockId: f?.flockId,
+      bmkAge: f?.bmkAge,
+    );
   }
 
   // ── interaction ──────────────────────────────────────────────────────────
@@ -153,6 +189,142 @@ class ScopeComparisonProvider extends ChangeNotifier {
 
   /// True when a real customer has no rows for this sector (show empty state).
   bool isEmptyFor(String sectorId) => _isEmpty[sectorId] ?? false;
+
+  // ── Incremental ⇄ Cumulative view mode ─────────────────────────────────────
+  bool isCumulative(String sectorId) => _cumulative[sectorId] ?? false;
+
+  void setCumulative(String sectorId, bool on) {
+    if (isCumulative(sectorId) == on) return;
+    _cumulative[sectorId] = on;
+    notifyListeners();
+    if (on) loadCumulative(sectorId);
+  }
+
+  // ── period picker (Incremental view narrowed to one age/visit) ─────────────
+  List<ScopePeriod> periodsFor(String sectorId) =>
+      _periods[sectorId] ?? const [];
+
+  ScopePeriod? selectedPeriodFor(String sectorId) => _selectedPeriod[sectorId];
+
+  /// Narrow the Incremental view to one age/visit (null = All). Re-queries that
+  /// sector's leaves with the period filter and recomputes — same code path as
+  /// the global filter, so the matrix/tiles render exactly as before.
+  Future<void> setPeriod(String sectorId, ScopePeriod? period) async {
+    _selectedPeriod[sectorId] = period;
+    final base = _lastFilter;
+    if (base != null && !isDummyFor(sectorId)) {
+      final sector = ScopeConfigRegistry.byId(sectorId);
+      final f = DashboardFilter(
+        customerId: base.customerId,
+        flockId: base.flockId,
+        bmkAge: period?.age,
+        sessionId: period?.sessionId,
+      );
+      try {
+        final leaves = await _repo.getScopeLeaves(sector, f);
+        BmkReference? bmk = _sectorBmk[sectorId];
+        if (period?.age != null) {
+          bmk = await _panelRepo.getBmkReferenceForAge(period!.age!);
+        }
+        _leaves[sectorId] = leaves;
+        _sectorBmk[sectorId] = bmk;
+        _isEmpty[sectorId] = leaves.isEmpty;
+        _recompute(sectorId);
+      } catch (e) {
+        debugPrint('setPeriod $sectorId failed: $e');
+      }
+    }
+    notifyListeners();
+  }
+
+  // ── Cumulative series (per-axis trend) ─────────────────────────────────────
+  CumulativeSeries? cumulativeSeriesFor(String sectorId) =>
+      _cumSeries[sectorId];
+
+  bool isCumulativeLoading(String sectorId) => _cumLoading.contains(sectorId);
+
+  /// Build (once, cached) the per-period pooled series for a sector. Reuses
+  /// [ScopeEngine] so each period's value equals the Incremental pool value.
+  Future<void> loadCumulative(String sectorId) async {
+    if (_cumSeries.containsKey(sectorId) || _cumLoading.contains(sectorId)) {
+      return;
+    }
+    final base = _lastFilter;
+    // Dummy/example sectors and the no-filter state have no DB rows to spread —
+    // cache an empty series so the view shows its note instead of spinning.
+    if (base == null || isDummyFor(sectorId)) {
+      _cumSeries[sectorId] = const CumulativeSeries(periods: [], params: []);
+      notifyListeners();
+      return;
+    }
+    final sector = ScopeConfigRegistry.byId(sectorId);
+    _cumLoading.add(sectorId);
+    notifyListeners();
+    try {
+      var periods = _periods[sectorId];
+      if (periods == null || periods.isEmpty) {
+        periods = await _repo.distinctPeriods(sector, base);
+        _periods[sectorId] = periods;
+      }
+      _cumSeries[sectorId] = await _buildCumulative(sector, periods, base);
+    } catch (e) {
+      debugPrint('loadCumulative $sectorId failed: $e');
+      _cumSeries[sectorId] =
+          const CumulativeSeries(periods: [], params: []);
+    } finally {
+      _cumLoading.remove(sectorId);
+      notifyListeners();
+    }
+  }
+
+  Future<CumulativeSeries> _buildCumulative(
+    ScopeSectorConfig sector,
+    List<ScopePeriod> periods,
+    DashboardFilter base,
+  ) async {
+    final periodCells = <List<ScopeCell>>[];
+    final periodBmk = <BmkReference?>[];
+    for (final p in periods) {
+      final f = DashboardFilter(
+        customerId: base.customerId,
+        flockId: base.flockId,
+        bmkAge: p.age,
+        sessionId: p.sessionId,
+      );
+      final leaves = await _repo.getScopeLeaves(sector, f);
+      BmkReference? bmk;
+      if (p.age != null) bmk = await _panelRepo.getBmkReferenceForAge(p.age!);
+      final groups = ScopeEngine.comboGroups(sector, leaves, const [], bmk);
+      periodCells.add(groups.isNotEmpty ? groups.first.cells : const []);
+      periodBmk.add(bmk);
+    }
+    final params = <CumulativeParam>[];
+    for (var j = 0; j < sector.params.length; j++) {
+      final param = sector.params[j];
+      final values = <num?>[];
+      final bmks = <num?>[];
+      final texts = <String>[];
+      final sevs = <ScopeSeverity>[];
+      for (var pi = 0; pi < periods.length; pi++) {
+        final cells = periodCells[pi];
+        final cell = j < cells.length ? cells[j] : null;
+        values.add(cell?.value);
+        texts.add(cell?.text ?? '—');
+        sevs.add(cell?.severity ?? ScopeSeverity.good);
+        bmks.add(
+          param.bmkField != null ? bmkLookup(periodBmk[pi], param.bmkField) : null,
+        );
+      }
+      params.add(CumulativeParam(
+        param: param,
+        values: values,
+        bmks: bmks,
+        texts: texts,
+        severities: sevs,
+      ));
+    }
+    return CumulativeSeries(periods: periods, params: params);
+  }
 
   // ── table ↔ chart toggle ──────────────────────────────────────────────────
   bool isChartMode(String sectorId) => _chartMode[sectorId] ?? false;

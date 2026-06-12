@@ -372,8 +372,6 @@ class AuditProvider extends ChangeNotifier {
   static const Set<String> _sharedEggStorageFields = {
     'esCo2',
     'esCo2Photo',
-    'esShellTemp',
-    'esShellTempPhoto',
     'esTurningTimes',
     'esEggStorageDays',
     'esEggQualityStorageDays',
@@ -958,10 +956,15 @@ class AuditProvider extends ChangeNotifier {
     if (_drafts.any(_hasCoreStationData)) {
       return StationCompletionValidation.complete(stationKey);
     }
-    if (_drafts.any(_hasAnyMeaningfulStationData)) {
+    if (_drafts.any(_hasAnyMeaningfulStationData) ||
+        _drafts.any(_treatBlankDraftAsSavedIncomplete)) {
       return StationCompletionValidation.savedButIncomplete(stationKey);
     }
     return StationCompletionValidation.emptyOrDiscarded(stationKey);
+  }
+
+  bool _treatBlankDraftAsSavedIncomplete(AuditModel draft) {
+    return draft.auditType == 'Hatchers';
   }
 
   // Add a new hatch to the session
@@ -2573,7 +2576,6 @@ class AuditProvider extends ChangeNotifier {
     'es_estPhotosJson',
     'es_estAvg',
     'es_estCv',
-    'esShellTemp',
     'esTurningTimes',
     'esUvTrays',
     'es_traySpacing',
@@ -2621,8 +2623,7 @@ class AuditProvider extends ChangeNotifier {
     return _hasMeaningfulJsonObject(draft.esEstReadingsJson) ||
         _hasMeaningfulJsonObject(draft.esEstPhotosJson) ||
         draft.esEstAvg != null ||
-        draft.esEstCv != null ||
-        draft.esShellTemp != null;
+        draft.esEstCv != null;
   }
 
   bool _hasAnyMeaningfulStationData(AuditModel draft) {
@@ -3629,7 +3630,6 @@ class AuditProvider extends ChangeNotifier {
       'estReadingsJson': draft.esEstReadingsJson,
       'estAvg': draft.esEstAvg,
       'estCvPct': draft.esEstCv,
-      'shellTemp': draft.esShellTemp,
       'turningTimes': draft.esTurningTimes,
       'traySpacing': draft.esTraySpacing,
       'coolerProximity': draft.esCoolerProximity,
@@ -4642,13 +4642,13 @@ class AuditProvider extends ChangeNotifier {
       );
     }
 
-    if (audit.esShellTemp != null &&
-        (audit.esShellTemp! < AppThresholds.shellTempMin ||
-            audit.esShellTemp! > AppThresholds.shellTempMax)) {
+    if (audit.esEstAvg != null &&
+        (audit.esEstAvg! < AppThresholds.shellTempMin ||
+            audit.esEstAvg! > AppThresholds.shellTempMax)) {
       await NotificationService.showAlert(
         title: 'Shell Temperature Alert',
         body:
-            'Shell temp ${audit.esShellTemp!.toStringAsFixed(1)} is outside the target range.',
+            'EST ${audit.esEstAvg!.toStringAsFixed(1)} is outside the target range.',
         payload: audit.id,
       );
     }

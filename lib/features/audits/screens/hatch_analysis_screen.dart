@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,17 +10,22 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/photo_model.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
+import '../../../data/repositories/photo_repository.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/residue_batch_metrics.dart';
+import '../ocr_capture/egg_count_capture_result.dart';
+import '../ocr_capture/egg_count_capture_screen.dart';
 import 'audit_context_screen.dart';
 
 class HatchAnalysisScreen extends StatefulWidget {
@@ -52,6 +58,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   final Map<int, int> _activeBreakoutSampleIndexes = {};
   final Map<String, GlobalKey> _sampleCardKeys = {};
   final Map<String, FocusNode> _breakoutCountFocusNodes = {};
+  final PhotoRepository _photoRepository = PhotoRepository();
   late final List<GlobalKey> _sectionKeys = List.generate(
     2,
     (_) => GlobalKey(),
@@ -131,7 +138,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               child: Column(
                 children: [
                   Expanded(
-                    child: ListView(
+                    child: AuditStationListView(
                       controller: _scrollController,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                       children: [
@@ -213,6 +220,8 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final activeHouseKey = scopeActive && activeAudit != null
         ? _residueHouseKey(activeAudit, activeIndex)
         : null;
+    final selectedHouseScopeActive =
+        activeHouseKey != null && activeHouseKey != 'pool';
     final houses = scopeActive
         ? _residueHouseTabs(drafts)
         : const <_ResidueHouseTab>[];
@@ -298,7 +307,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                               ? null
                               : () => _addResidueHouse(provider),
                         ),
-                        if (scopeActive && houses.isNotEmpty)
+                        if (selectedHouseScopeActive)
                           _buildTrayActionButton(
                             key: const ValueKey('residue-remove-house'),
                             tooltip: 'Remove active house',
@@ -309,7 +318,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           ),
                       ],
                     ),
-                    if (scopeActive && activeAudit != null) ...[
+                    if (selectedHouseScopeActive && activeAudit != null) ...[
                       const SizedBox(height: AppSizes.spaceMd),
                       _responsiveTileGrid(
                         minTileWidth: 150,
@@ -690,14 +699,12 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   ) {
     final breakoutSamples = _normalizeBreakoutSamples(
       EggBreakoutSampleEntry.decodeList(
-            audit.ebTrayBreakoutJson,
-            fallbackBreakoutType:
-                _legacyBreakoutJsonNeedsTypeFallback(audit.ebTrayBreakoutJson)
-                ? breakoutType
-                : null,
-          )
-          .where((sample) => sample.breakoutType == breakoutType)
-          .toList(),
+        audit.ebTrayBreakoutJson,
+        fallbackBreakoutType:
+            _legacyBreakoutJsonNeedsTypeFallback(audit.ebTrayBreakoutJson)
+            ? breakoutType
+            : null,
+      ).where((sample) => sample.breakoutType == breakoutType).toList(),
     );
     return _resolveWorkingSamplesFrom(breakoutSamples, breakoutType);
   }
@@ -2751,6 +2758,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                   alert: exceedsBmk,
                 ),
               ),
+              const SizedBox(width: 8),
+              _breakoutEggCountCaptureButton(
+                provider: provider,
+                hatchIndex: hatchIndex,
+                samples: samples,
+                sampleIndex: sampleIndex,
+                sample: sample,
+                field: field,
+                breakoutType: breakoutType,
+              ),
             ],
           ),
           if (exceedsBmk)
@@ -2758,6 +2775,218 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         ],
       ),
     );
+  }
+
+  Widget _breakoutEggCountCaptureButton({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutCountField field,
+    required EggBreakoutType breakoutType,
+  }) {
+    final photos = _breakoutPhotoPaths(sample, field.key);
+    final enabled = !provider.isReadOnly;
+    return InkWell(
+      key: ValueKey('breakout-egg-count-capture-${sample.id}-${field.key}'),
+      onTap: enabled
+          ? () => _openBreakoutEggCountCapture(
+              provider: provider,
+              hatchIndex: hatchIndex,
+              samples: samples,
+              sampleIndex: sampleIndex,
+              sample: sample,
+              field: field,
+              breakoutType: breakoutType,
+            )
+          : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: enabled ? Colors.grey[100] : Colors.grey[200],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (photos.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.file(
+                  File(photos.first),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const Icon(
+                    Icons.photo_camera,
+                    color: Colors.grey,
+                    size: 22,
+                  ),
+                ),
+              )
+            else
+              Icon(
+                Icons.photo_camera,
+                color: enabled ? Colors.grey : Colors.grey[500],
+                size: 22,
+              ),
+            if (photos.length > 1)
+              Positioned(
+                right: 2,
+                bottom: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withAlpha(170),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '+${photos.length - 1}',
+                    style: AppTextStyles.caption.copyWith(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openBreakoutEggCountCapture({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutCountField field,
+    required EggBreakoutType breakoutType,
+  }) async {
+    final result = await Navigator.of(context).push<EggCountCaptureResult>(
+      MaterialPageRoute(
+        builder: (_) => EggCountCaptureScreen(
+          title: field.label,
+          initialCount: sample.counts[field.key] ?? 0,
+          initialPhotos: _breakoutPhotoPaths(sample, field.key),
+        ),
+      ),
+    );
+    if (!mounted || result == null || result.isEmpty) return;
+
+    final counts = Map<String, int>.from(sample.counts);
+    if (result.count <= 0) {
+      counts.remove(field.key);
+    } else {
+      counts[field.key] = result.count;
+    }
+
+    final photos = _photosWithBreakoutField(
+      sample.photos,
+      field.key,
+      result.photos,
+    );
+    await _saveBreakoutPhotoRecords(
+      provider: provider,
+      hatchIndex: hatchIndex,
+      breakoutType: breakoutType,
+      sample: sample,
+      field: field,
+      photoPaths: result.photos,
+    );
+    _replaceBreakoutSample(
+      provider,
+      hatchIndex,
+      breakoutType,
+      samples,
+      sampleIndex,
+      sample.copyWith(counts: counts, photos: photos),
+    );
+  }
+
+  List<String> _breakoutPhotoPaths(
+    EggBreakoutSampleEntry sample,
+    String fieldKey,
+  ) {
+    final entries =
+        sample.photos.entries
+            .where((entry) => _isBreakoutFieldPhotoKey(entry.key, fieldKey))
+            .toList()
+          ..sort(
+            (a, b) => _breakoutPhotoKeyIndex(
+              a.key,
+              fieldKey,
+            ).compareTo(_breakoutPhotoKeyIndex(b.key, fieldKey)),
+          );
+    return entries.map((entry) => entry.value).toList(growable: false);
+  }
+
+  Map<String, String> _photosWithBreakoutField(
+    Map<String, String> existing,
+    String fieldKey,
+    List<String> paths,
+  ) {
+    final next = Map<String, String>.fromEntries(
+      existing.entries.where(
+        (entry) => !_isBreakoutFieldPhotoKey(entry.key, fieldKey),
+      ),
+    );
+    for (final entry in paths.asMap().entries) {
+      next[_breakoutPhotoStorageKey(fieldKey, entry.key)] = entry.value;
+    }
+    return next;
+  }
+
+  bool _isBreakoutFieldPhotoKey(String key, String fieldKey) {
+    return key == fieldKey || key.startsWith('$fieldKey#');
+  }
+
+  int _breakoutPhotoKeyIndex(String key, String fieldKey) {
+    if (key == fieldKey) return 0;
+    return int.tryParse(key.substring(fieldKey.length + 1)) ?? 999;
+  }
+
+  String _breakoutPhotoStorageKey(String fieldKey, int index) {
+    return index == 0 ? fieldKey : '$fieldKey#$index';
+  }
+
+  Future<void> _saveBreakoutPhotoRecords({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required EggBreakoutType breakoutType,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutCountField field,
+    required List<String> photoPaths,
+  }) async {
+    if (hatchIndex < 0 || hatchIndex >= provider.drafts.length) return;
+    final sessionId = provider.drafts[hatchIndex].sessionId;
+    if (sessionId == null || sessionId.isEmpty) return;
+    final panelName = _panelTableForBreakoutType(breakoutType);
+    for (final entry in photoPaths.asMap().entries) {
+      final path = entry.value;
+      if (path.trim().isEmpty) continue;
+      final existing = await _photoRepository.getByFilePath(path);
+      if (existing != null) continue;
+      await _photoRepository.saveLocalPhoto(
+        PhotoModel(
+          id: '${DateTime.now().microsecondsSinceEpoch}-${entry.key}',
+          filePath: path,
+          createdAt: DateTime.now(),
+          sessionId: sessionId,
+          panelName: panelName,
+          panelRowId: sample.id,
+          fieldKey: _breakoutPhotoStorageKey(field.key, entry.key),
+          uploadStatus: 'local',
+        ),
+      );
+    }
   }
 
   String _breakoutCountFocusKey(
@@ -3178,6 +3407,14 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
 
   int _defaultTraySizeForBreakout(EggBreakoutType breakoutType) {
     return breakoutType == EggBreakoutType.freshEggBreakout ? 30 : 150;
+  }
+
+  String _panelTableForBreakoutType(EggBreakoutType breakoutType) {
+    return switch (breakoutType) {
+      EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+      EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+      EggBreakoutType.residueHatchDay => 'residue_breakout',
+    };
   }
 
   void _replaceBreakoutSample(

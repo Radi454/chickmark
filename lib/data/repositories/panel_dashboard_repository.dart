@@ -499,7 +499,6 @@ class PanelDashboardRepository {
         AVG(q.eggCvPct) AS cvPct,
         SUM(q.eggSampleSize) AS eggSampleSize,
         AVG(q.eggBmkWeight) AS eggBmkWeight,
-        AVG(s.shellTemp) AS shellTempC,
         AVG(q.uvAffectedPct) AS uvAffectedPct,
         SUM(q.uvTrayEggCount) AS uvTrayEggCount,
         AVG(q.uvCuticleDamagePct) AS uvCuticleDamagePct,

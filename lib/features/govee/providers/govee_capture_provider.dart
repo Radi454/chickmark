@@ -43,6 +43,7 @@ class GoveeAvailableDevice {
 class GoveeCaptureProvider extends ChangeNotifier {
   static const int maxLivePreviewReadings = 500;
   static const Duration _manualScanDiscoveryTimeout = Duration(seconds: 30);
+  static const Duration _disconnectedLiveGracePeriod = Duration(seconds: 30);
 
   final GoveeCaptureRepository _repository;
   final GoveeService _goveeService;
@@ -76,8 +77,9 @@ class GoveeCaptureProvider extends ChangeNotifier {
   bool _goveeListenersAttached = false;
   StreamSubscription<GoveeSensorReading>? _liveSubscription;
   Timer? _phaseTimer;
+  Timer? _disconnectGraceTimer;
   int _recordingElapsedSeconds = 0;
-  final List<GoveeSensorReading> _livePreviewBufferedReadings = [];
+  final List<GoveeSensorReading> _liveFeedReadings = [];
   final List<GoveeSensorReading> _liveRecordingReadings = [];
 
   GoveeCaptureProvider({
@@ -160,17 +162,30 @@ class GoveeCaptureProvider extends ChangeNotifier {
   bool get isBleAvailable => _goveeService.isAvailable;
   bool get isSensorConnected => _goveeService.isConnected;
   bool get isGattConnected => _goveeService.isGattConnected;
+  bool get hasLiveConnection => isSensorConnected || isGattConnected;
+  bool get hasFreshLiveData {
+    final lastSeenAt = _lastLiveSeenAt;
+    if (lastSeenAt == null) return hasLiveConnection;
+    final age = _clock().difference(lastSeenAt);
+    return age <= _disconnectedLiveGracePeriod;
+  }
+
   bool get isGattConnecting => _goveeService.isGattConnecting;
   bool get isScanning => _goveeService.isScanning;
   String? get deviceName => _goveeService.deviceName;
   String? get deviceId => _goveeService.deviceId;
-  int? get signalStrength => _goveeService.signalStrength;
-  DateTime? get liveUpdatedAt =>
-      _goveeService.latestReading?.timestamp ?? _goveeService.lastSeenAt;
-  double? get liveTemperatureFahrenheit =>
-      _goveeService.latestReading?.temperatureFahrenheit;
-  double? get liveHumidity => _goveeService.latestReading?.humidity;
-  int? get batteryPercent => _goveeService.latestReading?.batteryPercent;
+  int? get signalStrength =>
+      hasFreshLiveData ? _goveeService.signalStrength : null;
+  DateTime? get liveUpdatedAt => hasFreshLiveData
+      ? _goveeService.latestReading?.timestamp ?? _goveeService.lastSeenAt
+      : null;
+  double? get liveTemperatureFahrenheit => hasFreshLiveData
+      ? _goveeService.latestReading?.temperatureFahrenheit
+      : null;
+  double? get liveHumidity =>
+      hasFreshLiveData ? _goveeService.latestReading?.humidity : null;
+  int? get batteryPercent =>
+      hasFreshLiveData ? _goveeService.latestReading?.batteryPercent : null;
   List<String> get bleDiagnostics => _goveeService.diagnostics;
   List<GoveeAvailableDevice> get availableDevices {
     final selectedId = _goveeService.deviceId;
@@ -192,28 +207,14 @@ class GoveeCaptureProvider extends ChangeNotifier {
 
   List<GoveeSensorReading> get liveRecordingReadings =>
       List.unmodifiable(_liveRecordingReadings);
+
+  /// Continuous live trend shown in the preview charts. Independent of the
+  /// recording lifecycle — starting, stopping, or saving a capture never
+  /// resets this feed, so the chart keeps flowing.
   List<GoveeSensorReading> get livePreviewReadings {
-    if (isRecording) {
-      if (_liveRecordingReadings.isNotEmpty) {
-        return List.unmodifiable(_liveRecordingReadings);
-      }
-      final latest = _goveeService.latestReading;
-      if (latest == null ||
-          latest.temperatureFahrenheit == null ||
-          latest.humidity == null) {
-        return const [];
-      }
-      final startedAt = _recordingStartedAt;
-      if (startedAt != null && latest.timestamp.isBefore(startedAt)) {
-        return const [];
-      }
-      return List.unmodifiable([latest]);
-    }
-    if (_livePreviewBufferedReadings.isNotEmpty) {
-      return List.unmodifiable(_livePreviewBufferedReadings);
-    }
-    if (_liveRecordingReadings.isNotEmpty) {
-      return List.unmodifiable(_liveRecordingReadings);
+    if (!hasFreshLiveData) return const [];
+    if (_liveFeedReadings.isNotEmpty) {
+      return List.unmodifiable(_liveFeedReadings);
     }
     final latest = _goveeService.latestReading;
     if (latest == null ||
@@ -252,7 +253,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _error = null;
     _syncFailureDetails = null;
     _syncFailureDiagnostics = const [];
-    _livePreviewBufferedReadings.clear();
     _liveRecordingReadings.clear();
     _suggestedNextPlace = null;
     try {
@@ -405,7 +405,6 @@ class GoveeCaptureProvider extends ChangeNotifier {
     _failedRecordingStartedAt = null;
     _failedRecordingEndedAt = null;
     _clearPendingSave();
-    _livePreviewBufferedReadings.clear();
     _liveRecordingReadings.clear();
     _phase = GoveeCapturePhase.validRecording;
     _recordingElapsedSeconds = 0;
@@ -662,27 +661,31 @@ class GoveeCaptureProvider extends ChangeNotifier {
   }
 
   void _handleGoveeServiceChanged() {
+    _syncDisconnectGraceTimer();
+    if (!hasFreshLiveData && _liveFeedReadings.isNotEmpty) {
+      _liveFeedReadings.clear();
+    }
     notifyListeners();
   }
 
   void _handleLiveReading(GoveeSensorReading reading) {
+    if (!hasLiveConnection) return;
     if (reading.temperatureFahrenheit == null || reading.humidity == null) {
       return;
     }
-    if (!isRecording) {
-      if (_phase != GoveeCapturePhase.idle &&
-          _phase != GoveeCapturePhase.saved) {
-        return;
+    // Continuous live feed — accumulates in every phase so the preview charts
+    // keep their trend uninterrupted when a recording starts, stops, or saves.
+    _appendLiveReading(_liveFeedReadings, reading);
+    // Recording-window buffer — fallback save source when history sync returns
+    // nothing for the window.
+    if (isRecording) {
+      final startedAt = _recordingStartedAt;
+      if (startedAt == null || !reading.timestamp.isBefore(startedAt)) {
+        _appendLiveReading(_liveRecordingReadings, reading);
       }
-      _appendLiveReading(_livePreviewBufferedReadings, reading);
-      notifyListeners();
-      return;
     }
-    final startedAt = _recordingStartedAt;
-    if (startedAt == null || !reading.timestamp.isBefore(startedAt)) {
-      _appendLiveReading(_liveRecordingReadings, reading);
-      notifyListeners();
-    }
+    _syncDisconnectGraceTimer();
+    notifyListeners();
   }
 
   void _appendLiveReading(
@@ -699,12 +702,44 @@ class GoveeCaptureProvider extends ChangeNotifier {
   @override
   void dispose() {
     _phaseTimer?.cancel();
+    _disconnectGraceTimer?.cancel();
     unawaited(_liveSubscription?.cancel());
     if (_goveeListenersAttached) {
       _goveeService.removeListener(_handleGoveeServiceChanged);
     }
     super.dispose();
   }
+
+  void _syncDisconnectGraceTimer() {
+    final lastSeenAt = _lastLiveSeenAt;
+    if (lastSeenAt == null) {
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = null;
+      return;
+    }
+
+    final age = _clock().difference(lastSeenAt);
+    final remaining = _disconnectedLiveGracePeriod - age;
+    if (remaining <= Duration.zero) {
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = null;
+      _liveFeedReadings.clear();
+      return;
+    }
+
+    _disconnectGraceTimer?.cancel();
+    if (!_enablePhaseTimer) return;
+    _disconnectGraceTimer = Timer(remaining, () {
+      if (hasFreshLiveData) return;
+      if (_liveFeedReadings.isNotEmpty) {
+        _liveFeedReadings.clear();
+      }
+      notifyListeners();
+    });
+  }
+
+  DateTime? get _lastLiveSeenAt =>
+      _goveeService.latestReading?.timestamp ?? _goveeService.lastSeenAt;
 
   void _startPhaseTimer() {
     _phaseTimer?.cancel();

@@ -544,6 +544,239 @@ void main() {
     expect(footerSize.height, lessThanOrEqualTo(78));
   });
 
+  testWidgets('session footer fits common phone widths', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final width in <double>[360, 390, 430]) {
+      tester.view.physicalSize = Size(width, 844);
+
+      final repository = MockAuditSessionRepository();
+      final activityLog = MockActivityLogRepository();
+      final supabase = MockSupabaseService();
+      final provider = AuditSessionProvider(
+        repository: repository,
+        activityLogRepository: activityLog,
+        supabaseService: supabase,
+      );
+
+      when(() => repository.insertSession(any())).thenAnswer((_) async {});
+      when(
+        () => activityLog.log(
+          any(),
+          any(),
+          entityType: any(named: 'entityType'),
+          entityId: any(named: 'entityId'),
+          details: any(named: 'details'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+      await provider.startSession(
+        context: AuditSessionContext(
+          customerId: SessionTestFixtures.testCustomerId,
+          hatcheryId: SessionTestFixtures.testHatcheryId,
+          flockId: SessionTestFixtures.testFlockId,
+          date: SessionTestFixtures.testVisitDate,
+          breed: SessionTestFixtures.testBreed,
+          selectedStationKeys: const [
+            'egg',
+            'hatch_analysis_egg_breakouts',
+            'hatchers',
+            'chicks',
+            'setters',
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: provider),
+            ChangeNotifierProvider(create: (_) => CustomersProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(supabaseService: supabase),
+            ),
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+          ],
+          child: const MaterialApp(home: AuditSessionScreen()),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull, reason: 'width $width');
+      expect(
+        find.byKey(const ValueKey('audit-session-navigation-footer')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getRect(find.byKey(const ValueKey('audit-session-next-action')))
+            .width,
+        lessThanOrEqualTo(width),
+      );
+    }
+  });
+
+  testWidgets('session footer hides above the mobile keyboard', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final panelRepository = MockPanelSampleRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['egg', 'chicks'],
+      ),
+    );
+    _stubEmptyPanelPersistence(panelRepository, provider.currentSession!.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(panelSampleRepository: panelRepository),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('audit-session-navigation-footer')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('audit-session-next-action')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('audit-autosave-status')), findsNothing);
+  });
+
+  testWidgets('session editing hides fixed Govee and footer chrome', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = MockAuditSessionRepository();
+    final activityLog = MockActivityLogRepository();
+    final panelRepository = MockPanelSampleRepository();
+    final supabase = MockSupabaseService();
+    final provider = AuditSessionProvider(
+      repository: repository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(() => repository.insertSession(any())).thenAnswer((_) async {});
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+
+    await provider.startSession(
+      context: AuditSessionContext(
+        customerId: SessionTestFixtures.testCustomerId,
+        hatcheryId: SessionTestFixtures.testHatcheryId,
+        flockId: SessionTestFixtures.testFlockId,
+        date: SessionTestFixtures.testVisitDate,
+        breed: SessionTestFixtures.testBreed,
+        selectedStationKeys: const ['egg', 'chicks'],
+      ),
+    );
+    _stubEmptyPanelPersistence(panelRepository, provider.currentSession!.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(panelSampleRepository: panelRepository),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('audit-open-govee-readings')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audit-session-navigation-footer')),
+      findsOneWidget,
+    );
+
+    await tester.ensureVisible(find.byType(TextField).last);
+    await tester.tap(find.byType(TextField).last);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('audit-open-govee-readings')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('audit-session-navigation-footer')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('audit-session-next-action')),
+      findsNothing,
+    );
+  });
+
   testWidgets('non-final station save does not show completion check overlay', (
     tester,
   ) async {

@@ -58,7 +58,7 @@ void main() {
     final bodyLogoHeader = find.byKey(const ValueKey('home-logo-header'));
     final title = find.descendant(
       of: find.byType(AppBar),
-      matching: find.text('ChickMark'),
+      matching: find.text('Home'),
     );
 
     expect(ChickMarkLogo.assetPath, 'assets/branding/chickmark-icon.png');

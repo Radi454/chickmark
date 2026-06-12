@@ -87,7 +87,6 @@ class EggStorageTrend {
   final double cvPct;
   final int eggSampleSize;
   final double eggBmkWeight;
-  final double shellTempC;
   final double uvAffectedPct;
   final int uvTrayEggCount;
   final double uvCuticleDamagePct;
@@ -111,7 +110,6 @@ class EggStorageTrend {
     this.cvPct = 0.0,
     this.eggSampleSize = 0,
     this.eggBmkWeight = 0.0,
-    this.shellTempC = 0.0,
     this.uvAffectedPct = 0.0,
     this.uvTrayEggCount = 0,
     this.uvCuticleDamagePct = 0.0,
@@ -137,7 +135,6 @@ class EggStorageTrend {
       cvPct: _asDouble(map['cvPct']),
       eggSampleSize: _asInt(map['eggSampleSize']) ?? 0,
       eggBmkWeight: _asDouble(map['eggBmkWeight']),
-      shellTempC: _asDouble(map['shellTempC']),
       uvAffectedPct: _asDouble(map['uvAffectedPct']),
       uvTrayEggCount: _asInt(map['uvTrayEggCount']) ?? 0,
       uvCuticleDamagePct: _asDouble(map['uvCuticleDamagePct']),

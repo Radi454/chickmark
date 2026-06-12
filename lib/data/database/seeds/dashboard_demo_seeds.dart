@@ -329,10 +329,9 @@ List<Map<String, Object?>> _chickWeightRows() => [
 // ── Egg storage: pooled ─────────────────────────────────────────────────────
 List<Map<String, Object?>> _eggStorageRows() => [
       _base('demo-es-0', {
-        // shellTemp is the grid average in-app (egg screen derives it), so it
-        // must equal estAvg / the EST grid mean — keep all three at 20.0.
+        // estAvg is the EST grid average (egg screen derives it from the mean).
         'estReadingsJson': _gridJson(20.0),
-        'estAvg': 20.0, 'estCvPct': 4.2, 'shellTemp': 20.0,
+        'estAvg': 20.0, 'estCvPct': 4.2,
         'storagePeriodDays': 4, 'turningTimes': 2, 'traySpacing': 'Adequate',
         'coolerProximity': 'Far', 'condensationPresent': 0, 'upsideDownPct': 0.6,
       }),

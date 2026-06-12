@@ -44,3 +44,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/chickmark-icon.png
+    - assets/branding/chickmark-mark-onbrand.png
+    - .env.json

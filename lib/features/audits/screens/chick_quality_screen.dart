@@ -16,7 +16,9 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/unsaved_changes_guard.dart';
+import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
 import '../widgets/tabs/cvt_tab.dart';
 import '../widgets/tabs/culled_chicks_analysis_tab.dart';
@@ -134,8 +136,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
             child: Column(
               children: [
                 Expanded(
-                  child: SingleChildScrollView(
-                    key: const ValueKey('chick-quality-scroll'),
+                  child: AuditStationScrollView(
+                    scrollKey: const ValueKey('chick-quality-scroll'),
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                     child: Center(
                       child: ConstrainedBox(
@@ -305,6 +307,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         return StatefulBuilder(
           builder: (sheetContext, _) {
             return AuditKeyboardDismiss(
+              enabled: false,
               child: Padding(
                 padding: EdgeInsets.only(
                   bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
@@ -348,11 +351,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                             ),
                           ),
                           Expanded(
-                            child: SingleChildScrollView(
+                            child: WeightEntrySheetScrollView(
                               controller: scrollController,
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                               child: KeyedSubtree(
                                 key: const ValueKey('weight-grid-widget'),
                                 child: WeightGridWidget(

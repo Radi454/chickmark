@@ -11,13 +11,16 @@ import '../../providers/dashboard_provider.dart';
 import '../../providers/scope_comparison_provider.dart';
 import '../../scope/scope_config.dart';
 import '../../scope/scope_models.dart';
+import '../../scope/scope_severity.dart';
 import '../../screens/photo_fullscreen_screen.dart';
 import '../est_evidence_photos_card.dart';
+import '../scope/alarm_triage_feed.dart';
+import '../scope/scope_matrix_table.dart';
 
 /// Storage station body for the dashboard, laid out like the egg audit station:
-/// an Alarms & Actions card first, then the EST summary + 9-point grid photo,
-/// the Upside Down score, the storage checklist, and finally Egg Quality with
-/// one tab per house sample.
+/// a triage feed first (Critical / Watch / collapsible In Target), then the EST
+/// summary + 9-point grid photo, the Upside Down score, the storage checklist,
+/// and finally Egg Quality with one tab per house sample.
 ///
 /// EST / Upside / checklist are pool-level and read the filter-aware latest audit
 /// ([DashboardProvider.eggStorageLatest] + EST photo evidence). Egg Quality is
@@ -41,12 +44,12 @@ class EggStorageStationSection extends StatelessWidget {
     if (!hasStorage && !hasEggQuality) return const _StorageEmptyState();
 
     final target = _EstTarget.fromStorageDays(latest?.storageDays);
-    final alarms = _collectAlarms(latest, houses, target);
+    final triage = _collectTriage(latest, houses, target);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _AlarmsCard(alarms: alarms),
+        AlarmTriageFeed(items: triage),
         const SizedBox(height: AppSizes.spaceMd),
         _EstCard(
           latest: latest,
@@ -64,75 +67,193 @@ class EggStorageStationSection extends StatelessWidget {
     );
   }
 
-  /// Roll up the station's out-of-spec readings into a flat action list. EST /
-  /// CV / condensation come from the pooled latest audit; uniformity / egg-CV /
-  /// UV are per house (so the alarm names the offending house).
-  List<_Alarm> _collectAlarms(
+  /// Grade every storage reading into a [TriageItem]: EST average vs the
+  /// storage-day band, EST CV% / egg CV% / UV vs their caps, uniformity vs its
+  /// floor, plus the condensation flag. In-target readings still emit (as `good`)
+  /// so they fill the collapsible "In Target" list. EST / CV / condensation are
+  /// pooled; uniformity / egg-CV / UV are per house (chip names the house).
+  List<TriageItem> _collectTriage(
     EggStorageTrend? latest,
     List<ScopeGroup> houses,
     _EstTarget target,
   ) {
-    final out = <_Alarm>[];
+    final out = <TriageItem>[];
     if (latest != null) {
       final avg = _estAverage(latest);
       if (avg != null && avg != 0) {
-        if (avg < target.minC) {
-          out.add(
-            _Alarm(
-              'EST average ${_one(avg)}°C is below target (${target.rangeLabel}).',
-            ),
-          );
-        } else if (avg > target.maxC) {
-          out.add(
-            _Alarm(
-              'EST average ${_one(avg)}°C is above target (${target.rangeLabel}).',
-            ),
-          );
-        }
-      }
-      if (latest.estCvPct > AppThresholds.cvAlertPct) {
+        final sev = _estBandSeverity(avg, target);
         out.add(
-          _Alarm(
-            'EST CV% ${_one(latest.estCvPct)}% is above the '
-            '${_one(AppThresholds.cvAlertPct)}% limit.',
+          TriageItem(
+            severity: sev,
+            primaryTag: 'EST',
+            secondaryTag: 'Pooled',
+            metric: 'EST Average',
+            value: '${_one(avg)}°C',
+            context: 'Target ${target.rangeLabel}',
+            advice: sev == ScopeSeverity.good
+                ? null
+                : (avg < target.minC
+                    ? 'Below target band — warm storage toward range.'
+                    : 'Above target band — cool storage toward range.'),
           ),
         );
       }
-      if (latest.condensationPresent == true) {
-        out.add(const _Alarm('Condensation present in the storage room.'));
+      if (latest.estCvPct != 0) {
+        out.add(
+          _ceilingItem(
+            value: latest.estCvPct,
+            limit: AppThresholds.cvAlertPct,
+            margin: 1,
+            primaryTag: 'EST',
+            scopeTag: 'Pooled',
+            metric: 'EST CV%',
+            unit: '%',
+            overAdvice: 'Uneven shell temperature — check grid uniformity.',
+          ),
+        );
+      }
+      if (latest.condensationPresent != null) {
+        final present = latest.condensationPresent!;
+        out.add(
+          TriageItem(
+            severity: present ? ScopeSeverity.warn : ScopeSeverity.good,
+            primaryTag: 'Storage',
+            secondaryTag: 'Pooled',
+            metric: 'Condensation',
+            value: present ? 'Present' : 'None',
+            context: 'Storage room',
+            advice: present
+                ? 'Condensation present — wipe down & verify cooling.'
+                : null,
+          ),
+        );
       }
     }
     for (final house in houses) {
       final label = house.label;
       final unif = _cellValue(house, 'eggUniformityPct');
-      if (unif != null && unif > 0 && unif < AppThresholds.uniformityGood) {
+      if (unif != null && unif > 0) {
         out.add(
-          _Alarm(
-            '$label: egg uniformity ${_one(unif.toDouble())}% is below the '
-            '${_one(AppThresholds.uniformityGood)}% target.',
+          _floorItem(
+            value: unif.toDouble(),
+            limit: AppThresholds.uniformityGood,
+            // ≥85 good, ≥80 warn, <80 err — the existing two bands.
+            margin: AppThresholds.uniformityGood - AppThresholds.uniformityPoor,
+            scopeTag: label,
+            metric: 'Egg Uniformity',
+            belowAdvice: 'Below the uniformity target — review flock spread.',
           ),
         );
       }
       final cv = _cellValue(house, 'eggCvPct');
-      if (cv != null && cv > AppThresholds.cvAlertPct) {
+      if (cv != null && cv > 0) {
         out.add(
-          _Alarm(
-            '$label: egg CV% ${_one(cv.toDouble())}% is above the '
-            '${_one(AppThresholds.cvAlertPct)}% limit.',
+          _ceilingItem(
+            value: cv.toDouble(),
+            limit: AppThresholds.cvAlertPct,
+            margin: 1,
+            primaryTag: 'Egg Quality',
+            scopeTag: label,
+            metric: 'Egg CV%',
+            unit: '%',
+            overAdvice: 'Weight spread high — review grading.',
           ),
         );
       }
       final uv = _cellValue(house, 'uvAffectedPct');
-      if (uv != null && uv > _uvAffectedLimitPct) {
+      if (uv != null && uv > 0) {
         out.add(
-          _Alarm(
-            '$label: UV affected ${_one(uv.toDouble())}% is above the '
-            '${_one(_uvAffectedLimitPct)}% limit.',
+          _ceilingItem(
+            value: uv.toDouble(),
+            limit: _uvAffectedLimitPct,
+            margin: 2,
+            primaryTag: 'Egg Quality',
+            scopeTag: label,
+            metric: 'UV Affected',
+            unit: '%',
+            overAdvice: 'Shell contamination elevated — review nest hygiene.',
           ),
         );
       }
     }
+    out.sort((a, b) => _sevRank(b.severity).compareTo(_sevRank(a.severity)));
     return out;
+  }
+
+  /// Defect reading (lower is better) vs a hard [limit]: at/under → good (a
+  /// reading inside the limit never alarms), over by up to [margin] → warn
+  /// (slightly off), beyond that → err (big gap).
+  TriageItem _ceilingItem({
+    required double value,
+    required double limit,
+    required double margin,
+    required String primaryTag,
+    required String scopeTag,
+    required String metric,
+    required String unit,
+    required String overAdvice,
+  }) {
+    final sev = ceilingSeverity(value, limit, margin);
+    return TriageItem(
+      severity: sev,
+      primaryTag: primaryTag,
+      secondaryTag: scopeTag,
+      metric: metric,
+      value: '${_one(value)}$unit',
+      context: 'Limit ≤ ${_one(limit)}$unit',
+      advice: sev == ScopeSeverity.err
+          ? overAdvice
+          : (sev == ScopeSeverity.warn
+              ? 'Slightly over limit — monitor next visit.'
+              : null),
+    );
+  }
+
+  /// Floor reading (higher is better) vs [limit]: ≥limit good, within [margin]
+  /// below → warn, else err.
+  TriageItem _floorItem({
+    required double value,
+    required double limit,
+    required double margin,
+    required String scopeTag,
+    required String metric,
+    required String belowAdvice,
+  }) {
+    final sev = floorSeverity(value, limit, margin);
+    return TriageItem(
+      severity: sev,
+      primaryTag: 'Egg Quality',
+      secondaryTag: scopeTag,
+      metric: metric,
+      value: '${_one(value)}%',
+      context: 'Target ≥ ${_one(limit)}%',
+      advice: sev == ScopeSeverity.err
+          ? belowAdvice
+          : (sev == ScopeSeverity.warn
+              ? 'Near the target floor — monitor next visit.'
+              : null),
+    );
+  }
+
+  /// EST average vs the storage-day target band: inside good, ≤1.5°C out warn,
+  /// further err.
+  ScopeSeverity _estBandSeverity(double avg, _EstTarget target) {
+    if (avg >= target.minC && avg <= target.maxC) return ScopeSeverity.good;
+    final over = avg > target.maxC ? avg - target.maxC : target.minC - avg;
+    return over > 1.5 ? ScopeSeverity.err : ScopeSeverity.warn;
+  }
+
+  int _sevRank(ScopeSeverity s) {
+    switch (s) {
+      case ScopeSeverity.err:
+        return 3;
+      case ScopeSeverity.warn:
+        return 2;
+      case ScopeSeverity.good:
+        return 1;
+      case ScopeSeverity.pool:
+        return 0;
+    }
   }
 
   void _openPhoto(BuildContext context, String path) {
@@ -159,9 +280,9 @@ class EggStorageStationSection extends StatelessWidget {
 const double _uvAffectedLimitPct = 5.0;
 
 /// EST grid is recorded in °C; [EggStorageTrend.estAvgF] holds that average (the
-/// field name predates the °C cutover). Fall back to the shell-temp average.
+/// field name predates the °C cutover).
 double? _estAverage(EggStorageTrend latest) =>
-    latest.estAvgF != 0 ? latest.estAvgF : latest.shellTempC;
+    latest.estAvgF != 0 ? latest.estAvgF : null;
 
 /// Read a scope cell's numeric value by its sector column name (null if absent).
 num? _cellValue(ScopeGroup group, String column) {
@@ -183,114 +304,6 @@ String _turningLabel(int? turningTimes) {
   if (turningTimes == 0) return 'No Turning';
   if (turningTimes == 1) return '1 time';
   return '$turningTimes times';
-}
-
-// ── alarms ───────────────────────────────────────────────────────────────────
-
-class _Alarm {
-  final String message;
-  const _Alarm(this.message);
-}
-
-class _AlarmsCard extends StatelessWidget {
-  final List<_Alarm> alarms;
-
-  const _AlarmsCard({required this.alarms});
-
-  @override
-  Widget build(BuildContext context) {
-    final hasAlarms = alarms.isNotEmpty;
-    final accent = hasAlarms ? AppColors.statusError : AppColors.statusGood;
-    final bg = hasAlarms ? AppColors.statusErrorBg : AppColors.completedBg;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSizes.cardPadding),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withValues(alpha: 0.30)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                hasAlarms ? Icons.warning_amber_rounded : Icons.check_circle,
-                size: 20,
-                color: accent,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Alarms & Actions Required',
-                  style: AppTextStyles.title.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: accent,
-                  ),
-                ),
-              ),
-              if (hasAlarms)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: accent,
-                    borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-                  ),
-                  child: Text(
-                    '${alarms.length}',
-                    style: AppTextStyles.caption.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (!hasAlarms)
-            Text(
-              'All recorded readings are within target. No action required.',
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.completedText,
-                fontWeight: FontWeight.w700,
-              ),
-            )
-          else
-            for (var i = 0; i < alarms.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 5),
-                    child: Icon(
-                      Icons.arrow_right_alt,
-                      size: 16,
-                      color: AppColors.statusError,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      alarms[i].message,
-                      style: AppTextStyles.body.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF7C2D12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-        ],
-      ),
-    );
-  }
 }
 
 // ── shared sub-card shell (mirrors the audit station workbench panels) ────────
@@ -615,8 +628,67 @@ class _EggQualityTabsState extends State<_EggQualityTabs> {
           ),
           const SizedBox(height: AppSizes.spaceMd),
           _EggQualityHousePanels(house: house),
+          // Tabs show one house at a time; the old scope view compared houses
+          // side-by-side. Keep that one tap away via a collapsible matrix.
+          if (houses.length > 1) ...[
+            const SizedBox(height: AppSizes.spaceSm),
+            const _CompareHousesTile(),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Collapsible "Compare houses" reveal wrapping the per-house comparison matrix
+/// (the same [ScopeMatrixTable] the generic scope view used). Built lazily — the
+/// matrix is kept out of the tree until opened, so its column headers (house
+/// labels) don't duplicate the tab pills and the heavy table isn't laid out
+/// until asked for.
+class _CompareHousesTile extends StatefulWidget {
+  const _CompareHousesTile();
+
+  @override
+  State<_CompareHousesTile> createState() => _CompareHousesTileState();
+}
+
+class _CompareHousesTileState extends State<_CompareHousesTile> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _open = !_open),
+          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Compare houses',
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Icon(
+                  _open ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_open) ...[
+          const SizedBox(height: AppSizes.spaceSm),
+          const ScopeMatrixTable(sectorId: 'egg_quality'),
+        ],
+      ],
     );
   }
 }

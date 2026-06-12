@@ -14,7 +14,6 @@ import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart'
 import 'package:hatchaudit/features/dashboard/utils/pasgar_interpretation.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
-import 'package:hatchaudit/features/dashboard/widgets/est_evidence_photos_card.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
 import 'package:hatchaudit/features/dashboard/screens/photo_fullscreen_screen.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
@@ -1327,7 +1326,7 @@ class _EstReadingsGridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avg = latest?.estAvgF != 0 ? latest?.estAvgF : latest?.shellTempC;
+    final avg = latest?.estAvgF;
     final cv = latest?.estCvPct;
     final temperatureStatus = _EstTemperatureStatus.from(avg, target);
     final cvIsAlarm = cv != null && cv > AppThresholds.cvAlertPct;
@@ -2144,118 +2143,6 @@ class _EggUniformityTab extends StatelessWidget {
             ),
           ),
         ),
-      ],
-    );
-  }
-}
-
-// ignore: unused_element
-class _ShellTempTab extends StatelessWidget {
-  final DashboardProvider provider;
-  const _ShellTempTab({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    final trend = provider.eggStorageTrend;
-    final latest = provider.eggStorageLatest;
-    final evidence = provider.eggStorageEstEvidence;
-    if (provider.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (latest == null) return _emptySection('shell temperature');
-
-    final spots = trend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.shellTempC))
-        .toList();
-
-    final metrics = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _metricRow(
-          'Shell Temp (°C)',
-          latest.shellTempC.toStringAsFixed(1),
-          color: _thresholdRange(
-            latest.shellTempC,
-            AppThresholds.shellTempMin,
-            AppThresholds.shellTempMax,
-          ),
-        ),
-        _metricRow(
-          'Target Band',
-          '${AppThresholds.shellTempMin.toStringAsFixed(0)}-${AppThresholds.shellTempMax.toStringAsFixed(0)}°C',
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            height: 150,
-            child: BmkLineChart(
-              dataPoints: spots.isEmpty
-                  ? [FlSpot(0, latest.shellTempC)]
-                  : spots,
-              bmkValue:
-                  (AppThresholds.shellTempMin + AppThresholds.shellTempMax) / 2,
-              yLabel: '°C',
-            ),
-          ),
-        ),
-      ],
-    );
-
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        if (evidence == null) ...[
-          metrics,
-          _photoSection(context, provider.shellTempPhotos),
-        ] else
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth >= 720) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: metrics),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 340,
-                        child: EstEvidencePhotosCard(
-                          evidence: evidence,
-                          onPhotoTap: (path) => Navigator.push(
-                            context,
-                            AppPageRoute(
-                              builder: (_) =>
-                                  PhotoFullscreenScreen(filePath: path),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                return Column(
-                  children: [
-                    metrics,
-                    const SizedBox(height: 12),
-                    EstEvidencePhotosCard(
-                      evidence: evidence,
-                      onPhotoTap: (path) => Navigator.push(
-                        context,
-                        AppPageRoute(
-                          builder: (_) => PhotoFullscreenScreen(filePath: path),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
       ],
     );
   }

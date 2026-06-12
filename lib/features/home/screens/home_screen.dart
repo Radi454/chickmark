@@ -5,6 +5,7 @@ import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
+import 'package:hatchaudit/core/constants/supabase_config.dart';
 import 'package:hatchaudit/core/navigation/shell_navigation_scope.dart';
 import 'package:hatchaudit/core/security/security_policy.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
@@ -25,7 +26,6 @@ import 'package:hatchaudit/features/home/providers/home_provider.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
-import 'package:hatchaudit/widgets/chick_mark_logo.dart';
 import 'package:hatchaudit/widgets/flock_pair_icon.dart';
 import 'package:hatchaudit/widgets/scale_button.dart';
 
@@ -88,17 +88,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: GradientAppBar(
-        title: 'ChickMark',
-        titleLeading: const SizedBox(
-          key: ValueKey('home-appbar-logo'),
+        title: 'Home',
+        titleLeading: SizedBox(
+          key: const ValueKey('home-appbar-logo'),
           width: 44,
           height: 52,
           child: Center(
-            child: ChickMarkLogo(
-              logoSize: 44,
-              showWordmark: false,
-              showTagline: false,
-              compact: true,
+            child: Semantics(
+              label: 'Home',
+              child: const Icon(
+                Icons.home_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
             ),
           ),
         ),
@@ -383,7 +385,16 @@ class _HomeScreenState extends State<HomeScreen> {
     SettingsProvider settings,
     HomeProvider home,
   ) {
-    final visuals = _cloudStatusVisuals(settings.cloudStatus);
+    var visuals = _cloudStatusVisuals(settings.cloudStatus);
+    if (settings.cloudStatus == CloudStatus.offline &&
+        !SupabaseConfig.isConfigured) {
+      visuals = _CloudStatusVisuals(
+        icon: visuals.icon,
+        bg: visuals.bg,
+        fg: visuals.fg,
+        title: 'Cloud not configured',
+      );
+    }
     return _HomeSection(
       title: 'Sync & Offline',
       child: Column(

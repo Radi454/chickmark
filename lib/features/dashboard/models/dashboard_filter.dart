@@ -3,13 +3,23 @@ class DashboardFilter {
   final String? flockId;
   final int? bmkAge;
 
-  DashboardFilter({this.customerId, this.flockId, this.bmkAge});
+  /// Optional single-visit narrowing (used by per-sector Cumulative/period
+  /// selection). Additive — null leaves all existing queries unchanged.
+  final String? sessionId;
 
-  DashboardFilter copyWith({String? customerId, String? flockId, int? bmkAge}) {
+  DashboardFilter({this.customerId, this.flockId, this.bmkAge, this.sessionId});
+
+  DashboardFilter copyWith({
+    String? customerId,
+    String? flockId,
+    int? bmkAge,
+    String? sessionId,
+  }) {
     return DashboardFilter(
       customerId: customerId ?? this.customerId,
       flockId: flockId ?? this.flockId,
       bmkAge: bmkAge ?? this.bmkAge,
+      sessionId: sessionId ?? this.sessionId,
     );
   }
 }

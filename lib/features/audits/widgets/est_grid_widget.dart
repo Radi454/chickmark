@@ -42,6 +42,10 @@ class EstGridWidget extends StatelessWidget {
   /// Unit suffix shown in each grid cell, e.g. '°C' or '°F'.
   final String unitSuffix;
 
+  /// Compact density: shorter cells, no per-cell evidence thumbnail/add button.
+  /// Used by the full-screen OCR capture flow so the grid fits without scroll.
+  final bool compact;
+
   const EstGridWidget({
     super.key,
     required this.controllers,
@@ -59,6 +63,7 @@ class EstGridWidget extends StatelessWidget {
     this.tempStatusFn,
     this.tempZoneFn,
     this.unitSuffix = '°F',
+    this.compact = false,
   });
 
   @override
@@ -76,7 +81,7 @@ class EstGridWidget extends StatelessWidget {
               ),
             ),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: EdgeInsets.all(compact ? 8 : 10),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -85,10 +90,10 @@ class EstGridWidget extends StatelessWidget {
             child: Column(
               children: [
                 _buildHeaderRow(),
-                const SizedBox(height: 8),
+                SizedBox(height: compact ? 4 : 8),
                 ...EstGridData.levels.map(
                   (level) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.only(bottom: compact ? 4 : 8),
                     child: _buildLevelRow(context, level),
                   ),
                 ),
@@ -217,8 +222,10 @@ class EstGridWidget extends StatelessWidget {
 
     final cell = AnimatedContainer(
       duration: const Duration(milliseconds: 260),
-      constraints: BoxConstraints(minHeight: showPhotoCapture ? 52 : 82),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      constraints: BoxConstraints(
+        minHeight: compact ? 40 : (showPhotoCapture ? 52 : 82),
+      ),
+      padding: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 3 : 6),
       decoration: BoxDecoration(
         color: isHighlighted
             ? AppColors.greenTab.withAlpha(42)
@@ -252,6 +259,7 @@ class EstGridWidget extends StatelessWidget {
                               photoPath: photo,
                               enabled: enabled,
                               size: 32,
+                              fieldKey: key,
                               onPhotoCaptured: (path) =>
                                   onPhotoCaptured(key, path),
                             ),
@@ -274,10 +282,11 @@ class EstGridWidget extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       numberField,
-                      if (hasPhoto) ...[
+                      if (!compact && hasPhoto) ...[
                         const SizedBox(height: 4),
                         _EvidenceThumbnail(path: photo),
-                      ] else if (hasValue &&
+                      ] else if (!compact &&
+                          hasValue &&
                           onMissingPhotoRequested != null) ...[
                         const SizedBox(height: 4),
                         _AddEvidencePhotoButton(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
+import '../constants/app_strings.dart';
 import '../navigation/shell_navigation_scope.dart';
 import 'app_elevation.dart';
 
@@ -47,7 +48,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
             leading ??
             (showBackButton
                 ? IconButton(
-                    tooltip: 'Back',
+                    tooltip: AppStrings.back,
                     icon: const Icon(Icons.arrow_back),
                     onPressed: canPop
                         ? () => Navigator.of(context).maybePop()
@@ -62,13 +63,18 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
                   )
                 : null),
         title: titleLeading == null
-            ? Text(title)
+            ? Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)
             : Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   titleLeading!,
-                  const SizedBox(width: 8),
-                  Text(title),
+                  const SizedBox(width: AppSizes.spaceSm),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
         centerTitle: true,

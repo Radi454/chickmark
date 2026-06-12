@@ -294,7 +294,14 @@ class _AuditStationSelectionScreenState
             const SizedBox(width: 12),
             _buildStationIcon(stationKey, Colors.grey),
             const SizedBox(width: 10),
-            Text(name, style: AppTextStyles.body.copyWith(color: Colors.grey)),
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.body.copyWith(color: Colors.grey),
+              ),
+            ),
           ],
         ),
       ),

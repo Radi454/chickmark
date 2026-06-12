@@ -6,11 +6,20 @@ import 'scope_models.dart';
 /// Default `errDelta = 3.0` matches the existing breakout-severity convention in
 /// `test/features/dashboard/dashboard_aggregation_test.dart` (actual ≤ bmk+3 → medium,
 /// else high).
+///
+/// [nearMargin] is the band (in the value's own units) used by [absoluteLimit]
+/// grading: a reading on the *good* side of the limit is good, one that breaches
+/// it by up to `nearMargin` is "slightly off" (warn), and beyond that is err.
 class SeverityThresholds {
   final double warnDelta;
   final double errDelta;
+  final double nearMargin;
 
-  const SeverityThresholds({this.warnDelta = 1.0, this.errDelta = 3.0});
+  const SeverityThresholds({
+    this.warnDelta = 1.0,
+    this.errDelta = 3.0,
+    this.nearMargin = 1.0,
+  });
 }
 
 /// Map a value to good/warn/err.
@@ -19,9 +28,11 @@ class SeverityThresholds {
 /// the benchmark the value is (defects: value-bmk; higher-is-better metrics like
 /// fertility: bmk-value). Bands: ≤ warnDelta → good, ≤ errDelta → warn, else err.
 ///
-/// When there is no benchmark but an [absoluteLimit] is set, the value is flagged
-/// `err` once it crosses the limit (used for prototype-style hard caps, e.g. navel %).
-/// Otherwise → good (no false alarms for un-benchmarked params like temps/CV%).
+/// When there is no benchmark but an [absoluteLimit] is set, the value is graded
+/// in three bands around that hard cap (e.g. navel %, CV%, CO₂): on the good side
+/// of the cap → good (a reading under a ceiling never alarms), breaching it by up
+/// to [SeverityThresholds.nearMargin] → warn (slightly off), beyond that → err
+/// (big gap). Otherwise → good (no false alarms for un-capped params).
 ScopeSeverity severityFor({
   required num value,
   required num? bmk,
@@ -36,11 +47,32 @@ ScopeSeverity severityFor({
     return ScopeSeverity.err;
   }
   if (absoluteLimit != null) {
-    final exceeded =
-        higherIsBetter ? value < absoluteLimit : value > absoluteLimit;
-    return exceeded ? ScopeSeverity.err : ScopeSeverity.good;
+    return higherIsBetter
+        ? floorSeverity(value, absoluteLimit, thresholds.nearMargin)
+        : ceilingSeverity(value, absoluteLimit, thresholds.nearMargin);
   }
   return ScopeSeverity.good;
+}
+
+/// Grade a *lower-is-better* reading against a hard ceiling [limit]: on the good
+/// side (≤ limit) → good (a reading under a ceiling never alarms), breaching it
+/// by up to [margin] → warn (slightly off), beyond that → err (big gap).
+///
+/// Shared by the scope engine ([severityFor]), egg-storage triage, and govee
+/// triage so the three-band ceiling semantic lives in exactly one place.
+ScopeSeverity ceilingSeverity(num value, num limit, num margin) {
+  if (value <= limit) return ScopeSeverity.good;
+  if (value <= limit + margin) return ScopeSeverity.warn;
+  return ScopeSeverity.err;
+}
+
+/// Grade a *higher-is-better* reading against a floor [limit]: at/above it →
+/// good, within [margin] below → warn, further below → err. Mirror of
+/// [ceilingSeverity].
+ScopeSeverity floorSeverity(num value, num limit, num margin) {
+  if (value >= limit) return ScopeSeverity.good;
+  if (value >= limit - margin) return ScopeSeverity.warn;
+  return ScopeSeverity.err;
 }
 
 /// Resolve a [ScopeParam.bmkField] key to the matching [BmkReference] value.

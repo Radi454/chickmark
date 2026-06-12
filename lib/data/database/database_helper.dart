@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 44,
+      version: 45,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },

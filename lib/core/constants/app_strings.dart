@@ -4,11 +4,16 @@ class AppStrings {
   static const String customersTab = 'Customers';
   static const String auditsTab = 'Audits';
   static const String temperatureTab = 'Govee';
+  static const String goveeRecordsTab = 'Govee Records';
   static const String bmkTab = 'BMK';
   static const String settingsTab = 'Settings';
   static const String signIn = 'Sign In';
   static const String createAccount = 'Create Account';
   static const String forgotPassword = 'Forgot password?';
+  static const String cancel = 'Cancel';
+  static const String save = 'Save';
+  static const String retry = 'Retry';
+  static const String signOut = 'Sign Out';
   static const String offlineBanner =
       'Offline mode available when Remember me is enabled';
   static const String error = 'An error occurred. Please try again.';

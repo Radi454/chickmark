@@ -91,7 +91,28 @@ class GoveePlaceRecorder extends StatelessWidget {
                     : 'Retry sync',
               ),
             )
-          else
+          else ...[
+            if (provider.customerId == null || provider.hatcheryId == null) ...[
+              Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Select a customer and hatchery to start recording.',
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSizes.spaceSm),
+            ],
             Row(
               children: [
                 Expanded(
@@ -119,6 +140,7 @@ class GoveePlaceRecorder extends StatelessWidget {
                 ),
               ],
             ),
+          ],
         ],
       ),
     );

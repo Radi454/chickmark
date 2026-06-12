@@ -21,6 +21,14 @@ bool _defaultPlatformUsesCustomKeyboard() {
   };
 }
 
+bool auditNumericInputModeUsesCustomKeyboard(AuditNumericInputMode inputMode) {
+  return switch (inputMode) {
+    AuditNumericInputMode.customKeyboard => true,
+    AuditNumericInputMode.systemKeyboard => false,
+    AuditNumericInputMode.adaptive => _defaultPlatformUsesCustomKeyboard(),
+  };
+}
+
 bool _isAllowedNumericText(
   String text, {
   required bool allowDecimal,
@@ -64,16 +72,14 @@ class AuditNumericKeyboardScope extends StatefulWidget {
 }
 
 class _AuditNumericKeyboardScopeState extends State<AuditNumericKeyboardScope> {
+  static const double _focusedFieldScrollAlignment = 0.22;
+
   final List<_AuditNumericFieldRegistration> _fields = [];
   OverlayEntry? _overlayEntry;
   _AuditNumericFieldRegistration? _activeField;
 
   bool get usesCustomKeyboard {
-    return switch (widget.inputMode) {
-      AuditNumericInputMode.customKeyboard => true,
-      AuditNumericInputMode.systemKeyboard => false,
-      AuditNumericInputMode.adaptive => _defaultPlatformUsesCustomKeyboard(),
-    };
+    return auditNumericInputModeUsesCustomKeyboard(widget.inputMode);
   }
 
   @override
@@ -248,7 +254,7 @@ class _AuditNumericKeyboardScopeState extends State<AuditNumericKeyboardScope> {
         targetContext,
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOutCubic,
-        alignment: 0.55,
+        alignment: _focusedFieldScrollAlignment,
       );
     });
   }
@@ -722,6 +728,22 @@ class AuditNumericKeyboard extends StatelessWidget {
     required this.onMoveDown,
     required this.onHide,
   });
+
+  static double estimatedHeightForWidth(
+    double width, {
+    double safeAreaBottom = 0,
+  }) {
+    final availableWidth = width.isFinite && width > 0
+        ? width - (_outerHorizontalPadding * 2)
+        : 0;
+    final keyWidth = (availableWidth - (_keyGap * 3)) / 4;
+    final keyHeight = keyWidth > 0 ? keyWidth / _keyAspectRatio : 0;
+    final keypadHeight = (keyHeight * 4) + (_keyGap * 3);
+    return _outerTopPadding +
+        keypadHeight +
+        _outerBottomPadding +
+        safeAreaBottom;
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -535,6 +535,7 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
               PhotoButton(
                 photoPath: null,
                 enabled: !widget.isReadOnly,
+                fieldKey: 'pm_photo',
                 onPhotoCaptured: (path) {
                   final updatedPaths = List<String>.from(photoPaths);
                   updatedPaths.add(path);

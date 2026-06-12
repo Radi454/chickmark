@@ -132,7 +132,6 @@ create table public.egg_storage (
   est_readings_json text,
   est_avg double precision,
   est_cv_pct double precision,
-  shell_temp double precision,
   turning_times integer,
   tray_spacing text,
   cooler_proximity text,

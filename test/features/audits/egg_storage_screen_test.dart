@@ -8,6 +8,7 @@ import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
 import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
+import 'package:hatchaudit/features/audits/widgets/photo_button.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
@@ -123,6 +124,44 @@ void main() {
       tester.getBottomLeft(firstTray).dy,
       lessThan(tester.getTopLeft(addTray).dy),
     );
+  });
+
+  testWidgets('UV tray photo button is tied to the egg quality sync row', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpScreen(
+      tester,
+      auditContext: AuditContextData(
+        auditType: 'Egg',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        sessionId: 'session-1',
+        breed: 'Ross 308',
+        flockAgeWeeks: 42,
+        date: '2026-04-27',
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Egg Shell Quality'));
+    await tester.pump();
+    await tester.tap(find.text('Egg Shell Quality'));
+    await tester.pumpAndSettle();
+
+    final trayPhotoButton = tester.widget<PhotoButton>(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Affected: 0 eggs (0.0%)'),
+          matching: find.byType(Row),
+        ),
+        matching: find.byType(PhotoButton),
+      ),
+    );
+
+    expect(trayPhotoButton.panelName, 'egg_quality');
+    expect(trayPhotoButton.fieldKey, 'uv_tray_0');
   });
 
   testWidgets('renders split egg storage workbench controls', (tester) async {

@@ -87,7 +87,6 @@ void main() {
         'date': '2026-01-01',
         'flockAgeWeeks': 40,
         'storagePeriodDays': 5,
-        'shellTemp': 20.1,
         'estAvg': 20.1,
         'estCvPct': 1.2,
         'upsideDownCount': 4,

@@ -28,6 +28,7 @@ import '../../audits/screens/setter_optimizing_screen.dart';
 import '../../audits/utils/audit_govee_spots.dart';
 import '../../audits/widgets/audit_autosave_status.dart';
 import '../../audits/widgets/audit_keyboard_dismiss.dart';
+import '../../audits/widgets/audit_station_scroll_view.dart';
 import '../../govee/providers/govee_capture_provider.dart';
 import '../../govee/widgets/govee_floating_launcher.dart';
 import '../../../providers/customers_provider.dart';
@@ -80,9 +81,20 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   bool _isClearingStation = false;
 
   @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addListener(_handleFocusChanged);
+  }
+
+  @override
   void dispose() {
+    FocusManager.instance.removeListener(_handleFocusChanged);
     _resetMountedStationState();
     super.dispose();
+  }
+
+  void _handleFocusChanged() {
+    if (mounted) setState(() {});
   }
 
   AuditProvider? get _currentStationProvider {
@@ -120,6 +132,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             currentStationKey,
           );
           final showProgress = stationKeys.isNotEmpty;
+          final hideStationChrome = _shouldHideStationChrome(context);
 
           return Stack(
             children: [
@@ -132,17 +145,19 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                         _buildProgressIndicator(sessionProvider, stationKeys),
                         const Divider(height: 1),
                       ],
-                      _buildCurrentStationGoveeEntryPoint(
-                        sessionProvider,
-                        stationKeys,
-                      ),
+                      if (!hideStationChrome)
+                        _buildCurrentStationGoveeEntryPoint(
+                          sessionProvider,
+                          stationKeys,
+                        ),
                       Expanded(
                         child: _buildMountedStationStack(
                           sessionProvider,
                           stationKeys,
                         ),
                       ),
-                      _buildNavigationFooter(sessionProvider, stationKeys),
+                      if (!hideStationChrome)
+                        _buildNavigationFooter(sessionProvider, stationKeys),
                     ],
                   ),
                 ),
@@ -492,63 +507,108 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         ],
       ),
       child: SafeArea(
-        child: Row(
-          children: [
-            if (!isFirst)
-              OutlinedButton.icon(
-                key: const ValueKey('audit-session-back-action'),
-                onPressed: isBusy
-                    ? null
-                    : () => _handlePreviousStation(provider),
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Back'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            if (!isFirst) const SizedBox(width: 12),
-            if (stationProvider != null) ...[
-              ChangeNotifierProvider<AuditProvider>.value(
-                value: stationProvider,
-                child: const AuditAutosaveStatus(),
-              ),
-              const SizedBox(width: 12),
-            ],
-            OutlinedButton.icon(
-              key: const ValueKey('audit-session-clear-action'),
-              onPressed: isBusy || stationProvider == null
-                  ? null
-                  : () => _handleClearStation(provider),
-              icon: _isClearingStation
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final keyboardOpen =
+                auditStationKeyboardInset(context) > 0 ||
+                _hasFocusedEditableText;
+            final useKeyboardCompactFooter =
+                keyboardOpen && constraints.maxWidth < 600;
+            final useStackedFooter =
+                constraints.maxWidth < 420 && !useKeyboardCompactFooter;
+
+            Widget backButton({bool compact = false}) {
+              final button = compact
+                  ? OutlinedButton(
+                      key: const ValueKey('audit-session-back-action'),
+                      onPressed: isBusy
+                          ? null
+                          : () => _handlePreviousStation(provider),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        minimumSize: const Size(44, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Icon(Icons.arrow_back, size: 18),
+                    )
+                  : OutlinedButton.icon(
+                      key: const ValueKey('audit-session-back-action'),
+                      onPressed: isBusy
+                          ? null
+                          : () => _handlePreviousStation(provider),
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      label: const Text('Back'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        minimumSize: const Size(44, 44),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+              return compact ? Tooltip(message: 'Back', child: button) : button;
+            }
+
+            Widget clearButton({bool compact = false}) {
+              final icon = _isClearingStation
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.delete_outline, size: 18),
-              label: const Text('Clear'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.statusError,
-                side: const BorderSide(color: AppColors.statusError),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
+                  : const Icon(Icons.delete_outline, size: 18);
+              final button = compact
+                  ? OutlinedButton(
+                      key: const ValueKey('audit-session-clear-action'),
+                      onPressed: isBusy || stationProvider == null
+                          ? null
+                          : () => _handleClearStation(provider),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.statusError,
+                        side: const BorderSide(color: AppColors.statusError),
+                        minimumSize: const Size(44, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: icon,
+                    )
+                  : OutlinedButton.icon(
+                      key: const ValueKey('audit-session-clear-action'),
+                      onPressed: isBusy || stationProvider == null
+                          ? null
+                          : () => _handleClearStation(provider),
+                      icon: icon,
+                      label: const Text('Clear'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.statusError,
+                        side: const BorderSide(color: AppColors.statusError),
+                        minimumSize: const Size(44, 44),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+              return compact
+                  ? Tooltip(message: 'Clear station', child: button)
+                  : button;
+            }
+
+            Widget nextButton({bool compact = false}) {
+              return ElevatedButton.icon(
                 key: const ValueKey('audit-session-next-action'),
                 onPressed: isBusy
                     ? null
@@ -570,6 +630,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                       : _isClearingStation
                       ? 'Clearing...'
                       : (isLast ? 'Save' : 'Next Station'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -578,18 +640,92 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(52),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  minimumSize: Size(44, compact ? 48 : 52),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-              ),
-            ),
-          ],
+              );
+            }
+
+            Widget? autosaveStatus() {
+              if (stationProvider == null) return null;
+              return ChangeNotifierProvider<AuditProvider>.value(
+                value: stationProvider,
+                child: const AuditAutosaveStatus(),
+              );
+            }
+
+            if (useKeyboardCompactFooter) {
+              return KeyedSubtree(
+                key: const ValueKey('audit-session-footer-keyboard-mode'),
+                child: Row(
+                  children: [
+                    if (!isFirst) ...[
+                      SizedBox(width: 48, child: backButton(compact: true)),
+                      const SizedBox(width: 8),
+                    ],
+                    SizedBox(width: 48, child: clearButton(compact: true)),
+                    const SizedBox(width: 8),
+                    Expanded(child: nextButton(compact: true)),
+                  ],
+                ),
+              );
+            }
+
+            if (useStackedFooter) {
+              final status = autosaveStatus();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (status != null) ...[
+                    Align(alignment: Alignment.centerLeft, child: status),
+                    const SizedBox(height: 8),
+                  ],
+                  Row(
+                    children: [
+                      if (!isFirst) ...[
+                        Expanded(child: backButton()),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(child: clearButton()),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(width: double.infinity, child: nextButton()),
+                ],
+              );
+            }
+
+            final status = autosaveStatus();
+            return Row(
+              children: [
+                if (!isFirst) ...[backButton(), const SizedBox(width: 12)],
+                if (status != null) ...[status, const SizedBox(width: 12)],
+                clearButton(),
+                const SizedBox(width: 12),
+                Expanded(child: nextButton()),
+              ],
+            );
+          },
         ),
       ),
     );
+  }
+
+  bool get _hasFocusedEditableText {
+    final focusedContext = FocusManager.instance.primaryFocus?.context;
+    if (focusedContext == null) return false;
+    return focusedContext.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
+  bool _shouldHideStationChrome(BuildContext context) {
+    return auditStationKeyboardInset(context) > 0 || _hasFocusedEditableText;
   }
 
   Future<void> _handleClearStation(AuditSessionProvider provider) async {
@@ -1209,7 +1345,6 @@ class _StationFrameState extends State<_StationFrame> {
         copy('es_estReadingsJson', 'estReadingsJson');
         copy('es_estAvg', 'estAvg');
         copy('es_estCv', 'estCvPct');
-        copy('esShellTemp', 'shellTemp');
         copy('esTurningTimes', 'turningTimes');
         copy('es_traySpacing', 'traySpacing');
         copy('es_coolerProximity', 'coolerProximity');

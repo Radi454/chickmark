@@ -4,13 +4,19 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/utils/date_utils.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/hatchery_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../providers/customers_provider.dart';
+import '../../customers/widgets/add_customer_sheet.dart';
+import '../../customers/widgets/add_hatchery_sheet.dart';
 import '../providers/govee_capture_provider.dart';
 import '../utils/govee_place_flow.dart';
+
+/// Sentinel dropdown values that trigger the registration sheets instead of
+/// selecting an existing record.
+const String _kAddCustomerValue = '__govee_add_customer__';
+const String _kAddHatcheryValue = '__govee_add_hatchery__';
 
 class GoveeScopePicker extends StatelessWidget {
   const GoveeScopePicker({super.key});
@@ -19,9 +25,45 @@ class GoveeScopePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final govee = context.watch<GoveeCaptureProvider>();
     if (govee.supportsMachineChoice) {
-      return const _StationScopeCard();
+      return const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CustomerHatcheryScopeCard(showDatePlaceControls: false),
+          SizedBox(height: AppSizes.spaceSm),
+          _StationScopeCard(),
+        ],
+      );
     }
+    return const _CustomerHatcheryScopeCard();
+  }
+}
 
+class _CustomerHatcheryScopeCard extends StatefulWidget {
+  final bool showDatePlaceControls;
+
+  const _CustomerHatcheryScopeCard({this.showDatePlaceControls = true});
+
+  @override
+  State<_CustomerHatcheryScopeCard> createState() =>
+      _CustomerHatcheryScopeCardState();
+}
+
+class _CustomerHatcheryScopeCardState
+    extends State<_CustomerHatcheryScopeCard> {
+  // Bumped whenever a registration sheet closes so the dropdowns are rebuilt
+  // from `initialValue`. Flutter only re-seeds a DropdownButtonFormField when
+  // its initialValue changes, so a cancelled "Add new…" selection would
+  // otherwise stay stuck on the sentinel item.
+  int _nonce = 0;
+
+  void _resetDropdowns() {
+    if (!mounted) return;
+    setState(() => _nonce++);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final govee = context.watch<GoveeCaptureProvider>();
     final customers = context.watch<CustomersProvider>();
     final selectedCustomer = _selectedCustomer(customers, govee.customerId);
     final hatcheries = selectedCustomer == null
@@ -42,20 +84,35 @@ class GoveeScopePicker extends StatelessWidget {
         child: Column(
           children: [
             DropdownButtonFormField<String>(
+              key: ValueKey('govee-customer-$_nonce'),
               initialValue: selectedCustomer?.id,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Customer',
                 border: OutlineInputBorder(),
               ),
-              items: customers.allCustomers
-                  .map(
-                    (customer) => DropdownMenuItem(
-                      value: customer.id,
-                      child: Text(customer.name),
+              items: [
+                ...customers.allCustomers.map(
+                  (customer) => DropdownMenuItem(
+                    value: customer.id,
+                    child: Text(
+                      customer.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  )
-                  .toList(),
+                  ),
+                ),
+                const DropdownMenuItem(
+                  value: _kAddCustomerValue,
+                  child: _AddNewRow(label: 'Add new customer'),
+                ),
+              ],
               onChanged: (value) async {
+                if (value == null) return;
+                if (value == _kAddCustomerValue) {
+                  await _handleAddCustomer(context);
+                  return;
+                }
                 final customer = customers.allCustomers
                     .where((customer) => customer.id == value)
                     .firstOrNull;
@@ -67,40 +124,113 @@ class GoveeScopePicker extends StatelessWidget {
                     .firstOrNull;
                 if (nextHatchery != null) {
                   await _configure(context, customer.id, nextHatchery.id);
+                } else {
+                  // Customer has no hatchery yet — go straight to registering
+                  // one so the scope can be completed.
+                  await _handleAddHatchery(context, customer.id);
                 }
               },
             ),
             const SizedBox(height: AppSizes.spaceSm),
             DropdownButtonFormField<String>(
+              key: ValueKey('govee-hatchery-$_nonce'),
               initialValue:
                   hatcheries.any((item) => item.id == govee.hatcheryId)
                   ? govee.hatcheryId
                   : null,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Hatchery',
                 border: OutlineInputBorder(),
               ),
-              items: hatcheries
-                  .map(
-                    (hatchery) => DropdownMenuItem(
-                      value: hatchery.id,
-                      child: Text(hatchery.name),
+              items: [
+                ...hatcheries.map(
+                  (hatchery) => DropdownMenuItem(
+                    value: hatchery.id,
+                    child: Text(
+                      hatchery.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  )
-                  .toList(),
+                  ),
+                ),
+                if (selectedCustomer != null)
+                  const DropdownMenuItem(
+                    value: _kAddHatcheryValue,
+                    child: _AddNewRow(label: 'Add new hatchery'),
+                  ),
+              ],
               onChanged: selectedCustomer == null
                   ? null
                   : (value) async {
                       if (value == null) return;
+                      if (value == _kAddHatcheryValue) {
+                        await _handleAddHatchery(context, selectedCustomer.id);
+                        return;
+                      }
                       await _configure(context, selectedCustomer.id, value);
                     },
             ),
-            const SizedBox(height: AppSizes.spaceSm),
-            _DatePlaceControls(govee: govee, configure: _configure),
+            if (widget.showDatePlaceControls) ...[
+              const SizedBox(height: AppSizes.spaceSm),
+              _PlaceControl(govee: govee, configure: _configure),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _handleAddCustomer(BuildContext context) async {
+    final customer = await showModalBottomSheet<CustomerModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const AddCustomerSheet(),
+    );
+    if (customer == null) {
+      _resetDropdowns();
+      return;
+    }
+    if (!context.mounted) {
+      _resetDropdowns();
+      return;
+    }
+    // A new customer has no hatchery yet — chain into hatchery registration so
+    // recording can start.
+    await _handleAddHatchery(
+      context,
+      customer.id,
+      missingHint: 'Add a hatchery for ${customer.name} to start recording.',
+    );
+  }
+
+  Future<void> _handleAddHatchery(
+    BuildContext context,
+    String customerId, {
+    String? missingHint,
+  }) async {
+    final hatchery = await showModalBottomSheet<HatcheryModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddHatcherySheet(customerId: customerId),
+    );
+    if (!context.mounted) {
+      _resetDropdowns();
+      return;
+    }
+    if (hatchery != null) {
+      await _configure(context, customerId, hatchery.id);
+      _resetDropdowns();
+      return;
+    }
+    _resetDropdowns();
+    if (missingHint != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(missingHint)));
+    }
   }
 
   CustomerModel? _selectedCustomer(CustomersProvider provider, String? id) {
@@ -126,12 +256,39 @@ class GoveeScopePicker extends StatelessWidget {
       hatcheryId: hatcheryId,
       place: selectedPlace,
       captureDate: captureDate ?? govee.captureDate,
+      stationKey: govee.stationKey,
+      machineId: govee.availableMachineId,
+      captureTarget: govee.captureTarget,
     );
   }
 }
 
-class _DatePlaceControls extends StatelessWidget {
-  const _DatePlaceControls({required this.govee, required this.configure});
+class _AddNewRow extends StatelessWidget {
+  final String label;
+
+  const _AddNewRow({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.add, size: AppSizes.iconSm, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: AppTextStyles.body.copyWith(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaceControl extends StatelessWidget {
+  const _PlaceControl({required this.govee, required this.configure});
 
   final GoveeCaptureProvider govee;
   final Future<void> Function(
@@ -145,11 +302,7 @@ class _DatePlaceControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateButton = _ReadOnlyCaptureDate(
-      date: govee.captureDate ?? _formatDate(DateTime.now()),
-    );
-
-    final placeDropdown = DropdownButtonFormField<TemperaturePlace>(
+    return DropdownButtonFormField<TemperaturePlace>(
       initialValue: govee.place ?? TemperaturePlace.eggStorageRoom,
       isExpanded: true,
       decoration: const InputDecoration(
@@ -174,35 +327,6 @@ class _DatePlaceControls extends StatelessWidget {
         );
       },
     );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 520) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              dateButton,
-              const SizedBox(height: AppSizes.spaceSm),
-              placeDropdown,
-            ],
-          );
-        }
-
-        return Row(
-          children: [
-            Expanded(child: dateButton),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(child: placeDropdown),
-          ],
-        );
-      },
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
   }
 }
 
@@ -215,6 +339,7 @@ class _StationScopeCard extends StatelessWidget {
     final roomPlace = govee.roomPlace ?? govee.place;
     final machinePlace = govee.insideMachinePlace;
     final machineLabel = govee.machineDisplayLabel ?? 'Inside machine';
+    final locked = govee.isRecording;
 
     return Card(
       elevation: 0,
@@ -239,9 +364,11 @@ class _StationScopeCard extends StatelessWidget {
                     icon: Icons.meeting_room_outlined,
                     title: roomPlace?.label ?? 'Room environment',
                     subtitle: 'Room environment',
-                    onTap: () => context
-                        .read<GoveeCaptureProvider>()
-                        .selectCaptureTarget(GoveeCaptureTarget.room),
+                    onTap: locked
+                        ? null
+                        : () => context
+                              .read<GoveeCaptureProvider>()
+                              .selectCaptureTarget(GoveeCaptureTarget.room),
                   ),
                 ),
                 const SizedBox(width: AppSizes.spaceSm),
@@ -253,44 +380,40 @@ class _StationScopeCard extends StatelessWidget {
                     icon: Icons.precision_manufacturing_outlined,
                     title: machineLabel,
                     subtitle: machinePlace?.label ?? 'Inside machine',
-                    onTap: () => context
-                        .read<GoveeCaptureProvider>()
-                        .selectCaptureTarget(GoveeCaptureTarget.insideMachine),
+                    onTap: locked
+                        ? null
+                        : () => context
+                              .read<GoveeCaptureProvider>()
+                              .selectCaptureTarget(
+                                GoveeCaptureTarget.insideMachine,
+                              ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: AppSizes.spaceSm),
-            _ReadOnlyCaptureDate(
-              date: govee.captureDate ?? _formatDate(DateTime.now()),
-            ),
+            if (locked) ...[
+              const SizedBox(height: AppSizes.spaceSm),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.lock_outline,
+                    size: AppSizes.iconSm,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Locked while recording. Stop and save to switch.',
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
-  }
-}
-
-class _ReadOnlyCaptureDate extends StatelessWidget {
-  final String date;
-
-  const _ReadOnlyCaptureDate({required this.date});
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: null,
-      icon: const Icon(Icons.calendar_today_outlined),
-      label: Text(
-        HatchDateUtils.formatDisplayDateKey(date),
-        overflow: TextOverflow.ellipsis,
-        textDirection: TextDirection.ltr,
       ),
     );
   }
@@ -301,7 +424,7 @@ class _ScopeChoice extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _ScopeChoice({
     super.key,
@@ -314,45 +437,51 @@ class _ScopeChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(AppSizes.spaceSm),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.statusActiveBg : AppColors.surfaceVariant,
-          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-          border: Border.all(
-            color: selected ? AppColors.primary : AppColors.borderDefault,
-            width: selected ? 2 : 1,
+    final enabled = onTap != null;
+    return Opacity(
+      opacity: enabled ? 1 : 0.55,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.all(AppSizes.spaceSm),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.statusActiveBg
+                : AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+              width: selected ? 2 : 1,
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-              size: AppSizes.iconSm,
-            ),
-            const SizedBox(height: AppSizes.spaceSm),
-            Text(
-              title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.title.copyWith(fontSize: 14),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.caption.copyWith(
-                fontWeight: FontWeight.w700,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
+                size: AppSizes.iconSm,
               ),
-            ),
-          ],
+              const SizedBox(height: AppSizes.spaceSm),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.title.copyWith(fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

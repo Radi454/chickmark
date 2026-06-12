@@ -3,7 +3,6 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
-import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/session_filter.dart';
 import 'package:hatchaudit/features/audits/providers/audits_list_provider.dart';
@@ -11,10 +10,6 @@ import 'package:hatchaudit/features/audits/providers/audits_list_provider.dart';
 class _MockSessionRepo extends Mock implements AuditSessionRepository {}
 
 class _MockPanelRepo extends Mock implements PanelSampleRepository {}
-
-class _MockGoveeRepo extends Mock implements GoveeCaptureRepository {}
-
-typedef _GoveeKey = ({String customerId, String hatcheryId, String captureDate});
 
 AuditSessionModel _session(
   String id, {
@@ -62,21 +57,15 @@ String? _flockBreed(String? id) => id == 'f-ross' ? 'Ross 308' : null;
 void main() {
   late _MockSessionRepo sessions;
   late _MockPanelRepo panels;
-  late _MockGoveeRepo govee;
 
   setUpAll(() {
     registerFallbackValue(<String>[]);
-    registerFallbackValue(<_GoveeKey>[]);
   });
 
   setUp(() {
     sessions = _MockSessionRepo();
     panels = _MockPanelRepo();
-    govee = _MockGoveeRepo();
     when(() => panels.getStationRollupForSessions(any())).thenAnswer(
-      (_) async => <String, Map<String, Map<String, int>>>{},
-    );
-    when(() => govee.getGoveeRollupForSessions(any())).thenAnswer(
       (_) async => <String, Map<String, Map<String, int>>>{},
     );
   });
@@ -84,7 +73,6 @@ void main() {
   AuditsListProvider provider() => AuditsListProvider(
     sessionRepository: sessions,
     panelRepository: panels,
-    goveeRepository: govee,
   );
 
   void stubPages(List<List<AuditSessionModel>> pages) {
@@ -215,75 +203,6 @@ void main() {
 
     await p.setFilter(const SessionFilter(syncStatuses: {'failed'}));
     expect(p.visibleSessions.map((v) => v.session.id), ['s-failed']);
-  });
-
-  test('derives per-station Govee sync and folds it into the visit', () async {
-    stubPages([
-      [_session('s1', selected: ['egg', 'chicks'])],
-    ]);
-    when(() => govee.getGoveeRollupForSessions(any())).thenAnswer(
-      (_) async => {
-        'c1|h1|2026-05-01': {
-          'egg': {'synced': 1}, // egg storage room captured + synced
-          'chicks': {'pending': 1}, // chick holding area captured, not synced
-        },
-      },
-    );
-
-    final p = provider();
-    await p.refresh();
-    final view = p.visibleSessions.single;
-    final byKey = {for (final s in view.stations) s.key: s};
-
-    expect(byKey['egg']!.goveeSync, 'synced');
-    expect(byKey['egg']!.hasGovee, isTrue);
-    expect(byKey['chicks']!.goveeSync, 'pending');
-    // A pending Govee capture makes the whole visit pending.
-    expect(view.sync, 'pending');
-  });
-
-  test('station with no Govee capture reports goveeSync none', () async {
-    stubPages([
-      [_session('s1', selected: ['egg'])],
-    ]);
-
-    final p = provider();
-    await p.refresh();
-    final egg = p.visibleSessions.single.stations.single;
-    expect(egg.goveeSync, 'none');
-    expect(egg.hasGovee, isFalse);
-  });
-
-  test('rolls Govee captures across spots into a visit-level summary', () async {
-    stubPages([
-      [_session('s1', selected: ['egg', 'chicks'])],
-    ]);
-    when(() => govee.getGoveeRollupForSessions(any())).thenAnswer(
-      (_) async => {
-        'c1|h1|2026-05-01': {
-          'egg': {'synced': 2},
-          'chicks': {'pending': 1},
-        },
-      },
-    );
-
-    final p = provider();
-    await p.refresh();
-    final view = p.visibleSessions.single;
-    expect(view.goveeCaptureCount, 3);
-    expect(view.goveeSync, 'pending'); // any pending spot => pending
-  });
-
-  test('visit with no Govee captures summarises as none', () async {
-    stubPages([
-      [_session('s1', selected: ['egg'])],
-    ]);
-
-    final p = provider();
-    await p.refresh();
-    final view = p.visibleSessions.single;
-    expect(view.goveeCaptureCount, 0);
-    expect(view.goveeSync, 'none');
   });
 
   test('clearStation deletes panel rows, de-completes, and reloads', () async {

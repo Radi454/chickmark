@@ -28,10 +28,12 @@ import '../ocr_capture/ocr_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
 import 'audit_context_screen.dart';
 
@@ -356,8 +358,9 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
               ),
         body: AuditNumericKeyboardScope(
           child: AuditKeyboardDismiss(
-            child: SingleChildScrollView(
+            child: AuditStationScrollView(
               controller: _scrollController,
+              padding: EdgeInsets.zero,
               child: AuditWorkbenchShell(
                 key: const ValueKey('egg-storage-workbench-shell'),
                 maxWidth: 1120,
@@ -1683,6 +1686,8 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                 photoPath: tray.photoPath,
                 enabled: !provider.isReadOnly,
                 cameraFirst: true,
+                panelName: 'egg_quality',
+                fieldKey: 'uv_tray_$index',
                 onPhotoCaptured: (path) => setState(() {
                   tray.qualityTouched = true;
                   tray.photoPath = path;
@@ -1895,6 +1900,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             return AuditKeyboardDismiss(
+              enabled: false,
               child: Padding(
                 padding: EdgeInsets.only(
                   bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
@@ -1928,11 +1934,8 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                           ),
                         ),
                         Expanded(
-                          child: SingleChildScrollView(
+                          child: WeightEntrySheetScrollView(
                             controller: scrollController,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                             child: Column(
                               children: [
                                 WeightGridWidget(
@@ -2142,7 +2145,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     final previousPhotosJson = provider.activeDraft.esEstPhotosJson;
     final previousAvg = provider.activeDraft.esEstAvg;
     final previousCv = provider.activeDraft.esEstCv;
-    final previousShellTemp = provider.activeDraft.esShellTemp;
     final previousAvgText = _estAvgController.text;
     final previousCvText = _estCvController.text;
 
@@ -2167,7 +2169,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     provider.updateField('es_estPhotosJson', previousPhotosJson);
     provider.updateField('es_estAvg', previousAvg);
     provider.updateField('es_estCv', previousCv);
-    provider.updateField('esShellTemp', previousShellTemp);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Could not clear EST point. Try again.')),
     );
@@ -2338,7 +2339,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       });
       provider.updateField('es_estAvg', null);
       provider.updateField('es_estCv', null);
-      provider.updateField('esShellTemp', null);
     } else {
       final avg = CalculationUtils.average(temps);
       final cv = temps.length > 1 ? CalculationUtils.cvPercent(temps) : 0.0;
@@ -2348,7 +2348,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       });
       provider.updateField('es_estAvg', avg);
       provider.updateField('es_estCv', cv);
-      provider.updateField('esShellTemp', avg);
     }
     final readings = <String, double>{};
     for (final entry in _estControllers.entries) {

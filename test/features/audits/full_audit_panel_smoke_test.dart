@@ -291,7 +291,6 @@ void _fillEggStationInitial(AuditProvider provider) {
   );
   provider.updateField('es_estAvg', 100.4);
   provider.updateField('es_estCv', 0.15);
-  provider.updateField('esShellTemp', 20.2);
   provider.updateField('esTurningTimes', 4);
   provider.updateField('es_traySpacing', 'Even');
   provider.updateField('es_coolerProximity', 'Middle rack');
@@ -328,7 +327,6 @@ void _fillEggStationSecondHouse(AuditProvider provider) {
   );
   provider.updateField('es_estAvg', 100.7);
   provider.updateField('es_estCv', 0.2);
-  provider.updateField('esShellTemp', 20.4);
   provider.updateField('esTurningTimes', 3);
   provider.updateField(
     'esUvTrays',
@@ -472,7 +470,6 @@ void _fillHatcherInitial(AuditProvider provider) {
 
 void _editEggStation(AuditProvider provider) {
   provider.updateField('esEggStorageDays', 8);
-  provider.updateField('esShellTemp', 20.6);
   provider.updateField('esEggAvgWeight', 63.2);
 }
 
@@ -517,7 +514,7 @@ Future<void> _expectInitialPanelValues() async {
 
 Future<void> _expectEditedPanelValues() async {
   expect((await _singleRow('egg_storage'))['storagePeriodDays'], 8);
-  expect((await _singleRow('egg_storage'))['shellTemp'], 20.6);
+  expect((await _singleRow('egg_storage'))['estAvg'], 100.4);
   expect((await _singleRow('egg_quality'))['eggAvgWeight'], 63.2);
   expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 97.2);
   expect((await _singleRow('chick_quality'))['cvtAvgTemp'], 103.8);
@@ -714,7 +711,6 @@ void _mergePanelRowIntoAuditMap(
       copy('es_estReadingsJson', 'estReadingsJson');
       copy('es_estAvg', 'estAvg');
       copy('es_estCv', 'estCvPct');
-      copy('esShellTemp', 'shellTemp');
       copy('esTurningTimes', 'turningTimes');
       copy('es_traySpacing', 'traySpacing');
       copy('es_coolerProximity', 'coolerProximity');

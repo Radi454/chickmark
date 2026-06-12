@@ -1755,6 +1755,35 @@ void main() {
       );
     });
 
+    test('blank hatcher station saves as incomplete', () async {
+      provider.initialize(
+        AuditContext(
+          auditType: 'Hatchers',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          flockAgeWeeks: 40,
+          hatcherId: 'H7',
+          date: '2026-01-01',
+        ),
+        currentUser: user,
+        sessionId: 'session-1',
+        notify: false,
+      );
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      verifyNever(
+        () => panelSampleRepository.savePanelWithSamples(
+          panel: any(named: 'panel'),
+          samples: any(named: 'samples'),
+        ),
+      );
+      expect(
+        provider.validateStationCompletion('hatchers').status,
+        StationCompletionStatus.savedButIncomplete,
+      );
+    });
+
     test('chick core Pasgar data marks station complete', () async {
       provider.initialize(
         AuditContext(

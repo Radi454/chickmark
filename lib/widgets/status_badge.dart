@@ -25,9 +25,14 @@ class StatusBadge extends StatelessWidget {
         color: bgColor,
         borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
       ),
-      child: Text(
-        displayLabel,
-        style: AppTextStyles.badgeLabel.copyWith(color: textColor),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 132),
+        child: Text(
+          displayLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.badgeLabel.copyWith(color: textColor),
+        ),
       ),
     );
   }

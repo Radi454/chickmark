@@ -87,6 +87,7 @@ class _SessionFilterSheetState extends State<SessionFilterSheet> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String?>(
                 initialValue: _filter.customerId,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Customer'),
                 items: [
                   const DropdownMenuItem<String?>(
@@ -96,7 +97,11 @@ class _SessionFilterSheetState extends State<SessionFilterSheet> {
                   ...provider.allCustomers.map(
                     (customer) => DropdownMenuItem<String?>(
                       value: customer.id,
-                      child: Text(customer.name),
+                      child: Text(
+                        customer.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ],
@@ -115,6 +120,7 @@ class _SessionFilterSheetState extends State<SessionFilterSheet> {
                 initialValue: flocks.any((flock) => flock.id == _filter.flockId)
                     ? _filter.flockId
                     : null,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Flock'),
                 items: [
                   const DropdownMenuItem<String?>(
@@ -124,7 +130,11 @@ class _SessionFilterSheetState extends State<SessionFilterSheet> {
                   ...flocks.map(
                     (flock) => DropdownMenuItem<String?>(
                       value: flock.id,
-                      child: Text(flock.flockId),
+                      child: Text(
+                        flock.flockId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ],

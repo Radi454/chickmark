@@ -267,11 +267,11 @@ class AuditDetailScreen extends StatelessWidget {
         icon: Icons.thermostat_outlined,
         sectionIndex: 3,
         metrics: [
-          _metric('Average', _celsius(audit.cvtAvg)),
+          _metric('Average', _fahrenheit(audit.cvtAvg)),
           _metric('CV', _percent(audit.cvtCvPct)),
-          _metric('Top', _celsius(audit.cvtTopTemp)),
-          _metric('Middle', _celsius(audit.cvtMiddleTemp)),
-          _metric('Bottom', _celsius(audit.cvtBottomTemp)),
+          _metric('Top', _fahrenheit(audit.cvtTopTemp)),
+          _metric('Middle', _fahrenheit(audit.cvtMiddleTemp)),
+          _metric('Bottom', _fahrenheit(audit.cvtBottomTemp)),
         ],
       ),
     ];
@@ -329,7 +329,7 @@ class AuditDetailScreen extends StatelessWidget {
         icon: Icons.device_thermostat,
         sectionIndex: 2,
         metrics: [
-          _metric('Average', _celsius(audit.soEstAvg)),
+          _metric('Average', _fahrenheit(audit.soEstAvg)),
           _metric('CV', _percent(audit.soEstCv)),
           _metric('Readings', _jsonMapValueCount(audit.soEstReadings)),
         ],
@@ -360,7 +360,7 @@ class AuditDetailScreen extends StatelessWidget {
         icon: Icons.device_thermostat,
         sectionIndex: 2,
         metrics: [
-          _metric('Average', _celsius(audit.hoCvtAvg)),
+          _metric('Average', _fahrenheit(audit.hoCvtAvg)),
           _metric('CV', _percent(audit.hoCvtCv)),
           _metric('Readings', _jsonMapValueCount(audit.hoCvtReadings)),
         ],
@@ -382,7 +382,7 @@ class AuditDetailScreen extends StatelessWidget {
         sectionIndex: 0,
         metrics: [
           _metric('Storage days', audit.esEggStorageDays?.toString()),
-          _metric('Average', _celsius(audit.esEstAvg ?? audit.esShellTemp)),
+          _metric('Average', _celsius(audit.esEstAvg)),
           _metric('CV', _percent(audit.esEstCv)),
           _metric('Readings', _jsonMapValueCount(audit.esEstReadingsJson)),
         ],
@@ -461,6 +461,11 @@ class AuditDetailScreen extends StatelessWidget {
   String? _celsius(double? value) {
     final formatted = _fixed(value);
     return formatted == null ? null : '$formatted C';
+  }
+
+  String? _fahrenheit(double? value) {
+    final formatted = _fixed(value);
+    return formatted == null ? null : '$formatted F';
   }
 
   String? _grams(double? value) {

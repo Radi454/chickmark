@@ -137,6 +137,7 @@ class EggBreakoutSampleEntry {
   final int? numberOfTrays;
   final EggBreakoutType breakoutType;
   final Map<String, int> counts;
+  final Map<String, String> photos;
 
   const EggBreakoutSampleEntry({
     required this.id,
@@ -152,6 +153,7 @@ class EggBreakoutSampleEntry {
     this.numberOfTrays,
     this.breakoutType = EggBreakoutType.residueHatchDay,
     this.counts = const {},
+    this.photos = const {},
   });
 
   factory EggBreakoutSampleEntry.tray({
@@ -226,6 +228,7 @@ class EggBreakoutSampleEntry {
         : EggBreakoutType.fromStorageValue(rawBreakoutType);
     final label = (json['label'] as String?)?.trim();
     final counts = _normalizeCountsForType(type, _readCounts(json['counts']));
+    final photos = _readPhotos(json['photos']);
     return EggBreakoutSampleEntry(
       id: (json['id'] as String?) ?? 'sample-$index',
       sampleMode: mode,
@@ -246,6 +249,7 @@ class EggBreakoutSampleEntry {
       numberOfTrays: _readNullableInt(json['numberOfTrays']) ?? 1,
       breakoutType: type,
       counts: counts,
+      photos: photos,
     );
   }
 
@@ -278,6 +282,7 @@ class EggBreakoutSampleEntry {
     int? numberOfTrays,
     EggBreakoutType? breakoutType,
     Map<String, int>? counts,
+    Map<String, String>? photos,
   }) {
     return EggBreakoutSampleEntry(
       id: id ?? this.id,
@@ -293,6 +298,7 @@ class EggBreakoutSampleEntry {
       numberOfTrays: numberOfTrays ?? this.numberOfTrays,
       breakoutType: breakoutType ?? this.breakoutType,
       counts: counts ?? this.counts,
+      photos: photos ?? this.photos,
     );
   }
 
@@ -312,6 +318,7 @@ class EggBreakoutSampleEntry {
         'numberOfTrays': numberOfTrays,
       'breakoutType': breakoutType.storageValue,
       'counts': counts,
+      if (photos.isNotEmpty) 'photos': photos,
     };
   }
 
@@ -352,6 +359,19 @@ class EggBreakoutSampleEntry {
         final count = _readNullableInt(entry.value);
         if (count == null || count <= 0) return const <MapEntry<String, int>>[];
         return [MapEntry(entry.key.toString(), count)];
+      }),
+    );
+  }
+
+  static Map<String, String> _readPhotos(Object? raw) {
+    if (raw is! Map) return {};
+    return Map<String, String>.fromEntries(
+      raw.entries.expand((entry) {
+        final path = entry.value?.toString().trim();
+        if (path == null || path.isEmpty) {
+          return const <MapEntry<String, String>>[];
+        }
+        return [MapEntry(entry.key.toString(), path)];
       }),
     );
   }

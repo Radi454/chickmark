@@ -1445,8 +1445,6 @@ const List<Map<String, dynamic>> kDummyAuditSeeds = <Map<String, dynamic>>[
         'Demo egg storage audit with environment, shell temperature, UV, and egg weight values.',
     'esCo2': 760.0,
     'esCo2Photo': null,
-    'esShellTemp': 18.4,
-    'esShellTempPhoto': null,
     'esTurningTimes': 6,
     'esUvTrays': '[{"tray":1,"affectedEggs":2},{"tray":2,"affectedEggs":1}]',
     'esEggStorageDays': 3,

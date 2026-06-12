@@ -160,7 +160,6 @@ void main() {
               ],
               eggStorageLatest: EggStorageTrend.fromMap(const {
                 'date': '2026-05-18',
-                'shellTempC': 27.1,
                 'estAvgF': 27.1,
                 'estCvPct': 8.8,
                 'storageDays': 2,

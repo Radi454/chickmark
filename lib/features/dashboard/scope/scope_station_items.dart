@@ -25,7 +25,7 @@ const Map<String, List<StationItem>> _byStation = {
     StationItem(
       label: 'EST',
       sectorId: 'egg_storage',
-      columns: ['estAvg', 'estCvPct', 'shellTemp'],
+      columns: ['estAvg', 'estCvPct'],
     ),
     StationItem(
       label: 'Upside score',
@@ -173,7 +173,9 @@ bool _anyRecorded(
     for (final i in indexes) {
       if (i >= cells.length) continue;
       final cell = cells[i];
-      final isText = sector.params[i].format == ScopeValueFormat.text;
+      final fmt = sector.params[i].format;
+      final isText =
+          fmt == ScopeValueFormat.text || fmt == ScopeValueFormat.yesNo;
       final recorded = isText
           ? (cell.text.trim().isNotEmpty && cell.text.trim() != '—')
           : cell.value != null;

@@ -40,9 +40,9 @@ insert into public.audit_sessions (id,customer_id,flock_id,hatchery_id,date,bree
  ('as-04','cust-deltapoultry','flock-delta-02','hatch-delta-main','2026-04-30T00:00:00.000','Cobb 500',60,'completed','["candled_egg_breakout","residue_breakout"]','["candled_egg_breakout","residue_breakout"]','End of cycle','seed','2026-04-30T08:00:00.000','2026-04-30T13:00:00.000','2026-04-30T13:00:00.000'),
  ('as-05','cust-sunrise','flock-sunrise-01','hatch-sunrise-1','2026-06-01T00:00:00.000','Ross 308',24,'in_progress','["setter_optimizing","hatcher_optimizing"]',null,null,'seed','2026-06-01T08:00:00.000','2026-06-01T09:00:00.000',null);
 
-insert into public.egg_storage (id,session_id,customer_id,flock_id,hatchery_id,date,breed,flock_age_weeks,house,storage_period_days,bmk_age_weeks,created_at,updated_at,sync_status,est_avg,est_cv_pct,shell_temp,turning_times,condensation_present,upside_down_count,upside_down_pct) values
- ('es-01','as-01','cust-nilevalley','flock-nv-01','hatch-nv-giza','2026-05-20T00:00:00.000','Ross 308',37,'H1',3,37,'2026-05-20T09:10:00.000','2026-05-20T09:10:00.000','synced',18.4,1.1,20.2,2,0,1,2.0),
- ('es-02','as-03','cust-deltapoultry','flock-delta-01','hatch-delta-main','2026-05-18T00:00:00.000','Ross 308',28,'H2',2,28,'2026-05-18T08:10:00.000','2026-05-18T08:10:00.000','synced',18.7,0.9,19.8,3,0,0,0.0);
+insert into public.egg_storage (id,session_id,customer_id,flock_id,hatchery_id,date,breed,flock_age_weeks,house,storage_period_days,bmk_age_weeks,created_at,updated_at,sync_status,est_avg,est_cv_pct,turning_times,condensation_present,upside_down_count,upside_down_pct) values
+ ('es-01','as-01','cust-nilevalley','flock-nv-01','hatch-nv-giza','2026-05-20T00:00:00.000','Ross 308',37,'H1',3,37,'2026-05-20T09:10:00.000','2026-05-20T09:10:00.000','synced',18.4,1.1,2,0,1,2.0),
+ ('es-02','as-03','cust-deltapoultry','flock-delta-01','hatch-delta-main','2026-05-18T00:00:00.000','Ross 308',28,'H2',2,28,'2026-05-18T08:10:00.000','2026-05-18T08:10:00.000','synced',18.7,0.9,3,0,0,0.0);
 
 insert into public.chick_quality (id,session_id,customer_id,flock_id,hatchery_id,date,breed,flock_age_weeks,setter,hatcher,created_at,updated_at,sync_status,pasgar_sample_size,pasgar_final_score,yfbm_avg_pct,cvt_avg_temp,cvt_cv_pct) values
  ('cq-01','as-01','cust-nilevalley','flock-nv-01','hatch-nv-giza','2026-05-20T00:00:00.000','Ross 308',37,'S1','HT1','2026-05-20T10:30:00.000','2026-05-20T10:30:00.000','synced',40,9.2,64.5,40.1,1.4);

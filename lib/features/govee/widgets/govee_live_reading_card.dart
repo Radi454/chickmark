@@ -11,6 +11,8 @@ import '../../../core/utils/temp_converter.dart';
 import '../../../providers/app_provider.dart';
 import '../providers/govee_capture_provider.dart';
 
+part 'govee_settings_sheet.dart';
+
 class GoveeLiveReadingCard extends StatelessWidget {
   const GoveeLiveReadingCard({super.key});
 
@@ -22,18 +24,8 @@ class GoveeLiveReadingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<GoveeCaptureProvider>();
-    final connected = provider.isSensorConnected;
-    final gattConnected = provider.isGattConnected;
-    final gattConnecting = provider.isGattConnecting;
-    final subtitle = provider.isBleAvailable
-        ? gattConnecting
-              ? 'Connecting'
-              : provider.isScanning && !connected
-              ? 'Scanning'
-              : connected || gattConnected
-              ? 'Connected'
-              : 'Disconnected'
-        : 'Bluetooth unavailable';
+    final hasLiveData = provider.hasFreshLiveData;
+    final status = _goveeConnectionStatus(provider);
     final updatedText = provider.liveUpdatedAt;
 
     return Container(
@@ -56,7 +48,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
           Row(
             children: [
               _circleIcon(
-                connected || gattConnected
+                hasLiveData
                     ? Icons.bluetooth_connected
                     : provider.isScanning
                     ? Icons.bluetooth_searching
@@ -68,7 +60,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _deviceName(provider.deviceName),
+                      _goveeDeviceName(provider.deviceName),
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.title.copyWith(
                         color: _gradientForeground,
@@ -77,7 +69,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Status: $subtitle',
+                      'Status: ${status.label}',
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.caption.copyWith(
                         color: _gradientMutedForeground,
@@ -198,29 +190,39 @@ class GoveeLiveReadingCard extends StatelessWidget {
   }
 
   Widget _readAction(BuildContext context, GoveeCaptureProvider provider) {
-    final busy = provider.isGattConnecting;
+    final hasLiveData = provider.hasFreshLiveData;
+    final busy =
+        provider.isGattConnecting || (provider.isScanning && !hasLiveData);
     final label = busy
-        ? 'Connecting'
-        : provider.isSensorConnected || provider.isGattConnected
+        ? provider.isGattConnecting
+              ? 'Connecting'
+              : 'Scanning'
+        : hasLiveData
         ? 'Read'
-        : provider.isScanning
-        ? 'Restart'
         : 'Scan';
 
     return TextButton.icon(
+      // The settings sheet intentionally exposes "Restart scan". The compact
+      // card only says "Scan", so disable it while a scan is already active.
       onPressed: busy
           ? null
           : () => unawaited(
-              provider.isSensorConnected || provider.isGattConnected
+              hasLiveData
                   ? context.read<GoveeCaptureProvider>().requestSensorReading()
                   : context.read<GoveeCaptureProvider>().connectSensor(),
             ),
-      icon: Icon(
-        provider.isSensorConnected || provider.isGattConnected
-            ? Icons.sensors
-            : Icons.bluetooth_searching,
-        size: 18,
-      ),
+      icon: busy
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(_gradientForeground),
+              ),
+            )
+          : Icon(
+              hasLiveData ? Icons.sensors : Icons.bluetooth_searching,
+              size: 18,
+            ),
       label: Text(label),
       style: TextButton.styleFrom(
         foregroundColor: _gradientForeground,
@@ -365,11 +367,6 @@ class GoveeLiveReadingCard extends StatelessWidget {
     );
   }
 
-  String _deviceName(String? name) {
-    final raw = name == null || name.trim().isEmpty ? 'Govee H5051' : name;
-    return raw.trim().replaceAll(RegExp(r'[_\s]+'), ' ');
-  }
-
   String _temperature(BuildContext context, GoveeCaptureProvider provider) {
     final tempF = provider.liveTemperatureFahrenheit;
     if (tempF == null) return '--';
@@ -411,271 +408,33 @@ class GoveeLiveReadingCard extends StatelessWidget {
   }
 }
 
-class _GoveeSettingsSheet extends StatelessWidget {
-  const _GoveeSettingsSheet();
+enum _GoveeConnectionStatus {
+  bluetoothUnavailable('Bluetooth unavailable'),
+  connecting('Connecting'),
+  scanning('Scanning'),
+  connected('Connected'),
+  recentReading('Recent reading'),
+  disconnected('Disconnected');
 
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<GoveeCaptureProvider>();
-    final devices = provider.availableDevices;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 18,
-        right: 18,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 18,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Govee settings', style: AppTextStyles.sectionTitle),
-            const SizedBox(height: 14),
-            _SettingsSection(
-              title: 'Connection details',
-              children: [
-                _DetailRow(label: 'Status', value: _status(provider)),
-                _DetailRow(
-                  label: 'Device name',
-                  value: _deviceName(provider.deviceName),
-                ),
-                _DetailRow(
-                  label: 'Device ID',
-                  value: provider.deviceId ?? '--',
-                ),
-                _DetailRow(
-                  label: 'RSSI',
-                  value: provider.signalStrength?.toString() ?? '--',
-                ),
-                _DetailRow(
-                  label: 'Battery',
-                  value: provider.batteryPercent == null
-                      ? '--'
-                      : '${provider.batteryPercent}%',
-                ),
-                _DetailRow(
-                  label: 'Last update',
-                  value: provider.liveUpdatedAt == null
-                      ? '--'
-                      : _formatDateTime(provider.liveUpdatedAt!),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: provider.isGattConnecting
-                      ? null
-                      : () => unawaited(provider.connectSensor()),
-                  icon: Icon(
-                    provider.isScanning
-                        ? Icons.refresh
-                        : Icons.bluetooth_searching,
-                    size: 18,
-                  ),
-                  label: Text(provider.isScanning ? 'Restart scan' : 'Scan'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      provider.isSensorConnected || provider.isGattConnected
-                      ? () => unawaited(provider.disconnectSensor())
-                      : null,
-                  icon: const Icon(Icons.link_off, size: 18),
-                  label: const Text('Disconnect'),
-                ),
-                TextButton.icon(
-                  onPressed:
-                      provider.isSensorConnected || provider.isGattConnected
-                      ? () => unawaited(provider.requestSensorReading())
-                      : null,
-                  icon: const Icon(Icons.sensors, size: 18),
-                  label: const Text('Read now'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text('Available devices', style: AppTextStyles.sectionTitle),
-            const SizedBox(height: 8),
-            if (devices.isEmpty)
-              _EmptyDevicesNotice(isScanning: provider.isScanning)
-            else
-              ...devices.map((device) => _AvailableDeviceTile(device: device)),
-            if (provider.bleDiagnostics.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Diagnostics', style: AppTextStyles.sectionTitle),
-              const SizedBox(height: 8),
-              ...provider.bleDiagnostics
-                  .take(6)
-                  .map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(entry, style: AppTextStyles.caption),
-                    ),
-                  ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  static String _status(GoveeCaptureProvider provider) {
-    if (!provider.isBleAvailable) return 'Bluetooth unavailable';
-    if (provider.isGattConnecting) return 'Connecting';
-    if (provider.isScanning &&
-        !provider.isSensorConnected &&
-        !provider.isGattConnected) {
-      return 'Scanning';
-    }
-    if (provider.isSensorConnected || provider.isGattConnected) {
-      return 'Connected';
-    }
-    return 'Disconnected';
-  }
-
-  static String _deviceName(String? name) {
-    final raw = name == null || name.trim().isEmpty ? 'Govee H5051' : name;
-    return raw.trim().replaceAll(RegExp(r'[_\s]+'), ' ');
-  }
-
-  static String _formatDateTime(DateTime dateTime) {
-    return HatchDateUtils.formatDisplayDateTime(dateTime);
-  }
-}
-
-class _SettingsSection extends StatelessWidget {
-  final String title;
-  final List<Widget> children;
-
-  const _SettingsSection({required this.title, required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            title,
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
   final String label;
-  final String value;
 
-  const _DetailRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  const _GoveeConnectionStatus(this.label);
 }
 
-class _EmptyDevicesNotice extends StatelessWidget {
-  final bool isScanning;
-
-  const _EmptyDevicesNotice({required this.isScanning});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        isScanning
-            ? 'Scanning for nearby Govee sensors...'
-            : 'No available devices yet. Start a scan to discover sensors nearby.',
-        style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700),
-      ),
-    );
+_GoveeConnectionStatus _goveeConnectionStatus(GoveeCaptureProvider provider) {
+  if (!provider.isBleAvailable) {
+    return _GoveeConnectionStatus.bluetoothUnavailable;
   }
+  if (provider.isGattConnecting) return _GoveeConnectionStatus.connecting;
+  if (provider.isScanning && !provider.hasLiveConnection) {
+    return _GoveeConnectionStatus.scanning;
+  }
+  if (provider.hasLiveConnection) return _GoveeConnectionStatus.connected;
+  if (provider.hasFreshLiveData) return _GoveeConnectionStatus.recentReading;
+  return _GoveeConnectionStatus.disconnected;
 }
 
-class _AvailableDeviceTile extends StatelessWidget {
-  final GoveeAvailableDevice device;
-
-  const _AvailableDeviceTile({required this.device});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: device.selected ? AppColors.statusActiveBg : AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: device.selected ? AppColors.primary : AppColors.borderDefault,
-        ),
-      ),
-      child: ListTile(
-        dense: true,
-        title: Text(
-          device.name,
-          overflow: TextOverflow.ellipsis,
-          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w900),
-        ),
-        subtitle: Text(
-          '${device.remoteId} | RSSI ${device.rssi?.toString() ?? '--'}',
-          overflow: TextOverflow.ellipsis,
-          style: AppTextStyles.caption,
-        ),
-        trailing: device.selected
-            ? const Icon(Icons.check_circle, color: AppColors.primary)
-            : TextButton(
-                onPressed: () => unawaited(
-                  context.read<GoveeCaptureProvider>().selectSensorDevice(
-                    device.remoteId,
-                  ),
-                ),
-                child: const Text('Use'),
-              ),
-      ),
-    );
-  }
+String _goveeDeviceName(String? name) {
+  final raw = name == null || name.trim().isEmpty ? 'Govee H5051' : name;
+  return raw.trim().replaceAll(RegExp(r'[_\s]+'), ' ');
 }

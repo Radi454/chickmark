@@ -302,7 +302,7 @@ void main() {
       final sc = StationScorecard.derive(
         stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg', esShellTemp: 22.5),
+        audit: _makeAudit(auditType: 'Egg', esEstAvg: 22.5),
       );
       expect(sc.status, 'red');
     });
@@ -320,7 +320,7 @@ void main() {
       final sc = StationScorecard.derive(
         stationKey: 'egg',
         isCompleted: true,
-        audit: _makeAudit(auditType: 'Egg', esShellTemp: 20.0),
+        audit: _makeAudit(auditType: 'Egg', esEstAvg: 20.0),
       );
       expect(sc.status, 'green');
     });
@@ -396,7 +396,7 @@ List<GoveePlaceReadingModel> _makeGoveeReadings() {
 
 AuditModel _makeAudit({
   required String auditType,
-  double? esShellTemp,
+  double? esEstAvg,
   double? soEstAvg,
   double? hoCvtAvg,
   int? pmOmphalitisCount,
@@ -419,7 +419,7 @@ AuditModel _makeAudit({
     createdBy: 'u1',
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
-    esShellTemp: esShellTemp,
+    esEstAvg: esEstAvg,
     soEstAvg: soEstAvg,
     hoCvtAvg: hoCvtAvg,
     pmOmphalitisCount: pmOmphalitisCount,

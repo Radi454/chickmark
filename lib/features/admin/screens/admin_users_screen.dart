@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_sizes.dart';
+import '../../../core/constants/app_strings.dart';
+import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/admin_repository.dart';
 import '../../../data/repositories/customer_repository.dart';
@@ -83,10 +87,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('User Access')),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _buildBody(),
-      ),
+      body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
     );
   }
 
@@ -98,14 +99,25 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       return ListView(
         children: [
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSizes.spaceXl),
             child: Column(
               children: [
-                const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
-                const SizedBox(height: 12),
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: 16),
-                FilledButton(onPressed: _load, child: const Text('Retry')),
+                const Icon(
+                  Icons.cloud_off,
+                  size: AppSizes.iconLg,
+                  color: AppColors.textTertiary,
+                ),
+                const SizedBox(height: AppSizes.spaceMd),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body,
+                ),
+                const SizedBox(height: AppSizes.spaceLg),
+                FilledButton(
+                  onPressed: _load,
+                  child: const Text(AppStrings.retry),
+                ),
               ],
             ),
           ),
@@ -116,7 +128,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       return const Center(child: Text('No users found.'));
     }
     return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
       itemCount: _profiles.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
@@ -181,9 +193,9 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      'approved' => Colors.green,
-      'disabled' => Colors.red,
-      _ => Colors.orange,
+      'approved' => AppColors.statusGood,
+      'disabled' => AppColors.statusError,
+      _ => AppColors.statusWarning,
     };
     return Chip(
       label: Text(status, style: const TextStyle(fontSize: 11)),
@@ -295,7 +307,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
                 widget.profile.email!,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSizes.spaceLg),
             DropdownButtonFormField<String>(
               initialValue: _role,
               decoration: const InputDecoration(labelText: 'Role'),
@@ -310,7 +322,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
                 if (v == 'auditor') _loadAssignments();
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSizes.spaceMd),
             DropdownButtonFormField<String>(
               initialValue: _status,
               decoration: const InputDecoration(labelText: 'Status'),
@@ -321,7 +333,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
               ],
               onChanged: (v) => setState(() => _status = v ?? _status),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSizes.spaceLg),
             if (_role == 'customer') _buildCustomerPicker(),
             if (_role == 'auditor') _buildAuditorAssignments(),
             const SizedBox(height: 20),
@@ -335,7 +347,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
                         width: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Save'),
+                    : const Text(AppStrings.save),
               ),
             ),
           ],
@@ -348,9 +360,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     return DropdownButtonFormField<String>(
       initialValue: _customerId,
       isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: 'Belongs to customer',
-      ),
+      decoration: const InputDecoration(labelText: 'Belongs to customer'),
       items: widget.customers
           .map(
             (c) => DropdownMenuItem(
@@ -371,15 +381,15 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
           'Customers this auditor can access',
           style: Theme.of(context).textTheme.labelLarge,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSizes.spaceXs),
         if (_loadingAssignments)
           const Padding(
-            padding: EdgeInsets.all(12),
+            padding: EdgeInsets.all(AppSizes.spaceMd),
             child: Center(child: CircularProgressIndicator()),
           )
         else if (widget.customers.isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.symmetric(vertical: AppSizes.spaceSm),
             child: Text('No customers exist yet.'),
           )
         else

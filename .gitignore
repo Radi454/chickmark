@@ -46,5 +46,6 @@ app.*.map.json
 /android/app/release
 .claude/
 .env
-.env.json
-lib/core/constants/supabase_config.dart
+.env.local
+.env.local.json
+.env.*.local.json

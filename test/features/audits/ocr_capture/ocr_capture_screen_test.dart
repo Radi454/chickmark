@@ -5,7 +5,8 @@ import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_config.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_controller.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_result.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
-import 'package:hatchaudit/services/ocr/ocr_service.dart' show ThermoScanCropFrame;
+import 'package:hatchaudit/services/ocr/ocr_service.dart'
+    show ThermoScanCropFrame;
 import 'package:hatchaudit/services/photo/photo_service.dart';
 
 class _FakeCameraPort implements OcrCameraPort {
@@ -48,10 +49,14 @@ Future<void> _pump(
   WidgetTester tester,
   OcrCaptureController controller, {
   void Function(OcrCaptureResult?)? onResult,
+  Size surfaceSize = const Size(1080, 2400),
+  double textScale = 1,
 }) async {
-  tester.view.physicalSize = const Size(1080, 2400);
+  tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -64,7 +69,8 @@ Future<void> _pump(
                     builder: (_) => OcrCaptureScreen(
                       config: controller.config,
                       controller: controller,
-                      cameraBuilder: (_) => const ColoredBox(color: Colors.black),
+                      cameraBuilder: (_) =>
+                          const ColoredBox(color: Colors.black),
                     ),
                   ),
                 );
@@ -102,11 +108,12 @@ void main() {
     expect(find.text('Step 8 of 9'), findsOneWidget);
   });
 
-  testWidgets('Enter manually switches to the manual entry card',
-      (tester) async {
+  testWidgets('Enter manually switches to the manual entry card', (
+    tester,
+  ) async {
     await _pump(tester, _controller());
     expect(find.text('Scanning for temperature…'), findsOneWidget);
-    await tester.tap(find.text('Enter manually'));
+    await tester.tap(find.text('Manual'));
     await tester.pumpAndSettle();
     expect(find.text('Enter reading manually'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Save'), findsOneWidget);
@@ -135,5 +142,22 @@ void main() {
 
     expect(popped, isNotNull);
     expect(popped!.readings['front_top'], 37.5);
+  });
+
+  testWidgets('manual entry layout avoids phone overflow at large text scale', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      _controller(),
+      surfaceSize: const Size(360, 844),
+      textScale: 1.5,
+    );
+
+    await tester.tap(find.text('Manual'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Enter reading manually'), findsOneWidget);
   });
 }

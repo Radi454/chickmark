@@ -16,6 +16,19 @@ class _EmptyScopeRepo extends ScopeComparisonRepository {
 }
 
 void main() {
+  void setPhoneViewport(
+    WidgetTester tester, {
+    double width = 360,
+    double height = 844,
+    double textScale = 1.5,
+  }) {
+    tester.view.physicalSize = Size(width, height);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = textScale;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+  }
+
   Future<void> pumpResidue(WidgetTester tester) async {
     final provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
     await provider.applyFilter(customerId: kDashboardDemoCustomerId);
@@ -94,6 +107,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('H1·S1H1·Tr1·Ty1'), findsNothing);
-    expect(find.text('H1·S1H1·Tr1'), findsWidgets); // trolley-level column header
+    expect(
+      find.text('H1·S1H1·Tr1'),
+      findsWidgets,
+    ); // trolley-level column header
+  });
+
+  testWidgets('residue sector avoids phone overflow at large text scale', (
+    tester,
+  ) async {
+    setPhoneViewport(tester);
+
+    await pumpResidue(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Example data'), findsOneWidget);
   });
 }

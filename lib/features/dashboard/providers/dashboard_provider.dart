@@ -61,7 +61,6 @@ class DashboardProvider extends ChangeNotifier {
 
   List<EggStorageTrend> _eggStorageTrend = [];
   EggStorageEstEvidence? _eggStorageEstEvidence;
-  List<String> _shellTempPhotos = [];
   List<String> _uvPhotos = [];
 
   List<SetterComparison> _setterComparisons = [];
@@ -124,7 +123,6 @@ class DashboardProvider extends ChangeNotifier {
   EggStorageTrend? get eggStorageLatest =>
       _eggStorageTrend.isNotEmpty ? _eggStorageTrend.last : null;
   EggStorageEstEvidence? get eggStorageEstEvidence => _eggStorageEstEvidence;
-  List<String> get shellTempPhotos => _shellTempPhotos;
   List<String> get uvPhotos => _uvPhotos;
 
   List<SetterComparison> get setterComparisons => _setterComparisons;
@@ -144,9 +142,12 @@ class DashboardProvider extends ChangeNotifier {
 
   Future<void> init({UserModel? currentUser}) async {
     if (_isInitialized) {
-      if (currentUser != null && currentUser != _currentUser) {
-        _currentUser = currentUser;
-      }
+      // Singleton provider: this runs on every dashboard mount. Refresh the
+      // pick list so customers synced since first load — or a different scope
+      // after an account switch (auditor → admin) — show up without a restart.
+      if (currentUser != null) _currentUser = currentUser;
+      // reload() refreshes the pick lists then reloads the sector data.
+      await reload();
       return;
     }
     _isInitialized = true;
@@ -155,20 +156,40 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _customers = _scopeCustomers(await _customerRepo.getAllCustomers());
-      if (!canUseAllCustomers && _customers.isNotEmpty) {
-        _selectedCustomerId = _customers.first.id;
-      }
-      await _loadFlocks();
+      // reload() refreshes the pick lists, then loads the sector data. init
+      // owns the full-screen spinner, so it runs without flipping the flag.
+      await reload(showLoading: false);
     } catch (e) {
-      debugPrint('Error loading customers: $e');
+      debugPrint('Error loading dashboard: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _loadFlocks() async {
+  /// (Re)load the customer + flock + bmk-age pick lists from local storage.
+  /// **Pure**: refreshes list state only — it never triggers a sector-data
+  /// reload, so [reload] can call it without re-entering itself. Callers that
+  /// also want fresh sector data call [reload] (which calls this first).
+  Future<void> _refreshPickLists() async {
+    _customers = _scopeCustomers(await _customerRepo.getAllCustomers());
+    // Keep the user's current pick if still valid; otherwise fall back. Customer
+    // role can't use "All", so it must always land on a concrete customer.
+    final selectionValid =
+        _selectedCustomerId != null &&
+        _customers.any((customer) => customer.id == _selectedCustomerId);
+    if (!selectionValid) {
+      _selectedCustomerId = (!canUseAllCustomers && _customers.isNotEmpty)
+          ? _customers.first.id
+          : (canUseAllCustomers ? null : _selectedCustomerId);
+    }
+    await _refreshFlocks();
+  }
+
+  /// (Re)load the flock pick list for the current customer plus its bmk ages.
+  /// **Pure**: list state only, no sector-data reload. Mutators that change the
+  /// customer/flock set call this then [reload] explicitly.
+  Future<void> _refreshFlocks() async {
     final flocks = _selectedCustomerId == null
         ? await _flockRepo.getAllFlocks()
         : await _flockRepo.getFlocksByCustomer(_selectedCustomerId!);
@@ -178,8 +199,6 @@ class DashboardProvider extends ChangeNotifier {
       _selectedFlockId = null;
     }
     await _loadBmkAges();
-    await reload();
-    notifyListeners();
   }
 
   Future<void> _loadBmkAges() async {
@@ -199,7 +218,8 @@ class DashboardProvider extends ChangeNotifier {
         : _currentUser?.customerId;
     _selectedFlockId = null;
     _selectedBmkAge = null;
-    await _loadFlocks();
+    await _refreshFlocks();
+    await reload();
   }
 
   Future<void> setFlock(String? flockId) async {
@@ -222,7 +242,8 @@ class DashboardProvider extends ChangeNotifier {
     _selectedSetterIds.clear();
     _selectedHatcherIds.clear();
     _flocks = [];
-    await _loadFlocks();
+    await _refreshFlocks();
+    await reload();
   }
 
   void setBreakoutType(String type) {
@@ -257,11 +278,22 @@ class DashboardProvider extends ChangeNotifier {
     reload();
   }
 
-  Future<void> reload() async {
-    _isLoading = true;
-    notifyListeners();
+  /// Pull-to-refresh entry point. Re-queries the current filter without
+  /// flipping the full-screen [isLoading] flag — the RefreshIndicator shows its
+  /// own spinner, so the content stays put and updates in place.
+  Future<void> refresh() => reload(showLoading: false);
+
+  Future<void> reload({bool showLoading = true}) async {
+    if (showLoading) {
+      _isLoading = true;
+      notifyListeners();
+    }
 
     try {
+      // Refresh the pick lists first so customers/flocks synced since the last
+      // load appear in the filter (pull-to-refresh after a Sync Now).
+      await _refreshPickLists();
+
       final filter = DashboardFilter(
         customerId: _selectedCustomerId,
         flockId: _selectedFlockId,
@@ -289,7 +321,7 @@ class DashboardProvider extends ChangeNotifier {
       debugPrint('Error reloading dashboard: $e');
       _isLoadingGoveeCaptures = false;
     } finally {
-      _isLoading = false;
+      if (showLoading) _isLoading = false;
       notifyListeners();
     }
   }
@@ -299,9 +331,6 @@ class DashboardProvider extends ChangeNotifier {
         await _panelDashboardRepo.getEggStorageTrend(filter) ?? [];
     _eggStorageEstEvidence = await _panelDashboardRepo
         .getLatestEggStorageEstEvidence(filter);
-    _shellTempPhotos = await _panelDashboardRepo.getEggStorageEstPhotoPaths(
-      filter,
-    );
     _uvPhotos = await _panelDashboardRepo.getPhotoPaths(
       filter,
       'egg_quality',

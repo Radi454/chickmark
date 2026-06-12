@@ -2,10 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/photo_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
+import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
+import 'package:hatchaudit/services/photo/photo_service.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'session_test_helpers.dart';
 
@@ -15,6 +18,10 @@ class MockAuditSessionRepository extends Mock
 class MockActivityLogRepository extends Mock implements ActivityLogRepository {}
 
 class MockSupabaseService extends Mock implements SupabaseService {}
+
+class MockPhotoRepository extends Mock implements PhotoRepository {}
+
+class MockPhotoService extends Mock implements PhotoService {}
 
 void main() {
   setUpAll(() {
@@ -34,6 +41,8 @@ void main() {
   late MockAuditSessionRepository mockRepo;
   late MockActivityLogRepository mockActivityLog;
   late MockSupabaseService mockSupabase;
+  late MockPhotoRepository mockPhotoRepo;
+  late MockPhotoService mockPhotoService;
   late AuditSessionProvider provider;
 
   final testSession = AuditSessionModel.fromMap(makeAuditSessionRow());
@@ -60,6 +69,13 @@ void main() {
     mockRepo = MockAuditSessionRepository();
     mockActivityLog = MockActivityLogRepository();
     mockSupabase = MockSupabaseService();
+    mockPhotoRepo = MockPhotoRepository();
+    mockPhotoService = MockPhotoService();
+
+    when(
+      () => mockPhotoRepo.getBySessionId(any()),
+    ).thenAnswer((_) async => []);
+    when(() => mockPhotoService.deletePhoto(any())).thenAnswer((_) async {});
 
     when(
       () => mockActivityLog.log(
@@ -76,6 +92,8 @@ void main() {
       repository: mockRepo,
       activityLogRepository: mockActivityLog,
       supabaseService: mockSupabase,
+      photoRepository: mockPhotoRepo,
+      photoService: mockPhotoService,
     );
   });
 
@@ -693,6 +711,41 @@ void main() {
 
       expect(provider.currentSession, isNull);
       expect(provider.currentStationIndex, 0);
+    });
+
+    test('deleteSession removes backing photo files before deleting rows', () async {
+      const sessionId = 'session-with-photos';
+      PhotoModel photo(String id, String path) => PhotoModel(
+        id: id,
+        filePath: path,
+        createdAt: DateTime(2026),
+        sessionId: sessionId,
+        panelName: 'egg',
+        panelRowId: 'row-1',
+        fieldKey: 'evidence',
+      );
+      when(() => mockPhotoRepo.getBySessionId(sessionId)).thenAnswer(
+        (_) async => [photo('p1', '/docs/a.jpg'), photo('p2', '/docs/b.jpg')],
+      );
+      when(() => mockRepo.deleteSession(sessionId)).thenAnswer((_) async {});
+
+      await provider.deleteSession(sessionId);
+
+      verify(() => mockPhotoService.deletePhoto('/docs/a.jpg')).called(1);
+      verify(() => mockPhotoService.deletePhoto('/docs/b.jpg')).called(1);
+      verify(() => mockRepo.deleteSession(sessionId)).called(1);
+    });
+
+    test('deleteSession still deletes rows when photo cleanup throws', () async {
+      const sessionId = 'session-cleanup-fails';
+      when(
+        () => mockPhotoRepo.getBySessionId(sessionId),
+      ).thenThrow(Exception('db down'));
+      when(() => mockRepo.deleteSession(sessionId)).thenAnswer((_) async {});
+
+      await provider.deleteSession(sessionId);
+
+      verify(() => mockRepo.deleteSession(sessionId)).called(1);
     });
   });
 }

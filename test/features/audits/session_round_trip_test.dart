@@ -43,7 +43,6 @@ AuditModel _eggDraftFromRows(
     'es_estReadingsJson': storageRow['estReadingsJson'],
     'es_estAvg': storageRow['estAvg'],
     'es_estCv': storageRow['estCvPct'],
-    'esShellTemp': storageRow['shellTemp'],
     // egg_quality → es_* keys
     'esEggWeights': qualityRow['eggWeightsJson'],
     'esEggSampleSize': qualityRow['eggSampleSize'],
@@ -231,7 +230,6 @@ void main() {
       expect(grid, hasLength(3));
       expect(CalculationUtils.average(grid), closeTo(20.0, 0.05));
       expect(restored.esEstAvg, 20.0);
-      expect(restored.esShellTemp, 20.0);
       expect(restored.esEggStorageDays, 6);
     });
 
@@ -313,8 +311,6 @@ void main() {
       // Dashboard value (estAvg) equals the entry-screen value (grid mean).
       expect(CalculationUtils.average(grid), closeTo(20.0, 0.05));
       expect(restored.esEstAvg, 20.0);
-      // shellTemp is derived from the grid in-app, so it must match too.
-      expect(restored.esShellTemp, 20.0);
       expect(restored.esEggStorageDays, 4);
     });
 

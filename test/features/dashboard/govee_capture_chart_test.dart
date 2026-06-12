@@ -217,6 +217,18 @@ void main() {
     expect(chart.data.minX, lessThan(chart.data.maxX));
     expect(chart.data.minY, lessThan(chart.data.maxY));
   });
+
+  testWidgets('GoveeCaptureChart avoids mobile overflow at large text scale', (
+    tester,
+  ) async {
+    _setPhoneViewport(tester);
+
+    await tester.pumpWidget(_chartHarness(_makeSummary()));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(LineChart), findsNWidgets(2));
+  });
 }
 
 Widget _chartHarness(GoveeCaptureSummary summary) {
@@ -228,6 +240,19 @@ Widget _chartHarness(GoveeCaptureSummary summary) {
       ),
     ),
   );
+}
+
+void _setPhoneViewport(
+  WidgetTester tester, {
+  double width = 360,
+  double height = 844,
+  double textScale = 1.5,
+}) {
+  tester.view.physicalSize = Size(width, height);
+  tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
 GoveeCaptureSummary _makeSummary({

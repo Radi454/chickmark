@@ -139,40 +139,58 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
         appBar: AppBar(title: Text(widget.config.title)),
         bottomNavigationBar: _buildBottomBar(c),
         body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  height: 220,
-                  width: double.infinity,
-                  child: _buildCamera(c),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Camera sized so the header, controls card, and full grid all
+              // fit the lower half without scrolling.
+              final cameraHeight = (constraints.maxHeight * 0.36).clamp(
+                190.0,
+                380.0,
+              );
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: cameraHeight,
+                        width: double.infinity,
+                        child: _buildCamera(c),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildHeader(c),
+                    const SizedBox(height: 8),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: _buildStateArea(c),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: EstGridWidget(
+                          controllers: _gridControllers,
+                          focusNodes: _gridFocus,
+                          photos: Map<String, String?>.from(c.photos),
+                          enabled: false,
+                          highlightedKey: c.currentKey,
+                          showPhotoCapture: false,
+                          compact: true,
+                          onValueChanged: (_, _) {},
+                          onPhotoCaptured: (_, _) {},
+                          onCellSelected: c.isReadOnly ? null : c.selectKey,
+                          tempStatusFn: widget.config.tempStatusFn,
+                          tempZoneFn: widget.config.tempZoneFn,
+                          unitSuffix: widget.config.unitSuffix,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              _buildHeader(c),
-              const SizedBox(height: 12),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: _buildStateArea(c),
-              ),
-              const SizedBox(height: 16),
-              EstGridWidget(
-                controllers: _gridControllers,
-                focusNodes: _gridFocus,
-                photos: Map<String, String?>.from(c.photos),
-                enabled: false,
-                highlightedKey: c.currentKey,
-                showPhotoCapture: false,
-                onValueChanged: (_, _) {},
-                onPhotoCaptured: (_, _) {},
-                onCellSelected: c.isReadOnly ? null : c.selectKey,
-                tempStatusFn: widget.config.tempStatusFn,
-                tempZoneFn: widget.config.tempZoneFn,
-                unitSuffix: widget.config.unitSuffix,
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -198,22 +216,31 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                c.labelFor(c.currentKey),
-                style: AppTextStyles.heading.copyWith(fontSize: 20),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(
+                    child: Text(
+                      c.labelFor(c.currentKey),
+                      style: AppTextStyles.heading.copyWith(fontSize: 18),
+                    ),
+                  ),
+                  Text(
+                    'Step ${c.activeIndex + 1} of ${c.totalCells}',
+                    style: AppTextStyles.caption.copyWith(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Step ${c.activeIndex + 1} of ${c.totalCells}',
-                style: AppTextStyles.caption.copyWith(
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               LinearProgressIndicator(
-                value: c.totalCells == 0 ? 0 : (c.activeIndex + 1) / c.totalCells,
-                minHeight: 5,
+                value: c.totalCells == 0
+                    ? 0
+                    : (c.activeIndex + 1) / c.totalCells,
+                minHeight: 4,
                 borderRadius: BorderRadius.circular(999),
               ),
             ],
@@ -243,7 +270,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     return Container(
       key: key,
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
@@ -268,44 +295,58 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     return _card(
       key: const ValueKey('ocr-state-scanning'),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Scanning for temperature…',
-            style: AppTextStyles.body.copyWith(
+            c.capture.errorMessage ?? 'Scanning for temperature…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
               fontWeight: FontWeight.w700,
               color: Colors.grey[800],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            c.capture.errorMessage ?? 'Hold steady · keep the display sharp',
-            style: AppTextStyles.caption.copyWith(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 8),
+          Row(
             children: [
-              FilledButton.icon(
-                onPressed: scanning ? c.stopAutoScan : c.startAutoScan,
-                icon: Icon(scanning ? Icons.pause : Icons.play_arrow),
-                label: Text(scanning ? 'Pause' : 'Resume'),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: scanning ? c.stopAutoScan : c.startAutoScan,
+                  icon: Icon(
+                    scanning ? Icons.pause : Icons.play_arrow,
+                    size: 18,
+                  ),
+                  label: Text(scanning ? 'Pause' : 'Resume'),
+                ),
               ),
-              TextButton.icon(
-                onPressed: c.captureOnce,
-                icon: const Icon(Icons.photo_camera_outlined),
-                label: const Text('Capture once'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: c.captureOnce,
+                  icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                  label: const Text('Capture'),
+                ),
               ),
-              TextButton.icon(
-                onPressed: c.captureViaNativeCamera,
-                icon: const Icon(Icons.open_in_new),
-                label: const Text('Camera app'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: c.captureViaNativeCamera,
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: const Text('Camera app'),
+                ),
               ),
-              TextButton.icon(
-                onPressed: () => _enterManual(c, ''),
-                icon: const Icon(Icons.keyboard),
-                label: const Text('Enter manually'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _enterManual(c, ''),
+                  icon: const Icon(Icons.keyboard, size: 18),
+                  label: const Text('Manual'),
+                ),
               ),
             ],
           ),
@@ -457,26 +498,29 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        child: Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: c.hasPrevious ? c.previous : null,
-              icon: const Icon(Icons.chevron_left),
-              label: const Text('Previous'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: c.hasNext ? c.next : null,
-              icon: const Icon(Icons.chevron_right),
-              label: const Text('Next'),
-            ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: _finishAndPop,
-              icon: const Icon(Icons.done),
-              label: const Text('Done'),
-            ),
-          ],
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: c.hasPrevious ? c.previous : null,
+                icon: const Icon(Icons.chevron_left),
+                label: const Text('Previous'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: c.hasNext ? c.next : null,
+                icon: const Icon(Icons.chevron_right),
+                label: const Text('Next'),
+              ),
+              const SizedBox(width: 24),
+              FilledButton.icon(
+                onPressed: _finishAndPop,
+                icon: const Icon(Icons.done),
+                label: const Text('Done'),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -214,6 +214,7 @@ class _YfbmTabState extends State<YfbmTab> {
               PhotoButton(
                 photoPath: _photoPath,
                 enabled: !widget.isReadOnly,
+                fieldKey: 'yfbm_photo',
                 onPhotoCaptured: (path) {
                   setState(() => _photoPath = path);
                   widget.onFieldChanged('yfbmPhoto', path);

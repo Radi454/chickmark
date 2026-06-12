@@ -462,6 +462,7 @@ class _PasgarTabState extends State<PasgarTab> {
           photoPath: widget.audit.toMap()[photoFields[index]] as String?,
           enabled: !widget.isReadOnly,
           size: compact ? 36 : 56,
+          fieldKey: photoFields[index],
           onPhotoCaptured: (path) =>
               widget.onFieldChanged(photoFields[index], path),
         ),

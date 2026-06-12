@@ -29,9 +29,16 @@ String sanitizeLogValue(Object value) {
       )
       .replaceAllMapped(
         RegExp(
-          r'(access[_-]?token|refresh[_-]?token|password)=\S+',
+          r'''"(access[_-]?token|refresh[_-]?token|password|api[_-]?key|apikey)"(\s*:\s*)"([^"]*)"''',
           caseSensitive: false,
         ),
-        (match) => '${match.group(1)}=[redacted]',
+        (match) => '"${match.group(1)}"${match.group(2)}"[redacted]"',
+      )
+      .replaceAllMapped(
+        RegExp(
+          r'''\b(access[_-]?token|refresh[_-]?token|password|api[_-]?key|apikey)(\s*=\s*)([^&\s;,"')]+)''',
+          caseSensitive: false,
+        ),
+        (match) => '${match.group(1)}${match.group(2)}[redacted]',
       );
 }

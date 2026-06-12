@@ -4,6 +4,7 @@ import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
+import 'package:hatchaudit/core/constants/app_strings.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
 import 'package:hatchaudit/widgets/status_badge.dart';
@@ -21,7 +22,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(title: 'Settings'),
+      appBar: const GradientAppBar(title: AppStrings.settingsTab),
       body: Consumer3<AppProvider, SettingsProvider, AuthProvider>(
         builder: (context, app, settings, auth, child) {
           final currentUser = auth.user ?? app.currentUser;
@@ -35,14 +36,14 @@ class SettingsScreen extends StatelessWidget {
                   ? [_buildAccountSection(context, app, auth)]
                   : [
                       _buildAccountSection(context, app, auth),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSizes.spaceLg),
                       _buildPreferencesSection(context, app, settings),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSizes.spaceLg),
                       _buildSyncSection(context, settings),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSizes.spaceLg),
                       if ((auth.user ?? app.currentUser)?.isAdmin ?? false) ...[
                         _buildAdminSection(context),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSizes.spaceLg),
                       ],
                       _buildAppSection(),
                     ],
@@ -76,13 +77,13 @@ class SettingsScreen extends StatelessWidget {
                 child: Text(
                   initials,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textOnPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: AppSizes.spaceLg),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -103,16 +104,16 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSizes.spaceLg),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () => _confirmLogout(context, auth),
               icon: const Icon(Icons.logout),
-              label: const Text('Sign Out'),
+              label: const Text(AppStrings.signOut),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+                backgroundColor: AppColors.statusError,
+                foregroundColor: AppColors.textOnPrimary,
               ),
             ),
           ),
@@ -141,26 +142,26 @@ class SettingsScreen extends StatelessWidget {
               _buildTempUnitToggle(app),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSizes.spaceLg),
           _buildNumberField(
             'Pasgar Sample Size',
             settings.pasgarSampleSize,
             (value) => settings.setPasgarSampleSize(int.tryParse(value) ?? 40),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           _buildNumberField(
             'Weights Sample Size',
             settings.weightsSampleSize,
             (value) =>
                 settings.setWeightsSampleSize(int.tryParse(value) ?? 100),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           _buildNumberField(
             'Tray Size',
             settings.traySize,
             (value) => settings.setTraySize(int.tryParse(value) ?? 150),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           _buildNumberField(
             'Storage Days',
             settings.storageDays,
@@ -176,7 +177,7 @@ class SettingsScreen extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
         border: Border.all(color: AppColors.borderDefault),
       ),
       child: Row(
@@ -198,12 +199,12 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
         ),
         child: Text(
           label,
           style: AppTextStyles.body.copyWith(
-            color: selected ? Colors.white : AppColors.textSecondary,
+            color: selected ? AppColors.textOnPrimary : AppColors.textSecondary,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -225,7 +226,10 @@ class SettingsScreen extends StatelessWidget {
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
             decoration: const InputDecoration(
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: AppSizes.spaceSm,
+                vertical: AppSizes.spaceSm,
+              ),
               border: OutlineInputBorder(),
               isDense: true,
             ),
@@ -245,7 +249,7 @@ class SettingsScreen extends StatelessWidget {
       statusIcon = Icons.sync;
       statusLabel = 'Syncing…';
     } else if (settings.lastSyncError != null) {
-      statusColor = Colors.red;
+      statusColor = AppColors.statusError;
       statusIcon = Icons.error_outline;
       statusLabel = 'Last sync failed';
     } else if (!settings.hasSyncedBefore) {
@@ -271,14 +275,14 @@ class SettingsScreen extends StatelessWidget {
           Row(
             children: [
               Icon(statusIcon, size: 18, color: statusColor),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSizes.spaceSm),
               Text(
                 statusLabel,
                 style: AppTextStyles.title.copyWith(color: statusColor),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           Row(
             children: [
               Expanded(
@@ -289,7 +293,7 @@ class SettingsScreen extends StatelessWidget {
                   AppColors.primary,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSizes.spaceSm),
               Expanded(
                 child: _syncStat(
                   Icons.arrow_downward,
@@ -300,7 +304,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           Text(
             settings.lastSyncTimestamp == null
                 ? 'No sync yet'
@@ -308,15 +312,17 @@ class SettingsScreen extends StatelessWidget {
             style: AppTextStyles.caption,
           ),
           if (settings.lastSyncError != null) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSizes.spaceXs),
             Text(
               settings.lastSyncError!,
-              style: AppTextStyles.caption.copyWith(color: Colors.red),
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.statusError,
+              ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSizes.spaceMd),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -329,14 +335,14 @@ class SettingsScreen extends StatelessWidget {
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: AppColors.textOnPrimary,
                       ),
                     )
                   : const Icon(Icons.sync),
               label: Text(settings.isSyncing ? 'Syncing…' : 'Sync Now'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.textOnPrimary,
               ),
             ),
           ),
@@ -355,7 +361,7 @@ class SettingsScreen extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 16, color: color),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSizes.spaceSm),
           Expanded(
             child: Text(
               label,
@@ -446,12 +452,12 @@ class SettingsScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Sign Out'),
+        title: const Text(AppStrings.signOut),
         content: const Text('Are you sure you want to sign out?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text(AppStrings.cancel),
           ),
           TextButton(
             onPressed: () async {
@@ -463,7 +469,10 @@ class SettingsScreen extends StatelessWidget {
                 ).pushNamedAndRemoveUntil('/login', (_) => false);
               }
             },
-            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+            child: Text(
+              AppStrings.signOut,
+              style: AppTextStyles.body.copyWith(color: AppColors.statusError),
+            ),
           ),
         ],
       ),
@@ -519,7 +528,7 @@ class SettingsScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text(AppStrings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),

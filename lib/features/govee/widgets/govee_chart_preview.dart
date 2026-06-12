@@ -11,6 +11,10 @@ import '../../dashboard/models/govee_capture_summary.dart';
 import '../../dashboard/widgets/govee_capture_chart.dart';
 import 'package:provider/provider.dart';
 
+/// Compact plot height for the live preview charts so the Govee main card and
+/// both charts stay visible together without scrolling on a phone.
+const double _previewPlotHeight = 114.0;
+
 class GoveeChartPreview extends StatelessWidget {
   final List<GoveeSensorReading> readings;
   final String? machineId;
@@ -51,8 +55,10 @@ class GoveeChartPreview extends StatelessWidget {
           tooltipTextFor: (point) =>
               _tooltipText(point, showCelsius: showCelsius),
           interactionEnabled: false,
+          compact: true,
+          plotHeight: _previewPlotHeight,
         ),
-        const SizedBox(height: AppSizes.spaceMd),
+        const SizedBox(height: AppSizes.spaceSm),
         GoveeMetricChart(
           chartKey: const ValueKey('govee-rh-preview-chart'),
           title: 'Relative Humidity',
@@ -66,8 +72,10 @@ class GoveeChartPreview extends StatelessWidget {
           tooltipTextFor: (point) =>
               _tooltipText(point, showCelsius: showCelsius),
           interactionEnabled: false,
+          compact: true,
+          plotHeight: _previewPlotHeight,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSizes.spaceSm),
         Wrap(
           spacing: 8,
           runSpacing: 8,

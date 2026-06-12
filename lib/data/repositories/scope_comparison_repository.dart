@@ -1,4 +1,5 @@
 import '../../features/dashboard/models/dashboard_filter.dart';
+import '../../features/dashboard/models/scope_cumulative.dart';
 import '../../features/dashboard/scope/scope_config.dart';
 import '../../features/dashboard/scope/scope_models.dart';
 import '../database/database_helper.dart';
@@ -159,6 +160,86 @@ class ScopeComparisonRepository {
       parts.add('${bmkColumn ?? 'flockAgeWeeks'} = ?');
       args.add(filter.bmkAge);
     }
+    if (filter.sessionId != null) {
+      parts.add('sessionId = ?');
+      args.add(filter.sessionId);
+    }
     return (clause: 'WHERE ${parts.join(' AND ')}', args: args);
+  }
+
+  // ── Cumulative-axis period listing ─────────────────────────────────────────
+
+  /// The age column a sector groups its Cumulative-by-age view on (mirrors the
+  /// per-table bmk-age column used in [getScopeLeaves]).
+  static String _ageColumnFor(String table) => switch (table) {
+    'fresh_egg_breakout' ||
+    'candled_egg_breakout' ||
+    'residue_breakout' => 'bmkAgeWeeks',
+    'egg_quality' => 'eggBmkAgeWeeks',
+    _ => 'flockAgeWeeks',
+  };
+
+  static const List<String> _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _visitLabel(Object? rawDate, int index) {
+    final s = rawDate?.toString();
+    final d = s == null ? null : DateTime.tryParse(s);
+    if (d != null) return '${d.day} ${_months[d.month - 1]}';
+    return 'V${index + 1}';
+  }
+
+  /// Distinct points on the sector's Cumulative axis (ages for age-axis sectors,
+  /// visits for visit-axis sectors), oldest→newest. Ignores any age/session
+  /// narrowing on [base] — lists everything for the customer/flock.
+  Future<List<ScopePeriod>> distinctPeriods(
+    ScopeSectorConfig sector,
+    DashboardFilter base,
+  ) async {
+    final table = sector.tableName;
+    if (table == null) return const [];
+    final db = await _dbHelper.db;
+    final cf =
+        DashboardFilter(customerId: base.customerId, flockId: base.flockId);
+
+    if (sector.cumulativeAxis == CumulativeAxis.age) {
+      final ageCol = _ageColumnFor(table);
+      final (:clause, :args) = _where(cf);
+      final rows = await db.rawQuery(
+        'SELECT $ageCol AS age, COUNT(*) AS n FROM $table $clause '
+        'AND $ageCol IS NOT NULL GROUP BY $ageCol ORDER BY $ageCol ASC',
+        args,
+      );
+      return [
+        for (final r in rows)
+          if (_asNum(r['age']) != null)
+            ScopePeriod(
+              label: 'W${_asNum(r['age'])!.toInt()}',
+              age: _asNum(r['age'])!.toInt(),
+              n: _asNum(r['n'])?.toInt() ?? 0,
+            ),
+      ];
+    }
+
+    // visit axis: one point per session, oldest→newest by the row's own date.
+    final (:clause, :args) = _where(cf);
+    final rows = await db.rawQuery(
+      'SELECT sessionId AS sid, MAX(date) AS dt, COUNT(*) AS n FROM $table '
+      '$clause AND sessionId IS NOT NULL GROUP BY sessionId ORDER BY dt ASC',
+      args,
+    );
+    final out = <ScopePeriod>[];
+    for (var i = 0; i < rows.length; i++) {
+      final sid = rows[i]['sid']?.toString();
+      if (sid == null || sid.isEmpty) continue;
+      out.add(ScopePeriod(
+        label: _visitLabel(rows[i]['dt'], i),
+        sessionId: sid,
+        n: _asNum(rows[i]['n'])?.toInt() ?? 0,
+      ));
+    }
+    return out;
   }
 }

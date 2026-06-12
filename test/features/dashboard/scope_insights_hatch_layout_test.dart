@@ -8,6 +8,7 @@ import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart'
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/scope_matrix_table.dart';
 import 'package:provider/provider.dart';
 
 /// Forces the demo-customer dummy fallback (real leaves empty), so every sector
@@ -70,8 +71,16 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    // 'Late %' is a residue-only param → absent on the default Fresh tab.
-    expect(find.text('Late %'), findsNothing);
+    // 'Late %' is a residue-only param → absent from the Fresh breakout matrix.
+    // (It can surface in the station triage summary above, so scope the finder
+    // to the breakout matrix itself.)
+    expect(
+      find.descendant(
+        of: find.byType(ScopeMatrixTable),
+        matching: find.text('Late %'),
+      ),
+      findsNothing,
+    );
 
     // Hatch is far down the single scroll view — bring the pill on-screen so the
     // tap's hit-test lands.
@@ -113,7 +122,9 @@ void main() {
     // One chart per metric, Act-vs-BMK bars, age on the X axis.
     expect(find.text('Hatchability %'), findsOneWidget);
     expect(find.text('Fertility %'), findsOneWidget);
-    expect(find.text('HOF %'), findsOneWidget);
+    // 'HOF %' is also the hatch_results param label, so the triage summary above
+    // can show it too — the chart count below is the real per-metric assertion.
+    expect(find.text('HOF %'), findsWidgets);
     expect(find.byType(BarChart), findsNWidgets(3));
     expect(find.text('30w'), findsWidgets);
     expect(find.text('35w'), findsWidgets);

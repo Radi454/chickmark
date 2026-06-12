@@ -289,8 +289,8 @@ class StationScorecard {
     // null when clean.
     switch (stationKey) {
       case 'egg':
-        if (audit.esShellTemp != null) {
-          final t = audit.esShellTemp!;
+        if (audit.esEstAvg != null) {
+          final t = audit.esEstAvg!;
           if (t > 21) return 'red';
           if (t < 19) return 'amber';
         }
@@ -330,7 +330,7 @@ class StationScorecard {
   ) {
     switch (stationKey) {
       case 'egg':
-        final temp = _lastDouble(rowsByPanel['egg_storage'], 'shellTemp');
+        final temp = _lastDouble(rowsByPanel['egg_storage'], 'estAvg');
         if (temp != null) {
           if (temp > 21) return 'red';
           if (temp < 19) return 'amber';

@@ -6,7 +6,9 @@ import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_session_repository.dart';
+import '../../../data/repositories/photo_repository.dart';
 import '../../../core/utils/audit_type_labels.dart';
+import '../../../services/photo/photo_service.dart';
 import '../../../services/supabase/supabase_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -34,17 +36,23 @@ class AuditSessionProvider extends ChangeNotifier {
   final AuditSessionRepository _repository;
   final ActivityLogRepository _activityLogRepository;
   final SupabaseService _supabaseService;
+  final PhotoRepository _photoRepository;
+  final PhotoService _photoService;
   final Uuid _uuid;
 
   AuditSessionProvider({
     AuditSessionRepository? repository,
     ActivityLogRepository? activityLogRepository,
     SupabaseService? supabaseService,
+    PhotoRepository? photoRepository,
+    PhotoService? photoService,
     Uuid? uuid,
   }) : _repository = repository ?? AuditSessionRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _supabaseService = supabaseService ?? SupabaseService(),
+       _photoRepository = photoRepository ?? PhotoRepository(),
+       _photoService = photoService ?? PhotoService(),
        _uuid = uuid ?? const Uuid();
 
   // State
@@ -511,6 +519,19 @@ class AuditSessionProvider extends ChangeNotifier {
   /// Delete a session.
   Future<void> deleteSession(String sessionId) async {
     try {
+      // Remove the backing photo files first: the repo delete drops the photo
+      // rows (and FK cascade does too), but neither touches the filesystem, so
+      // without this the .jpg files orphan forever. deletePhoto is a no-op for
+      // remote/synced paths since the local file won't exist. Best-effort: a
+      // cleanup failure must never block the actual session deletion.
+      try {
+        final photos = await _photoRepository.getBySessionId(sessionId);
+        for (final photo in photos) {
+          await _photoService.deletePhoto(photo.filePath);
+        }
+      } catch (e) {
+        safeDebugLog('Photo cleanup during session delete failed', error: e);
+      }
       await _repository.deleteSession(sessionId);
       await _logActivity('session_delete', sessionId);
       if (_currentSession?.id == sessionId) {

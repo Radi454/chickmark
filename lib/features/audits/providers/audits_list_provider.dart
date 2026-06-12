@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/repositories/audit_session_repository.dart';
-import '../../../data/repositories/govee_capture_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../models/session_filter.dart';
 import 'audit_session_provider.dart';
@@ -37,19 +36,12 @@ class StationView {
   /// Panel-data sync state: 'synced' | 'pending' | 'failed' | 'none'.
   final String sync;
 
-  /// Govee environmental-capture sync state for this station's spot:
-  /// 'synced' | 'pending' | 'failed' | 'none' (no capture / station has no spot).
-  final String goveeSync;
-
   const StationView({
     required this.key,
     required this.label,
     required this.status,
     required this.sync,
-    this.goveeSync = 'none',
   });
-
-  bool get hasGovee => goveeSync != 'none';
 }
 
 class SessionView {
@@ -61,20 +53,12 @@ class SessionView {
   final int completed;
   final int total;
 
-  /// Visit-level Govee environmental capture summary (across all spots).
-  final int goveeCaptureCount;
-
-  /// Rolled-up Govee sync state: 'synced' | 'pending' | 'failed' | 'none'.
-  final String goveeSync;
-
   const SessionView({
     required this.session,
     required this.stations,
     required this.sync,
     required this.completed,
     required this.total,
-    this.goveeCaptureCount = 0,
-    this.goveeSync = 'none',
   });
 }
 
@@ -83,15 +67,12 @@ class SessionView {
 class AuditsListProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepo;
   final PanelSampleRepository _panelRepo;
-  final GoveeCaptureRepository _goveeRepo;
 
   AuditsListProvider({
     AuditSessionRepository? sessionRepository,
     PanelSampleRepository? panelRepository,
-    GoveeCaptureRepository? goveeRepository,
   }) : _sessionRepo = sessionRepository ?? AuditSessionRepository(),
-       _panelRepo = panelRepository ?? PanelSampleRepository(),
-       _goveeRepo = goveeRepository ?? GoveeCaptureRepository();
+       _panelRepo = panelRepository ?? PanelSampleRepository();
 
   static const pageSize = 20;
   static const _prefsFilterKey = 'audit_session_filter';
@@ -99,8 +80,6 @@ class AuditsListProvider extends ChangeNotifier {
   final List<AuditSessionModel> _loaded = [];
   // sessionId -> tableName -> syncStatus -> count
   final Map<String, Map<String, Map<String, int>>> _rollups = {};
-  // 'customerId|hatcheryId|captureDate' -> stationKey -> syncStatus -> count
-  final Map<String, Map<String, Map<String, int>>> _goveeRollups = {};
   SessionFilter _filter = SessionFilter.empty;
   String _search = '';
   SessionDisplayResolver? _resolver;
@@ -135,7 +114,6 @@ class AuditsListProvider extends ChangeNotifier {
     notifyListeners();
     _loaded.clear();
     _rollups.clear();
-    _goveeRollups.clear();
     _offset = 0;
     _hasMore = true;
     try {
@@ -181,10 +159,6 @@ class AuditsListProvider extends ChangeNotifier {
         page.map((session) => session.id),
       );
       _rollups.addAll(rollups);
-      final goveeRollups = await _goveeRepo.getGoveeRollupForSessions(
-        page.map(_goveeKeyTuple),
-      );
-      _goveeRollups.addAll(goveeRollups);
     }
   }
 
@@ -224,9 +198,6 @@ class AuditsListProvider extends ChangeNotifier {
     final stations = <StationView>[];
     var anyFailed = session.syncStatus == 'failed';
     var anyPending = session.syncStatus == 'pending';
-    final goveeForSession =
-        _goveeRollups[_goveeKey(session)] ??
-        const <String, Map<String, int>>{};
 
     for (final key in selected) {
       final tables = kStationPanelTables[key] ?? const [];
@@ -260,52 +231,15 @@ class AuditsListProvider extends ChangeNotifier {
         sync = 'synced';
       }
 
-      // Govee environmental capture for this station's spot (links by
-      // customer+hatchery+date). Folds into the session-level sync rollup.
-      final goveeCounts = goveeForSession[key];
-      var goveeSync = 'none';
-      if (goveeCounts != null && goveeCounts.isNotEmpty) {
-        final goveeFailed = goveeCounts['failed'] ?? 0;
-        final goveePending = goveeCounts['pending'] ?? 0;
-        if (goveeFailed > 0) {
-          goveeSync = 'failed';
-          anyFailed = true;
-        } else if (goveePending > 0) {
-          goveeSync = 'pending';
-          anyPending = true;
-        } else {
-          goveeSync = 'synced';
-        }
-      }
-
       stations.add(
         StationView(
           key: key,
           label: AuditSessionProvider.stationDisplayLabels[key] ?? key,
           status: dataStatus,
           sync: sync,
-          goveeSync: goveeSync,
         ),
       );
     }
-
-    // Visit-level Govee rollup across every captured spot (not just spots that
-    // map to a selected station), for the dedicated Govee sector row.
-    var goveeTotal = 0;
-    var goveePendingTotal = 0;
-    var goveeFailedTotal = 0;
-    for (final byStatus in goveeForSession.values) {
-      for (final entry in byStatus.entries) {
-        goveeTotal += entry.value;
-        if (entry.key == 'pending') goveePendingTotal += entry.value;
-        if (entry.key == 'failed') goveeFailedTotal += entry.value;
-      }
-    }
-    final sessionGoveeSync = goveeTotal == 0
-        ? 'none'
-        : (goveeFailedTotal > 0
-              ? 'failed'
-              : (goveePendingTotal > 0 ? 'pending' : 'synced'));
 
     final sessionSync = anyFailed
         ? 'failed'
@@ -316,8 +250,6 @@ class AuditsListProvider extends ChangeNotifier {
       sync: sessionSync,
       completed: completed.where(selected.contains).length,
       total: selected.length,
-      goveeCaptureCount: goveeTotal,
-      goveeSync: sessionGoveeSync,
     );
   }
 
@@ -378,30 +310,8 @@ class AuditsListProvider extends ChangeNotifier {
       _loaded[index] = updated;
       final rollup = await _panelRepo.getStationRollupForSessions([id]);
       _rollups[id] = rollup[id] ?? {};
-      final govee = await _goveeRepo.getGoveeRollupForSessions([
-        _goveeKeyTuple(updated),
-      ]);
-      _goveeRollups[_goveeKey(updated)] = govee[_goveeKey(updated)] ?? {};
     }
     notifyListeners();
-  }
-
-  String _goveeKey(AuditSessionModel session) =>
-      '${session.customerId}|${session.hatcheryId}|${_captureDateKey(session.date)}';
-
-  ({String customerId, String hatcheryId, String captureDate}) _goveeKeyTuple(
-    AuditSessionModel session,
-  ) => (
-    customerId: session.customerId,
-    hatcheryId: session.hatcheryId,
-    captureDate: _captureDateKey(session.date),
-  );
-
-  /// Govee captureDate format ('yyyy-MM-dd'), matching how captures are stored.
-  String _captureDateKey(DateTime date) {
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
   }
 
   Future<SessionFilter> _loadPersistedFilter() async {

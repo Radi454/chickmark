@@ -682,6 +682,8 @@ void main() {
 
     expect(find.text('Pool'), findsAtLeastNWidgets(1));
     expect(find.text('H1'), findsNothing);
+    expect(find.byKey(const ValueKey('residue-house-number-0')), findsNothing);
+    expect(find.byKey(const ValueKey('residue-remove-house')), findsNothing);
     expect(provider.activeDraft.houseId, isNull);
     expect(provider.activeDraft.setterId, 'S');
     expect(provider.activeDraft.hatcherId, 'H');
@@ -1733,6 +1735,23 @@ void main() {
     );
     expect(find.byKey(const ValueKey('breakout-bmk-infertile')), findsNothing);
     expect(find.byKey(const ValueKey('breakout-diff-infertile')), findsNothing);
+  });
+
+  testWidgets('breakout count rows open the egg count capture action', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.freshEggBreakout,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+    await addVisibleSample(tester);
+    final sample = activeBreakoutSample(provider);
+
+    expect(
+      find.byKey(ValueKey('breakout-egg-count-capture-${sample.id}-infertile')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('breakout rows alert when calculated percent is above bmk', (

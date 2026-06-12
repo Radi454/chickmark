@@ -41,6 +41,9 @@ void main() {
     expect(restored.stationKey, 'egg');
     expect(restored.place, TemperaturePlace.eggStorageRoom);
     expect(restored.machineId, isNull);
+    // machineId serializes as the '' sentinel, never null: both SQLite and the
+    // cloud mirror declare the column NOT NULL, so a null here 400s the push.
+    expect(capture.toMap()['machineId'], '');
     expect(restored.captureDate, '2026-05-02');
     expect(restored.startedAt, now);
     expect(restored.endedAt, now.add(const Duration(minutes: 15)));

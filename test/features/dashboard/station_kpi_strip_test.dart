@@ -30,12 +30,23 @@ Future<void> _pump(WidgetTester tester, _FakeScopeProvider provider) {
     ChangeNotifierProvider<ScopeComparisonProvider>.value(
       value: provider,
       child: const MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(child: StationKpiStrip()),
-        ),
+        home: Scaffold(body: SingleChildScrollView(child: StationKpiStrip())),
       ),
     ),
   );
+}
+
+void _setPhoneViewport(
+  WidgetTester tester, {
+  double width = 360,
+  double height = 844,
+  double textScale = 1.5,
+}) {
+  tester.view.physicalSize = Size(width, height);
+  tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
 void main() {
@@ -64,16 +75,11 @@ void main() {
     // Hatchability 82.4 vs BMK 90 → 7.6 below → err (ACTION).
     final leaf = ScopeLeafRow(
       layerSegments: const {},
-      cells: {
-        'hatchabilityPct': ScopeCellAccumulator.sample(value: 82.4),
-      },
+      cells: {'hatchabilityPct': ScopeCellAccumulator.sample(value: 82.4)},
     );
     final groups = ScopeEngine.comboGroups(hatchSector, [leaf], const [], bmk);
 
-    await _pump(
-      tester,
-      _FakeScopeProvider({'hatch_results': groups}, bmk),
-    );
+    await _pump(tester, _FakeScopeProvider({'hatch_results': groups}, bmk));
     await tester.pump();
 
     // Hatch card shows the headline value and an ACTION status.
@@ -84,5 +90,25 @@ void main() {
     // The other four stations have no data → OK / On spec.
     expect(find.text('OK', skipOffstage: false), findsNWidgets(4));
     expect(find.text('On spec', skipOffstage: false), findsNWidgets(4));
+  });
+
+  testWidgets('mobile KPI strip avoids overflow at large text scale', (
+    tester,
+  ) async {
+    _setPhoneViewport(tester);
+
+    final hatchSector = ScopeConfigRegistry.byId('hatch_results');
+    final bmk = BmkReference(hatchabilityPct: 90, fertilityPct: 95, hofPct: 90);
+    final leaf = ScopeLeafRow(
+      layerSegments: const {},
+      cells: {'hatchabilityPct': ScopeCellAccumulator.sample(value: 82.4)},
+    );
+    final groups = ScopeEngine.comboGroups(hatchSector, [leaf], const [], bmk);
+
+    await _pump(tester, _FakeScopeProvider({'hatch_results': groups}, bmk));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('ACTION', skipOffstage: false), findsOneWidget);
   });
 }

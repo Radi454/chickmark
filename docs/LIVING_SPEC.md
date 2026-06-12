@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-05-26
+2026-06-12
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -21,7 +21,11 @@ App bootstrap starts in `main.dart`, initializes SQLite before `runApp`, then
 starts token migration, notifications, and guarded Supabase initialization in
 the background. Supabase service calls wait for that initialization guard before
 reading `Supabase.instance.client`, so remote auth and sync calls cannot race
-ahead of the client setup.
+ahead of the client setup. Supabase configuration uses complete compile-time
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` values when both are supplied; otherwise,
+only when both compile-time values are empty or placeholders, startup may load
+the bundled `.env.json` placeholder asset. Partial compile-time credentials are
+treated as unconfigured and are not completed from the asset.
 
 The user-facing app name is ChickMark. `MaterialApp.title`, web document
 metadata, PWA manifest metadata, and Android/iOS native launcher metadata use
@@ -36,11 +40,19 @@ The app uses a compact operational type scale: shared headings, section titles,
 body copy, badges, app bars, and major station hero titles are intentionally
 smaller than the previous large display scale so dense audit screens stay
 scannable on phone-width layouts.
+Shared gradient app bars keep long titles to one ellipsized line, including
+titles with leading brand or screen icons. Shared status badges constrain their
+label width and ellipsize overflow so card headers remain stable on phone-width
+layouts.
 Shared card surfaces use a restrained operational style with tighter corner
 radii, soft low-contrast shadows, and subtle default borders. Section cards may
 show small leading Material symbols in blue-tinted icon containers, and the
 Customers, Settings, and BMK reference surfaces use those simple symbols instead
 of decorative or emoji-led labeling.
+Shared app chrome and simple account/admin states use the central design tokens
+for common action labels, neutral surfaces, status colors, and exact-match
+spacing where those tokens already exist, preserving the existing workflows and
+screen hierarchy.
 The add/edit flock bottom sheet uses compact input fields, local pill selectors
 for age source and availability, and quiet helper text while preserving the
 existing flock ID, breed, estimated age, depletion age, and active/sold save
@@ -177,6 +189,14 @@ with a small white dot marker so it is visually distinct from completed
 stations. Moving forward, moving back, switching to an earlier or completed
 station, leaving the visit, or saving the final station all go through a
 station-exit confirmation path that attempts to save the current station.
+On narrow phones the station footer stacks autosave, secondary actions, and the
+primary Next/Save action into multiple rows so the Back, Clear, and Next/Save
+controls retain usable touch targets without changing their behavior.
+When the on-screen keyboard is open on phone-width visit sessions, the fixed
+station chrome is hidden: the Govee readings card and visit footer are removed
+while editing so the focused field has the available height. The same editing
+mode engages when a station text input holds focus, covering mobile builds that
+resize the view without exposing a readable keyboard inset to the footer.
 When a visit is resumed or a previously saved station is opened inside the
 session, the station frame hydrates the station from panel rows for that
 session. It synthesizes the current form draft objects from those panel rows so
@@ -278,6 +298,9 @@ Station save behavior:
   saved station validates as complete. A station with saved but incomplete data,
   or with only blank/default data that was discarded during save, can be left
   and revisited later but does not receive a green completion check.
+- A blank Hatchers station can be explicitly saved as incomplete on station
+  exit. The save clears any default-only hatcher panel rows and leaves the
+  visit in progress instead of blocking the final station save.
 - Completing the final selected station updates the session to `completed` and
   returns to the main shell.
 
@@ -331,6 +354,18 @@ platform string reports macOS, Windows, or Linux, use the normal editable text
 field so physical keyboard entry works without opening the custom keypad. Both
 paths enforce the same numeric rules for decimal, negative, and
 max-decimal-place limits.
+Audit station scroll containers reserve extra bottom scroll space while the
+device keyboard is visible, so focused text and numeric fields across Egg,
+Chicks, Hatch Analysis, Setters, and Hatchers can scroll clear of the keyboard
+and session footer.
+Egg and Chicks weight-entry modal sheets use a keyboard-aware scroll wrapper
+that reserves bottom scroll space for the in-app numeric keypad and device safe
+area, so lower grid rows can be scrolled fully above the keypad while entering
+weights. Dragging or touching inside those weight-entry sheets keeps the
+in-app keypad open so users can scroll through cells without losing the active
+entry field. When lower weight cells become active, the custom keypad scroll
+alignment keeps the active row above the keypad overlay instead of centered
+behind it.
 
 Egg is the station name shown across the app. The station is divided into
 storage and handling controls plus Egg Quality Assessment. It starts with a
@@ -357,7 +392,10 @@ Quality cards, and station notes.
   before the add-tray action. Shell UV summary fields persist on the
   consolidated `egg_quality` row, including dashboard-ready per-type percentage
   columns (`uvCuticleDamagePct`, `uvWashedPct`, and `uvDirtyPct`) alongside the
-  total affected percentage.
+  total affected percentage. UV tray photo paths draft-save inside the tray
+  JSON so reopening the Egg screen restores the thumbnail, and new tray photo
+  captures are also registered as `egg_quality` photo rows with `uv_tray_*`
+  field keys so photo sync can upload them.
 - Upside Down Score: tray entries and overall upside-down average. Fresh or
   empty tray data shows a default Tray 1 editor before the add-tray action.
   Its header uses an inverted egg symbol with the pointed end up. Upside-down
@@ -593,10 +631,11 @@ number is entered. Entered values update the chip to compact labels such as
 scope is active; removing the only active house returns the Hatch Analysis
 hierarchy to pooled mode. Pressing Machine scope `+` creates the first
 setter/hatcher machine row without creating a synthetic House scope. If House
-scope is still pooled, the House card remains `Pool`; if a House scope is
-active, the machine row inherits that active house. Machine rows show blank
-Setter and Hatcher fields and label the chip as prefix-only `SH` until either
-number field is entered. Additional Machine scope `+` actions in the same
+scope is still pooled, the House card remains `Pool` and does not show House
+entry or House remove controls; if a House scope is active, the machine row
+inherits that active house. Machine rows show blank Setter and Hatcher fields
+and label the chip as prefix-only `SH` until either number field is entered.
+Additional Machine scope `+` actions in the same
 house or pooled context default to matching numeric Setter and Hatcher values,
 so chips advance like House and Trolley scopes: `SH`, `S1H1`, `S2H2`, and so
 on, with the numeric fields showing `1`, `2`, etc. Entered values update chips
@@ -694,6 +733,17 @@ Pool, House, Machine, or Trolley parents. Each saved tray row stores that tray's
 own counts, percentages, current-versus-BMK percentage-point differences, tray
 size, hierarchy fields, and position when applicable, so multiple trays are
 comparable instead of being collapsed into one summed row.
+
+Breakout count rows use an egg-count capture action instead of the generic
+photo picker. Tapping the camera action opens a full-screen guided capture flow
+for that breakout item. Each captured photo is analyzed for likely eggs, shows
+the counted number for user confirmation, and can be retried or manually
+corrected before it is added to the item total. The same breakout item can have
+multiple confirmed photos; confirmed counts are summed into the count field and
+the confirmed photo paths are stored with the sample JSON. The first photo keeps
+the count field key, and additional photos use suffixed field keys for the same
+breakout item. Local photo records are registered against the active breakout
+panel table, sample row id, and field key so sync can upload the evidence.
 If older saved breakout JSON contains repeated tray ids, the screen normalizes
 those ids before rendering and persists the corrected ids on the next tray edit
 so each tray owns independent input state.
@@ -772,9 +822,11 @@ Setter EST reuses the storage EST guided grid workflow with Front/Middle/Back
 by Top/Middle/Bottom points, inline guided OCR capture, inline camera/native
 camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
 missing-photo attach, saved-photo highlighting, and per-point evidence photo
-records. Setters uses Fahrenheit readings with an allowed range of
-99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive the EST
-grid status styling and average summary color, but are not rendered as a
+records. The shared guided OCR capture bottom navigation preserves Previous,
+Next, and Done order and can scroll horizontally on narrow, large-text phone
+layouts instead of overflowing. Setters uses Fahrenheit readings with an allowed
+range of 99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive
+the EST grid status styling and average summary color, but are not rendered as a
 separate helper strip in the entry form. Setter samples persist as
 `setter_optimizing` rows. The table's sampling hierarchy starts at the `setter`
 machine column and can nest `trolley` then `tray`; it does not include house or
@@ -821,7 +873,9 @@ comparison control. Hatcher comparison samples persist as machine samples with
 house or setter hierarchy columns. Multiple hatchers use the `hatcher`
 hierarchy column as their row identity. Removing hatchers until only one remains
 returns the station to the single-sample state and saves the station-sample
-hatcher identity from the edited Hatcher number field.
+hatcher identity from the edited Hatcher number field. Saving a blank/default
+Hatchers station confirms as an incomplete station save without creating a
+metadata-only `hatcher_optimizing` row.
 
 Govee is a standalone daily capture workflow. It is independent from audit
 sessions and is keyed by `customerId`, `hatcheryId`, place, nullable machine id,
@@ -836,10 +890,25 @@ latest update time, RSSI, and battery level directly on the main card. It
 exposes a clear `Scan`, `Read`, or reconnect action, a compact `°F`/`°C` unit
 toggle backed by the app temperature setting, and a settings icon. The floating
 panel header, scope picker, and place recorder use the shared compact
-operational type scale and light bordered surfaces.
+operational type scale and light bordered surfaces. Scope dropdown labels for
+customers, hatcheries, and places stay single-line and ellipsized inside their
+fields on narrow layouts. The active capture scope picker does not expose a
+separate date field; the provider still assigns the current capture date
+internally. Live Temp/RH, update, RSSI, and battery values are
+shown only while the most recent live update is fresh:
+the current live update plus the first 30 seconds after it. Once the latest live
+reading is more than 30 seconds old, the card treats the device as disconnected
+for display purposes even if a lower BLE/GATT transport flag is still stale, and
+shows empty placeholders instead of old readings. Main-card and settings-sheet
+connection labels use the same display status rules; a fresh reading without an
+active transport connection is labeled as a recent reading instead of a live
+connection. Scan/GATT connection attempts use a small inline activity spinner in
+the live-card action, and the compact main-card scan action is disabled while an
+active scan is already running. The settings sheet keeps the explicit restart
+scan affordance.
 The settings sheet shows current connection details, diagnostics, discovered
 Govee devices, scan/restart scan, read-now, select-device, and disconnect
-controls.
+controls. Long diagnostic lines are capped to avoid horizontal overflow.
 The old historical browser tabs and export affordance are not part of the active
 recording screen. On Flutter Web, Bluetooth initialization is pre-warmed when
 the panel opens, but the Web Bluetooth device request is still started directly
@@ -898,8 +967,11 @@ recording, syncing, retry, saving, and saved states. Once the sensor has a valid
 current Temp/RH reading, the screen renders live Temperature and RH preview
 charts even before recording starts. Repeated connected readings form a live
 trend before recording; if only one current reading is available, the preview
-shows a single current point. During recording, the preview switches to the
-accumulated live recording readings. Live preview charts do not allow pan/scale
+shows a single current point. When the sensor has been disconnected for more
+than 30 seconds since the last live update, live preview charts reset to an
+empty state and are hidden until a new connected reading is available. During
+recording, the preview switches to the accumulated live recording readings. Live
+preview charts do not allow pan/scale
 interaction. Saved captures appear in an expandable card scoped to the selected
 customer, hatchery, and capture date; tapping a saved capture selects its saved
 chart card without clearing it when a new recording starts. Saved and live
@@ -910,9 +982,18 @@ white rounded chart card, compact centered dark metric title, Max/Avg/Min value
 rail, light dashed grid, dashed cyan average line, straight cyan trace with
 subtle fill, inside time ticks, and start/end time labels. The plot keeps a
 minimum visual Y range, so tiny Temp/RH changes do not fill the full chart
-height. Recorded saved charts retain horizontal pan/scale interaction. Chart
-touches show the exact timestamp, Temp, RH, place, and machine context when
-present.
+height. The Max/Avg/Min rail scales its labels within the fixed chart rail
+slots so 360dp phone layouts with larger text do not overflow the plot area.
+Recorded saved charts retain horizontal pan/scale interaction. Chart touches
+show the exact timestamp, Temp, RH, place, and machine context when present.
+
+The Govee Records tab shows all saved Govee captures grouped by customer,
+hatchery, and capture date. Groups are ordered by the most recently updated
+capture first so a newly saved floating-panel recording appears immediately,
+even when older seeded/demo rows have future capture dates. If the records tab
+is already mounted behind the floating panel, it listens for the finished
+capture and merges that row into the visible list without requiring a manual
+sync or route reload.
 
 If history sync cannot reconnect or otherwise fails during Stop, no capture is
 saved. The recorder keeps the Start/Stop window and exposes a
@@ -974,9 +1055,10 @@ room-level stations with a mapped place: Egg storage room, Chick holding area,
 Setter room, and Hatcher room. Opening from Setters or Hatchers shows a compact
 room vs. inside-machine choice before recording. Room environment captures save
 without a machine id. Inside-machine captures save the active station machine id
-when it is available. Station entries preselect customer, hatchery, and place in the
-floating Govee capture panel, while still letting the user change the place
-before recording.
+when it is available. Station entries preselect customer, hatchery, and place in
+the floating Govee capture panel. Setter and Hatcher station entries keep the
+Customer and Hatchery controls visible above the room/inside-machine choice so
+the capture scope can still be corrected before recording.
 
 Dashboard has a cascade filter for Customer, Flock, and Age. On phone-width
 layouts the filter stacks Customer above a compact Flock/Age row and constrains
@@ -1223,7 +1305,13 @@ views and benchmark lookups that read SQLite.
 
 Photos are copied into the app documents directory and referenced by local file
 path. The `photos` table tracks `uploadStatus` as `local`, `synced`, or
-`failed`. Photo sync uploads local and failed photos when Supabase is available,
+`failed`. Egg Quality UV tray captures, EST/CVT evidence, Chicks YFBM,
+PASGAR, PM necropsy, Hatch Analysis breakout, Setter, and Hatcher evidence
+photos create local `photos` rows tied to their owning panel row and field key.
+Hatch Analysis breakout photo rows use the active breakout table
+(`fresh_egg_breakout`, `candled_egg_breakout`, or `residue_breakout`) instead
+of a generic station default. Photo sync uploads local and failed photos when
+Supabase is available,
 skips missing files, and fails files larger than 5 MB so failed uploads retry on
 later sync runs. Uploaded photo rows store
 non-public `supabase://photos/...` storage references by default; public storage
@@ -1244,7 +1332,9 @@ available. The app assumes Supabase tables and storage are protected by project
 RLS/storage policies for authenticated users and their customer scope; the
 client only ships anon credentials and never needs service-role access. Debug
 sync logs are sanitized and do not print stack traces, tokens, row payloads, or
-raw BLE bytes.
+raw BLE bytes. Shared debug logging redacts JWTs, Supabase publishable/secret
+keys, and token/password/API-key values in query/form and JSON-style messages
+before printing in debug builds.
 
 Govee place captures are persisted as one completed daily capture row per
 customer, hatchery, place, machine, and date. The row stores Temp/RH summary
@@ -1274,6 +1364,11 @@ failures keep the same recoverable return behavior and emit debug logs in
 development builds instead of silently discarding the failure context. Thermometer
 OCR debug logs include attempted variant count, confidence, and accepted Celsius
 reading when available so mobile runs can confirm the active OCR path.
+Breakout egg-count OCR is a separate image-analysis path: it segments likely egg
+shell/interior pixels, groups connected components, estimates the egg count, and
+always requires user confirmation or manual correction before writing the count.
+It reuses the inline camera/native-camera fallback pattern but does not use the
+thermometer text-recognition pipeline.
 
 ## 8. Known Technical Debt
 
@@ -1293,6 +1388,48 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-12: Added guided breakout egg-count capture for Hatch Analysis count
+  rows, including repeated photo capture per breakout item, user confirmation or
+  manual correction, summed count persistence, and multiple evidence photo paths
+  per count field.
+- 2026-06-12: Registered audit photo buttons across Egg, Chicks, Hatch
+  Analysis, Setters, and Hatchers with explicit panel field keys, and mapped
+  Hatch Analysis breakout photos to the active breakout table so saved captures
+  enter the same local photo-sync queue as their screen JSON paths.
+- 2026-06-12: Hardened shared debug-log sanitization for JWTs, Supabase
+  publishable/secret keys, and token/password/API-key values in query/form and
+  JSON-style messages while preserving debug-build-only logging.
+- 2026-06-12: Added a shared keyboard-aware audit station scroll wrapper and hid
+  fixed visit chrome, including the Govee readings card and Next Station footer,
+  while station inputs are being edited on phone layouts.
+- 2026-06-12: Fixed Hatch Analysis Machine scope activation from pooled House
+  scope so the machine row no longer opens the House entry or House remove
+  controls; the House card stays visibly pooled until House scope is explicitly
+  added.
+- 2026-06-12: Made the Egg and Chicks weight-entry modal sheets reserve
+  scrollable bottom space for the in-app numeric keypad so lower weight cells
+  remain fully reachable instead of sitting partly behind the keypad, and kept
+  the keypad open while users touch or drag within the sheet. Active lower rows
+  now scroll above the keypad overlay after entry or keypad navigation.
+- 2026-06-11: Made the Govee Records tab merge completed floating-panel saves
+  into its open list immediately and sort visit-day groups by latest update
+  time, so newly recorded current-date captures are not hidden behind
+  future-dated demo records.
+- 2026-06-11: Hardened mobile UI responsiveness by truncating long shared
+  gradient app-bar titles and status badges, stacking the audit-session footer
+  actions on narrow phones, ellipsizing Select Stations row labels, and keeping
+  audit/Govee filter dropdown labels constrained inside their fields.
+- 2026-06-11: Hid the read-only Govee capture date field from the active scope
+  picker while keeping the provider-owned capture date behavior unchanged.
+- 2026-06-11: Gated the live Govee card and preview charts on latest-reading
+  freshness so sensors with no live update for more than 30 seconds show empty
+  Temp/RH metadata and no stale chart trend even if BLE/GATT flags lag, added an
+  inline scan/connect activity spinner, and kept Customer and Hatchery controls
+  visible for Setter/Hatcher Govee measure scopes.
+- 2026-06-11: Refactored the compact Govee live-card settings sheet into a
+  private part, shared the device-name and connection-status display helpers
+  between the card and sheet, disabled duplicate compact-card scan taps while a
+  scan is already active, and capped diagnostics text to prevent overflow.
 - 2026-06-04: Enhanced thermometer OCR with primary-first fallback
   preprocessing, confidence-scored reading consensus, a shared lower-CPU
   auto-scan cadence, and testable OCR-reader injection while leaving correction
@@ -1322,6 +1459,9 @@ reading when available so mobile runs can confirm the active OCR path.
 - 2026-06-03: Deferred audit-session provider clearing and station-selection
   loading reset until after the route-pop frame so backing from a station to the
   main station-selection screen does not mutate active `LayoutBuilder` layout.
+- 2026-06-12: Allowed a blank/default Hatchers station to save as an
+  explicitly incomplete station, while still clearing metadata-only
+  `hatcher_optimizing` panel rows and leaving the visit in progress.
 - 2026-05-26: Kept Hatch Analysis `Trolley scope` independent from House and
   Machine scope, so users can leave both pooled and start comparison at trolley.
 - 2026-05-26: Counted Hatch Analysis `Total eggs set` as meaningful panel data

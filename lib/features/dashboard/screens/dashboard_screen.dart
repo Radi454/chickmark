@@ -67,9 +67,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: AppColors.surfaceVariant,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          // Age is no longer a global filter — each sector carries its own
+          // period picker + Incremental/Cumulative toggle.
           final customerFilter = _customerFilter(provider);
           final flockFilter = _flockFilter(provider);
-          final ageFilter = _ageFilter(provider);
 
           if (constraints.maxWidth < 520) {
             return Column(
@@ -80,8 +81,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   children: [
                     Expanded(child: flockFilter),
-                    const SizedBox(width: AppSizes.spaceSm),
-                    SizedBox(width: 96, child: ageFilter),
                     if (provider.hasActiveFilters) ...[
                       const SizedBox(width: AppSizes.spaceXs),
                       _clearFilterButton(provider, compact: true),
@@ -97,8 +96,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(child: customerFilter),
               const SizedBox(width: AppSizes.spaceSm),
               Expanded(child: flockFilter),
-              const SizedBox(width: AppSizes.spaceSm),
-              Expanded(child: ageFilter),
               if (provider.hasActiveFilters) ...[
                 const SizedBox(width: AppSizes.spaceSm),
                 _clearFilterButton(provider),
@@ -152,27 +149,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _ageFilter(DashboardProvider provider) {
-    final entries = <({int? value, String label})>[
-      (value: null, label: 'All'),
-      ...provider.availableBmkAges.map((age) => (value: age, label: '${age}w')),
-    ];
-
-    return DropdownButtonFormField<int?>(
-      initialValue: provider.selectedBmkAge,
-      isExpanded: true,
-      decoration: _filterDecoration('Age'),
-      selectedItemBuilder: (context) => [
-        for (final entry in entries) _menuText(entry.label),
-      ],
-      items: [
-        for (final entry in entries)
-          DropdownMenuItem(value: entry.value, child: _menuText(entry.label)),
-      ],
-      onChanged: provider.setBmkAge,
-    );
-  }
-
   InputDecoration _filterDecoration(String label) {
     return InputDecoration(
       labelText: label,
@@ -207,50 +183,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// Pull-to-refresh: re-query both the dashboard data and the scope comparison
+  /// for the current filter. Runs concurrently; the RefreshIndicator spins until
+  /// both settle.
+  Future<void> _handleRefresh(BuildContext context) {
+    return Future.wait([
+      context.read<DashboardProvider>().refresh(),
+      context.read<ScopeComparisonProvider>().refresh(),
+    ]);
+  }
+
   Widget _buildContent(BuildContext context, DashboardProvider provider) {
     if (provider.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (provider.customers.isEmpty && provider.flocks.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.dashboard_outlined,
-              size: 64,
-              color: AppColors.textDisabled,
+      return RefreshIndicator(
+        onRefresh: () => _handleRefresh(context),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.dashboard_outlined,
+                      size: 64,
+                      color: AppColors.textDisabled,
+                    ),
+                    SizedBox(height: AppSizes.spaceLg),
+                    Text(
+                      'No customer or flock data yet',
+                      style: AppTextStyles.title,
+                    ),
+                    SizedBox(height: AppSizes.spaceSm),
+                    Text(
+                      'Add a customer and flock to see dashboard insights.',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            SizedBox(height: AppSizes.spaceLg),
-            Text('No customer or flock data yet', style: AppTextStyles.title),
-            SizedBox(height: AppSizes.spaceSm),
-            Text(
-              'Add a customer and flock to see dashboard insights.',
-              style: AppTextStyles.caption,
-            ),
-          ],
+          ),
         ),
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSizes.spaceSm,
-        vertical: AppSizes.spaceMd,
-      ),
-      children: [
-        // Egg Storage & Egg Quality are presented by the Scopes section below
-        // (same station card as every other audit station). The legacy bespoke
-        // EggStorageSection / EggQualitySection cards were dropped to avoid
-        // showing those two sectors twice on the dashboard.
-        GoveeEnvironmentalReadingsSection(
-          captures: provider.goveeCaptures,
-          isLoading: provider.isLoadingGoveeCaptures,
+    return RefreshIndicator(
+      onRefresh: () => _handleRefresh(context),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceSm,
+          vertical: AppSizes.spaceMd,
         ),
-        const SizedBox(height: AppSizes.spaceLg),
-        const ScopeInsightsSection(),
-      ],
+        children: [
+          // Egg Storage & Egg Quality are presented by the Scopes section below
+          // (same station card as every other audit station). The legacy bespoke
+          // EggStorageSection / EggQualitySection cards were dropped to avoid
+          // showing those two sectors twice on the dashboard.
+          GoveeEnvironmentalReadingsSection(
+            captures: provider.goveeCaptures,
+            isLoading: provider.isLoadingGoveeCaptures,
+          ),
+          const SizedBox(height: AppSizes.spaceLg),
+          const ScopeInsightsSection(),
+        ],
+      ),
     );
   }
 }

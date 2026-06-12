@@ -297,7 +297,6 @@ void main() {
       expect(storage.single['estReadingsJson'], contains('front_top'));
       expect(storage.single['estAvg'], 19.2);
       expect(storage.single['estCvPct'], 0.4);
-      expect(storage.single['shellTemp'], 19.2);
       expect(storage.single['turningTimes'], 3);
       expect(storage.single['traySpacing'], 'Tight');
       expect(storage.single['coolerProximity'], 'Adjacent');
@@ -409,7 +408,6 @@ void main() {
       expect(storage.single['tray'], isNull);
       expect(storage.single['storagePeriodDays'], 4);
       expect(storage.single['estAvg'], 19.0);
-      expect(storage.single['shellTemp'], 20.2);
       expect(storage.single['turningTimes'], 3);
       expect(storage.single['traySpacing'], 'Tight');
       expect(storage.single['coolerProximity'], 'Adjacent');

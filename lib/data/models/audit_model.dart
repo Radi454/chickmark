@@ -200,8 +200,6 @@ class AuditModel {
   // --- Egg ---
   final double? esCo2;
   final String? esCo2Photo;
-  final double? esShellTemp;
-  final String? esShellTempPhoto;
   final int? esTurningTimes;
   final String? esUvTrays;
   final int? esEggStorageDays;
@@ -425,8 +423,6 @@ class AuditModel {
     // --- Egg ---
     this.esCo2,
     this.esCo2Photo,
-    this.esShellTemp,
-    this.esShellTempPhoto,
     this.esTurningTimes,
     this.esUvTrays,
     this.esEggStorageDays,
@@ -655,8 +651,6 @@ class AuditModel {
       // --- Egg ---
       esCo2: map['esCo2']?.toDouble(),
       esCo2Photo: map['esCo2Photo'],
-      esShellTemp: map['esShellTemp']?.toDouble(),
-      esShellTempPhoto: map['esShellTempPhoto'],
       esTurningTimes: map['esTurningTimes'],
       esUvTrays: map['esUvTrays'],
       esEggStorageDays: map['esEggStorageDays'],
@@ -887,8 +881,6 @@ class AuditModel {
       // --- Egg ---
       'esCo2': esCo2,
       'esCo2Photo': esCo2Photo,
-      'esShellTemp': esShellTemp,
-      'esShellTempPhoto': esShellTempPhoto,
       'esTurningTimes': esTurningTimes,
       'esUvTrays': esUvTrays,
       'esEggStorageDays': esEggStorageDays,

@@ -62,7 +62,6 @@ class PanelSampleSchema {
         'estReadingsJson TEXT',
         'estAvg REAL',
         'estCvPct REAL',
-        'shellTemp REAL',
         'turningTimes INTEGER',
         'traySpacing TEXT',
         'coolerProximity TEXT',

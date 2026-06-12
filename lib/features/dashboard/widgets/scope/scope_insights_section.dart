@@ -8,7 +8,11 @@ import '../../providers/scope_comparison_provider.dart';
 import '../../scope/scope_config.dart';
 import '../../scope/scope_station_items.dart';
 import '../sections/egg_storage_station_section.dart';
+import 'alarm_triage_feed.dart';
+import 'scope_cumulative_view.dart';
+import 'scope_mode_toggle.dart';
 import 'scope_sector_widget.dart';
+import 'scope_triage_builder.dart';
 import 'station_icon.dart';
 
 /// "Scopes & Parameters" — the full audit comparison, grouped by station, each
@@ -51,11 +55,9 @@ class _StationCardState extends State<_StationCard> {
 
   @override
   Widget build(BuildContext context) {
+    final scope = context.watch<ScopeComparisonProvider>();
     final sectors = ScopeConfigRegistry.forStation(widget.station);
-    final done = completedItemsFor(
-      context.watch<ScopeComparisonProvider>(),
-      widget.station,
-    );
+    final done = completedItemsFor(scope, widget.station);
     // Mirror the Govee card: a full-bleed brand-gradient header with rounded
     // top corners, then the body. Built by hand (not ExpansionTile) so the
     // header band spans edge-to-edge instead of being inset by ListTile's
@@ -98,7 +100,7 @@ class _StationCardState extends State<_StationCard> {
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: _bodyChildren(sectors),
+                  children: _bodyChildren(sectors, scope),
                 ),
               ),
               crossFadeState: _expanded
@@ -112,19 +114,27 @@ class _StationCardState extends State<_StationCard> {
     );
   }
 
-  /// Most stations are a plain stack of their sectors. Two are bespoke: Egg
-  /// Storage is laid out like the audit station (alarms → EST grid → upside down
-  /// → checklist → per-house Egg Quality tabs), and Hatch has a standalone "Hatch
-  /// Result" sector above a "Breakout" tabset.
-  List<Widget> _bodyChildren(List<ScopeSectorConfig> sectors) {
+  /// Most stations are a plain stack of their sectors, each fronted by a
+  /// three-level "Alarms & Actions Required" banner. Two are bespoke: Egg Storage
+  /// is laid out like the audit station (it carries its own richer alarms card),
+  /// and Hatch has a standalone "Hatch Result" sector above a "Breakout" tabset.
+  List<Widget> _bodyChildren(
+    List<ScopeSectorConfig> sectors,
+    ScopeComparisonProvider scope,
+  ) {
     if (widget.station == ScopeConfigRegistry.stationStorage) {
-      return const [EggStorageStationSection()];
+      return const [_StorageStationBody()];
     }
+    final alarms = AlarmTriageFeed(
+      items: stationTriageItems(scope, widget.station),
+    );
     if (widget.station == ScopeConfigRegistry.stationHatch) {
-      return const [
-        ScopeSectorWidget(sectorId: 'hatch_results'),
-        SizedBox(height: AppSizes.spaceMd),
-        _BreakoutTabs(
+      return [
+        alarms,
+        const SizedBox(height: AppSizes.spaceMd),
+        const ScopeSectorWidget(sectorId: 'hatch_results'),
+        const SizedBox(height: AppSizes.spaceMd),
+        const _BreakoutTabs(
           sectorIds: [
             'fresh_egg_breakout',
             'candled_egg_breakout',
@@ -133,7 +143,82 @@ class _StationCardState extends State<_StationCard> {
         ),
       ];
     }
-    return [for (final s in sectors) ScopeSectorWidget(sectorId: s.id)];
+    return [
+      alarms,
+      const SizedBox(height: AppSizes.spaceMd),
+      for (final s in sectors) ScopeSectorWidget(sectorId: s.id),
+    ];
+  }
+}
+
+/// Egg-Storage station body: a station-level Incremental ⇄ Cumulative toggle.
+/// Incremental shows the bespoke station view unchanged; Cumulative shows the
+/// per-axis trend for Egg Storage (by visit) and Egg Quality (by flock age).
+class _StorageStationBody extends StatelessWidget {
+  const _StorageStationBody();
+
+  @override
+  Widget build(BuildContext context) {
+    final cumulative =
+        context.watch<ScopeComparisonProvider>().isCumulative('egg_storage');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: ScopeModeToggle(
+            sectorId: 'egg_storage',
+            axis: CumulativeAxis.visit,
+          ),
+        ),
+        const SizedBox(height: AppSizes.spaceSm),
+        if (!cumulative)
+          const EggStorageStationSection()
+        else ...[
+          _cumHeader('Egg Storage', 'by visit'),
+          const ScopeCumulativeView(sectorId: 'egg_storage'),
+          const SizedBox(height: AppSizes.spaceLg),
+          _cumHeader('Egg Quality', 'by flock age'),
+          const ScopeCumulativeView(sectorId: 'egg_quality'),
+        ],
+      ],
+    );
+  }
+
+  Widget _cumHeader(String title, String sub) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 3.5,
+            height: 15,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            sub,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

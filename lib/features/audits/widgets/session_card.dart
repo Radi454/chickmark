@@ -112,12 +112,6 @@ class _SessionCardState extends State<SessionCard> {
                     widget.onClearStation(widget.view.stations[index].key),
               );
             }),
-            const Divider(height: 1),
-            _GoveeSummaryRow(
-              count: widget.view.goveeCaptureCount,
-              sync: widget.view.goveeSync,
-            ),
-            const SizedBox(height: 4),
           ],
         ],
       ),
@@ -235,10 +229,6 @@ class _StationRow extends StatelessWidget {
               ),
             ),
             _dataStatusChip(station.status),
-            if (station.hasGovee) ...[
-              const SizedBox(width: 8),
-              _GoveeIndicator(sync: station.goveeSync),
-            ],
             const SizedBox(width: 8),
             _SyncDot(sync: station.sync),
             if (canEdit)
@@ -324,67 +314,6 @@ class _StationRow extends StatelessWidget {
   }
 }
 
-/// Dedicated sector row summarising the visit's Govee environmental captures
-/// (across all spots): a data chip (reading count or "None") and the rolled-up
-/// cloud sync dot, mirroring the station rows above it.
-class _GoveeSummaryRow extends StatelessWidget {
-  final int count;
-  final String sync;
-
-  const _GoveeSummaryRow({required this.count, required this.sync});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.device_thermostat,
-            size: 20,
-            color: AppColors.primary,
-          ),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              'Govee Readings',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          _statusChip(),
-          const SizedBox(width: 8),
-          _SyncDot(sync: sync),
-          // Spacer to align the sync dot under the station rows' menu column.
-          const SizedBox(width: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusChip() {
-    final captured = count > 0;
-    final (label, bg, fg) = captured
-        ? (
-            count == 1 ? '1 reading' : '$count readings',
-            AppColors.statusGoodBg,
-            AppColors.statusGood,
-          )
-        : ('None', AppColors.statusNeutralBg, AppColors.statusNeutralText);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
-      ),
-    );
-  }
-}
-
 /// Header pill summarising a visit's sync state.
 class _SyncChip extends StatelessWidget {
   final String sync;
@@ -449,30 +378,6 @@ class _SyncDot extends StatelessWidget {
         height: 10,
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
-    );
-  }
-}
-
-/// Thermometer for a station that has Govee environmental readings, coloured by
-/// the captures' cloud sync state (green synced, amber pending, red failed).
-class _GoveeIndicator extends StatelessWidget {
-  final String sync;
-
-  const _GoveeIndicator({required this.sync});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (sync) {
-      'synced' => AppColors.statusGood,
-      'failed' => AppColors.statusError,
-      _ => _pendingColor,
-    };
-    final label = sync.isEmpty
-        ? sync
-        : '${sync[0].toUpperCase()}${sync.substring(1)}';
-    return Tooltip(
-      message: 'Govee readings · $label',
-      child: Icon(Icons.device_thermostat, size: 16, color: color),
     );
   }
 }

@@ -15,7 +15,7 @@ import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
-import '../../govee/screens/govee_screen.dart';
+import '../../govee/screens/govee_records_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -79,11 +79,11 @@ class _MainShellState extends State<MainShell> {
       _ShellTab(
         'govee',
         const _ShellDestination(
-          label: AppStrings.temperatureTab,
+          label: AppStrings.goveeRecordsTab,
           icon: Icons.device_thermostat_outlined,
           selectedIcon: Icons.device_thermostat,
         ),
-        () => const GoveeScreen(),
+        () => const GoveeRecordsScreen(),
       ),
       _ShellTab(
         'bmk',
@@ -278,7 +278,7 @@ class _ShellNavigationDrawer extends StatelessWidget {
       width: drawerWidth,
       elevation: 10,
       shadowColor: AppColors.cardShadow,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.horizontal(
@@ -322,7 +322,7 @@ class _NavigationItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? AppColors.primary : const Color(0xFF535966);
+    final color = isSelected ? AppColors.primary : AppColors.statusNeutralText;
     final background = isSelected ? AppColors.activeBg : Colors.transparent;
 
     return Padding(
@@ -379,7 +379,7 @@ class _ShellNavigationRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         boxShadow: [
           BoxShadow(
             color: AppColors.cardShadow,
@@ -394,7 +394,7 @@ class _ShellNavigationRail extends StatelessWidget {
           onDestinationSelected: onDestinationSelected,
           minWidth: 88,
           labelType: NavigationRailLabelType.all,
-          backgroundColor: Colors.white,
+          backgroundColor: AppColors.surface,
           selectedIconTheme: const IconThemeData(color: AppColors.primary),
           selectedLabelTextStyle: const TextStyle(
             color: AppColors.primary,
@@ -435,7 +435,7 @@ class _NavigationHeader extends StatelessWidget {
           const Expanded(child: ChickMarkLogo(logoSize: 74)),
           IconButton(
             tooltip: 'Close navigation',
-            icon: const Icon(Icons.close, color: Color(0xFF535966)),
+            icon: const Icon(Icons.close, color: AppColors.statusNeutralText),
             onPressed: () => Navigator.of(context).pop(),
           ),
         ],

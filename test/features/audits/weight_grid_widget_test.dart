@@ -1,8 +1,130 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/features/audits/widgets/audit_numeric_keyboard.dart';
+import 'package:hatchaudit/features/audits/widgets/weight_entry_sheet_scroll_view.dart';
 import 'package:hatchaudit/features/audits/widgets/weight_grid_widget.dart';
 
 void main() {
+  testWidgets('weight sheet scroll view reserves custom keypad space', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(430, 932),
+            padding: EdgeInsets.only(bottom: 34),
+          ),
+          child: Scaffold(
+            body: WeightEntrySheetScrollView(
+              controller: scrollController,
+              inputMode: AuditNumericInputMode.customKeyboard,
+              child: const SizedBox(height: 100),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final scrollView = tester.widget<SingleChildScrollView>(
+      find.byType(SingleChildScrollView),
+    );
+    final padding = scrollView.padding as EdgeInsets;
+
+    expect(padding.left, 16);
+    expect(padding.top, 0);
+    expect(padding.right, 16);
+    expect(padding.bottom, greaterThan(340));
+  });
+
+  testWidgets('weight sheet keeps custom keypad active while dragging', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: WeightEntrySheetScrollView(
+            inputMode: AuditNumericInputMode.customKeyboard,
+            child: SizedBox(height: 100),
+          ),
+        ),
+      ),
+    );
+
+    final scrollView = tester.widget<SingleChildScrollView>(
+      find.byType(SingleChildScrollView),
+    );
+
+    expect(
+      scrollView.keyboardDismissBehavior,
+      ScrollViewKeyboardDismissBehavior.manual,
+    );
+  });
+
+  testWidgets('custom keypad keeps last weight row above keypad overlay', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controllers = List.generate(100, (_) => TextEditingController());
+    final focusNodes = List.generate(100, (_) => FocusNode());
+    final scrollController = ScrollController();
+
+    addTearDown(scrollController.dispose);
+    for (final controller in controllers) {
+      addTearDown(controller.dispose);
+    }
+    for (final focusNode in focusNodes) {
+      addTearDown(focusNode.dispose);
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(430, 932),
+            padding: EdgeInsets.only(bottom: 34),
+          ),
+          child: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 430,
+                height: 632,
+                child: WeightEntrySheetScrollView(
+                  controller: scrollController,
+                  inputMode: AuditNumericInputMode.customKeyboard,
+                  child: WeightGridWidget(
+                    controllers: controllers,
+                    focusNodes: focusNodes,
+                    enabled: true,
+                    mode: WeightsMode.egg,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    scrollController.jumpTo(scrollController.position.maxScrollExtent);
+    await tester.pump();
+    await tester.tap(find.byType(TextField).last);
+    await tester.pumpAndSettle();
+
+    final keyboardTop = tester.getTopLeft(find.byType(AuditNumericKeyboard)).dy;
+    final lastFieldBottom = tester
+        .getBottomLeft(find.byType(TextField).last)
+        .dy;
+
+    expect(lastFieldBottom, lessThan(keyboardTop - 12));
+  });
+
   testWidgets('closing the last weight field does not assume 100 fields', (
     tester,
   ) async {

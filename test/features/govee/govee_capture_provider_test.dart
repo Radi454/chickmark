@@ -162,8 +162,13 @@ void main() {
     ).thenAnswer((_) async => const []);
     when(() => mockGovee.deviceId).thenReturn('device-1');
     when(() => mockGovee.deviceName).thenReturn('Govee H5051');
+    when(() => mockGovee.isConnected).thenReturn(true);
     when(() => mockGovee.isGattConnected).thenReturn(true);
+    when(() => mockGovee.isGattConnecting).thenReturn(false);
+    when(() => mockGovee.isScanning).thenReturn(false);
     when(() => mockGovee.signalStrength).thenReturn(-61);
+    when(() => mockGovee.latestReading).thenReturn(null);
+    when(() => mockGovee.lastSeenAt).thenReturn(null);
     when(() => mockGovee.diagnostics).thenReturn(const []);
     when(() => mockGovee.readings).thenAnswer((_) => liveReadings.stream);
     when(() => mockGovee.initializeBle()).thenAnswer((_) async {});
@@ -307,6 +312,63 @@ void main() {
     },
   );
 
+  test(
+    'live values and preview readings clear after disconnect grace',
+    () async {
+      final latest = _reading(
+        timestamp: DateTime.parse('2026-05-02T09:59:40'),
+        temp: 77.5,
+        humidity: 53.3,
+      );
+      when(() => mockGovee.isConnected).thenReturn(false);
+      when(() => mockGovee.isGattConnected).thenReturn(false);
+      when(() => mockGovee.latestReading).thenReturn(latest);
+      when(() => mockGovee.lastSeenAt).thenReturn(latest.timestamp);
+      when(() => mockGovee.signalStrength).thenReturn(-47);
+
+      final provider = await configuredProvider();
+
+      expect(provider.liveTemperatureFahrenheit, 77.5);
+      expect(provider.liveHumidity, 53.3);
+      expect(provider.liveUpdatedAt, latest.timestamp);
+      expect(provider.signalStrength, -47);
+      expect(provider.livePreviewReadings, [latest]);
+
+      fakeClock.elapse(const Duration(seconds: 11));
+
+      expect(provider.liveTemperatureFahrenheit, isNull);
+      expect(provider.liveHumidity, isNull);
+      expect(provider.liveUpdatedAt, isNull);
+      expect(provider.signalStrength, isNull);
+      expect(provider.livePreviewReadings, isEmpty);
+    },
+  );
+
+  test(
+    'stale connected sensor clears live values after disconnect grace',
+    () async {
+      final stale = _reading(
+        timestamp: DateTime.parse('2026-05-02T09:59:20'),
+        temp: 77.5,
+        humidity: 53.3,
+      );
+      when(() => mockGovee.isConnected).thenReturn(true);
+      when(() => mockGovee.isGattConnected).thenReturn(true);
+      when(() => mockGovee.latestReading).thenReturn(stale);
+      when(() => mockGovee.lastSeenAt).thenReturn(stale.timestamp);
+      when(() => mockGovee.signalStrength).thenReturn(-47);
+
+      final provider = await configuredProvider();
+
+      expect(provider.hasFreshLiveData, isFalse);
+      expect(provider.liveTemperatureFahrenheit, isNull);
+      expect(provider.liveHumidity, isNull);
+      expect(provider.liveUpdatedAt, isNull);
+      expect(provider.signalStrength, isNull);
+      expect(provider.livePreviewReadings, isEmpty);
+    },
+  );
+
   test('live preview accumulates sensor readings before recording', () async {
     final first = _reading(
       timestamp: DateTime.parse('2026-05-02T10:01:00'),
@@ -330,6 +392,48 @@ void main() {
     expect(provider.liveRecordingReadings, isEmpty);
     expect(provider.livePreviewReadings, [first, second]);
   });
+
+  test(
+    'live preview keeps its trend when recording starts (no reset)',
+    () async {
+      final before1 = _reading(
+        timestamp: DateTime.parse('2026-05-02T09:59:00'),
+        temp: 77.0,
+        humidity: 53.0,
+      );
+      final before2 = _reading(
+        timestamp: DateTime.parse('2026-05-02T09:59:30'),
+        temp: 77.1,
+        humidity: 53.1,
+      );
+      final provider = await configuredProvider();
+
+      await provider.ensureBleReady();
+      liveReadings
+        ..add(before1)
+        ..add(before2);
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.livePreviewReadings, [before1, before2]);
+
+      await provider.startRecording();
+
+      // Starting a recording must NOT wipe the accumulated live trend.
+      expect(provider.livePreviewReadings, [before1, before2]);
+
+      final during = _reading(
+        timestamp: DateTime.parse('2026-05-02T10:00:05'),
+        temp: 77.2,
+        humidity: 53.2,
+      );
+      liveReadings.add(during);
+      await Future<void>.delayed(Duration.zero);
+
+      // Live feed keeps the full continuous trend; the recording-window buffer
+      // only holds readings from the recording start onward.
+      expect(provider.livePreviewReadings, [before1, before2, during]);
+      expect(provider.liveRecordingReadings, [during]);
+    },
+  );
 
   test('saves valid synced readings from the recording start', () async {
     when(

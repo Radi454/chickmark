@@ -170,6 +170,8 @@ class GoveeMetricChart extends StatefulWidget {
   final double Function(GoveeChartPoint point) valueFor;
   final String Function(GoveeChartPoint point) tooltipTextFor;
   final bool interactionEnabled;
+  final double plotHeight;
+  final bool compact;
 
   const GoveeMetricChart({
     super.key,
@@ -184,6 +186,8 @@ class GoveeMetricChart extends StatefulWidget {
     required this.valueFor,
     required this.tooltipTextFor,
     this.interactionEnabled = true,
+    this.plotHeight = _goveeChartPlotHeight,
+    this.compact = false,
   });
 
   @override
@@ -213,9 +217,9 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
         .where((spot) => spot.y.isFinite)
         .toList(growable: false);
     if (chartPoints.isEmpty) {
-      return const SizedBox(
-        height: 180,
-        child: Center(child: Text('No readings saved')),
+      return SizedBox(
+        height: widget.plotHeight,
+        child: const Center(child: Text('No readings saved')),
       );
     }
 
@@ -234,16 +238,20 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
         ? minX + const Duration(minutes: 1).inMilliseconds
         : chartPoints.last.x;
 
+    final compact = widget.compact;
+    final plotHeight = widget.plotHeight;
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
+      padding: compact
+          ? const EdgeInsets.fromLTRB(12, 10, 12, 8)
+          : const EdgeInsets.fromLTRB(14, 16, 14, 16),
       decoration: BoxDecoration(
         color: _goveeChartCardColor,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
             color: AppColors.cardShadow,
-            blurRadius: 18,
-            offset: Offset(0, 8),
+            blurRadius: compact ? 10 : 18,
+            offset: Offset(0, compact ? 4 : 8),
           ),
         ],
       ),
@@ -255,28 +263,29 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
             textAlign: TextAlign.center,
             style: AppTextStyles.title.copyWith(
               color: AppColors.textPrimary,
-              fontSize: 16,
+              fontSize: compact ? 13 : 16,
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: AppSizes.spaceMd),
+          SizedBox(height: compact ? AppSizes.spaceXs : AppSizes.spaceMd),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
                 width: _goveeChartRailWidth,
-                height: _goveeChartPlotHeight,
+                height: plotHeight,
                 child: _ChartValueRail(
                   unit: widget.unit,
                   max: displayMax,
                   avg: displayAvg,
                   min: displayMin,
+                  compact: compact,
                 ),
               ),
               const SizedBox(width: _goveeChartRailGap),
               Expanded(
                 child: SizedBox(
-                  height: _goveeChartPlotHeight + _goveeChartBottomTitleHeight,
+                  height: plotHeight + _goveeChartBottomTitleHeight,
                   child: LineChart(
                     key: widget.chartKey,
                     transformationConfig: FlTransformationConfig(
@@ -372,7 +381,7 @@ class _GoveeMetricChartState extends State<GoveeMetricChart> {
               ),
             ],
           ),
-          const SizedBox(height: AppSizes.spaceSm),
+          SizedBox(height: compact ? AppSizes.spaceXs : AppSizes.spaceSm),
           Padding(
             padding: const EdgeInsets.only(left: _goveeChartRailOffset),
             child: Row(
@@ -508,12 +517,14 @@ class _ChartValueRail extends StatelessWidget {
   final double max;
   final double avg;
   final double min;
+  final bool compact;
 
   const _ChartValueRail({
     required this.unit,
     required this.max,
     required this.avg,
     required this.min,
+    this.compact = false,
   });
 
   @override
@@ -522,10 +533,47 @@ class _ChartValueRail extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        _RailValue(label: 'Max', value: max, unit: unit),
-        _RailValue(label: 'Avg', value: avg, unit: unit),
-        _RailValue(label: 'Min', value: min, unit: unit),
+        _RailSlot(
+          child: _RailValue(
+            label: 'Max',
+            value: max,
+            unit: unit,
+            compact: compact,
+          ),
+        ),
+        _RailSlot(
+          child: _RailValue(
+            label: 'Avg',
+            value: avg,
+            unit: unit,
+            compact: compact,
+          ),
+        ),
+        _RailSlot(
+          child: _RailValue(
+            label: 'Min',
+            value: min,
+            unit: unit,
+            compact: compact,
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _RailSlot extends StatelessWidget {
+  final Widget child;
+
+  const _RailSlot({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: FittedBox(fit: BoxFit.scaleDown, child: child),
+      ),
     );
   }
 }
@@ -534,11 +582,13 @@ class _RailValue extends StatelessWidget {
   final String label;
   final double value;
   final String unit;
+  final bool compact;
 
   const _RailValue({
     required this.label,
     required this.value,
     required this.unit,
+    this.compact = false,
   });
 
   @override
@@ -551,16 +601,18 @@ class _RailValue extends StatelessWidget {
           label,
           style: AppTextStyles.caption.copyWith(
             color: _goveeChartRailLabelColor,
-            fontSize: 13,
+            fontSize: compact ? 10 : 13,
+            height: compact ? 1.0 : null,
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 2),
+        SizedBox(height: compact ? 1 : 2),
         Text(
           '${_formatMetric(value)}$unit',
           style: AppTextStyles.body.copyWith(
             color: _goveeChartRailValueColor,
-            fontSize: 14,
+            fontSize: compact ? 12 : 14,
+            height: compact ? 1.05 : null,
             fontWeight: FontWeight.w700,
           ),
         ),

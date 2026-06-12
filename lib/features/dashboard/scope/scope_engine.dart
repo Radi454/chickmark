@@ -157,6 +157,12 @@ class ScopeEngine {
         if (acc.valueN > 0) value = acc.valueSum;
         text = value == null ? '—' : value.round().toString();
         break;
+      case ScopeValueFormat.yesNo:
+        // Backed by a 0/1 column; valueSum = Σ(present) across pooled sessions.
+        // "Yes" when any present. value stays null so it's neutral for severity
+        // and excluded from the numeric range/charts (like text).
+        text = acc.valueN == 0 ? '—' : (acc.valueSum > 0 ? 'Yes' : 'No');
+        break;
       case ScopeValueFormat.text:
         value = null;
         text = acc.textValues.length == 1 ? acc.textValues.first : '—';

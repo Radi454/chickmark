@@ -115,7 +115,9 @@ class GoveeDailyCaptureModel {
       'hatcheryId': hatcheryId,
       'stationKey': stationKey,
       'place': place.name,
-      'machineId': machineId,
+      // Both stores require machineId NOT NULL (SQLite DEFAULT '', cloud mirror);
+      // the field is nullable only in memory, so serialize the '' sentinel.
+      'machineId': machineId ?? '',
       'captureDate': captureDate,
       'startedAt': startedAt?.toIso8601String(),
       'endedAt': endedAt?.toIso8601String(),

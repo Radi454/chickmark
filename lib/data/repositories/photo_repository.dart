@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 
+import '../../services/photo/photo_sync_coordinator.dart';
 import '../database/database_helper.dart';
 import '../models/photo_model.dart';
 import 'sync_tombstone_repository.dart';
@@ -80,6 +83,10 @@ class PhotoRepository {
       photo.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    // Nudge an opportunistic upload so this capture reaches the cloud without
+    // waiting for the next startup/background sync. No-op until enabled at app
+    // startup, so tests that save photos stay timer-free.
+    PhotoSyncCoordinator.nudge();
   }
 
   Future<void> deleteByPanelRow({
@@ -88,13 +95,18 @@ class PhotoRepository {
     required String panelRowId,
   }) async {
     final db = await dbHelper.db;
+    final localPaths = <String>[];
     await db.transaction<void>((txn) async {
       final rows = await txn.query(
         'photos',
-        columns: ['id'],
+        columns: ['id', 'filePath'],
         where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
         whereArgs: [sessionId, panelName, panelRowId],
       );
+      for (final row in rows) {
+        final path = row['filePath'] as String?;
+        if (_isLocalFilePath(path)) localPaths.add(path!);
+      }
       await SyncTombstoneRepository.queueDeletesWithExecutor(
         txn,
         'photos',
@@ -106,6 +118,20 @@ class PhotoRepository {
         whereArgs: [sessionId, panelName, panelRowId],
       );
     });
+    // Drop the backing files only after the rows are gone, and only for local
+    // paths — synced rows may carry a remote URL we must not delete.
+    for (final path in localPaths) {
+      await _deleteLocalFile(path);
+    }
+  }
+
+  Future<void> _deleteLocalFile(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // Best-effort cleanup; a leftover file is non-fatal.
+    }
   }
 
   Future<void> upsertPhoto(Map<String, dynamic> row) async {

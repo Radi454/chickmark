@@ -22,6 +22,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -308,7 +309,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               ),
         body: AuditNumericKeyboardScope(
           child: AuditKeyboardDismiss(
-            child: SingleChildScrollView(
+            child: AuditStationScrollView(
               controller: _scrollController,
               padding: const EdgeInsets.all(AppSizes.cardPadding),
               child: Column(
@@ -350,6 +351,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                                 ),
                                 photoPath: audit.hoChickPantingPhoto,
                                 enabled: !auditProvider.isReadOnly,
+                                fieldKey: 'chick_panting_photo',
                                 onPhotoCaptured: (p) => auditProvider
                                     .updateField('hoChickPantingPhoto', p),
                               ),
@@ -821,6 +823,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               key: const ValueKey('hatcher-co2-photo-button'),
               photoPath: audit.hoCo2Photo,
               enabled: !provider.isReadOnly,
+              fieldKey: 'co2_photo',
               onPhotoCaptured: (path) =>
                   provider.updateField('hoCo2Photo', path),
             ),

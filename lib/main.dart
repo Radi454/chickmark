@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'core/constants/supabase_config.dart';
 import 'core/debug/startup_timer.dart';
 import 'core/security/safe_debug_log.dart';
 import 'data/database/database_factory_initializer.dart';
 import 'data/database/database_helper.dart';
 import 'data/repositories/user_repository.dart';
 import 'services/notifications/notification_service.dart';
+import 'services/photo/photo_sync_coordinator.dart';
 import 'services/supabase/supabase_initializer.dart';
 import 'app.dart';
 
@@ -15,6 +17,12 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   StartupTimer.lap('binding_ready');
+
+  // Load Supabase credentials from the bundled .env.json when not provided via
+  // --dart-define, so a plain `flutter run` still reaches the cloud. Must run
+  // before any sync / Supabase init.
+  await SupabaseConfig.ensureLoaded();
+  StartupTimer.lap('supabase_config_loaded');
 
   // Database initialization is required before runApp
   // Auth check and other operations depend on local DB
@@ -63,4 +71,8 @@ void _initBackgroundServices() {
           safeDebugLog('Supabase initialization failed', error: e);
         }),
   );
+
+  // Turn on opportunistic post-capture photo sync. nudge() stays a no-op until
+  // this runs, so it only ever fires in the real app.
+  PhotoSyncCoordinator.enable();
 }

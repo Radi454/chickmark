@@ -1,8 +1,13 @@
+import '../../../core/constants/app_thresholds.dart';
 import '../../../data/models/panel_sample_schema.dart';
 import 'scope_severity.dart';
 
 /// How a parameter's value is computed/displayed.
-enum ScopeValueFormat { percent, number, integer, text }
+enum ScopeValueFormat { percent, number, integer, text, yesNo }
+
+/// X-axis for a sector's Cumulative view: flock age (egg/chick/hatch biology
+/// tracks hen age) or audit visit (hatchery-ops settings track over time).
+enum CumulativeAxis { age, visit }
 
 /// One column (row in the matrix) of a sector: a display label bound to a real
 /// DB column, with formatting + optional count-weighting + BMK-diff severity.
@@ -79,6 +84,17 @@ class ScopeParam {
       thresholds = null,
       absoluteLimit = null;
 
+  /// Boolean flag rendered as Yes/No. Backed by a 0/1 column; "Yes" when any
+  /// pooled session has it present (see [ScopeEngine] yesNo aggregation).
+  const ScopeParam.yesNo(this.label, this.column)
+    : format = ScopeValueFormat.yesNo,
+      decimals = 0,
+      countColumn = null,
+      bmkField = null,
+      higherIsBetter = false,
+      thresholds = null,
+      absoluteLimit = null;
+
   /// Format a raw scalar (e.g. a BMK benchmark) for display, honoring this
   /// param's [format]/[decimals]. (Distinct from [ScopeEngine] cell formatting,
   /// which aggregates accumulators; this is for plain benchmark/gap numbers.)
@@ -92,6 +108,8 @@ class ScopeParam {
       case ScopeValueFormat.number:
       case ScopeValueFormat.text:
         return v.toStringAsFixed(decimals);
+      case ScopeValueFormat.yesNo:
+        return v > 0 ? 'Yes' : 'No';
     }
   }
 
@@ -118,6 +136,9 @@ class ScopeSectorConfig {
   final List<ScopeParam> params;
   final SeverityThresholds defaultThresholds;
 
+  /// Axis the Cumulative view spreads this sector across (age vs visit).
+  final CumulativeAxis cumulativeAxis;
+
   const ScopeSectorConfig({
     required this.id,
     required this.title,
@@ -127,6 +148,7 @@ class ScopeSectorConfig {
     required this.allowedLayers,
     required this.params,
     this.defaultThresholds = const SeverityThresholds(),
+    this.cumulativeAxis = CumulativeAxis.age,
   });
 
   /// True when there is no breakdown layer (pool/station only) → render tiles.
@@ -176,16 +198,16 @@ class ScopeConfigRegistry {
       note: 'Pool only · customer · hatchery · flock · breed (no added layer).',
       tableName: 'egg_storage',
       allowedLayers: _layersOf('egg_storage'),
+      cumulativeAxis: CumulativeAxis.visit,
       // NOTE: prototype's "CO₂" param dropped — no column on egg_storage.
       params: const [
-        ScopeParam.number('EST °F', 'estAvg'),
+        ScopeParam.number('EST °C', 'estAvg'),
         ScopeParam.percent('EST CV%', 'estCvPct'),
-        ScopeParam.number('Shell °C', 'shellTemp'),
         ScopeParam.integer('Storage d', 'storagePeriodDays'),
         ScopeParam.integer('Turn/day', 'turningTimes'),
         ScopeParam.text('Tray sp.', 'traySpacing'),
         ScopeParam.text('Cooler', 'coolerProximity'),
-        ScopeParam.integer('Condens.', 'condensationPresent'),
+        ScopeParam.yesNo('Condens.', 'condensationPresent'),
         ScopeParam.percent('UpsideDn %', 'upsideDownPct'),
       ],
     ),
@@ -199,10 +221,14 @@ class ScopeConfigRegistry {
       params: const [
         ScopeParam.integer('Sample', 'eggSampleSize'),
         ScopeParam.number('Avg wt g', 'eggAvgWeight'),
-        ScopeParam.percent('Unif %', 'eggUniformityPct', higherIsBetter: true),
-        ScopeParam.percent('CV%', 'eggCvPct'),
+        ScopeParam.percent('Unif %', 'eggUniformityPct', higherIsBetter: true,
+            absoluteLimit: AppThresholds.uniformityGood,
+            thresholds: SeverityThresholds(nearMargin: 2)),
+        ScopeParam.percent('CV%', 'eggCvPct',
+            absoluteLimit: AppThresholds.cvAlertPct),
         ScopeParam.number('BMK wt', 'eggBmkWeight'),
-        ScopeParam.percent('UV aff %', 'uvAffectedPct'),
+        ScopeParam.percent('UV aff %', 'uvAffectedPct',
+            absoluteLimit: 5, thresholds: SeverityThresholds(nearMargin: 2)),
         ScopeParam.percent('Cuticle %', 'uvCuticleDamagePct'),
         ScopeParam.percent('Washed %', 'uvWashedPct'),
         ScopeParam.percent('Dirty %', 'uvDirtyPct'),
@@ -221,13 +247,22 @@ class ScopeConfigRegistry {
       params: const [
         ScopeParam.number('Pasgar', 'pasgarFinalScore', higherIsBetter: true),
         ScopeParam.percent('Reflex %', 'pasgarReflexesPct', higherIsBetter: true),
-        ScopeParam.percent('Beak %', 'pasgarBeakPct'),
-        ScopeParam.percent('Navel %', 'pasgarNavelPct'),
-        ScopeParam.percent('Belly %', 'pasgarBellyPct'),
-        ScopeParam.percent('Leg %', 'pasgarLegPct'),
+        ScopeParam.percent('Beak %', 'pasgarBeakPct',
+            absoluteLimit: AppThresholds.pasgarAlertPct,
+            thresholds: SeverityThresholds(nearMargin: 3)),
+        ScopeParam.percent('Navel %', 'pasgarNavelPct',
+            absoluteLimit: AppThresholds.pasgarAlertPct,
+            thresholds: SeverityThresholds(nearMargin: 3)),
+        ScopeParam.percent('Belly %', 'pasgarBellyPct',
+            absoluteLimit: AppThresholds.pasgarAlertPct,
+            thresholds: SeverityThresholds(nearMargin: 3)),
+        ScopeParam.percent('Leg %', 'pasgarLegPct',
+            absoluteLimit: AppThresholds.pasgarAlertPct,
+            thresholds: SeverityThresholds(nearMargin: 3)),
         ScopeParam.percent('Feather %', 'pasgarFeatherDevPct', higherIsBetter: true),
         ScopeParam.number('CVT °F', 'cvtAvgTemp'),
-        ScopeParam.percent('CVT CV%', 'cvtCvPct'),
+        ScopeParam.percent('CVT CV%', 'cvtCvPct',
+            absoluteLimit: AppThresholds.cvAlertPct),
         ScopeParam.percent('YFBM %', 'yfbmAvgPct'),
       ],
     ),
@@ -241,8 +276,11 @@ class ScopeConfigRegistry {
       params: const [
         ScopeParam.integer('Sample', 'sampleSize'),
         ScopeParam.number('Avg wt g', 'avgWeight'),
-        ScopeParam.percent('Unif %', 'uniformityPct', higherIsBetter: true),
-        ScopeParam.percent('CV%', 'cvPct'),
+        ScopeParam.percent('Unif %', 'uniformityPct', higherIsBetter: true,
+            absoluteLimit: AppThresholds.uniformityGood,
+            thresholds: SeverityThresholds(nearMargin: 2)),
+        ScopeParam.percent('CV%', 'cvPct',
+            absoluteLimit: AppThresholds.cvAlertPct),
         ScopeParam.number('BMK wt', 'bmkWeight'),
       ],
     ),
@@ -338,15 +376,19 @@ class ScopeConfigRegistry {
           'Per setter machine. Trolley/tray live in the EST grid, not as scope chips.',
       tableName: 'setter_optimizing',
       allowedLayers: _layersOf('setter_optimizing'),
+      cumulativeAxis: CumulativeAxis.visit,
       params: const [
         ScopeParam.number('Setpt °F', 'setpointF'),
         ScopeParam.number('Act °F', 'actualF'),
         ScopeParam.number('Setpt RH', 'setpointRh', decimals: 0),
         ScopeParam.number('Act RH', 'actualRh', decimals: 0),
         ScopeParam.number('Turn°', 'turningAngle', decimals: 0),
-        ScopeParam.number('CO₂', 'co2Ppm', decimals: 0),
+        ScopeParam.number('CO₂', 'co2Ppm', decimals: 0,
+            absoluteLimit: AppThresholds.co2Max,
+            thresholds: SeverityThresholds(nearMargin: 300)),
         ScopeParam.number('EST °F', 'estAvg'),
-        ScopeParam.percent('EST CV%', 'estCvPct'),
+        ScopeParam.percent('EST CV%', 'estCvPct',
+            absoluteLimit: AppThresholds.cvAlertPct),
         ScopeParam.integer('Batch sz', 'batchSize'),
         ScopeParam.integer('Batches', 'batchCount'),
       ],
@@ -361,13 +403,17 @@ class ScopeConfigRegistry {
           'Per hatcher machine. Trolley/tray live in the CVT grid, not as scope chips.',
       tableName: 'hatcher_optimizing',
       allowedLayers: _layersOf('hatcher_optimizing'),
+      cumulativeAxis: CumulativeAxis.visit,
       // NOTE: prototype's "Act °F"/"Act RH" dropped — no actualF/actualRh on hatcher_optimizing.
       params: const [
         ScopeParam.number('Setpt °F', 'setpointF'),
         ScopeParam.number('Setpt RH', 'setpointRh', decimals: 0),
-        ScopeParam.number('CO₂', 'co2Ppm', decimals: 0),
+        ScopeParam.number('CO₂', 'co2Ppm', decimals: 0,
+            absoluteLimit: AppThresholds.co2Max,
+            thresholds: SeverityThresholds(nearMargin: 300)),
         ScopeParam.number('CVT °F', 'cvtAvg'),
-        ScopeParam.percent('CVT CV%', 'cvtCvPct'),
+        ScopeParam.percent('CVT CV%', 'cvtCvPct',
+            absoluteLimit: AppThresholds.cvAlertPct),
         ScopeParam.integer('Panting', 'chickPanting'),
         ScopeParam.text('Meconium', 'meconium'),
         ScopeParam.integer('Transfer d', 'transferDay'),

@@ -5,6 +5,8 @@ import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/alarm_triage_feed.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/scope_matrix_table.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/egg_storage_station_section.dart';
 import 'package:provider/provider.dart';
 
@@ -46,6 +48,19 @@ class _StaticScope extends ScopeComparisonProvider {
 
   @override
   bool isEmptyFor(String sectorId) => groupsFor(sectorId).isEmpty;
+
+  // The canned groups carry no accumulators, so steer the "Compare houses"
+  // matrix away from the ⌀ Avg path (which folds accumulators) — it renders from
+  // the per-house cells alone.
+  @override
+  List<int> visibleColumnIndexes(String sectorId) =>
+      [for (var i = 0; i < groupsFor(sectorId).length; i++) i];
+
+  @override
+  bool isAvgVisible(String sectorId) => false;
+
+  @override
+  List<ColumnStat> columnStatsFor(String sectorId) => const [];
 }
 
 /// Build an egg_quality group whose cells align to that sector's 9 params:
@@ -110,7 +125,7 @@ void main() {
       ],
     );
 
-    expect(find.text('Alarms & Actions Required'), findsOneWidget);
+    expect(find.byType(AlarmTriageFeed), findsOneWidget);
     expect(find.text('Egg Shell Temperature (EST)'), findsOneWidget);
     expect(find.text('Captured Photos'), findsOneWidget); // EST grid photo card
     expect(find.text('Upside Down Score'), findsOneWidget);
@@ -138,7 +153,7 @@ void main() {
     );
 
     expect(
-      find.textContaining('No action required'),
+      find.textContaining('within target'),
       findsOneWidget,
     );
   });
@@ -158,10 +173,17 @@ void main() {
       ],
     );
 
-    expect(find.textContaining('above target'), findsOneWidget);
-    expect(find.textContaining('Condensation present'), findsOneWidget);
-    expect(find.textContaining('House B: egg uniformity'), findsOneWidget);
-    expect(find.textContaining('House B: UV affected'), findsOneWidget);
+    // Triage groups by severity; the worst readings land in the Critical band.
+    expect(find.text('CRITICAL — ACTION REQUIRED'), findsOneWidget);
+    expect(find.text('EST Average'), findsOneWidget);
+    expect(find.textContaining('27.1°C'), findsWidgets);
+    // Condensation flag surfaces as its own item (Watch). The label also appears
+    // on the Storage Checklist tile, so match the triage value instead.
+    expect(find.text('Condensation'), findsWidgets);
+    expect(find.text('Present'), findsOneWidget);
+    // Per-house quality breaches name the metric; the house is a chip.
+    expect(find.text('Egg Uniformity'), findsOneWidget);
+    expect(find.text('UV Affected'), findsOneWidget);
   });
 
   testWidgets('switches Egg Quality between house tabs', (tester) async {
@@ -175,17 +197,40 @@ void main() {
     );
 
     // Both tabs present; House A is selected first → its uniformity shows.
+    // (House B also appears as a triage chip, so it's findsWidgets not one.)
     expect(find.text('House A'), findsOneWidget);
-    expect(find.text('House B'), findsOneWidget);
+    expect(find.text('House B'), findsWidgets);
     expect(find.text('88.0%'), findsOneWidget);
 
     // Tabs sit below the 600px test viewport — scroll the pill on-screen so the
     // tap's hit-test lands.
-    await tester.ensureVisible(find.text('House B'));
-    await tester.tap(find.text('House B'));
+    await tester.ensureVisible(find.text('House B').last);
+    await tester.tap(find.text('House B').last);
     await tester.pumpAndSettle();
 
-    // House B's out-of-spec uniformity is now visible.
-    expect(find.text('70.0%'), findsOneWidget);
+    // House B's out-of-spec uniformity is now visible (tile + triage card).
+    expect(find.text('70.0%'), findsWidgets);
+  });
+
+  testWidgets('Compare houses reveal toggles the comparison matrix', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      latest: EggStorageTrend.fromMap(const {'storageDays': 6, 'estAvgF': 19.0}),
+      houses: [
+        _house('House A', [95, 62.0, 88.0, 6.0, 61.0, 2.0, 1.0, 0.5, 0.5]),
+        _house('House B', [90, 60.0, 70.0, 9.0, 61.0, 8.0, 3.0, 2.0, 3.0]),
+      ],
+    );
+
+    // Lazy: matrix stays out of the tree until the reveal is opened.
+    expect(find.byType(ScopeMatrixTable), findsNothing);
+
+    await tester.ensureVisible(find.text('Compare houses'));
+    await tester.tap(find.text('Compare houses'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ScopeMatrixTable), findsOneWidget);
   });
 }

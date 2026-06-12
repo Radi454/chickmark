@@ -24,6 +24,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -373,7 +374,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
               ),
         body: AuditNumericKeyboardScope(
           child: AuditKeyboardDismiss(
-            child: SingleChildScrollView(
+            child: AuditStationScrollView(
               controller: _scrollController,
               padding: const EdgeInsets.all(AppSizes.cardPadding),
               child: Column(
@@ -1179,6 +1180,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                   key: const ValueKey('setter-co2-photo-button'),
                   photoPath: audit.soCo2Photo,
                   enabled: !auditProvider.isReadOnly,
+                  fieldKey: 'co2_photo',
                   onPhotoCaptured: (path) =>
                       auditProvider.updateField('soCo2Photo', path),
                 ),
@@ -1690,7 +1692,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     final raw = (audit.setterId ?? audit.soSetterId ?? '').trim();
     return raw.isEmpty ? 'S' : raw;
   }
-
 
   void _scrollToInitialSection() {
     if (widget.initialSectionIndex < 0) return;

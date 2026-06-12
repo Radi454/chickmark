@@ -5,6 +5,9 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
 import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/alarm_triage_feed.dart';
+import 'package:hatchaudit/features/dashboard/widgets/sections/govee_cumulative_view.dart';
+import 'package:hatchaudit/features/dashboard/widgets/scope/govee_triage_builder.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 
 class GoveeEnvironmentalReadingsSection extends StatefulWidget {
@@ -25,11 +28,17 @@ class GoveeEnvironmentalReadingsSection extends StatefulWidget {
 class _GoveeEnvironmentalReadingsSectionState
     extends State<GoveeEnvironmentalReadingsSection> {
   int _selected = 0;
+  bool _expanded = true;
+  // Cumulative is per place (keyed by the place enum, not the tab index, so it
+  // survives filter changes): Setter Room can be cumulative while Outside
+  // Hatchery stays incremental.
+  final Set<TemperaturePlace> _cumulativePlaces = <TemperaturePlace>{};
 
   @override
   Widget build(BuildContext context) {
     final placeGroups = _placeGroups(widget.captures);
     final isLoading = widget.isLoading;
+    final triage = goveeTriageItems(widget.captures);
     final selected = placeGroups.isEmpty
         ? 0
         : _selected.clamp(0, placeGroups.length - 1);
@@ -37,93 +46,143 @@ class _GoveeEnvironmentalReadingsSectionState
     return AppCard(
       margin: EdgeInsets.zero,
       padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: AppColors.brandGradient,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(AppSizes.cardRadius),
-              ),
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSizes.cardPadding,
-              vertical: AppSizes.spaceMd,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+      // Clip so the header's square bottom corners (when collapsed) and the
+      // body both round to the card radius.
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: AppColors.brandGradient,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(AppSizes.cardRadius),
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSizes.cardPadding,
+                    vertical: AppSizes.spaceMd,
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        'Govee Environmental Readings',
-                        style: AppTextStyles.sectionTitle.copyWith(
-                          color: Colors.white,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Govee Environmental Readings',
+                              style: AppTextStyles.sectionTitle.copyWith(
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Continuous temp & RH · monitored places · 24h captures',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white.withValues(alpha: 0.82),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Continuous temp & RH · monitored places · 24h captures',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.82),
+                      if (isLoading) ...[
+                        const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: AppSizes.spaceSm),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Colors.white,
+                          size: 26,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (isLoading)
-                  const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  ),
-              ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(AppSizes.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (isLoading) ...[
-                  const LinearProgressIndicator(minHeight: 2),
-                  const SizedBox(height: AppSizes.spaceMd),
-                ],
-                if (placeGroups.isNotEmpty) ...[
-                  if (placeGroups.length > 1) ...[
-                    _GoveePlaceTabs(
-                      groups: placeGroups,
-                      selected: selected,
-                      onSelected: (i) => setState(() => _selected = i),
-                    ),
-                    const SizedBox(height: AppSizes.spaceMd),
+            AnimatedCrossFade(
+              firstChild: const SizedBox(width: double.infinity),
+              secondChild: Padding(
+                padding: const EdgeInsets.all(AppSizes.cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (triage.isNotEmpty) ...[
+                      AlarmTriageFeed(items: triage),
+                      const SizedBox(height: AppSizes.spaceMd),
+                    ],
+                    if (isLoading) ...[
+                      const LinearProgressIndicator(minHeight: 2),
+                      const SizedBox(height: AppSizes.spaceMd),
+                    ],
+                    if (placeGroups.isNotEmpty) ...[
+                      if (placeGroups.length > 1) ...[
+                        _GoveePlaceTabs(
+                          groups: placeGroups,
+                          selected: selected,
+                          onSelected: (i) => setState(() => _selected = i),
+                        ),
+                        const SizedBox(height: AppSizes.spaceMd),
+                      ],
+                      _GoveeModeToggle(
+                        cumulative: _cumulativePlaces.contains(
+                          placeGroups[selected].place,
+                        ),
+                        onChanged: (v) => setState(() {
+                          final place = placeGroups[selected].place;
+                          if (v) {
+                            _cumulativePlaces.add(place);
+                          } else {
+                            _cumulativePlaces.remove(place);
+                          }
+                        }),
+                      ),
+                      const SizedBox(height: AppSizes.spaceMd),
+                      if (!_cumulativePlaces.contains(placeGroups[selected].place))
+                        _GoveePlaceGroup(
+                          placeGroups[selected],
+                          showLabel: placeGroups.length == 1,
+                        )
+                      else
+                        _GoveePlaceCumulative(placeGroups[selected]),
+                    ] else if (!isLoading)
+                      Text(
+                        'No saved Govee readings yet',
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                   ],
-                  _GoveePlaceGroup(
-                    placeGroups[selected],
-                    showLabel: placeGroups.length == 1,
-                  ),
-                ] else if (!isLoading)
-                  Text(
-                    'No saved Govee readings yet',
-                    style: AppTextStyles.caption.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-              ],
+                ),
+              ),
+              crossFadeState: _expanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 200),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -301,6 +360,130 @@ class _GoveePlaceGroup extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Cumulative (by-visit) trend for the selected place: the place header (label +
+/// record count) over [GoveeCumulativeView], which charts temp / RH averages
+/// across this place's capture dates. Same Incremental ⇄ Cumulative concept the
+/// scope audit stations use, scoped to one Govee place.
+class _GoveePlaceCumulative extends StatelessWidget {
+  final _GoveePlaceCaptures group;
+
+  const _GoveePlaceCumulative(this.group);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: ValueKey('govee-place-cumulative-${group.place.name}'),
+      padding: const EdgeInsets.only(bottom: AppSizes.spaceMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(group.place.label, style: AppTextStyles.title),
+              ),
+              Text(
+                '${group.captures.length} record${group.captures.length == 1 ? '' : 's'}',
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          GoveeCumulativeView(captures: group.captures),
+        ],
+      ),
+    );
+  }
+}
+
+/// Incremental ⇄ Cumulative segmented switch for the selected Govee place.
+/// Incremental shows the per-capture detail charts; Cumulative tints to the
+/// by-visit accent and shows the trend. Mirrors [ScopeModeToggle].
+class _GoveeModeToggle extends StatelessWidget {
+  final bool cumulative;
+  final ValueChanged<bool> onChanged;
+
+  const _GoveeModeToggle({required this.cumulative, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+          border: Border.all(color: AppColors.borderDefault),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _seg(
+              label: 'Incremental',
+              on: !cumulative,
+              onColor: AppColors.primary,
+              onTap: () => onChanged(false),
+            ),
+            _seg(
+              label: 'Cumulative',
+              icon: Icons.show_chart,
+              on: cumulative,
+              onColor: AppColors.accent,
+              onTap: () => onChanged(true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _seg({
+    required String label,
+    required bool on,
+    required Color onColor,
+    required VoidCallback onTap,
+    IconData? icon,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: on ? onColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 13,
+                  color: on ? Colors.white : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 3),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: on ? Colors.white : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
