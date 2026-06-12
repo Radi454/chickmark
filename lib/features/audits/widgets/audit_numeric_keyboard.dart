@@ -13,8 +13,9 @@ bool _defaultPlatformUsesCustomKeyboard() {
     return false;
   }
   return switch (defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.android => true,
     TargetPlatform.fuchsia ||
+    TargetPlatform.iOS ||
     TargetPlatform.linux ||
     TargetPlatform.macOS ||
     TargetPlatform.windows => false,

@@ -347,13 +347,13 @@ sessions mount only the current station at first, then
 keep previously opened stations mounted, so hidden future
 stations do not hydrate their audit data before the user opens them.
 
-Audit numeric fields use a platform-adaptive input surface. Android and iOS
-targets open the large in-app audit keypad with decimal, negative, backspace,
-next, and grid-down actions. Desktop targets, including web browsers whose
-platform string reports macOS, Windows, or Linux, use the normal editable text
-field so physical keyboard entry works without opening the custom keypad. Both
-paths enforce the same numeric rules for decimal, negative, and
-max-decimal-place limits.
+Audit numeric fields use a platform-adaptive input surface. Android targets
+open the large in-app audit keypad with decimal, negative, backspace, next, and
+grid-down actions. Native iOS targets use the system numeric keyboard so audit
+entry remains available across visit-session focus and layout changes. Desktop
+targets, including desktop web browsers, use normal editable text fields for
+physical keyboard entry. All paths enforce the same numeric rules for decimal,
+negative, and max-decimal-place limits.
 Audit station scroll containers reserve extra bottom scroll space while the
 device keyboard is visible, so focused text and numeric fields across Egg,
 Chicks, Hatch Analysis, Setters, and Hatchers can scroll clear of the keyboard
@@ -1383,6 +1383,10 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-12: Switched adaptive native iOS audit numeric fields from the
+  in-app overlay keypad to the system numeric keyboard, preventing focused
+  fields from scrolling into view without presenting an input surface while
+  preserving Android custom-keypad and desktop physical-keyboard behavior.
 - 2026-06-12: Registered audit photo buttons across Egg, Chicks, Hatch
   Analysis, Setters, and Hatchers with explicit panel field keys, and mapped
   Hatch Analysis breakout photos to the active breakout table so saved captures

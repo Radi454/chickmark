@@ -559,10 +559,58 @@ void main() {
     }
   });
 
-  testWidgets('adaptive mode keeps the custom keypad on iOS targets', (
+  testWidgets('adaptive mode uses native numeric input on iOS targets', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AuditNumericKeyboardScope(
+              child: AuditNumericField(
+                controller: controller,
+                allowDecimal: true,
+                allowNegative: true,
+                maxDecimalPlaces: 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(AuditNumericField));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AuditNumericKeyboard), findsNothing);
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.readOnly, isFalse);
+      expect(
+        field.keyboardType,
+        const TextInputType.numberWithOptions(decimal: true, signed: true),
+      );
+
+      await tester.enterText(find.byType(AuditNumericField), '12.3');
+      await tester.pump();
+      expect(controller.text, '12.3');
+
+      await tester.enterText(find.byType(AuditNumericField), '12.34');
+      await tester.pump();
+      expect(controller.text, '12.3');
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('adaptive mode keeps the custom keypad on Android targets', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
 
     final controller = TextEditingController();
     addTearDown(controller.dispose);
