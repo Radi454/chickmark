@@ -361,6 +361,9 @@ and session footer.
 Audit screen background taps dismiss the active system keyboard after gesture
 resolution. Pointer-down events inside editable fields do not clear focus, so
 native mobile keyboard activation is not interrupted before data entry begins.
+When keyboard editing hides the fixed session Govee and navigation chrome, the
+mounted station subtree retains stable widget identity. Its controllers and
+focus nodes remain alive while fields or station-owned modal sheets are active.
 Egg and Chicks weight-entry modal sheets use a keyboard-aware scroll wrapper
 that reserves bottom scroll space for the in-app numeric keypad and device safe
 area, so lower grid rows can be scrolled fully above the keypad while entering
@@ -1386,6 +1389,9 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-12: Preserved the mounted audit station subtree while keyboard focus
+  hides session chrome, preventing active numeric fields and modal sheets from
+  rebuilding with station-owned focus nodes that were already disposed.
 - 2026-06-12: Changed audit keyboard dismissal from raw pointer-down handling
   to resolved background taps, preventing iOS text fields from losing focus
   during the same press that opens the native keyboard.

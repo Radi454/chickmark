@@ -151,6 +151,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                           stationKeys,
                         ),
                       Expanded(
+                        key: const ValueKey('audit-session-station-content'),
                         child: _buildMountedStationStack(
                           sessionProvider,
                           stationKeys,

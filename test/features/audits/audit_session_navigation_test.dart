@@ -758,11 +758,16 @@ void main() {
       find.byKey(const ValueKey('audit-session-navigation-footer')),
       findsOneWidget,
     );
+    final stationElementBefore = tester.element(find.byType(EggStorageScreen));
 
     await tester.ensureVisible(find.byType(TextField).last);
     await tester.tap(find.byType(TextField).last);
     await tester.pump();
 
+    expect(
+      tester.element(find.byType(EggStorageScreen)),
+      same(stationElementBefore),
+    );
     expect(
       find.byKey(const ValueKey('audit-open-govee-readings')),
       findsNothing,
