@@ -1364,11 +1364,6 @@ failures keep the same recoverable return behavior and emit debug logs in
 development builds instead of silently discarding the failure context. Thermometer
 OCR debug logs include attempted variant count, confidence, and accepted Celsius
 reading when available so mobile runs can confirm the active OCR path.
-Breakout egg-count OCR is a separate image-analysis path: it segments likely egg
-shell/interior pixels, groups connected components, estimates the egg count, and
-always requires user confirmation or manual correction before writing the count.
-It reuses the inline camera/native-camera fallback pattern but does not use the
-thermometer text-recognition pipeline.
 
 ## 8. Known Technical Debt
 
@@ -1388,10 +1383,6 @@ thermometer text-recognition pipeline.
 
 ## 9. Change Log
 
-- 2026-06-12: Added guided breakout egg-count capture for Hatch Analysis count
-  rows, including repeated photo capture per breakout item, user confirmation or
-  manual correction, summed count persistence, and multiple evidence photo paths
-  per count field.
 - 2026-06-12: Registered audit photo buttons across Egg, Chicks, Hatch
   Analysis, Setters, and Hatchers with explicit panel field keys, and mapped
   Hatch Analysis breakout photos to the active breakout table so saved captures
