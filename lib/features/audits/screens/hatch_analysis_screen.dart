@@ -1283,8 +1283,9 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               width: double.infinity,
               padding: EdgeInsets.all(useWideHeader ? 20 : 18),
               decoration: _gradientHeaderDecoration(),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
                     child: _buildGradientInfoTile(
@@ -1308,6 +1309,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
             const SizedBox(height: AppSizes.spaceSm),
