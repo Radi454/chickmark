@@ -358,6 +358,9 @@ Audit station scroll containers reserve extra bottom scroll space while the
 device keyboard is visible, so focused text and numeric fields across Egg,
 Chicks, Hatch Analysis, Setters, and Hatchers can scroll clear of the keyboard
 and session footer.
+Audit screen background taps dismiss the active system keyboard after gesture
+resolution. Pointer-down events inside editable fields do not clear focus, so
+native mobile keyboard activation is not interrupted before data entry begins.
 Egg and Chicks weight-entry modal sheets use a keyboard-aware scroll wrapper
 that reserves bottom scroll space for the in-app numeric keypad and device safe
 area, so lower grid rows can be scrolled fully above the keypad while entering
@@ -1383,6 +1386,9 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-12: Changed audit keyboard dismissal from raw pointer-down handling
+  to resolved background taps, preventing iOS text fields from losing focus
+  during the same press that opens the native keyboard.
 - 2026-06-12: Switched adaptive native iOS audit numeric fields from the
   in-app overlay keypad to the system numeric keyboard, preventing focused
   fields from scrolling into view without presenting an input surface while

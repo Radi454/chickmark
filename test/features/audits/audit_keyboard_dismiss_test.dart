@@ -35,6 +35,37 @@ void main() {
     expect(focusNode.hasFocus, isFalse);
   });
 
+  testWidgets('does not interrupt focus when pressing inside the input', (
+    tester,
+  ) async {
+    final focusNode = FocusNode();
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AuditKeyboardDismiss(
+            child: TextField(focusNode: focusNode),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(TextField)),
+    );
+    await tester.pump();
+
+    expect(focusNode.hasFocus, isTrue);
+
+    await gesture.up();
+    await tester.pump();
+  });
+
   testWidgets('can leave focused audit input active for custom keypad sheets', (
     tester,
   ) async {

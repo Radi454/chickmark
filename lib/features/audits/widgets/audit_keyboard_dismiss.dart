@@ -14,9 +14,9 @@ class AuditKeyboardDismiss extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!enabled) return child;
 
-    return Listener(
+    return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
       child: child,
     );
   }
