@@ -1254,7 +1254,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           children: [
             Container(
               key: const ValueKey('hatch-analysis-breakout-header'),
-              height: topCardHeight,
+              constraints: BoxConstraints(minHeight: topCardHeight),
               width: double.infinity,
               padding: EdgeInsets.all(useWideHeader ? 20 : 18),
               decoration: _gradientHeaderDecoration(),
@@ -1279,7 +1279,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             const SizedBox(height: AppSizes.spaceMd),
             Container(
               key: const ValueKey('hatch-analysis-context-card'),
-              height: topCardHeight,
+              constraints: BoxConstraints(minHeight: topCardHeight),
               width: double.infinity,
               padding: EdgeInsets.all(useWideHeader ? 20 : 18),
               decoration: _gradientHeaderDecoration(),

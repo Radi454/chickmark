@@ -691,14 +691,16 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                   Row(
                     children: [
                       if (!isFirst) ...[
-                        Expanded(child: backButton()),
+                        SizedBox(width: 48, child: backButton(compact: true)),
                         const SizedBox(width: 8),
                       ],
-                      Expanded(child: clearButton()),
+                      SizedBox(width: 48, child: clearButton(compact: true)),
+                      const SizedBox(width: 8),
+                      Expanded(child: nextButton(compact: true)),
+                      // Spacer to prevent the floating action button from overlapping the Save button
+                      const SizedBox(width: 64),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(width: double.infinity, child: nextButton()),
                 ],
               );
             }
