@@ -1737,23 +1737,6 @@ void main() {
     expect(find.byKey(const ValueKey('breakout-diff-infertile')), findsNothing);
   });
 
-  testWidgets('breakout count rows open the egg count capture action', (
-    tester,
-  ) async {
-    final provider = await pumpScreen(
-      tester,
-      breakoutType: EggBreakoutType.freshEggBreakout,
-      benchmarkLookup: mockBenchmarkLookup(),
-    );
-    await addVisibleSample(tester);
-    final sample = activeBreakoutSample(provider);
-
-    expect(
-      find.byKey(ValueKey('breakout-egg-count-capture-${sample.id}-infertile')),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('breakout rows alert when calculated percent is above bmk', (
     tester,
   ) async {

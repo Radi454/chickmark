@@ -189,9 +189,10 @@ with a small white dot marker so it is visually distinct from completed
 stations. Moving forward, moving back, switching to an earlier or completed
 station, leaving the visit, or saving the final station all go through a
 station-exit confirmation path that attempts to save the current station.
-On narrow phones the station footer stacks autosave, secondary actions, and the
-primary Next/Save action into multiple rows so the Back, Clear, and Next/Save
-controls retain usable touch targets without changing their behavior.
+On narrow phones the station footer keeps Back, Clear, and Next/Save in one
+compact row. Back and Clear use fixed icon-width controls, Next/Save takes the
+remaining width, and reserved trailing space prevents the floating Govee action
+from covering the primary action.
 When the on-screen keyboard is open on phone-width visit sessions, the fixed
 station chrome is hidden: the Govee readings card and visit footer are removed
 while editing so the focused field has the available height. The same editing
@@ -604,8 +605,10 @@ Samples panel, and the existing sticky
 station navigation footer when embedded in a visit session. Breakout types are
 Fresh Egg, Candled Egg, and Residue / Hatch Day. The Breakout Type card keeps
 the selector beside the header title on wider layouts and stacks it vertically
-on mobile. The Breakout Type and metadata cards share the same height. The
-metadata card shows auto-filled flock, breed, and read-only BMK age as three
+on mobile. The Breakout Type and metadata cards use the same minimum height but
+can grow when wrapped content needs more room, avoiding clipped or unbounded
+layouts. The metadata card shows auto-filled flock, breed, and read-only BMK
+age as three
 equal-width tiles in one row; long flock or breed values wrap inside their own
 tile instead of pushing the BMK Age tile to another row. Storage Days is an
 entry field in a shorter light-grey entry card with no section heading, defaults
@@ -1389,6 +1392,11 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-13: Kept the narrow audit-session footer actions in one compact row
+  with protected space for the floating Govee action, and changed the Hatch
+  Analysis Breakout Type and metadata cards from fixed heights to matching
+  minimum heights so wrapped content can expand without overflow or infinite
+  layout constraints.
 - 2026-06-12: Preserved the mounted audit station subtree while keyboard focus
   hides session chrome, preventing active numeric fields and modal sheets from
   rebuilding with station-owned focus nodes that were already disposed.
