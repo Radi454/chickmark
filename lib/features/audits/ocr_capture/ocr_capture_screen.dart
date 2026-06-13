@@ -65,11 +65,12 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
       final ocr = widget.ocrService ?? OcrService();
       _controller = OcrCaptureController(
         config: widget.config,
-        recognizeCelsius: (path, crop) => ocr.recognizeThermoScanReadingCelsius(
-          path,
-          cropFrame: crop,
-          fanOutVariants: false,
-        ),
+        recognizeThermoScan: (path, crop) =>
+            ocr.analyzeThermoScanReadingCelsius(
+              path,
+              cropFrame: crop,
+              fanOutVariants: false,
+            ),
         photoService: widget.photoService ?? PhotoService(),
         cameraPort: InlineCameraPort(_cameraKey),
       );
@@ -255,6 +256,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
       return _hint(c, 'View only.');
     }
     if (c.manualEntryActive) return _buildManualEntry(c);
+    if (c.hasUnitMismatch) return _buildUnitMismatchCard(c);
 
     final cap = c.capture;
     final isReview = cap.capturedImagePath != null && c.pendingValue != null;
@@ -264,6 +266,59 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     if (savedValue != null) return _buildSavedCard(c, savedValue);
 
     return _buildScanningCard(c);
+  }
+
+  Widget _buildUnitMismatchCard(OcrCaptureController c) {
+    final detectedSuffix = switch (c.detectedUnit) {
+      ThermoScanUnit.fahrenheit => '°F',
+      ThermoScanUnit.celsius => '°C',
+      null => '',
+    };
+    return _card(
+      key: const ValueKey('ocr-state-unit-mismatch'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Device shows $detectedSuffix, but this sector is set to '
+            '${widget.config.unitSuffix}.',
+            style: AppTextStyles.body.copyWith(
+              color: Colors.orange[900],
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Choose how to continue. The reading will not be saved '
+            'automatically.',
+            style: AppTextStyles.caption.copyWith(color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: c.useDetectedReading,
+            child: const Text('Use detected reading'),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: c.retake,
+                  child: const Text('Retake'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _enterManual(c, '', reject: true),
+                  child: const Text('Enter manually'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _card({required Key key, required Widget child}) {

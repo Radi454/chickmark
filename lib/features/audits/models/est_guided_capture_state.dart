@@ -114,6 +114,19 @@ class EstGuidedCaptureState {
     errorMessage: value == null ? errorMessage : 'Confirm the edited reading.',
   );
 
+  EstGuidedCaptureState unitMismatchDetected({
+    required String photoPath,
+    required bool autoScanReview,
+  }) => _copyWith(
+    capturedImagePath: photoPath,
+    ocrValue: null,
+    isProcessing: false,
+    isAutoScanning: false,
+    isOcrProcessing: false,
+    isAutoScanReview: autoScanReview,
+    errorMessage: 'Detected unit does not match the selected unit.',
+  );
+
   EstGuidedCaptureState retake() => _copyWith(
     capturedImagePath: null,
     ocrValue: null,

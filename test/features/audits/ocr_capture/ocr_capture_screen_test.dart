@@ -6,7 +6,7 @@ import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_controller.da
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_result.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
 import 'package:hatchaudit/services/ocr/ocr_service.dart'
-    show ThermoScanCropFrame;
+    show ThermoScanCropFrame, ThermoScanOcrResult, ThermoScanUnit;
 import 'package:hatchaudit/services/photo/photo_service.dart';
 
 class _FakeCameraPort implements OcrCameraPort {
@@ -88,6 +88,39 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('renders explicit actions for a detected unit mismatch', (
+    tester,
+  ) async {
+    final controller = OcrCaptureController(
+      config: const OcrCaptureConfig(
+        title: 'CVT',
+        unitSuffix: '°F',
+        selectedUnit: ThermoScanUnit.fahrenheit,
+      ),
+      recognizeThermoScan: (_, _) async => const ThermoScanOcrResult(
+        displayValue: 40.0,
+        detectedUnit: ThermoScanUnit.celsius,
+        readingCelsius: 40.0,
+      ),
+      photoService: _FakePhotoService(),
+      cameraPort: _FakeCameraPort(),
+    );
+    await controller.captureOnce();
+
+    await _pump(tester, controller);
+
+    expect(find.textContaining('Device shows °C'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Retake'), findsOneWidget);
+    expect(
+      find.widgetWithText(OutlinedButton, 'Enter manually'),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(FilledButton, 'Use detected reading'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('renders the 9-point grid and initial header', (tester) async {
     await _pump(tester, _controller());
     for (final key in const ['front_top', 'middle_middle', 'back_bottom']) {

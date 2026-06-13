@@ -4,7 +4,8 @@ import 'package:hatchaudit/features/audits/models/est_grid_data.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_camera_port.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_config.dart';
 import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_controller.dart';
-import 'package:hatchaudit/services/ocr/ocr_service.dart' show ThermoScanCropFrame;
+import 'package:hatchaudit/services/ocr/ocr_service.dart'
+    show ThermoScanCropFrame, ThermoScanOcrResult, ThermoScanUnit;
 import 'package:hatchaudit/services/photo/photo_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,6 +58,56 @@ OcrCaptureController _build({
 
 void main() {
   group('OcrCaptureController', () {
+    test('mismatched detected unit requires explicit resolution', () async {
+      final c = OcrCaptureController(
+        config: const OcrCaptureConfig(
+          title: 'CVT',
+          unitSuffix: '°F',
+          selectedUnit: ThermoScanUnit.fahrenheit,
+        ),
+        recognizeThermoScan: (_, _) async => const ThermoScanOcrResult(
+          displayValue: 40.0,
+          detectedUnit: ThermoScanUnit.celsius,
+          readingCelsius: 40.0,
+        ),
+        photoService: _FakePhotoService(),
+        cameraPort: _FakeCameraPort(),
+      );
+
+      await c.captureOnce();
+
+      expect(c.hasUnitMismatch, isTrue);
+      expect(c.pendingValue, isNull);
+      expect(c.detectedUnit, ThermoScanUnit.celsius);
+      expect(c.capture.capturedImagePath, 'saved_cam.jpg');
+    });
+
+    test(
+      'explicit mismatch acceptance converts into selected unit once',
+      () async {
+        final c = OcrCaptureController(
+          config: const OcrCaptureConfig(
+            title: 'CVT',
+            unitSuffix: '°F',
+            selectedUnit: ThermoScanUnit.fahrenheit,
+          ),
+          recognizeThermoScan: (_, _) async => const ThermoScanOcrResult(
+            displayValue: 40.0,
+            detectedUnit: ThermoScanUnit.celsius,
+            readingCelsius: 40.0,
+          ),
+          photoService: _FakePhotoService(),
+          cameraPort: _FakeCameraPort(),
+        );
+
+        await c.captureOnce();
+        c.useDetectedReading();
+
+        expect(c.hasUnitMismatch, isFalse);
+        expect(c.pendingValue, closeTo(104.0, 0.01));
+      },
+    );
+
     test('tap-select moves the active cell', () {
       final c = _build();
       expect(c.activeIndex, 0);
@@ -89,9 +140,7 @@ void main() {
     });
 
     test('confirm stays put when no open cell remains', () async {
-      final initial = {
-        for (final k in EstGridData.scanKeys.skip(1)) k: 50.0,
-      };
+      final initial = {for (final k in EstGridData.scanKeys.skip(1)) k: 50.0};
       final c = _build(
         config: OcrCaptureConfig(title: 'T', initialReadings: initial),
         recognizer: (_, _) async => 37.5,
@@ -101,27 +150,39 @@ void main() {
       await c.confirm();
       expect(c.readings['front_top'], 37.5);
       expect(c.allCellsFilled, isTrue);
-      expect(c.activeIndex, 0, reason: 'no open cell -> stay on confirmed cell');
+      expect(
+        c.activeIndex,
+        0,
+        reason: 'no open cell -> stay on confirmed cell',
+      );
     });
 
-    test('reject to manual keeps the photo and commits the typed value',
-        () async {
-      final c = _build(recognizer: (_, _) async => 37.5);
-      await c.captureOnce();
+    test(
+      'reject to manual keeps the photo and commits the typed value',
+      () async {
+        final c = _build(recognizer: (_, _) async => 37.5);
+        await c.captureOnce();
 
-      c.rejectToManual();
-      expect(c.manualEntryActive, isTrue);
-      expect(c.pendingValue, isNull, reason: 'scanned value cleared');
-      expect(c.capture.capturedImagePath, 'saved_cam.jpg',
-          reason: 'frame retained as pending evidence');
+        c.rejectToManual();
+        expect(c.manualEntryActive, isTrue);
+        expect(c.pendingValue, isNull, reason: 'scanned value cleared');
+        expect(
+          c.capture.capturedImagePath,
+          'saved_cam.jpg',
+          reason: 'frame retained as pending evidence',
+        );
 
-      await c.commitManualEntry(36.0);
-      expect(c.readings['front_top'], 36.0);
-      expect(c.photos['front_top'], 'saved_cam.jpg',
-          reason: 'single-capture frame already saved -> reused, not re-saved');
-      expect(c.manualEntryActive, isFalse);
-      expect(c.activeIndex, 0, reason: 'manual entry does not auto-advance');
-    });
+        await c.commitManualEntry(36.0);
+        expect(c.readings['front_top'], 36.0);
+        expect(
+          c.photos['front_top'],
+          'saved_cam.jpg',
+          reason: 'single-capture frame already saved -> reused, not re-saved',
+        );
+        expect(c.manualEntryActive, isFalse);
+        expect(c.activeIndex, 0, reason: 'manual entry does not auto-advance');
+      },
+    );
 
     test('pure manual entry saves a value with no photo and stays', () async {
       final c = _build();

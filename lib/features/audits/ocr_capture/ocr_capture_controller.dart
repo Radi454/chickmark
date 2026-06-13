@@ -4,7 +4,11 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/temp_converter.dart';
 import '../../../services/ocr/ocr_service.dart'
-    show ThermoScanCropFrame, kThermoScanAutoScanInterval;
+    show
+        ThermoScanCropFrame,
+        ThermoScanOcrResult,
+        ThermoScanUnit,
+        kThermoScanAutoScanInterval;
 import '../../../services/photo/photo_service.dart';
 import '../models/est_grid_data.dart';
 import '../models/est_guided_capture_state.dart';
@@ -20,6 +24,12 @@ import 'ocr_capture_result.dart';
 typedef CelsiusRecognizer =
     Future<double?> Function(String imagePath, ThermoScanCropFrame? cropFrame);
 
+typedef ThermoScanRecognizer =
+    Future<ThermoScanOcrResult> Function(
+      String imagePath,
+      ThermoScanCropFrame? cropFrame,
+    );
+
 /// All capture logic for the reusable OCR flow, with no dependency on
 /// `package:camera` (it talks to an [OcrCameraPort]) and no file I/O of its own
 /// in tests (OCR comes through [CelsiusRecognizer]). The screen is a thin view
@@ -33,11 +43,18 @@ typedef CelsiusRecognizer =
 class OcrCaptureController extends ChangeNotifier {
   OcrCaptureController({
     required this.config,
-    required CelsiusRecognizer recognizeCelsius,
+    CelsiusRecognizer? recognizeCelsius,
+    ThermoScanRecognizer? recognizeThermoScan,
     required PhotoService photoService,
     required OcrCameraPort cameraPort,
     Duration autoScanInterval = kThermoScanAutoScanInterval,
-  }) : _recognizeCelsius = recognizeCelsius,
+  }) : assert(recognizeCelsius != null || recognizeThermoScan != null),
+       _recognizeThermoScan =
+           recognizeThermoScan ??
+           ((imagePath, cropFrame) async {
+             final reading = await recognizeCelsius!(imagePath, cropFrame);
+             return ThermoScanOcrResult(readingCelsius: reading);
+           }),
        _photoService = photoService,
        _cameraPort = cameraPort,
        _autoScanInterval = autoScanInterval {
@@ -48,13 +65,14 @@ class OcrCaptureController extends ChangeNotifier {
   }
 
   final OcrCaptureConfig config;
-  final CelsiusRecognizer _recognizeCelsius;
+  final ThermoScanRecognizer _recognizeThermoScan;
   final PhotoService _photoService;
   final OcrCameraPort _cameraPort;
   final Duration _autoScanInterval;
 
   late EstGuidedCaptureState _capture;
   final Set<String> _dirtyKeys = <String>{};
+  ThermoScanOcrResult? _pendingOcrResult;
   bool _manualEntryActive = false;
   int _generation = 0;
   Timer? _autoScanTimer;
@@ -72,6 +90,16 @@ class OcrCaptureController extends ChangeNotifier {
   bool get hasNext => _capture.stepIndex < totalCells - 1;
   bool get allCellsFilled =>
       EstGridData.scanKeys.every(_capture.readings.containsKey);
+  bool get hasUnitMismatch {
+    final result = _pendingOcrResult;
+    final selectedUnit = config.selectedUnit;
+    return result?.readingCelsius != null &&
+        result?.detectedUnit != null &&
+        selectedUnit != null &&
+        result!.detectedUnit != selectedUnit;
+  }
+
+  ThermoScanUnit? get detectedUnit => _pendingOcrResult?.detectedUnit;
 
   /// Reading currently staged for confirm (display unit), or null.
   double? get pendingValue => _capture.ocrValue;
@@ -98,6 +126,7 @@ class OcrCaptureController extends ChangeNotifier {
     _bumpGeneration();
     _cancelTimer();
     _discardUnconfirmedPhoto();
+    _pendingOcrResult = null;
     _manualEntryActive = false;
     _capture = EstGuidedCaptureState(
       stepIndex: index,
@@ -157,12 +186,15 @@ class OcrCaptureController extends ChangeNotifier {
       return;
     }
 
-    final celsius = await _recognizeCelsius(sourcePath, _cameraPort.ocrCropFrame);
+    final result = await _recognizeThermoScan(
+      sourcePath,
+      _cameraPort.ocrCropFrame,
+    );
     if (_isStale(generation)) {
       _deleteIfPresent(sourcePath);
       return;
     }
-    if (celsius == null) {
+    if (result.readingCelsius == null) {
       _deleteIfPresent(sourcePath);
       _capture = _capture.autoScanAttemptResolved(
         photoPath: sourcePath,
@@ -173,9 +205,18 @@ class OcrCaptureController extends ChangeNotifier {
     }
 
     _cancelTimer();
+    _pendingOcrResult = result;
+    if (hasUnitMismatch) {
+      _capture = _capture.unitMismatchDetected(
+        photoPath: sourcePath,
+        autoScanReview: true,
+      );
+      notifyListeners();
+      return;
+    }
     _capture = _capture.autoScanAttemptResolved(
       photoPath: sourcePath,
-      ocrValue: _toDisplay(celsius),
+      ocrValue: _toDisplay(result.readingCelsius!),
     );
     notifyListeners();
   }
@@ -191,6 +232,7 @@ class OcrCaptureController extends ChangeNotifier {
     final generation = _bumpGeneration();
     _cancelTimer();
     _discardUnconfirmedPhoto();
+    _pendingOcrResult = null;
     _manualEntryActive = false;
     _capture = _capture.captureStarted();
     notifyListeners();
@@ -222,12 +264,15 @@ class OcrCaptureController extends ChangeNotifier {
       return;
     }
 
-    final celsius = await _recognizeCelsius(savedPath, _cameraPort.ocrCropFrame);
+    final result = await _recognizeThermoScan(
+      savedPath,
+      _cameraPort.ocrCropFrame,
+    );
     if (_isStale(generation)) {
       _deleteIfPresent(savedPath);
       return;
     }
-    if (celsius == null) {
+    if (result.readingCelsius == null) {
       // Reading unreadable — drop the saved frame and let the user retry or
       // switch to manual entry. (Rejecting a *successful* read keeps its photo.)
       _deleteIfPresent(savedPath);
@@ -236,9 +281,18 @@ class OcrCaptureController extends ChangeNotifier {
       return;
     }
 
+    _pendingOcrResult = result;
+    if (hasUnitMismatch) {
+      _capture = _capture.unitMismatchDetected(
+        photoPath: savedPath,
+        autoScanReview: false,
+      );
+      notifyListeners();
+      return;
+    }
     _capture = _capture.captureResolved(
       photoPath: savedPath,
-      ocrValue: _toDisplay(celsius),
+      ocrValue: _toDisplay(result.readingCelsius!),
     );
     notifyListeners();
   }
@@ -295,6 +349,7 @@ class OcrCaptureController extends ChangeNotifier {
     _bumpGeneration();
     _cancelTimer();
     _manualEntryActive = true;
+    _pendingOcrResult = null;
     _capture = _capture.valueEdited(null); // clear staged value, keep photo
     notifyListeners();
   }
@@ -305,6 +360,7 @@ class OcrCaptureController extends ChangeNotifier {
     _bumpGeneration();
     _cancelTimer();
     _manualEntryActive = true;
+    _pendingOcrResult = null;
     notifyListeners();
   }
 
@@ -360,12 +416,21 @@ class OcrCaptureController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void useDetectedReading() {
+    final celsius = _pendingOcrResult?.readingCelsius;
+    if (!hasUnitMismatch || celsius == null) return;
+    _pendingOcrResult = null;
+    _capture = _capture.valueEdited(_toDisplay(celsius));
+    notifyListeners();
+  }
+
   /// Discard the staged capture and re-scan the active cell.
   void retake() {
     if (config.readOnly) return;
     _bumpGeneration();
     _cancelTimer();
     _discardUnconfirmedPhoto();
+    _pendingOcrResult = null;
     _manualEntryActive = false;
     _capture = _capture.retake();
     notifyListeners();
@@ -386,10 +451,16 @@ class OcrCaptureController extends ChangeNotifier {
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
-  double _toDisplay(double celsius) =>
-      config.convertCelsiusToFahrenheit
-      ? TempConverter.toFahrenheit(celsius)
-      : celsius;
+  double _toDisplay(double celsius) {
+    final selectedUnit = config.selectedUnit;
+    if (selectedUnit == ThermoScanUnit.fahrenheit) {
+      return TempConverter.toFahrenheit(celsius);
+    }
+    if (selectedUnit == ThermoScanUnit.celsius) return celsius;
+    return config.convertCelsiusToFahrenheit
+        ? TempConverter.toFahrenheit(celsius)
+        : celsius;
+  }
 
   /// After a confirm-advance landed on a filled cell with nothing open, return
   /// to the just-confirmed cell so we never imply more work remains.

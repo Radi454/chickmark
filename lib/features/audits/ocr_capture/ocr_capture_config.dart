@@ -1,4 +1,5 @@
 import '../../../core/utils/calculation_utils.dart';
+import '../../../services/ocr/ocr_service.dart' show ThermoScanUnit;
 import '../models/est_grid_data.dart';
 
 /// Declarative input to the reusable [OcrCaptureScreen].
@@ -13,6 +14,7 @@ class OcrCaptureConfig {
     this.cellKeys = EstGridData.scanKeys,
     this.unitSuffix = '°C',
     this.convertCelsiusToFahrenheit = false,
+    this.selectedUnit,
     this.initialReadings = const {},
     this.initialPhotos = const {},
     this.tempStatusFn,
@@ -35,6 +37,10 @@ class OcrCaptureConfig {
   /// the returned result. OCR is ALWAYS Celsius in; conversion happens once, at
   /// the controller boundary.
   final bool convertCelsiusToFahrenheit;
+
+  /// Unit selected by the user for this capture session. When omitted, legacy
+  /// callers keep the previous Celsius-in / optional-Fahrenheit conversion.
+  final ThermoScanUnit? selectedUnit;
 
   /// Existing readings to pre-populate (display unit). Not marked dirty.
   final Map<String, double> initialReadings;
