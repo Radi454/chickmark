@@ -24,6 +24,8 @@ enum ThermoScanQualityRejection { blur, lighting, distance }
 
 enum ThermoScanOcrConfidence { none, low, medium, high }
 
+enum ThermoScanUnit { fahrenheit, celsius }
+
 enum _ThermoScanPreprocessVariant { balanced, highContrast, binary }
 
 class ThermoScanCropFrame {
@@ -89,6 +91,8 @@ class ThermoScanPreprocessResult {
 
 class ThermoScanOcrResult {
   const ThermoScanOcrResult({
+    this.displayValue,
+    this.detectedUnit,
     this.readingCelsius,
     this.confidence = ThermoScanOcrConfidence.none,
     this.confidenceScore = 0,
@@ -103,6 +107,8 @@ class ThermoScanOcrResult {
     this.scanDuration = Duration.zero,
   });
 
+  final double? displayValue;
+  final ThermoScanUnit? detectedUnit;
   final double? readingCelsius;
   final ThermoScanOcrConfidence confidence;
   final double confidenceScore;
@@ -119,12 +125,16 @@ class ThermoScanOcrResult {
 
 class ThermoScanReadingEstimate {
   const ThermoScanReadingEstimate({
+    this.displayValue,
+    this.detectedUnit,
     this.readingCelsius,
     this.confidence = ThermoScanOcrConfidence.none,
     this.confidenceScore = 0,
     this.supportingReadings = 0,
   });
 
+  final double? displayValue;
+  final ThermoScanUnit? detectedUnit;
   final double? readingCelsius;
   final ThermoScanOcrConfidence confidence;
   final double confidenceScore;
@@ -268,6 +278,8 @@ class OcrService {
               duration: stopwatch.elapsed,
             );
             return ThermoScanOcrResult(
+              displayValue: primaryEstimate.displayValue,
+              detectedUnit: primaryEstimate.detectedUnit,
               readingCelsius: primaryEstimate.readingCelsius,
               confidence: primaryEstimate.confidence,
               confidenceScore: primaryEstimate.confidenceScore,
@@ -343,6 +355,8 @@ class OcrService {
         duration: stopwatch.elapsed,
       );
       return ThermoScanOcrResult(
+        displayValue: estimate.displayValue,
+        detectedUnit: estimate.detectedUnit,
         readingCelsius: estimate.readingCelsius,
         confidence: estimate.confidence,
         confidenceScore: estimate.confidenceScore,
@@ -450,16 +464,22 @@ class OcrService {
   }
 
   static double? extractThermoScanReadingCelsius(String text) {
-    return estimateThermoScanReadingCelsius([text]).readingCelsius;
+    return estimateThermoScanReading([text]).readingCelsius;
   }
 
   static ThermoScanReadingEstimate estimateThermoScanReadingCelsius(
     Iterable<String> texts,
   ) {
+    return estimateThermoScanReading(texts);
+  }
+
+  static ThermoScanReadingEstimate estimateThermoScanReading(
+    Iterable<String> texts,
+  ) {
     final candidates = <_ThermoScanCandidate>[
       for (final text in texts) ...[
-        ..._splitSevenSegmentCandidates(text),
-        ..._numericTokenCandidates(text),
+        ..._splitSevenSegmentCandidates(_normalizeSevenSegmentText(text)),
+        ..._numericTokenCandidates(_normalizeSevenSegmentText(text)),
       ],
     ];
     if (candidates.isEmpty) return const ThermoScanReadingEstimate();
@@ -486,6 +506,8 @@ class OcrService {
     final best = clusters.first;
     final confidenceScore = best.confidenceScore;
     return ThermoScanReadingEstimate(
+      displayValue: best.bestCandidate.displayValue,
+      detectedUnit: best.bestCandidate.detectedUnit,
       readingCelsius: best.averageCelsius,
       confidence: _confidenceForScore(confidenceScore),
       confidenceScore: confidenceScore,
@@ -498,6 +520,10 @@ class OcrService {
     if (score >= 0.62) return ThermoScanOcrConfidence.medium;
     if (score > 0) return ThermoScanOcrConfidence.low;
     return ThermoScanOcrConfidence.none;
+  }
+
+  static String _normalizeSevenSegmentText(String text) {
+    return text.replaceAll(RegExp(r'[oO]'), '0').replaceAll(',', '.');
   }
 
   static Iterable<_ThermoScanCandidate> _numericTokenCandidates(String text) {
@@ -559,7 +585,13 @@ class OcrService {
     void addCelsius(double temp, int score, {bool recoveredDecimal = false}) {
       if (_isReasonableCelsius(temp)) {
         candidates.add(
-          _ThermoScanCandidate(temp, score, recoveredDecimal: recoveredDecimal),
+          _ThermoScanCandidate(
+            celsius: temp,
+            displayValue: temp,
+            detectedUnit: normalizedUnit == 'C' ? ThermoScanUnit.celsius : null,
+            score: score,
+            recoveredDecimal: recoveredDecimal,
+          ),
         );
       }
     }
@@ -572,8 +604,12 @@ class OcrService {
       if (_isReasonableFahrenheit(temp)) {
         candidates.add(
           _ThermoScanCandidate(
-            _fahrenheitToCelsius(temp),
-            score,
+            celsius: _fahrenheitToCelsius(temp),
+            displayValue: temp,
+            detectedUnit: normalizedUnit == 'F'
+                ? ThermoScanUnit.fahrenheit
+                : null,
+            score: score,
             recoveredDecimal: recoveredDecimal,
           ),
         );
@@ -581,9 +617,9 @@ class OcrService {
     }
 
     if (normalizedUnit == 'C') {
-      addCelsius(value, baseScore + 20);
+      addCelsius(value, baseScore + 100);
     } else if (normalizedUnit == 'F') {
-      addFahrenheit(value, baseScore + 20);
+      addFahrenheit(value, baseScore + 100);
     } else if (value >= 45) {
       addFahrenheit(value, baseScore);
     } else {
@@ -628,13 +664,17 @@ class OcrService {
 }
 
 class _ThermoScanCandidate {
-  const _ThermoScanCandidate(
-    this.celsius,
-    this.score, {
+  const _ThermoScanCandidate({
+    required this.celsius,
+    required this.displayValue,
+    required this.detectedUnit,
+    required this.score,
     this.recoveredDecimal = false,
   });
 
   final double celsius;
+  final double displayValue;
+  final ThermoScanUnit? detectedUnit;
   final int score;
   final bool recoveredDecimal;
 }
@@ -657,6 +697,12 @@ class _ThermoScanCandidateCluster {
     return _candidates.fold<int>(
       0,
       (best, candidate) => math.max(best, candidate.score),
+    );
+  }
+
+  _ThermoScanCandidate get bestCandidate {
+    return _candidates.reduce(
+      (best, candidate) => candidate.score > best.score ? candidate : best,
     );
   }
 

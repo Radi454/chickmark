@@ -7,6 +7,23 @@ import 'package:path/path.dart' as path;
 
 void main() {
   group('OcrService.extractThermoScanReadingCelsius', () {
+    test('preserves fahrenheit unit on the accepted large reading', () {
+      final estimate = OcrService.estimateThermoScanReading([
+        '102.2 M\n104.6 °F\n3 7 30 30',
+      ]);
+
+      expect(estimate.displayValue, 104.6);
+      expect(estimate.detectedUnit, ThermoScanUnit.fahrenheit);
+      expect(estimate.readingCelsius, closeTo(40.33, 0.01));
+    });
+
+    test('normalizes common seven-segment OCR characters', () {
+      final estimate = OcrService.estimateThermoScanReading(['1O4,6 °F']);
+
+      expect(estimate.displayValue, 104.6);
+      expect(estimate.detectedUnit, ThermoScanUnit.fahrenheit);
+    });
+
     test('returns celsius value when OCR text includes celsius unit', () {
       expect(OcrService.extractThermoScanReadingCelsius('20.4 °C'), 20.4);
     });
@@ -97,21 +114,18 @@ void main() {
       expect(estimate.supportingReadings, 1);
     });
 
-    test(
-      'rejects isolated recovered-decimal digit noise without a unit',
-      () {
-        for (final text in const ['230', '2301', '211\n2301']) {
-          final estimate = OcrService.estimateThermoScanReadingCelsius([text]);
+    test('rejects isolated recovered-decimal digit noise without a unit', () {
+      for (final text in const ['230', '2301', '211\n2301']) {
+        final estimate = OcrService.estimateThermoScanReadingCelsius([text]);
 
-          expect(
-            estimate.readingCelsius,
-            isNull,
-            reason: 'Unexpected reading from "$text"',
-          );
-          expect(estimate.confidence, ThermoScanOcrConfidence.none);
-        }
-      },
-    );
+        expect(
+          estimate.readingCelsius,
+          isNull,
+          reason: 'Unexpected reading from "$text"',
+        );
+        expect(estimate.confidence, ThermoScanOcrConfidence.none);
+      }
+    });
   });
 
   group('OcrService.analyzeThermoScanReadingCelsius', () {
