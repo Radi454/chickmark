@@ -26,7 +26,14 @@ enum ThermoScanOcrConfidence { none, low, medium, high }
 
 enum ThermoScanUnit { fahrenheit, celsius }
 
-enum _ThermoScanPreprocessVariant { balanced, highContrast, binary }
+enum ThermoScanPreprocessProfile { balanced, redLcdMainDisplay }
+
+enum _ThermoScanPreprocessVariant {
+  redChannel,
+  invertedHighContrast,
+  adaptiveBinary,
+  balanced,
+}
 
 class ThermoScanCropFrame {
   const ThermoScanCropFrame({
@@ -230,7 +237,7 @@ class OcrService {
     try {
       final primaryPrepared = await _prepareThermoScanImageVariantForOcr(
         imagePath,
-        variant: _ThermoScanPreprocessVariant.balanced,
+        variant: _ThermoScanPreprocessVariant.redChannel,
         cropFrame: cropFrame,
         enableQualityChecks: enableQualityChecks,
       );
@@ -294,8 +301,9 @@ class OcrService {
 
         if (fanOutVariants) {
           for (final variant in const [
-            _ThermoScanPreprocessVariant.highContrast,
-            _ThermoScanPreprocessVariant.binary,
+            _ThermoScanPreprocessVariant.invertedHighContrast,
+            _ThermoScanPreprocessVariant.adaptiveBinary,
+            _ThermoScanPreprocessVariant.balanced,
           ]) {
             final prepared = await _prepareThermoScanImageVariantForOcr(
               imagePath,
@@ -378,13 +386,16 @@ class OcrService {
     required String outputPath,
     ThermoScanCropFrame? cropFrame,
     bool enableQualityChecks = kThermoScanQualityChecksEnabled,
+    ThermoScanPreprocessProfile profile = ThermoScanPreprocessProfile.balanced,
   }) async {
     final raw = await compute(_preprocessThermoScanImageForOcr, {
       'sourcePath': sourcePath,
       'outputPath': outputPath,
       'cropFrame': cropFrame?.toJson(),
       'enableQualityChecks': enableQualityChecks,
-      'variant': _ThermoScanPreprocessVariant.balanced.name,
+      'variant': profile == ThermoScanPreprocessProfile.redLcdMainDisplay
+          ? _ThermoScanPreprocessVariant.redChannel.name
+          : _ThermoScanPreprocessVariant.balanced.name,
     });
     return ThermoScanPreprocessResult.fromJson(raw);
   }
@@ -832,26 +843,63 @@ image.Image _prepareVariantImage(
   image.Image cropped,
   _ThermoScanPreprocessVariant variant,
 ) {
-  final grayscaled = image.grayscale(cropped);
+  if (variant == _ThermoScanPreprocessVariant.balanced) {
+    return image.contrast(image.grayscale(cropped), contrast: 112);
+  }
+
+  final mainDisplay = _mainDisplayCrop(cropped);
+  final prepared = mainDisplay.width < 640
+      ? image.copyResize(
+          mainDisplay,
+          width: 640,
+          interpolation: image.Interpolation.cubic,
+        )
+      : mainDisplay;
+
   return switch (variant) {
-    _ThermoScanPreprocessVariant.balanced => image.contrast(
-      grayscaled,
-      contrast: 112,
+    _ThermoScanPreprocessVariant.redChannel => _redChannelImage(prepared),
+    _ThermoScanPreprocessVariant.invertedHighContrast => image.invert(
+      image.contrast(image.grayscale(prepared), contrast: 150),
     ),
-    _ThermoScanPreprocessVariant.highContrast => image.contrast(
-      grayscaled,
-      contrast: 138,
+    _ThermoScanPreprocessVariant.adaptiveBinary => _adaptiveThresholdImage(
+      _redChannelImage(prepared),
     ),
-    _ThermoScanPreprocessVariant.binary => _thresholdImage(
-      image.contrast(grayscaled, contrast: 132),
-    ),
+    _ThermoScanPreprocessVariant.balanced => prepared,
   };
 }
 
-image.Image _thresholdImage(image.Image source) {
+image.Image _mainDisplayCrop(image.Image source) {
+  final x = (source.width * 0.04).round().clamp(0, source.width - 1);
+  final y = (source.height * 0.30).round().clamp(0, source.height - 1);
+  final width = (source.width * 0.92).round().clamp(1, source.width - x);
+  final height = (source.height * 0.50).round().clamp(1, source.height - y);
+  return image.copyCrop(source, x: x, y: y, width: width, height: height);
+}
+
+image.Image _redChannelImage(image.Image source) {
+  final extracted = image.Image.from(source);
+  for (final pixel in extracted) {
+    final value = pixel.r.toInt();
+    pixel
+      ..r = value
+      ..g = value
+      ..b = value
+      ..a = 255;
+  }
+  return image.contrast(extracted, contrast: 138);
+}
+
+image.Image _adaptiveThresholdImage(image.Image source) {
+  var total = 0.0;
+  var count = 0;
+  for (final pixel in source) {
+    total += _luma(pixel);
+    count++;
+  }
+  final threshold = count == 0 ? 128.0 : (total / count) * 0.82;
   final thresholded = image.Image.from(source);
   for (final pixel in thresholded) {
-    final value = _luma(pixel) >= 128 ? 255 : 0;
+    final value = _luma(pixel) >= threshold ? 255 : 0;
     pixel
       ..r = value
       ..g = value

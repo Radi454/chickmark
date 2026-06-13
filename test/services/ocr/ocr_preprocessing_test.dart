@@ -6,6 +6,31 @@ import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as path;
 
 void main() {
+  test('red LCD profile isolates and upscales the main display row', () async {
+    final tempDir = await Directory.systemTemp.createTemp('ocr_red_lcd_');
+    addTearDown(() => tempDir.delete(recursive: true));
+
+    final outputPath = path.join(tempDir.path, 'processed.jpg');
+    final result = await OcrService.prepareThermoScanImageForOcr(
+      sourcePath: path.join(
+        Directory.current.path,
+        'test',
+        'fixtures',
+        'ocr',
+        'thermoscan_red_lcd.jpeg',
+      ),
+      outputPath: outputPath,
+      enableQualityChecks: false,
+      profile: ThermoScanPreprocessProfile.redLcdMainDisplay,
+    );
+
+    final decoded = img.decodeImage(await File(outputPath).readAsBytes());
+    expect(result.shouldRunOcr, isTrue);
+    expect(decoded, isNotNull);
+    expect(decoded!.width / decoded.height, greaterThan(2.0));
+    expect(decoded.width, greaterThanOrEqualTo(640));
+  });
+
   test(
     'ThermoScan OCR preprocessing crops, normalizes, and grayscales image',
     () async {

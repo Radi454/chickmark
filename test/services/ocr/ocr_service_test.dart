@@ -157,8 +157,9 @@ void main() {
         final service = OcrService(
           isAvailableOverride: true,
           textRecognizer: (imagePath) async {
+            final isPrimary = seenPaths.isEmpty;
             seenPaths.add(imagePath);
-            if (imagePath.contains('balanced')) return 'ThermoScan ready';
+            if (isPrimary) return 'ThermoScan ready';
             return '100.4 F';
           },
         );
@@ -198,8 +199,9 @@ void main() {
         final service = OcrService(
           isAvailableOverride: true,
           textRecognizer: (imagePath) async {
+            final isPrimary = seenPaths.isEmpty;
             seenPaths.add(imagePath);
-            if (imagePath.contains('balanced')) {
+            if (isPrimary) {
               await Future<void>.delayed(const Duration(milliseconds: 120));
               return '100.4 F';
             }
