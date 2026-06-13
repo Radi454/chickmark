@@ -559,7 +559,7 @@ void main() {
     }
   });
 
-  testWidgets('adaptive mode uses native numeric input on iOS targets', (
+  testWidgets('adaptive mode keeps the custom keypad on iOS targets', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -576,7 +576,6 @@ void main() {
                 controller: controller,
                 allowDecimal: true,
                 allowNegative: true,
-                maxDecimalPlaces: 1,
               ),
             ),
           ),
@@ -586,22 +585,11 @@ void main() {
       await tester.tap(find.byType(AuditNumericField));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AuditNumericKeyboard), findsNothing);
+      expect(find.byType(AuditNumericKeyboard), findsOneWidget);
 
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.readOnly, isFalse);
-      expect(
-        field.keyboardType,
-        const TextInputType.numberWithOptions(decimal: true, signed: true),
-      );
-
-      await tester.enterText(find.byType(AuditNumericField), '12.3');
-      await tester.pump();
-      expect(controller.text, '12.3');
-
-      await tester.enterText(find.byType(AuditNumericField), '12.34');
-      await tester.pump();
-      expect(controller.text, '12.3');
+      expect(field.readOnly, isTrue);
+      expect(field.keyboardType, TextInputType.none);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

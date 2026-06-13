@@ -348,13 +348,12 @@ sessions mount only the current station at first, then
 keep previously opened stations mounted, so hidden future
 stations do not hydrate their audit data before the user opens them.
 
-Audit numeric fields use a platform-adaptive input surface. Android targets
-open the large in-app audit keypad with decimal, negative, backspace, next, and
-grid-down actions. Native iOS targets use the system numeric keyboard so audit
-entry remains available across visit-session focus and layout changes. Desktop
-targets, including desktop web browsers, use normal editable text fields for
-physical keyboard entry. All paths enforce the same numeric rules for decimal,
-negative, and max-decimal-place limits.
+Audit numeric fields use a platform-adaptive input surface. Native Android and
+iOS targets open the large in-app ChickMark keypad with decimal, negative,
+backspace, next, and grid-down actions. Ordinary text fields continue to use
+the device keyboard. Desktop targets, including desktop web browsers, use
+normal editable text fields for physical keyboard entry. All paths enforce the
+same numeric rules for decimal, negative, and max-decimal-place limits.
 Audit station scroll containers reserve extra bottom scroll space while the
 device keyboard is visible, so focused text and numeric fields across Egg,
 Chicks, Hatch Analysis, Setters, and Hatchers can scroll clear of the keyboard
@@ -1392,6 +1391,9 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-13: Restored the in-app ChickMark keypad for adaptive native iOS
+  audit numeric fields after the focus-preservation and stable-station fixes,
+  while leaving ordinary text fields on the native iOS keyboard.
 - 2026-06-13: Kept the narrow audit-session footer actions in one compact row
   with protected space for the floating Govee action, and changed the Hatch
   Analysis Breakout Type and metadata cards from fixed heights to matching
