@@ -9,19 +9,19 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_thresholds.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/calculation_utils.dart';
-import '../../../../core/utils/temp_converter.dart';
 import '../../../../data/models/audit_model.dart';
 import '../../../../data/models/photo_model.dart';
 import '../../../../data/repositories/photo_repository.dart';
-import '../../../../providers/app_provider.dart';
 import '../../../../services/ocr/ocr_service.dart';
 import '../../../../services/photo/photo_service.dart';
 import '../../models/est_grid_data.dart';
+import '../../models/temperature_entry_unit.dart';
 import '../../ocr_capture/ocr_capture_config.dart';
 import '../../ocr_capture/ocr_capture_launcher.dart';
 import '../../providers/audit_provider.dart';
 import '../audit_numeric_keyboard.dart';
 import '../est_grid_widget.dart';
+import '../temperature_unit_selector.dart';
 
 class CvtTab extends StatefulWidget {
   final AuditModel audit;
@@ -54,6 +54,7 @@ class _CvtTabState extends State<CvtTab> {
   final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
+  TemperatureEntryUnit _cvtUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
   void initState() {
@@ -162,12 +163,17 @@ class _CvtTabState extends State<CvtTab> {
     }
   }
 
-  String _formatForEntryUnit(double valueF) => valueF.toStringAsFixed(1);
+  String _formatForEntryUnit(double valueF) => _cvtUnit
+      .fromCanonical(valueF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
+      .toStringAsFixed(1);
 
   double? _controllerValueF(String key) {
     final parsed = double.tryParse(_controllers[key]?.text.trim() ?? '');
     if (parsed == null) return null;
-    return parsed;
+    return _cvtUnit.toCanonical(
+      parsed,
+      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+    );
   }
 
   Map<String, double> _currentReadingsF() {
@@ -175,6 +181,15 @@ class _CvtTabState extends State<CvtTab> {
     for (final key in EstGridData.scanKeys) {
       final value = _controllerValueF(key);
       if (value != null) readings[key] = double.parse(value.toStringAsFixed(1));
+    }
+    return readings;
+  }
+
+  Map<String, double> _currentDisplayReadings() {
+    final readings = <String, double>{};
+    for (final key in EstGridData.scanKeys) {
+      final value = double.tryParse(_controllers[key]?.text.trim() ?? '');
+      if (value != null) readings[key] = value;
     }
     return readings;
   }
@@ -246,9 +261,6 @@ class _CvtTabState extends State<CvtTab> {
     final temps = readings.values.toList();
     final avg = temps.isEmpty ? null : CalculationUtils.average(temps);
     final cv = temps.length > 1 ? CalculationUtils.cvPercent(temps) : 0.0;
-    final showCelsius =
-        context.watch<AppProvider>().tempUnit == TempUnit.celsius;
-
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -259,9 +271,7 @@ class _CvtTabState extends State<CvtTab> {
                 'AVG Temp',
                 avg == null
                     ? '--'
-                    : showCelsius
-                    ? TempConverter.display(avg, showCelsius: true)
-                    : '${avg.toStringAsFixed(1)}°F',
+                    : '${_displayCvtValue(avg)}${_cvtUnit.suffix}',
                 avg == null
                     ? null
                     : avg >= AppThresholds.cvtMin &&
@@ -298,9 +308,19 @@ class _CvtTabState extends State<CvtTab> {
                   photos: _photos,
                   enabled: !widget.isReadOnly,
                   showPhotoCapture: false,
-                  unitSuffix: '°F',
-                  tempStatusFn: CalculationUtils.cvtStatus,
-                  tempZoneFn: CalculationUtils.cvtZone,
+                  unitSuffix: _cvtUnit.suffix,
+                  tempStatusFn: (value) => CalculationUtils.cvtStatus(
+                    _cvtUnit.toCanonical(
+                      value,
+                      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                    ),
+                  ),
+                  tempZoneFn: (value) => CalculationUtils.cvtZone(
+                    _cvtUnit.toCanonical(
+                      value,
+                      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                    ),
+                  ),
                   onValueChanged: (_, _) {
                     _updateCalculations();
                     setState(() {});
@@ -342,20 +362,31 @@ class _CvtTabState extends State<CvtTab> {
         ),
         const SizedBox(height: 4),
         Text(
-          '103-105°F / 39.4-40.6°C',
+          _cvtUnit == TemperatureEntryUnit.fahrenheit
+              ? '103-105°F'
+              : '39.4-40.6°C',
           style: AppTextStyles.caption.copyWith(
             color: AppColors.greenTab,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            onPressed: widget.isReadOnly ? null : _openCapture,
-            icon: const Icon(Icons.document_scanner_outlined),
-            label: const Text('Scan readings'),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TemperatureUnitSelector(
+              value: _cvtUnit,
+              keyPrefix: 'chicks-cvt',
+              enabled: !widget.isReadOnly,
+              onChanged: _setCvtUnit,
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: widget.isReadOnly ? null : _openCapture,
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: const Text('Scan readings'),
+            ),
+          ],
         ),
       ],
     );
@@ -396,12 +427,22 @@ class _CvtTabState extends State<CvtTab> {
       context,
       OcrCaptureConfig(
         title: 'Chick Vent Temperature',
-        unitSuffix: '°F',
-        convertCelsiusToFahrenheit: true,
-        initialReadings: _currentReadingsF(),
+        unitSuffix: _cvtUnit.suffix,
+        selectedUnit: _cvtUnit.thermoScanUnit,
+        initialReadings: _currentDisplayReadings(),
         initialPhotos: _currentPhotoPaths(),
-        tempStatusFn: CalculationUtils.cvtStatus,
-        tempZoneFn: CalculationUtils.cvtZone,
+        tempStatusFn: (value) => CalculationUtils.cvtStatus(
+          _cvtUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
+        tempZoneFn: (value) => CalculationUtils.cvtZone(
+          _cvtUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
         targetLabelBuilder: _targetLabel,
         readOnly: widget.isReadOnly,
       ),
@@ -449,7 +490,12 @@ class _CvtTabState extends State<CvtTab> {
     final valueController = TextEditingController(
       text: readingC == null
           ? ''
-          : TempConverter.toFahrenheit(readingC).toStringAsFixed(1),
+          : _cvtUnit
+                .fromCanonical(
+                  readingC,
+                  canonicalUnit: TemperatureEntryUnit.celsius,
+                )
+                .toStringAsFixed(1),
     );
     final confirmed = await showDialog<bool>(
       context: context,
@@ -462,7 +508,7 @@ class _CvtTabState extends State<CvtTab> {
             maxDecimalPlaces: 1,
             decoration: InputDecoration(
               labelText: 'Temperature',
-              suffixText: '°F',
+              suffixText: _cvtUnit.suffix,
             ),
           ),
         ),
@@ -567,5 +613,27 @@ class _CvtTabState extends State<CvtTab> {
     final parts = key.split('_');
     if (parts.length != 2) return key;
     return '${EstGridData.label(parts[0])} - ${EstGridData.label(parts[1])}';
+  }
+
+  void _setCvtUnit(TemperatureEntryUnit unit) {
+    if (_cvtUnit == unit) return;
+    final previousUnit = _cvtUnit;
+    setState(() {
+      for (final controller in _controllers.values) {
+        final value = double.tryParse(controller.text);
+        if (value != null) {
+          controller.text = previousUnit
+              .convert(value, unit)
+              .toStringAsFixed(1);
+        }
+      }
+      _cvtUnit = unit;
+    });
+  }
+
+  String _displayCvtValue(double valueF) {
+    return _cvtUnit
+        .fromCanonical(valueF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
+        .toStringAsFixed(1);
   }
 }

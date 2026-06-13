@@ -23,6 +23,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
 import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
+import '../models/temperature_entry_unit.dart';
 import '../ocr_capture/ocr_capture_config.dart';
 import '../ocr_capture/ocr_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -33,6 +34,7 @@ import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/temperature_unit_selector.dart';
 import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
 import 'audit_context_screen.dart';
@@ -115,6 +117,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   bool? _condensation;
   double? _bmkEggWeight;
   String? _activeAuditId;
+  TemperatureEntryUnit _estUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
   void initState() {
@@ -221,7 +224,12 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       if (decoded is! Map) return;
       final normalized = EstGridData.normalizeReadings(decoded);
       for (final entry in normalized.entries) {
-        _estControllers[entry.key]?.text = entry.value.toStringAsFixed(1);
+        _estControllers[entry.key]?.text = _estUnit
+            .fromCanonical(
+              entry.value,
+              canonicalUnit: TemperatureEntryUnit.celsius,
+            )
+            .toStringAsFixed(1);
       }
     } catch (_) {
       // Keep grid blank if stored data is malformed.
@@ -632,7 +640,11 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         runSpacing: 8,
         children: [
           _targetPill('Storage duration', target.label, AppColors.primary),
-          _targetPill('EST target', target.rangeLabel, AppColors.primary),
+          _targetPill(
+            'EST target',
+            target.rangeLabel(_estUnit),
+            AppColors.primary,
+          ),
         ],
       ),
     );
@@ -681,6 +693,13 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                 style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
+            TemperatureUnitSelector(
+              value: _estUnit,
+              keyPrefix: 'egg-est',
+              enabled: !auditProvider.isReadOnly,
+              onChanged: (unit) => _setEstUnit(unit),
+            ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: auditProvider.isReadOnly
                   ? null
@@ -698,9 +717,19 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
           enabled: !auditProvider.isReadOnly,
           showPhotoCapture: false,
           title: null,
-          unitSuffix: '°C',
-          tempStatusFn: target.status,
-          tempZoneFn: target.zone,
+          unitSuffix: _estUnit.suffix,
+          tempStatusFn: (value) => target.status(
+            _estUnit.toCanonical(
+              value,
+              canonicalUnit: TemperatureEntryUnit.celsius,
+            ),
+          ),
+          tempZoneFn: (value) => target.zone(
+            _estUnit.toCanonical(
+              value,
+              canonicalUnit: TemperatureEntryUnit.celsius,
+            ),
+          ),
           onValueChanged: (key, value) => _updateEstCalculations(auditProvider),
           onPhotoCaptured: (key, path) {
             unawaited(_handleEstPhotoCaptured(auditProvider, key, path));
@@ -720,7 +749,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                 'AVG',
                 _estAvgController.text.isEmpty
                     ? '--'
-                    : '${_estAvgController.text}°C',
+                    : '${_displayEstAverage()}${_estUnit.suffix}',
                 Colors.blue,
               ),
             ),
@@ -2025,11 +2054,22 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       context,
       OcrCaptureConfig(
         title: 'Eggshell Temperature',
-        unitSuffix: '°C',
-        initialReadings: _currentEstReadings(),
+        unitSuffix: _estUnit.suffix,
+        selectedUnit: _estUnit.thermoScanUnit,
+        initialReadings: _currentEstDisplayReadings(),
         initialPhotos: _currentEstPhotoPaths(),
-        tempStatusFn: target.status,
-        tempZoneFn: target.zone,
+        tempStatusFn: (value) => target.status(
+          _estUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.celsius,
+          ),
+        ),
+        tempZoneFn: (value) => target.zone(
+          _estUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.celsius,
+          ),
+        ),
         targetLabelBuilder: _estTargetLabel,
         readOnly: provider.isReadOnly,
       ),
@@ -2183,7 +2223,14 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     if (!mounted) return;
 
     final valueController = TextEditingController(
-      text: reading == null ? '' : reading.toStringAsFixed(1),
+      text: reading == null
+          ? ''
+          : _estUnit
+                .fromCanonical(
+                  reading,
+                  canonicalUnit: TemperatureEntryUnit.celsius,
+                )
+                .toStringAsFixed(1),
     );
     final action = await showDialog<_EstScanAction>(
       context: context,
@@ -2200,7 +2247,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                   maxDecimalPlaces: 1,
                   decoration: InputDecoration(
                     labelText: 'Temperature',
-                    suffixText: '°C',
+                    suffixText: _estUnit.suffix,
                     helperText: reading == null
                         ? 'No reading found. Enter it manually or retake.'
                         : 'Confirm or edit the detected reading.',
@@ -2295,13 +2342,27 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     return '${EstGridData.label(parts[0])} - ${EstGridData.label(parts[1])}';
   }
 
-  Map<String, double> _currentEstReadings() {
+  Map<String, double> _currentEstDisplayReadings() {
     final readings = <String, double>{};
     for (final entry in _estControllers.entries) {
       final value = double.tryParse(entry.value.text);
       if (value != null) readings[entry.key] = value;
     }
     return readings;
+  }
+
+  Map<String, double> _currentEstReadings() {
+    return {
+      for (final entry in _currentEstDisplayReadings().entries)
+        entry.key: double.parse(
+          _estUnit
+              .toCanonical(
+                entry.value,
+                canonicalUnit: TemperatureEntryUnit.celsius,
+              )
+              .toStringAsFixed(1),
+        ),
+    };
   }
 
   Map<String, String> _currentEstPhotoPaths() {
@@ -2327,11 +2388,8 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   }
 
   void _updateEstCalculations(AuditProvider provider) {
-    final temps = _estControllers.values
-        .map((c) => double.tryParse(c.text))
-        .where((t) => t != null)
-        .map((t) => t!)
-        .toList();
+    final readings = _currentEstReadings();
+    final temps = readings.values.toList();
     if (temps.isEmpty) {
       setState(() {
         _estAvgController.text = '';
@@ -2349,15 +2407,34 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       provider.updateField('es_estAvg', avg);
       provider.updateField('es_estCv', cv);
     }
-    final readings = <String, double>{};
-    for (final entry in _estControllers.entries) {
-      final value = double.tryParse(entry.value.text);
-      if (value != null) readings[entry.key] = value;
-    }
     provider.updateField(
       'es_estReadingsJson',
       readings.isEmpty ? null : jsonEncode(readings),
     );
+  }
+
+  void _setEstUnit(TemperatureEntryUnit unit) {
+    if (_estUnit == unit) return;
+    final previousUnit = _estUnit;
+    setState(() {
+      for (final controller in _estControllers.values) {
+        final value = double.tryParse(controller.text);
+        if (value != null) {
+          controller.text = previousUnit
+              .convert(value, unit)
+              .toStringAsFixed(1);
+        }
+      }
+      _estUnit = unit;
+    });
+  }
+
+  String _displayEstAverage() {
+    final averageC = double.tryParse(_estAvgController.text);
+    if (averageC == null) return '--';
+    return _estUnit
+        .fromCanonical(averageC, canonicalUnit: TemperatureEntryUnit.celsius)
+        .toStringAsFixed(1);
   }
 
   void _updateUvTrays(AuditProvider provider) {
@@ -2708,7 +2785,17 @@ class _ShellStorageTarget {
     required this.maxC,
   });
 
-  String get rangeLabel => '${_formatTemp(minC)}-${_formatTemp(maxC)}°C';
+  String rangeLabel(TemperatureEntryUnit unit) {
+    final min = unit.fromCanonical(
+      minC,
+      canonicalUnit: TemperatureEntryUnit.celsius,
+    );
+    final max = unit.fromCanonical(
+      maxC,
+      canonicalUnit: TemperatureEntryUnit.celsius,
+    );
+    return '${_formatTemp(min)}-${_formatTemp(max)}${unit.suffix}';
+  }
 
   TemperatureStatus status(double tempC) {
     if (tempC < minC) return TemperatureStatus.low;

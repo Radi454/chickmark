@@ -125,6 +125,29 @@ void main() {
     expect(find.text('CHA Environmental'), findsNothing);
   });
 
+  testWidgets('Chicks CVT unit selector defaults to Fahrenheit', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text('Chick Vent Temperature').first);
+    await tester.tap(find.text('Chick Vent Temperature').first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('chicks-cvt-unit-selector')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ChoiceChip>(find.byKey(const ValueKey('chicks-cvt-unit-f')))
+          .selected,
+      isTrue,
+    );
+  });
+
   testWidgets('renders all chick quality panels in one scrollable workbench', (
     tester,
   ) async {
@@ -508,9 +531,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Scan readings'), findsOneWidget);
-    expect(find.text('103-105°F / 39.4-40.6°C'), findsOneWidget);
+    expect(find.text('103-105°F'), findsOneWidget);
     expect(find.byKey(const ValueKey('cvt-temperature-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cvt-unit-toggle')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('chicks-cvt-unit-selector')),
+      findsOneWidget,
+    );
     expect(find.text('CVT Measurements'), findsNothing);
 
     await enterAuditNumber(
@@ -526,6 +552,25 @@ void main() {
         jsonDecode(provider.activeDraft.cvtReadingsJson!)
             as Map<String, dynamic>;
     expect(readings['front_top'], 104.0);
+
+    await tester.tap(find.byKey(const ValueKey('chicks-cvt-unit-c')));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<AuditNumericField>(
+            find.byKey(const ValueKey('est-grid-input-front_top')),
+          )
+          .controller
+          .text,
+      '40.0',
+    );
+    expect(provider.activeDraft.cvtAvg, 104.0);
+    expect(
+      (jsonDecode(provider.activeDraft.cvtReadingsJson!)
+          as Map<String, dynamic>)['front_top'],
+      104.0,
+    );
   });
 
   testWidgets('PM Necropsy shows the revised lesion checklist', (tester) async {

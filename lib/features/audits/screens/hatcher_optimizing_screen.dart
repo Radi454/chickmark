@@ -8,7 +8,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
-import '../../../core/utils/temp_converter.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
@@ -16,6 +15,7 @@ import '../../../data/repositories/photo_repository.dart';
 import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../models/est_grid_data.dart';
+import '../models/temperature_entry_unit.dart';
 import '../ocr_capture/ocr_capture_config.dart';
 import '../ocr_capture/ocr_capture_launcher.dart';
 import '../providers/audit_provider.dart';
@@ -25,6 +25,7 @@ import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/temperature_unit_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'audit_context_screen.dart';
@@ -83,6 +84,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   String? _meconium;
   String? _cvtHighlightedKey;
   String? _activeAuditId;
+  TemperatureEntryUnit _cvtUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
   void initState() {
@@ -185,7 +187,12 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       if (decoded is! Map) return;
       final readings = EstGridData.normalizeReadings(decoded);
       for (final entry in readings.entries) {
-        _controllers[entry.key]?.text = entry.value.toStringAsFixed(1);
+        _controllers[entry.key]?.text = _cvtUnit
+            .fromCanonical(
+              entry.value,
+              canonicalUnit: TemperatureEntryUnit.fahrenheit,
+            )
+            .toStringAsFixed(1);
       }
     } catch (_) {}
   }
@@ -270,7 +277,25 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     final readings = <String, double>{};
     for (final key in EstGridData.scanKeys) {
       final value = double.tryParse(_controllers[key]?.text.trim() ?? '');
-      if (value != null) readings[key] = double.parse(value.toStringAsFixed(1));
+      if (value != null) {
+        readings[key] = double.parse(
+          _cvtUnit
+              .toCanonical(
+                value,
+                canonicalUnit: TemperatureEntryUnit.fahrenheit,
+              )
+              .toStringAsFixed(1),
+        );
+      }
+    }
+    return readings;
+  }
+
+  Map<String, double> _currentCvtDisplayReadings() {
+    final readings = <String, double>{};
+    for (final key in EstGridData.scanKeys) {
+      final value = double.tryParse(_controllers[key]?.text.trim() ?? '');
+      if (value != null) readings[key] = value;
     }
     return readings;
   }
@@ -855,6 +880,13 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                     ),
                   ),
                 ),
+                TemperatureUnitSelector(
+                  value: _cvtUnit,
+                  keyPrefix: 'hatcher-cvt',
+                  enabled: !provider.isReadOnly,
+                  onChanged: _setCvtUnit,
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: provider.isReadOnly
                       ? null
@@ -874,9 +906,19 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               highlightedKey: _cvtHighlightedKey,
               showPhotoCapture: false,
               title: null,
-              unitSuffix: '°F',
-              tempStatusFn: CalculationUtils.cvtStatus,
-              tempZoneFn: CalculationUtils.cvtZone,
+              unitSuffix: _cvtUnit.suffix,
+              tempStatusFn: (value) => CalculationUtils.cvtStatus(
+                _cvtUnit.toCanonical(
+                  value,
+                  canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                ),
+              ),
+              tempZoneFn: (value) => CalculationUtils.cvtZone(
+                _cvtUnit.toCanonical(
+                  value,
+                  canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                ),
+              ),
               onValueChanged: (_, _) {
                 _updateCalculations();
                 if (mounted) setState(() {});
@@ -899,7 +941,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                     'AVG',
                     _avgController.text.isEmpty
                         ? '--'
-                        : '${_avgController.text}°F',
+                        : '${_displayCvtAverage()}${_cvtUnit.suffix}',
                     Colors.blue,
                   ),
                 ),
@@ -1024,12 +1066,22 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       context,
       OcrCaptureConfig(
         title: 'Chick Vent Temperature',
-        unitSuffix: '°F',
-        convertCelsiusToFahrenheit: true,
-        initialReadings: _currentCvtReadings(),
+        unitSuffix: _cvtUnit.suffix,
+        selectedUnit: _cvtUnit.thermoScanUnit,
+        initialReadings: _currentCvtDisplayReadings(),
         initialPhotos: _currentCvtPhotoPaths(),
-        tempStatusFn: CalculationUtils.cvtStatus,
-        tempZoneFn: CalculationUtils.cvtZone,
+        tempStatusFn: (value) => CalculationUtils.cvtStatus(
+          _cvtUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
+        tempZoneFn: (value) => CalculationUtils.cvtZone(
+          _cvtUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
         targetLabelBuilder: _cvtTargetLabel,
         readOnly: provider.isReadOnly,
       ),
@@ -1075,7 +1127,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       return;
     }
 
-    final reading = await _recognizeThermoScanReadingFahrenheit(path);
+    final reading = await _recognizeThermoScanReadingForEntryUnit(path);
     if (!mounted) return;
     final valueController = TextEditingController(
       text: reading == null ? '' : reading.toStringAsFixed(1),
@@ -1089,9 +1141,9 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
             controller: valueController,
             allowDecimal: true,
             maxDecimalPlaces: 1,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'CVT',
-              suffixText: '°F',
+              suffixText: _cvtUnit.suffix,
             ),
           ),
         ),
@@ -1194,7 +1246,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     await _photoRepository.saveLocalPhoto(photo);
   }
 
-  Future<double?> _recognizeThermoScanReadingFahrenheit(
+  Future<double?> _recognizeThermoScanReadingForEntryUnit(
     String path, {
     ThermoScanCropFrame? cropFrame,
     bool fanOutVariants = true,
@@ -1205,7 +1257,34 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       fanOutVariants: fanOutVariants,
     );
     if (readingC == null) return null;
-    return TempConverter.toFahrenheit(readingC);
+    return _cvtUnit.fromCanonical(
+      readingC,
+      canonicalUnit: TemperatureEntryUnit.celsius,
+    );
+  }
+
+  void _setCvtUnit(TemperatureEntryUnit unit) {
+    if (_cvtUnit == unit) return;
+    final previousUnit = _cvtUnit;
+    setState(() {
+      for (final controller in _controllers.values) {
+        final value = double.tryParse(controller.text);
+        if (value != null) {
+          controller.text = previousUnit
+              .convert(value, unit)
+              .toStringAsFixed(1);
+        }
+      }
+      _cvtUnit = unit;
+    });
+  }
+
+  String _displayCvtAverage() {
+    final averageF = double.tryParse(_avgController.text);
+    if (averageF == null) return '--';
+    return _cvtUnit
+        .fromCanonical(averageF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
+        .toStringAsFixed(1);
   }
 
   String _cvtTargetLabel(String key) {

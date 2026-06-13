@@ -176,6 +176,35 @@ void main() {
     expect(find.byType(OcrCaptureScreen), findsNothing);
   });
 
+  testWidgets('Setter and Hatcher temperature units default to Fahrenheit', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpSetterScreen(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('setter-est-unit-selector')),
+    );
+    expect(
+      tester
+          .widget<ChoiceChip>(find.byKey(const ValueKey('setter-est-unit-f')))
+          .selected,
+      isTrue,
+    );
+
+    await pumpHatcherScreen(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('hatcher-cvt-unit-selector')),
+    );
+    expect(
+      tester
+          .widget<ChoiceChip>(find.byKey(const ValueKey('hatcher-cvt-unit-f')))
+          .selected,
+      isTrue,
+    );
+  });
+
   testWidgets('Hatcher incubation age and hours use entry fields', (
     tester,
   ) async {

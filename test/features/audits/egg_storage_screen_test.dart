@@ -101,6 +101,34 @@ void main() {
     expect(find.byType(OcrCaptureScreen), findsNothing);
   });
 
+  testWidgets('Egg EST unit selector defaults to Fahrenheit', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text('Egg Shell Temperature'));
+    await tester.tap(find.text('Egg Shell Temperature'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('egg-est-unit-selector')), findsOneWidget);
+    final fahrenheit = tester.widget<ChoiceChip>(
+      find.byKey(const ValueKey('egg-est-unit-f')),
+    );
+    expect(fahrenheit.selected, isTrue);
+    expect(find.text('66.2-69.8°F'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('egg-est-unit-c')));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<ChoiceChip>(find.byKey(const ValueKey('egg-est-unit-c')))
+          .selected,
+      isTrue,
+    );
+    expect(find.text('19.0-21.0°C'), findsOneWidget);
+  });
+
   testWidgets('shows a default upside-down tray before the add tray action', (
     tester,
   ) async {
@@ -310,7 +338,7 @@ void main() {
     await tester.tap(find.text('Egg Shell Temperature'));
     await tester.pumpAndSettle();
 
-    expect(find.text('19.0-21.0°C'), findsOneWidget);
+    expect(find.text('66.2-69.8°F'), findsOneWidget);
     expect(find.text('Storage duration'), findsOneWidget);
     expect(find.text('EST target'), findsOneWidget);
     expect(find.text('Storage class'), findsNothing);

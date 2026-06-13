@@ -9,7 +9,6 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/utils/calculation_utils.dart';
-import '../../../core/utils/temp_converter.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
@@ -18,6 +17,7 @@ import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/est_grid_data.dart';
+import '../models/temperature_entry_unit.dart';
 import '../ocr_capture/ocr_capture_config.dart';
 import '../ocr_capture/ocr_capture_launcher.dart';
 import '../providers/audit_provider.dart';
@@ -27,6 +27,7 @@ import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/temperature_unit_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import 'audit_context_screen.dart';
 
@@ -100,6 +101,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   int _activeEstSampleIndex = 0;
   String _activeEstBreed = 'Ross308';
   String? _activeAuditId;
+  TemperatureEntryUnit _estUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
   void initState() {
@@ -299,7 +301,12 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       if (decoded is! Map) return;
       final readings = EstGridData.normalizeReadings(decoded);
       for (final entry in readings.entries) {
-        _estControllers[entry.key]?.text = entry.value.toStringAsFixed(1);
+        _estControllers[entry.key]?.text = _estUnit
+            .fromCanonical(
+              entry.value,
+              canonicalUnit: TemperatureEntryUnit.fahrenheit,
+            )
+            .toStringAsFixed(1);
       }
     } catch (_) {
       // Keep grid blank if stored data is malformed.
@@ -1213,6 +1220,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                 style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
+            TemperatureUnitSelector(
+              value: _estUnit,
+              keyPrefix: 'setter-est',
+              enabled: !provider.isReadOnly,
+              onChanged: _setEstUnit,
+            ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: provider.isReadOnly
                   ? null
@@ -1230,9 +1244,19 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
           enabled: !provider.isReadOnly,
           showPhotoCapture: false,
           title: null,
-          unitSuffix: '°F',
-          tempStatusFn: CalculationUtils.setterEstStatus,
-          tempZoneFn: CalculationUtils.setterEstZone,
+          unitSuffix: _estUnit.suffix,
+          tempStatusFn: (value) => CalculationUtils.setterEstStatus(
+            _estUnit.toCanonical(
+              value,
+              canonicalUnit: TemperatureEntryUnit.fahrenheit,
+            ),
+          ),
+          tempZoneFn: (value) => CalculationUtils.setterEstZone(
+            _estUnit.toCanonical(
+              value,
+              canonicalUnit: TemperatureEntryUnit.fahrenheit,
+            ),
+          ),
           onValueChanged: (key, value) => _updateEstCalculations(provider),
           onPhotoCaptured: (key, path) {
             unawaited(_handleEstPhotoCaptured(provider, key, path));
@@ -1252,7 +1276,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                 'AVG',
                 _estAvgController.text.isEmpty
                     ? '--'
-                    : '${_estAvgController.text}°F',
+                    : '${_displayEstAverage()}${_estUnit.suffix}',
                 _estAverageColor(),
               ),
             ),
@@ -1404,7 +1428,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     String key,
     String path,
   ) async {
-    final reading = await _recognizeThermoScanReadingFahrenheit(path);
+    final reading = await _recognizeThermoScanReadingForEntryUnit(path);
     if (!mounted) return;
 
     final valueController = TextEditingController(
@@ -1425,7 +1449,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                   maxDecimalPlaces: 1,
                   decoration: InputDecoration(
                     labelText: 'Temperature',
-                    suffixText: '°F',
+                    suffixText: _estUnit.suffix,
                     helperText: reading == null
                         ? 'No reading found. Enter it manually or retake.'
                         : 'Confirm or edit the detected reading.',
@@ -1476,7 +1500,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     }
   }
 
-  Future<double?> _recognizeThermoScanReadingFahrenheit(
+  Future<double?> _recognizeThermoScanReadingForEntryUnit(
     String imagePath, {
     ThermoScanCropFrame? cropFrame,
     bool fanOutVariants = true,
@@ -1487,7 +1511,10 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       fanOutVariants: fanOutVariants,
     );
     if (celsius == null) return null;
-    return TempConverter.toFahrenheit(celsius);
+    return _estUnit.fromCanonical(
+      celsius,
+      canonicalUnit: TemperatureEntryUnit.celsius,
+    );
   }
 
   /// Launch the reusable full-screen OCR capture flow (EST, °F) for the ACTIVE
@@ -1500,12 +1527,22 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       context,
       OcrCaptureConfig(
         title: 'Eggshell Temperature',
-        unitSuffix: '°F',
-        convertCelsiusToFahrenheit: true,
-        initialReadings: _currentEstReadings(),
+        unitSuffix: _estUnit.suffix,
+        selectedUnit: _estUnit.thermoScanUnit,
+        initialReadings: _currentEstDisplayReadings(),
         initialPhotos: _currentEstPhotoPaths(),
-        tempStatusFn: CalculationUtils.setterEstStatus,
-        tempZoneFn: CalculationUtils.setterEstZone,
+        tempStatusFn: (value) => CalculationUtils.setterEstStatus(
+          _estUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
+        tempZoneFn: (value) => CalculationUtils.setterEstZone(
+          _estUnit.toCanonical(
+            value,
+            canonicalUnit: TemperatureEntryUnit.fahrenheit,
+          ),
+        ),
         targetLabelBuilder: _estTargetLabel,
         readOnly: provider.isReadOnly,
       ),
@@ -1567,13 +1604,27 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     return '${EstGridData.label(parts[0])} - ${EstGridData.label(parts[1])}';
   }
 
-  Map<String, double> _currentEstReadings() {
+  Map<String, double> _currentEstDisplayReadings() {
     final readings = <String, double>{};
     for (final entry in _estControllers.entries) {
       final value = double.tryParse(entry.value.text);
       if (value != null) readings[entry.key] = value;
     }
     return readings;
+  }
+
+  Map<String, double> _currentEstReadings() {
+    return {
+      for (final entry in _currentEstDisplayReadings().entries)
+        entry.key: double.parse(
+          _estUnit
+              .toCanonical(
+                entry.value,
+                canonicalUnit: TemperatureEntryUnit.fahrenheit,
+              )
+              .toStringAsFixed(1),
+        ),
+    };
   }
 
   Map<String, String> _currentEstPhotoPaths() {
@@ -1603,10 +1654,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   }
 
   void _updateEstCalculations(AuditProvider provider) {
-    final temps = _estControllers.values
-        .map((controller) => double.tryParse(controller.text))
-        .whereType<double>()
-        .toList();
+    final readings = _currentEstReadings();
+    final temps = readings.values.toList();
     if (temps.isEmpty) {
       setState(() {
         _estAvgController.text = '';
@@ -1625,12 +1674,35 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       provider.updateField('soEstCv', cv);
     }
 
-    final readings = _currentEstReadings();
     provider.updateField(
       'soEstReadings',
       readings.isEmpty ? null : jsonEncode(readings),
     );
     _syncActiveEstSampleToDraft(provider);
+  }
+
+  void _setEstUnit(TemperatureEntryUnit unit) {
+    if (_estUnit == unit) return;
+    final previousUnit = _estUnit;
+    setState(() {
+      for (final controller in _estControllers.values) {
+        final value = double.tryParse(controller.text);
+        if (value != null) {
+          controller.text = previousUnit
+              .convert(value, unit)
+              .toStringAsFixed(1);
+        }
+      }
+      _estUnit = unit;
+    });
+  }
+
+  String _displayEstAverage() {
+    final averageF = double.tryParse(_estAvgController.text);
+    if (averageF == null) return '--';
+    return _estUnit
+        .fromCanonical(averageF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
+        .toStringAsFixed(1);
   }
 
   Color _estAverageColor() {
