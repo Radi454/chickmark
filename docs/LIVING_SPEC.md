@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-06-12
+2026-06-13
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -1351,15 +1351,31 @@ longer writes separate generic Temp/RH session or reading rows.
 
 OCR uses Google ML Kit text recognition when available, with preprocessing,
 quality checks, timeouts, and temporary-file cleanup for thermometer scan
-capture. Thermometer OCR reads the balanced crop first and returns that primary
-result immediately when it parses a plausible temperature. High-contrast and
-binary-threshold crop variants are used as fallbacks only when the primary OCR
-text has no accepted reading. Fallback outputs are combined with the primary OCR
-text through a confidence-scored consensus of plausible Celsius/Fahrenheit
-candidates. Single recovered-decimal readings remain accepted with lower
-confidence when OCR also captures a nearby Celsius/Fahrenheit unit. Isolated
-bare digit tokens such as `230` or `2301` are not accepted as recovered-decimal
-temperatures. Repeated matching fallback outputs produce high confidence.
+capture. Thermometer OCR applies a device-focused crop that isolates and
+upscales the large central row of the red-backlit seven-segment display while
+excluding most of the smaller memory/date rows. Recognition attempts use a
+red-channel extraction first, followed by inverted high-contrast, adaptive
+binary, and balanced variants when needed. Fallback outputs are combined through
+a confidence-scored consensus of plausible Celsius/Fahrenheit candidates.
+Candidates with an explicit nearby unit rank above bare date/time values, and
+common seven-segment OCR substitutions such as `O` for zero and comma for the
+decimal point are normalized before parsing. Single recovered-decimal readings
+remain accepted with lower confidence when OCR also captures a nearby
+Celsius/Fahrenheit unit. Isolated bare digit tokens such as `230` or `2301` are
+not accepted as recovered-decimal temperatures. Repeated matching fallback
+outputs produce high confidence.
+
+Thermometer OCR results preserve the detected display value and unit in
+addition to the normalized Celsius value. Egg Storage EST, Setter EST, Chicks
+CVT, and Hatcher CVT each expose a local `°F` / `°C` selector that defaults to
+Fahrenheit. Grid values, targets, summaries, validation colors, manual entry,
+and OCR capture use the selected display unit. If OCR detects a known unit that
+differs from the selected sector unit, capture shows a warning and requires the
+auditor to retake, enter the value manually, or explicitly use the detected
+reading. Unit selection is a UI concern only: Egg Storage EST continues to
+persist canonical Celsius, while Setter EST, Chicks CVT, and Hatcher CVT
+continue to persist canonical Fahrenheit.
+
 Guided thermometer auto-scan uses a shared 1.8-second capture/OCR interval
 across EST and CVT screens to reduce repeated camera and ML work on mobile
 devices while scanning. Inline scanner captures pass the visible scan-frame crop
@@ -1391,6 +1407,11 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-13: Tuned thermometer OCR for the red seven-segment device by
+  isolating the large display row, adding red/inverted/adaptive preprocessing,
+  preserving detected units, warning on selected-unit mismatches, and adding
+  Fahrenheit-default `°F` / `°C` controls to Egg EST, Setter EST, Chicks CVT,
+  and Hatcher CVT without changing their canonical stored units.
 - 2026-06-13: Restored the in-app ChickMark keypad for adaptive native iOS
   audit numeric fields after the focus-preservation and stable-station fixes,
   while leaving ordinary text fields on the native iOS keyboard.
