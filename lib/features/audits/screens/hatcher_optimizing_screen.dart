@@ -12,12 +12,11 @@ import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/photo_repository.dart';
-import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
-import '../ocr_capture/ocr_capture_config.dart';
-import '../ocr_capture/ocr_capture_launcher.dart';
+import '../temperature_capture/temperature_capture_config.dart';
+import '../temperature_capture/temperature_capture_launcher.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -68,7 +67,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   final Map<String, String?> _meconiumPhotos = {};
   final TextEditingController _avgController = TextEditingController();
   final TextEditingController _cvController = TextEditingController();
-  final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
   final TextEditingController _incubationAgeController = TextEditingController(
@@ -235,7 +233,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     _setpointController.dispose();
     _setpointRhController.dispose();
     _co2Controller.dispose();
-    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -892,7 +889,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                       ? null
                       : () => _openCvtCapture(provider),
                   icon: const Icon(Icons.document_scanner_outlined),
-                  label: const Text('Scan readings'),
+                  label: const Text('Capture readings'),
                 ),
               ],
             ),
@@ -902,9 +899,10 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
               controllers: _controllers,
               focusNodes: _focusNodes,
               photos: _photos,
-              enabled: !provider.isReadOnly,
+              enabled: false,
               highlightedKey: _cvtHighlightedKey,
               showPhotoCapture: false,
+              displayOnly: true,
               title: null,
               unitSuffix: _cvtUnit.suffix,
               tempStatusFn: (value) => CalculationUtils.cvtStatus(
@@ -923,15 +921,10 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
                 _updateCalculations();
                 if (mounted) setState(() {});
               },
-              onPhotoCaptured: (key, path) {
-                unawaited(_handleCvtPhotoCaptured(provider, key, path));
-              },
-              onMissingPhotoRequested: (key) {
-                unawaited(_attachMissingCvtPhoto(provider, key));
-              },
-              onClearRequested: (key) {
-                unawaited(_clearCvtPoint(provider, key));
-              },
+              onPhotoCaptured: (_, _) {},
+              onCellSelected: provider.isReadOnly
+                  ? null
+                  : (key) => _openCvtCapture(provider, initialKey: key),
             ),
             const SizedBox(height: 8),
             Row(
@@ -1057,17 +1050,20 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     );
   }
 
-  /// Launch the reusable full-screen OCR capture flow (CVT, °F), pre-populated
+  /// Launch the reusable full-screen capture flow, pre-populated
   /// with the current grid, then merge confirmed readings via [_saveCvtPoint]
   /// (+ evidence photo records). Persistence + sync unchanged.
-  Future<void> _openCvtCapture(AuditProvider provider) async {
+  Future<void> _openCvtCapture(
+    AuditProvider provider, {
+    String? initialKey,
+  }) async {
     if (provider.isReadOnly) return;
-    final result = await OcrCaptureLauncher.push(
+    final result = await TemperatureCaptureLauncher.push(
       context,
-      OcrCaptureConfig(
+      TemperatureCaptureConfig(
         title: 'Chick Vent Temperature',
         unitSuffix: _cvtUnit.suffix,
-        selectedUnit: _cvtUnit.thermoScanUnit,
+        initialKey: initialKey,
         initialReadings: _currentCvtDisplayReadings(),
         initialPhotos: _currentCvtPhotoPaths(),
         tempStatusFn: (value) => CalculationUtils.cvtStatus(
@@ -1085,11 +1081,10 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         targetLabelBuilder: _cvtTargetLabel,
         readOnly: provider.isReadOnly,
       ),
-      ocrService: _ocrService,
       photoService: _photoService,
     );
     if (result == null || result.isEmpty || !mounted) return;
-    OcrCaptureLauncher.apply(result, (key, path, value) {
+    TemperatureCaptureLauncher.apply(result, (key, path, value) {
       _saveCvtPoint(key, path, value);
       if (path.isNotEmpty) {
         unawaited(_saveCvtEvidencePhotoRecord(provider, key, path));
@@ -1105,120 +1100,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     setState(() {
       _photos[key] = path;
       _controllers[key]?.text = valueF.toStringAsFixed(1);
-    });
-    _updateCalculations();
-  }
-
-  Future<void> _handleCvtPhotoCaptured(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final existingValue = double.tryParse(_controllers[key]?.text.trim() ?? '');
-    final existingPhoto = _photos[key];
-    if (existingValue != null &&
-        (existingPhoto == null || existingPhoto.trim().isEmpty)) {
-      setState(() {
-        _photos[key] = path;
-        _cvtHighlightedKey = key;
-      });
-      _updateCalculations();
-      await _saveCvtEvidencePhotoRecord(provider, key, path);
-      return;
-    }
-
-    final reading = await _recognizeThermoScanReadingForEntryUnit(path);
-    if (!mounted) return;
-    final valueController = TextEditingController(
-      text: reading == null ? '' : reading.toStringAsFixed(1),
-    );
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(_cvtTargetLabel(key)),
-        content: AuditNumericKeyboardScope(
-          child: AuditNumericField(
-            controller: valueController,
-            allowDecimal: true,
-            maxDecimalPlaces: 1,
-            decoration: InputDecoration(
-              labelText: 'CVT',
-              suffixText: _cvtUnit.suffix,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    final parsed = double.tryParse(valueController.text);
-    valueController.dispose();
-    if (!mounted || confirmed != true || parsed == null) return;
-    _saveCvtPoint(key, path, parsed);
-    await _saveCvtEvidencePhotoRecord(provider, key, path);
-  }
-
-  Future<void> _attachMissingCvtPhoto(
-    AuditProvider provider,
-    String key,
-  ) async {
-    if (provider.isReadOnly ||
-        double.tryParse(_controllers[key]?.text.trim() ?? '') == null) {
-      return;
-    }
-    final path = await _photoService.pickPhoto(fromCamera: true);
-    if (!mounted || path == null || path.trim().isEmpty) return;
-    setState(() {
-      _photos[key] = path;
-      _cvtHighlightedKey = key;
-    });
-    _updateCalculations();
-    await _saveCvtEvidencePhotoRecord(provider, key, path);
-  }
-
-  Future<void> _clearCvtPoint(AuditProvider provider, String key) async {
-    if (provider.isReadOnly) return;
-    final controller = _controllers[key];
-    if (controller == null) return;
-    final previousValue = controller.text;
-    final previousPhoto = _photos[key];
-    if (previousValue.trim().isEmpty &&
-        (previousPhoto == null || previousPhoto.trim().isEmpty)) {
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear this reading and photo?'),
-        content: Text(_cvtTargetLabel(key)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      controller.clear();
-      _photos[key] = null;
-      _cvtHighlightedKey = null;
     });
     _updateCalculations();
   }
@@ -1244,23 +1125,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       uploadStatus: existing?.uploadStatus ?? 'local',
     );
     await _photoRepository.saveLocalPhoto(photo);
-  }
-
-  Future<double?> _recognizeThermoScanReadingForEntryUnit(
-    String path, {
-    ThermoScanCropFrame? cropFrame,
-    bool fanOutVariants = true,
-  }) async {
-    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(
-      path,
-      cropFrame: cropFrame,
-      fanOutVariants: fanOutVariants,
-    );
-    if (readingC == null) return null;
-    return _cvtUnit.fromCanonical(
-      readingC,
-      canonicalUnit: TemperatureEntryUnit.celsius,
-    );
   }
 
   void _setCvtUnit(TemperatureEntryUnit unit) {

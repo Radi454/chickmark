@@ -490,6 +490,7 @@ class SettingsScreen extends StatelessWidget {
         online: outcome.online,
         pushed: outcome.pushed,
         pulled: outcome.pulled,
+        acknowledgeIncoming: true,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

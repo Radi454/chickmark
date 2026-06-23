@@ -717,7 +717,7 @@ double? _temperatureValue(double? fahrenheit, bool showCelsius) {
   return showCelsius ? TempConverter.toCelsius(fahrenheit) : fahrenheit;
 }
 
-String _temperatureUnit(bool showCelsius) => showCelsius ? '°C' : 'F';
+String _temperatureUnit(bool showCelsius) => showCelsius ? '°C' : '°F';
 
 String _formatClock(DateTime dateTime) {
   final hour = dateTime.hour;

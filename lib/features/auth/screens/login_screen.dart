@@ -231,15 +231,23 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
-                        Row(
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          alignment: WrapAlignment.spaceBetween,
+                          spacing: 12,
+                          runSpacing: 4,
                           children: [
-                            Checkbox(
-                              value: _rememberMe,
-                              onChanged: (v) =>
-                                  setState(() => _rememberMe = v ?? false),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Checkbox(
+                                  value: _rememberMe,
+                                  onChanged: (v) =>
+                                      setState(() => _rememberMe = v ?? false),
+                                ),
+                                const Text('Remember me'),
+                              ],
                             ),
-                            const Text('Remember me'),
-                            const Spacer(),
                             TextButton(
                               onPressed: _handleForgotPassword,
                               child: const Text(AppStrings.forgotPassword),

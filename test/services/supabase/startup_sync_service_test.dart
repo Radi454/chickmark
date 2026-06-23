@@ -86,57 +86,66 @@ void main() {
     photoSync = _MockPhotoSyncService();
 
     when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
-    when(() => customers.getAllCustomers()).thenAnswer((_) async => [
-      CustomerModel(
-        id: 'customer-1',
-        name: 'Customer 1',
-        createdAt: DateTime(2026, 5, 1),
-        createdBy: 'tester',
-      ),
-    ]);
-    when(() => hatcheries.getAllHatcheries()).thenAnswer((_) async => [
-      HatcheryModel(
-        id: 'hatchery-1',
-        customerId: 'customer-1',
-        name: 'Hatchery 1',
-        createdAt: DateTime(2026, 5, 1),
-        createdBy: 'tester',
-      ),
-    ]);
-    when(() => flocks.getAllFlocks()).thenAnswer((_) async => [
-      FlockModel(
-        id: 'flock-1',
-        customerId: 'customer-1',
-        flockId: 'Flock 1',
-        breed: 'Ross308',
-        entryDate: DateTime(2026, 1, 1),
-      ),
-    ]);
-    when(() => sessions.getAllSessions(limit: any(named: 'limit')))
-        .thenAnswer((_) async => [
-              AuditSessionModel(
-                id: 'session-1',
-                customerId: 'customer-1',
-                flockId: 'flock-1',
-                hatcheryId: 'hatchery-1',
-                date: DateTime(2026, 5, 1),
-                createdAt: DateTime(2026, 5, 1),
-                updatedAt: DateTime(2026, 5, 1),
-              ),
-            ]);
+    when(() => customers.getAllCustomers()).thenAnswer(
+      (_) async => [
+        CustomerModel(
+          id: 'customer-1',
+          name: 'Customer 1',
+          createdAt: DateTime(2026, 5, 1),
+          createdBy: 'tester',
+        ),
+      ],
+    );
+    when(() => hatcheries.getAllHatcheries()).thenAnswer(
+      (_) async => [
+        HatcheryModel(
+          id: 'hatchery-1',
+          customerId: 'customer-1',
+          name: 'Hatchery 1',
+          createdAt: DateTime(2026, 5, 1),
+          createdBy: 'tester',
+        ),
+      ],
+    );
+    when(() => flocks.getAllFlocks()).thenAnswer(
+      (_) async => [
+        FlockModel(
+          id: 'flock-1',
+          customerId: 'customer-1',
+          flockId: 'Flock 1',
+          breed: 'Ross308',
+          entryDate: DateTime(2026, 1, 1),
+        ),
+      ],
+    );
+    when(() => sessions.getAllSessions(limit: any(named: 'limit'))).thenAnswer(
+      (_) async => [
+        AuditSessionModel(
+          id: 'session-1',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          hatcheryId: 'hatchery-1',
+          date: DateTime(2026, 5, 1),
+          createdAt: DateTime(2026, 5, 1),
+          updatedAt: DateTime(2026, 5, 1),
+        ),
+      ],
+    );
     // Per-row dirty-tracking push: the service pulls only dirty sessions/panel
     // rows and confirms them synced after upload.
-    when(() => sessions.getDirtySessionRows()).thenAnswer((_) async => [
-      AuditSessionModel(
-        id: 'session-1',
-        customerId: 'customer-1',
-        flockId: 'flock-1',
-        hatcheryId: 'hatchery-1',
-        date: DateTime(2026, 5, 1),
-        createdAt: DateTime(2026, 5, 1),
-        updatedAt: DateTime(2026, 5, 1),
-      ),
-    ]);
+    when(() => sessions.getDirtySessionRows()).thenAnswer(
+      (_) async => [
+        AuditSessionModel(
+          id: 'session-1',
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          hatcheryId: 'hatchery-1',
+          date: DateTime(2026, 5, 1),
+          createdAt: DateTime(2026, 5, 1),
+          updatedAt: DateTime(2026, 5, 1),
+        ),
+      ],
+    );
     when(() => sessions.markSessionsSynced(any())).thenAnswer((_) async {});
     when(() => panels.getDirtyRows(any())).thenAnswer((invocation) async {
       final table = invocation.positionalArguments.first as String;
@@ -159,26 +168,32 @@ void main() {
       }
       return const [];
     });
-    when(
-      () => panels.markRowsSynced(any(), any()),
-    ).thenAnswer((_) async {});
+    when(() => panels.markRowsSynced(any(), any())).thenAnswer((_) async {});
     when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
     when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
     when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => const []);
     when(() => govee.markCapturesSynced(any())).thenAnswer((_) async {});
     when(() => photos.getAllPhotos()).thenAnswer((_) async => const []);
-    when(() => tombstones.getPendingDeletes()).thenAnswer((_) async => const []);
+    when(
+      () => tombstones.getPendingDeletes(),
+    ).thenAnswer((_) async => const []);
     when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {});
+    when(
+      () => tombstones.upsertRemoteTombstone(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => supabase.pullSyncTombstones(
+        upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+      ),
+    ).thenAnswer((_) async => 0);
     when(() => photoSync.syncPending()).thenAnswer((_) async {});
     when(() => supabase.upsertRows(any(), any())).thenAnswer((_) async {});
-    when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((_) async {});
+    when(
+      () => supabase.upsertRowsStrict(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => supabase.deleteRows(any(), any())).thenAnswer((_) async {});
     when(
-      () => activityLog.log(
-        any(),
-        any(),
-        details: any(named: 'details'),
-      ),
+      () => activityLog.log(any(), any(), details: any(named: 'details')),
     ).thenAnswer((_) async {});
     when(
       () => supabase.pullFromSupabase(
@@ -211,47 +226,101 @@ void main() {
     photoSyncService: photoSync,
   );
 
-  test('pushes only dirty sessions/panels and never legacy audit or sample tables', () async {
+  test(
+    'pushes only dirty sessions/panels and never legacy audit or sample tables',
+    () async {
+      await service().run();
+
+      // Reference data stays on the bulk push.
+      verify(() => supabase.upsertRows('customers', any())).called(1);
+      verify(() => supabase.upsertRows('hatcheries', any())).called(1);
+      verify(() => supabase.upsertRows('flocks', any())).called(1);
+
+      // Audit data uses the strict (confirmable) dirty-row push, then is marked
+      // synced.
+      verify(
+        () => supabase.upsertRowsStrict('audit_sessions', any()),
+      ).called(1);
+      verify(() => sessions.markSessionsSynced(any())).called(1);
+      verify(() => supabase.upsertRowsStrict('egg_storage', any())).called(1);
+      verify(() => panels.markRowsSynced('egg_storage', any())).called(1);
+
+      // Sessions/panels are never sent via the silent bulk push.
+      verifyNever(() => supabase.upsertRows('audit_sessions', any()));
+      verifyNever(() => supabase.upsertRows('egg_storage', any()));
+
+      verifyNever(() => supabase.upsertRows('audits', any()));
+      verifyNever(() => supabase.upsertRowsStrict('audits', any()));
+      verifyNever(() => supabase.upsertRows('sample_records', any()));
+      for (final panel in PanelSampleSchema.panels) {
+        verifyNever(
+          () => supabase.upsertRows('${panel.tableName}_samples', any()),
+        );
+      }
+    },
+  );
+
+  test('applies remote tombstones before uploading reference rows', () async {
+    final events = <String>[];
+
+    when(
+      () => supabase.pullSyncTombstones(
+        upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+      ),
+    ).thenAnswer((invocation) async {
+      events.add('pull tombstones');
+      final callback =
+          invocation.namedArguments[#upsertSyncTombstone]
+              as Future<void> Function(Map<String, dynamic>);
+      await callback({
+        'id': 'cloud-delete-customers-old',
+        'table_name': 'customers',
+        'row_id': 'old-customer',
+        'deleted_at': '2026-06-23T00:00:00.000Z',
+        'created_at': '2026-06-23T00:00:00.000Z',
+        'synced_at': '2026-06-23T00:00:00.000Z',
+      });
+      return 1;
+    });
+    when(() => tombstones.upsertRemoteTombstone(any())).thenAnswer((_) async {
+      events.add('store tombstone');
+    });
+    when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {
+      events.add('apply deletes');
+    });
+    when(() => supabase.upsertRows('customers', any())).thenAnswer((_) async {
+      events.add('upload customers');
+    });
+
     await service().run();
 
-    // Reference data stays on the bulk push.
-    verify(() => supabase.upsertRows('customers', any())).called(1);
-    verify(() => supabase.upsertRows('hatcheries', any())).called(1);
-    verify(() => supabase.upsertRows('flocks', any())).called(1);
-
-    // Audit data uses the strict (confirmable) dirty-row push, then is marked
-    // synced.
-    verify(() => supabase.upsertRowsStrict('audit_sessions', any())).called(1);
-    verify(() => sessions.markSessionsSynced(any())).called(1);
-    verify(() => supabase.upsertRowsStrict('egg_storage', any())).called(1);
-    verify(() => panels.markRowsSynced('egg_storage', any())).called(1);
-
-    // Sessions/panels are never sent via the silent bulk push.
-    verifyNever(() => supabase.upsertRows('audit_sessions', any()));
-    verifyNever(() => supabase.upsertRows('egg_storage', any()));
-
-    verifyNever(() => supabase.upsertRows('audits', any()));
-    verifyNever(() => supabase.upsertRowsStrict('audits', any()));
-    verifyNever(() => supabase.upsertRows('sample_records', any()));
-    for (final panel in PanelSampleSchema.panels) {
-      verifyNever(() => supabase.upsertRows('${panel.tableName}_samples', any()));
-    }
+    expect(
+      events,
+      containsAllInOrder([
+        'pull tombstones',
+        'store tombstone',
+        'apply deletes',
+        'upload customers',
+      ]),
+    );
   });
 
   test('pushes dirty Govee captures and marks them synced', () async {
-    when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => [
-      GoveeDailyCaptureModel(
-        id: 'g1',
-        customerId: 'customer-1',
-        hatcheryId: 'hatchery-1',
-        place: TemperaturePlace.setterRoom,
-        captureDate: '2026-05-01',
-        status: 'completed',
-        readingCount: 5,
-        createdAt: DateTime(2026, 5, 1),
-        updatedAt: DateTime(2026, 5, 1),
-      ),
-    ]);
+    when(() => govee.getDirtyCaptureRows()).thenAnswer(
+      (_) async => [
+        GoveeDailyCaptureModel(
+          id: 'g1',
+          customerId: 'customer-1',
+          hatcheryId: 'hatchery-1',
+          place: TemperaturePlace.setterRoom,
+          captureDate: '2026-05-01',
+          status: 'completed',
+          readingCount: 5,
+          createdAt: DateTime(2026, 5, 1),
+          updatedAt: DateTime(2026, 5, 1),
+        ),
+      ],
+    );
 
     await service().run();
 
@@ -286,47 +355,53 @@ void main() {
   test('strips device-local sync columns from pushed payloads', () async {
     await service().run();
 
-    final captured = verify(
-      () => supabase.upsertRowsStrict('audit_sessions', captureAny()),
-    ).captured.single as List<Map<String, dynamic>>;
+    final captured =
+        verify(
+              () => supabase.upsertRowsStrict('audit_sessions', captureAny()),
+            ).captured.single
+            as List<Map<String, dynamic>>;
     expect(captured, isNotEmpty);
     for (final key in ['syncStatus', 'dirtyAt', 'lastSyncedAt', 'syncError']) {
       expect(captured.single.keys, isNot(contains(key)));
     }
   });
 
-  test('pull callback exposes panel tables without legacy audit callbacks', () async {
-    await service().run();
+  test(
+    'pull callback exposes panel tables without legacy audit callbacks',
+    () async {
+      await service().run();
 
-    final verification = verify(
-      () => supabase.pullFromSupabase(
-        upsertCustomer: captureAny(named: 'upsertCustomer'),
-        upsertFlock: captureAny(named: 'upsertFlock'),
-        upsertHatchery: captureAny(named: 'upsertHatchery'),
-        upsertPhoto: captureAny(named: 'upsertPhoto'),
-        upsertBmkBreed: captureAny(named: 'upsertBmkBreed'),
-        upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
-        upsertAuditSession: captureAny(named: 'upsertAuditSession'),
-        upsertGoveeDailyCapture: captureAny(named: 'upsertGoveeDailyCapture'),
-        upsertPanelRow: captureAny(named: 'upsertPanelRow'),
-        upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
-      ),
-    );
-    final callback = verification.captured[8]
-        as Future<void> Function(String, Map<String, dynamic>);
-    await callback('egg_storage', {
-      'id': 'row-remote',
-      'updatedAt': '2026-05-02T00:00:00.000Z',
-    });
+      final verification = verify(
+        () => supabase.pullFromSupabase(
+          upsertCustomer: captureAny(named: 'upsertCustomer'),
+          upsertFlock: captureAny(named: 'upsertFlock'),
+          upsertHatchery: captureAny(named: 'upsertHatchery'),
+          upsertPhoto: captureAny(named: 'upsertPhoto'),
+          upsertBmkBreed: captureAny(named: 'upsertBmkBreed'),
+          upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
+          upsertAuditSession: captureAny(named: 'upsertAuditSession'),
+          upsertGoveeDailyCapture: captureAny(named: 'upsertGoveeDailyCapture'),
+          upsertPanelRow: captureAny(named: 'upsertPanelRow'),
+          upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
+        ),
+      );
+      final callback =
+          verification.captured[8]
+              as Future<void> Function(String, Map<String, dynamic>);
+      await callback('egg_storage', {
+        'id': 'row-remote',
+        'updatedAt': '2026-05-02T00:00:00.000Z',
+      });
 
-    verify(() => panels.getRowById('egg_storage', 'row-remote')).called(1);
-    verify(
-      () => panels.upsertPanelRow(
-        'egg_storage',
-        any(that: containsPair('id', 'row-remote')),
-      ),
-    ).called(1);
-  });
+      verify(() => panels.getRowById('egg_storage', 'row-remote')).called(1);
+      verify(
+        () => panels.upsertPanelRow(
+          'egg_storage',
+          any(that: containsPair('id', 'row-remote')),
+        ),
+      ).called(1);
+    },
+  );
 
   test('sync tombstones delete panel tables before owning tables', () {
     final order = SyncTombstoneRepository.deleteOrder;
@@ -335,6 +410,9 @@ void main() {
     expect(order, isNot(contains('audits')));
     expect(order, isNot(contains('sample_records')));
     expect(order.where((table) => table.endsWith('_samples')), isEmpty);
-    expect(order.indexOf('egg_storage'), lessThan(order.indexOf('audit_sessions')));
+    expect(
+      order.indexOf('egg_storage'),
+      lessThan(order.indexOf('audit_sessions')),
+    );
   });
 }

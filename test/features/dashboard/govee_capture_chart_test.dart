@@ -42,7 +42,7 @@ void main() {
     expect(find.text('12:00 PM - 12:04 PM'), findsOneWidget);
     expect(find.text('Temp'), findsOneWidget);
     expect(find.text('RH'), findsOneWidget);
-    expect(find.text('72.4F avg'), findsOneWidget);
+    expect(find.text('72.4°F avg'), findsOneWidget);
     expect(find.text('57.2% avg'), findsOneWidget);
     expect(find.text('100 readings'), findsOneWidget);
     expect(find.textContaining('spots'), findsNothing);
@@ -51,9 +51,9 @@ void main() {
     expect(find.text('Max'), findsNWidgets(2));
     expect(find.text('Avg'), findsNWidgets(2));
     expect(find.text('Min'), findsNWidgets(2));
-    expect(find.text('73.8F'), findsOneWidget);
-    expect(find.text('72.4F'), findsOneWidget);
-    expect(find.text('70.9F'), findsOneWidget);
+    expect(find.text('73.8°F'), findsOneWidget);
+    expect(find.text('72.4°F'), findsOneWidget);
+    expect(find.text('70.9°F'), findsOneWidget);
     expect(find.text('60.2%'), findsOneWidget);
     expect(find.text('57.2%'), findsOneWidget);
     expect(find.text('55.1%'), findsOneWidget);
@@ -76,7 +76,7 @@ void main() {
     expect(title.style?.fontSize, lessThanOrEqualTo(18));
     final railLabel = tester.widget<Text>(find.text('Max').first);
     expect(railLabel.style?.fontSize, lessThanOrEqualTo(14));
-    final railValue = tester.widget<Text>(find.text('73.8F'));
+    final railValue = tester.widget<Text>(find.text('73.8°F'));
     expect(railValue.style?.fontSize, lessThanOrEqualTo(14));
     final temperatureLine = chart.data.lineBarsData.single;
     expect(temperatureLine.color, const Color(0xFF12B7F5));
@@ -172,7 +172,7 @@ void main() {
 
       expect(tooltipItems, hasLength(1));
       expect(tooltipItems.single!.text, contains('02-05-2026 12:00:00'));
-      expect(tooltipItems.single!.text, contains('Temp 71.0F'));
+      expect(tooltipItems.single!.text, contains('Temp 71.0°F'));
       expect(tooltipItems.single!.text, contains('RH 56.0%'));
       expect(tooltipItems.single!.text, isNot(contains('Spot')));
       expect(tooltipItems.single!.text, contains('Egg storage room'));

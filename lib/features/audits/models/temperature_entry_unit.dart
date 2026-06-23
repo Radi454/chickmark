@@ -1,14 +1,10 @@
 import '../../../core/utils/temp_converter.dart';
-import '../../../services/ocr/ocr_service.dart' show ThermoScanUnit;
 
 enum TemperatureEntryUnit {
   fahrenheit,
   celsius;
 
   String get suffix => this == fahrenheit ? '°F' : '°C';
-
-  ThermoScanUnit get thermoScanUnit =>
-      this == fahrenheit ? ThermoScanUnit.fahrenheit : ThermoScanUnit.celsius;
 
   double convert(double value, TemperatureEntryUnit target) {
     if (this == target) return value;

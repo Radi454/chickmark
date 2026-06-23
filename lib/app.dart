@@ -33,9 +33,12 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   late final AuthProvider _authProvider;
   late final bool _authBypassEnabled;
   late final ModalRouteVisibilityObserver _modalRouteObserver;
+  late final _AppRouteObserver _appRouteObserver;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final ValueNotifier<bool> _hasModalRoute = ValueNotifier<bool>(false);
   bool _showGlobalLauncher = false;
+  bool _hasEnteredMainShell = false;
+  String? _topRouteName;
 
   @override
   void initState() {
@@ -43,6 +46,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
     _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
     _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
     _modalRouteObserver = ModalRouteVisibilityObserver(_hasModalRoute);
+    _appRouteObserver = _AppRouteObserver(_rememberTopRouteName);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StartupTimer.lap('first_frame_rendered');
       if (mounted) {
@@ -81,7 +85,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
           final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
             navigatorKey: _navigatorKey,
-            navigatorObservers: [_modalRouteObserver],
+            navigatorObservers: [_modalRouteObserver, _appRouteObserver],
             title: 'ChickMark',
             theme: AppTheme.light(),
             initialRoute: initialRoute,
@@ -93,13 +97,31 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
             },
             routes: routes,
             builder: (context, child) {
+              final authRedirectRoute = authRedirectRouteForState(
+                state: authProvider.state,
+                topRouteName: _topRouteName,
+              );
+              if (authRedirectRoute != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+                    authRedirectRoute,
+                    (_) => false,
+                  );
+                });
+              }
               // Govee capture is an auditing tool — never expose it to
               // read-only customers, only auditors/admins (or dev bypass).
-              final showGoveeLauncher =
-                  _showGlobalLauncher &&
-                  (_authBypassEnabled ||
-                      (authProvider.state == AuthState.authenticated &&
-                          (authProvider.user?.canEditAudits ?? false)));
+              final canUseGoveeLauncher =
+                  _authBypassEnabled ||
+                  (authProvider.state == AuthState.authenticated &&
+                      (authProvider.user?.canEditAudits ?? false));
+              final showGoveeLauncher = shouldShowGoveeGlobalLauncher(
+                launcherReady: _showGlobalLauncher,
+                canUseGoveeLauncher: canUseGoveeLauncher,
+                hasEnteredMainShell: _hasEnteredMainShell,
+                topRouteName: _topRouteName,
+              );
               final isGoveeRecording = context
                   .select<GoveeCaptureProvider, bool>(
                     (provider) => provider.isRecording,
@@ -163,9 +185,98 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   ) {
     final builder =
         routes[routeName] ?? routes['/login'] ?? routes.values.first;
+    _rememberTopRouteName(routeName, notify: false);
     return MaterialPageRoute<void>(
       settings: RouteSettings(name: routeName),
       builder: builder,
     );
+  }
+
+  void _rememberTopRouteName(String? routeName, {bool notify = true}) {
+    final nextHasEnteredMainShell = _nextHasEnteredMainShell(
+      routeName: routeName,
+      currentValue: _hasEnteredMainShell,
+    );
+    if (_topRouteName == routeName &&
+        _hasEnteredMainShell == nextHasEnteredMainShell) {
+      return;
+    }
+
+    void update() {
+      _topRouteName = routeName;
+      _hasEnteredMainShell = nextHasEnteredMainShell;
+    }
+
+    if (!notify || !mounted) {
+      update();
+      return;
+    }
+
+    setState(update);
+  }
+}
+
+const Set<String> _preAppRouteNames = {
+  '/login',
+  '/register',
+  '/pending-approval',
+  '/startup-sync',
+};
+
+bool _nextHasEnteredMainShell({
+  required String? routeName,
+  required bool currentValue,
+}) {
+  if (routeName == '/main') return true;
+  if (_preAppRouteNames.contains(routeName)) return false;
+  return currentValue;
+}
+
+@visibleForTesting
+String? authRedirectRouteForState({
+  required AuthState state,
+  required String? topRouteName,
+}) {
+  switch (state) {
+    case AuthState.unauthenticated:
+    case AuthState.error:
+      return _preAppRouteNames.contains(topRouteName) ? null : '/login';
+    case AuthState.loading:
+    case AuthState.authenticated:
+    case AuthState.pendingApproval:
+      return null;
+  }
+}
+
+@visibleForTesting
+bool shouldShowGoveeGlobalLauncher({
+  required bool launcherReady,
+  required bool canUseGoveeLauncher,
+  required bool hasEnteredMainShell,
+  required String? topRouteName,
+}) {
+  if (!launcherReady || !canUseGoveeLauncher) return false;
+  if (_preAppRouteNames.contains(topRouteName)) return false;
+  return hasEnteredMainShell || topRouteName == '/main';
+}
+
+class _AppRouteObserver extends NavigatorObserver {
+  final ValueChanged<String?> onTopRouteChanged;
+
+  _AppRouteObserver(this.onTopRouteChanged);
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    onTopRouteChanged(route.settings.name);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    onTopRouteChanged(previousRoute?.settings.name);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    onTopRouteChanged(newRoute?.settings.name);
   }
 }

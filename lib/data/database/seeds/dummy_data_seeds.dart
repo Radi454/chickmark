@@ -1,15 +1,12 @@
 const String _seedCreatedAt = '2026-04-19T00:00:00Z';
 const String _seedCreatedBy = 'system';
 
-const String _custAbdelFattah = 'cust-abdel-fattah-el-barmawy';
 const String _custAlGhareeb = 'cust-al-ghareeb';
 const String _custOsama = 'cust-osama-el-sayed';
 const String _custMolting = 'cust-molting-flock';
 const String _custAlJazira = 'cust-al-jazira';
 const String _custDemoAllSections = 'cust-demo-all-sections';
 
-const String _flockBrHub = 'flock-br-hub';
-const String _flockBrIr = 'flock-br-ir';
 const String _flockGhSalRs = 'flock-gh-sal-rs';
 const String _flockOsaKhaRs = 'flock-osa-kha-rs';
 const String _flockGhExtMolting = 'flock-gh-ext-molting';
@@ -20,15 +17,6 @@ const String _flockDemoAllSections = 'flock-demo-all-sections';
 
 const List<Map<String, dynamic>> kDummyCustomerSeeds = <Map<String, dynamic>>[
   {
-    'id': _custAbdelFattah,
-    'name': 'عبد الفتاح البرماوي',
-    'location': null,
-    'phone': null,
-    'email': null,
-    'createdAt': _seedCreatedAt,
-    'createdBy': _seedCreatedBy,
-  },
-  {
     'id': _custAlGhareeb,
     'name': 'الغريب',
     'location': null,
@@ -37,59 +25,9 @@ const List<Map<String, dynamic>> kDummyCustomerSeeds = <Map<String, dynamic>>[
     'createdAt': _seedCreatedAt,
     'createdBy': _seedCreatedBy,
   },
-  {
-    'id': _custOsama,
-    'name': 'أسامة السيد',
-    'location': null,
-    'phone': null,
-    'email': null,
-    'createdAt': _seedCreatedAt,
-    'createdBy': _seedCreatedBy,
-  },
-  {
-    'id': _custMolting,
-    'name': 'قطيع قلش',
-    'location': null,
-    'phone': null,
-    'email': null,
-    'createdAt': _seedCreatedAt,
-    'createdBy': _seedCreatedBy,
-  },
-  {
-    'id': _custAlJazira,
-    'name': 'الجزيرة',
-    'location': null,
-    'phone': null,
-    'email': null,
-    'createdAt': _seedCreatedAt,
-    'createdBy': _seedCreatedBy,
-  },
-  {
-    'id': _custDemoAllSections,
-    'name': 'Demo Customer - All Sections',
-    'location': 'Test Hatchery',
-    'phone': '+20 100 000 0000',
-    'email': 'demo@hatchaudit.test',
-    'createdAt': _seedCreatedAt,
-    'createdBy': _seedCreatedBy,
-  },
 ];
 
 const List<Map<String, dynamic>> kDummyFlockSeeds = <Map<String, dynamic>>[
-  {
-    'id': _flockBrHub,
-    'customerId': _custAbdelFattah,
-    'flockId': 'Br Hub',
-    'breed': 'Hubbard',
-    'entryDate': '2025-01-08',
-  },
-  {
-    'id': _flockBrIr,
-    'customerId': _custAbdelFattah,
-    'flockId': 'Br IR',
-    'breed': 'IR',
-    'entryDate': '2025-01-08',
-  },
   {
     'id': _flockGhSalRs,
     'customerId': _custAlGhareeb,
@@ -98,46 +36,11 @@ const List<Map<String, dynamic>> kDummyFlockSeeds = <Map<String, dynamic>>[
     'entryDate': '2025-03-09',
   },
   {
-    'id': _flockOsaKhaRs,
-    'customerId': _custOsama,
-    'flockId': 'Osa Kha Rs',
-    'breed': 'Ross308',
-    'entryDate': '2025-05-18',
-  },
-  {
-    'id': _flockGhExtMolting,
-    'customerId': _custMolting,
-    'flockId': 'Gh Ext Molting',
-    'breed': 'Ross308',
-    'entryDate': '2024-09-16',
-  },
-  {
     'id': _flockGhMohIr,
     'customerId': _custAlGhareeb,
     'flockId': 'Gh Moh IR',
     'breed': 'IR',
     'entryDate': '2025-08-05',
-  },
-  {
-    'id': _flockGzG1Rs,
-    'customerId': _custAlJazira,
-    'flockId': 'Gz G1 Rs',
-    'breed': 'Ross308',
-    'entryDate': '2024-11-26',
-  },
-  {
-    'id': _flockGzG6Rs,
-    'customerId': _custAlJazira,
-    'flockId': 'Gz G6 Rs',
-    'breed': 'Ross308',
-    'entryDate': '2025-02-25',
-  },
-  {
-    'id': _flockDemoAllSections,
-    'customerId': _custDemoAllSections,
-    'flockId': 'Demo All Sections',
-    'breed': 'Ross308',
-    'entryDate': '2025-08-01',
   },
 ];
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hatchaudit/data/models/bmk_breed_model.dart';
 import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
+import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 
 enum EbType { fresh, candled, residue }
@@ -16,6 +17,10 @@ class BmkProvider extends ChangeNotifier {
   int _selectedEbAge = 25;
   List<int> _ebAges = [];
   BmkEggBreakoutModel? _ebRow;
+  String? _selectedHatcheryId;
+  List<BmkOperationalHatcheryOption> _operationalHatcheries = [];
+  List<BmkOperationalStandardModel> _operationalStandards = [];
+  String? _selectedOperationalMetricKey;
 
   String get selectedBreed => _selectedBreed;
   int get selectedBreedAge => _selectedBreedAge;
@@ -25,6 +30,20 @@ class BmkProvider extends ChangeNotifier {
   int get selectedEbAge => _selectedEbAge;
   List<int> get ebAges => _ebAges;
   BmkEggBreakoutModel? get ebRow => _ebRow;
+  String? get selectedHatcheryId => _selectedHatcheryId;
+  List<BmkOperationalHatcheryOption> get operationalHatcheries =>
+      List.unmodifiable(_operationalHatcheries);
+  List<BmkOperationalStandardModel> get operationalStandards =>
+      List.unmodifiable(_operationalStandards);
+  BmkOperationalStandardModel? get selectedOperationalStandard {
+    if (_operationalStandards.isEmpty) return null;
+    final selectedKey = _selectedOperationalMetricKey;
+    if (selectedKey == null) return _operationalStandards.first;
+    for (final row in _operationalStandards) {
+      if (row.metricKey == selectedKey) return row;
+    }
+    return _operationalStandards.first;
+  }
 
   static const List<String> breeds = [
     'Ross308',
@@ -46,6 +65,8 @@ class BmkProvider extends ChangeNotifier {
     await loadBreedBenchmarks();
     await loadEbAges();
     await loadEggBreakout();
+    await loadOperationalHatcheries(notify: false);
+    await loadOperationalStandards();
   }
 
   Future<void> loadBreedBenchmarks({bool resetSelectedAge = false}) async {
@@ -79,6 +100,28 @@ class BmkProvider extends ChangeNotifier {
 
   Future<void> loadEggBreakout({bool notify = true}) async {
     _ebRow = await _repository.getEggBreakoutBenchmark(_selectedEbAge);
+    if (notify) notifyListeners();
+  }
+
+  Future<void> loadOperationalStandards({bool notify = true}) async {
+    _operationalStandards = await _repository.getOperationalStandards(
+      hatcheryId: _selectedHatcheryId,
+    );
+    if (_operationalStandards.isNotEmpty &&
+        !_operationalStandards.any(
+          (row) => row.metricKey == _selectedOperationalMetricKey,
+        )) {
+      _selectedOperationalMetricKey = _operationalStandards.first.metricKey;
+    }
+    if (notify) notifyListeners();
+  }
+
+  Future<void> loadOperationalHatcheries({bool notify = true}) async {
+    _operationalHatcheries = await _repository.getOperationalHatcheries();
+    if (_selectedHatcheryId != null &&
+        !_operationalHatcheries.any((row) => row.id == _selectedHatcheryId)) {
+      _selectedHatcheryId = null;
+    }
     if (notify) notifyListeners();
   }
 
@@ -137,6 +180,31 @@ class BmkProvider extends ChangeNotifier {
     await loadEggBreakout();
   }
 
+  Future<void> saveSelectedOperationalStandard({
+    double? minValue,
+    double? maxValue,
+    double? targetValue,
+    String? notes,
+  }) async {
+    final selected = selectedOperationalStandard;
+    if (selected == null) return;
+    final hatcheryId = _selectedHatcheryId;
+    final id = hatcheryId == null || hatcheryId.isEmpty
+        ? 'global-${selected.metricKey}'
+        : '$hatcheryId-${selected.metricKey}';
+    await _repository.upsertOperationalStandard(
+      selected.copyWith(
+        id: id,
+        hatcheryId: hatcheryId,
+        minValue: minValue,
+        maxValue: maxValue,
+        targetValue: targetValue,
+        notes: notes,
+      ),
+    );
+    await loadOperationalStandards();
+  }
+
   void setBreed(String breed) {
     _selectedBreed = breed;
     loadBreedBenchmarks(resetSelectedAge: true);
@@ -155,5 +223,15 @@ class BmkProvider extends ChangeNotifier {
   void setEbAge(int age) {
     _selectedEbAge = age;
     loadEggBreakout();
+  }
+
+  void setOperationalMetric(String metricKey) {
+    _selectedOperationalMetricKey = metricKey;
+    notifyListeners();
+  }
+
+  void setOperationalHatchery(String? hatcheryId) {
+    _selectedHatcheryId = hatcheryId;
+    loadOperationalStandards();
   }
 }

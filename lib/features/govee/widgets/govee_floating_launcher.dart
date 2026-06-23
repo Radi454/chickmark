@@ -99,6 +99,7 @@ Future<void> _seedFirstScopeFromAudit(BuildContext context) async {
   if (auditSession == null) return;
   await govee.configure(
     customerId: auditSession.customerId,
+    flockId: auditSession.flockId,
     hatcheryId: auditSession.hatcheryId,
     place: govee.place ?? TemperaturePlace.eggStorageRoom,
   );

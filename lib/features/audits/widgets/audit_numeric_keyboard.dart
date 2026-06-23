@@ -143,12 +143,14 @@ class _AuditNumericKeyboardScopeState extends State<AuditNumericKeyboardScope> {
                   allowNegative: activeField.allowNegative,
                   hasNext: _nextField(activeField) != null,
                   hasMoveDown: _moveDownTarget(activeField) != null,
+                  doneAction: activeField.doneAction,
                   onDigit: _insertText,
                   onDecimal: () => _insertText('.'),
                   onNegative: _toggleNegative,
                   onBackspace: _backspace,
                   onNext: _moveNext,
                   onMoveDown: _moveDown,
+                  onDone: _done,
                   onHide: _hideKeyboard,
                 ),
               ),
@@ -237,6 +239,13 @@ class _AuditNumericKeyboardScopeState extends State<AuditNumericKeyboardScope> {
     final next = _moveDownTarget(field);
     if (next == null) return;
     _focusField(next);
+  }
+
+  void _done() {
+    final field = _activeField;
+    if (field == null) return;
+    field.onSubmitted?.call(field.controller.text);
+    _hideKeyboard();
   }
 
   void _focusField(_AuditNumericFieldRegistration field) {
@@ -419,6 +428,7 @@ class AuditNumericField extends StatefulWidget {
   final InputDecoration? decoration;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final bool doneAction;
 
   const AuditNumericField({
     super.key,
@@ -436,6 +446,7 @@ class AuditNumericField extends StatefulWidget {
     this.decoration,
     this.onChanged,
     this.onSubmitted,
+    this.doneAction = false,
   });
 
   @override
@@ -456,6 +467,7 @@ class AuditNumericFormField extends StatefulWidget {
   final InputDecoration? decoration;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onFieldSubmitted;
+  final bool doneAction;
   final FormFieldValidator<String>? validator;
 
   const AuditNumericFormField({
@@ -473,6 +485,7 @@ class AuditNumericFormField extends StatefulWidget {
     this.decoration,
     this.onChanged,
     this.onFieldSubmitted,
+    this.doneAction = false,
     this.validator,
   });
 
@@ -530,6 +543,7 @@ class _AuditNumericFormFieldState extends State<AuditNumericFormField> {
             field.didChange(value);
             widget.onFieldSubmitted?.call(value);
           },
+          doneAction: widget.doneAction,
         );
       },
     );
@@ -570,6 +584,7 @@ class _AuditNumericFieldState extends State<AuditNumericField> {
       navigationColumn: widget.navigationColumn,
       onChanged: widget.onChanged,
       onSubmitted: widget.onSubmitted,
+      doneAction: widget.doneAction,
     );
     _focusNode.addListener(_handleFocusChange);
   }
@@ -604,7 +619,8 @@ class _AuditNumericFieldState extends State<AuditNumericField> {
       ..navigationRow = widget.navigationRow
       ..navigationColumn = widget.navigationColumn
       ..onChanged = widget.onChanged
-      ..onSubmitted = widget.onSubmitted;
+      ..onSubmitted = widget.onSubmitted
+      ..doneAction = widget.doneAction;
   }
 
   void _handleFocusChange() {
@@ -676,6 +692,7 @@ class _AuditNumericFieldRegistration {
   int? navigationColumn;
   ValueChanged<String>? onChanged;
   ValueChanged<String>? onSubmitted;
+  bool doneAction;
 
   _AuditNumericFieldRegistration({
     required this.controller,
@@ -690,6 +707,7 @@ class _AuditNumericFieldRegistration {
     required this.navigationColumn,
     required this.onChanged,
     required this.onSubmitted,
+    required this.doneAction,
   });
 }
 
@@ -706,12 +724,14 @@ class AuditNumericKeyboard extends StatelessWidget {
   final bool allowNegative;
   final bool hasNext;
   final bool hasMoveDown;
+  final bool doneAction;
   final ValueChanged<String> onDigit;
   final VoidCallback onDecimal;
   final VoidCallback onNegative;
   final VoidCallback onBackspace;
   final VoidCallback onNext;
   final VoidCallback onMoveDown;
+  final VoidCallback onDone;
   final VoidCallback onHide;
 
   const AuditNumericKeyboard({
@@ -720,12 +740,14 @@ class AuditNumericKeyboard extends StatelessWidget {
     required this.allowNegative,
     required this.hasNext,
     required this.hasMoveDown,
+    this.doneAction = false,
     required this.onDigit,
     required this.onDecimal,
     required this.onNegative,
     required this.onBackspace,
     required this.onNext,
     required this.onMoveDown,
+    required this.onDone,
     required this.onHide,
   });
 
@@ -836,33 +858,49 @@ class AuditNumericKeyboard extends StatelessWidget {
                 const SizedBox(width: _keyGap),
                 SizedBox(
                   width: keyWidth,
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: keyHeight,
-                        child: _IconKey(
-                          icon: Icons.backspace_outlined,
-                          onTap: onBackspace,
+                  child: doneAction
+                      ? Column(
+                          children: [
+                            SizedBox(
+                              height: keyHeight,
+                              child: _IconKey(
+                                icon: Icons.backspace_outlined,
+                                onTap: onBackspace,
+                              ),
+                            ),
+                            const SizedBox(height: _keyGap),
+                            Expanded(
+                              child: _IconKey(icon: Icons.check, onTap: onDone),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            SizedBox(
+                              height: keyHeight,
+                              child: _IconKey(
+                                icon: Icons.backspace_outlined,
+                                onTap: onBackspace,
+                              ),
+                            ),
+                            const SizedBox(height: _keyGap),
+                            SizedBox(
+                              height: keyHeight,
+                              child: _IconKey(
+                                icon: Icons.arrow_forward,
+                                onTap: hasNext ? onNext : null,
+                              ),
+                            ),
+                            const SizedBox(height: _keyGap),
+                            SizedBox(
+                              height: (keyHeight * 2) + _keyGap,
+                              child: _IconKey(
+                                icon: Icons.keyboard_return,
+                                onTap: hasMoveDown ? onMoveDown : null,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: _keyGap),
-                      SizedBox(
-                        height: keyHeight,
-                        child: _IconKey(
-                          icon: Icons.arrow_forward,
-                          onTap: hasNext ? onNext : null,
-                        ),
-                      ),
-                      const SizedBox(height: _keyGap),
-                      SizedBox(
-                        height: (keyHeight * 2) + _keyGap,
-                        child: _IconKey(
-                          icon: Icons.keyboard_return,
-                          onTap: hasMoveDown ? onMoveDown : null,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ],
             ),

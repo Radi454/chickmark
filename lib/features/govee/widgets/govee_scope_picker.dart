@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/customer_model.dart';
+import '../../../data/models/flock_model.dart';
 import '../../../data/models/hatchery_model.dart';
 import '../../../data/models/temperature_rh_model.dart';
 import '../../../providers/customers_provider.dart';
@@ -66,6 +67,10 @@ class _CustomerHatcheryScopeCardState
     final govee = context.watch<GoveeCaptureProvider>();
     final customers = context.watch<CustomersProvider>();
     final selectedCustomer = _selectedCustomer(customers, govee.customerId);
+    final flocks = selectedCustomer == null
+        ? const <FlockModel>[]
+        : _flocksForCustomer(customers, selectedCustomer.id, govee.flockId);
+    final selectedFlock = _selectedFlock(flocks, govee.flockId);
     final hatcheries = selectedCustomer == null
         ? const <HatcheryModel>[]
         : customers.hatcheries
@@ -122,14 +127,54 @@ class _CustomerHatcheryScopeCardState
                 final nextHatchery = customers.hatcheries
                     .where((hatchery) => hatchery.customerId == customer.id)
                     .firstOrNull;
+                final nextFlock = customers.flocks
+                    .where((flock) => flock.customerId == customer.id)
+                    .firstOrNull;
                 if (nextHatchery != null) {
-                  await _configure(context, customer.id, nextHatchery.id);
+                  await _configure(
+                    context,
+                    customer.id,
+                    nextHatchery.id,
+                    flockId: nextFlock?.id,
+                  );
                 } else {
                   // Customer has no hatchery yet — go straight to registering
                   // one so the scope can be completed.
                   await _handleAddHatchery(context, customer.id);
                 }
               },
+            ),
+            const SizedBox(height: AppSizes.spaceSm),
+            DropdownButtonFormField<String>(
+              key: ValueKey('govee-flock-$_nonce'),
+              initialValue: selectedFlock?.id,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Flock',
+                border: OutlineInputBorder(),
+              ),
+              items: flocks
+                  .map(
+                    (flock) => DropdownMenuItem(
+                      value: flock.id,
+                      child: Text(
+                        flock.flockId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: selectedCustomer == null
+                  ? null
+                  : (value) async {
+                      await _configure(
+                        context,
+                        selectedCustomer.id,
+                        govee.hatcheryId,
+                        flockId: value,
+                      );
+                    },
             ),
             const SizedBox(height: AppSizes.spaceSm),
             DropdownButtonFormField<String>(
@@ -168,7 +213,12 @@ class _CustomerHatcheryScopeCardState
                         await _handleAddHatchery(context, selectedCustomer.id);
                         return;
                       }
-                      await _configure(context, selectedCustomer.id, value);
+                      await _configure(
+                        context,
+                        selectedCustomer.id,
+                        value,
+                        flockId: selectedFlock?.id ?? govee.flockId,
+                      );
                     },
             ),
             if (widget.showDatePlaceControls) ...[
@@ -240,10 +290,36 @@ class _CustomerHatcheryScopeCardState
         .firstOrNull;
   }
 
+  FlockModel? _selectedFlock(List<FlockModel> flocks, String? id) {
+    if (id != null) {
+      final selected = flocks.where((flock) => flock.id == id).firstOrNull;
+      if (selected != null) return selected;
+    }
+    return flocks.length == 1 ? flocks.first : null;
+  }
+
+  List<FlockModel> _flocksForCustomer(
+    CustomersProvider provider,
+    String customerId,
+    String? selectedFlockId,
+  ) {
+    final flocks = provider.flocks
+        .where((flock) => flock.customerId == customerId)
+        .toList();
+    final selected = provider.flockById(selectedFlockId);
+    if (selected != null &&
+        selected.customerId == customerId &&
+        flocks.every((flock) => flock.id != selected.id)) {
+      flocks.insert(0, selected);
+    }
+    return flocks;
+  }
+
   Future<void> _configure(
     BuildContext context,
     String? customerId,
     String? hatcheryId, {
+    String? flockId,
     TemperaturePlace? place,
     String? captureDate,
   }) async {
@@ -253,6 +329,7 @@ class _CustomerHatcheryScopeCardState
     if (customerId == null || hatcheryId == null) return;
     await govee.configure(
       customerId: customerId,
+      flockId: flockId ?? govee.flockId,
       hatcheryId: hatcheryId,
       place: selectedPlace,
       captureDate: captureDate ?? govee.captureDate,
@@ -295,6 +372,7 @@ class _PlaceControl extends StatelessWidget {
     BuildContext context,
     String? customerId,
     String? hatcheryId, {
+    String? flockId,
     TemperaturePlace? place,
     String? captureDate,
   })
@@ -323,6 +401,7 @@ class _PlaceControl extends StatelessWidget {
           context,
           govee.customerId,
           govee.hatcheryId,
+          flockId: govee.flockId,
           place: place,
         );
       },

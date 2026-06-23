@@ -2,9 +2,12 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
+import '../../../../core/utils/temp_converter.dart';
+import '../../../../providers/app_provider.dart';
 import '../../models/govee_capture_summary.dart';
 
 /// Cumulative (by-visit) view for Govee environmental captures: average
@@ -31,16 +34,31 @@ class _GoveeMetric {
 class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
   int _metric = 0;
 
-  static final List<_GoveeMetric> _metrics = [
-    _GoveeMetric('Temp °F', 1, false, (c) => c.capture.tempAvg),
+  List<_GoveeMetric> _metrics(bool showCelsius) => [
+    _GoveeMetric(
+      showCelsius ? 'Temp °C' : 'Temp °F',
+      1,
+      false,
+      (c) => _temperatureValue(c.capture.tempAvg, showCelsius),
+    ),
     _GoveeMetric('RH %', 0, true, (c) => c.capture.rhAvg),
     _GoveeMetric('Temp CV%', 1, true, (c) => c.capture.tempCvPct),
     _GoveeMetric('RH CV%', 1, true, (c) => c.capture.rhCvPct),
   ];
 
   static const List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   String _dateLabel(String raw) {
@@ -51,6 +69,9 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
 
   @override
   Widget build(BuildContext context) {
+    final showCelsius =
+        context.watch<AppProvider?>()?.tempUnit == TempUnit.celsius;
+    final metrics = _metrics(showCelsius);
     // Group captures by date, oldest→newest (captureDate is ISO YYYY-MM-DD).
     final byDate = <String, List<GoveeCaptureSummary>>{};
     for (final c in widget.captures) {
@@ -68,7 +89,7 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
       return vals.reduce((a, b) => a + b) / vals.length;
     }
 
-    final selected = _metric.clamp(0, _metrics.length - 1);
+    final selected = _metric.clamp(0, metrics.length - 1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,9 +97,9 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
         const SizedBox(height: AppSizes.spaceSm),
         _chips(dates, byDate),
         const SizedBox(height: AppSizes.spaceSm),
-        _table(dates, avg, selected),
+        _table(dates, avg, metrics, selected),
         const SizedBox(height: AppSizes.spaceMd),
-        _chart(dates, avg, selected),
+        _chart(dates, avg, metrics, selected),
       ],
     );
   }
@@ -97,7 +118,9 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
             decoration: BoxDecoration(
               color: AppColors.accentBg,
               borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-              border: Border.all(color: AppColors.accent.withValues(alpha: 0.22)),
+              border: Border.all(
+                color: AppColors.accent.withValues(alpha: 0.22),
+              ),
             ),
             child: Text(
               _dateLabel(d),
@@ -112,12 +135,14 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
     );
   }
 
-  String _fmt(_GoveeMetric m, num? v) =>
-      v == null ? '—' : '${v.toStringAsFixed(m.decimals)}${m.percent ? '%' : ''}';
+  String _fmt(_GoveeMetric m, num? v) => v == null
+      ? '—'
+      : '${v.toStringAsFixed(m.decimals)}${m.percent ? '%' : ''}';
 
   Widget _table(
     List<String> dates,
     num? Function(String, _GoveeMetric) avg,
+    List<_GoveeMetric> metrics,
     int selected,
   ) {
     const paramW = 96.0;
@@ -138,22 +163,21 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
               child: Row(
                 children: [
                   _cell('METRIC', paramW, header: true, left: true),
-                  for (final d in dates) _cell(_dateLabel(d), dateW, header: true),
+                  for (final d in dates)
+                    _cell(_dateLabel(d), dateW, header: true),
                 ],
               ),
             ),
-            for (var i = 0; i < _metrics.length; i++)
+            for (var i = 0; i < metrics.length; i++)
               Material(
-                color: i == selected
-                    ? AppColors.accentBg
-                    : Colors.transparent,
+                color: i == selected ? AppColors.accentBg : Colors.transparent,
                 child: InkWell(
                   onTap: () => setState(() => _metric = i),
                   child: Container(
                     decoration: BoxDecoration(
                       border: Border(
                         bottom: BorderSide(
-                          color: i == _metrics.length - 1
+                          color: i == metrics.length - 1
                               ? Colors.transparent
                               : AppColors.borderDefault,
                         ),
@@ -167,10 +191,14 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
                     ),
                     child: Row(
                       children: [
-                        _cell(_metrics[i].label, paramW - 2.5,
-                            left: true, weight: FontWeight.w800),
+                        _cell(
+                          metrics[i].label,
+                          paramW - 2.5,
+                          left: true,
+                          weight: FontWeight.w800,
+                        ),
                         for (final d in dates)
-                          _cell(_fmt(_metrics[i], avg(d, _metrics[i])), dateW),
+                          _cell(_fmt(metrics[i], avg(d, metrics[i])), dateW),
                       ],
                     ),
                   ),
@@ -209,9 +237,10 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
   Widget _chart(
     List<String> dates,
     num? Function(String, _GoveeMetric) avg,
+    List<_GoveeMetric> metrics,
     int selected,
   ) {
-    final m = _metrics[selected];
+    final m = metrics[selected];
     final spots = <FlSpot>[];
     for (var i = 0; i < dates.length; i++) {
       final v = avg(dates[i], m);
@@ -308,7 +337,9 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
                       reservedSize: 24,
                       getTitlesWidget: (v, meta) {
                         final i = v.round();
-                        if (i < 0 || i >= dates.length || (v - i).abs() > 0.01) {
+                        if (i < 0 ||
+                            i >= dates.length ||
+                            (v - i).abs() > 0.01) {
                           return const SizedBox.shrink();
                         }
                         return Padding(
@@ -350,6 +381,11 @@ class _GoveeCumulativeViewState extends State<GoveeCumulativeView> {
       ),
     );
   }
+}
+
+double? _temperatureValue(double? fahrenheit, bool showCelsius) {
+  if (fahrenheit == null) return null;
+  return showCelsius ? TempConverter.toCelsius(fahrenheit) : fahrenheit;
 }
 
 class _Note extends StatelessWidget {

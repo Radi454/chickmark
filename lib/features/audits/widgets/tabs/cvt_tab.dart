@@ -12,12 +12,11 @@ import '../../../../core/utils/calculation_utils.dart';
 import '../../../../data/models/audit_model.dart';
 import '../../../../data/models/photo_model.dart';
 import '../../../../data/repositories/photo_repository.dart';
-import '../../../../services/ocr/ocr_service.dart';
 import '../../../../services/photo/photo_service.dart';
 import '../../models/est_grid_data.dart';
 import '../../models/temperature_entry_unit.dart';
-import '../../ocr_capture/ocr_capture_config.dart';
-import '../../ocr_capture/ocr_capture_launcher.dart';
+import '../../temperature_capture/temperature_capture_config.dart';
+import '../../temperature_capture/temperature_capture_launcher.dart';
 import '../../providers/audit_provider.dart';
 import '../audit_numeric_keyboard.dart';
 import '../est_grid_widget.dart';
@@ -51,7 +50,6 @@ class _CvtTabState extends State<CvtTab> {
   final Map<String, String?> _photos = {
     for (final key in EstGridData.scanKeys) key: null,
   };
-  final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
   TemperatureEntryUnit _cvtUnit = TemperatureEntryUnit.fahrenheit;
@@ -83,7 +81,6 @@ class _CvtTabState extends State<CvtTab> {
     for (final node in _focusNodes.values) {
       node.dispose();
     }
-    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -306,8 +303,9 @@ class _CvtTabState extends State<CvtTab> {
                   controllers: _controllers,
                   focusNodes: _focusNodes,
                   photos: _photos,
-                  enabled: !widget.isReadOnly,
+                  enabled: false,
                   showPhotoCapture: false,
+                  displayOnly: true,
                   unitSuffix: _cvtUnit.suffix,
                   tempStatusFn: (value) => CalculationUtils.cvtStatus(
                     _cvtUnit.toCanonical(
@@ -325,15 +323,10 @@ class _CvtTabState extends State<CvtTab> {
                     _updateCalculations();
                     setState(() {});
                   },
-                  onPhotoCaptured: (key, path) {
-                    unawaited(_handlePhotoCaptured(key, path));
-                  },
-                  onMissingPhotoRequested: (key) {
-                    unawaited(_attachMissingPhoto(key));
-                  },
-                  onClearRequested: (key) {
-                    unawaited(_clearPoint(key));
-                  },
+                  onPhotoCaptured: (_, _) {},
+                  onCellSelected: widget.isReadOnly
+                      ? null
+                      : (key) => _openCapture(initialKey: key),
                 ),
               ],
             ),
@@ -384,7 +377,7 @@ class _CvtTabState extends State<CvtTab> {
             OutlinedButton.icon(
               onPressed: widget.isReadOnly ? null : _openCapture,
               icon: const Icon(Icons.document_scanner_outlined),
-              label: const Text('Scan readings'),
+              label: const Text('Capture readings'),
             ),
           ],
         ),
@@ -418,17 +411,17 @@ class _CvtTabState extends State<CvtTab> {
     );
   }
 
-  /// Launch the reusable full-screen OCR capture flow (CVT, °F), pre-populated
+  /// Launch the reusable full-screen capture flow, pre-populated
   /// with the current grid, then merge confirmed readings via [_savePoint]
   /// (+ evidence photo records). Persistence + sync unchanged.
-  Future<void> _openCapture() async {
+  Future<void> _openCapture({String? initialKey}) async {
     if (widget.isReadOnly) return;
-    final result = await OcrCaptureLauncher.push(
+    final result = await TemperatureCaptureLauncher.push(
       context,
-      OcrCaptureConfig(
+      TemperatureCaptureConfig(
         title: 'Chick Vent Temperature',
         unitSuffix: _cvtUnit.suffix,
-        selectedUnit: _cvtUnit.thermoScanUnit,
+        initialKey: initialKey,
         initialReadings: _currentDisplayReadings(),
         initialPhotos: _currentPhotoPaths(),
         tempStatusFn: (value) => CalculationUtils.cvtStatus(
@@ -446,12 +439,11 @@ class _CvtTabState extends State<CvtTab> {
         targetLabelBuilder: _targetLabel,
         readOnly: widget.isReadOnly,
       ),
-      ocrService: _ocrService,
       photoService: _photoService,
     );
     if (result == null || result.isEmpty || !mounted) return;
     final draftId = context.read<AuditProvider>().activeDraft.id;
-    OcrCaptureLauncher.apply(result, (key, path, value) {
+    TemperatureCaptureLauncher.apply(result, (key, path, value) {
       _savePoint(key, path, value);
       if (path.isNotEmpty) unawaited(_saveEvidencePhotoRecord(draftId, path));
     });
@@ -465,123 +457,6 @@ class _CvtTabState extends State<CvtTab> {
     setState(() {
       _photos[key] = path;
       _controllers[key]?.text = displayValue.toStringAsFixed(1);
-    });
-    _updateCalculations();
-  }
-
-  Future<void> _handlePhotoCaptured(String key, String path) async {
-    final existingValue = _controllerValueF(key);
-    final existingPhoto = _photos[key];
-    if (existingValue != null &&
-        (existingPhoto == null || existingPhoto.trim().isEmpty)) {
-      setState(() {
-        _photos[key] = path;
-      });
-      _updateCalculations();
-      await _saveEvidencePhotoRecord(
-        context.read<AuditProvider>().activeDraft.id,
-        path,
-      );
-      return;
-    }
-
-    final readingC = await _ocrService.recognizeThermoScanReadingCelsius(path);
-    if (!mounted) return;
-    final valueController = TextEditingController(
-      text: readingC == null
-          ? ''
-          : _cvtUnit
-                .fromCanonical(
-                  readingC,
-                  canonicalUnit: TemperatureEntryUnit.celsius,
-                )
-                .toStringAsFixed(1),
-    );
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(_targetLabel(key)),
-        content: AuditNumericKeyboardScope(
-          child: AuditNumericField(
-            controller: valueController,
-            allowDecimal: true,
-            maxDecimalPlaces: 1,
-            decoration: InputDecoration(
-              labelText: 'Temperature',
-              suffixText: _cvtUnit.suffix,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    final parsed = double.tryParse(valueController.text);
-    valueController.dispose();
-    if (!mounted || confirmed != true || parsed == null) return;
-    _savePoint(key, path, parsed);
-    await _saveEvidencePhotoRecord(
-      context.read<AuditProvider>().activeDraft.id,
-      path,
-    );
-  }
-
-  Future<void> _attachMissingPhoto(String key) async {
-    if (widget.isReadOnly || _controllerValueF(key) == null) return;
-    final path = await _photoService.pickPhoto(fromCamera: true);
-    if (!mounted || path == null || path.trim().isEmpty) return;
-    setState(() {
-      _photos[key] = path;
-    });
-    _updateCalculations();
-    await _saveEvidencePhotoRecord(
-      context.read<AuditProvider>().activeDraft.id,
-      path,
-    );
-  }
-
-  Future<void> _clearPoint(String key) async {
-    if (widget.isReadOnly) return;
-    final controller = _controllers[key];
-    if (controller == null) return;
-    final previousValue = controller.text;
-    final previousPhoto = _photos[key];
-    if (previousValue.trim().isEmpty &&
-        (previousPhoto == null || previousPhoto.trim().isEmpty)) {
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear this reading and photo?'),
-        content: Text(_targetLabel(key)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      controller.clear();
-      _photos[key] = null;
     });
     _updateCalculations();
   }

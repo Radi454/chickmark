@@ -8,7 +8,9 @@ import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/alarm_triage_feed.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_cumulative_view.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/govee_triage_builder.dart';
+import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
+import 'package:provider/provider.dart';
 
 class GoveeEnvironmentalReadingsSection extends StatefulWidget {
   final List<GoveeCaptureSummary> captures;
@@ -145,11 +147,11 @@ class _GoveeEnvironmentalReadingsSectionState
                         ),
                         const SizedBox(height: AppSizes.spaceMd),
                       ],
-                      _GoveeModeToggle(
+                      _GoveeControlBar(
                         cumulative: _cumulativePlaces.contains(
                           placeGroups[selected].place,
                         ),
-                        onChanged: (v) => setState(() {
+                        onModeChanged: (v) => setState(() {
                           final place = placeGroups[selected].place;
                           if (v) {
                             _cumulativePlaces.add(place);
@@ -159,7 +161,9 @@ class _GoveeEnvironmentalReadingsSectionState
                         }),
                       ),
                       const SizedBox(height: AppSizes.spaceMd),
-                      if (!_cumulativePlaces.contains(placeGroups[selected].place))
+                      if (!_cumulativePlaces.contains(
+                        placeGroups[selected].place,
+                      ))
                         _GoveePlaceGroup(
                           placeGroups[selected],
                           showLabel: placeGroups.length == 1,
@@ -402,6 +406,29 @@ class _GoveePlaceCumulative extends StatelessWidget {
   }
 }
 
+class _GoveeControlBar extends StatelessWidget {
+  final bool cumulative;
+  final ValueChanged<bool> onModeChanged;
+
+  const _GoveeControlBar({
+    required this.cumulative,
+    required this.onModeChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSizes.spaceSm,
+      runSpacing: AppSizes.spaceSm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _GoveeModeToggle(cumulative: cumulative, onChanged: onModeChanged),
+        const _GoveeTemperatureUnitToggle(),
+      ],
+    );
+  }
+}
+
 /// Incremental ⇄ Cumulative segmented switch for the selected Govee place.
 /// Incremental shows the per-capture detail charts; Cumulative tints to the
 /// by-visit accent and shows the trend. Mirrors [ScopeModeToggle].
@@ -482,6 +509,71 @@ class _GoveeModeToggle extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoveeTemperatureUnitToggle extends StatelessWidget {
+  const _GoveeTemperatureUnitToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    final isCelsius = provider.tempUnit == TempUnit.celsius;
+    return Container(
+      key: const ValueKey('govee-temperature-unit-toggle'),
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _seg(
+            label: '°F',
+            on: !isCelsius,
+            onTap: () => provider.setTempUnit(TempUnit.fahrenheit),
+          ),
+          _seg(
+            label: '°C',
+            on: isCelsius,
+            onTap: () => provider.setTempUnit(TempUnit.celsius),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _seg({
+    required String label,
+    required bool on,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+        onTap: onTap,
+        child: Container(
+          width: 34,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          decoration: BoxDecoration(
+            color: on ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              color: on ? Colors.white : AppColors.textSecondary,
+            ),
           ),
         ),
       ),

@@ -6,8 +6,13 @@ import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart'
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('Govee sector appears when captures exist', (tester) async {
     await _pumpSection(
       tester,
@@ -65,9 +70,7 @@ void main() {
     );
   });
 
-  testWidgets('tapping a place tab switches the visible group', (
-    tester,
-  ) async {
+  testWidgets('tapping a place tab switches the visible group', (tester) async {
     await _pumpSection(
       tester,
       captures: [
@@ -96,10 +99,7 @@ void main() {
       find.byKey(const ValueKey('govee-capture-card-chicks')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey('govee-capture-card-egg')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('govee-capture-card-egg')), findsNothing);
     expect(
       find.byKey(const ValueKey('govee-place-group-eggStorageRoom')),
       findsNothing,
@@ -150,6 +150,28 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('temperature unit toggle switches Govee sector values', (
+    tester,
+  ) async {
+    await _pumpSection(
+      tester,
+      captures: [
+        _makeSummary(id: 'egg', place: TemperaturePlace.eggStorageRoom),
+      ],
+    );
+
+    expect(
+      find.byKey(const ValueKey('govee-temperature-unit-toggle')),
+      findsOneWidget,
+    );
+    expect(find.text('72.4°F avg'), findsOneWidget);
+
+    await tester.tap(find.text('°C'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('22.4°C avg'), findsOneWidget);
   });
 }
 

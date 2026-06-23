@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
+import 'package:hatchaudit/data/models/temperature_rh_model.dart';
+import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
@@ -16,6 +18,7 @@ import '../../support/test_database.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ScopeComparisonRepository repo;
+  late GoveeCaptureRepository goveeRepo;
 
   setUpAll(() async {
     await useIsolatedAppDatabase();
@@ -26,6 +29,7 @@ void main() {
     DatabaseHelper.seedDemoData = true; // this e2e test needs the demo rows
     await DatabaseHelper().db; // triggers onCreate + onOpen (demo seeding)
     repo = ScopeComparisonRepository();
+    goveeRepo = GoveeCaptureRepository();
   });
 
   tearDown(resetAppDatabase);
@@ -75,6 +79,48 @@ void main() {
     );
     expect(leaves, isEmpty);
   });
+
+  test(
+    'demo seeding leaves الغريب plus dashboard test customer data',
+    () async {
+      final db = await DatabaseHelper().db;
+      final rows = await db.query('customers', orderBy: 'name ASC');
+      expect(rows, hasLength(2));
+      expect(rows.map((row) => row['id']).toSet(), {
+        'cust-al-ghareeb',
+        kDashboardDemoCustomerId,
+      });
+      expect(rows.map((row) => row['name']).toSet(), {
+        'الغريب',
+        'Dashboard Test Customer',
+      });
+    },
+  );
+
+  test(
+    'demo seeding adds five Govee readings for every dashboard place',
+    () async {
+      final captures = await goveeRepo.getCapturesForDashboard(
+        customerId: kDashboardDemoCustomerId,
+        hatcheryId: 'hatchery-dashboard-demo',
+        captureDate: '2026-06-01',
+      );
+
+      expect(captures, hasLength(6));
+      expect(captures.map((capture) => capture.place).toSet(), {
+        TemperaturePlace.eggStorageRoom,
+        TemperaturePlace.chickHoldingArea,
+        TemperaturePlace.setterRoom,
+        TemperaturePlace.insideSetter,
+        TemperaturePlace.hatcherRoom,
+        TemperaturePlace.insideHatcher,
+      });
+      for (final capture in captures) {
+        expect(capture.readingCount, 5);
+        expect(capture.chartReadings, hasLength(5));
+      }
+    },
+  );
 }
 
 Future<void> _resetDatabase() async {

@@ -52,6 +52,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
   final Uuid _uuid = const Uuid();
 
   String? _customerId;
+  String? _flockId;
   String? _hatcheryId;
   TemperaturePlace? _place;
   String? _captureDate;
@@ -93,6 +94,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
        _clock = clock ?? DateTime.now;
 
   String? get customerId => _customerId;
+  String? get flockId => _flockId;
   String? get hatcheryId => _hatcheryId;
   TemperaturePlace? get place => _place;
   String? get captureDate => _captureDate;
@@ -227,6 +229,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
 
   Future<void> configure({
     required String customerId,
+    String? flockId,
     required String hatcheryId,
     required TemperaturePlace place,
     String? captureDate,
@@ -235,6 +238,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     GoveeCaptureTarget captureTarget = GoveeCaptureTarget.room,
   }) async {
     _customerId = customerId;
+    _flockId = flockId?.trim().isEmpty ?? true ? null : flockId!.trim();
     _hatcheryId = hatcheryId;
     final resolvedStationKey = stationKey?.trim().isNotEmpty == true
         ? stationKey!.trim()
@@ -288,6 +292,7 @@ class GoveeCaptureProvider extends ChangeNotifier {
     final place = _resolvedPlaceForTarget(_place, _stationKey, target);
     await configure(
       customerId: _customerId!,
+      flockId: _flockId,
       hatcheryId: _hatcheryId!,
       place: place,
       captureDate: _captureDate,

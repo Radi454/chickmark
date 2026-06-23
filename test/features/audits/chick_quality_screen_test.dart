@@ -7,7 +7,7 @@ import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -487,7 +487,7 @@ void main() {
     expect(entries.first['yolkWeight'], 4.0);
   });
 
-  testWidgets('CVT Scan readings launches the reusable OCR capture screen', (
+  testWidgets('CVT Capture readings launches the reusable capture screen', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1000, 1600));
@@ -503,18 +503,18 @@ void main() {
     await tester.tap(find.text('Chick Vent Temperature'));
     await tester.pumpAndSettle();
 
-    final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+    final scanButton = find.widgetWithText(OutlinedButton, 'Capture readings');
     await tester.ensureVisible(scanButton);
     await tester.tap(scanButton);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.byType(OcrCaptureScreen), findsOneWidget);
+    expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
     expect(find.text('Step 1 of 9'), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.byType(OcrCaptureScreen), findsNothing);
+    expect(find.byType(TemperatureCaptureScreen), findsNothing);
   });
 
   testWidgets('CVT uses an EST-style grid with target and capture action', (
@@ -530,7 +530,7 @@ void main() {
     await tester.tap(find.text('Chick Vent Temperature'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Scan readings'), findsOneWidget);
+    expect(find.text('Capture readings'), findsOneWidget);
     expect(find.text('103-105°F'), findsOneWidget);
     expect(find.byKey(const ValueKey('cvt-temperature-grid')), findsOneWidget);
     expect(
@@ -539,38 +539,29 @@ void main() {
     );
     expect(find.text('CVT Measurements'), findsNothing);
 
-    await enterAuditNumber(
-      tester,
+    expect(
       find.byKey(const ValueKey('est-grid-input-front_top')),
-      '104',
+      findsNothing,
     );
+    final frontTopCell = find.byKey(const ValueKey('est-grid-cell-front_top'));
+    await tester.ensureVisible(frontTopCell);
+    await tester.tap(frontTopCell);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
+    expect(find.text('Front - Top'), findsOneWidget);
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
-    expect(provider.activeDraft.cvtAvg, 104.0);
-    expect(provider.activeDraft.cvtCvPct, 0.0);
-    final readings =
-        jsonDecode(provider.activeDraft.cvtReadingsJson!)
-            as Map<String, dynamic>;
-    expect(readings['front_top'], 104.0);
-
-    await tester.tap(find.byKey(const ValueKey('chicks-cvt-unit-c')));
+    final celsiusChip = find.byKey(const ValueKey('chicks-cvt-unit-c'));
+    await tester.ensureVisible(celsiusChip);
+    await tester.tap(celsiusChip);
     await tester.pump();
 
-    expect(
-      tester
-          .widget<AuditNumericField>(
-            find.byKey(const ValueKey('est-grid-input-front_top')),
-          )
-          .controller
-          .text,
-      '40.0',
-    );
-    expect(provider.activeDraft.cvtAvg, 104.0);
-    expect(
-      (jsonDecode(provider.activeDraft.cvtReadingsJson!)
-          as Map<String, dynamic>)['front_top'],
-      104.0,
-    );
+    expect(find.text('39.4-40.6°C'), findsOneWidget);
+    expect(provider.activeDraft.cvtAvg, isNull);
+    expect(provider.activeDraft.cvtReadingsJson, isNull);
   });
 
   testWidgets('PM Necropsy shows the revised lesion checklist', (tester) async {

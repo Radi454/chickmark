@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,11 +9,9 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/photo_model.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
-import '../../../data/repositories/photo_repository.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -56,7 +53,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   final Map<int, int> _activeBreakoutSampleIndexes = {};
   final Map<String, GlobalKey> _sampleCardKeys = {};
   final Map<String, FocusNode> _breakoutCountFocusNodes = {};
-  final PhotoRepository _photoRepository = PhotoRepository();
   late final List<GlobalKey> _sectionKeys = List.generate(
     2,
     (_) => GlobalKey(),

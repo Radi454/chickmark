@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/bmk_breed_model.dart';
 import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
+import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
@@ -90,6 +91,28 @@ void main() {
     expect(find.byIcon(Icons.crisis_alert_outlined), findsNothing);
     expect(find.byIcon(Icons.warning_outlined), findsNothing);
   });
+
+  testWidgets('BMK admin renders operational benchmark editor sector', (
+    tester,
+  ) async {
+    await _pumpBmkScreen(tester);
+
+    await tester.tap(find.text('Admin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Operational BMK Admin'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('bmk-operational-hatchery-selector')),
+      findsOne,
+    );
+    expect(find.text('Global defaults'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('bmk-operational-standard-selector')),
+      findsOne,
+    );
+    expect(find.text('Egg storage EST short'), findsWidgets);
+    expect(find.text('Save operational BMK'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpBmkScreen(WidgetTester tester) async {
@@ -149,6 +172,30 @@ class _FakeBmkRepository extends BmkRepository {
     ),
   };
 
+  final List<BmkOperationalStandardModel> operationalRows = [
+    BmkOperationalStandardModel(
+      id: 'global-egg_storage_est_short',
+      stationKey: 'egg',
+      sectorKey: 'egg_storage',
+      metricKey: 'egg_storage_est_short',
+      metricLabel: 'Egg storage EST short',
+      unit: '°C',
+      minValue: 19,
+      maxValue: 21,
+      sortOrder: 10,
+    ),
+  ];
+
+  @override
+  Future<List<BmkOperationalHatcheryOption>> getOperationalHatcheries() async {
+    return const [
+      BmkOperationalHatcheryOption(
+        id: 'hatchery-1',
+        label: 'Farm One · Hatchery One',
+      ),
+    ];
+  }
+
   @override
   Future<List<int>> getBreedAges(String breed) async {
     return breedRows.values
@@ -171,5 +218,24 @@ class _FakeBmkRepository extends BmkRepository {
   @override
   Future<BmkEggBreakoutModel?> getEggBreakoutBenchmark(int ageWeek) async {
     return eggBreakoutRows[ageWeek];
+  }
+
+  @override
+  Future<List<BmkOperationalStandardModel>> getOperationalStandards({
+    String? hatcheryId,
+  }) async {
+    return operationalRows;
+  }
+
+  @override
+  Future<void> upsertOperationalStandard(
+    BmkOperationalStandardModel row,
+  ) async {
+    final index = operationalRows.indexWhere((item) => item.id == row.id);
+    if (index == -1) {
+      operationalRows.add(row);
+    } else {
+      operationalRows[index] = row;
+    }
   }
 }

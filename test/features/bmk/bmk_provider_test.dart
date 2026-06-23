@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/bmk_breed_model.dart';
 import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
+import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
 
@@ -56,6 +57,41 @@ void main() {
       expect(provider.ebRow!.contamPct, 0.5);
     },
   );
+
+  test(
+    'saveSelectedOperationalStandard updates selected operational row',
+    () async {
+      final repository = _FakeBmkRepository();
+      final provider = BmkProvider(repository: repository);
+
+      await provider.ensureInitialized();
+      await provider.saveSelectedOperationalStandard(
+        minValue: 18.5,
+        maxValue: 20.5,
+      );
+
+      final saved = repository.operationalRows['global-egg_storage_est_short']!;
+      expect(saved.minValue, 18.5);
+      expect(saved.maxValue, 20.5);
+      expect(provider.selectedOperationalStandard!.minValue, 18.5);
+    },
+  );
+
+  test(
+    'setOperationalHatchery reloads standards for hatchery overrides',
+    () async {
+      final repository = _FakeBmkRepository();
+      final provider = BmkProvider(repository: repository);
+
+      await provider.ensureInitialized();
+      provider.setOperationalHatchery('hatchery-1');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(provider.selectedHatcheryId, 'hatchery-1');
+      expect(provider.selectedOperationalStandard!.hatcheryId, 'hatchery-1');
+      expect(provider.selectedOperationalStandard!.minValue, 18);
+    },
+  );
 }
 
 class _FakeBmkRepository extends BmkRepository {
@@ -88,6 +124,32 @@ class _FakeBmkRepository extends BmkRepository {
       externalPipPct: 1,
       crackedPct: 0.5,
       contamPct: 0.5,
+    ),
+  };
+
+  final Map<String, BmkOperationalStandardModel> operationalRows = {
+    'global-egg_storage_est_short': BmkOperationalStandardModel(
+      id: 'global-egg_storage_est_short',
+      stationKey: 'egg',
+      sectorKey: 'egg_storage',
+      metricKey: 'egg_storage_est_short',
+      metricLabel: 'Egg storage EST short',
+      unit: '°C',
+      minValue: 19,
+      maxValue: 21,
+      sortOrder: 10,
+    ),
+    'hatchery-1-egg_storage_est_short': BmkOperationalStandardModel(
+      id: 'hatchery-1-egg_storage_est_short',
+      hatcheryId: 'hatchery-1',
+      stationKey: 'egg',
+      sectorKey: 'egg_storage',
+      metricKey: 'egg_storage_est_short',
+      metricLabel: 'Egg storage EST short',
+      unit: '°C',
+      minValue: 18,
+      maxValue: 20,
+      sortOrder: 10,
     ),
   };
 
@@ -125,5 +187,37 @@ class _FakeBmkRepository extends BmkRepository {
   Future<void> upsertBmkEggBreakout(Map<String, dynamic> row) async {
     final model = BmkEggBreakoutModel.fromMap(row);
     eggBreakoutRows[model.ageWeek] = model;
+  }
+
+  @override
+  Future<List<BmkOperationalStandardModel>> getOperationalStandards({
+    String? hatcheryId,
+  }) async {
+    return operationalRows.values
+        .where((row) => row.hatcheryId == null || row.hatcheryId == hatcheryId)
+        .fold<Map<String, BmkOperationalStandardModel>>({}, (map, row) {
+          map[row.metricKey] = row;
+          return map;
+        })
+        .values
+        .toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  }
+
+  @override
+  Future<List<BmkOperationalHatcheryOption>> getOperationalHatcheries() async {
+    return const [
+      BmkOperationalHatcheryOption(
+        id: 'hatchery-1',
+        label: 'Farm One · Hatchery One',
+      ),
+    ];
+  }
+
+  @override
+  Future<void> upsertOperationalStandard(
+    BmkOperationalStandardModel row,
+  ) async {
+    operationalRows[row.id] = row;
   }
 }

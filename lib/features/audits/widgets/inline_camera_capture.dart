@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../services/ocr/ocr_service.dart';
 
 class InlineCameraCapture extends StatefulWidget {
   const InlineCameraCapture({
@@ -75,16 +74,6 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
       _errorMessage == null;
   bool get isPreviewActive => isCameraReady && _previewLayoutSize != null;
 
-  ThermoScanCropFrame? get ocrCropFrame {
-    final previewSize = _previewLayoutSize;
-    if (previewSize == null) return null;
-    return ThermoScanCropFrame(
-      previewWidth: previewSize.width,
-      previewHeight: previewSize.height,
-      devicePixelRatio: View.of(context).devicePixelRatio,
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -130,8 +119,6 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
     }
   }
 
-  Future<String?> takePictureForAutoScan() => takePicture();
-
   Future<void> closeCameraForStationExit() async {
     _cameraGeneration++;
     _cancelInitializationTimeout();
@@ -159,10 +146,8 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
     await Future.delayed(_captureCooldown - elapsed);
   }
 
-  /// Configures continuous auto-focus/exposure on the scan frame center ONCE
-  /// after init. Re-triggering these per capture makes the camera hunt focus,
-  /// which is the main source of auto-scan lag and CPU load.
-  Future<void> _configureCameraForScanning(CameraController controller) async {
+  /// Configures focus/exposure near the capture frame center once after init.
+  Future<void> _configureCameraForCapture(CameraController controller) async {
     try {
       await controller.setFocusMode(FocusMode.auto);
     } catch (_) {
@@ -243,7 +228,7 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
         await controller.dispose();
         return;
       }
-      await _configureCameraForScanning(controller);
+      await _configureCameraForCapture(controller);
       if (!_isActiveGeneration(generation)) {
         await controller.dispose();
         return;
@@ -381,67 +366,103 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
   }
 
   Widget _buildErrorState(String message) {
-    return Container(
-      color: const Color(0xFF111827),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.no_photography_outlined,
-            color: Colors.white,
-            size: 36,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 140;
+        return Container(
+          color: const Color(0xFF111827),
+          padding: EdgeInsets.all(compact ? 8 : 16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.no_photography_outlined,
+                color: Colors.white,
+                size: compact ? 24 : 36,
+              ),
+              SizedBox(height: compact ? 4 : 8),
+              Flexible(
+                child: Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: compact ? 2 : 3,
+                  style: AppTextStyles.caption.copyWith(color: Colors.white),
+                ),
+              ),
+              SizedBox(height: compact ? 6 : 10),
+              OutlinedButton(
+                onPressed: () => unawaited(_initializeCamera()),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withAlpha(150)),
+                  minimumSize: Size(0, compact ? 30 : 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Resume camera'),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.caption.copyWith(color: Colors.white),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: () => unawaited(_initializeCamera()),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(color: Colors.white.withAlpha(150)),
-            ),
-            child: const Text('Resume camera'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildPausedState() {
-    return Container(
-      color: const Color(0xFF111827),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.pause_circle_outline, color: Colors.white, size: 38),
-          const SizedBox(height: 8),
-          Text(
-            'Camera paused',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 140;
+        return Container(
+          color: const Color(0xFF111827),
+          padding: EdgeInsets.all(compact ? 8 : 16),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.pause_circle_outline,
+                    color: Colors.white,
+                    size: compact ? 24 : 38,
+                  ),
+                  SizedBox(height: compact ? 4 : 8),
+                  Text(
+                    'Camera paused',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.body.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (!compact) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Resume when you are ready.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.caption.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: compact ? 6 : 12),
+                  FilledButton(
+                    onPressed: () => unawaited(_initializeCamera()),
+                    style: FilledButton.styleFrom(
+                      minimumSize: Size(0, compact ? 30 : 36),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text('Resume camera'),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Resume when you are ready.',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.caption.copyWith(color: Colors.white70),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: () => unawaited(_initializeCamera()),
-            child: const Text('Resume camera'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -510,11 +531,14 @@ class _PulsingScanFrameState extends State<_PulsingScanFrame>
 class _StaticScanFrame extends StatelessWidget {
   const _StaticScanFrame();
 
+  static const double _frameWidth = 190;
+  static const double _frameHeight = 110;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: kThermoScanFrameWidth,
-      height: kThermoScanFrameHeight,
+      width: _frameWidth,
+      height: _frameHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.greenTab, width: 2.4),

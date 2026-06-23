@@ -421,6 +421,43 @@ void main() {
     expect(find.byType(AuditNumericKeyboard), findsOneWidget);
   });
 
+  testWidgets('done action shows a check icon and submits the active field', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: '20');
+    String? submitted;
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AuditNumericKeyboardScope(
+            inputMode: AuditNumericInputMode.customKeyboard,
+            child: AuditNumericField(
+              controller: controller,
+              doneAction: true,
+              onSubmitted: (value) => submitted = value,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(AuditNumericField));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_forward), findsNothing);
+    expect(find.byIcon(Icons.keyboard_return), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+
+    expect(submitted, '20');
+    expect(find.byType(AuditNumericKeyboard), findsNothing);
+  });
+
   testWidgets('keypad rows ignore inherited top media padding', (tester) async {
     await tester.pumpWidget(
       MediaQuery(
@@ -444,6 +481,7 @@ void main() {
                 onBackspace: () {},
                 onNext: () {},
                 onMoveDown: () {},
+                onDone: () {},
                 onHide: () {},
               ),
             ),

@@ -7,6 +7,8 @@ import '../models/audit_session_model.dart';
 import '../models/panel_sample_schema.dart';
 import 'sync_tombstone_repository.dart';
 
+const _recentSessionOrderBy = 'updatedAt DESC, date DESC, createdAt DESC';
+
 class AuditSessionRepository {
   final DatabaseHelper _dbHelper;
 
@@ -96,7 +98,7 @@ class AuditSessionRepository {
       'audit_sessions',
       where: 'customerId = ?',
       whereArgs: [customerId],
-      orderBy: 'date DESC, createdAt DESC',
+      orderBy: _recentSessionOrderBy,
       limit: limit,
       offset: offset,
     );
@@ -322,7 +324,7 @@ class AuditSessionRepository {
     final db = await _dbHelper.db;
     final result = await db.query(
       'audit_sessions',
-      orderBy: 'date DESC, createdAt DESC',
+      orderBy: _recentSessionOrderBy,
       limit: limit,
       offset: offset,
     );
@@ -420,7 +422,7 @@ class AuditSessionRepository {
       'audit_sessions',
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: args.isEmpty ? null : args,
-      orderBy: 'date DESC, createdAt DESC',
+      orderBy: _recentSessionOrderBy,
       limit: limit,
       offset: offset,
     );

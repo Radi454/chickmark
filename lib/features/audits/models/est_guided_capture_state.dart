@@ -6,11 +6,8 @@ class EstGuidedCaptureState {
     required this.readings,
     required this.photos,
     this.capturedImagePath,
-    this.ocrValue,
+    this.pendingValue,
     this.isProcessing = false,
-    this.isAutoScanning = false,
-    this.isOcrProcessing = false,
-    this.isAutoScanReview = false,
     this.errorMessage,
     this.lastConfirmedKey,
     this.retakenKeys = const {},
@@ -36,11 +33,8 @@ class EstGuidedCaptureState {
   final Map<String, double> readings;
   final Map<String, String> photos;
   final String? capturedImagePath;
-  final double? ocrValue;
+  final double? pendingValue;
   final bool isProcessing;
-  final bool isAutoScanning;
-  final bool isOcrProcessing;
-  final bool isAutoScanReview;
   final String? errorMessage;
   final String? lastConfirmedKey;
   final Set<String> retakenKeys;
@@ -48,92 +42,47 @@ class EstGuidedCaptureState {
   String get currentKey => EstGridData.scanKeys[stepIndex];
   int get currentStep => stepIndex + 1;
   int get totalSteps => EstGridData.scanKeys.length;
-  bool get canConfirm => capturedImagePath != null && ocrValue != null;
+  bool get canConfirm => pendingValue != null;
   bool get isLastStep => stepIndex >= EstGridData.scanKeys.length - 1;
   bool get isCurrentPointConfirmed =>
       readings.containsKey(currentKey) && !retakenKeys.contains(currentKey);
-  bool get canStartOcrAttempt =>
-      isAutoScanning &&
-      !isOcrProcessing &&
-      !isProcessing &&
-      capturedImagePath == null;
 
   List<Map<String, Object>> get structuredReadings =>
       EstGridData.toStructuredReadings(readings);
 
   EstGuidedCaptureState captureStarted() => _copyWith(
     capturedImagePath: null,
-    ocrValue: null,
+    pendingValue: null,
     isProcessing: true,
-    isAutoScanning: false,
-    isOcrProcessing: false,
-    isAutoScanReview: false,
     errorMessage: null,
     lastConfirmedKey: null,
   );
 
   EstGuidedCaptureState captureResolved({
     required String photoPath,
-    required double? ocrValue,
     String? hint,
-  }) {
-    if (ocrValue == null) {
-      return _copyWith(
-        capturedImagePath: null,
-        ocrValue: null,
-        isProcessing: false,
-        isAutoScanning: false,
-        isOcrProcessing: false,
-        isAutoScanReview: false,
-        errorMessage: hint ?? 'No reading found. Camera refreshed. Try again.',
-      );
-    }
-
-    return _copyWith(
-      capturedImagePath: photoPath,
-      ocrValue: ocrValue,
-      isProcessing: false,
-      isAutoScanning: false,
-      isOcrProcessing: false,
-      isAutoScanReview: false,
-      errorMessage: 'Confirm the detected reading.',
-    );
-  }
+  }) => _copyWith(
+    capturedImagePath: photoPath,
+    pendingValue: null,
+    isProcessing: false,
+    errorMessage: hint ?? 'Photo captured. Enter the reading.',
+  );
 
   EstGuidedCaptureState captureFailed(String message) => _copyWith(
     isProcessing: false,
-    isAutoScanning: false,
-    isOcrProcessing: false,
-    isAutoScanReview: false,
     errorMessage: message,
     lastConfirmedKey: null,
   );
 
   EstGuidedCaptureState valueEdited(double? value) => _copyWith(
-    ocrValue: value,
-    errorMessage: value == null ? errorMessage : 'Confirm the edited reading.',
-  );
-
-  EstGuidedCaptureState unitMismatchDetected({
-    required String photoPath,
-    required bool autoScanReview,
-  }) => _copyWith(
-    capturedImagePath: photoPath,
-    ocrValue: null,
-    isProcessing: false,
-    isAutoScanning: false,
-    isOcrProcessing: false,
-    isAutoScanReview: autoScanReview,
-    errorMessage: 'Detected unit does not match the selected unit.',
+    pendingValue: value,
+    errorMessage: value == null ? errorMessage : 'Confirm the typed reading.',
   );
 
   EstGuidedCaptureState retake() => _copyWith(
     capturedImagePath: null,
-    ocrValue: null,
+    pendingValue: null,
     isProcessing: false,
-    isAutoScanning: false,
-    isOcrProcessing: false,
-    isAutoScanReview: false,
     errorMessage: null,
     lastConfirmedKey: null,
     retakenKeys: Set<String>.unmodifiable({
@@ -154,9 +103,12 @@ class EstGuidedCaptureState {
     }
 
     final nextReadings = Map<String, double>.from(readings)
-      ..[currentKey] = ocrValue!;
-    final nextPhotos = Map<String, String>.from(photos)
-      ..[currentKey] = photoPath ?? capturedImagePath!;
+      ..[currentKey] = pendingValue!;
+    final nextPhotos = Map<String, String>.from(photos);
+    final evidencePath = photoPath ?? capturedImagePath;
+    if (evidencePath != null && evidencePath.isNotEmpty) {
+      nextPhotos[currentKey] = evidencePath;
+    }
     final nextRetakenKeys = Set<String>.from(retakenKeys)..remove(currentKey);
 
     return _advance(
@@ -166,82 +118,6 @@ class EstGuidedCaptureState {
       retakenKeys: Set.unmodifiable(nextRetakenKeys),
     );
   }
-
-  EstGuidedCaptureState startAutoScan() {
-    if (isAutoScanning) return this;
-    if (isCurrentPointConfirmed) {
-      return _copyWith(
-        isAutoScanning: false,
-        isOcrProcessing: false,
-        isAutoScanReview: false,
-        errorMessage: 'This EST point is already saved. Retake to replace it.',
-      );
-    }
-    if (capturedImagePath != null) {
-      return _copyWith(
-        errorMessage: 'Confirm, edit, or retake the detected reading first.',
-      );
-    }
-
-    return _copyWith(
-      isAutoScanning: true,
-      isOcrProcessing: false,
-      isAutoScanReview: false,
-      isProcessing: false,
-      errorMessage: 'Looking for reading...',
-      lastConfirmedKey: null,
-    );
-  }
-
-  EstGuidedCaptureState stopAutoScan({String? message}) => _copyWith(
-    isAutoScanning: false,
-    isOcrProcessing: false,
-    errorMessage: message,
-  );
-
-  EstGuidedCaptureState autoScanAttemptStarted() {
-    if (!canStartOcrAttempt) return this;
-    return _copyWith(
-      isOcrProcessing: true,
-      errorMessage: 'Reading ThermoScan screen...',
-      lastConfirmedKey: null,
-    );
-  }
-
-  EstGuidedCaptureState autoScanAttemptResolved({
-    required String photoPath,
-    required double? ocrValue,
-    String? hint,
-  }) {
-    if (ocrValue == null) {
-      return _copyWith(
-        capturedImagePath: null,
-        ocrValue: null,
-        isAutoScanning: true,
-        isOcrProcessing: false,
-        isAutoScanReview: false,
-        errorMessage: hint ?? 'Looking for reading...',
-      );
-    }
-
-    return _copyWith(
-      capturedImagePath: photoPath,
-      ocrValue: ocrValue,
-      isAutoScanning: false,
-      isOcrProcessing: false,
-      isAutoScanReview: true,
-      errorMessage: 'Reading detected. Confirm or try again.',
-    );
-  }
-
-  EstGuidedCaptureState rejectAutoScanReading() => _copyWith(
-    capturedImagePath: null,
-    ocrValue: null,
-    isAutoScanning: true,
-    isOcrProcessing: false,
-    isAutoScanReview: false,
-    errorMessage: 'Looking for reading...',
-  );
 
   EstGuidedCaptureState _advance({
     required Map<String, double> readings,
@@ -280,11 +156,8 @@ class EstGuidedCaptureState {
     Map<String, double>? readings,
     Map<String, String>? photos,
     Object? capturedImagePath = _sentinel,
-    Object? ocrValue = _sentinel,
+    Object? pendingValue = _sentinel,
     bool? isProcessing,
-    bool? isAutoScanning,
-    bool? isOcrProcessing,
-    bool? isAutoScanReview,
     Object? errorMessage = _sentinel,
     Object? lastConfirmedKey = _sentinel,
     Set<String>? retakenKeys,
@@ -296,13 +169,10 @@ class EstGuidedCaptureState {
       capturedImagePath: identical(capturedImagePath, _sentinel)
           ? this.capturedImagePath
           : capturedImagePath as String?,
-      ocrValue: identical(ocrValue, _sentinel)
-          ? this.ocrValue
-          : ocrValue as double?,
+      pendingValue: identical(pendingValue, _sentinel)
+          ? this.pendingValue
+          : pendingValue as double?,
       isProcessing: isProcessing ?? this.isProcessing,
-      isAutoScanning: isAutoScanning ?? this.isAutoScanning,
-      isOcrProcessing: isOcrProcessing ?? this.isOcrProcessing,
-      isAutoScanReview: isAutoScanReview ?? this.isAutoScanReview,
       errorMessage: identical(errorMessage, _sentinel)
           ? this.errorMessage
           : errorMessage as String?,

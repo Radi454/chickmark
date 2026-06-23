@@ -13,13 +13,12 @@ import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/photo_repository.dart';
-import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
-import '../ocr_capture/ocr_capture_config.dart';
-import '../ocr_capture/ocr_capture_launcher.dart';
+import '../temperature_capture/temperature_capture_config.dart';
+import '../temperature_capture/temperature_capture_launcher.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -51,8 +50,6 @@ class SetterOptimizingScreen extends StatefulWidget {
   State<SetterOptimizingScreen> createState() => _SetterOptimizingScreenState();
 }
 
-enum _EstScanAction { confirm, retake, skip }
-
 class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   static const TextStyle _prominentFloatingLabelStyle = TextStyle(
     color: AppColors.primary,
@@ -78,7 +75,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   final Map<String, TextEditingController> _estControllers = {};
   final Map<String, FocusNode> _estFocusNodes = {};
   final Map<String, String?> _estPhotos = {};
-  final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
 
@@ -354,7 +350,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     _batchCountController.dispose();
     _turningAngleController.dispose();
     _co2Controller.dispose();
-    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -1232,7 +1227,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                   ? null
                   : () => _openEstCapture(provider),
               icon: const Icon(Icons.document_scanner_outlined),
-              label: const Text('Scan readings'),
+              label: const Text('Capture readings'),
             ),
           ],
         ),
@@ -1241,8 +1236,9 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
           controllers: _estControllers,
           focusNodes: _estFocusNodes,
           photos: _estPhotos,
-          enabled: !provider.isReadOnly,
+          enabled: false,
           showPhotoCapture: false,
+          displayOnly: true,
           title: null,
           unitSuffix: _estUnit.suffix,
           tempStatusFn: (value) => CalculationUtils.setterEstStatus(
@@ -1258,15 +1254,10 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
             ),
           ),
           onValueChanged: (key, value) => _updateEstCalculations(provider),
-          onPhotoCaptured: (key, path) {
-            unawaited(_handleEstPhotoCaptured(provider, key, path));
-          },
-          onMissingPhotoRequested: (key) {
-            unawaited(_attachMissingEstPhoto(provider, key));
-          },
-          onClearRequested: (key) {
-            unawaited(_clearEstPoint(provider, key));
-          },
+          onPhotoCaptured: (_, _) {},
+          onCellSelected: provider.isReadOnly
+              ? null
+              : (key) => _openEstCapture(provider, initialKey: key),
         ),
         const SizedBox(height: 8),
         Row(
@@ -1296,239 +1287,21 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     );
   }
 
-  Future<void> _handleEstPhotoCaptured(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    final existingPhoto = _estPhotos[key];
-    if (existingValue != null &&
-        (existingPhoto == null || existingPhoto.trim().isEmpty)) {
-      await _attachEstPhotoPathToExistingReading(provider, key, path);
-      return;
-    }
-
-    await _confirmSingleEstReading(provider, key, path);
-  }
-
-  Future<void> _attachMissingEstPhoto(
-    AuditProvider provider,
-    String key,
-  ) async {
-    if (provider.isReadOnly) return;
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    final existingPhoto = _estPhotos[key];
-    if (existingValue == null ||
-        (existingPhoto != null && existingPhoto.trim().isNotEmpty)) {
-      return;
-    }
-
-    final path = await _photoService.pickPhoto(fromCamera: true);
-    if (!mounted || path == null || path.trim().isEmpty) return;
-
-    await _attachEstPhotoPathToExistingReading(provider, key, path);
-  }
-
-  Future<void> _attachEstPhotoPathToExistingReading(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    if (existingValue == null || path.trim().isEmpty) return;
-
-    setState(() {
-      _estPhotos[key] = path;
-    });
-    _updateEstPhotos(provider);
-    await _saveEstEvidencePhotoRecord(provider, key, path);
-    await _persistActiveAuditRow(provider);
-  }
-
-  Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
-    try {
-      return provider.saveSamplesWithResult(tabIndex: 0);
-    } catch (_) {
-      // Keep the active draft updated; normal tab save can persist if row is new.
-      return false;
-    }
-  }
-
-  Future<void> _clearEstPoint(AuditProvider provider, String key) async {
-    if (provider.isReadOnly) return;
-    final controller = _estControllers[key];
-    if (controller == null) return;
-    final previousValue = controller.text;
-    final previousPhoto = _estPhotos[key];
-    if (previousValue.trim().isEmpty &&
-        (previousPhoto == null || previousPhoto.trim().isEmpty)) {
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear this reading and photo?'),
-        content: Text(_estTargetLabel(key)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    final previousReadingsJson = provider.activeDraft.soEstReadings;
-    final previousPhotosJson = provider.activeDraft.soEstPhotos;
-    final previousSamplesJson = provider.activeDraft.soEstSamplesJson;
-    final previousAvg = provider.activeDraft.soEstAvg;
-    final previousCv = provider.activeDraft.soEstCv;
-    final previousAvgText = _estAvgController.text;
-    final previousCvText = _estCvController.text;
-
-    setState(() {
-      controller.clear();
-      _estPhotos[key] = null;
-    });
-    _updateEstPhotos(provider);
-    _updateEstCalculations(provider);
-
-    final persisted = await _persistActiveAuditRow(provider);
-    if (!mounted) return;
-    if (persisted) {
-      return;
-    }
-
-    setState(() {
-      controller.text = previousValue;
-      _estPhotos[key] = previousPhoto;
-      _estAvgController.text = previousAvgText;
-      _estCvController.text = previousCvText;
-    });
-    provider.updateField('soEstReadings', previousReadingsJson);
-    provider.updateField('soEstPhotos', previousPhotosJson);
-    provider.updateField('so_estSamplesJson', previousSamplesJson);
-    provider.updateField('soEstAvg', previousAvg);
-    provider.updateField('soEstCv', previousCv);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Could not clear EST point. Try again.')),
-    );
-  }
-
-  Future<void> _confirmSingleEstReading(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final reading = await _recognizeThermoScanReadingForEntryUnit(path);
-    if (!mounted) return;
-
-    final valueController = TextEditingController(
-      text: reading == null ? '' : reading.toStringAsFixed(1),
-    );
-    final action = await showDialog<_EstScanAction>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            final parsedValue = double.tryParse(valueController.text);
-            return AuditNumericKeyboardScope(
-              child: AlertDialog(
-                title: Text(_estTargetLabel(key)),
-                content: AuditNumericField(
-                  controller: valueController,
-                  allowDecimal: true,
-                  maxDecimalPlaces: 1,
-                  decoration: InputDecoration(
-                    labelText: 'Temperature',
-                    suffixText: _estUnit.suffix,
-                    helperText: reading == null
-                        ? 'No reading found. Enter it manually or retake.'
-                        : 'Confirm or edit the detected reading.',
-                  ),
-                  onChanged: (_) => setDialogState(() {}),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(dialogContext, _EstScanAction.skip),
-                    child: const Text('Skip'),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(dialogContext, _EstScanAction.retake),
-                    child: const Text('Retake'),
-                  ),
-                  FilledButton(
-                    onPressed: parsedValue == null
-                        ? null
-                        : () => Navigator.pop(
-                            dialogContext,
-                            _EstScanAction.confirm,
-                          ),
-                    child: const Text('Confirm'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    final parsedValue = double.tryParse(valueController.text);
-    valueController.dispose();
-    if (!mounted) return;
-
-    if (action == _EstScanAction.confirm && parsedValue != null) {
-      _saveEstPoint(provider, key, path, parsedValue);
-      return;
-    }
-    if (action == _EstScanAction.retake) {
-      final newPath = await _photoService.pickPhoto(fromCamera: true);
-      if (newPath != null && mounted) {
-        await _confirmSingleEstReading(provider, key, newPath);
-      }
-    }
-  }
-
-  Future<double?> _recognizeThermoScanReadingForEntryUnit(
-    String imagePath, {
-    ThermoScanCropFrame? cropFrame,
-    bool fanOutVariants = true,
-  }) async {
-    final celsius = await _ocrService.recognizeThermoScanReadingCelsius(
-      imagePath,
-      cropFrame: cropFrame,
-      fanOutVariants: fanOutVariants,
-    );
-    if (celsius == null) return null;
-    return _estUnit.fromCanonical(
-      celsius,
-      canonicalUnit: TemperatureEntryUnit.celsius,
-    );
-  }
-
-  /// Launch the reusable full-screen OCR capture flow (EST, °F) for the ACTIVE
+  /// Launch the reusable full-screen capture flow for the ACTIVE
   /// sample, pre-populated with the current grid, then merge confirmed readings
   /// via [_saveEstPoint]. Persistence + sync unchanged.
-  Future<void> _openEstCapture(AuditProvider provider) async {
+  Future<void> _openEstCapture(
+    AuditProvider provider, {
+    String? initialKey,
+  }) async {
     if (provider.isReadOnly) return;
     _syncActiveEstSampleToDraft(provider);
-    final result = await OcrCaptureLauncher.push(
+    final result = await TemperatureCaptureLauncher.push(
       context,
-      OcrCaptureConfig(
+      TemperatureCaptureConfig(
         title: 'Eggshell Temperature',
         unitSuffix: _estUnit.suffix,
-        selectedUnit: _estUnit.thermoScanUnit,
+        initialKey: initialKey,
         initialReadings: _currentEstDisplayReadings(),
         initialPhotos: _currentEstPhotoPaths(),
         tempStatusFn: (value) => CalculationUtils.setterEstStatus(
@@ -1546,11 +1319,10 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
         targetLabelBuilder: _estTargetLabel,
         readOnly: provider.isReadOnly,
       ),
-      ocrService: _ocrService,
       photoService: _photoService,
     );
     if (result == null || result.isEmpty || !mounted) return;
-    OcrCaptureLauncher.apply(
+    TemperatureCaptureLauncher.apply(
       result,
       (key, path, value) => _saveEstPoint(provider, key, path, value),
     );

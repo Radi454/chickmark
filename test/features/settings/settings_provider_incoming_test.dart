@@ -113,6 +113,32 @@ void main() {
       p.dispose();
     });
 
+    test(
+      'successful manual sync can acknowledge pending incoming notices',
+      () async {
+        final p = await provider();
+        await p.recordSync(
+          online: true,
+          pushed: 0,
+          pulled: 0,
+          incoming: [_change('a')],
+          otherIncoming: 5,
+        );
+
+        await p.recordSync(
+          online: true,
+          pushed: 0,
+          pulled: 2,
+          acknowledgeIncoming: true,
+        );
+
+        expect(p.incomingChanges, isEmpty);
+        expect(p.otherIncomingCount, 0);
+        expect(p.hasIncomingChanges, isFalse);
+        p.dispose();
+      },
+    );
+
     test('incoming changes persist across provider reloads', () async {
       final p1 = await provider();
       await p1.recordSync(

@@ -177,6 +177,7 @@ class SettingsProvider extends ChangeNotifier {
     String? error,
     List<IncomingChange> incoming = const [],
     int otherIncoming = 0,
+    bool acknowledgeIncoming = false,
   }) async {
     _isSyncing = false;
     _lastSyncOnline = online;
@@ -200,10 +201,19 @@ class SettingsProvider extends ChangeNotifier {
     await prefs.setInt(_keyLastSyncPushed, pushed);
     await prefs.setInt(_keyLastSyncPulled, pulled);
     await prefs.setString(_keyLastSyncTimestamp, timestamp);
+    final shouldAcknowledgeIncoming =
+        acknowledgeIncoming && online && error == null;
+    if (shouldAcknowledgeIncoming) {
+      _incomingChanges = const [];
+      _otherIncomingCount = 0;
+      await prefs.remove(_keyIncomingChanges);
+      await prefs.remove(_keyIncomingOther);
+    }
     // Merge cloud-origin changes into the unacknowledged set (dedupe by key,
     // newest wins, capped). Merging an empty batch is a no-op, so an offline /
     // error sync never wipes a pending notice.
-    if (incoming.isNotEmpty || otherIncoming > 0) {
+    if (!shouldAcknowledgeIncoming &&
+        (incoming.isNotEmpty || otherIncoming > 0)) {
       final byKey = <String, IncomingChange>{
         for (final change in _incomingChanges) change.key: change,
       };

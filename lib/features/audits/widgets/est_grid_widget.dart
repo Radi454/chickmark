@@ -24,7 +24,7 @@ class EstGridWidget extends StatelessWidget {
   final ValueChanged<String>? onClearRequested;
 
   /// When non-null, tapping a cell reports its key (tap-to-select). Used by the
-  /// full-screen OCR capture flow; null on the inline audit-screen grids so
+  /// full-screen capture flow; null on the inline audit-screen grids so
   /// taps keep focusing the field for manual entry (unchanged behaviour).
   final ValueChanged<String>? onCellSelected;
 
@@ -43,8 +43,13 @@ class EstGridWidget extends StatelessWidget {
   final String unitSuffix;
 
   /// Compact density: shorter cells, no per-cell evidence thumbnail/add button.
-  /// Used by the full-screen OCR capture flow so the grid fits without scroll.
+  /// Used by the full-screen capture flow so the grid fits without scroll.
   final bool compact;
+
+  /// Display-only cells render values and evidence photos without text fields.
+  /// Tapping still works through [onCellSelected], so station grids can route
+  /// edits into the full-screen photo-backed capture flow.
+  final bool displayOnly;
 
   const EstGridWidget({
     super.key,
@@ -64,6 +69,7 @@ class EstGridWidget extends StatelessWidget {
     this.tempZoneFn,
     this.unitSuffix = '°F',
     this.compact = false,
+    this.displayOnly = false,
   });
 
   @override
@@ -192,38 +198,54 @@ class EstGridWidget extends StatelessWidget {
         : (status == TemperatureStatus.high ? Icons.error : Icons.warning);
 
     final isHighlighted = highlightedKey == key;
-    final numberField = AuditNumericField(
-      key: ValueKey('est-grid-input-$key'),
-      controller: controller,
-      focusNode: focusNode,
-      enabled: enabled,
-      allowDecimal: true,
-      maxDecimalPlaces: 1,
-      navigationGroup: _navigationGroup,
-      navigationRow: rowIndex,
-      navigationColumn: columnIndex,
-      textAlign: TextAlign.center,
-      style: AppTextStyles.body.copyWith(
-        fontSize: 17,
-        fontWeight: FontWeight.w800,
-      ),
-      decoration: InputDecoration(
-        hintText: '--',
-        suffixText: unitSuffix,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-        border: InputBorder.none,
-      ),
-      onChanged: (value) => onValueChanged(key, value),
-    );
+    final valueText = controller.text.trim();
+    final numberField = displayOnly
+        ? _DisplayReading(value: valueText, unitSuffix: unitSuffix)
+        : AuditNumericField(
+            key: ValueKey('est-grid-input-$key'),
+            controller: controller,
+            focusNode: focusNode,
+            enabled: enabled,
+            allowDecimal: true,
+            maxDecimalPlaces: 1,
+            navigationGroup: _navigationGroup,
+            navigationRow: rowIndex,
+            navigationColumn: columnIndex,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+            decoration: InputDecoration(
+              hintText: '--',
+              suffixText: unitSuffix,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: InputBorder.none,
+            ),
+            onChanged: (value) => onValueChanged(key, value),
+          );
 
     final canClear =
-        enabled && onClearRequested != null && (hasValue || hasPhoto);
+        !displayOnly &&
+        enabled &&
+        onClearRequested != null &&
+        (hasValue || hasPhoto);
+    final showEvidenceThumb = hasPhoto && (!showPhotoCapture || displayOnly);
+    final showMissingPhotoAction =
+        !displayOnly &&
+        !compact &&
+        !showPhotoCapture &&
+        hasValue &&
+        !hasPhoto &&
+        onMissingPhotoRequested != null;
 
     final cell = AnimatedContainer(
       duration: const Duration(milliseconds: 260),
       constraints: BoxConstraints(
-        minHeight: compact ? 40 : (showPhotoCapture ? 52 : 82),
+        minHeight: compact
+            ? (showEvidenceThumb ? 76 : 40)
+            : (showPhotoCapture ? 52 : 82),
       ),
       padding: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 3 : 6),
       decoration: BoxDecoration(
@@ -282,12 +304,10 @@ class EstGridWidget extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       numberField,
-                      if (!compact && hasPhoto) ...[
+                      if (showEvidenceThumb) ...[
                         const SizedBox(height: 4),
-                        _EvidenceThumbnail(path: photo),
-                      ] else if (!compact &&
-                          hasValue &&
-                          onMissingPhotoRequested != null) ...[
+                        _EvidenceThumbnail(path: photo, compact: compact),
+                      ] else if (showMissingPhotoAction) ...[
                         const SizedBox(height: 4),
                         _AddEvidencePhotoButton(
                           enabled: enabled,
@@ -320,6 +340,30 @@ class EstGridWidget extends StatelessWidget {
 
   String _title(String value) =>
       value.isEmpty ? value : '${value[0].toUpperCase()}${value.substring(1)}';
+}
+
+class _DisplayReading extends StatelessWidget {
+  const _DisplayReading({required this.value, required this.unitSuffix});
+
+  final String value;
+  final String unitSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasValue = value.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        hasValue ? '$value$unitSuffix' : '--',
+        textAlign: TextAlign.center,
+        style: AppTextStyles.body.copyWith(
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+          color: hasValue ? Colors.black87 : Colors.grey[500],
+        ),
+      ),
+    );
+  }
 }
 
 class _ClearEvidenceButton extends StatelessWidget {
@@ -393,17 +437,20 @@ class _AddEvidencePhotoButton extends StatelessWidget {
 }
 
 class _EvidenceThumbnail extends StatelessWidget {
-  const _EvidenceThumbnail({required this.path});
+  const _EvidenceThumbnail({required this.path, this.compact = false});
 
   final String path;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final width = compact ? 62.0 : 54.0;
+    final height = compact ? 34.0 : 30.0;
     return Tooltip(
       message: 'Evidence photo',
       child: Container(
-        width: 54,
-        height: 30,
+        width: width,
+        height: height,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: Colors.grey[300]!),

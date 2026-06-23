@@ -543,6 +543,56 @@ void main() {
       },
     );
 
+    test('getAllSessions sorts recently saved sessions first', () async {
+      when(
+        () => mockDb.query(
+          'audit_sessions',
+          orderBy: 'updatedAt DESC, date DESC, createdAt DESC',
+          limit: 3,
+          offset: 0,
+        ),
+      ).thenAnswer((_) async => [testSessionRow]);
+
+      final result = await repository.getAllSessions(limit: 3);
+
+      expect(result.length, 1);
+    });
+
+    test('getSessionsByCustomer sorts recently saved sessions first', () async {
+      when(
+        () => mockDb.query(
+          'audit_sessions',
+          where: 'customerId = ?',
+          whereArgs: [SessionTestFixtures.testCustomerId],
+          orderBy: 'updatedAt DESC, date DESC, createdAt DESC',
+          limit: 3,
+          offset: 0,
+        ),
+      ).thenAnswer((_) async => [testSessionRow]);
+
+      final result = await repository.getSessionsByCustomer(
+        SessionTestFixtures.testCustomerId,
+        limit: 3,
+      );
+
+      expect(result.length, 1);
+    });
+
+    test('querySessions sorts recently saved sessions first', () async {
+      when(
+        () => mockDb.query(
+          'audit_sessions',
+          orderBy: 'updatedAt DESC, date DESC, createdAt DESC',
+          limit: 20,
+          offset: 0,
+        ),
+      ).thenAnswer((_) async => [testSessionRow]);
+
+      final result = await repository.querySessions(limit: 20);
+
+      expect(result.length, 1);
+    });
+
     test('getSessionsByDateRange queries with date bounds', () async {
       when(
         () => mockDb.query(

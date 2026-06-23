@@ -1,13 +1,12 @@
 import 'package:flutter/widgets.dart';
 
-import '../../../services/ocr/ocr_service.dart' show ThermoScanCropFrame;
 import '../widgets/inline_camera_capture.dart';
-import 'ocr_camera_port.dart';
+import 'temperature_camera_port.dart';
 
-/// Production [OcrCameraPort] that forwards to a live [InlineCameraCapture]
-/// addressed by its [GlobalKey]. Lives apart from [OcrCaptureController] so the
+/// Production [TemperatureCameraPort] that forwards to a live [InlineCameraCapture]
+/// addressed by its [GlobalKey]. Lives apart from [TemperatureCaptureController] so the
 /// controller's import graph never reaches `package:camera`.
-class InlineCameraPort implements OcrCameraPort {
+class InlineCameraPort implements TemperatureCameraPort {
   InlineCameraPort(this._key);
 
   final GlobalKey<InlineCameraCaptureState> _key;
@@ -15,13 +14,6 @@ class InlineCameraPort implements OcrCameraPort {
 
   @override
   Future<String?> takePicture() async => _state?.takePicture();
-
-  @override
-  Future<String?> takePictureForAutoScan() async =>
-      _state?.takePictureForAutoScan();
-
-  @override
-  ThermoScanCropFrame? get ocrCropFrame => _state?.ocrCropFrame;
 
   @override
   bool get isCameraReady => _state?.isCameraReady ?? false;

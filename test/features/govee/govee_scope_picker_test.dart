@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
@@ -22,15 +23,25 @@ class _MockGoveeService extends Mock implements GoveeService {}
 class _FakeCustomersProvider extends CustomersProvider {
   _FakeCustomersProvider({
     required List<CustomerModel> customers,
+    List<FlockModel> flocks = const [],
     required List<HatcheryModel> hatcheries,
   }) : _customers = customers,
+       _flocks = flocks,
        _hatcheries = hatcheries;
 
   final List<CustomerModel> _customers;
+  final List<FlockModel> _flocks;
   final List<HatcheryModel> _hatcheries;
 
   @override
   List<CustomerModel> get allCustomers => _customers;
+
+  @override
+  List<FlockModel> get flocks => _flocks;
+
+  @override
+  List<FlockModel> get availableFlocks =>
+      _flocks.where((flock) => flock.isAvailableForAudit).toList();
 
   @override
   List<HatcheryModel> get hatcheries => _hatcheries;
@@ -38,6 +49,10 @@ class _FakeCustomersProvider extends CustomersProvider {
   @override
   CustomerModel? customerById(String id) =>
       _customers.where((customer) => customer.id == id).firstOrNull;
+
+  @override
+  FlockModel? flockById(String? id) =>
+      id == null ? null : _flocks.where((flock) => flock.id == id).firstOrNull;
 
   @override
   HatcheryModel? hatcheryById(String? id) => id == null
@@ -114,6 +129,15 @@ void main() {
             createdBy: 'tester',
           ),
         ],
+        flocks: [
+          FlockModel(
+            id: 'flock-1',
+            customerId: 'customer-1',
+            flockId: 'Flock A',
+            breed: 'Ross 308',
+            entryDate: DateTime(2026, 4, 1),
+          ),
+        ],
         hatcheries: [
           HatcheryModel(
             id: 'hatchery-1',
@@ -137,6 +161,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Customer'), findsOneWidget);
+      expect(find.text('Flock'), findsOneWidget);
       expect(find.text('Hatchery'), findsOneWidget);
       expect(find.text('Record environment'), findsOneWidget);
       expect(
@@ -207,6 +232,15 @@ void main() {
           createdBy: 'tester',
         ),
       ],
+      flocks: [
+        FlockModel(
+          id: 'flock-1',
+          customerId: 'customer-1',
+          flockId: 'Flock A',
+          breed: 'Ross 308',
+          entryDate: DateTime(2026, 4, 1),
+        ),
+      ],
       hatcheries: [
         HatcheryModel(
           id: 'hatchery-1',
@@ -230,6 +264,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Customer'), findsOneWidget);
+    expect(find.text('Flock'), findsOneWidget);
+    expect(find.text('Flock A'), findsOneWidget);
     expect(find.text('Hatchery'), findsOneWidget);
     expect(find.text('Place'), findsOneWidget);
     expect(find.byIcon(Icons.calendar_today_outlined), findsNothing);

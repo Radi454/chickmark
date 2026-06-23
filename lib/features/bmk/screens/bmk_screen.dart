@@ -7,6 +7,7 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/data/models/bmk_breed_model.dart';
 import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
+import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
@@ -23,6 +24,7 @@ class BmkScreen extends StatefulWidget {
 class _BmkScreenState extends State<BmkScreen> {
   final _breedFormKey = GlobalKey<FormState>();
   final _eggBreakoutFormKey = GlobalKey<FormState>();
+  final _operationalFormKey = GlobalKey<FormState>();
   final _breedHatchabilityController = TextEditingController();
   final _breedFertilityController = TextEditingController();
   final _breedHofController = TextEditingController();
@@ -40,12 +42,18 @@ class _BmkScreenState extends State<BmkScreen> {
   final _ebExternalPipController = TextEditingController();
   final _ebCrackedController = TextEditingController();
   final _ebContamController = TextEditingController();
+  final _opMinController = TextEditingController();
+  final _opMaxController = TextEditingController();
+  final _opTargetController = TextEditingController();
+  final _opNotesController = TextEditingController();
 
   _BmkMode _mode = _BmkMode.reference;
   String? _breedEditKey;
   String? _ebEditKey;
+  String? _opEditKey;
   bool _savingBreed = false;
   bool _savingEggBreakout = false;
+  bool _savingOperational = false;
 
   @override
   void initState() {
@@ -75,6 +83,10 @@ class _BmkScreenState extends State<BmkScreen> {
     _ebExternalPipController.dispose();
     _ebCrackedController.dispose();
     _ebContamController.dispose();
+    _opMinController.dispose();
+    _opMaxController.dispose();
+    _opTargetController.dispose();
+    _opNotesController.dispose();
     super.dispose();
   }
 
@@ -121,10 +133,16 @@ class _BmkScreenState extends State<BmkScreen> {
                         height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
                       ),
                       _buildEggBreakoutSection(context, bmk),
+                      SizedBox(
+                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+                      ),
+                      _buildOperationalSection(context, bmk),
                     ] else ...[
                       _buildBreedAdminSection(context, bmk),
                       const SizedBox(height: AppSizes.spaceLg),
                       _buildEggBreakoutAdminSection(context, bmk),
+                      const SizedBox(height: AppSizes.spaceLg),
+                      _buildOperationalAdminSection(context, bmk),
                     ],
                   ],
                 ),
@@ -673,6 +691,85 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
+  Widget _buildOperationalAdminSection(BuildContext context, BmkProvider bmk) {
+    final selected = bmk.selectedOperationalStandard;
+    return SectionCard(
+      title: 'Operational BMK Admin',
+      icon: Icons.tune_outlined,
+      child: Form(
+        key: _operationalFormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildOperationalHatcherySelector(bmk),
+            const SizedBox(height: AppSizes.spaceMd),
+            _buildOperationalSelector(bmk),
+            const SizedBox(height: 18),
+            if (selected == null)
+              const Center(
+                child: Text('No data', style: TextStyle(color: Colors.grey)),
+              )
+            else ...[
+              Text(
+                '${selected.stationKey} · ${selected.sectorKey}',
+                style: AppTextStyles.caption,
+              ),
+              const SizedBox(height: AppSizes.spaceSm),
+              _buildFieldGrid([
+                _AdminNumberField(
+                  label: 'Min',
+                  suffix: selected.unit,
+                  controller: _opMinController,
+                  isPercent: selected.unit == '%',
+                  requiredField: false,
+                ),
+                _AdminNumberField(
+                  label: 'Max',
+                  suffix: selected.unit,
+                  controller: _opMaxController,
+                  isPercent: selected.unit == '%',
+                  requiredField: false,
+                ),
+                _AdminNumberField(
+                  label: 'Target',
+                  suffix: selected.unit,
+                  controller: _opTargetController,
+                  isPercent: selected.unit == '%',
+                  requiredField: false,
+                ),
+              ]),
+              const SizedBox(height: AppSizes.spaceMd),
+              TextFormField(
+                controller: _opNotesController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Operational notes',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              if (selected.source != null && selected.source!.isNotEmpty)
+                Text(
+                  'Source: ${selected.source}',
+                  style: AppTextStyles.caption,
+                ),
+              const SizedBox(height: AppSizes.spaceMd),
+              _buildAdminActions(
+                isSaving: _savingOperational,
+                onReset: () =>
+                    _syncOperationalControllers(selected, force: true),
+                onSave: () => _saveOperationalBenchmark(context, bmk),
+                saveLabel: 'Save operational BMK',
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAgePicker({
     required String label,
     required int? value,
@@ -724,7 +821,11 @@ class _BmkScreenState extends State<BmkScreen> {
                   isDense: true,
                 ),
                 validator: (value) {
-                  return _numberValidator(value, isPercent: field.isPercent);
+                  return _numberValidator(
+                    value,
+                    isPercent: field.isPercent,
+                    requiredField: field.requiredField,
+                  );
                 },
               ),
             );
@@ -796,6 +897,81 @@ class _BmkScreenState extends State<BmkScreen> {
           else
             _buildEbParameters(bmk),
         ],
+      ),
+    );
+  }
+
+  Widget _buildOperationalSection(BuildContext context, BmkProvider bmk) {
+    return _BmkSectorCard(
+      title: 'Operational BMKs',
+      icon: Icons.tune_outlined,
+      child: bmk.operationalStandards.isEmpty
+          ? const Center(
+              child: Text('No data', style: TextStyle(color: Colors.grey)),
+            )
+          : _buildMetricGrid(
+              key: const ValueKey('bmk-operational-metric-grid'),
+              metrics: bmk.operationalStandards.map((row) {
+                return _BmkMetric(
+                  label: row.metricLabel,
+                  value: _formatOperationalValue(row),
+                );
+              }).toList(),
+            ),
+    );
+  }
+
+  Widget _buildOperationalSelector(BmkProvider bmk) {
+    final rows = bmk.operationalStandards;
+    final selected = bmk.selectedOperationalStandard;
+    return Container(
+      key: const ValueKey('bmk-operational-standard-selector'),
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: DropdownButtonFormField<String>(
+        initialValue: selected?.metricKey,
+        decoration: const InputDecoration(
+          labelText: 'Operational BMK',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: rows.map((row) {
+          return DropdownMenuItem(
+            value: row.metricKey,
+            child: Text(
+              row.metricLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          );
+        }).toList(),
+        onChanged: (metricKey) {
+          if (metricKey != null) bmk.setOperationalMetric(metricKey);
+        },
+      ),
+    );
+  }
+
+  Widget _buildOperationalHatcherySelector(BmkProvider bmk) {
+    return Container(
+      key: const ValueKey('bmk-operational-hatchery-selector'),
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: DropdownButtonFormField<String>(
+        initialValue: bmk.selectedHatcheryId ?? '',
+        decoration: const InputDecoration(
+          labelText: 'BMK scope',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          const DropdownMenuItem(value: '', child: Text('Global defaults')),
+          for (final hatchery in bmk.operationalHatcheries)
+            DropdownMenuItem(value: hatchery.id, child: Text(hatchery.label)),
+        ],
+        onChanged: (value) {
+          bmk.setOperationalHatchery(
+            value == null || value.isEmpty ? null : value,
+          );
+        },
       ),
     );
   }
@@ -879,6 +1055,7 @@ class _BmkScreenState extends State<BmkScreen> {
   void _syncAdminControllers(BmkProvider bmk) {
     _syncBreedControllers(bmk.breedRow);
     _syncEggBreakoutControllers(bmk.ebRow);
+    _syncOperationalControllers(bmk.selectedOperationalStandard);
   }
 
   void _syncBreedControllers(BmkBreedModel? row, {bool force = false}) {
@@ -911,6 +1088,19 @@ class _BmkScreenState extends State<BmkScreen> {
     _ebExternalPipController.text = _formatNumber(row?.externalPipPct);
     _ebCrackedController.text = _formatNumber(row?.crackedPct);
     _ebContamController.text = _formatNumber(row?.contamPct);
+  }
+
+  void _syncOperationalControllers(
+    BmkOperationalStandardModel? row, {
+    bool force = false,
+  }) {
+    final key = row?.id;
+    if (!force && key == _opEditKey) return;
+    _opEditKey = key;
+    _opMinController.text = _formatNumber(row?.minValue);
+    _opMaxController.text = _formatNumber(row?.maxValue);
+    _opTargetController.text = _formatNumber(row?.targetValue);
+    _opNotesController.text = row?.notes ?? '';
   }
 
   Future<void> _saveBreedBenchmark(
@@ -976,8 +1166,43 @@ class _BmkScreenState extends State<BmkScreen> {
     }
   }
 
-  String? _numberValidator(String? value, {required bool isPercent}) {
+  Future<void> _saveOperationalBenchmark(
+    BuildContext context,
+    BmkProvider bmk,
+  ) async {
+    if (_operationalFormKey.currentState?.validate() != true) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _savingOperational = true);
+    try {
+      await bmk.saveSelectedOperationalStandard(
+        minValue: _parseOptionalController(_opMinController),
+        maxValue: _parseOptionalController(_opMaxController),
+        targetValue: _parseOptionalController(_opTargetController),
+        notes: _opNotesController.text.trim().isEmpty
+            ? null
+            : _opNotesController.text.trim(),
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Operational BMK saved')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not save operational BMK: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingOperational = false);
+    }
+  }
+
+  String? _numberValidator(
+    String? value, {
+    required bool isPercent,
+    bool requiredField = true,
+  }) {
     final text = value?.trim() ?? '';
+    if (text.isEmpty && !requiredField) return null;
     if (text.isEmpty) return 'Required';
     final number = double.tryParse(text);
     if (number == null) return 'Enter a number';
@@ -990,10 +1215,30 @@ class _BmkScreenState extends State<BmkScreen> {
     return double.parse(controller.text.trim());
   }
 
+  double? _parseOptionalController(TextEditingController controller) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return null;
+    return double.parse(text);
+  }
+
   String _formatNumber(double? value) {
     if (value == null) return '';
     if (value == value.roundToDouble()) return value.toStringAsFixed(0);
     return value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
+  }
+
+  String _formatOperationalValue(BmkOperationalStandardModel row) {
+    final min = row.minValue;
+    final max = row.maxValue;
+    final target = row.targetValue;
+    final unit = row.unit;
+    if (min != null && max != null) {
+      return '${_formatNumber(min)}-${_formatNumber(max)}$unit';
+    }
+    if (min != null) return '>= ${_formatNumber(min)}$unit';
+    if (max != null) return '<= ${_formatNumber(max)}$unit';
+    if (target != null) return '${_formatNumber(target)}$unit';
+    return '--';
   }
 
   Widget _buildBreedRow(BmkProvider bmk, List<String> breeds) {
@@ -1107,11 +1352,13 @@ class _AdminNumberField {
   final String suffix;
   final TextEditingController controller;
   final bool isPercent;
+  final bool requiredField;
 
   const _AdminNumberField({
     required this.label,
     required this.suffix,
     required this.controller,
     this.isPercent = false,
+    this.requiredField = true,
   });
 }

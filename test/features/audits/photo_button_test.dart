@@ -43,9 +43,6 @@ void main() {
     final hatcher = File(
       '$root/lib/features/audits/screens/hatcher_optimizing_screen.dart',
     ).readAsStringSync();
-    final hatchBreakout = File(
-      '$root/lib/features/audits/screens/hatch_analysis_screen.dart',
-    ).readAsStringSync();
     final estGrid = File(
       '$root/lib/features/audits/widgets/est_grid_widget.dart',
     ).readAsStringSync();
@@ -56,10 +53,6 @@ void main() {
     expect(setter, contains("fieldKey: 'co2_photo'"));
     expect(hatcher, contains("fieldKey: 'chick_panting_photo'"));
     expect(hatcher, contains("fieldKey: 'co2_photo'"));
-    expect(
-      hatchBreakout,
-      contains('panelName: _panelTableForBreakoutType(breakoutType)'),
-    );
     expect(estGrid, contains('fieldKey: key'));
   });
 }

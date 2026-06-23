@@ -89,6 +89,7 @@ class DatabaseHelper {
   Future<void> _onCreate(Database db, int version) async {
     await _createCoreTablesIfMissing(db);
     await _createCleanBmkEggBreakoutTable(db);
+    await _createBmkOperationalStandardsTable(db);
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
@@ -111,6 +112,13 @@ class DatabaseHelper {
         batch.insert(
           'bmk_egg_breakout',
           _cleanBmkEggBreakoutSeed(seed),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final seed in kBmkOperationalStandardSeeds) {
+        batch.insert(
+          'bmk_operational_standards',
+          seed,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -140,6 +148,7 @@ class DatabaseHelper {
     'sync_conflicts',
     'bmk_breeds',
     'bmk_egg_breakout',
+    'bmk_operational_standards',
     'troubleshooting',
     'govee_daily_captures',
   ];
@@ -236,6 +245,7 @@ class DatabaseHelper {
     // the columns repaired in Step 1. Missing tables are created whole.
     await _createCoreTablesIfMissing(db);
     await _createCleanBmkEggBreakoutTable(db);
+    await _createBmkOperationalStandardsTable(db);
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
@@ -257,7 +267,8 @@ class DatabaseHelper {
     // Intact bmk_breeds / bmk_egg_breakout / troubleshooting rows (including
     // any user overrides) are not touched.
     if (missingTables.contains('bmk_breeds') ||
-        missingTables.contains('bmk_egg_breakout')) {
+        missingTables.contains('bmk_egg_breakout') ||
+        missingTables.contains('bmk_operational_standards')) {
       await _reseedReferenceBmkData(db);
       report.add('reseeded bmk reference rows');
     }
@@ -314,6 +325,13 @@ class DatabaseHelper {
         batch.insert(
           'bmk_egg_breakout',
           _cleanBmkEggBreakoutSeed(seed),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final seed in kBmkOperationalStandardSeeds) {
+        batch.insert(
+          'bmk_operational_standards',
+          seed,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }

@@ -136,6 +136,7 @@ class StartupSyncService {
     _otherIncomingThisRun = 0;
     _collectIncoming = collectIncoming;
     if (canPush) {
+      await _applyRemoteDeletesBeforePush(progress);
       pushed = await _pushLocalData(progress);
       await _pushPendingDeletes(progress);
     }
@@ -158,6 +159,17 @@ class StartupSyncService {
       incomingSessions: List.unmodifiable(_incomingSessionsThisRun),
       otherIncomingCount: _otherIncomingThisRun,
     );
+  }
+
+  Future<void> _applyRemoteDeletesBeforePush(
+    void Function(double value, String message) progress,
+  ) async {
+    progress(0.08, 'Checking remote deletes');
+    await _supabaseService.pullSyncTombstones(
+      upsertSyncTombstone: (row) =>
+          _syncTombstoneRepository.upsertRemoteTombstone(row),
+    );
+    await _syncTombstoneRepository.applyRemoteDeletes();
   }
 
   Future<int> _pushLocalData(

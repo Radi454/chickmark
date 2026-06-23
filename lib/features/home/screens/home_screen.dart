@@ -378,7 +378,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
   Widget _buildSyncStatus(
     BuildContext context,
     CustomersProvider provider,
@@ -881,6 +880,7 @@ class _HomeScreenState extends State<HomeScreen> {
         pulled: outcome.pulled,
         incoming: outcome.incomingSessions,
         otherIncoming: outcome.otherIncomingCount,
+        acknowledgeIncoming: true,
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

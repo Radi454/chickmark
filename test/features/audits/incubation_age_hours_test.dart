@@ -8,7 +8,7 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_screen.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatcher_optimizing_screen.dart';
@@ -154,7 +154,7 @@ void main() {
     return auditProvider;
   }
 
-  testWidgets('Setter Scan readings launches the OCR capture screen (EST)', (
+  testWidgets('Setter Capture readings launches the capture screen (EST)', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1000, 1600));
@@ -162,18 +162,18 @@ void main() {
 
     await pumpSetterScreen(tester);
 
-    final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+    final scanButton = find.widgetWithText(OutlinedButton, 'Capture readings');
     await tester.ensureVisible(scanButton);
     await tester.tap(scanButton);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.byType(OcrCaptureScreen), findsOneWidget);
+    expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
     expect(find.text('Step 1 of 9'), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.byType(OcrCaptureScreen), findsNothing);
+    expect(find.byType(TemperatureCaptureScreen), findsNothing);
   });
 
   testWidgets('Setter and Hatcher temperature units default to Fahrenheit', (
@@ -561,23 +561,22 @@ void main() {
         lessThan(2),
       );
 
-      final frontTopField = find.byKey(
-        const ValueKey('est-grid-input-front_top'),
+      final frontTopCell = find.byKey(
+        const ValueKey('est-grid-cell-front_top'),
       );
-      await tester.ensureVisible(frontTopField);
+      await tester.ensureVisible(frontTopCell);
       await tester.pumpAndSettle();
 
-      await tester.enterText(frontTopField, '100');
-      await tester.enterText(
-        find.byKey(const ValueKey('est-grid-input-middle_top')),
-        '102',
+      expect(
+        find.byKey(const ValueKey('est-grid-input-front_top')),
+        findsNothing,
       );
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('AVG'));
-      await tester.pumpAndSettle();
+      await tester.tap(frontTopCell);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-      expect(find.text('AVG'), findsOneWidget);
-      expect(provider.activeDraft.soEstAvg, closeTo(101.0, 0.01));
+      expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
+      expect(find.text('Front - Top'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -593,7 +592,7 @@ void main() {
     expect(find.text('Breed from flock'), findsNothing);
   });
 
-  testWidgets('Scan readings launches the reusable OCR capture screen (CVT)', (
+  testWidgets('Capture readings launches the reusable capture screen (CVT)', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
@@ -603,18 +602,21 @@ void main() {
 
       await pumpHatcherScreen(tester);
 
-      final scanButton = find.widgetWithText(OutlinedButton, 'Scan readings');
+      final scanButton = find.widgetWithText(
+        OutlinedButton,
+        'Capture readings',
+      );
       await tester.ensureVisible(scanButton);
       await tester.tap(scanButton);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(find.byType(OcrCaptureScreen), findsOneWidget);
+      expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
       expect(find.text('Step 1 of 9'), findsOneWidget);
 
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.byType(OcrCaptureScreen), findsNothing);
+      expect(find.byType(TemperatureCaptureScreen), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -637,7 +639,7 @@ void main() {
       expect(find.byTooltip('Add machine sample'), findsOneWidget);
       expect(find.text('Add hatcher'), findsNothing);
       expect(find.text('Add sample'), findsNothing);
-      expect(find.text('Scan readings'), findsOneWidget);
+      expect(find.text('Capture readings'), findsOneWidget);
       expect(find.text('CVT BMK 103-105°F'), findsNothing);
       expect(find.text('Chick vent temp.'), findsNothing);
       expect(find.text('Hatcher type'), findsNothing);
@@ -662,7 +664,7 @@ void main() {
       );
       expect(
         tester.getTopLeft(find.text('Hatcher settings')).dy,
-        lessThan(tester.getTopLeft(find.text('Scan readings')).dy),
+        lessThan(tester.getTopLeft(find.text('Capture readings')).dy),
       );
 
       await tester.enterText(
@@ -912,107 +914,45 @@ void main() {
   );
 
   testWidgets(
-    'Setter EST readings stay attached to their incubation age sample',
+    'Setter EST display grid opens capture for the active incubation sample',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       try {
         final provider = await pumpSetterScreen(tester);
-        final frontTop = find.byKey(const ValueKey('est-grid-input-front_top'));
+        final frontTop = find.byKey(const ValueKey('est-grid-cell-front_top'));
 
         await tester.ensureVisible(frontTop);
-        await tester.enterText(frontTop, '100.2');
+        await tester.tap(frontTop);
         await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
 
-        await tester.ensureVisible(find.byTooltip('Add incubation age sample'));
-        await tester.pump();
-        await tester.tap(find.byTooltip('Add incubation age sample'));
-        await tester.pump();
-
-        expect(
-          tester.widget<AuditNumericField>(frontTop).controller.text,
-          isEmpty,
-        );
-
-        await tester.enterText(
-          find.byKey(const ValueKey('setter-incubation-age-field')),
-          '7',
-        );
-        await tester.enterText(frontTop, '101.4');
-        await tester.pump();
-
-        await tester.tap(find.widgetWithText(ChoiceChip, 'Day 1').first);
-        await tester.pump();
-
-        expect(
-          tester.widget<AuditNumericField>(frontTop).controller.text,
-          '100.2',
-        );
-        expect(provider.activeDraft.soIncubationAge, 1);
-        expect(
-          jsonDecode(provider.activeDraft.soEstReadings!)['front_top'],
-          100.2,
-        );
-
-        await tester.tap(find.widgetWithText(ChoiceChip, 'Day 7'));
-        await tester.pump();
-
-        expect(
-          tester.widget<AuditNumericField>(frontTop).controller.text,
-          '101.4',
-        );
-        expect(provider.activeDraft.soIncubationAge, 7);
-        expect(
-          jsonDecode(provider.activeDraft.soEstReadings!)['front_top'],
-          101.4,
-        );
+        expect(find.byType(TemperatureCaptureScreen), findsOneWidget);
+        expect(find.text('Front - Top'), findsOneWidget);
         final samples =
             jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
-        expect(samples, hasLength(2));
-        expect(samples.first['estReadings']['front_top'], 100.2);
-        expect(samples.last['incubationAge'], 7);
-        expect(samples.last['estReadings']['front_top'], 101.4);
+        expect(samples, hasLength(1));
+        expect(samples.first['incubationAge'], 1);
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
     },
   );
 
-  testWidgets('Failed EST clear restores active incubation sample payload', (
+  testWidgets('Setter EST display grid removes inline clear controls', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
-      final provider = await pumpSetterScreen(
-        tester,
-        provider: FailingSaveAuditProvider(),
-      );
-      final frontTop = find.byKey(const ValueKey('est-grid-input-front_top'));
+      await pumpSetterScreen(tester, provider: FailingSaveAuditProvider());
+      final frontTop = find.byKey(const ValueKey('est-grid-cell-front_top'));
 
       await tester.ensureVisible(frontTop);
-      await tester.enterText(frontTop, '100.2');
-      await tester.pump();
-
-      expect(
-        jsonDecode(
-          provider.activeDraft.soEstSamplesJson!,
-        ).first['estReadings']['front_top'],
-        100.2,
-      );
-
-      await tester.tap(find.byTooltip('Clear reading and photo'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Clear'));
       await tester.pumpAndSettle();
 
+      expect(find.byTooltip('Clear reading and photo'), findsNothing);
       expect(
-        tester.widget<AuditNumericField>(frontTop).controller.text,
-        '100.2',
-      );
-      expect(
-        jsonDecode(
-          provider.activeDraft.soEstSamplesJson!,
-        ).first['estReadings']['front_top'],
-        100.2,
+        find.byKey(const ValueKey('est-grid-input-front_top')),
+        findsNothing,
       );
     } finally {
       debugDefaultTargetPlatformOverride = null;

@@ -98,6 +98,29 @@ Future<void> _createCleanBmkEggBreakoutTable(DatabaseExecutor db) async {
   )''');
 }
 
+Future<void> _createBmkOperationalStandardsTable(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS bmk_operational_standards (
+    id TEXT PRIMARY KEY,
+    hatcheryId TEXT,
+    stationKey TEXT NOT NULL,
+    sectorKey TEXT NOT NULL,
+    metricKey TEXT NOT NULL,
+    metricLabel TEXT NOT NULL,
+    unit TEXT DEFAULT '',
+    minValue REAL,
+    maxValue REAL,
+    targetValue REAL,
+    source TEXT,
+    notes TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    updatedAt TEXT,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_bmk_operational_scope ON bmk_operational_standards (hatcheryId, stationKey, sectorKey, metricKey)',
+  );
+}
+
 Map<String, Object?> _cleanBmkEggBreakoutSeed(Map<String, dynamic> seed) {
   return {
     'id': seed['id'],

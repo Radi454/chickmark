@@ -23,9 +23,6 @@ class JpegResizeJob {
 /// Returns null if the bytes can't be decoded so callers can fall back to the
 /// original file. Pure + top-level so it is safe to run under `compute`.
 ///
-/// Downscaling uniformly is safe for the ThermoScan OCR crop: the crop maps
-/// preview→image coordinates by a scale ratio, so the same physical region is
-/// selected at any resolution as long as the aspect ratio is unchanged.
 Uint8List? resizeJpeg(JpegResizeJob job) {
   // decodeImage sniffs the format and can THROW on corrupt/short input (not
   // just return null), so guard it to keep the null contract and stay safe
@@ -38,8 +35,9 @@ Uint8List? resizeJpeg(JpegResizeJob job) {
   }
   if (decoded == null) return null;
 
-  final longest =
-      decoded.width > decoded.height ? decoded.width : decoded.height;
+  final longest = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
   final resized = longest > job.maxEdge
       ? img.copyResize(
           decoded,

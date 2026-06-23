@@ -1,9 +1,76 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/app.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/govee/widgets/govee_global_overlay.dart';
 
 void main() {
+  group('App Govee launcher route gate', () {
+    test('redirects unauthenticated users back to login from app routes', () {
+      expect(
+        authRedirectRouteForState(
+          state: AuthState.unauthenticated,
+          topRouteName: '/main',
+        ),
+        '/login',
+      );
+      expect(
+        authRedirectRouteForState(state: AuthState.error, topRouteName: null),
+        '/login',
+      );
+      expect(
+        authRedirectRouteForState(
+          state: AuthState.unauthenticated,
+          topRouteName: '/login',
+        ),
+        isNull,
+      );
+    });
+
+    test('hides the launcher until the main app shell is entered', () {
+      expect(
+        shouldShowGoveeGlobalLauncher(
+          launcherReady: true,
+          canUseGoveeLauncher: true,
+          hasEnteredMainShell: false,
+          topRouteName: '/login',
+        ),
+        isFalse,
+      );
+      expect(
+        shouldShowGoveeGlobalLauncher(
+          launcherReady: true,
+          canUseGoveeLauncher: true,
+          hasEnteredMainShell: false,
+          topRouteName: '/startup-sync',
+        ),
+        isFalse,
+      );
+    });
+
+    test('shows the launcher in and beyond the main app shell', () {
+      expect(
+        shouldShowGoveeGlobalLauncher(
+          launcherReady: true,
+          canUseGoveeLauncher: true,
+          hasEnteredMainShell: true,
+          topRouteName: '/main',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldShowGoveeGlobalLauncher(
+          launcherReady: true,
+          canUseGoveeLauncher: true,
+          hasEnteredMainShell: true,
+          topRouteName: null,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('Govee launcher visibility', () {
     testWidgets('shows the floating launcher when enabled', (tester) async {
       await tester.pumpWidget(

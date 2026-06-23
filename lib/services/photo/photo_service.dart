@@ -7,8 +7,8 @@ import 'package:path/path.dart' as path;
 import 'photo_compression.dart';
 
 class PhotoService {
-  /// Longest edge (px) kept when storing a capture. Big enough that ThermoScan
-  /// OCR still reads the digits, small enough to keep files ~sub-megabyte.
+  /// Longest edge (px) kept when storing a capture. Large enough for evidence
+  /// review, small enough to keep files around the sub-megabyte range.
   static const int _maxImageEdge = 2000;
 
   /// JPEG quality used when re-encoding a stored capture.

@@ -819,6 +819,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
             final machineId = _machineIdForStation(stationKey);
             await goveeProvider.configure(
               customerId: session.customerId,
+              flockId: session.flockId,
               hatcheryId: session.hatcheryId,
               place: spot.place,
               stationKey: stationKey,

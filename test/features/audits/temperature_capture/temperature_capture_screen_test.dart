@@ -1,21 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_camera_port.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_config.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_controller.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_result.dart';
-import 'package:hatchaudit/features/audits/ocr_capture/ocr_capture_screen.dart';
-import 'package:hatchaudit/services/ocr/ocr_service.dart'
-    show ThermoScanCropFrame, ThermoScanOcrResult, ThermoScanUnit;
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_camera_port.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_config.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_controller.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_result.dart';
+import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_screen.dart';
 import 'package:hatchaudit/services/photo/photo_service.dart';
 
-class _FakeCameraPort implements OcrCameraPort {
+class _FakeCameraPort implements TemperatureCameraPort {
   @override
   Future<String?> takePicture() async => 'cam.jpg';
-  @override
-  Future<String?> takePictureForAutoScan() async => 'cam.jpg';
-  @override
-  ThermoScanCropFrame? get ocrCropFrame => null;
   @override
   bool get isCameraReady => true;
   @override
@@ -36,10 +30,9 @@ class _FakePhotoService extends PhotoService {
   Future<String?> pickPhoto({bool fromCamera = true}) async => 'native.jpg';
 }
 
-OcrCaptureController _controller({OcrCaptureConfig? config}) {
-  return OcrCaptureController(
-    config: config ?? const OcrCaptureConfig(title: 'EST'),
-    recognizeCelsius: (_, _) async => 37.5,
+TemperatureCaptureController _controller({TemperatureCaptureConfig? config}) {
+  return TemperatureCaptureController(
+    config: config ?? const TemperatureCaptureConfig(title: 'EST'),
     photoService: _FakePhotoService(),
     cameraPort: _FakeCameraPort(),
   );
@@ -47,8 +40,8 @@ OcrCaptureController _controller({OcrCaptureConfig? config}) {
 
 Future<void> _pump(
   WidgetTester tester,
-  OcrCaptureController controller, {
-  void Function(OcrCaptureResult?)? onResult,
+  TemperatureCaptureController controller, {
+  void Function(TemperatureCaptureResult?)? onResult,
   Size surfaceSize = const Size(1080, 2400),
   double textScale = 1,
 }) async {
@@ -64,16 +57,17 @@ Future<void> _pump(
           builder: (context) => Center(
             child: ElevatedButton(
               onPressed: () async {
-                final r = await Navigator.of(context).push<OcrCaptureResult>(
-                  MaterialPageRoute(
-                    builder: (_) => OcrCaptureScreen(
-                      config: controller.config,
-                      controller: controller,
-                      cameraBuilder: (_) =>
-                          const ColoredBox(color: Colors.black),
-                    ),
-                  ),
-                );
+                final r = await Navigator.of(context)
+                    .push<TemperatureCaptureResult>(
+                      MaterialPageRoute(
+                        builder: (_) => TemperatureCaptureScreen(
+                          config: controller.config,
+                          controller: controller,
+                          cameraBuilder: (_) =>
+                              const ColoredBox(color: Colors.black),
+                        ),
+                      ),
+                    );
                 onResult?.call(r);
               },
               child: const Text('go'),
@@ -88,39 +82,6 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('renders explicit actions for a detected unit mismatch', (
-    tester,
-  ) async {
-    final controller = OcrCaptureController(
-      config: const OcrCaptureConfig(
-        title: 'CVT',
-        unitSuffix: '°F',
-        selectedUnit: ThermoScanUnit.fahrenheit,
-      ),
-      recognizeThermoScan: (_, _) async => const ThermoScanOcrResult(
-        displayValue: 40.0,
-        detectedUnit: ThermoScanUnit.celsius,
-        readingCelsius: 40.0,
-      ),
-      photoService: _FakePhotoService(),
-      cameraPort: _FakeCameraPort(),
-    );
-    await controller.captureOnce();
-
-    await _pump(tester, controller);
-
-    expect(find.textContaining('Device shows °C'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, 'Retake'), findsOneWidget);
-    expect(
-      find.widgetWithText(OutlinedButton, 'Enter manually'),
-      findsOneWidget,
-    );
-    expect(
-      find.widgetWithText(FilledButton, 'Use detected reading'),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('renders the 9-point grid and initial header', (tester) async {
     await _pump(tester, _controller());
     for (final key in const ['front_top', 'middle_middle', 'back_bottom']) {
@@ -141,33 +102,63 @@ void main() {
     expect(find.text('Step 8 of 9'), findsOneWidget);
   });
 
-  testWidgets('Enter manually switches to the manual entry card', (
+  testWidgets('ready card only offers the inline photo action', (tester) async {
+    await _pump(tester, _controller());
+    expect(find.text('Take a photo, then enter the reading.'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Take photo'), findsOneWidget);
+    expect(find.text('Camera app'), findsNothing);
+    expect(find.text('Manual without photo'), findsNothing);
+  });
+
+  testWidgets('footer keeps serial capture controls to Done only', (
     tester,
   ) async {
     await _pump(tester, _controller());
-    expect(find.text('Scanning for temperature…'), findsOneWidget);
-    await tester.tap(find.text('Manual'));
-    await tester.pumpAndSettle();
-    expect(find.text('Enter reading manually'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Save'), findsOneWidget);
+
+    expect(find.widgetWithText(OutlinedButton, 'Previous'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Next'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Done'), findsOneWidget);
   });
 
-  testWidgets('Previous/Next move between cells', (tester) async {
+  testWidgets('Capture opens manual entry with the staged photo', (
+    tester,
+  ) async {
     await _pump(tester, _controller());
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Next'));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Take photo'));
     await tester.pumpAndSettle();
-    expect(find.text('Step 2 of 9'), findsOneWidget);
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Previous'));
-    await tester.pumpAndSettle();
-    expect(find.text('Step 1 of 9'), findsOneWidget);
+
+    expect(find.text('Enter reading manually'), findsOneWidget);
+    expect(find.text('Photo captured for this point.'), findsOneWidget);
   });
+
+  testWidgets(
+    'opening a saved initial cell shows its attached photo for edit',
+    (tester) async {
+      final controller = _controller(
+        config: const TemperatureCaptureConfig(
+          title: 'EST',
+          initialKey: 'front_middle',
+          initialReadings: {'front_middle': 20.0},
+          initialPhotos: {'front_middle': 'front-middle.jpg'},
+        ),
+      );
+
+      await _pump(tester, controller);
+
+      expect(find.text('Front - Middle'), findsOneWidget);
+      expect(find.text('Enter reading manually'), findsOneWidget);
+      expect(find.text('Photo captured for this point.'), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
+    },
+  );
 
   testWidgets('Done pops the dirty-only result', (tester) async {
     final controller = _controller();
     controller.beginManualEntry();
     await controller.commitManualEntry(37.5);
 
-    OcrCaptureResult? popped;
+    TemperatureCaptureResult? popped;
     await _pump(tester, controller, onResult: (r) => popped = r);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Done'));
@@ -187,7 +178,7 @@ void main() {
       textScale: 1.5,
     );
 
-    await tester.tap(find.text('Manual'));
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Take photo'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

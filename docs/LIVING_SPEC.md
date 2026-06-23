@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-06-13
+2026-06-23
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -73,6 +73,18 @@ Benchmarks and Egg Breakout BMK read as two compact sectors rather than long
 single-item stacks. BMK metric tiles are text-only value cards and do not show
 per-metric decorative symbols; the Egg Breakout BMK sector header uses the
 standard egg symbol.
+The BMK screen also includes an Operational BMKs reference sector backed by
+`bmk_operational_standards`. It lists global operational targets for station
+setup and hatchery work, including egg-storage EST/RH, CV and uniformity caps,
+shell UV, Pasgar, CVT, YFBM/residual yolk, culled/dead chick limits, setter EST
+and turning angle, CO2, hatcher CVT, and hatcher RH. In Admin mode, approved
+admins and auditors can edit the selected operational BMK row's minimum,
+maximum, target, and notes. The Operational BMK Admin sector includes a
+`Global defaults` scope plus every saved hatchery; saving while a hatchery is
+selected writes a hatchery-specific row that overrides the matching global
+metric for that hatchery. Existing station and dashboard warning logic still
+uses the current hard-coded `AppThresholds` values until those consumers are
+explicitly wired to the operational BMK lookup.
 
 The supported local web development origin is `http://127.0.0.1:57863`. Web
 accounts and entered data are scoped to the browser origin, so using this stable
@@ -100,6 +112,11 @@ Initial route selection is auth-state driven:
 - Loading, error, and unauthenticated users go to `/login`.
 - `/register` and `/startup-sync` are also registered routes.
 
+After startup, the app also listens for auth-state changes at the root
+navigator. If logout or another auth failure leaves the user unauthenticated
+while an app route such as `/main` is visible, the navigator is reset to
+`/login` so protected screens are not left on screen.
+
 The main shell has six destinations:
 
 - Home
@@ -116,16 +133,17 @@ back navigation, and triggers background sync after the first Home build.
 The previous floating Measures launcher is no longer shown. Govee recording is
 entered from a station-level Govee readings button or from the floating Govee
 shortcut shown for authenticated users and the explicitly enabled debug auth
-bypass. The floating shortcut is mounted at the app
-Navigator layer, so it remains visible on the main shell and pushed audit
-station screens while opening the floating Govee capture panel. The shortcut
-reflects active Govee recording state globally: idle uses the standard
-ChickMark-blue circular thermometer button, while an in-progress recording
-switches to a red rounded stop-style button. Users can drag the shortcut to a
-different screen position, and dragging or flinging it past the left or right
-edge tucks it partly off-screen while leaving a visible strip for reopening.
-The shortcut is hidden while root modal routes such as bottom sheets are open,
-keeping station entry sheets unobstructed.
+bypass after the main app shell has been entered. It stays hidden on login,
+registration, pending-approval, and startup-sync screens. The floating shortcut
+is mounted at the app Navigator layer, so it remains visible on the main shell
+and pushed audit station screens while opening the floating Govee capture
+panel. The shortcut reflects active Govee recording state globally: idle uses
+the standard ChickMark-blue circular thermometer button, while an in-progress
+recording switches to a red rounded stop-style button. Users can drag the
+shortcut to a different screen position, and dragging or flinging it past the
+left or right edge tucks it partly off-screen while leaving a visible strip for
+reopening. The shortcut is hidden while root modal routes such as bottom sheets
+are open, keeping station entry sheets unobstructed.
 
 The station-selection screen resets its Start Visit loading state after the
 pushed visit-session route has yielded a frame, so backing out from an audit
@@ -310,7 +328,8 @@ constructed with an explicit `auditType`. It collects customer/flock context and
 for Setter or Hatchers, requires the relevant machine id before
 opening a single station screen with a fresh `AuditProvider`.
 
-The Audits tab lists recent visit sessions. In-progress sessions open the
+The Audits tab lists recently saved visit sessions, ordered by session
+`updatedAt` with visit date as a secondary sort. In-progress sessions open the
 station-selection continuation screen so saved stations are visible and unsaved
 stations can still be added. Completed sessions open the station workflow first
 for review/edit, with final results available from the station screen dashboard
@@ -327,8 +346,9 @@ rather than legacy audit rows. Today's Focus metric cards are actionable when
 they have a target: Continue opens the first active visit's station-selection
 continuation screen, Attention opens the first setup/action item, and Ready
 starts a new audit when a ready customer setup exists. Active and recent visit
-cards show station completion progress such as `3/5`. The previous Audit Type
-Breakdown, extra
+cards show station completion progress such as `3/5`; Recent Audits uses the
+latest saved session order so editing an older visit moves it back into view.
+The previous Audit Type Breakdown, extra
 Customers/Active Audits/Total Audits stat cards, and duplicate New Customer/New
 Audit action row are not shown on Home. Home section headings and quick actions
 use a restrained operational scale so narrow browser previews do not read like
@@ -383,7 +403,7 @@ quality hero, sample controls, expandable Egg Weights & Uniformity and Egg Shell
 Quality cards, and station notes.
 
 - Egg Shell Temperature (EST): storage days, target shell-temperature class,
-  inline guided OCR capture, EST grid, per-point evidence photos, average, and
+  guided manual photo capture, EST grid, per-point evidence photos, average, and
   CV%. The Storage Days field sits directly before the expandable Egg Shell
   Temperature card, defaults to `0` for new Egg audits, and clears the default
   zero when focused for faster replacement. The target summary labels are
@@ -534,8 +554,8 @@ an Enter YFBM Entries bottom sheet with a draggable, simple data-entry form for
 chick weight, yolk weight, and row deletion. The sheet writes the existing YFBM
 entries and calculated fields. Chick
 Vent Temperature reuses the EST-style guided grid workflow with Front/Middle/
-Back by Top/Middle/Bottom points, Guided CVT capture, inline camera/native
-camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
+Back by Top/Middle/Bottom points, guided CVT capture, inline camera/native
+camera fallback, manual reading entry, retake, skip, clear reading/photo,
 missing-photo attach, and saved-photo highlighting. CVT uses a 103-105°F /
 39.4-40.6°C target, enters grid readings in °F, persists readings and photos
 locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the panel CVT
@@ -827,14 +847,13 @@ Setters captures:
 - EST average/CV summary and EST grid/photos.
 
 Setter EST reuses the storage EST guided grid workflow with Front/Middle/Back
-by Top/Middle/Bottom points, inline guided OCR capture, inline camera/native
-camera fallback, auto scan, confirm/edit, retake, skip, clear reading/photo,
-missing-photo attach, saved-photo highlighting, and per-point evidence photo
-records. The shared guided OCR capture bottom navigation preserves Previous,
-Next, and Done order and can scroll horizontally on narrow, large-text phone
-layouts instead of overflowing. Setters uses Fahrenheit readings with an allowed
-range of 99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive
-the EST grid status styling and average summary color, but are not rendered as a
+by Top/Middle/Bottom points, serial photo capture, manual reading entry, saved
+photo highlighting, and per-point evidence photo records. The shared guided
+capture footer keeps only a Done action; point-to-point movement happens by
+saving a reading, which advances to the next open cell, or by tapping a grid
+cell directly. Setters uses Fahrenheit readings with an allowed range of
+99.5-102.0°F and an optimum range of 100.0-101.0°F. Those ranges drive the EST
+grid status styling and average summary color, but are not rendered as a
 separate helper strip in the entry form. Setter samples persist as
 `setter_optimizing` rows. The table's sampling hierarchy starts at the `setter`
 machine column and can nest `trolley` then `tray`; it does not include house or
@@ -862,7 +881,7 @@ Hatchers captures:
   numeric keyboard instead of sliders.
 - CO2 level and photo, with the camera action aligned beside the entry field.
 - CVT (Chick Vent Temp.) average/CV summary and guided grid/photos. The grid
-  uses the same guided OCR capture, inline/native camera fallback, evidence
+  uses the same guided manual capture, inline/native camera fallback, evidence
   thumbnails, missing-photo attach, and saved-photo highlighting as the setter
   EST/CVT grid flow.
 - Chick panting uses compact Yes/No choice chips with the photo action in the
@@ -899,10 +918,12 @@ exposes a clear `Scan`, `Read`, or reconnect action, a compact `°F`/`°C` unit
 toggle backed by the app temperature setting, and a settings icon. The floating
 panel header, scope picker, and place recorder use the shared compact
 operational type scale and light bordered surfaces. Scope dropdown labels for
-customers, hatcheries, and places stay single-line and ellipsized inside their
-fields on narrow layouts. The active capture scope picker does not expose a
-separate date field; the provider still assigns the current capture date
-internally. Live Temp/RH, update, RSSI, and battery values are
+customers, flocks, hatcheries, and places stay single-line and ellipsized inside
+their fields on narrow layouts. The active capture scope picker shows the flock
+for visit context, but saved Govee capture rows remain scoped by customer,
+hatchery, place, machine id, and capture date. The active capture scope picker
+does not expose a separate date field; the provider still assigns the current
+capture date internally. Live Temp/RH, update, RSSI, and battery values are
 shown only while the most recent live update is fresh:
 the current live update plus the first 30 seconds after it. Once the latest live
 reading is more than 30 seconds old, the card treats the device as disconnected
@@ -1115,7 +1136,9 @@ Relative Humidity charts from the capture row's LTTB-selected
 `chartPointsJson`. Dashboard chart touches show exact timestamp, temperature,
 RH, place, and machine when present. The Govee screen remains focused on live
 device status, scope selection, recording, syncing, and save feedback; saved
-history cards live on Dashboard.
+history cards live on Dashboard. The sector includes a compact `°F`/`°C` toggle
+backed by the shared app temperature unit, and the saved capture cards plus
+cumulative temperature trend update together when it changes.
 
 ## 5. Data Hierarchy
 
@@ -1145,6 +1168,8 @@ The implemented hierarchy is:
 - `photos`: local photo records tied to `sessionId`, `panelName`,
   `panelRowId`, and `fieldKey`, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
+- `bmk_operational_standards`: seeded global operational BMK rows plus optional
+  hatchery-specific override rows for station setup targets.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
@@ -1186,11 +1211,21 @@ disabled by default for release builds, and can only be enabled in release with
 v3 PBKDF2-HMAC-SHA256 hashes with per-password random salts and iteration
 metadata. Legacy local tokens and v2 salted SHA-256 hashes are accepted only for
 migration and are upgraded to v3 after a successful local login.
+The login screen's Remember me option stores only the saved email in shared
+preferences and forwards the remember-session choice into Supabase sign-in. When
+Remember me is unchecked on a successful login, the saved email is removed and
+the remote session is not persisted by the sign-in request. The Remember me /
+Forgot Password row wraps on phone-width layouts instead of overflowing.
 
 `CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
 and selected-customer state. It scopes data for customer-role users, supports
 customer/flock/hatchery CRUD, and loads visit summaries for customer detail
 views.
+
+`StartupSyncService` checks cloud tombstones and applies remote deletes before
+bulk-uploading local customers, hatcheries, and flocks. This prevents a device
+with stale local reference rows from recreating customers that another sync has
+already deleted from the cloud.
 
 `AuditSessionProvider` owns the active visit session, station order, current
 station index, movement state, resume state, selected station keys, and session
@@ -1224,7 +1259,8 @@ upserts internal BMK admin edits back into the same `bmk_breeds` and
 `bmk_egg_breakout` rows used by audit and dashboard benchmark lookups.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
-month, active flocks, last audit date, recent audits, and audit type breakdown.
+month, active flocks, last audit date, recently saved audits, and audit type
+breakdown.
 
 ## 7. Persistence Summary
 
@@ -1260,6 +1296,7 @@ Tables created by the current database helper include:
 - `flocks`
 - `bmk_breeds`
 - `bmk_egg_breakout`
+- `bmk_operational_standards`
 - `troubleshooting`
 - `photos`
 - `activity_log`
@@ -1336,7 +1373,12 @@ create `sync_tombstones`; startup sync uploads those tombstones, deletes remote
 rows child-before-parent, marks successful tombstones synced, and applies remote
 tombstones locally so another device reload removes stale rows. `BgSyncService`
 runs this sync after the shell starts and reports failure as offline data
-available. The app assumes Supabase tables and storage are protected by project
+available. Startup and background sync can surface a Home-screen cloud notice
+for sessions and other records pulled from another device after the local
+database has previously synced. A successful foreground `Sync Now` action in
+Home or Settings acknowledges that notice so it disappears after the user
+manually syncs; offline or failed sync attempts leave the notice intact. The
+app assumes Supabase tables and storage are protected by project
 RLS/storage policies for authenticated users and their customer scope; the
 client only ships anon credentials and never needs service-role access. Debug
 sync logs are sanitized and do not print stack traces, tokens, row payloads, or
@@ -1349,45 +1391,29 @@ customer, hatchery, place, machine, and date. The row stores Temp/RH summary
 fields and the representative LTTB chart points in `chartPointsJson`; the app no
 longer writes separate generic Temp/RH session or reading rows.
 
-OCR uses Google ML Kit text recognition when available, with preprocessing,
-quality checks, timeouts, and temporary-file cleanup for thermometer scan
-capture. Thermometer OCR applies a device-focused crop that isolates and
-upscales the large central row of the red-backlit seven-segment display while
-excluding most of the smaller memory/date rows. Recognition attempts use a
-red-channel extraction first, followed by inverted high-contrast, adaptive
-binary, and balanced variants when needed. Fallback outputs are combined through
-a confidence-scored consensus of plausible Celsius/Fahrenheit candidates.
-Candidates with an explicit nearby unit rank above bare date/time values, and
-common seven-segment OCR substitutions such as `O` for zero and comma for the
-decimal point are normalized before parsing. Single recovered-decimal readings
-remain accepted with lower confidence when OCR also captures a nearby
-Celsius/Fahrenheit unit. Isolated bare digit tokens such as `230` or `2301` are
-not accepted as recovered-decimal temperatures. Repeated matching fallback
-outputs produce high confidence.
+Thermometer OCR is no longer used for EST/CVT capture. Egg Storage EST, Setter
+EST, Chicks CVT, and Hatcher CVT each expose a local `°F` / `°C` selector that
+defaults to Fahrenheit. Grid values, targets, summaries, validation colors, and
+manual entry use the selected display unit. Unit selection is a UI concern only:
+Egg Storage EST continues to persist canonical Celsius, while Setter EST,
+Chicks CVT, and Hatcher CVT continue to persist canonical Fahrenheit.
 
-Thermometer OCR results preserve the detected display value and unit in
-addition to the normalized Celsius value. Egg Storage EST, Setter EST, Chicks
-CVT, and Hatcher CVT each expose a local `°F` / `°C` selector that defaults to
-Fahrenheit. Grid values, targets, summaries, validation colors, manual entry,
-and OCR capture use the selected display unit. If OCR detects a known unit that
-differs from the selected sector unit, capture shows a warning and requires the
-auditor to retake, enter the value manually, or explicitly use the detected
-reading. Unit selection is a UI concern only: Egg Storage EST continues to
-persist canonical Celsius, while Setter EST, Chicks CVT, and Hatcher CVT
-continue to persist canonical Fahrenheit.
-
-Guided thermometer auto-scan uses a shared 1.8-second capture/OCR interval
-across EST and CVT screens to reduce repeated camera and ML work on mobile
-devices while scanning. Inline scanner captures pass the visible scan-frame crop
-to OCR, and auto-scan attempts use the primary crop without fallback fan-out so a
-missed frame retries on the next timer tick instead of doing extra ML work in the
-same tick. Inline camera focus and exposure are configured after initialization
-instead of before every capture to avoid repeated focus hunting during auto-scan.
-OCR correction telemetry is not currently stored. OCR and photo pick/save/delete
-failures keep the same recoverable return behavior and emit debug logs in
-development builds instead of silently discarding the failure context. Thermometer
-OCR debug logs include attempted variant count, confidence, and accepted Celsius
-reading when available so mobile runs can confirm the active OCR path.
+Guided temperature capture uses the same 9-point Front/Middle/Back by
+Top/Middle/Bottom grid as the station forms. The first open point is highlighted,
+the auditor can tap any grid cell to jump, and the footer keeps only Done. For
+each point, the auditor starts from a single `Take photo` action, then types the
+reading manually against the attached photo; the custom mobile keypad uses a
+check/done action for this single entry field instead of grid-navigation arrows.
+Photo-backed saves stage the captured image as evidence, manual entry records
+the typed value, and saving advances to the next open point. Dirty-only readings
+and photo paths are returned to the caller, which continues to update the station
+draft, averages/CV, and local `photos` rows for photo sync. The station-screen
+grids are display/edit surfaces: cells show the saved reading plus evidence
+thumbnail when present, and tapping a cell
+opens the full-screen capture flow focused on that point so the attached photo
+and reading can be replaced through the same save path. Photo pick/save/delete
+failures keep recoverable return behavior and emit debug logs in development
+builds.
 
 ## 8. Known Technical Debt
 
@@ -1399,7 +1425,10 @@ reading when available so mobile runs can confirm the active OCR path.
 - `DiagnosticEngine.evaluate` is a placeholder that returns no findings.
 - Visit-session scorecards use persisted JSON only when present; otherwise they
   use fallback threshold heuristics in `VisitSessionSummary`.
-- The database includes dummy test data seeding in the database helper.
+- Debug database seeding keeps `الغريب` plus one dashboard test customer and
+  removes known older demo customers. The dashboard test customer seed also
+  creates five-reading Govee captures for egg storage, chick holding, setter
+  room, inside setter, hatcher room, and inside hatcher.
 - Supabase sync is best effort and failures are logged/debugged rather than
   surfaced as blocking workflow errors.
 - Govee place names still share the `TemperaturePlace` enum while the active
@@ -1407,6 +1436,31 @@ reading when available so mobile runs can confirm the active OCR path.
 
 ## 9. Change Log
 
+- 2026-06-23: Added root auth-state navigation so logout resets the app back to
+  `/login`, and covered Remember me loading, saved-email persistence, clearing,
+  remember-session forwarding, and phone-width Remember me row layout with login
+  screen tests.
+- 2026-06-23: Simplified guided EST/CVT capture to a serial photo-first flow
+  with one Take photo action, Done-only footer navigation, display-only
+  photo-backed station grid cells, and tapped-cell edit routing through the
+  attached-photo capture screen.
+- 2026-06-22: Added `bmk_operational_standards` with seeded global operational
+  BMKs, hatchery-specific overrides, an Operational BMKs reference sector, and
+  an Admin editor with global/hatchery scope selection.
+- 2026-06-22: Added a `°F`/`°C` toggle to the dashboard Govee Environmental
+  Readings sector and made its cumulative temperature metric follow the shared
+  app temperature unit.
+- 2026-06-22: Removed thermometer OCR from EST/CVT capture, deleted the unused
+  ML Kit OCR service/tests/dependency, and converted Egg EST, Setter EST,
+  Chicks CVT, and Hatcher CVT to a guided manual photo capture flow that saves
+  typed readings plus evidence photos, shows photo-backed station grid cells,
+  and reopens tapped cells in the attached-photo edit flow.
+- 2026-06-22: Scoped debug seed data to `الغريب` plus one dashboard test
+  customer, removed older dummy customer seeds, and added deterministic
+  five-reading Govee captures for the dashboard places.
+- 2026-06-22: Gated the app-wide floating Govee shortcut on entering the main
+  app shell so it remains hidden during login, registration, pending approval,
+  and startup sync even when the user already has Govee permissions.
 - 2026-06-13: Tuned thermometer OCR for the red seven-segment device by
   isolating the large display row, adding red/inverted/adaptive preprocessing,
   preserving detected units, warning on selected-unit mismatches, and adding

@@ -17,15 +17,14 @@ import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../providers/customers_provider.dart';
-import '../../../services/ocr/ocr_service.dart';
 import '../../../services/photo/photo_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/audit_provider.dart';
 import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
-import '../ocr_capture/ocr_capture_config.dart';
-import '../ocr_capture/ocr_capture_launcher.dart';
+import '../temperature_capture/temperature_capture_config.dart';
+import '../temperature_capture/temperature_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
@@ -90,7 +89,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   final Map<String, TextEditingController> _estControllers = {};
   final Map<String, FocusNode> _estFocusNodes = {};
   final Map<String, String?> _estPhotos = {};
-  final OcrService _ocrService = OcrService();
   final PhotoService _photoService = PhotoService();
   final PhotoRepository _photoRepository = PhotoRepository();
   final FocusNode _storageDaysFocusNode = FocusNode();
@@ -337,7 +335,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     for (final focusNode in _eggScopeIdentityFocusNodes.values) {
       focusNode.dispose();
     }
-    unawaited(_ocrService.dispose());
     super.dispose();
   }
 
@@ -705,7 +702,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                   ? null
                   : () => _openEstCapture(auditProvider),
               icon: const Icon(Icons.document_scanner_outlined),
-              label: const Text('Scan readings'),
+              label: const Text('Capture readings'),
             ),
           ],
         ),
@@ -714,8 +711,9 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
           controllers: _estControllers,
           focusNodes: _estFocusNodes,
           photos: _estPhotos,
-          enabled: !auditProvider.isReadOnly,
+          enabled: false,
           showPhotoCapture: false,
+          displayOnly: true,
           title: null,
           unitSuffix: _estUnit.suffix,
           tempStatusFn: (value) => target.status(
@@ -731,15 +729,10 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
             ),
           ),
           onValueChanged: (key, value) => _updateEstCalculations(auditProvider),
-          onPhotoCaptured: (key, path) {
-            unawaited(_handleEstPhotoCaptured(auditProvider, key, path));
-          },
-          onMissingPhotoRequested: (key) {
-            unawaited(_attachMissingEstPhoto(auditProvider, key));
-          },
-          onClearRequested: (key) {
-            unawaited(_clearEstPoint(auditProvider, key));
-          },
+          onPhotoCaptured: (_, _) {},
+          onCellSelected: auditProvider.isReadOnly
+              ? null
+              : (key) => _openEstCapture(auditProvider, initialKey: key),
         ),
         const SizedBox(height: 8),
         Row(
@@ -2043,19 +2036,22 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       ? Colors.orange
       : Colors.red;
 
-  /// Launch the reusable full-screen OCR capture flow, pre-populated with the
+  /// Launch the reusable full-screen capture flow, pre-populated with the
   /// current grid, then merge confirmed readings back via [_saveEstPoint]
   /// (persistence + sync unchanged).
-  Future<void> _openEstCapture(AuditProvider provider) async {
+  Future<void> _openEstCapture(
+    AuditProvider provider, {
+    String? initialKey,
+  }) async {
     if (provider.isReadOnly) return;
     final storageDays = int.tryParse(_storageDaysController.text);
     final target = _shellStorageTarget(storageDays);
-    final result = await OcrCaptureLauncher.push(
+    final result = await TemperatureCaptureLauncher.push(
       context,
-      OcrCaptureConfig(
+      TemperatureCaptureConfig(
         title: 'Eggshell Temperature',
         unitSuffix: _estUnit.suffix,
-        selectedUnit: _estUnit.thermoScanUnit,
+        initialKey: initialKey,
         initialReadings: _currentEstDisplayReadings(),
         initialPhotos: _currentEstPhotoPaths(),
         tempStatusFn: (value) => target.status(
@@ -2073,11 +2069,10 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         targetLabelBuilder: _estTargetLabel,
         readOnly: provider.isReadOnly,
       ),
-      ocrService: _ocrService,
       photoService: _photoService,
     );
     if (result == null || result.isEmpty || !mounted) return;
-    OcrCaptureLauncher.apply(
+    TemperatureCaptureLauncher.apply(
       result,
       (key, path, value) => _saveEstPoint(provider, key, path, value),
     );
@@ -2087,216 +2082,9 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     );
   }
 
-  // Camera now lives in the pushed OcrCaptureScreen, which tears itself down on
+  // Camera now lives in the pushed TemperatureCaptureScreen, which tears itself down on
   // pop, so the station no longer owns an inline camera to close.
   Future<bool> _prepareForStationExit() async => true;
-
-  Future<void> _handleEstPhotoCaptured(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    final existingPhoto = _estPhotos[key];
-    if (existingValue != null &&
-        (existingPhoto == null || existingPhoto.trim().isEmpty)) {
-      await _attachEstPhotoPathToExistingReading(provider, key, path);
-      return;
-    }
-
-    await _confirmSingleEstReading(provider, key, path);
-  }
-
-  Future<void> _attachMissingEstPhoto(
-    AuditProvider provider,
-    String key,
-  ) async {
-    if (provider.isReadOnly) return;
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    final existingPhoto = _estPhotos[key];
-    if (existingValue == null ||
-        (existingPhoto != null && existingPhoto.trim().isNotEmpty)) {
-      return;
-    }
-
-    final path = await _photoService.pickPhoto(fromCamera: true);
-    if (!mounted || path == null || path.trim().isEmpty) return;
-
-    await _attachEstPhotoPathToExistingReading(provider, key, path);
-  }
-
-  Future<void> _attachEstPhotoPathToExistingReading(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final existingValue = double.tryParse(_estControllers[key]?.text ?? '');
-    if (existingValue == null || path.trim().isEmpty) return;
-
-    setState(() {
-      _estPhotos[key] = path;
-    });
-    _updateEstPhotos(provider);
-    await _saveEstEvidencePhotoRecord(provider, key, path);
-    await _persistActiveAuditRow(provider);
-  }
-
-  Future<bool> _persistActiveAuditRow(AuditProvider provider) async {
-    try {
-      return provider.saveSamplesWithResult(tabIndex: 0);
-    } catch (_) {
-      // Keep the active draft updated; normal tab save can persist if row is new.
-      return false;
-    }
-  }
-
-  Future<void> _clearEstPoint(AuditProvider provider, String key) async {
-    if (provider.isReadOnly) return;
-    final controller = _estControllers[key];
-    if (controller == null) return;
-    final previousValue = controller.text;
-    final previousPhoto = _estPhotos[key];
-    if (previousValue.trim().isEmpty &&
-        (previousPhoto == null || previousPhoto.trim().isEmpty)) {
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear this reading and photo?'),
-        content: Text(_estTargetLabel(key)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    final previousReadingsJson = provider.activeDraft.esEstReadingsJson;
-    final previousPhotosJson = provider.activeDraft.esEstPhotosJson;
-    final previousAvg = provider.activeDraft.esEstAvg;
-    final previousCv = provider.activeDraft.esEstCv;
-    final previousAvgText = _estAvgController.text;
-    final previousCvText = _estCvController.text;
-
-    setState(() {
-      controller.clear();
-      _estPhotos[key] = null;
-    });
-    _updateEstPhotos(provider);
-    _updateEstCalculations(provider);
-
-    final persisted = await _persistActiveAuditRow(provider);
-    if (!mounted) return;
-    if (persisted) return;
-
-    setState(() {
-      controller.text = previousValue;
-      _estPhotos[key] = previousPhoto;
-      _estAvgController.text = previousAvgText;
-      _estCvController.text = previousCvText;
-    });
-    provider.updateField('es_estReadingsJson', previousReadingsJson);
-    provider.updateField('es_estPhotosJson', previousPhotosJson);
-    provider.updateField('es_estAvg', previousAvg);
-    provider.updateField('es_estCv', previousCv);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Could not clear EST point. Try again.')),
-    );
-  }
-
-  Future<void> _confirmSingleEstReading(
-    AuditProvider provider,
-    String key,
-    String path,
-  ) async {
-    final reading = await _ocrService.recognizeThermoScanReadingCelsius(path);
-    if (!mounted) return;
-
-    final valueController = TextEditingController(
-      text: reading == null
-          ? ''
-          : _estUnit
-                .fromCanonical(
-                  reading,
-                  canonicalUnit: TemperatureEntryUnit.celsius,
-                )
-                .toStringAsFixed(1),
-    );
-    final action = await showDialog<_EstScanAction>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            final parsedValue = double.tryParse(valueController.text);
-            return AuditNumericKeyboardScope(
-              child: AlertDialog(
-                title: Text(_estTargetLabel(key)),
-                content: AuditNumericField(
-                  controller: valueController,
-                  allowDecimal: true,
-                  maxDecimalPlaces: 1,
-                  decoration: InputDecoration(
-                    labelText: 'Temperature',
-                    suffixText: _estUnit.suffix,
-                    helperText: reading == null
-                        ? 'No reading found. Enter it manually or retake.'
-                        : 'Confirm or edit the detected reading.',
-                  ),
-                  onChanged: (_) => setDialogState(() {}),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(dialogContext, _EstScanAction.skip),
-                    child: const Text('Skip'),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(dialogContext, _EstScanAction.retake),
-                    child: const Text('Retake'),
-                  ),
-                  FilledButton(
-                    onPressed: parsedValue == null
-                        ? null
-                        : () => Navigator.pop(
-                            dialogContext,
-                            _EstScanAction.confirm,
-                          ),
-                    child: const Text('Confirm'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    final parsedValue = double.tryParse(valueController.text);
-    valueController.dispose();
-    if (!mounted) return;
-
-    if (action == _EstScanAction.confirm && parsedValue != null) {
-      _saveEstPoint(provider, key, path, parsedValue);
-      return;
-    }
-    if (action == _EstScanAction.retake) {
-      final newPath = await _photoService.pickPhoto(fromCamera: true);
-      if (newPath != null && mounted) {
-        await _confirmSingleEstReading(provider, key, newPath);
-      }
-    }
-  }
 
   void _saveEstPoint(
     AuditProvider provider,
@@ -2894,5 +2682,3 @@ class _EggWeightMetricRow extends StatelessWidget {
     );
   }
 }
-
-enum _EstScanAction { confirm, retake, skip }

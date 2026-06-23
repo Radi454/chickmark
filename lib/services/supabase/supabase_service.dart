@@ -529,6 +529,23 @@ class SupabaseService {
     return summary;
   }
 
+  Future<int> pullSyncTombstones({
+    required Future<void> Function(Map<String, dynamic>) upsertSyncTombstone,
+  }) async {
+    try {
+      if (!await _prepareRemoteAccess()) return 0;
+      final rows = await _client.from('sync_tombstones').select();
+      safeDebugLog('Supabase pull: ${rows.length} sync_tombstones rows');
+      for (final row in rows) {
+        await upsertSyncTombstone(Map<String, dynamic>.from(row));
+      }
+      return rows.length;
+    } catch (e) {
+      safeDebugLog('Supabase sync_tombstones pull skipped', error: e);
+      return 0;
+    }
+  }
+
   Future<void> _upsertWithFallback(
     String table,
     Map<String, dynamic> row,
