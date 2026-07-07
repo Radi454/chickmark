@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
+
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_elevation.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
@@ -10,12 +13,17 @@ import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
 import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
+import 'package:hatchaudit/services/photo/photo_service.dart';
+import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
 
 enum _BmkMode { reference, admin }
 
 class BmkScreen extends StatefulWidget {
-  const BmkScreen({super.key});
+  final PhotoService? photoService;
+  final SupabaseService? supabaseService;
+
+  const BmkScreen({super.key, this.photoService, this.supabaseService});
 
   @override
   State<BmkScreen> createState() => _BmkScreenState();
@@ -46,6 +54,9 @@ class _BmkScreenState extends State<BmkScreen> {
   final _opMaxController = TextEditingController();
   final _opTargetController = TextEditingController();
   final _opNotesController = TextEditingController();
+  late final PhotoService _photoService = widget.photoService ?? PhotoService();
+  late final SupabaseService _supabaseService =
+      widget.supabaseService ?? SupabaseService();
 
   _BmkMode _mode = _BmkMode.reference;
   String? _breedEditKey;
@@ -245,6 +256,239 @@ class _BmkScreenState extends State<BmkScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showMetricSourceDialog(BuildContext context, _BmkMetric metric) {
+    final hasPhoto = metric.hasSourcePhoto;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(metric.label),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if ((metric.source ?? '').trim().isNotEmpty) ...[
+                    Text('Source', style: AppTextStyles.caption),
+                    const SizedBox(height: 4),
+                    Text(metric.source!, style: AppTextStyles.body),
+                  ],
+                  if ((metric.sourceUrl ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: AppSizes.spaceMd),
+                    Text('Link', style: AppTextStyles.caption),
+                    const SizedBox(height: 4),
+                    InkWell(
+                      key: metric.citationKey == null
+                          ? null
+                          : ValueKey('bmk-open-source-${metric.citationKey}'),
+                      onTap: () => _openSourceUrl(context, metric.sourceUrl!),
+                      child: Text(
+                        metric.sourceUrl!,
+                        style: AppTextStyles.body.copyWith(
+                          color: AppColors.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if ((metric.notes ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: AppSizes.spaceMd),
+                    Text('Notes', style: AppTextStyles.caption),
+                    const SizedBox(height: 4),
+                    Text(metric.notes!, style: AppTextStyles.body),
+                  ],
+                  if (hasPhoto) ...[
+                    const SizedBox(height: AppSizes.spaceMd),
+                    Text('Photo', style: AppTextStyles.caption),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.image_outlined, size: 18),
+                        const SizedBox(width: AppSizes.spaceXs),
+                        Expanded(
+                          child: Text(
+                            (metric.sourcePhotoRemotePath ?? '').isNotEmpty
+                                ? 'Photo saved in cloud'
+                                : 'Photo saved on this device',
+                            style: AppTextStyles.body,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSizes.spaceXs),
+                    OutlinedButton.icon(
+                      key: metric.citationKey == null
+                          ? null
+                          : ValueKey(
+                              'bmk-view-source-photo-${metric.citationKey}',
+                            ),
+                      onPressed: () =>
+                          _showSourcePhotoViewer(dialogContext, metric),
+                      icon: const Icon(Icons.zoom_in_outlined),
+                      label: const Text('View photo'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            if (metric.citationKey != null) ...[
+              OutlinedButton.icon(
+                key: ValueKey('bmk-add-source-photo-${metric.citationKey}'),
+                onPressed: () =>
+                    _addMetricSourcePhoto(context, dialogContext, metric),
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: Text(hasPhoto ? 'Replace photo' : 'Add photo'),
+              ),
+              if (hasPhoto)
+                TextButton.icon(
+                  key: ValueKey(
+                    'bmk-delete-source-photo-${metric.citationKey}',
+                  ),
+                  onPressed: () =>
+                      _deleteMetricSourcePhoto(context, dialogContext, metric),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete photo'),
+                ),
+            ],
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _openSourceUrl(BuildContext context, String url) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.hasScheme) {
+      messenger.showSnackBar(const SnackBar(content: Text('Invalid link')));
+      return;
+    }
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not open link')),
+      );
+    }
+  }
+
+  Future<void> _addMetricSourcePhoto(
+    BuildContext context,
+    BuildContext dialogContext,
+    _BmkMetric metric,
+  ) async {
+    final metricKey = metric.citationKey;
+    if (metricKey == null) return;
+    final provider = context.read<BmkProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(dialogContext);
+
+    final photoPath = await _photoService.pickPhoto(
+      fromCamera: false,
+      imageQuality: 100,
+    );
+    if (photoPath == null || photoPath.isEmpty) return;
+    final remotePath = await _supabaseService.uploadBmkOperationalSourcePhoto(
+      localPath: photoPath,
+      metricKey: metricKey,
+      hatcheryId: provider.selectedHatcheryId,
+    );
+    await provider.saveOperationalSourcePhoto(
+      metricKey: metricKey,
+      photoPath: photoPath,
+      remotePath: remotePath,
+    );
+    final oldRemotePath = metric.sourcePhotoRemotePath;
+    if (remotePath != null &&
+        oldRemotePath != null &&
+        oldRemotePath.isNotEmpty) {
+      await _supabaseService.deleteBmkOperationalSourcePhoto(oldRemotePath);
+    }
+    if (!mounted) return;
+    navigator.pop();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          remotePath == null
+              ? 'Source photo saved locally; cloud upload unavailable'
+              : 'Source photo saved',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteMetricSourcePhoto(
+    BuildContext context,
+    BuildContext dialogContext,
+    _BmkMetric metric,
+  ) async {
+    final metricKey = metric.citationKey;
+    if (metricKey == null) return;
+    final provider = context.read<BmkProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(dialogContext);
+    await _supabaseService.deleteBmkOperationalSourcePhoto(
+      metric.sourcePhotoRemotePath,
+    );
+    final localPath = metric.sourcePhotoPath;
+    if (localPath != null && localPath.isNotEmpty) {
+      await _photoService.deletePhoto(localPath);
+    }
+    await provider.deleteOperationalSourcePhoto(metricKey: metricKey);
+    if (!mounted) return;
+    navigator.pop();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Source photo deleted')),
+    );
+  }
+
+  void _showSourcePhotoViewer(BuildContext context, _BmkMetric metric) {
+    final path = metric.sourcePhotoPath;
+    final url = metric.sourcePhotoRemotePath;
+    Widget image;
+    if (path != null && path.trim().isNotEmpty) {
+      image = Image.file(File(path), fit: BoxFit.contain);
+    } else if (url != null && url.startsWith('http')) {
+      image = Image.network(url, fit: BoxFit.contain);
+    } else {
+      image = const Center(child: Text('Photo preview is not available'));
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (viewerContext) {
+        return Dialog.fullscreen(
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(metric.label),
+              actions: [
+                IconButton(
+                  tooltip: context.tr('Close'),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(viewerContext).pop(),
+                ),
+              ],
+            ),
+            body: Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 6,
+                child: image,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -474,13 +718,37 @@ class _BmkScreenState extends State<BmkScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  metric.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.caption.copyWith(
-                    fontSize: isCompact ? 11 : null,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        metric.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.caption.copyWith(
+                          fontSize: isCompact ? 11 : null,
+                        ),
+                      ),
+                    ),
+                    if (metric.hasCitation) ...[
+                      const SizedBox(width: AppSizes.spaceXs),
+                      SizedBox.square(
+                        dimension: isCompact ? 24 : 28,
+                        child: IconButton(
+                          key: metric.citationKey == null
+                              ? null
+                              : ValueKey('bmk-citation-${metric.citationKey}'),
+                          tooltip: context.tr('Source'),
+                          padding: EdgeInsets.zero,
+                          iconSize: isCompact ? 16 : 18,
+                          icon: const Icon(Icons.format_quote_rounded),
+                          color: AppColors.primary,
+                          onPressed: () =>
+                              _showMetricSourceDialog(context, metric),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 SizedBox(height: isCompact ? 1 : AppSizes.spaceXs),
                 Text(
@@ -909,15 +1177,48 @@ class _BmkScreenState extends State<BmkScreen> {
           ? const Center(
               child: Text('No data', style: TextStyle(color: Colors.grey)),
             )
-          : _buildMetricGrid(
-              key: const ValueKey('bmk-operational-metric-grid'),
-              metrics: bmk.operationalStandards.map((row) {
-                return _BmkMetric(
-                  label: row.metricLabel,
-                  value: _formatOperationalValue(row),
-                );
-              }).toList(),
-            ),
+          : _buildOperationalGroups(bmk.operationalStandards),
+    );
+  }
+
+  Widget _buildOperationalGroups(List<BmkOperationalStandardModel> rows) {
+    final grouped = <String, List<BmkOperationalStandardModel>>{};
+    for (final row in rows) {
+      final key = _operationalCategoryKey(row);
+      grouped.putIfAbsent(key, () => []).add(row);
+    }
+
+    final children = <Widget>[];
+    for (final category in _operationalCategories) {
+      final categoryRows = grouped[category.key];
+      if (categoryRows == null || categoryRows.isEmpty) continue;
+      if (children.isNotEmpty) children.add(const SizedBox(height: 18));
+      children.add(
+        _OperationalCategorySection(
+          title: category.label,
+          child: _buildMetricGrid(
+            key: ValueKey('bmk-operational-${category.key}-grid'),
+            metrics: categoryRows.map((row) {
+              return _BmkMetric(
+                label: row.metricLabel,
+                value: _formatOperationalValue(row),
+                source: row.source,
+                sourceUrl: row.sourceUrl,
+                sourcePhotoPath: row.sourcePhotoPath,
+                sourcePhotoRemotePath: row.sourcePhotoRemotePath,
+                notes: row.notes,
+                citationKey: row.metricKey,
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      key: const ValueKey('bmk-operational-metric-grid'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
     );
   }
 
@@ -1241,6 +1542,27 @@ class _BmkScreenState extends State<BmkScreen> {
     return '--';
   }
 
+  String _operationalCategoryKey(BmkOperationalStandardModel row) {
+    if (row.metricKey == 'culled_chicks' || row.metricKey == 'dead_chicks') {
+      return 'hatch_results';
+    }
+    if (row.metricKey == 'co2_max') return 'setters';
+    if (row.metricKey == 'cv_alert' ||
+        row.metricKey == 'uniformity_good' ||
+        row.metricKey == 'shell_uv_affected') {
+      return 'egg';
+    }
+
+    return switch (row.stationKey) {
+      'egg' => 'egg',
+      'chicks' => 'chicks',
+      'hatch_results' || 'hatch_analysis' => 'hatch_results',
+      'setters' => 'setters',
+      'hatchers' => 'hatchers',
+      _ => 'egg',
+    };
+  }
+
   Widget _buildBreedRow(BmkProvider bmk, List<String> breeds) {
     return Row(
       children: breeds.map((breed) {
@@ -1336,8 +1658,84 @@ class _BmkSectorCard extends StatelessWidget {
 class _BmkMetric {
   final String label;
   final String value;
+  final String? source;
+  final String? sourceUrl;
+  final String? sourcePhotoPath;
+  final String? sourcePhotoRemotePath;
+  final String? notes;
+  final String? citationKey;
 
-  const _BmkMetric({required this.label, required this.value});
+  const _BmkMetric({
+    required this.label,
+    required this.value,
+    this.source,
+    this.sourceUrl,
+    this.sourcePhotoPath,
+    this.sourcePhotoRemotePath,
+    this.notes,
+    this.citationKey,
+  });
+
+  bool get hasCitation =>
+      (source ?? '').trim().isNotEmpty ||
+      (sourceUrl ?? '').trim().isNotEmpty ||
+      hasSourcePhoto;
+
+  bool get hasSourcePhoto =>
+      (sourcePhotoPath ?? '').trim().isNotEmpty ||
+      (sourcePhotoRemotePath ?? '').trim().isNotEmpty;
+}
+
+const List<_OperationalCategory> _operationalCategories = [
+  _OperationalCategory(key: 'egg', label: 'Egg'),
+  _OperationalCategory(key: 'chicks', label: 'Chicks'),
+  _OperationalCategory(key: 'hatch_results', label: 'Hatch Results'),
+  _OperationalCategory(key: 'setters', label: 'Setters'),
+  _OperationalCategory(key: 'hatchers', label: 'Hatchers'),
+];
+
+class _OperationalCategory {
+  final String key;
+  final String label;
+
+  const _OperationalCategory({required this.key, required this.label});
+}
+
+class _OperationalCategorySection extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _OperationalCategorySection({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 520;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+            vertical: isCompact ? 4 : AppSizes.spaceXs,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.activeBg,
+            borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
+          ),
+          child: Text(
+            title,
+            style: AppTextStyles.title.copyWith(
+              color: AppColors.primary,
+              fontSize: isCompact ? 13 : null,
+            ),
+          ),
+        ),
+        SizedBox(height: isCompact ? AppSizes.spaceXs : AppSizes.spaceSm),
+        child,
+      ],
+    );
+  }
 }
 
 class _BreakoutTypeOption {

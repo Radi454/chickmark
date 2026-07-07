@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -342,7 +342,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                                   ),
                                 ),
                                 IconButton(
-                                  tooltip: 'Close',
+                                  tooltip: context.tr('Close'),
                                   onPressed: () =>
                                       Navigator.of(sheetContext).pop(),
                                   icon: const Icon(Icons.close),
@@ -791,7 +791,7 @@ class _ChickWeightsPanel extends StatelessWidget {
         _MetricGrid(audit: audit, stats: stats),
         const SizedBox(height: 14),
         Align(
-          alignment: Alignment.centerLeft,
+          alignment: AlignmentDirectional.centerStart,
           child: OutlinedButton.icon(
             onPressed: onOpenWeightSheet,
             icon: const Icon(Icons.scale_outlined, size: 18),
@@ -1102,14 +1102,14 @@ class _HouseWeightSampleControlsState
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildHouseSampleActionButton(
-          tooltip: 'Add house sample',
+          tooltip: context.tr('Add house sample'),
           icon: Icons.add,
           onPressed: provider.isReadOnly ? null : provider.addChickWeightSample,
         ),
         if (active) ...[
           const SizedBox(width: 8),
           _buildHouseSampleActionButton(
-            tooltip: 'Remove active house sample',
+            tooltip: context.tr('Remove active house sample'),
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
@@ -1252,7 +1252,7 @@ class _HouseWeightSampleControlsState
     required VoidCallback? onPressed,
   }) {
     return IconButton.filledTonal(
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: _GradientIcon(icon, size: 24),
       style: IconButton.styleFrom(
@@ -1402,7 +1402,7 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildMachineSampleActionButton(
-          tooltip: 'Add machine sample',
+          tooltip: context.tr('Add machine sample'),
           icon: Icons.add,
           onPressed: provider.isReadOnly
               ? null
@@ -1411,7 +1411,7 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
         if (active) ...[
           const SizedBox(width: 8),
           _buildMachineSampleActionButton(
-            tooltip: 'Remove active machine sample',
+            tooltip: context.tr('Remove active machine sample'),
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
@@ -1598,7 +1598,7 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
     required VoidCallback? onPressed,
   }) {
     return IconButton.filledTonal(
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: _GradientIcon(icon, size: 24),
       style: IconButton.styleFrom(

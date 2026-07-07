@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -171,7 +171,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
   Widget _settingsButton(BuildContext context) {
     return IconButton(
       key: const ValueKey('govee-settings-button'),
-      tooltip: 'Govee device settings',
+      tooltip: context.tr('Govee device settings'),
       onPressed: () => _showSettings(context),
       icon: const Icon(Icons.settings_outlined),
       color: _gradientForeground,
@@ -274,7 +274,7 @@ class GoveeLiveReadingCard extends StatelessWidget {
           const SizedBox(height: AppSizes.spaceXs),
           FittedBox(
             fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
+            alignment: AlignmentDirectional.centerStart,
             child: Text(
               value,
               maxLines: 1,

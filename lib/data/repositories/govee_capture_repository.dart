@@ -96,7 +96,33 @@ class GoveeCaptureRepository {
         'govee_daily_captures',
         id,
       );
-      await txn.delete('govee_daily_captures', where: 'id = ?', whereArgs: [id]);
+      await txn.delete(
+        'govee_daily_captures',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  Future<void> deleteCapturesByCustomer(String customerId) async {
+    final db = await _dbHelper.db;
+    await db.transaction<void>((txn) async {
+      final rows = await txn.query(
+        'govee_daily_captures',
+        columns: ['id'],
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'govee_daily_captures',
+        rows.map((row) => row['id']),
+      );
+      await txn.delete(
+        'govee_daily_captures',
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+      );
     });
   }
 
@@ -205,8 +231,7 @@ class GoveeCaptureRepository {
   /// Per-session, per-station Govee rollup for the Audits screen. Govee captures
   /// link to a visit by customer + hatchery + captureDate. Returns
   /// `"customerId|hatcheryId|captureDate" -> stationKey -> syncStatus -> count`.
-  Future<Map<String, Map<String, Map<String, int>>>>
-  getGoveeRollupForSessions(
+  Future<Map<String, Map<String, Map<String, int>>>> getGoveeRollupForSessions(
     Iterable<({String customerId, String hatcheryId, String captureDate})> keys,
   ) async {
     final tuples = keys.toSet().toList(growable: false);

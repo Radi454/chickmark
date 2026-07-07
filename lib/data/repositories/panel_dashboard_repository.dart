@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../core/utils/calculation_utils.dart';
 import '../../features/audits/models/culled_chicks_analysis.dart';
+import '../../features/audits/models/est_grid_data.dart';
 import '../../features/dashboard/models/chick_quality_models.dart';
 import '../../features/dashboard/models/dashboard_filter.dart';
 import '../../features/dashboard/models/egg_breakout_models.dart';
@@ -304,8 +305,8 @@ class PanelDashboardRepository {
     final photoRows = await db.query(
       'photos',
       columns: ['fieldKey', 'filePath'],
-      where: 'sessionId = ? AND panelName = ? AND fieldKey LIKE ?',
-      whereArgs: [row['sessionId'], 'egg_storage', 'shell_temp_%'],
+      where: 'sessionId = ? AND panelName = ?',
+      whereArgs: [row['sessionId'], 'egg_storage'],
       orderBy: 'createdAt ASC',
     );
     final photosByPoint = <String, String>{};
@@ -313,12 +314,21 @@ class PanelDashboardRepository {
       final fieldKey = photo['fieldKey']?.toString();
       final path = photo['filePath']?.toString().trim();
       if (fieldKey == null || path == null || path.isEmpty) continue;
-      photosByPoint[fieldKey.replaceFirst('shell_temp_', '')] = path;
+      final pointKey = _estPointKeyFromPhotoField(fieldKey);
+      if (pointKey == null) continue;
+      photosByPoint[pointKey] = path;
     }
     return EggStorageEstEvidence.fromJsonStrings(
       readingsJson: row['estReadingsJson']?.toString(),
       photosJson: photosByPoint.isEmpty ? null : jsonEncode(photosByPoint),
     );
+  }
+
+  String? _estPointKeyFromPhotoField(String fieldKey) {
+    final key = fieldKey.startsWith('shell_temp_')
+        ? fieldKey.replaceFirst('shell_temp_', '')
+        : fieldKey;
+    return EstGridData.scanKeys.contains(key) ? key : null;
   }
 
   Future<List<ChickWeightTrend>?> getChickWeightTrend(
@@ -544,7 +554,8 @@ class PanelDashboardRepository {
         setter AS setterId,
         AVG(estAvg) AS estAvgF,
         AVG(estCvPct) AS estCvPct,
-        AVG(turningAngle) AS turningAngle
+        AVG(turningAngle) AS turningAngle,
+        MAX(estReadingsJson) AS estReadingsJson
       FROM setter_optimizing
       $clause AND setter IN ($placeholders)
       GROUP BY setter
@@ -569,7 +580,8 @@ class PanelDashboardRepository {
         hatcher AS hatcherId,
         AVG(cvtAvg) AS cvtAvgF,
         AVG(cvtCvPct) AS cvtCvPct,
-        MAX(meconium) AS meconium
+        MAX(meconium) AS meconium,
+        MAX(cvtReadingsJson) AS cvtReadingsJson
       FROM hatcher_optimizing
       $clause AND hatcher IN ($placeholders)
       GROUP BY hatcher

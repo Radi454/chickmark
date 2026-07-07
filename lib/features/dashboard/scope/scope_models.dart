@@ -102,10 +102,15 @@ class ScopeCellAccumulator {
 /// string), so House+Machine nests correctly: `H1·S1H1` stays distinct from
 /// `H2·S1H1`. `cells` is keyed by parameter column name.
 class ScopeLeafRow {
+  final int? bmkAge;
   final Map<SamplingLayer, String> layerSegments;
   final Map<String, ScopeCellAccumulator> cells;
 
-  const ScopeLeafRow({required this.layerSegments, required this.cells});
+  const ScopeLeafRow({
+    this.bmkAge,
+    required this.layerSegments,
+    required this.cells,
+  });
 }
 
 /// A rendered cell: formatted text + numeric value (for the ⌀ Avg roll-up) + severity.
@@ -126,9 +131,11 @@ class ScopeCell {
 /// A comparison column = one unique combination of the selected layers.
 class ScopeGroup {
   final String label; // 'H1·S1H1' or 'Pool'
-  final SamplingLayer? layer; // finest selected layer (drives the header dot); null = pool
+  final SamplingLayer?
+  layer; // finest selected layer (drives the header dot); null = pool
   final List<ScopeCell> cells; // aligned to sector.params
-  final List<ScopeCellAccumulator> accumulators; // aligned to sector.params (for ⌀ Avg)
+  final List<ScopeCellAccumulator>
+  accumulators; // aligned to sector.params (for ⌀ Avg)
   final ScopeSeverity severity; // worst across cells
 
   const ScopeGroup({

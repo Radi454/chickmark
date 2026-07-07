@@ -4,6 +4,9 @@ import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/home/screens/home_screen.dart';
+import 'package:hatchaudit/features/home/providers/home_provider.dart';
+import 'package:hatchaudit/l10n/app_localizations.dart';
+import 'package:hatchaudit/localized_material.dart' as localized;
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 import 'package:hatchaudit/widgets/chick_mark_logo.dart';
@@ -12,8 +15,14 @@ import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 class _MockSupabaseService extends Mock implements SupabaseService {}
+
+class _LongArabicDateHomeProvider extends HomeProvider {
+  @override
+  String? get lastAuditDate => '٣ يوليو ٢٠٢٦';
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,5 +106,52 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('Arabic last audit date is not truncated', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => DashboardProvider()),
+          ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
+        ],
+        child: MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+          ],
+          home: HomeScreen(
+            loadInitialData: false,
+            homeProvider: _LongArabicDateHomeProvider(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final dateText = tester.widget<localized.Text>(
+      find.byKey(const ValueKey('home-last-audit-value')),
+    );
+    expect(dateText.maxLines, 2);
+    expect(dateText.overflow, isNot(TextOverflow.ellipsis));
+    expect(tester.takeException(), isNull);
   });
 }

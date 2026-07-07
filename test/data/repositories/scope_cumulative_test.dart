@@ -9,9 +9,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../support/test_database.dart';
 
-/// Cumulative-axis period listing + period-filtered leaves, against the seeded
-/// demo DB. Age-axis sectors enumerate flock ages; visit-axis sectors enumerate
-/// audit sessions. Period filtering reuses the same leaf query as the dashboard.
+/// BMK-age period listing + period-filtered leaves against the seeded demo DB.
+/// Every station enumerates ages so its dashboard selector has one consistent
+/// age-first behavior. Period filtering reuses the dashboard leaf query.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ScopeComparisonRepository repo;
@@ -45,27 +45,33 @@ void main() {
   test('period filter narrows leaves to the chosen age', () async {
     final all = await repo.getScopeLeaves(residue, demo);
     final at30 = await repo.getScopeLeaves(residue, demo.copyWith(bmkAge: 30));
-    final atNone =
-        await repo.getScopeLeaves(residue, demo.copyWith(bmkAge: 999));
+    final atNone = await repo.getScopeLeaves(
+      residue,
+      demo.copyWith(bmkAge: 999),
+    );
     expect(at30, hasLength(all.length));
     expect(atNone, isEmpty);
   });
 
-  test('visit-axis distinctPeriods lists sessions, not ages', () async {
-    expect(setter.cumulativeAxis, CumulativeAxis.visit);
-    final periods = await repo.distinctPeriods(setter, demo);
-    expect(periods, isNotEmpty);
-    expect(periods.every((p) => p.age == null), isTrue);
-    expect(periods.every((p) => p.sessionId != null), isTrue);
+  test(
+    'operational sectors also list BMK ages instead of session labels',
+    () async {
+      expect(setter.cumulativeAxis, CumulativeAxis.age);
+      final periods = await repo.distinctPeriods(setter, demo);
+      expect(periods, isNotEmpty);
+      expect(periods.every((p) => p.age != null), isTrue);
+      expect(periods.every((p) => p.sessionId == null), isTrue);
 
-    // The session filter returns that session's rows.
-    final sid = periods.first.sessionId!;
-    final leaves = await repo.getScopeLeaves(
-      setter,
-      DashboardFilter(customerId: kDashboardDemoCustomerId, sessionId: sid),
-    );
-    expect(leaves, isNotEmpty);
-  });
+      // The BMK-age filter returns that age's rows.
+      final age = periods.first.age!;
+      final leaves = await repo.getScopeLeaves(
+        setter,
+        DashboardFilter(customerId: kDashboardDemoCustomerId, bmkAge: age),
+      );
+      expect(leaves, isNotEmpty);
+      expect(leaves.every((leaf) => leaf.bmkAge == age), isTrue);
+    },
+  );
 }
 
 Future<void> _resetDatabase() async {

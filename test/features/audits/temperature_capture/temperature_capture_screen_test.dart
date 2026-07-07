@@ -27,7 +27,10 @@ class _FakePhotoService extends PhotoService {
   @override
   Future<void> deletePhoto(String filePath) async {}
   @override
-  Future<String?> pickPhoto({bool fromCamera = true}) async => 'native.jpg';
+  Future<String?> pickPhoto({
+    bool fromCamera = true,
+    int imageQuality = 85,
+  }) async => 'native.jpg';
 }
 
 TemperatureCaptureController _controller({TemperatureCaptureConfig? config}) {
@@ -102,22 +105,22 @@ void main() {
     expect(find.text('Step 8 of 9'), findsOneWidget);
   });
 
-  testWidgets('ready card only offers the inline photo action', (tester) async {
+  testWidgets('ready state uses the footer capture action', (tester) async {
     await _pump(tester, _controller());
     expect(find.text('Take a photo, then enter the reading.'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, 'Take photo'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Capture'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Take photo'), findsNothing);
     expect(find.text('Camera app'), findsNothing);
     expect(find.text('Manual without photo'), findsNothing);
   });
 
-  testWidgets('footer keeps serial capture controls to Done only', (
-    tester,
-  ) async {
+  testWidgets('footer captures and Done lives in the app bar', (tester) async {
     await _pump(tester, _controller());
 
     expect(find.widgetWithText(OutlinedButton, 'Previous'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Next'), findsNothing);
-    expect(find.widgetWithText(FilledButton, 'Done'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Capture'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Done'), findsOneWidget);
   });
 
   testWidgets('Capture opens manual entry with the staged photo', (
@@ -125,7 +128,7 @@ void main() {
   ) async {
     await _pump(tester, _controller());
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Take photo'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Capture'));
     await tester.pumpAndSettle();
 
     expect(find.text('Enter reading manually'), findsOneWidget);
@@ -149,7 +152,16 @@ void main() {
       expect(find.text('Front - Middle'), findsOneWidget);
       expect(find.text('Enter reading manually'), findsOneWidget);
       expect(find.text('Photo captured for this point.'), findsOneWidget);
-      expect(find.byType(Image), findsOneWidget);
+      expect(find.byType(Image), findsAtLeastNWidgets(1));
+      expect(
+        find.byKey(const ValueKey('temperature-photo-strip')),
+        findsOneWidget,
+      );
+      expect(find.text('1/9 photos'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('est-grid-photo-badge-front_middle')),
+        findsOneWidget,
+      );
     },
   );
 
@@ -161,11 +173,53 @@ void main() {
     TemperatureCaptureResult? popped;
     await _pump(tester, controller, onResult: (r) => popped = r);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+    await tester.tap(find.widgetWithText(TextButton, 'Done'));
     await tester.pumpAndSettle();
 
     expect(popped, isNotNull);
     expect(popped!.readings['front_top'], 37.5);
+  });
+
+  testWidgets('Retake returns a saved point to capture-ready state', (
+    tester,
+  ) async {
+    final controller = _controller(
+      config: const TemperatureCaptureConfig(
+        title: 'EST',
+        initialKey: 'front_middle',
+        initialReadings: {'front_middle': 20.0},
+        initialPhotos: {'front_middle': 'front-middle.jpg'},
+      ),
+    );
+
+    await _pump(tester, controller);
+    controller.cancelManualEntry();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved 20.0°C'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Retake'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved 20.0°C'), findsNothing);
+    expect(find.text('Retaking Front - Middle'), findsOneWidget);
+    expect(find.text('Take a photo, then enter the reading.'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Capture'), findsOneWidget);
+  });
+
+  testWidgets('Capture focuses the manual reading field', (tester) async {
+    await _pump(tester, _controller());
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Capture'));
+    await tester.pumpAndSettle();
+
+    final textField = tester.widget<TextField>(
+      find.descendant(
+        of: find.byKey(const ValueKey('temperature-manual-input')),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(textField.focusNode?.hasFocus, isTrue);
   });
 
   testWidgets('manual entry layout avoids phone overflow at large text scale', (
@@ -178,7 +232,7 @@ void main() {
       textScale: 1.5,
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Take photo'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Capture'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

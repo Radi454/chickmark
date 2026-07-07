@@ -235,6 +235,21 @@ Map<String, double> _residueBreakoutBmkForAge(int ageWeek) {
 
 const List<Map<String, dynamic>> kTroubleshootingSeeds = [];
 
+const _cobbHatcheryGuideUrl =
+    'https://www.cobbgenetics.com/assets/Cobb-Files/Hatchery-Guide.pdf';
+const _aviagenChickComfortUrl =
+    'https://www.aviagen.com/assets/Tech_Center/BB_Resources_Tools/Hatchery_How_Tos/07HowTo7ChickComfort.pdf';
+const _aviagenEggShellTempUrl =
+    'https://en.aviagen.com/assets/Tech_Center/BB_Resources_Tools/AA_How_Tos/AAHowto3EggShellTempEN13.pdf';
+const _pasReformPasgarUrl =
+    'https://www.pasreform.com/en/knowledge/173/pasgar-score-an-easy-chick-quality-assessment-method';
+const _petersimeChickQualityUrl =
+    'https://www.petersime.com/expertise/chick-quality-control-assessing-the-quality-of-day-old-chicks-at-the-hatchery/';
+const _hatchTechChickQualityUrl =
+    'https://hatchtech.com/wp-content/uploads/2019/10/HatchTech-research-article-evaluation-of-chick-quality-which-method-do-you-choose-EN-Web.pdf';
+const _hatchTechEstUrl =
+    'https://hatchtech.com/wp-content/uploads/2019/10/HT-research-article-High-eggshell-temperatures-during-incubation-EN-Web.pdf';
+
 const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
   {
     'id': 'global-egg_storage_est_short',
@@ -248,6 +263,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 21.0,
     'targetValue': null,
     'source': 'Cobb storage guidance; ChickMark current EST band',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'Storage duration 0-4 days.',
     'sortOrder': 10,
   },
@@ -263,6 +279,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 20.0,
     'targetValue': null,
     'source': 'Cobb storage guidance; ChickMark current EST band',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'Storage duration 5-7 days.',
     'sortOrder': 20,
   },
@@ -278,6 +295,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 18.0,
     'targetValue': null,
     'source': 'Cobb storage guidance; ChickMark current EST band',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'Storage duration 8+ days.',
     'sortOrder': 30,
   },
@@ -293,6 +311,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 70.0,
     'targetValue': null,
     'source': 'Cobb storage guidance',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'Operational room RH band; tune by storage duration if needed.',
     'sortOrder': 40,
   },
@@ -353,6 +372,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': null,
     'targetValue': 9.5,
     'source': 'Pas Reform Pasgar guidance; ChickMark bands',
+    'sourceUrl': _pasReformPasgarUrl,
     'notes': 'Minimum acceptable 9.0; excellent target 9.5+.',
     'sortOrder': 200,
   },
@@ -367,7 +387,8 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'minValue': null,
     'maxValue': 20.0,
     'targetValue': null,
-    'source': 'ChickMark operational default',
+    'source': 'HatchTech chick quality evaluation; ChickMark default cap',
+    'sourceUrl': _hatchTechChickQualityUrl,
     'notes': 'Per defect category alert cap.',
     'sortOrder': 210,
   },
@@ -383,6 +404,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 105.0,
     'targetValue': null,
     'source': 'Aviagen chick vent temperature guidance',
+    'sourceUrl': _aviagenChickComfortUrl,
     'notes': 'Equivalent to about 39.4-40.6°C.',
     'sortOrder': 220,
   },
@@ -398,6 +420,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 10.0,
     'targetValue': null,
     'source': 'Petersime chick quality guidance; ChickMark current target',
+    'sourceUrl': _petersimeChickQualityUrl,
     'notes': 'Current YFBM panel stores yolk weight divided by chick weight.',
     'sortOrder': 230,
   },
@@ -443,6 +466,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 102.0,
     'targetValue': null,
     'source': 'Petersime/HatchTech EST guidance; ChickMark current band',
+    'sourceUrl': _hatchTechEstUrl,
     'notes': 'Allowed range around the optimum band.',
     'sortOrder': 300,
   },
@@ -458,6 +482,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 101.0,
     'targetValue': null,
     'source': 'Petersime/HatchTech EST guidance; ChickMark current band',
+    'sourceUrl': _aviagenEggShellTempUrl,
     'notes': 'Primary optimum target for setter EST.',
     'sortOrder': 310,
   },
@@ -473,6 +498,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': null,
     'targetValue': 45.0,
     'source': 'Cobb turning guidance',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'Minimum 39°, common operating target 45°.',
     'sortOrder': 320,
   },
@@ -503,6 +529,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 105.0,
     'targetValue': null,
     'source': 'Aviagen chick vent temperature guidance',
+    'sourceUrl': _aviagenChickComfortUrl,
     'notes': 'Equivalent to about 39.4-40.6°C.',
     'sortOrder': 400,
   },
@@ -518,6 +545,7 @@ const List<Map<String, dynamic>> kBmkOperationalStandardSeeds = [
     'maxValue': 54.0,
     'targetValue': null,
     'source': 'Cobb hatcher guidance',
+    'sourceUrl': _cobbHatcheryGuideUrl,
     'notes': 'First 24 hours after transfer; hatchery override expected.',
     'sortOrder': 410,
   },

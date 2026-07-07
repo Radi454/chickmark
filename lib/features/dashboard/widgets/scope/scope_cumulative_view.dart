@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -12,10 +12,8 @@ import '../../scope/scope_config.dart';
 import '../../scope/scope_models.dart';
 import 'scope_severity_style.dart';
 
-/// Cumulative view for one sector: the same pooled parameter values spread across
-/// the sector's axis (flock ages or audit visits) — axis chips, a params×period
-/// table (severity-colored, with a trend arrow), and an Act-vs-BMK line chart for
-/// the selected parameter. Read-only; data comes pre-built from the provider.
+/// All-BMK-ages view for one sector. Table is the default; the sector's existing
+/// chart icon switches the same pooled/House/Machine dataset to a line chart.
 class ScopeCumulativeView extends StatefulWidget {
   final String sectorId;
 
@@ -45,6 +43,15 @@ class _ScopeCumulativeViewState extends State<ScopeCumulativeView> {
     final series = provider.cumulativeSeriesFor(widget.sectorId);
     final loading = provider.isCumulativeLoading(widget.sectorId);
 
+    if (series == null && !loading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<ScopeComparisonProvider>().loadCumulative(
+            widget.sectorId,
+          );
+        }
+      });
+    }
     if (series == null || loading) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
@@ -58,27 +65,36 @@ class _ScopeCumulativeViewState extends State<ScopeCumulativeView> {
       );
     }
     if (series.isEmpty) {
-      return const _CumNote('No cumulative data for this customer / flock yet.');
+      return const _CumNote(
+        'No cumulative data for this customer / flock yet.',
+      );
     }
 
-    final sector = ScopeConfigRegistry.byId(widget.sectorId);
     final headline = _headlineIndex(series);
-    final selected = (_selectedParam ?? headline)
-        .clamp(0, series.params.length - 1);
+    final selected = (_selectedParam ?? headline).clamp(
+      0,
+      series.params.length - 1,
+    );
+    final isChart = provider.isChartMode(widget.sectorId);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: AppSizes.spaceMd),
-        _AxisChips(periods: series.periods, axis: sector.cumulativeAxis),
+        _AxisChips(periods: series.periods, axis: CumulativeAxis.age),
         const SizedBox(height: AppSizes.spaceSm),
-        _CumTable(
-          series: series,
-          selected: selected,
-          onPick: (i) => setState(() => _selectedParam = i),
-        ),
-        const SizedBox(height: AppSizes.spaceMd),
-        _CumChart(series: series, paramIndex: selected, axis: sector.cumulativeAxis),
+        if (isChart)
+          _CumChart(
+            series: series,
+            paramIndex: selected,
+            axis: CumulativeAxis.age,
+          )
+        else
+          _CumTable(
+            series: series,
+            selected: selected,
+            onPick: (i) => setState(() => _selectedParam = i),
+          ),
       ],
     );
   }
@@ -142,12 +158,13 @@ class _CumTable extends StatelessWidget {
     required this.onPick,
   });
 
-  static const double _paramW = 96;
-  static const double _periodW = 62;
-  static const double _trendW = 34;
+  static const double _paramW = 136;
+  static const double _periodW = 72;
+  static const double _avgW = 68;
 
   @override
   Widget build(BuildContext context) {
+    final rows = _rows();
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: AppColors.borderDefault),
@@ -160,12 +177,43 @@ class _CumTable extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _headerRow(),
-            for (var i = 0; i < series.params.length; i++)
-              _paramRow(i, i == selected, i == series.params.length - 1),
+            for (var i = 0; i < rows.length; i++)
+              _paramRow(
+                rows[i],
+                rows[i].paramIndex == selected,
+                i == rows.length - 1,
+              ),
           ],
         ),
       ),
     );
+  }
+
+  List<({String label, CumulativeParam param, int paramIndex})> _rows() {
+    if (series.groups.length <= 1) {
+      final params = series.groups.isEmpty
+          ? series.params
+          : series.groups.first.params;
+      return [
+        for (var i = 0; i < params.length; i++)
+          (label: params[i].param.label, param: params[i], paramIndex: i),
+      ];
+    }
+    return [
+      for (final group in series.groups)
+        for (var i = 0; i < group.params.length; i++)
+          (
+            label: '${group.label} · ${group.params[i].param.label}',
+            param: group.params[i],
+            paramIndex: i,
+          ),
+      for (var i = 0; i < series.params.length; i++)
+        (
+          label: 'Overall · ${series.params[i].param.label}',
+          param: series.params[i],
+          paramIndex: i,
+        ),
+    ];
   }
 
   Widget _headerRow() {
@@ -176,18 +224,22 @@ class _CumTable extends StatelessWidget {
           _cell('PARAM', _paramW, header: true, align: TextAlign.left),
           for (final p in series.periods)
             _cell(p.label, _periodW, header: true),
-          _cell('TREND', _trendW, header: true),
+          _cell('AVG', _avgW, header: true),
         ],
       ),
     );
   }
 
-  Widget _paramRow(int i, bool isSelected, bool isLast) {
-    final cp = series.params[i];
+  Widget _paramRow(
+    ({String label, CumulativeParam param, int paramIndex}) row,
+    bool isSelected,
+    bool isLast,
+  ) {
+    final cp = row.param;
     return Material(
       color: isSelected ? AppColors.statusActiveBg : Colors.transparent,
       child: InkWell(
-        onTap: () => onPick(i),
+        onTap: () => onPick(row.paramIndex),
         child: Container(
           decoration: BoxDecoration(
             border: Border(
@@ -203,18 +255,14 @@ class _CumTable extends StatelessWidget {
           child: Row(
             children: [
               _cell(
-                cp.param.label,
+                row.label,
                 _paramW - 2.5,
                 align: TextAlign.left,
                 weight: FontWeight.w800,
               ),
               for (var pi = 0; pi < series.periods.length; pi++)
                 _severityCell(cp, pi),
-              SizedBox(
-                width: _trendW,
-                height: 34,
-                child: Center(child: _trendArrow(cp)),
-              ),
+              _cell(cp.averageText, _avgW, weight: FontWeight.w900),
             ],
           ),
         ),
@@ -224,6 +272,10 @@ class _CumTable extends StatelessWidget {
 
   Widget _severityCell(CumulativeParam cp, int pi) {
     final style = ScopeSeverityStyle.of(cp.severities[pi]);
+    final missing =
+        cp.values[pi] == null &&
+        cp.param.format != ScopeValueFormat.text &&
+        cp.param.format != ScopeValueFormat.yesNo;
     return Container(
       width: _periodW,
       height: 34,
@@ -231,29 +283,17 @@ class _CumTable extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9),
       color: style.cellBg,
       child: Text(
-        cp.texts[pi],
+        missing ? 'No data' : cp.texts[pi],
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: missing ? 9.5 : 12,
           fontWeight: style.weight == FontWeight.w500
               ? FontWeight.w700
               : style.weight,
           color: style.cellText,
         ),
       ),
-    );
-  }
-
-  Widget _trendArrow(CumulativeParam cp) {
-    final t = cp.trend;
-    if (t == 0) {
-      return const Icon(Icons.trending_flat, size: 16, color: AppColors.textTertiary);
-    }
-    // Direction is just up/down; color reflects better/worse given higherIsBetter.
-    final better = cp.param.higherIsBetter ? t > 0 : t < 0;
-    return Icon(
-      t > 0 ? Icons.north : Icons.south,
-      size: 14,
-      color: better ? AppColors.statusGood : AppColors.statusError,
     );
   }
 
@@ -267,8 +307,9 @@ class _CumTable extends StatelessWidget {
     return Container(
       width: width,
       height: header ? 30 : 34,
-      alignment:
-          align == TextAlign.left ? Alignment.centerLeft : Alignment.centerRight,
+      alignment: align == TextAlign.left
+          ? Alignment.centerLeft
+          : Alignment.centerRight,
       padding: const EdgeInsets.symmetric(horizontal: 9),
       child: Text(
         text,
@@ -300,16 +341,43 @@ class _CumChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final cp = series.params[paramIndex];
     final n = series.periods.length;
-
-    // Spots (skip null values so a gap doesn't crash the line).
-    final actSpots = <FlSpot>[];
-    final actSev = <ScopeSeverity>[];
-    for (var i = 0; i < n; i++) {
-      final v = cp.values[i];
-      if (v != null) {
-        actSpots.add(FlSpot(i.toDouble(), v.toDouble()));
-        actSev.add(cp.severities[i]);
+    const colors = <Color>[
+      AppColors.primary,
+      AppColors.accent,
+      AppColors.statusGood,
+      AppColors.statusWarning,
+      AppColors.statusError,
+      AppColors.textSecondary,
+    ];
+    final plottedGroups = series.groups.isEmpty
+        ? [CumulativeGroup(label: 'Overall', params: series.params)]
+        : series.groups;
+    final groupLines =
+        <
+          ({
+            String label,
+            Color color,
+            List<FlSpot> spots,
+            List<ScopeSeverity> severities,
+          })
+        >[];
+    for (var gi = 0; gi < plottedGroups.length; gi++) {
+      final groupParam = plottedGroups[gi].params[paramIndex];
+      final spots = <FlSpot>[];
+      final severities = <ScopeSeverity>[];
+      for (var i = 0; i < n; i++) {
+        final value = groupParam.values[i];
+        if (value != null) {
+          spots.add(FlSpot(i.toDouble(), value.toDouble()));
+          severities.add(groupParam.severities[i]);
+        }
       }
+      groupLines.add((
+        label: plottedGroups[gi].label,
+        color: colors[gi % colors.length],
+        spots: spots,
+        severities: severities,
+      ));
     }
     final bmkSpots = <FlSpot>[];
     for (var i = 0; i < n; i++) {
@@ -318,8 +386,10 @@ class _CumChart extends StatelessWidget {
     }
 
     final all = [
-      ...actSpots.map((s) => s.y),
+      for (final line in groupLines) ...line.spots.map((spot) => spot.y),
       ...bmkSpots.map((s) => s.y),
+      if (series.groups.length > 1 && cp.averageValue != null)
+        cp.averageValue!.toDouble(),
     ];
     if (all.isEmpty) {
       return const _CumNote('Nothing to chart for this parameter.');
@@ -342,32 +412,49 @@ class _CumChart extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(text: cp.param.label),
-                        TextSpan(
-                          text:
-                              '  across ${axis == CumulativeAxis.age ? 'ages' : 'visits'}',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textTertiary,
-                          ),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: cp.param.label),
+                      TextSpan(
+                        text:
+                            '  across ${axis == CumulativeAxis.age ? 'ages' : 'visits'}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
                         ),
-                      ],
-                    ),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
+                      ),
+                    ],
+                  ),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-                const _ChartLegend(),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 5,
+                  children: [
+                    for (final line in groupLines)
+                      _Swatch(color: line.color, label: line.label),
+                    if (bmkSpots.isNotEmpty)
+                      const _Swatch(
+                        color: AppColors.chartBenchmark,
+                        label: 'Standard',
+                      ),
+                    if (series.groups.length > 1 && cp.averageValue != null)
+                      const _Swatch(
+                        color: AppColors.textTertiary,
+                        label: 'Overall avg',
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -454,23 +541,38 @@ class _CumChart extends StatelessWidget {
                         ),
                       ),
                     ),
-                  LineChartBarData(
-                    spots: actSpots,
-                    isCurved: false,
-                    color: AppColors.primary,
-                    barWidth: 2.5,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-                        radius: 3.6,
-                        color: ScopeSeverityStyle.dotColor(
-                          i < actSev.length ? actSev[i] : ScopeSeverity.good,
+                  for (final line in groupLines)
+                    LineChartBarData(
+                      spots: line.spots,
+                      isCurved: false,
+                      color: line.color,
+                      barWidth: 2.5,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (s, p, b, i) => FlDotCirclePainter(
+                          radius: 3.6,
+                          color: ScopeSeverityStyle.dotColor(
+                            i < line.severities.length
+                                ? line.severities[i]
+                                : ScopeSeverity.good,
+                          ),
+                          strokeColor: line.color,
+                          strokeWidth: 1.5,
                         ),
-                        strokeColor: Colors.white,
-                        strokeWidth: 1.5,
                       ),
                     ),
-                  ),
+                  if (series.groups.length > 1 && cp.averageValue != null)
+                    LineChartBarData(
+                      spots: [
+                        FlSpot(0, cp.averageValue!.toDouble()),
+                        FlSpot((n - 1).toDouble(), cp.averageValue!.toDouble()),
+                      ],
+                      isCurved: false,
+                      color: AppColors.textTertiary,
+                      barWidth: 1.5,
+                      dashArray: const [4, 4],
+                      dotData: const FlDotData(show: false),
+                    ),
                 ],
               ),
             ),
@@ -490,22 +592,6 @@ class _CumChart extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ChartLegend extends StatelessWidget {
-  const _ChartLegend();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: const [
-        _Swatch(color: AppColors.primary, label: 'Actual'),
-        SizedBox(width: 10),
-        _Swatch(color: AppColors.chartBenchmark, label: 'Standard'),
-      ],
     );
   }
 }

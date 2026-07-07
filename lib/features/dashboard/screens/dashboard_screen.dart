@@ -1,14 +1,19 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
+import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -19,6 +24,12 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  final Set<String> _collapsedScopeStations = <String>{};
+  SettingsProvider? _settingsProvider;
+  String? _observedSyncTimestamp;
+  bool _refreshingAfterSync = false;
+  bool _goveeExpanded = true;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +41,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    SettingsProvider? settings;
+    try {
+      settings = context.read<SettingsProvider>();
+    } on ProviderNotFoundException {
+      // Some focused widget tests render DashboardScreen without app providers.
+    }
+    if (identical(settings, _settingsProvider)) return;
+    _settingsProvider?.removeListener(_handleSettingsChange);
+    _settingsProvider = settings;
+    _observedSyncTimestamp = settings?.lastSyncTimestamp;
+    settings?.addListener(_handleSettingsChange);
+  }
+
+  @override
+  void dispose() {
+    _settingsProvider?.removeListener(_handleSettingsChange);
+    super.dispose();
+  }
+
+  void _handleSettingsChange() {
+    final settings = _settingsProvider;
+    final timestamp = settings?.lastSyncTimestamp;
+    if (!mounted ||
+        settings == null ||
+        timestamp == null ||
+        timestamp == _observedSyncTimestamp) {
+      return;
+    }
+    _observedSyncTimestamp = timestamp;
+    if (!settings.lastSyncOnline || settings.lastSyncError != null) return;
+    unawaited(_refreshAfterSync());
+  }
+
+  Future<void> _refreshAfterSync() async {
+    if (_refreshingAfterSync) return;
+    _refreshingAfterSync = true;
+    try {
+      await Future.wait([
+        context.read<DashboardProvider>().refresh(),
+        context.read<ScopeComparisonProvider>().refresh(),
+      ]);
+    } finally {
+      _refreshingAfterSync = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
@@ -38,76 +98,137 @@ class _DashboardScreenState extends State<DashboardScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           context.read<ScopeComparisonProvider>().applyFilter(
-                customerId: provider.selectedCustomerId,
-                flockId: provider.selectedFlockId,
-                bmkAge: provider.selectedBmkAge,
-              );
+            customerId: provider.selectedCustomerId,
+            flockId: provider.selectedFlockId,
+            bmkAge: provider.selectedBmkAge,
+          );
         });
         return Scaffold(
           appBar: const GradientAppBar(title: 'Dashboard'),
-          body: Column(
-            children: [
-              _buildCascadeFilter(provider),
-              Expanded(child: _buildContent(context, provider)),
-            ],
-          ),
+          body: _buildContent(context, provider),
         );
       },
     );
   }
 
   Widget _buildCascadeFilter(DashboardProvider provider) {
+    final selectedFlock = _selectedFlock(provider);
+
     return AppCard(
-      margin: const EdgeInsets.fromLTRB(
-        AppSizes.spaceSm,
-        AppSizes.spaceSm,
-        AppSizes.spaceSm,
-        0,
-      ),
+      key: const ValueKey('dashboard-filter-card'),
+      margin: EdgeInsets.zero,
       color: AppColors.surfaceVariant,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Age is no longer a global filter — each sector carries its own
-          // period picker + Incremental/Cumulative toggle.
-          final customerFilter = _customerFilter(provider);
-          final flockFilter = _flockFilter(provider);
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Age is no longer a global filter — each sector carries its own
+              // period picker + Incremental/Cumulative toggle.
+              final customerFilter = _customerFilter(context, provider);
+              final flockFilter = _flockFilter(context, provider);
 
-          if (constraints.maxWidth < 520) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                customerFilter,
-                const SizedBox(height: AppSizes.spaceSm),
-                Row(
+              if (constraints.maxWidth < 520) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: flockFilter),
-                    if (provider.hasActiveFilters) ...[
-                      const SizedBox(width: AppSizes.spaceXs),
-                      _clearFilterButton(provider, compact: true),
-                    ],
+                    customerFilter,
+                    const SizedBox(height: AppSizes.spaceSm),
+                    Row(
+                      children: [
+                        Expanded(child: flockFilter),
+                        if (provider.hasActiveFilters) ...[
+                          const SizedBox(width: AppSizes.spaceXs),
+                          _clearFilterButton(provider, compact: true),
+                        ],
+                      ],
+                    ),
                   ],
-                ),
-              ],
-            );
-          }
+                );
+              }
 
-          return Row(
-            children: [
-              Expanded(child: customerFilter),
-              const SizedBox(width: AppSizes.spaceSm),
-              Expanded(child: flockFilter),
-              if (provider.hasActiveFilters) ...[
-                const SizedBox(width: AppSizes.spaceSm),
-                _clearFilterButton(provider),
-              ],
-            ],
-          );
-        },
+              return Row(
+                children: [
+                  Expanded(child: customerFilter),
+                  const SizedBox(width: AppSizes.spaceSm),
+                  Expanded(child: flockFilter),
+                  if (provider.hasActiveFilters) ...[
+                    const SizedBox(width: AppSizes.spaceSm),
+                    _clearFilterButton(provider),
+                  ],
+                ],
+              );
+            },
+          ),
+          if (selectedFlock != null) ...[
+            const SizedBox(height: AppSizes.spaceMd),
+            const Divider(height: 1),
+            const SizedBox(height: AppSizes.spaceMd),
+            _buildCurrentFlockDetails(selectedFlock),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _customerFilter(DashboardProvider provider) {
+  FlockModel? _selectedFlock(DashboardProvider provider) {
+    final selectedId = provider.selectedFlockId;
+    if (selectedId == null) return null;
+
+    for (final flock in provider.flocks) {
+      if (flock.id == selectedId) return flock;
+    }
+    return null;
+  }
+
+  Widget _buildCurrentFlockDetails(FlockModel flock) {
+    final ageWeeks = flock.currentAgeWeeks.toInt().clamp(0, 999);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columnCount = constraints.maxWidth < 280
+            ? 1
+            : constraints.maxWidth < 700
+            ? 2
+            : 4;
+        final gaps = (columnCount - 1) * AppSizes.spaceMd;
+        final itemWidth = (constraints.maxWidth - gaps) / columnCount;
+        final details = [
+          _FlockDetailItem(
+            icon: Icons.badge_outlined,
+            label: 'Name',
+            value: flock.flockId,
+          ),
+          _FlockDetailItem(
+            icon: Icons.calendar_today_outlined,
+            label: 'Current age',
+            value: '$ageWeeks weeks',
+          ),
+          _FlockDetailItem(
+            icon: Icons.category_outlined,
+            label: 'Breed',
+            value: flock.breed,
+          ),
+          _FlockDetailItem(
+            icon: Icons.login_outlined,
+            label: 'Entrance date',
+            value: HatchDateUtils.formatDisplayDate(flock.entryDate),
+          ),
+        ];
+
+        return Wrap(
+          spacing: AppSizes.spaceMd,
+          runSpacing: AppSizes.spaceMd,
+          children: [
+            for (final detail in details)
+              SizedBox(width: itemWidth, child: detail),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _customerFilter(BuildContext context, DashboardProvider provider) {
     final entries = <({String? value, String label})>[
       if (provider.canUseAllCustomers) (value: null, label: 'All customers'),
       ...provider.customers.map((c) => (value: c.id, label: c.name)),
@@ -116,7 +237,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return DropdownButtonFormField<String>(
       initialValue: provider.selectedCustomerId,
       isExpanded: true,
-      decoration: _filterDecoration('Customer'),
+      decoration: _filterDecoration(context, 'Customer'),
       selectedItemBuilder: (context) => [
         for (final entry in entries) _menuText(entry.label),
       ],
@@ -128,7 +249,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _flockFilter(DashboardProvider provider) {
+  Widget _flockFilter(BuildContext context, DashboardProvider provider) {
     final entries = <({String? value, String label})>[
       (value: null, label: 'All flocks'),
       ...provider.flocks.map((f) => (value: f.id, label: f.flockId)),
@@ -137,7 +258,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return DropdownButtonFormField<String>(
       initialValue: provider.selectedFlockId,
       isExpanded: true,
-      decoration: _filterDecoration('Flock'),
+      decoration: _filterDecoration(context, 'Flock'),
       selectedItemBuilder: (context) => [
         for (final entry in entries) _menuText(entry.label),
       ],
@@ -149,9 +270,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  InputDecoration _filterDecoration(String label) {
+  InputDecoration _filterDecoration(BuildContext context, String label) {
     return InputDecoration(
-      labelText: label,
+      labelText: context.tr(label),
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(
         horizontal: AppSizes.spaceSm,
@@ -170,7 +291,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     if (compact) {
       return IconButton.filledTonal(
-        tooltip: 'Clear filters',
+        tooltip: context.tr('Clear filters'),
         onPressed: provider.clearFilters,
         icon: const Icon(Icons.clear, size: 18),
       );
@@ -193,9 +314,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ]);
   }
 
+  void _toggleScopeStation(String station) {
+    setState(() {
+      if (!_collapsedScopeStations.add(station)) {
+        _collapsedScopeStations.remove(station);
+      }
+    });
+  }
+
+  void _toggleGoveeSection() {
+    setState(() => _goveeExpanded = !_goveeExpanded);
+  }
+
   Widget _buildContent(BuildContext context, DashboardProvider provider) {
     if (provider.isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.spaceSm,
+          vertical: AppSizes.spaceMd,
+        ),
+        children: [
+          _buildCascadeFilter(provider),
+          const SizedBox(
+            height: 240,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ],
+      );
     }
 
     if (provider.customers.isEmpty && provider.flocks.isEmpty) {
@@ -204,29 +350,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSizes.spaceSm,
+              vertical: AppSizes.spaceMd,
+            ),
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.dashboard_outlined,
-                      size: 64,
-                      color: AppColors.textDisabled,
+              child: Column(
+                children: [
+                  _buildCascadeFilter(provider),
+                  const SizedBox(height: AppSizes.spaceXxl),
+                  const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.dashboard_outlined,
+                          size: 64,
+                          color: AppColors.textDisabled,
+                        ),
+                        SizedBox(height: AppSizes.spaceLg),
+                        Text(
+                          'No customer or flock data yet',
+                          style: AppTextStyles.title,
+                        ),
+                        SizedBox(height: AppSizes.spaceSm),
+                        Text(
+                          'Add a customer and flock to see dashboard insights.',
+                          style: AppTextStyles.caption,
+                        ),
+                      ],
                     ),
-                    SizedBox(height: AppSizes.spaceLg),
-                    Text(
-                      'No customer or flock data yet',
-                      style: AppTextStyles.title,
-                    ),
-                    SizedBox(height: AppSizes.spaceSm),
-                    Text(
-                      'Add a customer and flock to see dashboard insights.',
-                      style: AppTextStyles.caption,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -243,6 +399,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           vertical: AppSizes.spaceMd,
         ),
         children: [
+          _buildCascadeFilter(provider),
+          const SizedBox(height: AppSizes.spaceLg),
           // Egg Storage & Egg Quality are presented by the Scopes section below
           // (same station card as every other audit station). The legacy bespoke
           // EggStorageSection / EggQualitySection cards were dropped to avoid
@@ -250,11 +408,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
           GoveeEnvironmentalReadingsSection(
             captures: provider.goveeCaptures,
             isLoading: provider.isLoadingGoveeCaptures,
+            expanded: _goveeExpanded,
+            onToggle: _toggleGoveeSection,
           ),
           const SizedBox(height: AppSizes.spaceLg),
-          const ScopeInsightsSection(),
+          ScopeInsightsSection(
+            collapsedStations: _collapsedScopeStations,
+            onStationToggle: _toggleScopeStation,
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _FlockDetailItem extends StatelessWidget {
+  const _FlockDetailItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: AppSizes.spaceSm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppTextStyles.caption),
+              const SizedBox(height: AppSizes.spaceXs),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.subtitle.copyWith(
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -63,7 +63,7 @@ class HatcheryManagementSheet extends StatelessWidget {
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Back',
+                          tooltip: context.tr('Back'),
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.arrow_back),
                         ),
@@ -303,12 +303,12 @@ class _ManagedHatcheryCard extends StatelessWidget {
                     ),
                   ),
                 IconButton.outlined(
-                  tooltip: 'Edit hatchery',
+                  tooltip: context.tr('Edit hatchery'),
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton.outlined(
-                  tooltip: 'Remove hatchery',
+                  tooltip: context.tr('Remove hatchery'),
                   onPressed: onDelete,
                   color: Colors.red.shade700,
                   icon: const Icon(Icons.delete_outline),

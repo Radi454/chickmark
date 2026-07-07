@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
@@ -233,7 +233,7 @@ class _DefectCountRow extends StatelessWidget {
               children: [
                 Expanded(
                   child: Align(
-                    alignment: Alignment.centerLeft,
+                    alignment: AlignmentDirectional.centerStart,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -308,7 +308,7 @@ class _CountStepper extends StatelessWidget {
           _StepButton(
             buttonKey: ValueKey('culled-chicks-decrement-$defectId'),
             icon: Icons.remove,
-            tooltip: 'Decrease count',
+            tooltip: context.tr('Decrease count'),
             onPressed: enabled && count > 0 ? () => _setCount(count - 1) : null,
           ),
           const SizedBox(width: 6),
@@ -334,7 +334,7 @@ class _CountStepper extends StatelessWidget {
           _StepButton(
             buttonKey: ValueKey('culled-chicks-increment-$defectId'),
             icon: Icons.add,
-            tooltip: 'Increase count',
+            tooltip: context.tr('Increase count'),
             onPressed: enabled ? () => _setCount(count + 1) : null,
           ),
         ],

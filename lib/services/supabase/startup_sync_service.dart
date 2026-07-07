@@ -142,6 +142,7 @@ class StartupSyncService {
     }
     final pulled = await _pullRemoteData(progress);
     progress(0.96, 'Syncing photos');
+    await _photoSyncService.syncDownloaded();
     await _photoSyncService.syncPending();
     if (userId != null && userId.isNotEmpty) {
       await _activityLogRepository.log(

@@ -128,6 +128,23 @@ Future<void> _backfillEggBreakoutAliases(Database db) async {
   ''');
 }
 
+Future<void> _backfillOperationalBmkSeedSources(Database db) async {
+  if (!await _tableExists(db, 'bmk_operational_standards')) return;
+  final columns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('bmk_operational_standards')"),
+  );
+  if (!columns.contains('sourceUrl')) return;
+
+  for (final seed in kBmkOperationalStandardSeeds) {
+    await db.update(
+      'bmk_operational_standards',
+      {'source': seed['source'], 'sourceUrl': seed['sourceUrl']},
+      where: 'id = ? AND hatcheryId IS NULL',
+      whereArgs: [seed['id']],
+    );
+  }
+}
+
 Future<void> _ensureCompleteBmkBreedSeedData(Database db) async {
   const breeds = ['Ross308', 'Arbo', 'Avian', 'Cobb500', 'Hubbard', 'IR'];
   for (final breed in breeds) {

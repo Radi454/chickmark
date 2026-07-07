@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../constants/app_sizes.dart';
 
 enum AppElevationLevel { none, level1, level2, level3 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -17,6 +17,7 @@ import '../../../services/photo/photo_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
+import '../models/temperature_readings_payload.dart';
 import '../temperature_capture/temperature_capture_config.dart';
 import '../temperature_capture/temperature_capture_launcher.dart';
 import '../providers/audit_provider.dart';
@@ -292,20 +293,13 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
 
   void _loadEstReadings(String? readingsJson) {
     if (readingsJson == null || readingsJson.trim().isEmpty) return;
-    try {
-      final decoded = jsonDecode(readingsJson);
-      if (decoded is! Map) return;
-      final readings = EstGridData.normalizeReadings(decoded);
-      for (final entry in readings.entries) {
-        _estControllers[entry.key]?.text = _estUnit
-            .fromCanonical(
-              entry.value,
-              canonicalUnit: TemperatureEntryUnit.fahrenheit,
-            )
-            .toStringAsFixed(1);
-      }
-    } catch (_) {
-      // Keep grid blank if stored data is malformed.
+    final payload = TemperatureReadingsPayload.decode(
+      readingsJson,
+      legacyUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    _estUnit = payload.unit;
+    for (final entry in payload.readings.entries) {
+      _estControllers[entry.key]?.text = entry.value.toStringAsFixed(1);
     }
   }
 
@@ -471,7 +465,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildSetterSampleActionButton(
-          tooltip: 'Add machine sample',
+          tooltip: context.tr('Add machine sample'),
           icon: Icons.add,
           onPressed: provider.isReadOnly
               ? null
@@ -480,7 +474,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
         if (provider.sampleCount > 1) ...[
           const SizedBox(width: 8),
           _buildSetterSampleActionButton(
-            tooltip: 'Remove active machine sample',
+            tooltip: context.tr('Remove active machine sample'),
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
@@ -562,7 +556,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       child: Semantics(
         button: true,
         enabled: enabled,
-        label: tooltip,
+        label: context.tr(tooltip),
         child: Material(
           color: Colors.transparent,
           child: InkResponse(
@@ -891,12 +885,18 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     final existing = Map<String, dynamic>.from(samples[index]);
     final avg = double.tryParse(_estAvgController.text);
     final cv = double.tryParse(_estCvController.text);
+    final readings = _currentEstReadings();
     return _normalizeEstSample({
       ...existing,
       'breed': _activeEstBreed,
       'incubationAge': int.tryParse(_incubationAgeController.text) ?? 1,
       'incubationHours': int.tryParse(_incubationHoursController.text) ?? 0,
-      'estReadings': _currentEstReadings(),
+      'estReadings': readings.isEmpty
+          ? <String, double>{}
+          : TemperatureReadingsPayload(
+              unit: _estUnit,
+              readings: readings,
+            ).toJsonMap(),
       'estPhotos': _currentEstPhotoPaths(),
       'estAvg': avg,
       'estCv': cv,
@@ -1000,7 +1000,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                     children: [
                       _buildSetterSampleActionButton(
                         key: const ValueKey('setter-est-sample-add-button'),
-                        tooltip: 'Add incubation age sample',
+                        tooltip: context.tr('Add incubation age sample'),
                         icon: Icons.add,
                         onPressed: auditProvider.isReadOnly
                             ? null
@@ -1012,7 +1012,9 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
                           key: const ValueKey(
                             'setter-est-sample-remove-button',
                           ),
-                          tooltip: 'Remove active incubation age sample',
+                          tooltip: context.tr(
+                            'Remove active incubation age sample',
+                          ),
                           icon: Icons.remove,
                           onPressed: auditProvider.isReadOnly
                               ? null
@@ -1388,14 +1390,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   Map<String, double> _currentEstReadings() {
     return {
       for (final entry in _currentEstDisplayReadings().entries)
-        entry.key: double.parse(
-          _estUnit
-              .toCanonical(
-                entry.value,
-                canonicalUnit: TemperatureEntryUnit.fahrenheit,
-              )
-              .toStringAsFixed(1),
-        ),
+        entry.key: double.parse(entry.value.toStringAsFixed(1)),
     };
   }
 
@@ -1448,7 +1443,12 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
 
     provider.updateField(
       'soEstReadings',
-      readings.isEmpty ? null : jsonEncode(readings),
+      readings.isEmpty
+          ? null
+          : TemperatureReadingsPayload(
+              unit: _estUnit,
+              readings: readings,
+            ).toJsonString(),
     );
     _syncActiveEstSampleToDraft(provider);
   }
@@ -1467,20 +1467,23 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       }
       _estUnit = unit;
     });
+    _updateEstCalculations(context.read<AuditProvider>());
   }
 
   String _displayEstAverage() {
-    final averageF = double.tryParse(_estAvgController.text);
-    if (averageF == null) return '--';
-    return _estUnit
-        .fromCanonical(averageF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
-        .toStringAsFixed(1);
+    final average = double.tryParse(_estAvgController.text);
+    if (average == null) return '--';
+    return average.toStringAsFixed(1);
   }
 
   Color _estAverageColor() {
     final avg = double.tryParse(_estAvgController.text);
     if (avg == null) return Colors.blueGrey;
-    return switch (CalculationUtils.setterEstStatus(avg)) {
+    final avgF = _estUnit.toCanonical(
+      avg,
+      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    return switch (CalculationUtils.setterEstStatus(avgF)) {
       TemperatureStatus.optimal => AppColors.statusGood,
       TemperatureStatus.low ||
       TemperatureStatus.high => AppColors.statusWarning,

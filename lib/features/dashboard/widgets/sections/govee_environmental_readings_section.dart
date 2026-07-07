@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
@@ -15,11 +15,15 @@ import 'package:provider/provider.dart';
 class GoveeEnvironmentalReadingsSection extends StatefulWidget {
   final List<GoveeCaptureSummary> captures;
   final bool isLoading;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   const GoveeEnvironmentalReadingsSection({
     super.key,
     required this.captures,
     required this.isLoading,
+    required this.expanded,
+    required this.onToggle,
   });
 
   @override
@@ -30,7 +34,6 @@ class GoveeEnvironmentalReadingsSection extends StatefulWidget {
 class _GoveeEnvironmentalReadingsSectionState
     extends State<GoveeEnvironmentalReadingsSection> {
   int _selected = 0;
-  bool _expanded = true;
   // Cumulative is per place (keyed by the place enum, not the tab index, so it
   // survives filter changes): Setter Room can be cumulative while Outside
   // Hatchery stays incremental.
@@ -58,7 +61,7 @@ class _GoveeEnvironmentalReadingsSectionState
             Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () => setState(() => _expanded = !_expanded),
+                onTap: widget.onToggle,
                 child: Container(
                   width: double.infinity,
                   decoration: const BoxDecoration(
@@ -110,7 +113,7 @@ class _GoveeEnvironmentalReadingsSectionState
                       ],
                       const SizedBox(width: AppSizes.spaceSm),
                       AnimatedRotation(
-                        turns: _expanded ? 0.5 : 0,
+                        turns: widget.expanded ? 0.5 : 0,
                         duration: const Duration(milliseconds: 200),
                         child: const Icon(
                           Icons.keyboard_arrow_down,
@@ -180,7 +183,7 @@ class _GoveeEnvironmentalReadingsSectionState
                   ],
                 ),
               ),
-              crossFadeState: _expanded
+              crossFadeState: widget.expanded
                   ? CrossFadeState.showSecond
                   : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 200),

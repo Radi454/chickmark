@@ -32,6 +32,7 @@ class ScopeComparisonRepository {
   ) async {
     final table = sector.tableName;
     if (table == null) return const []; // dummy-only sector (no backing table)
+    final ageColumn = _ageColumnFor(table);
 
     final def = PanelSampleSchema.byTable(table);
     final existing = <String>{
@@ -39,8 +40,9 @@ class ScopeComparisonRepository {
       ...def.measurementColumns.map((d) => d.split(' ').first),
     };
 
-    final nonPool =
-        sector.allowedLayers.where((l) => l != SamplingLayer.pool).toList();
+    final nonPool = sector.allowedLayers
+        .where((l) => l != SamplingLayer.pool)
+        .toList();
 
     final hierCols = <String>{};
     for (final layer in nonPool) {
@@ -61,18 +63,11 @@ class ScopeComparisonRepository {
     final selectCols = {...hierCols, ...measureCols}.toList();
     if (selectCols.isEmpty) return const [];
 
-    final bmkColumn = switch (table) {
-      'fresh_egg_breakout' ||
-      'candled_egg_breakout' ||
-      'residue_breakout' => 'bmkAgeWeeks',
-      'egg_quality' => 'eggBmkAgeWeeks',
-      _ => null,
-    };
-
     final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, bmkColumn: bmkColumn);
+    final (:clause, :args) = _where(filter, bmkColumn: ageColumn);
     final rows = await db.rawQuery(
-      'SELECT ${selectCols.join(', ')} FROM $table $clause',
+      'SELECT ${selectCols.join(', ')}, '
+      '$ageColumn AS _scopeBmkAge FROM $table $clause',
       args,
     );
 
@@ -86,11 +81,13 @@ class ScopeComparisonRepository {
       final cells = <String, ScopeCellAccumulator>{};
       for (final p in sector.params) {
         if (p.format == ScopeValueFormat.text) {
-          cells[p.column] =
-              ScopeCellAccumulator.sample(text: row[p.column]?.toString());
+          cells[p.column] = ScopeCellAccumulator.sample(
+            text: row[p.column]?.toString(),
+          );
         } else {
-          final count =
-              p.countColumn != null ? _asNum(row[p.countColumn]) : null;
+          final count = p.countColumn != null
+              ? _asNum(row[p.countColumn])
+              : null;
           cells[p.column] = ScopeCellAccumulator.sample(
             value: _asNum(row[p.column]),
             traySize: traySize,
@@ -98,7 +95,11 @@ class ScopeComparisonRepository {
           );
         }
       }
-      return ScopeLeafRow(layerSegments: segments, cells: cells);
+      return ScopeLeafRow(
+        bmkAge: _asNum(row['_scopeBmkAge'])?.toInt(),
+        layerSegments: segments,
+        cells: cells,
+      );
     }).toList();
   }
 
@@ -179,21 +180,8 @@ class ScopeComparisonRepository {
     _ => 'flockAgeWeeks',
   };
 
-  static const List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  String _visitLabel(Object? rawDate, int index) {
-    final s = rawDate?.toString();
-    final d = s == null ? null : DateTime.tryParse(s);
-    if (d != null) return '${d.day} ${_months[d.month - 1]}';
-    return 'V${index + 1}';
-  }
-
-  /// Distinct points on the sector's Cumulative axis (ages for age-axis sectors,
-  /// visits for visit-axis sectors), oldest→newest. Ignores any age/session
-  /// narrowing on [base] — lists everything for the customer/flock.
+  /// Distinct BMK ages for a sector, oldest→newest. Ignores any age/session
+  /// narrowing on [base] so every station gets the same age-first selector.
   Future<List<ScopePeriod>> distinctPeriods(
     ScopeSectorConfig sector,
     DashboardFilter base,
@@ -201,45 +189,25 @@ class ScopeComparisonRepository {
     final table = sector.tableName;
     if (table == null) return const [];
     final db = await _dbHelper.db;
-    final cf =
-        DashboardFilter(customerId: base.customerId, flockId: base.flockId);
-
-    if (sector.cumulativeAxis == CumulativeAxis.age) {
-      final ageCol = _ageColumnFor(table);
-      final (:clause, :args) = _where(cf);
-      final rows = await db.rawQuery(
-        'SELECT $ageCol AS age, COUNT(*) AS n FROM $table $clause '
-        'AND $ageCol IS NOT NULL GROUP BY $ageCol ORDER BY $ageCol ASC',
-        args,
-      );
-      return [
-        for (final r in rows)
-          if (_asNum(r['age']) != null)
-            ScopePeriod(
-              label: 'W${_asNum(r['age'])!.toInt()}',
-              age: _asNum(r['age'])!.toInt(),
-              n: _asNum(r['n'])?.toInt() ?? 0,
-            ),
-      ];
-    }
-
-    // visit axis: one point per session, oldest→newest by the row's own date.
-    final (:clause, :args) = _where(cf);
+    final cf = DashboardFilter(
+      customerId: base.customerId,
+      flockId: base.flockId,
+    );
+    final ageCol = _ageColumnFor(table);
+    final (:clause, :args) = _where(cf, bmkColumn: ageCol);
     final rows = await db.rawQuery(
-      'SELECT sessionId AS sid, MAX(date) AS dt, COUNT(*) AS n FROM $table '
-      '$clause AND sessionId IS NOT NULL GROUP BY sessionId ORDER BY dt ASC',
+      'SELECT $ageCol AS age, COUNT(*) AS n FROM $table $clause '
+      'AND $ageCol IS NOT NULL GROUP BY $ageCol ORDER BY $ageCol ASC',
       args,
     );
-    final out = <ScopePeriod>[];
-    for (var i = 0; i < rows.length; i++) {
-      final sid = rows[i]['sid']?.toString();
-      if (sid == null || sid.isEmpty) continue;
-      out.add(ScopePeriod(
-        label: _visitLabel(rows[i]['dt'], i),
-        sessionId: sid,
-        n: _asNum(rows[i]['n'])?.toInt() ?? 0,
-      ));
-    }
-    return out;
+    return [
+      for (final row in rows)
+        if (_asNum(row['age']) != null)
+          ScopePeriod(
+            label: 'W${_asNum(row['age'])!.toInt()}',
+            age: _asNum(row['age'])!.toInt(),
+            n: _asNum(row['n'])?.toInt() ?? 0,
+          ),
+    ];
   }
 }

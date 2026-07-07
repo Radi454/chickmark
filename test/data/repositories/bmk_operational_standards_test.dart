@@ -42,6 +42,11 @@ void main() {
     expect(eggStorageShort.minValue, 19);
     expect(eggStorageShort.maxValue, 21);
     expect(eggStorageShort.unit, '°C');
+    expect(eggStorageShort.sourceUrl, startsWith('https://'));
+
+    final cvAlert = rows.firstWhere((row) => row.metricKey == 'cv_alert');
+    expect(cvAlert.source, 'ChickMark operational default');
+    expect(cvAlert.sourceUrl, isNull);
   });
 
   test('hatchery-specific operational BMK overrides global value', () async {

@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
@@ -23,9 +24,75 @@ class _EmptyScopeRepo extends ScopeComparisonRepository {
 /// Canned Hatch age series so the chart has data without a DB.
 class _FakePanelRepo extends PanelDashboardRepository {
   final List<HatchAgePoint> points;
-  _FakePanelRepo(this.points);
+  final Map<String, List<String>> photosByPanel;
+  _FakePanelRepo(this.points, {this.photosByPanel = const {}});
   @override
   Future<List<HatchAgePoint>> getHatchByAge(filter) async => points;
+
+  @override
+  Future<List<String>> getPhotoPaths(
+    filter,
+    String panelName,
+    String fieldKey,
+  ) {
+    return Future.value(photosByPanel[panelName] ?? const []);
+  }
+}
+
+class _RecordedBreakoutScopeRepo extends ScopeComparisonRepository {
+  _RecordedBreakoutScopeRepo(this.recordedSectorIds);
+
+  final Set<String> recordedSectorIds;
+
+  @override
+  Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async {
+    if (!recordedSectorIds.contains(sector.id)) return const [];
+    return [
+      ScopeLeafRow(
+        layerSegments: {
+          SamplingLayer.house: 'H1',
+          SamplingLayer.setterHatcher: 'S1H1',
+          SamplingLayer.trolley: 'Tr1',
+          SamplingLayer.tray: 'Ty1',
+        },
+        cells: {
+          'infertilePct': ScopeCellAccumulator.sample(
+            value: 4,
+            count: 4,
+            traySize: 100,
+          ),
+        },
+      ),
+    ];
+  }
+
+  @override
+  Future<int?> dominantBmkAge(filter) async => null;
+}
+
+class _ScopeInsightsHarness extends StatefulWidget {
+  const _ScopeInsightsHarness();
+
+  @override
+  State<_ScopeInsightsHarness> createState() => _ScopeInsightsHarnessState();
+}
+
+class _ScopeInsightsHarnessState extends State<_ScopeInsightsHarness> {
+  final Set<String> _collapsedStations = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    return ScopeInsightsSection(
+      collapsedStations: _collapsedStations,
+      onStationToggle: (station) {
+        setState(() {
+          if (!_collapsedStations.add(station)) {
+            _collapsedStations.remove(station);
+          }
+        });
+      },
+    );
+  }
 }
 
 void main() {
@@ -33,10 +100,11 @@ void main() {
     WidgetTester tester, {
     void Function(ScopeComparisonProvider)? prime,
     PanelDashboardRepository? panelRepo,
+    ScopeComparisonRepository? repository,
   }) async {
     final provider = ScopeComparisonProvider(
-      repository: _EmptyScopeRepo(),
-      panelRepository: panelRepo,
+      repository: repository ?? _EmptyScopeRepo(),
+      panelRepository: panelRepo ?? _FakePanelRepo(const []),
     );
     await provider.applyFilter(customerId: kDashboardDemoCustomerId);
     prime?.call(provider);
@@ -45,7 +113,7 @@ void main() {
         value: provider,
         child: const MaterialApp(
           home: Scaffold(
-            body: SingleChildScrollView(child: ScopeInsightsSection()),
+            body: SingleChildScrollView(child: _ScopeInsightsHarness()),
           ),
         ),
       ),
@@ -53,7 +121,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Hatch station: standalone Hatch Result sector + Breakout tabs', (
+  testWidgets('Hatch station hides unrecorded dummy breakout tabs', (
     tester,
   ) async {
     await pump(tester);
@@ -61,16 +129,55 @@ void main() {
     // Card trimmed to the 3 rate metrics — dropped count tiles are gone.
     expect(find.text('Hatched'), findsNothing);
     expect(find.text('Infert'), findsNothing);
-    expect(find.text('Breakout'), findsOneWidget); // tabset label
-    expect(find.text('Fresh'), findsOneWidget); // pill tabs (title minus suffix)
+    expect(find.text('Breakout'), findsNothing);
+    expect(find.text('Fresh'), findsNothing);
+    expect(find.text('Candled'), findsNothing);
+    expect(find.text('Residue'), findsNothing);
+  });
+
+  testWidgets('Breakout dashboard shows recorded types and their photos only', (
+    tester,
+  ) async {
+    final provider = ScopeComparisonProvider(
+      repository: _RecordedBreakoutScopeRepo({'candled_egg_breakout'}),
+      panelRepository: _FakePanelRepo(
+        const [],
+        photosByPanel: const {
+          'candled_egg_breakout': ['/tmp/chickmark-candled-breakout.jpg'],
+        },
+      ),
+    );
+    await provider.applyFilter(customerId: 'customer-1');
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<ScopeComparisonProvider>.value(
+        value: provider,
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(child: _ScopeInsightsHarness()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
     expect(find.text('Candled'), findsOneWidget);
-    expect(find.text('Residue'), findsOneWidget);
+    expect(find.text('Fresh'), findsNothing);
+    expect(find.text('Residue'), findsNothing);
+    expect(find.text('Photos'), findsOneWidget);
+    expect(find.byIcon(Icons.image), findsOneWidget);
   });
 
   testWidgets('Breakout defaults to Fresh and switches on tab tap', (
     tester,
   ) async {
-    await pump(tester);
+    await pump(
+      tester,
+      repository: _RecordedBreakoutScopeRepo({
+        'fresh_egg_breakout',
+        'residue_breakout',
+      }),
+    );
     // 'Late %' is a residue-only param → absent from the Fresh breakout matrix.
     // (It can surface in the station triage summary above, so scope the finder
     // to the breakout matrix itself.)
@@ -88,7 +195,10 @@ void main() {
     await tester.tap(find.text('Residue'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Late %'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('breakout-residue_breakout')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Hatch Result chart mode renders a per-metric age chart', (

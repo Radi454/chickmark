@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -421,7 +421,7 @@ class _PasgarTabState extends State<PasgarTab> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _defectStepperButton(
-          tooltip: 'Decrease $label',
+          tooltip: context.tr('Decrease $label'),
           onPressed: canDecrease
               ? () => _setDefectCount(index, count - 1)
               : null,
@@ -450,7 +450,7 @@ class _PasgarTabState extends State<PasgarTab> {
         ),
         SizedBox(width: compact ? AppSizes.spaceXs : 0),
         _defectStepperButton(
-          tooltip: 'Increase $label',
+          tooltip: context.tr('Increase $label'),
           onPressed: canIncrease
               ? () => _setDefectCount(index, count + 1)
               : null,
@@ -547,7 +547,7 @@ class _PasgarTabState extends State<PasgarTab> {
   }) {
     final compact = widget.embedded;
     return IconButton(
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: Icon(icon, size: compact ? 24 : 36),
       color: color,

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -135,7 +135,7 @@ class _GoveeFloatingLauncherState extends State<GoveeFloatingLauncher>
         : AppColors.primary;
 
     final launcher = Semantics(
-      label: 'Open Govee',
+      label: context.tr('Open Govee'),
       button: true,
       child: AnimatedBuilder(
         animation: _controller,
@@ -281,7 +281,7 @@ class GoveeFloatingCapturePanel extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Close Govee',
+                  tooltip: context.tr('Close Govee'),
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.close),
                   style: IconButton.styleFrom(

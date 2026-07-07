@@ -47,11 +47,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('residue renders all 16 leaf columns by default', (tester) async {
+  testWidgets('residue starts pooled instead of inventing hierarchy filters', (
+    tester,
+  ) async {
     await pumpResidue(tester);
-    expect(find.text('H1·S1H1·Tr1·Ty1'), findsWidgets);
-    expect(find.text('H2·S2H2·Tr2·Ty2'), findsWidgets);
-    expect(find.text('⌀ Avg'), findsWidgets); // pick-chip + header
+    expect(find.text('Pool'), findsWidgets);
+    expect(find.text('H1·S1H1·Tr1·Ty1'), findsNothing);
+    expect(find.text('Tray'), findsNothing);
     expect(find.text('Example data'), findsOneWidget);
   });
 
@@ -97,20 +99,12 @@ void main() {
     expect(find.byType(BarChart), findsOneWidget);
   });
 
-  testWidgets('toggling Tray off broadens columns to trolley level', (
-    tester,
-  ) async {
+  testWidgets('unused comparison levels are hidden', (tester) async {
     await pumpResidue(tester);
-    expect(find.text('H1·S1H1·Tr1·Ty1'), findsWidgets);
-
-    await tester.tap(find.text('Tray'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('H1·S1H1·Tr1·Ty1'), findsNothing);
-    expect(
-      find.text('H1·S1H1·Tr1'),
-      findsWidgets,
-    ); // trolley-level column header
+    expect(find.text('House'), findsNothing);
+    expect(find.text('Machine'), findsNothing);
+    expect(find.text('Trolley'), findsNothing);
+    expect(find.text('Tray'), findsNothing);
   });
 
   testWidgets('residue sector avoids phone overflow at large text scale', (

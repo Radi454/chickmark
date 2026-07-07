@@ -45,6 +45,7 @@ void main() {
     expect(first.layerSegments[SamplingLayer.setterHatcher], 'S1H1');
     expect(first.layerSegments[SamplingLayer.trolley], 'Tr1');
     expect(first.layerSegments[SamplingLayer.tray], 'Ty1');
+    expect(first.bmkAge, 30);
   });
 
   test('count-weighted pool infert is computed from live rows', () async {

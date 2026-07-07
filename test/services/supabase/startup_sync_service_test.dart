@@ -186,6 +186,7 @@ void main() {
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
     ).thenAnswer((_) async => 0);
+    when(() => photoSync.syncDownloaded()).thenAnswer((_) async {});
     when(() => photoSync.syncPending()).thenAnswer((_) async {});
     when(() => supabase.upsertRows(any(), any())).thenAnswer((_) async {});
     when(

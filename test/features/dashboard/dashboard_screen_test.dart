@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/audits/models/culled_chicks_analysis.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -11,28 +13,63 @@ import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart'
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/screens/dashboard_screen.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
+import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
+import 'package:hatchaudit/widgets/app_card.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _MockSupabaseService extends Mock implements SupabaseService {}
+
+class _StaticScopeComparisonProvider extends ScopeComparisonProvider {
+  bool _testLoading = false;
+  int refreshCount = 0;
+
+  @override
+  bool get isLoading => _testLoading;
+
+  @override
+  Future<void> applyFilter({
+    String? customerId,
+    String? flockId,
+    int? bmkAge,
+  }) async {}
+
+  @override
+  Future<void> refresh() async {
+    refreshCount++;
+  }
+
+  void setTestLoading(bool value) {
+    _testLoading = value;
+    notifyListeners();
+  }
+}
 
 class _StaticDashboardProvider extends DashboardProvider {
   final List<CustomerModel> _testCustomers;
   final EggStorageTrend? _testEggStorageLatest;
   final EggStorageEstEvidence? _testEggStorageEvidence;
   final CulledChicksAnalysisAvg? _testCulledChicksAnalysis;
+  final List<FlockModel> _testFlocks;
+  final String? _testSelectedFlockId;
+  int refreshCount = 0;
 
   _StaticDashboardProvider({
     required List<CustomerModel> customers,
     EggStorageTrend? eggStorageLatest,
     EggStorageEstEvidence? eggStorageEvidence,
     CulledChicksAnalysisAvg? culledChicksAnalysis,
+    List<FlockModel> flocks = const [],
+    String? selectedFlockId,
   }) : _testCustomers = customers,
        _testEggStorageLatest = eggStorageLatest,
        _testEggStorageEvidence = eggStorageEvidence,
-       _testCulledChicksAnalysis = culledChicksAnalysis;
+       _testCulledChicksAnalysis = culledChicksAnalysis,
+       _testFlocks = flocks,
+       _testSelectedFlockId = selectedFlockId;
 
   @override
   List<CustomerModel> get customers => _testCustomers;
@@ -58,10 +95,72 @@ class _StaticDashboardProvider extends DashboardProvider {
       _testCulledChicksAnalysis;
 
   @override
+  List<FlockModel> get flocks => _testFlocks;
+
+  @override
+  String? get selectedFlockId => _testSelectedFlockId;
+
+  @override
   Future<void> init({UserModel? currentUser}) async {}
+
+  @override
+  Future<void> refresh() async {
+    refreshCount++;
+  }
 }
 
 void main() {
+  testWidgets('dashboard refreshes cached photo paths when sync completes', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    final scopeProvider = _StaticScopeComparisonProvider();
+    final dashboardProvider = _StaticDashboardProvider(
+      customers: [
+        CustomerModel(
+          id: 'customer-1',
+          name: 'Customer 1',
+          createdAt: DateTime(2026, 5, 1),
+          createdBy: 'test',
+        ),
+      ],
+    );
+    addTearDown(settings.dispose);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider<ScopeComparisonProvider>.value(
+            value: scopeProvider,
+          ),
+          ChangeNotifierProvider<DashboardProvider>.value(
+            value: dashboardProvider,
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: const DashboardScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await settings.recordSync(online: true, pushed: 0, pulled: 5);
+    await tester.pumpAndSettle();
+
+    expect(dashboardProvider.refreshCount, 1);
+    expect(scopeProvider.refreshCount, 1);
+  });
+
   testWidgets('dashboard renders Govee and Scopes sections (egg via scope only)', (
     tester,
   ) async {
@@ -129,6 +228,165 @@ void main() {
     expect(find.text('Govee Environmental Readings'), findsWidgets);
   });
 
+  testWidgets(
+    'collapsed dashboard station stays collapsed after scrolling away and back',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 300);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final scopeProvider = _StaticScopeComparisonProvider();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(
+                supabaseService: _MockSupabaseService(),
+                bypassAuth: true,
+              ),
+            ),
+            ChangeNotifierProvider<ScopeComparisonProvider>(
+              create: (_) => scopeProvider,
+            ),
+            ChangeNotifierProvider<DashboardProvider>(
+              create: (_) => _StaticDashboardProvider(
+                customers: [
+                  CustomerModel(
+                    id: 'customer-1',
+                    name: 'Customer 1',
+                    createdAt: DateTime(2026, 5, 1),
+                    createdBy: 'test',
+                  ),
+                ],
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(splashFactory: NoSplash.splashFactory),
+            home: const DashboardScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const station = 'Egg Storage & Handling';
+      await tester.scrollUntilVisible(
+        find.text(station),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(station));
+      await tester.pumpAndSettle();
+
+      AnimatedCrossFade stationCrossFade() {
+        final card = find
+            .ancestor(of: find.text(station), matching: find.byType(AppCard))
+            .first;
+        return tester.widget<AnimatedCrossFade>(
+          find
+              .descendant(of: card, matching: find.byType(AnimatedCrossFade))
+              .first,
+        );
+      }
+
+      expect(stationCrossFade().crossFadeState, CrossFadeState.showFirst);
+
+      // Scrolling back past the top activates RefreshIndicator. Scope refresh
+      // temporarily replaces every station card with its loading indicator.
+      scopeProvider.setTestLoading(true);
+      await tester.pump();
+      expect(find.text(station, skipOffstage: false), findsNothing);
+
+      scopeProvider.setTestLoading(false);
+      await tester.pumpAndSettle();
+
+      expect(stationCrossFade().crossFadeState, CrossFadeState.showFirst);
+    },
+  );
+
+  testWidgets(
+    'collapsed Govee sector stays collapsed after scrolling away and back',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 500);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => AppProvider()),
+            ChangeNotifierProvider(
+              create: (_) => AuthProvider(
+                supabaseService: _MockSupabaseService(),
+                bypassAuth: true,
+              ),
+            ),
+            ChangeNotifierProvider<ScopeComparisonProvider>(
+              create: (_) => _StaticScopeComparisonProvider(),
+            ),
+            ChangeNotifierProvider<DashboardProvider>(
+              create: (_) => _StaticDashboardProvider(
+                customers: [
+                  CustomerModel(
+                    id: 'customer-1',
+                    name: 'Customer 1',
+                    createdAt: DateTime(2026, 5, 1),
+                    createdBy: 'test',
+                  ),
+                ],
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(splashFactory: NoSplash.splashFactory),
+            home: const DashboardScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const sector = 'Govee Environmental Readings';
+      final bodyList = find.byType(ListView).first;
+      await tester.scrollUntilVisible(
+        find.text(sector),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(sector));
+      await tester.pumpAndSettle();
+
+      AnimatedCrossFade goveeCrossFade() {
+        final card = find
+            .ancestor(of: find.text(sector), matching: find.byType(AppCard))
+            .first;
+        return tester.widget<AnimatedCrossFade>(
+          find
+              .descendant(of: card, matching: find.byType(AnimatedCrossFade))
+              .first,
+        );
+      }
+
+      expect(goveeCrossFade().crossFadeState, CrossFadeState.showFirst);
+
+      await tester.drag(bodyList, const Offset(0, -6000));
+      await tester.pumpAndSettle();
+      expect(find.text(sector, skipOffstage: false), findsNothing);
+
+      await tester.fling(bodyList, const Offset(0, 6000), 10000);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text(sector),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(goveeCrossFade().crossFadeState, CrossFadeState.showFirst);
+    },
+  );
+
   testWidgets('dashboard mobile layout avoids filter and egg card overflow', (
     tester,
   ) async {
@@ -194,6 +452,80 @@ void main() {
     await tester.drag(find.byType(ListView).first, const Offset(0, -900));
     await tester.pumpAndSettle();
 
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('selected flock details share the scrolling filter card', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final entranceDate = today.subtract(const Duration(days: 70));
+    final flock = FlockModel(
+      id: 'flock-1',
+      customerId: 'customer-1',
+      flockId: 'North House 7',
+      breed: 'Ross308',
+      entryDate: entranceDate,
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
+          ChangeNotifierProvider<DashboardProvider>(
+            create: (_) => _StaticDashboardProvider(
+              customers: [
+                CustomerModel(
+                  id: 'customer-1',
+                  name: 'Customer 1',
+                  createdAt: DateTime(2026, 5, 1),
+                  createdBy: 'test',
+                ),
+              ],
+              flocks: [flock],
+              selectedFlockId: flock.id,
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: const DashboardScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Name'), findsOneWidget);
+    expect(find.text('North House 7'), findsWidgets);
+    expect(find.text('Current age'), findsOneWidget);
+    expect(find.text('10 weeks'), findsOneWidget);
+    expect(find.text('Breed'), findsOneWidget);
+    expect(find.text('Ross308'), findsOneWidget);
+    expect(find.text('Entrance date'), findsOneWidget);
+    expect(
+      find.text(HatchDateUtils.formatDisplayDate(entranceDate)),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('dashboard-filter-card')),
+        matching: find.byType(ListView),
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

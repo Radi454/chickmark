@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
@@ -152,7 +152,7 @@ class _SectionLabel extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        text.toUpperCase(),
+        context.tr(text).toUpperCase(),
         style: const TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w900,
@@ -276,7 +276,7 @@ class _SevPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppSizes.pillRadius),
       ),
       child: Text(
-        label.toUpperCase(),
+        context.tr(label).toUpperCase(),
         style: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w900,
@@ -310,7 +310,7 @@ class _Chip extends StatelessWidget {
         ),
       ),
       child: Text(
-        primary ? label.toUpperCase() : label,
+        primary ? context.tr(label).toUpperCase() : context.tr(label),
         style: TextStyle(
           fontSize: 10,
           fontWeight: primary ? FontWeight.w900 : FontWeight.w700,
@@ -337,9 +337,7 @@ class _AllClearCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.statusGoodBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.statusGood.withValues(alpha: 0.30),
-        ),
+        border: Border.all(color: AppColors.statusGood.withValues(alpha: 0.30)),
       ),
       child: Row(
         children: [
@@ -424,8 +422,8 @@ class _GoodRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.statusGoodBg,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-        border: Border(
-          left: BorderSide(color: AppColors.statusGood, width: 3),
+        border: BorderDirectional(
+          start: BorderSide(color: AppColors.statusGood, width: 3),
         ),
       ),
       child: Row(

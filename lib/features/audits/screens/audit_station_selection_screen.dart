@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/gradient_app_bar.dart';
@@ -212,7 +212,7 @@ class _AuditStationSelectionScreenState
                   const SizedBox(width: 8),
                 ],
                 IconButton(
-                  tooltip: 'Remove station',
+                  tooltip: context.tr('Remove station'),
                   onPressed: () {
                     setState(() {
                       final removed = _orderedSelectedKeys.removeAt(index);

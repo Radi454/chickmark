@@ -42,11 +42,21 @@ void main() {
       // Simple mean = 6.0% ; count-weighted = (12+2)/(150+50) = 7.0%.
       final leaves = [
         _residueLeaf(
-            house: 'H1', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-            traySize: 150, infertileCount: 12),
+          house: 'H1',
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: 'Ty1',
+          traySize: 150,
+          infertileCount: 12,
+        ),
         _residueLeaf(
-            house: 'H2', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-            traySize: 50, infertileCount: 2),
+          house: 'H2',
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: 'Ty1',
+          traySize: 50,
+          infertileCount: 2,
+        ),
       ];
       final groups = ScopeEngine.comboGroups(residue, leaves, const [], null);
       expect(groups, hasLength(1));
@@ -58,14 +68,25 @@ void main() {
     test('⌀ Avg across shown groups is Σbad/Σtotal, not mean-of-means', () {
       final leaves = [
         _residueLeaf(
-            house: 'H1', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-            traySize: 150, infertileCount: 12), // 8.0%
+          house: 'H1',
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: 'Ty1',
+          traySize: 150,
+          infertileCount: 12,
+        ), // 8.0%
         _residueLeaf(
-            house: 'H2', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-            traySize: 50, infertileCount: 2), // 4.0%
+          house: 'H2',
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: 'Ty1',
+          traySize: 50,
+          infertileCount: 2,
+        ), // 4.0%
       ];
-      final groups = ScopeEngine.comboGroups(
-          residue, leaves, [SamplingLayer.house], null);
+      final groups = ScopeEngine.comboGroups(residue, leaves, [
+        SamplingLayer.house,
+      ], null);
       expect(groups, hasLength(2));
       final stats = ScopeEngine.columnStats(residue, groups, null);
       expect(stats[infertIndex].avgText, '7.0%'); // weighted, not 6.0%
@@ -76,11 +97,21 @@ void main() {
   group('ScopeEngine layer composition + nesting', () {
     final leaves = [
       _residueLeaf(
-          house: 'H1', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-          traySize: 150, infertileCount: 12),
+        house: 'H1',
+        mac: 'S1H1',
+        trolley: 'Tr1',
+        tray: 'Ty1',
+        traySize: 150,
+        infertileCount: 12,
+      ),
       _residueLeaf(
-          house: 'H2', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-          traySize: 50, infertileCount: 2),
+        house: 'H2',
+        mac: 'S1H1',
+        trolley: 'Tr1',
+        tray: 'Ty1',
+        traySize: 50,
+        infertileCount: 2,
+      ),
     ];
 
     test('no layers → single Pool column', () {
@@ -89,31 +120,67 @@ void main() {
     });
 
     test('House+Machine nests (H1·S1H1 distinct from H2·S1H1)', () {
-      final groups = ScopeEngine.comboGroups(
-        residue,
-        leaves,
-        [SamplingLayer.house, SamplingLayer.setterHatcher],
-        null,
-      );
+      final groups = ScopeEngine.comboGroups(residue, leaves, [
+        SamplingLayer.house,
+        SamplingLayer.setterHatcher,
+      ], null);
       expect(groups.map((g) => g.label), ['H1·S1H1', 'H2·S1H1']);
     });
 
     test('Machine only → both leaves merge into one S1H1 column', () {
-      final groups = ScopeEngine.comboGroups(
-          residue, leaves, [SamplingLayer.setterHatcher], null);
+      final groups = ScopeEngine.comboGroups(residue, leaves, [
+        SamplingLayer.setterHatcher,
+      ], null);
       expect(groups.map((g) => g.label), ['S1H1']);
       expect(groups.first.cells[infertIndex].value, closeTo(7.0, 1e-9));
     });
 
     test('nonPoolLayers excludes pool', () {
+      expect(ScopeEngine.nonPoolLayers(residue), [
+        SamplingLayer.house,
+        SamplingLayer.setterHatcher,
+        SamplingLayer.trolley,
+        SamplingLayer.tray,
+      ]);
+    });
+  });
+
+  group('ScopeEngine data-aware layer eligibility', () {
+    ScopeLeafRow leaf({required String house, required String tray}) =>
+        _residueLeaf(
+          house: house,
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: tray,
+          traySize: 100,
+          infertileCount: 5,
+        );
+
+    test('one sample exposes no comparison layers', () {
       expect(
-        ScopeEngine.nonPoolLayers(residue),
-        [
-          SamplingLayer.house,
-          SamplingLayer.setterHatcher,
-          SamplingLayer.trolley,
-          SamplingLayer.tray,
-        ],
+        ScopeEngine.eligibleLayers(residue, [leaf(house: 'H1', tray: 'Ty1')]),
+        isEmpty,
+      );
+    });
+
+    test('different trays under different houses do not enable Tray', () {
+      expect(
+        ScopeEngine.eligibleLayers(residue, [
+          leaf(house: 'H1', tray: 'Ty1'),
+          leaf(house: 'H2', tray: 'Ty2'),
+        ]),
+        [SamplingLayer.house],
+      );
+    });
+
+    test('a parent with two trays enables Tray alongside House', () {
+      expect(
+        ScopeEngine.eligibleLayers(residue, [
+          leaf(house: 'H1', tray: 'Ty1'),
+          leaf(house: 'H1', tray: 'Ty2'),
+          leaf(house: 'H2', tray: 'Ty1'),
+        ]),
+        [SamplingLayer.house, SamplingLayer.tray],
       );
     });
   });
@@ -123,38 +190,62 @@ void main() {
 
     test('defect: good ≤ +1, warn ≤ +3, err > +3', () {
       num sev(num v) => severityFor(
-              value: v, bmk: 5.0, higherIsBetter: false, thresholds: t)
-          .index;
-      expect(severityFor(value: 5.5, bmk: 5, higherIsBetter: false, thresholds: t),
-          ScopeSeverity.good);
-      expect(severityFor(value: 7.0, bmk: 5, higherIsBetter: false, thresholds: t),
-          ScopeSeverity.warn);
-      expect(severityFor(value: 8.5, bmk: 5, higherIsBetter: false, thresholds: t),
-          ScopeSeverity.err);
+        value: v,
+        bmk: 5.0,
+        higherIsBetter: false,
+        thresholds: t,
+      ).index;
+      expect(
+        severityFor(value: 5.5, bmk: 5, higherIsBetter: false, thresholds: t),
+        ScopeSeverity.good,
+      );
+      expect(
+        severityFor(value: 7.0, bmk: 5, higherIsBetter: false, thresholds: t),
+        ScopeSeverity.warn,
+      );
+      expect(
+        severityFor(value: 8.5, bmk: 5, higherIsBetter: false, thresholds: t),
+        ScopeSeverity.err,
+      );
       sev(5); // smoke
     });
 
     test('higher-is-better (fertility) flips the diff direction', () {
-      expect(severityFor(value: 93.5, bmk: 94, higherIsBetter: true, thresholds: t),
-          ScopeSeverity.good);
-      expect(severityFor(value: 92.0, bmk: 94, higherIsBetter: true, thresholds: t),
-          ScopeSeverity.warn);
-      expect(severityFor(value: 90.0, bmk: 94, higherIsBetter: true, thresholds: t),
-          ScopeSeverity.err);
+      expect(
+        severityFor(value: 93.5, bmk: 94, higherIsBetter: true, thresholds: t),
+        ScopeSeverity.good,
+      );
+      expect(
+        severityFor(value: 92.0, bmk: 94, higherIsBetter: true, thresholds: t),
+        ScopeSeverity.warn,
+      );
+      expect(
+        severityFor(value: 90.0, bmk: 94, higherIsBetter: true, thresholds: t),
+        ScopeSeverity.err,
+      );
     });
 
     test('no benchmark → good (no false alarms)', () {
-      expect(severityFor(value: 99, bmk: null, higherIsBetter: false, thresholds: t),
-          ScopeSeverity.good);
-      expect(severityFor(value: 99, bmk: 0, higherIsBetter: false, thresholds: t),
-          ScopeSeverity.good);
+      expect(
+        severityFor(value: 99, bmk: null, higherIsBetter: false, thresholds: t),
+        ScopeSeverity.good,
+      );
+      expect(
+        severityFor(value: 99, bmk: 0, higherIsBetter: false, thresholds: t),
+        ScopeSeverity.good,
+      );
     });
 
     test('engine applies severity to cells via BMK', () {
       final leaves = [
         _residueLeaf(
-            house: 'H1', mac: 'S1H1', trolley: 'Tr1', tray: 'Ty1',
-            traySize: 100, infertileCount: 8), // 8.0%
+          house: 'H1',
+          mac: 'S1H1',
+          trolley: 'Tr1',
+          tray: 'Ty1',
+          traySize: 100,
+          infertileCount: 8,
+        ), // 8.0%
       ];
       final bmk = BmkReference(infertilePct: 5.0); // diff 3.0 → warn
       final groups = ScopeEngine.comboGroups(residue, leaves, const [], bmk);
@@ -177,7 +268,10 @@ void main() {
     test('single-scope sectors detected', () {
       expect(ScopeConfigRegistry.byId('egg_storage').isSingleScope, isTrue);
       expect(ScopeConfigRegistry.byId('hatch_results').isSingleScope, isTrue);
-      expect(ScopeConfigRegistry.byId('residue_breakout').isSingleScope, isFalse);
+      expect(
+        ScopeConfigRegistry.byId('residue_breakout').isSingleScope,
+        isFalse,
+      );
     });
   });
 }

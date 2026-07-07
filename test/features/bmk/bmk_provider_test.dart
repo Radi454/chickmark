@@ -92,6 +92,56 @@ void main() {
       expect(provider.selectedOperationalStandard!.minValue, 18);
     },
   );
+
+  test('saveOperationalSourcePhoto stores local and cloud paths', () async {
+    final repository = _FakeBmkRepository();
+    final provider = BmkProvider(repository: repository);
+
+    await provider.ensureInitialized();
+    await provider.saveOperationalSourcePhoto(
+      metricKey: 'egg_storage_est_short',
+      photoPath: '/tmp/source-photo.jpg',
+      remotePath: 'supabase://photos/bmk/source-photo.jpg',
+    );
+
+    final saved = repository.operationalRows['global-egg_storage_est_short']!;
+    expect(saved.sourcePhotoPath, '/tmp/source-photo.jpg');
+    expect(
+      saved.sourcePhotoRemotePath,
+      'supabase://photos/bmk/source-photo.jpg',
+    );
+    expect(
+      provider.selectedOperationalStandard!.sourcePhotoPath,
+      '/tmp/source-photo.jpg',
+    );
+    expect(
+      provider.selectedOperationalStandard!.sourcePhotoRemotePath,
+      'supabase://photos/bmk/source-photo.jpg',
+    );
+  });
+
+  test('deleteOperationalSourcePhoto clears local and cloud paths', () async {
+    final repository = _FakeBmkRepository();
+    final provider = BmkProvider(repository: repository);
+
+    repository.operationalRows['global-egg_storage_est_short'] = repository
+        .operationalRows['global-egg_storage_est_short']!
+        .copyWith(
+          sourcePhotoPath: '/tmp/source-photo.jpg',
+          sourcePhotoRemotePath: 'supabase://photos/bmk/source-photo.jpg',
+        );
+
+    await provider.ensureInitialized();
+    await provider.deleteOperationalSourcePhoto(
+      metricKey: 'egg_storage_est_short',
+    );
+
+    final saved = repository.operationalRows['global-egg_storage_est_short']!;
+    expect(saved.sourcePhotoPath, isNull);
+    expect(saved.sourcePhotoRemotePath, isNull);
+    expect(provider.selectedOperationalStandard!.sourcePhotoPath, isNull);
+    expect(provider.selectedOperationalStandard!.sourcePhotoRemotePath, isNull);
+  });
 }
 
 class _FakeBmkRepository extends BmkRepository {

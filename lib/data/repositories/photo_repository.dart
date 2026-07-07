@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../services/photo/photo_sync_coordinator.dart';
@@ -66,6 +67,17 @@ class PhotoRepository {
     return rows.map(PhotoModel.fromMap).toList();
   }
 
+  Future<List<PhotoModel>> getRemotePhotos() async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      'photos',
+      where: 'filePath LIKE ? OR filePath LIKE ? OR filePath LIKE ?',
+      whereArgs: ['supabase://%', 'https://%', 'http://%'],
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(PhotoModel.fromMap).toList();
+  }
+
   Future<void> updateStatus(String id, String status) async {
     final db = await dbHelper.db;
     await db.update(
@@ -74,6 +86,45 @@ class PhotoRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<void> updateLocalPath(String id, String filePath) async {
+    final db = await dbHelper.db;
+    await db.update(
+      'photos',
+      {'filePath': filePath, 'uploadStatus': 'synced'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> reconcileLocalPaths(String documentsDirectoryPath) async {
+    final db = await dbHelper.db;
+    final rows = await db.query('photos', columns: ['id', 'filePath']);
+    for (final row in rows) {
+      try {
+        final id = row['id'] as String?;
+        final storedPath = row['filePath'] as String?;
+        if (id == null || !_isLocalFilePath(storedPath)) continue;
+        if (await _isUsableLocalFile(storedPath)) continue;
+
+        final candidate = path.join(
+          documentsDirectoryPath,
+          path.basename(storedPath!),
+        );
+        if (candidate == storedPath || !await _isUsableLocalFile(candidate)) {
+          continue;
+        }
+        await db.update(
+          'photos',
+          {'filePath': candidate},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      } catch (_) {
+        // One unreadable path must not block recovery for other photos.
+      }
+    }
   }
 
   Future<void> saveLocalPhoto(PhotoModel photo) async {
@@ -125,6 +176,32 @@ class PhotoRepository {
     }
   }
 
+  Future<void> deleteByFilePath(String filePath) async {
+    final db = await dbHelper.db;
+    final localPaths = <String>[];
+    await db.transaction<void>((txn) async {
+      final rows = await txn.query(
+        'photos',
+        columns: ['id', 'filePath'],
+        where: 'filePath = ?',
+        whereArgs: [filePath],
+      );
+      for (final row in rows) {
+        final path = row['filePath'] as String?;
+        if (_isLocalFilePath(path)) localPaths.add(path!);
+      }
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'photos',
+        rows.map((row) => row['id']),
+      );
+      await txn.delete('photos', where: 'filePath = ?', whereArgs: [filePath]);
+    });
+    for (final path in localPaths) {
+      await _deleteLocalFile(path);
+    }
+  }
+
   Future<void> _deleteLocalFile(String path) async {
     try {
       final file = File(path);
@@ -150,7 +227,8 @@ class PhotoRepository {
     if (existing.isNotEmpty) {
       final existingPath = existing.first['filePath'] as String?;
       final incomingPath = normalized['filePath'] as String?;
-      if (_isLocalFilePath(existingPath) && _isRemotePath(incomingPath)) {
+      if (_isRemotePath(incomingPath) &&
+          await _isUsableLocalFile(existingPath)) {
         normalized['filePath'] = existingPath;
       }
     }
@@ -194,6 +272,16 @@ class PhotoRepository {
     return path.startsWith('http://') ||
         path.startsWith('https://') ||
         path.startsWith('supabase://');
+  }
+
+  Future<bool> _isUsableLocalFile(String? filePath) async {
+    if (!_isLocalFilePath(filePath)) return false;
+    try {
+      final file = File(filePath!);
+      return await file.exists() && await file.length() > 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   String _camelize(String key) {

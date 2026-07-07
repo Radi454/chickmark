@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -57,10 +57,10 @@ class StationSampleModeControls extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Semantics(
-                label: 'Help: Sample Mode explanation',
+                label: context.tr('Help: Sample Mode explanation'),
                 button: true,
                 child: IconButton(
-                  tooltip: 'Help: Sample Mode explanation',
+                  tooltip: context.tr('Help: Sample Mode explanation'),
                   icon: const Icon(Icons.help_outline, size: 20),
                   color: AppColors.textSecondary,
                   visualDensity: VisualDensity.compact,
@@ -97,7 +97,7 @@ class StationSampleModeControls extends StatelessWidget {
                         final selected = provider.activeSampleIndex == index;
                         final sample = provider.stationSamples[index];
                         return Padding(
-                          padding: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsetsDirectional.only(end: 8),
                           child: ChoiceChip(
                             label: Text(sample.sampleLabel),
                             selected: selected,
@@ -126,7 +126,7 @@ class StationSampleModeControls extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Remove active sample',
+                  tooltip: context.tr('Remove active sample'),
                   icon: const Icon(Icons.remove_circle_outline),
                   color: AppColors.statusError,
                   onPressed:
@@ -137,7 +137,7 @@ class StationSampleModeControls extends StatelessWidget {
                       : provider.removeActiveSample,
                 ),
                 IconButton(
-                  tooltip: 'Add sample',
+                  tooltip: context.tr('Add sample'),
                   icon: const Icon(Icons.add_circle_outline),
                   color: AppColors.primary,
                   onPressed: provider.isReadOnly || provider.isLoading

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
 import '../constants/app_strings.dart';
@@ -48,7 +48,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
             leading ??
             (showBackButton
                 ? IconButton(
-                    tooltip: AppStrings.back,
+                    tooltip: context.tr(AppStrings.back),
                     icon: const Icon(Icons.arrow_back),
                     onPressed: canPop
                         ? () => Navigator.of(context).maybePop()
@@ -57,7 +57,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
                 : null) ??
             (showMenuButton
                 ? IconButton(
-                    tooltip: 'Open navigation',
+                    tooltip: context.tr('Open navigation'),
                     icon: const Icon(Icons.menu),
                     onPressed: shellNavigation!.openDrawer,
                   )

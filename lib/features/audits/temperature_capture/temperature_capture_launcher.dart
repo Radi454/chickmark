@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../services/photo/photo_service.dart';
 import 'temperature_capture_config.dart';

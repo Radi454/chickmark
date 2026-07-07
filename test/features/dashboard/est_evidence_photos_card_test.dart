@@ -83,4 +83,23 @@ void main() {
     await tester.tap(find.text('Front Middle'));
     expect(tappedPath, photoFile.path);
   });
+
+  testWidgets('renders the saved unit from temperature reading payloads', (
+    tester,
+  ) async {
+    final evidence = EggStorageEstEvidence.fromJsonStrings(
+      readingsJson:
+          '{"unit":"°F","readings":{"front_top":68.2,"middle_middle":69.1}}',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: EstEvidencePhotosCard(evidence: evidence)),
+      ),
+    );
+
+    expect(find.text('68.2°F'), findsOneWidget);
+    expect(find.text('69.1°F'), findsOneWidget);
+    expect(find.text('68.2°C'), findsNothing);
+  });
 }

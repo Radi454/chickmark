@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
@@ -15,6 +15,7 @@ import '../../../data/repositories/photo_repository.dart';
 import '../../../services/photo/photo_service.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
+import '../models/temperature_readings_payload.dart';
 import '../temperature_capture/temperature_capture_config.dart';
 import '../temperature_capture/temperature_capture_launcher.dart';
 import '../providers/audit_provider.dart';
@@ -180,19 +181,14 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
 
   void _loadCvtReadings(String? readingsJson) {
     if (readingsJson == null || readingsJson.trim().isEmpty) return;
-    try {
-      final decoded = jsonDecode(readingsJson);
-      if (decoded is! Map) return;
-      final readings = EstGridData.normalizeReadings(decoded);
-      for (final entry in readings.entries) {
-        _controllers[entry.key]?.text = _cvtUnit
-            .fromCanonical(
-              entry.value,
-              canonicalUnit: TemperatureEntryUnit.fahrenheit,
-            )
-            .toStringAsFixed(1);
-      }
-    } catch (_) {}
+    final payload = TemperatureReadingsPayload.decode(
+      readingsJson,
+      legacyUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    _cvtUnit = payload.unit;
+    for (final entry in payload.readings.entries) {
+      _controllers[entry.key]?.text = entry.value.toStringAsFixed(1);
+    }
   }
 
   void _loadCvtPhotos(String? photosJson) {
@@ -261,7 +257,13 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       _avgController.text = avg.toStringAsFixed(1);
       _cvController.text = cv.toStringAsFixed(1);
     });
-    auditProvider.updateField('hoCvtReadings', jsonEncode(readings));
+    auditProvider.updateField(
+      'hoCvtReadings',
+      TemperatureReadingsPayload(
+        unit: _cvtUnit,
+        readings: readings,
+      ).toJsonString(),
+    );
     auditProvider.updateField(
       'hoCvtPhotos',
       photos.isEmpty ? null : jsonEncode(photos),
@@ -275,14 +277,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     for (final key in EstGridData.scanKeys) {
       final value = double.tryParse(_controllers[key]?.text.trim() ?? '');
       if (value != null) {
-        readings[key] = double.parse(
-          _cvtUnit
-              .toCanonical(
-                value,
-                canonicalUnit: TemperatureEntryUnit.fahrenheit,
-              )
-              .toStringAsFixed(1),
-        );
+        readings[key] = double.parse(value.toStringAsFixed(1));
       }
     }
     return readings;
@@ -562,7 +557,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildHatcherSampleActionButton(
-          tooltip: 'Add machine sample',
+          tooltip: context.tr('Add machine sample'),
           icon: Icons.add,
           onPressed: provider.isReadOnly
               ? null
@@ -571,7 +566,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         if (provider.sampleCount > 1) ...[
           const SizedBox(width: 8),
           _buildHatcherSampleActionButton(
-            tooltip: 'Remove active machine sample',
+            tooltip: context.tr('Remove active machine sample'),
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
@@ -642,7 +637,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     required VoidCallback? onPressed,
   }) {
     return IconButton.filledTonal(
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: Icon(icon),
       style: IconButton.styleFrom(
@@ -1141,14 +1136,13 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       }
       _cvtUnit = unit;
     });
+    _updateCalculations();
   }
 
   String _displayCvtAverage() {
-    final averageF = double.tryParse(_avgController.text);
-    if (averageF == null) return '--';
-    return _cvtUnit
-        .fromCanonical(averageF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
-        .toStringAsFixed(1);
+    final average = double.tryParse(_avgController.text);
+    if (average == null) return '--';
+    return average.toStringAsFixed(1);
   }
 
   String _cvtTargetLabel(String key) {

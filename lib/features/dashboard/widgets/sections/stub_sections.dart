@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
@@ -14,6 +14,7 @@ import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart'
 import 'package:hatchaudit/features/dashboard/utils/pasgar_interpretation.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
+import 'package:hatchaudit/features/audits/models/temperature_entry_unit.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
 import 'package:hatchaudit/features/dashboard/screens/photo_fullscreen_screen.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
@@ -140,12 +141,12 @@ class _ChickQualitySectionState extends State<ChickQualitySection>
                 controller: _tab,
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
-                tabs: const [
-                  Tab(text: 'Weights'),
-                  Tab(text: 'Pasgar'),
-                  Tab(text: 'CVT'),
-                  Tab(text: 'YFBM'),
-                  Tab(text: 'Culled'),
+                tabs: [
+                  Tab(text: context.tr('Weights')),
+                  Tab(text: context.tr('Pasgar')),
+                  Tab(text: context.tr('CVT')),
+                  Tab(text: context.tr('YFBM')),
+                  Tab(text: context.tr('Culled')),
                 ],
               ),
               SizedBox(
@@ -1328,16 +1329,24 @@ class _EstReadingsGridCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final avg = latest?.estAvgF;
     final cv = latest?.estCvPct;
-    final temperatureStatus = _EstTemperatureStatus.from(avg, target);
+    final unit = evidence.points.isEmpty
+        ? TemperatureEntryUnit.celsius
+        : evidence.points.first.unit;
+    final avgC = avg == null
+        ? null
+        : unit.toCanonical(avg, canonicalUnit: TemperatureEntryUnit.celsius);
+    final temperatureStatus = _EstTemperatureStatus.from(avgC, target);
     final cvIsAlarm = cv != null && cv > AppThresholds.cvAlertPct;
+    final unitSuffix = unit.suffix;
     return _EggDashboardPanel(
-      title: 'Temperature Readings (°C)',
+      title: 'Temperature Readings ($unitSuffix)',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final summary = _EstSummaryCard(
             avg: avg,
             target: target,
             cv: cv,
+            unitSuffix: unitSuffix,
             temperatureStatus: temperatureStatus,
             cvIsAlarm: cvIsAlarm,
           );
@@ -1374,6 +1383,7 @@ class _EstSummaryCard extends StatelessWidget {
   final double? avg;
   final _EggStorageTarget target;
   final double? cv;
+  final String unitSuffix;
   final _EstTemperatureStatus temperatureStatus;
   final bool cvIsAlarm;
 
@@ -1381,6 +1391,7 @@ class _EstSummaryCard extends StatelessWidget {
     required this.avg,
     required this.target,
     required this.cv,
+    required this.unitSuffix,
     required this.temperatureStatus,
     required this.cvIsAlarm,
   });
@@ -1418,7 +1429,7 @@ class _EstSummaryCard extends StatelessWidget {
                         label: 'Average',
                         value: avg == null || avg == 0
                             ? '--'
-                            : '${_one(avg!)}°C',
+                            : '${_one(avg!)}$unitSuffix',
                         note: temperatureStatus.label,
                         isAlarm: temperatureStatus.isAlarm,
                         compact: true,
@@ -1449,7 +1460,9 @@ class _EstSummaryCard extends StatelessWidget {
               else ...[
                 _EstSummaryMetric(
                   label: 'Average',
-                  value: avg == null || avg == 0 ? '--' : '${_one(avg!)}°C',
+                  value: avg == null || avg == 0
+                      ? '--'
+                      : '${_one(avg!)}$unitSuffix',
                   note: temperatureStatus.label,
                   isAlarm: temperatureStatus.isAlarm,
                 ),
@@ -1747,7 +1760,7 @@ class _EstReadingCell extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
-              point.readingC == null ? '--' : '${_one(point.readingC!)}°C',
+              point.readingLabel,
               maxLines: 1,
               style: AppTextStyles.sectionTitle.copyWith(
                 color: AppColors.textPrimary,
@@ -2285,7 +2298,7 @@ class SetterOptimizingSection extends StatelessWidget {
           const DataColumn(label: Text('Hatch%')),
           const DataColumn(label: Text('Fert%')),
           const DataColumn(label: Text('HOF%')),
-          const DataColumn(label: Text('EST°F')),
+          const DataColumn(label: Text('EST')),
           const DataColumn(label: Text('EST CV%')),
         ],
         rows: comparisons
@@ -2296,7 +2309,9 @@ class SetterOptimizingSection extends StatelessWidget {
                   DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
                   DataCell(Text(c.fertilityPct.toStringAsFixed(1))),
                   DataCell(Text(c.hofPct.toStringAsFixed(1))),
-                  DataCell(Text(c.estAvgF.toStringAsFixed(1))),
+                  DataCell(
+                    Text('${c.estAvgF.toStringAsFixed(1)}${c.estUnit.suffix}'),
+                  ),
                   DataCell(Text(c.estCvPct.toStringAsFixed(1))),
                 ],
               ),
@@ -2532,7 +2547,7 @@ class HatcherOptimizingSection extends StatelessWidget {
           DataColumn(label: Text('Hatch%')),
           DataColumn(label: Text('HOF%')),
           DataColumn(label: Text('Culled%')),
-          DataColumn(label: Text('CVT°F')),
+          DataColumn(label: Text('CVT')),
           DataColumn(label: Text('CVT CV%')),
           DataColumn(label: Text('Meconium')),
           DataColumn(label: Text('Trans. Day')),
@@ -2545,7 +2560,9 @@ class HatcherOptimizingSection extends StatelessWidget {
                   DataCell(Text(c.hatchabilityPct.toStringAsFixed(1))),
                   DataCell(Text(c.hofPct.toStringAsFixed(1))),
                   DataCell(Text(c.culledPct.toStringAsFixed(1))),
-                  DataCell(Text(c.cvtAvgF.toStringAsFixed(1))),
+                  DataCell(
+                    Text('${c.cvtAvgF.toStringAsFixed(1)}${c.cvtUnit.suffix}'),
+                  ),
                   DataCell(Text(c.cvtCvPct.toStringAsFixed(1))),
                   DataCell(Text(c.meconium ?? '--')),
                   DataCell(Text(c.transferDay?.toString() ?? '--')),

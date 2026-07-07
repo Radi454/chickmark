@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_thresholds.dart';
@@ -342,7 +342,7 @@ class _YfbmTabState extends State<YfbmTab> {
                 const SizedBox(width: 4),
               ],
               IconButton(
-                tooltip: 'Close',
+                tooltip: context.tr('Close'),
                 onPressed: () => Navigator.pop(sheetContext),
                 icon: const Icon(Icons.close),
               ),
@@ -620,9 +620,9 @@ class _YfbmTabState extends State<YfbmTab> {
 
   Widget _deleteButton(int index, VoidCallback refreshSheet) {
     return Padding(
-      padding: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsetsDirectional.only(start: 6),
       child: IconButton(
-        tooltip: 'Delete row',
+        tooltip: context.tr('Delete row'),
         icon: const Icon(Icons.delete_outline, size: 20),
         color: AppColors.statusError,
         style: IconButton.styleFrom(

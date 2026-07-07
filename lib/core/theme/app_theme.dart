@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
 import 'app_text_styles.dart';
@@ -27,6 +27,7 @@ class AppTheme {
       ),
       appBarTheme: const AppBarTheme(
         titleTextStyle: TextStyle(
+          fontFamilyFallback: AppTextStyles.fontFallback,
           color: Colors.white,
           fontSize: 17,
           fontWeight: FontWeight.w700,

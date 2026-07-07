@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -15,6 +15,7 @@ import '../../../../data/repositories/photo_repository.dart';
 import '../../../../services/photo/photo_service.dart';
 import '../../models/est_grid_data.dart';
 import '../../models/temperature_entry_unit.dart';
+import '../../models/temperature_readings_payload.dart';
 import '../../temperature_capture/temperature_capture_config.dart';
 import '../../temperature_capture/temperature_capture_launcher.dart';
 import '../../providers/audit_provider.dart';
@@ -94,13 +95,17 @@ class _CvtTabState extends State<CvtTab> {
   }
 
   void _loadReadings(AuditModel audit) {
-    final decoded = _decodeReadings(audit.cvtReadingsJson);
-    if (decoded.isEmpty) {
+    final payload = TemperatureReadingsPayload.decode(
+      audit.cvtReadingsJson,
+      legacyUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    if (payload.readings.isEmpty) {
       _loadLegacyReadings(audit);
       return;
     }
-    for (final entry in decoded.entries) {
-      _controllers[entry.key]?.text = _formatForEntryUnit(entry.value);
+    _cvtUnit = payload.unit;
+    for (final entry in payload.readings.entries) {
+      _controllers[entry.key]?.text = entry.value.toStringAsFixed(1);
     }
   }
 
@@ -113,7 +118,7 @@ class _CvtTabState extends State<CvtTab> {
     for (final entry in legacy.entries) {
       final value = entry.value;
       if (value != null) {
-        _controllers[entry.key]?.text = _formatForEntryUnit(value);
+        _controllers[entry.key]?.text = value.toStringAsFixed(1);
       }
     }
   }
@@ -133,17 +138,6 @@ class _CvtTabState extends State<CvtTab> {
     }
   }
 
-  Map<String, double> _decodeReadings(String? json) {
-    if (json == null || json.trim().isEmpty) return {};
-    try {
-      final decoded = jsonDecode(json);
-      if (decoded is! Map) return {};
-      return EstGridData.normalizeReadings(decoded);
-    } catch (_) {
-      return {};
-    }
-  }
-
   Map<String, String> _decodePhotos(String? json) {
     if (json == null || json.trim().isEmpty) return {};
     try {
@@ -158,28 +152,6 @@ class _CvtTabState extends State<CvtTab> {
     } catch (_) {
       return {};
     }
-  }
-
-  String _formatForEntryUnit(double valueF) => _cvtUnit
-      .fromCanonical(valueF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
-      .toStringAsFixed(1);
-
-  double? _controllerValueF(String key) {
-    final parsed = double.tryParse(_controllers[key]?.text.trim() ?? '');
-    if (parsed == null) return null;
-    return _cvtUnit.toCanonical(
-      parsed,
-      canonicalUnit: TemperatureEntryUnit.fahrenheit,
-    );
-  }
-
-  Map<String, double> _currentReadingsF() {
-    final readings = <String, double>{};
-    for (final key in EstGridData.scanKeys) {
-      final value = _controllerValueF(key);
-      if (value != null) readings[key] = double.parse(value.toStringAsFixed(1));
-    }
-    return readings;
   }
 
   Map<String, double> _currentDisplayReadings() {
@@ -203,7 +175,7 @@ class _CvtTabState extends State<CvtTab> {
   }
 
   void _updateCalculations({bool notify = true}) {
-    final readings = _currentReadingsF();
+    final readings = _currentDisplayReadings();
     final temps = readings.values.toList();
     final photos = _currentPhotoPaths();
     final avg = temps.isEmpty ? null : CalculationUtils.average(temps);
@@ -213,7 +185,15 @@ class _CvtTabState extends State<CvtTab> {
       if (notify) widget.onFieldChanged(key, value);
     }
 
-    update('cvtReadingsJson', readings.isEmpty ? null : jsonEncode(readings));
+    update(
+      'cvtReadingsJson',
+      readings.isEmpty
+          ? null
+          : TemperatureReadingsPayload(
+              unit: _cvtUnit,
+              readings: readings,
+            ).toJsonString(),
+    );
     update('cvtPhotosJson', photos.isEmpty ? null : jsonEncode(photos));
     update('cvtAvg', avg);
     update('cvtCvPct', temps.isEmpty ? null : cv);
@@ -254,7 +234,7 @@ class _CvtTabState extends State<CvtTab> {
 
   @override
   Widget build(BuildContext context) {
-    final readings = _currentReadingsF();
+    final readings = _currentDisplayReadings();
     final temps = readings.values.toList();
     final avg = temps.isEmpty ? null : CalculationUtils.average(temps);
     final cv = temps.length > 1 ? CalculationUtils.cvPercent(temps) : 0.0;
@@ -268,11 +248,19 @@ class _CvtTabState extends State<CvtTab> {
                 'AVG Temp',
                 avg == null
                     ? '--'
-                    : '${_displayCvtValue(avg)}${_cvtUnit.suffix}',
+                    : '${avg.toStringAsFixed(1)}${_cvtUnit.suffix}',
                 avg == null
                     ? null
-                    : avg >= AppThresholds.cvtMin &&
-                          avg <= AppThresholds.cvtMax,
+                    : _cvtUnit.toCanonical(
+                                avg,
+                                canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                              ) >=
+                              AppThresholds.cvtMin &&
+                          _cvtUnit.toCanonical(
+                                avg,
+                                canonicalUnit: TemperatureEntryUnit.fahrenheit,
+                              ) <=
+                              AppThresholds.cvtMax,
               ),
             ),
             const SizedBox(width: 8),
@@ -504,11 +492,6 @@ class _CvtTabState extends State<CvtTab> {
       }
       _cvtUnit = unit;
     });
-  }
-
-  String _displayCvtValue(double valueF) {
-    return _cvtUnit
-        .fromCanonical(valueF, canonicalUnit: TemperatureEntryUnit.fahrenheit)
-        .toStringAsFixed(1);
+    _updateCalculations();
   }
 }

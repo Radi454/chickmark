@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
@@ -17,6 +17,7 @@ import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_station_scroll_view.dart';
+import '../widgets/photo_button.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/egg_breakout_sample.dart';
@@ -295,7 +296,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                       actions: [
                         _buildTrayActionButton(
                           key: const ValueKey('residue-add-house'),
-                          tooltip: 'Add house',
+                          tooltip: context.tr('Add house'),
                           icon: Icons.add,
                           onPressed: provider.isReadOnly
                               ? null
@@ -304,7 +305,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                         if (selectedHouseScopeActive)
                           _buildTrayActionButton(
                             key: const ValueKey('residue-remove-house'),
-                            tooltip: 'Remove active house',
+                            tooltip: context.tr('Remove active house'),
                             icon: Icons.remove,
                             onPressed: provider.isReadOnly
                                 ? null
@@ -374,7 +375,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                       actions: [
                         _buildTrayActionButton(
                           key: const ValueKey('residue-add-batch'),
-                          tooltip: 'Add machine',
+                          tooltip: context.tr('Add machine'),
                           icon: Icons.add,
                           onPressed: provider.isReadOnly
                               ? null
@@ -383,7 +384,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                         if (hasSelectedMachineEntry)
                           _buildTrayActionButton(
                             key: const ValueKey('residue-remove-batch'),
-                            tooltip: 'Remove active machine',
+                            tooltip: context.tr('Remove active machine'),
                             icon: Icons.remove,
                             onPressed: provider.isReadOnly
                                 ? null
@@ -477,7 +478,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                       actions: [
                         _buildTrayActionButton(
                           key: const ValueKey('residue-add-trolley'),
-                          tooltip: 'Add trolley',
+                          tooltip: context.tr('Add trolley'),
                           icon: Icons.add,
                           onPressed: provider.isReadOnly || activeAudit == null
                               ? null
@@ -492,7 +493,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                         if (activeTrolleyKey != null)
                           _buildTrayActionButton(
                             key: const ValueKey('residue-remove-trolley'),
-                            tooltip: 'Remove active trolley',
+                            tooltip: context.tr('Remove active trolley'),
                             icon: Icons.remove,
                             onPressed:
                                 provider.isReadOnly || activeAudit == null
@@ -1282,29 +1283,29 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               child: IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: _buildGradientInfoTile(
-                      'Flock',
-                      widget.context.flockId,
+                  children: [
+                    Expanded(
+                      child: _buildGradientInfoTile(
+                        'Flock',
+                        widget.context.flockId,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: AppSizes.spaceSm),
-                  Expanded(
-                    child: _buildGradientInfoTile(
-                      'Breed',
-                      widget.context.breed ?? '--',
+                    const SizedBox(width: AppSizes.spaceSm),
+                    Expanded(
+                      child: _buildGradientInfoTile(
+                        'Breed',
+                        widget.context.breed ?? '--',
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: AppSizes.spaceSm),
-                  Expanded(
-                    child: _buildGradientInfoTile(
-                      'BMK Age',
-                      _formatBmkWeeksValue(bmkAgeWeeks),
-                      key: const ValueKey('breakout-bmk-age-display-card'),
+                    const SizedBox(width: AppSizes.spaceSm),
+                    Expanded(
+                      child: _buildGradientInfoTile(
+                        'BMK Age',
+                        _formatBmkWeeksValue(bmkAgeWeeks),
+                        key: const ValueKey('breakout-bmk-age-display-card'),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
                 ),
               ),
             ),
@@ -2278,7 +2279,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       children: [
         _buildTrayActionButton(
           key: const ValueKey('breakout-add-sample'),
-          tooltip: 'Add tray sample',
+          tooltip: context.tr('Add tray sample'),
           icon: Icons.add,
           onPressed: provider.isReadOnly
               ? null
@@ -2315,7 +2316,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           const SizedBox(width: 8),
           _buildTrayActionButton(
             key: const ValueKey('breakout-remove-sample'),
-            tooltip: 'Remove active tray sample',
+            tooltip: context.tr('Remove active tray sample'),
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
@@ -2378,7 +2379,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   }) {
     return IconButton.filledTonal(
       key: key,
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: Icon(icon),
       style: IconButton.styleFrom(
@@ -2448,8 +2449,52 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
               );
             },
           ),
+          if (_legacyBreakoutPhotoEntries(sample).isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildLegacyBreakoutPhotoControl(
+              provider: provider,
+              hatchIndex: hatchIndex,
+              sample: sample,
+              breakoutType: breakoutType,
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildLegacyBreakoutPhotoControl({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutType breakoutType,
+  }) {
+    final entries = _legacyBreakoutPhotoEntries(sample);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Photos',
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        MultiPhotoButton(
+          photoPaths: [for (final entry in entries) entry.value],
+          enabled: false,
+          panelName: _breakoutPanelNameForType(breakoutType),
+          panelRowId: _breakoutPhotoRowId(
+            provider,
+            hatchIndex,
+            sample.id,
+            breakoutType,
+          ),
+          fieldKey: 'breakout_photo',
+          onPhotoCaptured: (_, _) {},
+        ),
+      ],
     );
   }
 
@@ -2754,6 +2799,21 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                   alert: exceedsBmk,
                 ),
               ),
+              const SizedBox(width: 8),
+              SizedBox(
+                key: ValueKey('breakout-photo-${sample.id}-${field.key}'),
+                width: 64,
+                height: 56,
+                child: _buildBreakoutMetricPhotoControl(
+                  provider: provider,
+                  hatchIndex: hatchIndex,
+                  samples: samples,
+                  sampleIndex: sampleIndex,
+                  sample: sample,
+                  breakoutType: breakoutType,
+                  field: field,
+                ),
+              ),
             ],
           ),
           if (exceedsBmk)
@@ -2763,6 +2823,93 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
+  Widget _buildBreakoutMetricPhotoControl({
+    required AuditProvider provider,
+    required int hatchIndex,
+    required List<EggBreakoutSampleEntry> samples,
+    required int sampleIndex,
+    required EggBreakoutSampleEntry sample,
+    required EggBreakoutType breakoutType,
+    required EggBreakoutCountField field,
+  }) {
+    final entries = _breakoutPhotoEntriesForField(sample, field.key);
+    return MultiPhotoButton(
+      singleRow: true,
+      photoPaths: [for (final entry in entries) entry.value],
+      enabled: !provider.isReadOnly,
+      panelName: _breakoutPanelNameForType(breakoutType),
+      panelRowId: _breakoutPhotoRowId(
+        provider,
+        hatchIndex,
+        sample.id,
+        breakoutType,
+        field.key,
+      ),
+      fieldKey: _breakoutPhotoFieldKey(field.key),
+      onPhotoCaptured: (index, path) {
+        final photos = Map<String, String>.from(sample.photos);
+        if (index >= 0 && index < entries.length) {
+          photos[entries[index].key] = path;
+        } else {
+          photos['${_breakoutPhotoStoragePrefix(field.key)}photo_${DateTime.now().microsecondsSinceEpoch}'] =
+              path;
+        }
+        _replaceBreakoutSample(
+          provider,
+          hatchIndex,
+          breakoutType,
+          samples,
+          sampleIndex,
+          sample.copyWith(photos: photos),
+        );
+      },
+      onPhotoRemoved: (index) {
+        if (index < 0 || index >= entries.length) return;
+        final photos = Map<String, String>.from(sample.photos)
+          ..remove(entries[index].key);
+        _replaceBreakoutSample(
+          provider,
+          hatchIndex,
+          breakoutType,
+          samples,
+          sampleIndex,
+          sample.copyWith(photos: photos),
+        );
+      },
+    );
+  }
+
+  List<MapEntry<String, String>> _breakoutPhotoEntriesForField(
+    EggBreakoutSampleEntry sample,
+    String fieldKey,
+  ) {
+    final prefix = _breakoutPhotoStoragePrefix(fieldKey);
+    return sample.photos.entries
+        .where((entry) => entry.key.startsWith(prefix))
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+  }
+
+  List<MapEntry<String, String>> _legacyBreakoutPhotoEntries(
+    EggBreakoutSampleEntry sample,
+  ) {
+    final prefixes = <String>{
+      for (final type in EggBreakoutType.values)
+        for (final field in type.countFields)
+          _breakoutPhotoStoragePrefix(field.key),
+    };
+    return sample.photos.entries
+        .where(
+          (entry) => !prefixes.any((prefix) => entry.key.startsWith(prefix)),
+        )
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+  }
+
+  String _breakoutPhotoStoragePrefix(String fieldKey) => '$fieldKey:';
+
+  String _breakoutPhotoFieldKey(String fieldKey) =>
+      'breakout_${fieldKey}_photo';
 
   String _breakoutCountFocusKey(
     EggBreakoutSampleEntry sample,
@@ -3184,6 +3331,29 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return breakoutType == EggBreakoutType.freshEggBreakout ? 30 : 150;
   }
 
+  String _breakoutPanelNameForType(EggBreakoutType breakoutType) {
+    return switch (breakoutType) {
+      EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+      EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+      EggBreakoutType.residueHatchDay => 'residue_breakout',
+    };
+  }
+
+  String _breakoutPhotoRowId(
+    AuditProvider provider,
+    int hatchIndex,
+    String sampleId,
+    EggBreakoutType breakoutType, [
+    String? fieldKey,
+  ]) {
+    final sessionId = hatchIndex >= 0 && hatchIndex < provider.drafts.length
+        ? provider.drafts[hatchIndex].sessionId
+        : null;
+    final prefix = sessionId == null || sessionId.isEmpty ? 'draft' : sessionId;
+    final rowId =
+        '$prefix:${_breakoutPanelNameForType(breakoutType)}:$sampleId';
+    return fieldKey == null ? rowId : '$rowId:$fieldKey';
+  }
 
   void _replaceBreakoutSample(
     AuditProvider provider,
@@ -3264,6 +3434,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       numberOfTrays: sample.numberOfTrays,
       breakoutType: sample.breakoutType,
       counts: sample.counts,
+      photos: sample.photos,
     );
   }
 
@@ -3427,7 +3598,7 @@ class _GradientNumberInputState extends State<_GradientNumberInput> {
     return SizedBox(
       height: 24,
       child: Stack(
-        alignment: Alignment.centerLeft,
+        alignment: AlignmentDirectional.centerStart,
         children: [
           if (_controller.text.isEmpty)
             Text(

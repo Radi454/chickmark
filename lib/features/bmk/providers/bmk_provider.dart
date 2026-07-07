@@ -205,6 +205,60 @@ class BmkProvider extends ChangeNotifier {
     await loadOperationalStandards();
   }
 
+  Future<void> saveOperationalSourcePhoto({
+    required String metricKey,
+    required String photoPath,
+    String? remotePath,
+  }) async {
+    BmkOperationalStandardModel? selected;
+    for (final row in _operationalStandards) {
+      if (row.metricKey == metricKey) {
+        selected = row;
+        break;
+      }
+    }
+    if (selected == null) return;
+
+    final hatcheryId = _selectedHatcheryId;
+    final id = hatcheryId == null || hatcheryId.isEmpty
+        ? 'global-${selected.metricKey}'
+        : '$hatcheryId-${selected.metricKey}';
+    await _repository.upsertOperationalStandard(
+      selected.copyWith(
+        id: id,
+        hatcheryId: hatcheryId,
+        sourcePhotoPath: photoPath,
+        sourcePhotoRemotePath: remotePath,
+      ),
+    );
+    await loadOperationalStandards();
+  }
+
+  Future<void> deleteOperationalSourcePhoto({required String metricKey}) async {
+    BmkOperationalStandardModel? selected;
+    for (final row in _operationalStandards) {
+      if (row.metricKey == metricKey) {
+        selected = row;
+        break;
+      }
+    }
+    if (selected == null) return;
+
+    final hatcheryId = _selectedHatcheryId;
+    final id = hatcheryId == null || hatcheryId.isEmpty
+        ? 'global-${selected.metricKey}'
+        : '$hatcheryId-${selected.metricKey}';
+    await _repository.upsertOperationalStandard(
+      selected.copyWith(
+        id: id,
+        hatcheryId: hatcheryId,
+        sourcePhotoPath: null,
+        sourcePhotoRemotePath: null,
+      ),
+    );
+    await loadOperationalStandards();
+  }
+
   void setBreed(String breed) {
     _selectedBreed = breed;
     loadBreedBenchmarks(resetSelectedAge: true);

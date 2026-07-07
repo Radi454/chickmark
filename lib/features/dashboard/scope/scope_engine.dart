@@ -17,6 +17,38 @@ class ScopeEngine {
   static List<SamplingLayer> nonPoolLayers(ScopeSectorConfig sector) =>
       sector.allowedLayers.where((l) => l != SamplingLayer.pool).toList();
 
+  /// Breakdown layers that represent a real sibling comparison in [leaves].
+  /// A deeper layer is eligible only when at least one matching parent path
+  /// contains two distinct, nonblank children at that layer.
+  static List<SamplingLayer> eligibleLayers(
+    ScopeSectorConfig sector,
+    List<ScopeLeafRow> leaves, {
+    Set<SamplingLayer>? limitTo,
+  }) {
+    final ordered = nonPoolLayers(sector);
+    final eligible = <SamplingLayer>[];
+    for (var i = 0; i < ordered.length; i++) {
+      final candidate = ordered[i];
+      if (limitTo != null && !limitTo.contains(candidate)) continue;
+
+      final childrenByParent = <String, Set<String>>{};
+      for (final leaf in leaves) {
+        final child = leaf.layerSegments[candidate]?.trim();
+        if (child == null || child.isEmpty) continue;
+        final parent = ordered
+            .take(i)
+            .map((layer) => leaf.layerSegments[layer]?.trim() ?? '')
+            .where((value) => value.isNotEmpty)
+            .join('·');
+        childrenByParent.putIfAbsent(parent, () => <String>{}).add(child);
+      }
+      if (childrenByParent.values.any((children) => children.length >= 2)) {
+        eligible.add(candidate);
+      }
+    }
+    return eligible;
+  }
+
   /// Bucket leaves into comparison columns by the join of the SELECTED layers'
   /// segments (hierarchy order preserved → proper nesting). Empty selection →
   /// a single pooled `Pool` column.
@@ -35,10 +67,12 @@ class ScopeEngine {
     final order = <String>[];
     for (final leaf in leaves) {
       final label = sel.map((l) => leaf.layerSegments[l] ?? '—').join('·');
-      buckets.putIfAbsent(label, () {
-        order.add(label);
-        return <ScopeLeafRow>[];
-      }).add(leaf);
+      buckets
+          .putIfAbsent(label, () {
+            order.add(label);
+            return <ScopeLeafRow>[];
+          })
+          .add(leaf);
     }
     return [
       for (final label in order)
@@ -70,8 +104,7 @@ class ScopeEngine {
   ) {
     final accumulators = <ScopeCellAccumulator>[];
     final cells = <ScopeCell>[];
-    var groupSeverity =
-        layer == null ? ScopeSeverity.pool : ScopeSeverity.good;
+    var groupSeverity = layer == null ? ScopeSeverity.pool : ScopeSeverity.good;
     for (final param in sector.params) {
       var acc = const ScopeCellAccumulator();
       for (final leaf in leaves) {
@@ -137,13 +170,16 @@ class ScopeEngine {
     switch (param.format) {
       case ScopeValueFormat.percent:
         if (param.countColumn != null && acc.hasCountCol && acc.traySum > 0) {
-          value = 100 * acc.countSum / acc.traySum; // count-weighted Σbad/Σtotal
+          value =
+              100 * acc.countSum / acc.traySum; // count-weighted Σbad/Σtotal
         } else if (acc.hasTray && acc.traySum > 0) {
           value = acc.weightedValueSum / acc.traySum; // weighted mean of pct
         } else if (acc.valueN > 0) {
           value = acc.valueSum / acc.valueN; // unweighted mean (no traySize)
         }
-        text = value == null ? '—' : '${value.toStringAsFixed(param.decimals)}%';
+        text = value == null
+            ? '—'
+            : '${value.toStringAsFixed(param.decimals)}%';
         break;
       case ScopeValueFormat.number:
         if (acc.hasTray && acc.traySum > 0) {

@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -415,7 +415,7 @@ class _PmNecropsyTabState extends State<PmNecropsyTab> {
           if (!widget.isReadOnly && _otherLesions.length > 1) ...[
             const SizedBox(width: 4),
             IconButton(
-              tooltip: 'Remove other lesion',
+              tooltip: context.tr('Remove other lesion'),
               onPressed: () => _removeOtherLesion(index),
               icon: const Icon(Icons.delete_outline),
             ),

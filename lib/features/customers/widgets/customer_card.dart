@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -11,6 +11,7 @@ class CustomerCard extends StatelessWidget {
   final bool hasEstimatedFlockAge;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const CustomerCard({
     super.key,
@@ -19,6 +20,7 @@ class CustomerCard extends StatelessWidget {
     this.hasEstimatedFlockAge = false,
     this.onTap,
     this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -118,9 +120,26 @@ class CustomerCard extends StatelessWidget {
                   width: 38,
                   height: 38,
                   child: IconButton.outlined(
-                    tooltip: 'Edit customer',
+                    tooltip: context.tr('Edit customer'),
                     onPressed: onEdit,
                     icon: const Icon(Icons.edit_outlined, size: 18),
+                    style: IconButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+              ],
+              if (onDelete != null) ...[
+                const SizedBox(width: AppSizes.spaceSm),
+                SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: IconButton.outlined(
+                    tooltip: context.tr('Delete customer'),
+                    onPressed: onDelete,
+                    color: AppColors.statusError,
+                    icon: const Icon(Icons.delete_outline, size: 18),
                     style: IconButton.styleFrom(
                       padding: EdgeInsets.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,

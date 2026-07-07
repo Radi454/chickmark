@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
@@ -69,7 +69,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
               title: 'Audits',
               actions: [
                 IconButton(
-                  tooltip: 'Filter visits',
+                  tooltip: context.tr('Filter visits'),
                   icon: Badge(
                     isLabelVisible: list.filter.hasFilters,
                     label: Text(list.filter.activeCount.toString()),
@@ -258,7 +258,7 @@ class _AuditsScreenState extends State<AuditsScreen> {
     );
 
     return Align(
-      alignment: Alignment.centerLeft,
+      alignment: AlignmentDirectional.centerStart,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
         child: Wrap(spacing: 6, runSpacing: 2, children: chips),

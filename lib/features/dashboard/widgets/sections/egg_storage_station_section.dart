@@ -1,4 +1,7 @@
-import 'package:flutter/material.dart';
+import 'dart:math' as math;
+
+import 'package:fl_chart/fl_chart.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -6,6 +9,7 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_thresholds.dart';
 import '../../../../core/theme/app_page_route.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../data/models/panel_sample_schema.dart';
 import '../../models/egg_storage_models.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/scope_comparison_provider.dart';
@@ -15,12 +19,16 @@ import '../../scope/scope_severity.dart';
 import '../../screens/photo_fullscreen_screen.dart';
 import '../est_evidence_photos_card.dart';
 import '../scope/alarm_triage_feed.dart';
+import '../scope/column_pick_chips.dart';
+import '../scope/layer_toggle_bar.dart';
+import '../scope/scope_age_picker.dart';
+import '../scope/scope_cumulative_view.dart';
 import '../scope/scope_matrix_table.dart';
 
 /// Storage station body for the dashboard, laid out like the egg audit station:
 /// a triage feed first (Critical / Watch / collapsible In Target), then the EST
 /// summary + 9-point grid photo, the Upside Down score, the storage checklist,
-/// and finally Egg Quality with one tab per house sample.
+/// and finally Egg Quality as one Pool + house comparison sector.
 ///
 /// EST / Upside / checklist are pool-level and read the filter-aware latest audit
 /// ([DashboardProvider.eggStorageLatest] + EST photo evidence). Egg Quality is
@@ -93,8 +101,8 @@ class EggStorageStationSection extends StatelessWidget {
             advice: sev == ScopeSeverity.good
                 ? null
                 : (avg < target.minC
-                    ? 'Below target band — warm storage toward range.'
-                    : 'Above target band — cool storage toward range.'),
+                      ? 'Below target band — warm storage toward range.'
+                      : 'Above target band — cool storage toward range.'),
           ),
         );
       }
@@ -204,8 +212,8 @@ class EggStorageStationSection extends StatelessWidget {
       advice: sev == ScopeSeverity.err
           ? overAdvice
           : (sev == ScopeSeverity.warn
-              ? 'Slightly over limit — monitor next visit.'
-              : null),
+                ? 'Slightly over limit — monitor next visit.'
+                : null),
     );
   }
 
@@ -230,8 +238,8 @@ class EggStorageStationSection extends StatelessWidget {
       advice: sev == ScopeSeverity.err
           ? belowAdvice
           : (sev == ScopeSeverity.warn
-              ? 'Near the target floor — monitor next visit.'
-              : null),
+                ? 'Near the target floor — monitor next visit.'
+                : null),
     );
   }
 
@@ -435,9 +443,10 @@ class _MetricGrid extends StatelessWidget {
       builder: (context, constraints) {
         const gap = AppSizes.spaceSm;
         const minTile = 132.0;
-        final cols = (constraints.maxWidth / (minTile + gap))
-            .floor()
-            .clamp(1, 5);
+        final cols = (constraints.maxWidth / (minTile + gap)).floor().clamp(
+          1,
+          5,
+        );
         final tileW = (constraints.maxWidth - gap * (cols - 1)) / cols;
         return Wrap(
           spacing: gap,
@@ -570,33 +579,33 @@ class _StorageChecklistCard extends StatelessWidget {
   }
 }
 
-// ── egg quality: one tab per house ────────────────────────────────────────────
+// ── egg quality: one Pool + house comparison sector ──────────────────────────
 
-class _EggQualityTabs extends StatefulWidget {
+class _EggQualityTabs extends StatelessWidget {
   final List<ScopeGroup> houses;
   final bool isExample;
 
   const _EggQualityTabs({required this.houses, required this.isExample});
 
   @override
-  State<_EggQualityTabs> createState() => _EggQualityTabsState();
-}
-
-class _EggQualityTabsState extends State<_EggQualityTabs> {
-  int _selected = 0;
-
-  @override
   Widget build(BuildContext context) {
-    final houses = widget.houses;
     if (houses.isEmpty) {
       return const _SubCard(
         icon: Icons.egg_alt_outlined,
         title: 'Egg Quality',
-        child: _InlineEmpty(label: 'No egg quality samples for this filter yet.'),
+        child: _InlineEmpty(
+          label: 'No egg quality samples for this filter yet.',
+        ),
       );
     }
-    final selected = _selected.clamp(0, houses.length - 1);
-    final house = houses[selected];
+    final provider = context.watch<ScopeComparisonProvider>();
+    final isChart = provider.isChartMode('egg_quality');
+    final hasAgeOptions = provider.periodsFor('egg_quality').isNotEmpty;
+    final isAllAges =
+        hasAgeOptions && provider.selectedPeriodFor('egg_quality') == null;
+    final canCompareHouses = provider
+        .eligibleLayersFor('egg_quality')
+        .contains(SamplingLayer.house);
 
     return _SubCard(
       icon: Icons.egg_alt_outlined,
@@ -604,35 +613,56 @@ class _EggQualityTabsState extends State<_EggQualityTabs> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.isExample) ...[
+          if (isExample) ...[
             const _ExampleBadge(),
             const SizedBox(height: AppSizes.spaceSm),
           ],
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var i = 0; i < houses.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(
-                      right: i == houses.length - 1 ? 0 : 6,
-                    ),
-                    child: _HouseTab(
-                      label: houses[i].label,
-                      selected: i == selected,
-                      onTap: () => setState(() => _selected = i),
+          if (hasAgeOptions) ...[
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: ScopeAgePicker(sectorId: 'egg_quality'),
+            ),
+            const SizedBox(height: AppSizes.spaceSm),
+          ],
+          Row(
+            children: [
+              if (canCompareHouses)
+                const Expanded(
+                  child: Text(
+                    'Break down by — add layers to narrow, remove to broaden',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                      color: AppColors.textTertiary,
                     ),
                   ),
-              ],
-            ),
+                )
+              else
+                const Spacer(),
+              const SizedBox(width: AppSizes.spaceSm),
+              _EggQualityChartToggle(isChart: isChart),
+            ],
           ),
-          const SizedBox(height: AppSizes.spaceMd),
-          _EggQualityHousePanels(house: house),
-          // Tabs show one house at a time; the old scope view compared houses
-          // side-by-side. Keep that one tap away via a collapsible matrix.
-          if (houses.length > 1) ...[
-            const SizedBox(height: AppSizes.spaceSm),
-            const _CompareHousesTile(),
+          if (canCompareHouses) ...[
+            const SizedBox(height: 6),
+            const LayerToggleBar(
+              sectorId: 'egg_quality',
+              layers: [SamplingLayer.house],
+            ),
+          ],
+          if (isAllAges)
+            const ScopeCumulativeView(sectorId: 'egg_quality')
+          else ...[
+            const ColumnPickChips(sectorId: 'egg_quality', avgLabel: 'Pool'),
+            if (isChart)
+              const _EggQualityChart()
+            else
+              const ScopeMatrixTable(
+                sectorId: 'egg_quality',
+                avgLabel: 'Pool',
+                avgUsesPoolGroup: true,
+              ),
           ],
         ],
       ),
@@ -640,90 +670,323 @@ class _EggQualityTabsState extends State<_EggQualityTabs> {
   }
 }
 
-/// Collapsible "Compare houses" reveal wrapping the per-house comparison matrix
-/// (the same [ScopeMatrixTable] the generic scope view used). Built lazily — the
-/// matrix is kept out of the tree until opened, so its column headers (house
-/// labels) don't duplicate the tab pills and the heavy table isn't laid out
-/// until asked for.
-class _CompareHousesTile extends StatefulWidget {
-  const _CompareHousesTile();
+class _EggQualityChartToggle extends StatelessWidget {
+  final bool isChart;
 
-  @override
-  State<_CompareHousesTile> createState() => _CompareHousesTileState();
-}
-
-class _CompareHousesTileState extends State<_CompareHousesTile> {
-  bool _open = false;
+  const _EggQualityChartToggle({required this.isChart});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InkWell(
-          onTap: () => setState(() => _open = !_open),
-          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Compare houses',
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                Icon(
-                  _open ? Icons.expand_less : Icons.expand_more,
-                  size: 20,
-                  color: AppColors.textSecondary,
-                ),
-              ],
+    return Tooltip(
+      message: isChart ? 'Show table' : 'Show chart',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+          onTap: () => context.read<ScopeComparisonProvider>().toggleChartMode(
+            'egg_quality',
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isChart ? AppColors.statusActiveBg : AppColors.surface,
+              borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+              border: Border.all(
+                color: isChart
+                    ? AppColors.statusActive.withValues(alpha: 0.35)
+                    : AppColors.borderDefault,
+              ),
+            ),
+            child: Icon(
+              isChart ? Icons.table_chart_outlined : Icons.bar_chart,
+              size: 16,
+              color: isChart ? AppColors.statusActive : AppColors.textSecondary,
             ),
           ),
         ),
-        if (_open) ...[
-          const SizedBox(height: AppSizes.spaceSm),
-          const ScopeMatrixTable(sectorId: 'egg_quality'),
-        ],
+      ),
+    );
+  }
+}
+
+class _EggQualityChart extends StatelessWidget {
+  const _EggQualityChart();
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<ScopeComparisonProvider>();
+    final sector = ScopeConfigRegistry.byId('egg_quality');
+    final params = sector.params.asMap().entries.where((entry) {
+      return entry.value.format != ScopeValueFormat.text &&
+          _eggChartBmkValue(entry.key, null, sector) != null;
+    }).toList();
+    if (params.isEmpty) return const SizedBox.shrink();
+
+    var paramIndex = provider.chartParamIndex('egg_quality');
+    if (!params.any((entry) => entry.key == paramIndex)) {
+      paramIndex = params.first.key;
+    }
+    final selectedParam = sector.params[paramIndex];
+
+    final groups = provider.groupsFor('egg_quality');
+    final visibleIndexes = provider.visibleColumnIndexes('egg_quality');
+    final columns = <_EggChartColumn>[];
+    if (provider.isAvgVisible('egg_quality')) {
+      final pool = provider.poolGroupFor('egg_quality');
+      if (pool != null) columns.add(_EggChartColumn.fromGroup(pool));
+    }
+    for (final index in visibleIndexes) {
+      if (index >= 0 && index < groups.length) {
+        columns.add(_EggChartColumn.fromGroup(groups[index]));
+      }
+    }
+    final values = [
+      for (final column in columns)
+        (paramIndex < column.group.cells.length
+                ? column.group.cells[paramIndex].value
+                : null)
+            ?.toDouble(),
+    ];
+    final bmkValues = [
+      for (final column in columns)
+        _eggChartBmkValue(paramIndex, column.group, sector),
+    ];
+    final maxActual = values.whereType<double>().fold<double>(0, math.max);
+    final maxBmk = bmkValues.whereType<double>().fold<double>(0, math.max);
+    final maxValue = math.max(maxActual, maxBmk);
+    if (columns.isEmpty || maxValue <= 0) {
+      return const Padding(
+        padding: EdgeInsets.only(top: AppSizes.spaceMd),
+        child: Text(
+          'Nothing to chart for this selection.',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textTertiary,
+          ),
+        ),
+      );
+    }
+    final average = values.whereType<double>().isEmpty
+        ? 0.0
+        : values.whereType<double>().reduce((a, b) => a + b) /
+              values.whereType<double>().length;
+    final maxY = math.max(maxValue, average) * 1.18 + 0.01;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: AppSizes.spaceMd),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final entry in params)
+              _EggMetricChip(
+                label: entry.value.label,
+                active: entry.key == paramIndex,
+                onTap: () => context
+                    .read<ScopeComparisonProvider>()
+                    .setChartParam('egg_quality', entry.key),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSizes.spaceSm),
+        _EggChartLegend(avgLabel: 'Avg ${selectedParam.formatValue(average)}'),
+        const SizedBox(height: AppSizes.spaceSm),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final minColumnWidth = columns.length <= 8 ? 42.0 : 54.0;
+            final neededWidth = columns.length * minColumnWidth;
+            final chartW = neededWidth <= constraints.maxWidth
+                ? constraints.maxWidth
+                : neededWidth;
+            final barWidth = columns.length <= 8 ? 8.0 : 7.0;
+            return SingleChildScrollView(
+              key: const ValueKey('egg-quality-chart-scroll'),
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: chartW,
+                height: 210,
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: maxY,
+                    groupsSpace: 8,
+                    barTouchData: BarTouchData(
+                      touchTooltipData: BarTouchTooltipData(
+                        getTooltipColor: (_) => Colors.transparent,
+                        tooltipPadding: EdgeInsets.zero,
+                        tooltipMargin: 4,
+                        fitInsideVertically: true,
+                        fitInsideHorizontally: true,
+                        getTooltipItem: (group, _, rod, _) {
+                          if (rod.toY == 0) return null;
+                          final isBmk = group.barRods.indexOf(rod) == 1;
+                          return BarTooltipItem(
+                            '${isBmk ? 'BMK ' : 'Act '}${selectedParam.formatValue(rod.toY)}',
+                            TextStyle(
+                              color: isBmk
+                                  ? AppColors.chartBenchmark
+                                  : AppColors.textPrimary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 10,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      getDrawingHorizontalLine: (_) => const FlLine(
+                        color: AppColors.chartGridH,
+                        strokeWidth: 1,
+                      ),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    titlesData: FlTitlesData(
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      leftTitles: const AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 34,
+                        ),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 1,
+                          reservedSize: 36,
+                          getTitlesWidget: (value, _) {
+                            final i = value.toInt();
+                            if (i < 0 || i >= columns.length) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                columns[i].label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    barGroups: [
+                      for (var i = 0; i < columns.length; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barsSpace: 3,
+                          barRods: [
+                            BarChartRodData(
+                              toY: values[i] ?? 0,
+                              width: barWidth,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(5),
+                              ),
+                              color: columns[i].label == 'Pool'
+                                  ? AppColors.statusActive
+                                  : AppColors.primary,
+                            ),
+                            BarChartRodData(
+                              toY: bmkValues[i] ?? 0,
+                              width: barWidth,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(5),
+                              ),
+                              color: AppColors.chartBenchmark,
+                            ),
+                          ],
+                        ),
+                    ],
+                    extraLinesData: ExtraLinesData(
+                      horizontalLines: [
+                        HorizontalLine(
+                          y: average,
+                          color: AppColors.statusNeutralText,
+                          strokeWidth: 1.5,
+                          dashArray: [4, 5],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
 }
 
-class _HouseTab extends StatelessWidget {
+double? _eggChartBmkValue(
+  int paramIndex,
+  ScopeGroup? group,
+  ScopeSectorConfig sector,
+) {
+  final param = sector.params[paramIndex];
+  if (param.column == 'eggAvgWeight') {
+    if (group == null) return 1;
+    final bmkIndex = sector.params.indexWhere(
+      (candidate) => candidate.column == 'eggBmkWeight',
+    );
+    if (bmkIndex < 0 || bmkIndex >= group.cells.length) return null;
+    return group.cells[bmkIndex].value?.toDouble();
+  }
+  if (param.absoluteLimit != null) return param.absoluteLimit!.toDouble();
+  return null;
+}
+
+class _EggMetricChip extends StatelessWidget {
   final String label;
-  final bool selected;
+  final bool active;
   final VoidCallback onTap;
 
-  const _HouseTab({
+  const _EggMetricChip({
     required this.label,
-    required this.selected,
+    required this.active,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.statusActive : AppColors.surfaceVariant,
-          borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-          border: Border.all(
-            color: selected ? AppColors.statusActive : AppColors.borderDefault,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? AppColors.statusActive : AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+            border: Border.all(
+              color: active ? AppColors.statusActive : AppColors.borderDefault,
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-            color: selected ? Colors.white : AppColors.textSecondary,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              color: active ? Colors.white : AppColors.textSecondary,
+            ),
           ),
         ),
       ),
@@ -731,101 +994,100 @@ class _HouseTab extends StatelessWidget {
   }
 }
 
-/// The selected house's egg-quality readings, split into the same two groups the
-/// audit station uses: Weights & Uniformity, then Shell Quality (UV).
-class _EggQualityHousePanels extends StatelessWidget {
-  final ScopeGroup house;
+class _EggChartLegend extends StatelessWidget {
+  final String avgLabel;
 
-  const _EggQualityHousePanels({required this.house});
+  const _EggChartLegend({required this.avgLabel});
 
   @override
   Widget build(BuildContext context) {
-    final sample = _cellValue(house, 'eggSampleSize');
-    final avgWt = _cellValue(house, 'eggAvgWeight');
-    final unif = _cellValue(house, 'eggUniformityPct');
-    final cv = _cellValue(house, 'eggCvPct');
-    final bmk = _cellValue(house, 'eggBmkWeight');
-
-    final affected = _cellValue(house, 'uvAffectedPct');
-    final cuticle = _cellValue(house, 'uvCuticleDamagePct');
-    final washed = _cellValue(house, 'uvWashedPct');
-    final dirty = _cellValue(house, 'uvDirtyPct');
-
-    final unifIsAlarm =
-        unif != null && unif > 0 && unif < AppThresholds.uniformityGood;
-    final cvIsAlarm = cv != null && cv > AppThresholds.cvAlertPct;
-    final affectedIsAlarm = affected != null && affected > _uvAffectedLimitPct;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Wrap(
+      spacing: 12,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        _PanelLabel('Weights & Uniformity'),
-        const SizedBox(height: AppSizes.spaceSm),
-        _MetricGrid(
-          tiles: [
-            _MetricTile(
-              label: 'Sample',
-              value: sample == null ? '--' : '${sample.round()}/100',
-            ),
-            _MetricTile(
-              label: 'Avg wt',
-              value: avgWt == null ? '--' : '${_one(avgWt.toDouble())}g',
-            ),
-            _MetricTile(
-              label: 'Uniformity',
-              value: unif == null ? '--' : '${_one(unif.toDouble())}%',
-              isAlarm: unifIsAlarm,
-            ),
-            _MetricTile(
-              label: 'CV%',
-              value: cv == null ? '--' : '${_one(cv.toDouble())}%',
-              isAlarm: cvIsAlarm,
-            ),
-            _MetricTile(
-              label: 'BMK wt',
-              value: bmk == null ? '--' : '${_one(bmk.toDouble())}g',
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSizes.spaceMd),
-        _PanelLabel('Shell Quality (UV)'),
-        const SizedBox(height: AppSizes.spaceSm),
-        _MetricGrid(
-          tiles: [
-            _MetricTile(
-              label: 'Affected',
-              value: affected == null ? '--' : '${_one(affected.toDouble())}%',
-              isAlarm: affectedIsAlarm,
-            ),
-            _MetricTile(
-              label: 'Cuticle',
-              value: cuticle == null ? '--' : '${_one(cuticle.toDouble())}%',
-            ),
-            _MetricTile(
-              label: 'Washed',
-              value: washed == null ? '--' : '${_one(washed.toDouble())}%',
-            ),
-            _MetricTile(
-              label: 'Dirty',
-              value: dirty == null ? '--' : '${_one(dirty.toDouble())}%',
-            ),
-          ],
+        const _BarLegendItem(color: AppColors.primary, label: 'Act'),
+        const _BarLegendItem(color: AppColors.chartBenchmark, label: 'BMK'),
+        CustomPaint(size: const Size(28, 1), painter: _DashedLinePainter()),
+        Text(
+          avgLabel,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textSecondary,
+          ),
         ),
       ],
     );
   }
 }
 
-class _PanelLabel extends StatelessWidget {
-  final String text;
+class _BarLegendItem extends StatelessWidget {
+  final Color color;
+  final String label;
 
-  const _PanelLabel(this.text);
+  const _BarLegendItem({required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DashedLinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const dash = 4.0;
+    const gap = 4.0;
+    var x = 0.0;
+    final paint = Paint()
+      ..color = AppColors.statusNeutralText
+      ..strokeWidth = 1.5;
+    while (x < size.width) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(math.min(x + dash, size.width), 0),
+        paint,
+      );
+      x += dash + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _EggChartColumn {
+  final String label;
+  final ScopeGroup group;
+
+  const _EggChartColumn({required this.label, required this.group});
+
+  factory _EggChartColumn.fromGroup(ScopeGroup group) {
+    return _EggChartColumn(
+      label: group.layer == null ? 'Pool' : group.label,
+      group: group,
     );
   }
 }

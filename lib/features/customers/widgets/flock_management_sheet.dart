@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -60,7 +60,7 @@ class FlockManagementSheet extends StatelessWidget {
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Back',
+                          tooltip: context.tr('Back'),
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.arrow_back),
                         ),
@@ -303,12 +303,12 @@ class _ManagedFlockCard extends StatelessWidget {
                   label: Text(flock.isSold ? 'Mark active' : 'Mark sold'),
                 ),
                 IconButton.outlined(
-                  tooltip: 'Edit flock',
+                  tooltip: context.tr('Edit flock'),
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton.outlined(
-                  tooltip: 'Remove flock',
+                  tooltip: context.tr('Remove flock'),
                   onPressed: onDelete,
                   color: Colors.red.shade700,
                   icon: const Icon(Icons.delete_outline),

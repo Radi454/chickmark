@@ -12,36 +12,52 @@ import 'package:hatchaudit/features/dashboard/widgets/scope/scope_sector_widget.
 import 'package:provider/provider.dart';
 
 /// Widget test with in-memory fake repos (no real DB → completes under the
-/// FakeAsync zone testWidgets runs in). Proves a real-data sector gets the
-/// Incremental ⇄ Cumulative toggle + period picker, and switching renders the
-/// per-axis trend (line chart + axis chips). Dummy/example sectors keep their
-/// single view (covered by scope_sector_widget_test.dart).
+/// FakeAsync zone testWidgets runs in). Proves a real-data sector gets an
+/// age-first table and can switch the same dataset to the existing chart view.
 class _FakeScopeRepo extends ScopeComparisonRepository {
   @override
   Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async {
-    final base = filter.bmkAge == 25 ? 7.0 : 8.0;
-    return [_leaf(base), _leaf(base + 0.4)];
+    if (sector.id != 'residue_breakout') return const [];
+    final w25 = [
+      _leaf(25, 7.0, house: 'H1', tray: 'Ty1'),
+      _leaf(25, 7.4, house: 'H1', tray: 'Ty1'),
+    ];
+    final w36 = [
+      _leaf(36, 8.0, house: 'H1', tray: 'Ty1'),
+      _leaf(36, 8.2, house: 'H1', tray: 'Ty2'),
+      _leaf(36, 8.4, house: 'H2', tray: 'Ty1'),
+      _leaf(36, 8.6, house: 'H2', tray: 'Ty2'),
+    ];
+    if (filter.bmkAge == 25) return w25;
+    if (filter.bmkAge == 36) return w36;
+    return [...w25, ...w36];
   }
 
   @override
   Future<List<ScopePeriod>> distinctPeriods(sector, base) async => const [
-        ScopePeriod(label: 'W25', age: 25, n: 2),
-        ScopePeriod(label: 'W36', age: 36, n: 2),
-      ];
+    ScopePeriod(label: 'W25', age: 25, n: 2),
+    ScopePeriod(label: 'W36', age: 36, n: 4),
+  ];
 
   @override
   Future<int?> dominantBmkAge(filter) async => 36;
 
-  ScopeLeafRow _leaf(num infert) => ScopeLeafRow(
-        layerSegments: const {SamplingLayer.house: 'H1'},
-        cells: {
-          'infertilePct': ScopeCellAccumulator.sample(
-            value: infert,
-            traySize: 750,
-            count: infert / 100 * 750,
-          ),
-        },
-      );
+  ScopeLeafRow _leaf(
+    int age,
+    num infert, {
+    required String house,
+    required String tray,
+  }) => ScopeLeafRow(
+    bmkAge: age,
+    layerSegments: {SamplingLayer.house: house, SamplingLayer.tray: tray},
+    cells: {
+      'infertilePct': ScopeCellAccumulator.sample(
+        value: infert,
+        traySize: 750,
+        count: infert / 100 * 750,
+      ),
+    },
+  );
 }
 
 class _FakePanelRepo extends PanelDashboardRepository {
@@ -78,28 +94,61 @@ void main() {
     return provider;
   }
 
-  testWidgets('real-data sector exposes the mode toggle + period picker', (
+  testWidgets('real-data sector defaults to the all-BMK-age table', (
     tester,
   ) async {
     await pumpResidue(tester);
     expect(find.text('Example data'), findsNothing); // real data → not dummy
-    expect(find.text('Incremental'), findsOneWidget);
-    expect(find.text('Cumulative'), findsOneWidget);
-    expect(find.text('All'), findsOneWidget); // period picker default label
-    expect(find.byType(LineChart), findsNothing); // Incremental: no trend chart
+    expect(find.text('Incremental'), findsNothing);
+    expect(find.text('Cumulative'), findsNothing);
+    expect(find.text('All BMK Ages'), findsOneWidget);
+    expect(find.text('W25'), findsWidgets);
+    expect(find.text('W36'), findsWidgets);
+    expect(find.text('AVG'), findsOneWidget);
+    expect(find.text('Tray'), findsNothing);
+    expect(find.byType(LineChart), findsNothing);
   });
 
-  testWidgets('switching to Cumulative renders the trend view', (tester) async {
+  testWidgets('existing chart icon switches the age table to a chart', (
+    tester,
+  ) async {
     await pumpResidue(tester);
-    await tester.tap(find.text('Cumulative'));
+    await tester.tap(find.byIcon(Icons.bar_chart));
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 40));
       if (find.byType(LineChart).evaluate().isNotEmpty) break;
     }
 
     expect(find.byType(LineChart), findsOneWidget);
-    expect(find.text('Actual'), findsOneWidget); // chart legend
-    expect(find.text('W25'), findsWidgets); // axis chip + x-axis label
-    expect(find.text('Infert %'), findsWidgets); // cumulative table row
+    expect(find.text('Pool'), findsOneWidget);
+    expect(find.text('W25'), findsWidgets);
+    expect(find.text('All BMK Ages'), findsOneWidget);
   });
+
+  testWidgets(
+    'specific age starts pooled and supports valid multi-level filters',
+    (tester) async {
+      await pumpResidue(tester);
+
+      await tester.tap(find.text('All BMK Ages'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('W36').last);
+      await settle(tester, 20);
+
+      expect(find.text('Pool'), findsWidgets);
+      expect(find.text('House'), findsOneWidget);
+      expect(find.text('Tray'), findsOneWidget);
+      expect(find.text('Machine'), findsNothing);
+      expect(find.text('Trolley'), findsNothing);
+
+      await tester.tap(find.text('House'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tray'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('H1·Ty1'), findsWidgets);
+      expect(find.text('H2·Ty2'), findsWidgets);
+      expect(find.text('⌀ Avg'), findsWidgets);
+    },
+  );
 }

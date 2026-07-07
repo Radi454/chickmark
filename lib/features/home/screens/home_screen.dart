@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/app_page_route.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
@@ -31,8 +31,9 @@ import 'package:hatchaudit/widgets/scale_button.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool loadInitialData;
+  final HomeProvider? homeProvider;
 
-  const HomeScreen({super.key, this.loadInitialData = true});
+  const HomeScreen({super.key, this.loadInitialData = true, this.homeProvider});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -50,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _homeProvider = HomeProvider();
+    _homeProvider = widget.homeProvider ?? HomeProvider();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!widget.loadInitialData) return;
       final currentUser = context.read<AuthProvider>().user;
@@ -95,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 52,
           child: Center(
             child: Semantics(
-              label: 'Home',
+              label: context.tr('Home'),
               child: const Icon(
                 Icons.home_rounded,
                 color: Colors.white,
@@ -966,11 +967,24 @@ class _KpiCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSizes.spaceXs),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.heading.copyWith(fontSize: 18, height: 1.1),
+          SizedBox(
+            height: 40,
+            child: Align(
+              alignment: AlignmentDirectional.topStart,
+              child: Text(
+                value,
+                key: label == 'Last audit'
+                    ? const ValueKey('home-last-audit-value')
+                    : null,
+                maxLines: 2,
+                softWrap: true,
+                overflow: TextOverflow.visible,
+                style: AppTextStyles.heading.copyWith(
+                  fontSize: 16,
+                  height: 1.2,
+                ),
+              ),
+            ),
           ),
         ],
       ),

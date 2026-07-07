@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'core/debug/startup_timer.dart';
@@ -79,14 +80,22 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
       ],
-      child: Consumer<AuthProvider>(
-        builder: (context, authProvider, child) {
+      child: Consumer2<AuthProvider, SettingsProvider>(
+        builder: (context, authProvider, settingsProvider, child) {
           final initialRoute = _getInitialRoute(authProvider.state);
           final routes = _buildRoutes(_authBypassEnabled);
           return MaterialApp(
             navigatorKey: _navigatorKey,
             navigatorObservers: [_modalRouteObserver, _appRouteObserver],
             title: 'ChickMark',
+            locale: Locale(settingsProvider.languageCode),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+            ],
             theme: AppTheme.light(),
             initialRoute: initialRoute,
             onGenerateInitialRoutes: (initialRouteName) {

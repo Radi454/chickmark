@@ -1,12 +1,14 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../widgets/app_card.dart';
+import '../../../../widgets/photo_grid.dart';
 import '../../providers/scope_comparison_provider.dart';
 import '../../scope/scope_config.dart';
 import '../../scope/scope_station_items.dart';
+import '../../screens/photo_fullscreen_screen.dart';
 import '../sections/egg_storage_station_section.dart';
 import 'alarm_triage_feed.dart';
 import 'scope_cumulative_view.dart';
@@ -18,12 +20,20 @@ import 'station_icon.dart';
 /// "Scopes & Parameters" — the full audit comparison, grouped by station, each
 /// station an expandable card of sector widgets. Ported from the prototype.
 class ScopeInsightsSection extends StatelessWidget {
-  const ScopeInsightsSection({super.key});
+  const ScopeInsightsSection({
+    super.key,
+    required this.collapsedStations,
+    required this.onStationToggle,
+  });
+
+  final Set<String> collapsedStations;
+  final ValueChanged<String> onStationToggle;
 
   @override
   Widget build(BuildContext context) {
-    final isLoading =
-        context.select<ScopeComparisonProvider, bool>((p) => p.isLoading);
+    final isLoading = context.select<ScopeComparisonProvider, bool>(
+      (p) => p.isLoading,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -35,29 +45,32 @@ class ScopeInsightsSection extends StatelessWidget {
           )
         else
           for (final station in ScopeConfigRegistry.stations)
-            _StationCard(station: station),
+            _StationCard(
+              station: station,
+              expanded: !collapsedStations.contains(station),
+              onToggle: () => onStationToggle(station),
+            ),
       ],
     );
   }
 }
 
-class _StationCard extends StatefulWidget {
+class _StationCard extends StatelessWidget {
   final String station;
+  final bool expanded;
+  final VoidCallback onToggle;
 
-  const _StationCard({required this.station});
-
-  @override
-  State<_StationCard> createState() => _StationCardState();
-}
-
-class _StationCardState extends State<_StationCard> {
-  bool _expanded = true;
+  const _StationCard({
+    required this.station,
+    required this.expanded,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scope = context.watch<ScopeComparisonProvider>();
-    final sectors = ScopeConfigRegistry.forStation(widget.station);
-    final done = completedItemsFor(scope, widget.station);
+    final sectors = ScopeConfigRegistry.forStation(station);
+    final done = completedItemsFor(scope, station);
     // Mirror the Govee card: a full-bleed brand-gradient header with rounded
     // top corners, then the body. Built by hand (not ExpansionTile) so the
     // header band spans edge-to-edge instead of being inset by ListTile's
@@ -79,11 +92,8 @@ class _StationCardState extends State<_StationCard> {
             Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () => setState(() => _expanded = !_expanded),
-                child: _StationHeader(
-                  station: widget.station,
-                  expanded: _expanded,
-                ),
+                onTap: onToggle,
+                child: _StationHeader(station: station, expanded: expanded),
               ),
             ),
             // Completed-item chips — a quick "what's recorded" summary that stays
@@ -103,7 +113,7 @@ class _StationCardState extends State<_StationCard> {
                   children: _bodyChildren(sectors, scope),
                 ),
               ),
-              crossFadeState: _expanded
+              crossFadeState: expanded
                   ? CrossFadeState.showSecond
                   : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 200),
@@ -122,13 +132,11 @@ class _StationCardState extends State<_StationCard> {
     List<ScopeSectorConfig> sectors,
     ScopeComparisonProvider scope,
   ) {
-    if (widget.station == ScopeConfigRegistry.stationStorage) {
+    if (station == ScopeConfigRegistry.stationStorage) {
       return const [_StorageStationBody()];
     }
-    final alarms = AlarmTriageFeed(
-      items: stationTriageItems(scope, widget.station),
-    );
-    if (widget.station == ScopeConfigRegistry.stationHatch) {
+    final alarms = AlarmTriageFeed(items: stationTriageItems(scope, station));
+    if (station == ScopeConfigRegistry.stationHatch) {
       return [
         alarms,
         const SizedBox(height: AppSizes.spaceMd),
@@ -151,16 +159,15 @@ class _StationCardState extends State<_StationCard> {
   }
 }
 
-/// Egg-Storage station body: a station-level Incremental ⇄ Cumulative toggle.
-/// Incremental shows the bespoke station view unchanged; Cumulative shows the
-/// per-axis trend for Egg Storage (by visit) and Egg Quality (by flock age).
+/// Egg-Storage station body: the bespoke latest-audit view plus BMK-age history.
 class _StorageStationBody extends StatelessWidget {
   const _StorageStationBody();
 
   @override
   Widget build(BuildContext context) {
-    final cumulative =
-        context.watch<ScopeComparisonProvider>().isCumulative('egg_storage');
+    final cumulative = context.watch<ScopeComparisonProvider>().isCumulative(
+      'egg_storage',
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -168,24 +175,31 @@ class _StorageStationBody extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: ScopeModeToggle(
             sectorId: 'egg_storage',
-            axis: CumulativeAxis.visit,
+            axis: CumulativeAxis.age,
           ),
         ),
         const SizedBox(height: AppSizes.spaceSm),
         if (!cumulative)
           const EggStorageStationSection()
         else ...[
-          _cumHeader('Egg Storage', 'by visit'),
+          _cumHeader(context, 'Egg Storage', 'by BMK age', 'egg_storage'),
           const ScopeCumulativeView(sectorId: 'egg_storage'),
           const SizedBox(height: AppSizes.spaceLg),
-          _cumHeader('Egg Quality', 'by flock age'),
+          _cumHeader(context, 'Egg Quality', 'by BMK age', 'egg_quality'),
           const ScopeCumulativeView(sectorId: 'egg_quality'),
         ],
       ],
     );
   }
 
-  Widget _cumHeader(String title, String sub) {
+  Widget _cumHeader(
+    BuildContext context,
+    String title,
+    String sub,
+    String sectorId,
+  ) {
+    final provider = context.watch<ScopeComparisonProvider>();
+    final isChart = provider.isChartMode(sectorId);
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Row(
@@ -214,6 +228,22 @@ class _StorageStationBody extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w700,
               color: AppColors.textTertiary,
+            ),
+          ),
+          const Spacer(),
+          Tooltip(
+            message: isChart ? 'Show table' : 'Show chart',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+              onTap: () => provider.toggleChartMode(sectorId),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  isChart ? Icons.table_chart_outlined : Icons.bar_chart,
+                  size: 18,
+                  color: AppColors.statusActive,
+                ),
+              ),
             ),
           ),
         ],
@@ -362,8 +392,19 @@ class _BreakoutTabsState extends State<_BreakoutTabs> {
 
   @override
   Widget build(BuildContext context) {
-    final selected = _selected.clamp(0, widget.sectorIds.length - 1);
-    final sectorId = widget.sectorIds[selected];
+    final scope = context.watch<ScopeComparisonProvider>();
+    final visibleSectorIds = widget.sectorIds
+        .where((id) => !scope.isDummyFor(id) && !scope.isEmptyFor(id))
+        .toList();
+    if (visibleSectorIds.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final selected = _selected.clamp(0, visibleSectorIds.length - 1).toInt();
+    final sectorId = visibleSectorIds[selected];
+    final selectedLabel = ScopeConfigRegistry.byId(
+      sectorId,
+    ).title.replaceAll(' Breakout', '');
+    final photoPaths = scope.photoPathsFor(sectorId);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -386,63 +427,107 @@ class _BreakoutTabsState extends State<_BreakoutTabs> {
                 color: AppColors.textPrimary,
               ),
             ),
+            if (visibleSectorIds.length == 1) ...[
+              const SizedBox(width: 6),
+              Text(
+                selectedLabel,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textTertiary,
+                ),
+              ),
+            ],
           ],
         ),
-        const SizedBox(height: AppSizes.spaceSm),
-        // SingleChildScrollView + Row (not ListView) — mirrors _GoveePlaceTabs
-        // and keeps the dashboard's only ListView the outer vertical scroll.
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (var i = 0; i < widget.sectorIds.length; i++)
-                Padding(
-                  padding: EdgeInsets.only(
-                    right: i == widget.sectorIds.length - 1 ? 0 : 6,
-                  ),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selected = i),
-                    child: Container(
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: i == selected
-                            ? AppColors.statusActive
-                            : AppColors.surfaceVariant,
-                        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-                        border: Border.all(
+        if (visibleSectorIds.length > 1) ...[
+          const SizedBox(height: AppSizes.spaceSm),
+          // SingleChildScrollView + Row (not ListView) — mirrors _GoveePlaceTabs
+          // and keeps the dashboard's only ListView the outer vertical scroll.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < visibleSectorIds.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      right: i == visibleSectorIds.length - 1 ? 0 : 6,
+                    ),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selected = i),
+                      child: Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
                           color: i == selected
                               ? AppColors.statusActive
-                              : AppColors.borderDefault,
+                              : AppColors.surfaceVariant,
+                          borderRadius: BorderRadius.circular(
+                            AppSizes.pillRadius,
+                          ),
+                          border: Border.all(
+                            color: i == selected
+                                ? AppColors.statusActive
+                                : AppColors.borderDefault,
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        ScopeConfigRegistry.byId(widget.sectorIds[i])
-                            .title
-                            .replaceAll(' Breakout', ''),
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: i == selected
-                              ? Colors.white
-                              : AppColors.textSecondary,
+                        child: Text(
+                          ScopeConfigRegistry.byId(
+                            visibleSectorIds[i],
+                          ).title.replaceAll(' Breakout', ''),
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: i == selected
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: AppSizes.spaceSm),
         ScopeSectorWidget(
           key: ValueKey('breakout-$sectorId'),
           sectorId: sectorId,
           showTitle: false,
         ),
+        if (photoPaths.isNotEmpty) ...[
+          const SizedBox(height: AppSizes.spaceSm),
+          AppCard(
+            padding: const EdgeInsets.all(AppSizes.spaceMd),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Photos',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSizes.spaceSm),
+                PhotoGrid(
+                  filePaths: photoPaths,
+                  onTap: (path) => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PhotoFullscreenScreen(filePath: path),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }

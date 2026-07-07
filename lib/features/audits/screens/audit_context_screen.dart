@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
@@ -428,7 +428,7 @@ class _AuditContextScreenState extends State<AuditContextScreen> {
                         ),
                       ),
                       Align(
-                        alignment: Alignment.centerRight,
+                        alignment: AlignmentDirectional.centerEnd,
                         child: TextButton.icon(
                           onPressed: () async {
                             final customer =

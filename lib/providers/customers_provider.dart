@@ -10,6 +10,7 @@ import '../data/repositories/activity_log_repository.dart';
 import '../data/repositories/audit_session_repository.dart';
 import '../data/repositories/customer_repository.dart';
 import '../data/repositories/flock_repository.dart';
+import '../data/repositories/govee_capture_repository.dart';
 import '../data/repositories/hatchery_repository.dart';
 import '../data/repositories/bmk_repository.dart';
 import '../data/repositories/panel_dashboard_repository.dart';
@@ -24,6 +25,8 @@ class CustomersProvider extends ChangeNotifier {
   final HatcheryRepository _hatcheryRepository = HatcheryRepository();
   final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
+  final GoveeCaptureRepository _goveeCaptureRepository =
+      GoveeCaptureRepository();
   final PanelDashboardRepository _panelDashboardRepository =
       PanelDashboardRepository();
   final BmkRepository _bmkRepository = BmkRepository();
@@ -444,6 +447,7 @@ class CustomersProvider extends ChangeNotifier {
         await _sessionRepository.deleteSession(session.id);
       }
 
+      await _goveeCaptureRepository.deleteCapturesByCustomer(customerId);
       await _flockRepository.deleteFlocksByCustomer(customerId);
       await _hatcheryRepository.deleteHatcheriesByCustomer(customerId);
       await _customerRepository.deleteCustomer(customerId);

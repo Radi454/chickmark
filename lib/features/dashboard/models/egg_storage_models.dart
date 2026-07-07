@@ -1,24 +1,32 @@
 import 'dart:convert';
 
 import '../../audits/models/est_grid_data.dart';
+import '../../audits/models/temperature_entry_unit.dart';
+import '../../audits/models/temperature_readings_payload.dart';
 
 class EggStorageEstEvidencePoint {
   final String key;
   final String positionLabel;
   final String levelLabel;
-  final double? readingC;
+  final double? reading;
+  final TemperatureEntryUnit unit;
   final String? photoPath;
 
   const EggStorageEstEvidencePoint({
     required this.key,
     required this.positionLabel,
     required this.levelLabel,
-    this.readingC,
+    double? reading,
+    double? readingC,
+    this.unit = TemperatureEntryUnit.celsius,
     this.photoPath,
-  });
+  }) : reading = reading ?? readingC;
 
   bool get hasPhoto => photoPath != null && photoPath!.trim().isNotEmpty;
-  bool get isComplete => readingC != null && hasPhoto;
+  bool get isComplete => reading != null && hasPhoto;
+  double? get readingC => reading;
+  String get readingLabel =>
+      reading == null ? '--' : '${reading!.toStringAsFixed(1)}${unit.suffix}';
 }
 
 class EggStorageEstEvidence {
@@ -30,8 +38,9 @@ class EggStorageEstEvidence {
     String? readingsJson,
     String? photosJson,
   }) {
-    final readings = EstGridData.normalizeReadings(
-      _decodeMap(readingsJson) ?? const {},
+    final payload = TemperatureReadingsPayload.decode(
+      readingsJson,
+      legacyUnit: TemperatureEntryUnit.celsius,
     );
     final photos = _normalizePhotos(_decodeMap(photosJson) ?? const {});
 
@@ -42,7 +51,8 @@ class EggStorageEstEvidence {
             key: key,
             positionLabel: EstGridData.label(key.split('_').first),
             levelLabel: EstGridData.label(key.split('_').last),
-            readingC: readings[key],
+            reading: payload.readings[key],
+            unit: payload.unit,
             photoPath: photos[key],
           ),
       ],
@@ -198,6 +208,7 @@ class SetterComparison {
   final double early48hPct;
   final double bloodRingPct;
   final double estAvgF;
+  final TemperatureEntryUnit estUnit;
   final double estCvPct;
   final double turningAngle;
   final Map<String, double> co2Trend;
@@ -214,6 +225,7 @@ class SetterComparison {
     this.early48hPct = 0.0,
     this.bloodRingPct = 0.0,
     this.estAvgF = 0.0,
+    this.estUnit = TemperatureEntryUnit.fahrenheit,
     this.estCvPct = 0.0,
     this.turningAngle = 0.0,
     Map<String, double>? co2Trend,
@@ -232,6 +244,10 @@ class SetterComparison {
       early48hPct: map['early48hPct']?.toDouble() ?? 0.0,
       bloodRingPct: map['bloodRingPct']?.toDouble() ?? 0.0,
       estAvgF: map['estAvgF']?.toDouble() ?? 0.0,
+      estUnit: TemperatureReadingsPayload.decode(
+        map['estReadingsJson']?.toString(),
+        legacyUnit: TemperatureEntryUnit.fahrenheit,
+      ).unit,
       estCvPct: map['estCvPct']?.toDouble() ?? 0.0,
       turningAngle: map['turningAngle']?.toDouble() ?? 0.0,
     );
@@ -252,6 +268,7 @@ class HatcherComparison {
   final double contamPct;
   final double crackedPct;
   final double cvtAvgF;
+  final TemperatureEntryUnit cvtUnit;
   final double cvtCvPct;
   final String? meconium;
   final int? transferDay;
@@ -272,6 +289,7 @@ class HatcherComparison {
     this.contamPct = 0.0,
     this.crackedPct = 0.0,
     this.cvtAvgF = 0.0,
+    this.cvtUnit = TemperatureEntryUnit.fahrenheit,
     this.cvtCvPct = 0.0,
     this.meconium,
     this.transferDay,
@@ -295,6 +313,10 @@ class HatcherComparison {
       contamPct: map['contamPct']?.toDouble() ?? 0.0,
       crackedPct: map['crackedPct']?.toDouble() ?? 0.0,
       cvtAvgF: map['cvtAvgF']?.toDouble() ?? 0.0,
+      cvtUnit: TemperatureReadingsPayload.decode(
+        map['cvtReadingsJson']?.toString(),
+        legacyUnit: TemperatureEntryUnit.fahrenheit,
+      ).unit,
       cvtCvPct: map['cvtCvPct']?.toDouble() ?? 0.0,
       meconium: map['meconium'] as String?,
       transferDay: map['transferDay'] as int?,

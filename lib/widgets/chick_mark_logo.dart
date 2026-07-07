@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class ChickMarkLogo extends StatefulWidget {
   static const String assetPath = 'assets/branding/chickmark-icon.png';
@@ -77,7 +77,7 @@ class _ChickMarkLogoState extends State<ChickMarkLogo>
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
     return Semantics(
-      label: 'ChickMark logo',
+      label: context.tr('ChickMark logo'),
       image: true,
       child: _controller == null || disableAnimations
           ? logo

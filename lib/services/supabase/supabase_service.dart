@@ -364,12 +364,24 @@ class SupabaseService {
   Future<void> deleteRows(String table, List<String> ids) async {
     final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
     if (rowIds.isEmpty || !await _prepareRemoteAccess()) return;
+    if (table == 'photos') {
+      await _deletePhotoStorageObjects(rowIds);
+    }
     final idColumn = _remoteDeleteIdColumn(table);
     try {
       await _client.from(table).delete().inFilter(idColumn, rowIds);
     } catch (_) {
       await _client.from(table).delete().inFilter(_camelize(idColumn), rowIds);
     }
+  }
+
+  Future<List<int>> downloadPhotoBytes(String remoteFilePath) async {
+    if (!await _prepareRemoteAccess()) return const [];
+    final storagePath = _photoStoragePath(remoteFilePath);
+    if (storagePath == null || storagePath.isEmpty) {
+      throw ArgumentError.value(remoteFilePath, 'remoteFilePath');
+    }
+    return _client.storage.from('photos').download(storagePath);
   }
 
   Future<void> syncUpdateFlock(Map<String, dynamic> flock) async {
@@ -424,6 +436,73 @@ class SupabaseService {
       'fieldKey': photo.fieldKey,
       'uploadStatus': 'synced',
     });
+  }
+
+  Future<String?> uploadBmkOperationalSourcePhoto({
+    required String localPath,
+    required String metricKey,
+    String? hatcheryId,
+  }) async {
+    if (!await _prepareRemoteAccess()) return null;
+
+    final file = File(localPath);
+    final bytes = await file.readAsBytes();
+    final extension = _fileExtension(localPath);
+    final scope = _safeStorageSegment(
+      hatcheryId == null || hatcheryId.isEmpty ? 'global' : hatcheryId,
+    );
+    final metric = _safeStorageSegment(metricKey);
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'bmk_operational_sources/$scope/$metric/$stamp.$extension';
+
+    await _client.storage
+        .from('photos')
+        .uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            upsert: true,
+            contentType: _contentTypeForExtension(extension),
+          ),
+        );
+
+    return SupabaseSecurityPolicy.isPublicPhotoUrlEnabled
+        ? _client.storage.from('photos').getPublicUrl(storagePath)
+        : 'supabase://photos/$storagePath';
+  }
+
+  Future<void> deleteBmkOperationalSourcePhoto(String? remotePath) async {
+    final storagePath = _photoStoragePath(remotePath);
+    if (storagePath == null || storagePath.isEmpty) return;
+    if (!await _prepareRemoteAccess()) return;
+    await _client.storage.from('photos').remove([storagePath]);
+  }
+
+  Future<void> _deletePhotoStorageObjects(List<String> rowIds) async {
+    final storagePaths = <String>{};
+    List<dynamic> rows;
+    try {
+      rows = await _client
+          .from('photos')
+          .select('file_path')
+          .inFilter('id', rowIds);
+    } catch (_) {
+      rows = await _client
+          .from('photos')
+          .select('filePath')
+          .inFilter('id', rowIds);
+    }
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final filePath = row['file_path'] ?? row['filePath'];
+      final storagePath = _photoStoragePath(filePath?.toString());
+      if (storagePath != null && storagePath.isNotEmpty) {
+        storagePaths.add(storagePath);
+      }
+    }
+    if (storagePaths.isEmpty) return;
+    await _client.storage.from('photos').remove(storagePaths.toList());
   }
 
   Future<SupabasePullSummary> pullFromSupabase({
@@ -605,6 +684,26 @@ class SupabaseService {
       return 'jpg';
     }
     return filePath.substring(dotIndex + 1).toLowerCase();
+  }
+
+  String _safeStorageSegment(String value) {
+    final sanitized = value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+    return sanitized.isEmpty ? 'unknown' : sanitized;
+  }
+
+  String? _photoStoragePath(String? filePath) {
+    if (filePath == null || filePath.trim().isEmpty) return null;
+    const privatePrefix = 'supabase://photos/';
+    if (filePath.startsWith(privatePrefix)) {
+      return filePath.substring(privatePrefix.length);
+    }
+
+    final uri = Uri.tryParse(filePath);
+    if (uri == null || !uri.hasScheme) return null;
+    final segments = uri.pathSegments;
+    final bucketIndex = segments.indexOf('photos');
+    if (bucketIndex == -1 || bucketIndex == segments.length - 1) return null;
+    return segments.skip(bucketIndex + 1).join('/');
   }
 
   String _contentTypeForExtension(String extension) {

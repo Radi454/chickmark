@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class ScaleButton extends StatefulWidget {
   final Widget child;

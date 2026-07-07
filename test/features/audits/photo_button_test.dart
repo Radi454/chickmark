@@ -26,6 +26,75 @@ void main() {
     expect(find.widgetWithText(ListTile, 'Gallery'), findsNothing);
   });
 
+  testWidgets(
+    'multi photo button shows existing photos with edit and add more',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MultiPhotoButton(
+              photoPaths: const ['/tmp/chickmark-missing-breakout-photo.jpg'],
+              onPhotoCaptured: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('multi-photo-thumbnail-0')),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.add_a_photo), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Edit photo'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ListTile, 'Camera'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, 'Gallery'), findsOneWidget);
+    },
+  );
+
+  testWidgets('multi photo button can keep every tile on one row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 64,
+            child: MultiPhotoButton(
+              singleRow: true,
+              photoPaths: const [
+                '/tmp/chickmark-breakout-photo-1.jpg',
+                '/tmp/chickmark-breakout-photo-2.jpg',
+              ],
+              onPhotoCaptured: (_, _) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scrollView = tester.widget<SingleChildScrollView>(
+      find.descendant(
+        of: find.byType(MultiPhotoButton),
+        matching: find.byType(SingleChildScrollView),
+      ),
+    );
+    expect(scrollView.scrollDirection, Axis.horizontal);
+    expect(
+      find.byKey(const ValueKey('multi-photo-thumbnail-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('multi-photo-thumbnail-1')),
+      findsOneWidget,
+    );
+  });
+
   test('audit photo buttons declare sync field identities', () {
     final root = Directory.current.path;
     final yfbm = File(

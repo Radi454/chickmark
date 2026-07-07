@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 
@@ -224,7 +224,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       actions: provider.isSessionComplete
           ? [
               IconButton(
-                tooltip: 'View final results',
+                tooltip: context.tr('View final results'),
                 icon: const Icon(Icons.dashboard_outlined),
                 onPressed: () => _openFinalResults(provider.currentSession!),
               ),
@@ -685,7 +685,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (status != null) ...[
-                    Align(alignment: Alignment.centerLeft, child: status),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: status,
+                    ),
                     const SizedBox(height: 8),
                   ],
                   Row(

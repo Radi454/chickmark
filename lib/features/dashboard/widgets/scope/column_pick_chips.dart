@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -10,8 +10,13 @@ import 'scope_severity_style.dart';
 /// appears when there is more than one group. All on by default.
 class ColumnPickChips extends StatelessWidget {
   final String sectorId;
+  final String avgLabel;
 
-  const ColumnPickChips({super.key, required this.sectorId});
+  const ColumnPickChips({
+    super.key,
+    required this.sectorId,
+    this.avgLabel = '⌀ Avg',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,21 +31,23 @@ class ColumnPickChips extends StatelessWidget {
         runSpacing: 7,
         children: [
           _PickChip(
-            label: '⌀ Avg',
+            label: avgLabel,
             isAvg: true,
             active: provider.isAvgVisible(sectorId),
-            onTap: () => context
-                .read<ScopeComparisonProvider>()
-                .toggleColumn(sectorId, ScopeComparisonProvider.avgColumnId),
+            onTap: () => context.read<ScopeComparisonProvider>().toggleColumn(
+              sectorId,
+              ScopeComparisonProvider.avgColumnId,
+            ),
           ),
           for (var i = 0; i < groups.length; i++)
             _PickChip(
               label: groups[i].label,
               dot: ScopeSeverityStyle.dotColor(groups[i].severity),
               active: provider.isColumnVisible(sectorId, i),
-              onTap: () => context
-                  .read<ScopeComparisonProvider>()
-                  .toggleColumn(sectorId, i),
+              onTap: () => context.read<ScopeComparisonProvider>().toggleColumn(
+                sectorId,
+                i,
+              ),
             ),
         ],
       ),

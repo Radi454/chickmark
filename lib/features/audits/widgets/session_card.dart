@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -120,7 +120,7 @@ class _SessionCardState extends State<SessionCard> {
 
   Widget _visitMenu() {
     return PopupMenuButton<String>(
-      tooltip: 'Visit actions',
+      tooltip: context.tr('Visit actions'),
       icon: const Icon(Icons.more_vert),
       onSelected: (value) {
         switch (value) {
@@ -233,7 +233,7 @@ class _StationRow extends StatelessWidget {
             _SyncDot(sync: station.sync),
             if (canEdit)
               PopupMenuButton<String>(
-                tooltip: 'Station actions',
+                tooltip: context.tr('Station actions'),
                 icon: const Icon(Icons.more_vert, size: 18),
                 onSelected: (value) {
                   if (value == 'open') onOpen();
@@ -324,7 +324,7 @@ class _SyncChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final (icon, color, label) = _style(sync);
     return Padding(
-      padding: const EdgeInsets.only(right: 2),
+      padding: const EdgeInsetsDirectional.only(end: 2),
       child: Tooltip(
         message: 'Sync: $label',
         child: Row(

@@ -10,6 +10,9 @@ class BmkOperationalStandardModel {
   final double? maxValue;
   final double? targetValue;
   final String? source;
+  final String? sourceUrl;
+  final String? sourcePhotoPath;
+  final String? sourcePhotoRemotePath;
   final String? notes;
   final int sortOrder;
   final String? updatedAt;
@@ -26,6 +29,9 @@ class BmkOperationalStandardModel {
     this.maxValue,
     this.targetValue,
     this.source,
+    this.sourceUrl,
+    this.sourcePhotoPath,
+    this.sourcePhotoRemotePath,
     this.notes,
     required this.sortOrder,
     this.updatedAt,
@@ -44,6 +50,9 @@ class BmkOperationalStandardModel {
       maxValue: _asDouble(map['maxValue']),
       targetValue: _asDouble(map['targetValue']),
       source: map['source'] as String?,
+      sourceUrl: map['sourceUrl'] as String?,
+      sourcePhotoPath: map['sourcePhotoPath'] as String?,
+      sourcePhotoRemotePath: map['sourcePhotoRemotePath'] as String?,
       notes: map['notes'] as String?,
       sortOrder: _asInt(map['sortOrder']) ?? 0,
       updatedAt: map['updatedAt'] as String?,
@@ -63,6 +72,9 @@ class BmkOperationalStandardModel {
       'maxValue': maxValue,
       'targetValue': targetValue,
       'source': source,
+      'sourceUrl': sourceUrl,
+      'sourcePhotoPath': sourcePhotoPath,
+      'sourcePhotoRemotePath': sourcePhotoRemotePath,
       'notes': notes,
       'sortOrder': sortOrder,
       'updatedAt': updatedAt,
@@ -81,6 +93,9 @@ class BmkOperationalStandardModel {
     Object? maxValue = _sentinel,
     Object? targetValue = _sentinel,
     Object? source = _sentinel,
+    Object? sourceUrl = _sentinel,
+    Object? sourcePhotoPath = _sentinel,
+    Object? sourcePhotoRemotePath = _sentinel,
     Object? notes = _sentinel,
     int? sortOrder,
     Object? updatedAt = _sentinel,
@@ -101,6 +116,13 @@ class BmkOperationalStandardModel {
           ? this.targetValue
           : targetValue as double?,
       source: source == _sentinel ? this.source : source as String?,
+      sourceUrl: sourceUrl == _sentinel ? this.sourceUrl : sourceUrl as String?,
+      sourcePhotoPath: sourcePhotoPath == _sentinel
+          ? this.sourcePhotoPath
+          : sourcePhotoPath as String?,
+      sourcePhotoRemotePath: sourcePhotoRemotePath == _sentinel
+          ? this.sourcePhotoRemotePath
+          : sourcePhotoRemotePath as String?,
       notes: notes == _sentinel ? this.notes : notes as String?,
       sortOrder: sortOrder ?? this.sortOrder,
       updatedAt: updatedAt == _sentinel ? this.updatedAt : updatedAt as String?,

@@ -191,6 +191,8 @@ Future<void> _pumpSection(
               GoveeEnvironmentalReadingsSection(
                 captures: captures,
                 isLoading: false,
+                expanded: true,
+                onToggle: () {},
               ),
             ],
           ),

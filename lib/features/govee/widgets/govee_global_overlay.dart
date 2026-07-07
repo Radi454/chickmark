@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import 'govee_floating_launcher.dart';
@@ -94,9 +94,11 @@ class _GoveeGlobalOverlayState extends State<GoveeGlobalOverlay> {
                   );
                 },
                 child: Semantics(
-                  label: widget.isRecording
-                      ? 'Govee recording in progress'
-                      : 'Govee readings',
+                  label: context.tr(
+                    widget.isRecording
+                        ? 'Govee recording in progress'
+                        : 'Govee readings',
+                  ),
                   button: true,
                   child: Material(
                     key: const ValueKey('govee-global-launcher'),

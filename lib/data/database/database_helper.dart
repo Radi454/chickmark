@@ -57,6 +57,7 @@ class DatabaseHelper {
         await _ensurePanelSampleSchemaColumns(db);
         await _ensurePanelUniqueRowIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
+        await _backfillOperationalBmkSeedSources(db);
         if (seedDemoData) await ensureDashboardDemoData(db);
       },
     );
@@ -126,6 +127,7 @@ class DatabaseHelper {
     });
     await _ensureCompleteBmkBreedSeedData(db);
     await _backfillEggBreakoutAliases(db);
+    await _backfillOperationalBmkSeedSources(db);
     await _seedTroubleshooting(db);
     await _ensureDummyTestData(db);
   }
@@ -205,6 +207,11 @@ class DatabaseHelper {
       'dirtyAt TEXT',
       'lastSyncedAt TEXT',
       'syncError TEXT',
+    ],
+    'bmk_operational_standards': [
+      'sourceUrl TEXT',
+      'sourcePhotoPath TEXT',
+      'sourcePhotoRemotePath TEXT',
     ],
   };
 
@@ -339,6 +346,7 @@ class DatabaseHelper {
     });
     await _ensureCompleteBmkBreedSeedData(db);
     await _backfillEggBreakoutAliases(db);
+    await _backfillOperationalBmkSeedSources(db);
   }
 
   Future<void> _resetForPanelCutover(Database db, int newVersion) async {

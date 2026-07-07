@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -45,6 +46,7 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
   late final TemperatureCaptureController _controller;
   late final bool _ownsController;
   final TextEditingController _manualController = TextEditingController();
+  final FocusNode _manualFocus = FocusNode();
   final Map<String, TextEditingController> _gridControllers = {};
   final Map<String, FocusNode> _gridFocus = {};
 
@@ -83,6 +85,7 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
     _controller.removeListener(_onControllerChanged);
     if (_ownsController) _controller.dispose();
     _manualController.dispose();
+    _manualFocus.dispose();
     for (final c in _gridControllers.values) {
       c.dispose();
     }
@@ -98,6 +101,11 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
       if (_gridControllers[key]!.text != text) {
         _gridControllers[key]!.text = text;
       }
+    }
+    if (_controller.manualEntryActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_manualFocus.hasFocus) _manualFocus.requestFocus();
+      });
     }
     if (mounted) setState(() {});
   }
@@ -122,7 +130,12 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
         await _finishAndPop();
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.config.title)),
+        appBar: AppBar(
+          title: Text(widget.config.title),
+          actions: [
+            TextButton(onPressed: _finishAndPop, child: const Text('Done')),
+          ],
+        ),
         bottomNavigationBar: _buildBottomBar(c),
         body: SafeArea(
           child: LayoutBuilder(
@@ -144,6 +157,7 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
                         child: _buildCamera(c),
                       ),
                     ),
+                    _buildPhotoStrip(c),
                     const SizedBox(height: 8),
                     _buildHeader(c),
                     const SizedBox(height: 8),
@@ -193,6 +207,68 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
     );
   }
 
+  Widget _buildPhotoStrip(TemperatureCaptureController c) {
+    final photos = _visiblePhotos(c);
+    if (photos.isEmpty) return const SizedBox.shrink();
+    return Container(
+      key: const ValueKey('temperature-photo-strip'),
+      height: 44,
+      margin: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withAlpha(22),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.primary.withAlpha(42)),
+            ),
+            child: Text(
+              '${photos.length}/${c.totalCells} photos',
+              maxLines: 1,
+              style: AppTextStyles.caption.copyWith(
+                fontSize: 11,
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: photos.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                final entry = photos.entries.elementAt(index);
+                return _PhotoStripItem(
+                  keyName: entry.key,
+                  label: c.labelFor(entry.key),
+                  path: entry.value,
+                  selected: entry.key == c.currentKey,
+                  onTap: () => c.selectKey(entry.key),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, String> _visiblePhotos(TemperatureCaptureController c) {
+    final photos = <String, String>{};
+    for (final key in EstGridData.scanKeys) {
+      final path = c.photos[key];
+      if (path != null && path.trim().isNotEmpty) photos[key] = path;
+    }
+    final staged = c.capture.capturedImagePath;
+    if (staged != null && staged.trim().isNotEmpty) {
+      photos[c.currentKey] = staged;
+    }
+    return photos;
+  }
+
   Widget _buildHeader(TemperatureCaptureController c) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,10 +313,13 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
 
   Widget _buildStateArea(TemperatureCaptureController c) {
     if (c.isReadOnly) return _hint(c, 'View only.');
+    if (c.capture.isProcessing) return _hint(c, 'Capturing photo...');
     if (c.manualEntryActive) return _buildManualEntry(c);
 
     final savedValue = c.readings[c.currentKey];
-    if (savedValue != null) return _buildSavedCard(c, savedValue);
+    if (savedValue != null && c.capture.isCurrentPointConfirmed) {
+      return _buildSavedCard(c, savedValue);
+    }
 
     return _buildReadyCard(c);
   }
@@ -270,12 +349,20 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
   }
 
   Widget _buildReadyCard(TemperatureCaptureController c) {
+    final isRetaking = c.capture.retakenKeys.contains(c.currentKey);
     return _card(
       key: const ValueKey('temperature-state-ready'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isRetaking) ...[
+            Text(
+              'Retaking ${c.labelFor(c.currentKey)}',
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+          ],
           Text(
             c.capture.errorMessage ?? 'Take a photo, then enter the reading.',
             maxLines: 2,
@@ -283,18 +370,6 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
             style: AppTextStyles.caption.copyWith(
               fontWeight: FontWeight.w700,
               color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                _manualController.clear();
-                c.captureOnce();
-              },
-              icon: const Icon(Icons.photo_camera_outlined, size: 18),
-              label: const Text('Take photo'),
             ),
           ),
         ],
@@ -353,7 +428,9 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
             ),
             const SizedBox(height: 10),
             AuditNumericField(
+              key: const ValueKey('temperature-manual-input'),
               controller: _manualController,
+              focusNode: _manualFocus,
               allowDecimal: true,
               maxDecimalPlaces: 1,
               doneAction: true,
@@ -398,13 +475,24 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
         child: SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: _finishAndPop,
-            icon: const Icon(Icons.done),
-            label: const Text('Done'),
+            onPressed:
+                c.isReadOnly || c.capture.isProcessing || c.manualEntryActive
+                ? null
+                : () => _capture(c),
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text('Capture'),
           ),
         ),
       ),
     );
+  }
+
+  void _capture(TemperatureCaptureController c) {
+    _manualController.clear();
+    if (c.capture.isCurrentPointConfirmed) {
+      c.retake();
+    }
+    c.captureOnce();
   }
 
   void _enterManual(TemperatureCaptureController c, String initial) {
@@ -416,5 +504,81 @@ class _TemperatureCaptureScreenState extends State<TemperatureCaptureScreen> {
     final value = double.tryParse(_manualController.text.trim());
     if (value == null) return;
     c.commitManualEntry(value);
+  }
+}
+
+class _PhotoStripItem extends StatelessWidget {
+  const _PhotoStripItem({
+    required this.keyName,
+    required this.label,
+    required this.path,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String keyName;
+  final String label;
+  final String path;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Photo recorded for $label',
+      child: InkWell(
+        key: ValueKey('temperature-photo-strip-item-$keyName'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? AppColors.greenTab : Colors.grey[300]!,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                cacheWidth: 104,
+                cacheHeight: 104,
+                filterQuality: FilterQuality.low,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey[200],
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.broken_image_outlined,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 3,
+                bottom: 3,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withAlpha(125),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Icon(
+                    Icons.photo_library_outlined,
+                    size: 10,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

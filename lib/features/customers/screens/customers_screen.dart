@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';

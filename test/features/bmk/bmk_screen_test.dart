@@ -113,6 +113,90 @@ void main() {
     expect(find.text('Egg storage EST short'), findsWidgets);
     expect(find.text('Save operational BMK'), findsOneWidget);
   });
+
+  testWidgets('Operational BMKs are grouped without category source icons', (
+    tester,
+  ) async {
+    await _pumpBmkScreen(tester);
+
+    expect(find.text('Egg'), findsOneWidget);
+    expect(find.text('Chicks'), findsOneWidget);
+    expect(find.text('Hatch Results'), findsOneWidget);
+    expect(find.text('Setters'), findsOneWidget);
+    expect(find.text('Hatchers'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('bmk-operational-citations')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Each operational BMK tile opens its own source link', (
+    tester,
+  ) async {
+    await _pumpBmkScreen(tester);
+
+    final citationButton = find.byKey(
+      const ValueKey('bmk-citation-egg_storage_est_short'),
+    );
+    await tester.ensureVisible(citationButton);
+    await tester.tap(citationButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Egg storage EST short'), findsWidgets);
+    expect(find.text('Cobb storage guidance'), findsOneWidget);
+    expect(
+      find.text(
+        'https://www.cobbgenetics.com/assets/Cobb-Files/Hatchery-Guide.pdf',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bmk-open-source-egg_storage_est_short')),
+      findsOneWidget,
+    );
+    expect(find.text('Add photo'), findsOneWidget);
+  });
+
+  testWidgets('Internal operational BMK source does not expose a link', (
+    tester,
+  ) async {
+    await _pumpBmkScreen(tester);
+
+    final citationButton = find.byKey(const ValueKey('bmk-citation-cv_alert'));
+    await tester.ensureVisible(citationButton);
+    await tester.tap(citationButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('CV alert'), findsWidgets);
+    expect(find.text('ChickMark operational default'), findsOneWidget);
+    expect(find.text('Link'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('bmk-open-source-cv_alert')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'Operational BMK source photo can be viewed replaced or deleted',
+    (tester) async {
+      await _pumpBmkScreen(tester);
+
+      final citationButton = find.byKey(
+        const ValueKey('bmk-citation-pasgar_score'),
+      );
+      await tester.ensureVisible(citationButton);
+      await tester.tap(citationButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Photo saved in cloud'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('bmk-view-source-photo-pasgar_score')),
+        findsOneWidget,
+      );
+      expect(find.text('Replace photo'), findsOneWidget);
+      expect(find.text('Delete photo'), findsOneWidget);
+    },
+  );
 }
 
 Future<void> _pumpBmkScreen(WidgetTester tester) async {
@@ -182,7 +266,89 @@ class _FakeBmkRepository extends BmkRepository {
       unit: '°C',
       minValue: 19,
       maxValue: 21,
+      source: 'Cobb storage guidance',
+      sourceUrl:
+          'https://www.cobbgenetics.com/assets/Cobb-Files/Hatchery-Guide.pdf',
       sortOrder: 10,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-chicks_cvt',
+      stationKey: 'chicks',
+      sectorKey: 'cvt',
+      metricKey: 'chicks_cvt',
+      metricLabel: 'Chicks CVT',
+      unit: '°F',
+      minValue: 103,
+      maxValue: 105,
+      source: 'Aviagen chick vent temperature guidance',
+      sourceUrl:
+          'https://www.aviagen.com/assets/Tech_Center/BB_Resources_Tools/Hatchery_How_Tos/07HowTo7ChickComfort.pdf',
+      sortOrder: 20,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-cv_alert',
+      stationKey: 'egg',
+      sectorKey: 'egg_storage',
+      metricKey: 'cv_alert',
+      metricLabel: 'CV alert',
+      unit: '%',
+      maxValue: 8,
+      source: 'ChickMark operational default',
+      sortOrder: 25,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-pasgar_score',
+      stationKey: 'chicks',
+      sectorKey: 'pasgar',
+      metricKey: 'pasgar_score',
+      metricLabel: 'Pasgar score',
+      unit: 'score',
+      minValue: 9,
+      source: 'Pas Reform Pasgar guidance',
+      sourceUrl:
+          'https://www.pasreform.com/en/knowledge/173/pasgar-score-an-easy-chick-quality-assessment-method',
+      sourcePhotoPath: '/tmp/pasgar-source.jpg',
+      sourcePhotoRemotePath: 'supabase://photos/bmk/pasgar-source.jpg',
+      sortOrder: 26,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-culled_chicks',
+      stationKey: 'hatch_results',
+      sectorKey: 'hatch_results',
+      metricKey: 'culled_chicks',
+      metricLabel: 'Culled chicks',
+      unit: '%',
+      maxValue: 1,
+      source: 'ChickMark operational default',
+      sortOrder: 30,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-setter_est_optimal',
+      stationKey: 'setters',
+      sectorKey: 'est',
+      metricKey: 'setter_est_optimal',
+      metricLabel: 'Setter EST optimal',
+      unit: '°F',
+      minValue: 100,
+      maxValue: 101,
+      source: 'Petersime/HatchTech EST guidance',
+      sourceUrl:
+          'https://en.aviagen.com/assets/Tech_Center/BB_Resources_Tools/AA_How_Tos/AAHowto3EggShellTempEN13.pdf',
+      sortOrder: 40,
+    ),
+    BmkOperationalStandardModel(
+      id: 'global-hatcher_cvt',
+      stationKey: 'hatchers',
+      sectorKey: 'cvt',
+      metricKey: 'hatcher_cvt',
+      metricLabel: 'Hatcher CVT',
+      unit: '°F',
+      minValue: 103,
+      maxValue: 105,
+      source: 'Aviagen chick vent temperature guidance',
+      sourceUrl:
+          'https://www.aviagen.com/assets/Tech_Center/BB_Resources_Tools/Hatchery_How_Tos/07HowTo7ChickComfort.pdf',
+      sortOrder: 50,
     ),
   ];
 

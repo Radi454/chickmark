@@ -18,6 +18,7 @@ class SettingsProvider extends ChangeNotifier {
   int _weightsSampleSize = 100;
   int _traySize = 150;
   int _storageDays = 0;
+  String _languageCode = 'en';
   String? _lastSyncTimestamp;
   bool _isSyncing = false;
   int _lastSyncPushed = 0;
@@ -34,6 +35,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _keyWeightsSampleSize = 'pref_weights_sample_size';
   static const String _keyTraySize = 'pref_tray_size';
   static const String _keyStorageDays = 'pref_storage_days';
+  static const String _keyLanguageCode = 'pref_language_code';
   static const String _keyLastSyncTimestamp = 'last_sync_timestamp';
   static const String _keyLastSyncPushed = 'last_sync_pushed';
   static const String _keyLastSyncPulled = 'last_sync_pulled';
@@ -48,6 +50,7 @@ class SettingsProvider extends ChangeNotifier {
   int get weightsSampleSize => _weightsSampleSize;
   int get traySize => _traySize;
   int get storageDays => _storageDays;
+  String get languageCode => _languageCode;
   String? get lastSyncTimestamp => _lastSyncTimestamp;
   bool get isSyncing => _isSyncing;
   int get lastSyncPushed => _lastSyncPushed;
@@ -114,6 +117,9 @@ class SettingsProvider extends ChangeNotifier {
     _weightsSampleSize = prefs.getInt(_keyWeightsSampleSize) ?? 100;
     _traySize = prefs.getInt(_keyTraySize) ?? 150;
     _storageDays = prefs.getInt(_keyStorageDays) ?? 0;
+    _languageCode = _normalizeLanguageCode(
+      prefs.getString(_keyLanguageCode) ?? 'en',
+    );
     _lastSyncTimestamp = prefs.getString(_keyLastSyncTimestamp);
     _lastSyncPushed = prefs.getInt(_keyLastSyncPushed) ?? 0;
     _lastSyncPulled = prefs.getInt(_keyLastSyncPulled) ?? 0;
@@ -151,6 +157,19 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyStorageDays, value);
     _safeNotifyListeners();
+  }
+
+  Future<void> setLanguageCode(String value) async {
+    final normalized = _normalizeLanguageCode(value);
+    if (_languageCode == normalized) return;
+    _languageCode = normalized;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLanguageCode, normalized);
+    _safeNotifyListeners();
+  }
+
+  String _normalizeLanguageCode(String value) {
+    return value == 'ar' ? 'ar' : 'en';
   }
 
   Future<void> updateLastSync(String timestamp) async {

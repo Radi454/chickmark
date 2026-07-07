@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
+import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -105,6 +106,33 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'customer delete queues cloud tombstones for related local data',
+    () async {
+      final db = await DatabaseHelper().db;
+      await _insertValidGraph(db);
+
+      await CustomersProvider().deleteCustomer('customer-1');
+
+      final tombstones = await db.query(
+        'sync_tombstones',
+        columns: ['tableName', 'rowId'],
+        orderBy: 'tableName ASC, rowId ASC',
+      );
+      final tombstoneKeys = tombstones
+          .map((row) => '${row['tableName']}:${row['rowId']}')
+          .toSet();
+
+      expect(tombstoneKeys, contains('customers:customer-1'));
+      expect(tombstoneKeys, contains('flocks:flock-1'));
+      expect(tombstoneKeys, contains('hatcheries:hatchery-1'));
+      expect(tombstoneKeys, contains('audit_sessions:session-1'));
+      expect(tombstoneKeys, contains('photos:photo-session-1'));
+      expect(tombstoneKeys, contains('egg_storage:egg-storage-session-1'));
+      expect(tombstoneKeys, contains('govee_daily_captures:capture-1'));
+    },
+  );
 }
 
 Future<void> _insertValidGraph(Database db) async {
@@ -174,6 +202,7 @@ Future<void> _insertSessionWithPanelRow(
     'panelName': 'egg_storage',
     'panelRowId': 'egg-storage-$id',
     'fieldKey': 'shellTemp',
+    'createdAt': '2026-05-13T08:00:00.000',
     'uploadStatus': 'local',
   });
 }

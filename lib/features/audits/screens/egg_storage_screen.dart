@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -23,6 +23,7 @@ import '../providers/audit_provider.dart';
 import '../utils/egg_storage_bmk_age.dart';
 import '../models/est_grid_data.dart';
 import '../models/temperature_entry_unit.dart';
+import '../models/temperature_readings_payload.dart';
 import '../temperature_capture/temperature_capture_config.dart';
 import '../temperature_capture/temperature_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -217,20 +218,13 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
 
   void _loadEstGrid(String? readingsJson) {
     if (readingsJson == null || readingsJson.trim().isEmpty) return;
-    try {
-      final decoded = jsonDecode(readingsJson);
-      if (decoded is! Map) return;
-      final normalized = EstGridData.normalizeReadings(decoded);
-      for (final entry in normalized.entries) {
-        _estControllers[entry.key]?.text = _estUnit
-            .fromCanonical(
-              entry.value,
-              canonicalUnit: TemperatureEntryUnit.celsius,
-            )
-            .toStringAsFixed(1);
-      }
-    } catch (_) {
-      // Keep grid blank if stored data is malformed.
+    final payload = TemperatureReadingsPayload.decode(
+      readingsJson,
+      legacyUnit: TemperatureEntryUnit.celsius,
+    );
+    _estUnit = payload.unit;
+    for (final entry in payload.readings.entries) {
+      _estControllers[entry.key]?.text = entry.value.toStringAsFixed(1);
     }
   }
 
@@ -1137,14 +1131,14 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildHouseSampleActionButton(
-          tooltip: addTooltip,
+          tooltip: context.tr(addTooltip),
           icon: Icons.add,
           onPressed: auditProvider.isReadOnly ? null : addSample,
         ),
         if (hasRemovableEntry) ...[
           const SizedBox(width: 8),
           _buildHouseSampleActionButton(
-            tooltip: removeTooltip,
+            tooltip: context.tr(removeTooltip),
             icon: Icons.remove,
             onPressed: auditProvider.isReadOnly ? null : removeSample,
           ),
@@ -1383,7 +1377,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     required VoidCallback? onPressed,
   }) {
     return IconButton.filledTonal(
-      tooltip: tooltip,
+      tooltip: context.tr(tooltip),
       onPressed: onPressed,
       icon: Icon(icon),
       style: IconButton.styleFrom(
@@ -1617,7 +1611,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
               ),
               if (!provider.isReadOnly)
                 IconButton(
-                  tooltip: 'Delete tray',
+                  tooltip: context.tr('Delete tray'),
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                   onPressed: () => setState(() {
                     final removed = _uvTrays.removeAt(index);
@@ -1948,7 +1942,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
                                 ),
                               ),
                               IconButton(
-                                tooltip: 'Close',
+                                tooltip: context.tr('Close'),
                                 icon: const Icon(Icons.close),
                                 onPressed: () => Navigator.pop(sheetContext),
                               ),
@@ -2142,14 +2136,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   Map<String, double> _currentEstReadings() {
     return {
       for (final entry in _currentEstDisplayReadings().entries)
-        entry.key: double.parse(
-          _estUnit
-              .toCanonical(
-                entry.value,
-                canonicalUnit: TemperatureEntryUnit.celsius,
-              )
-              .toStringAsFixed(1),
-        ),
+        entry.key: double.parse(entry.value.toStringAsFixed(1)),
     };
   }
 
@@ -2197,7 +2184,12 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     }
     provider.updateField(
       'es_estReadingsJson',
-      readings.isEmpty ? null : jsonEncode(readings),
+      readings.isEmpty
+          ? null
+          : TemperatureReadingsPayload(
+              unit: _estUnit,
+              readings: readings,
+            ).toJsonString(),
     );
   }
 
@@ -2215,14 +2207,13 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       }
       _estUnit = unit;
     });
+    _updateEstCalculations(context.read<AuditProvider>());
   }
 
   String _displayEstAverage() {
-    final averageC = double.tryParse(_estAvgController.text);
-    if (averageC == null) return '--';
-    return _estUnit
-        .fromCanonical(averageC, canonicalUnit: TemperatureEntryUnit.celsius)
-        .toStringAsFixed(1);
+    final average = double.tryParse(_estAvgController.text);
+    if (average == null) return '--';
+    return average.toStringAsFixed(1);
   }
 
   void _updateUvTrays(AuditProvider provider) {

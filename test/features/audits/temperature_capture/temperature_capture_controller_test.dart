@@ -33,7 +33,10 @@ class _FakePhotoService extends PhotoService {
   @override
   Future<void> deletePhoto(String filePath) async => deleted.add(filePath);
   @override
-  Future<String?> pickPhoto({bool fromCamera = true}) async => 'native.jpg';
+  Future<String?> pickPhoto({
+    bool fromCamera = true,
+    int imageQuality = 85,
+  }) async => 'native.jpg';
 }
 
 TemperatureCaptureController _build({

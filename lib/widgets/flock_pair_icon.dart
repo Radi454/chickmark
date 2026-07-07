@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class FlockPairIcon extends StatelessWidget {
   final Color color;

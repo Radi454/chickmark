@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import '../../audits/widgets/audit_access_guard.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
@@ -98,7 +98,7 @@ class AuditDetailScreen extends StatelessWidget {
         actions: [
           if (canEdit)
             IconButton(
-              tooltip: 'Edit audit',
+              tooltip: context.tr('Edit audit'),
               icon: const Icon(Icons.edit_outlined),
               onPressed: () => _openAuditScreen(context),
             ),

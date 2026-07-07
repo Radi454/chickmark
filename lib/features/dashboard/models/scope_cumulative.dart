@@ -30,6 +30,8 @@ class CumulativeParam {
   final List<num?> bmks; // benchmark per period (null where none)
   final List<String> texts; // formatted display text per period
   final List<ScopeSeverity> severities;
+  final num? averageValue;
+  final String averageText;
 
   const CumulativeParam({
     required this.param,
@@ -37,6 +39,8 @@ class CumulativeParam {
     required this.bmks,
     required this.texts,
     required this.severities,
+    this.averageValue,
+    this.averageText = '—',
   });
 
   bool get hasBmk => bmks.any((b) => b != null);
@@ -45,19 +49,36 @@ class CumulativeParam {
   int get trend {
     final nums = values.whereType<num>().toList();
     if (nums.length < 2) return 0;
-    final diff = values.lastWhere((v) => v != null, orElse: () => null)! -
+    final diff =
+        values.lastWhere((v) => v != null, orElse: () => null)! -
         values.firstWhere((v) => v != null, orElse: () => null)!;
     if (diff.abs() < (nums.first.abs() * 0.01)) return 0;
     return diff > 0 ? 1 : -1;
   }
 }
 
-/// A sector's full cumulative dataset: the axis points + one series per param.
-class CumulativeSeries {
-  final List<ScopePeriod> periods;
+/// One stable scope identity (Pool, House, or Machine) across BMK ages.
+class CumulativeGroup {
+  final String label;
   final List<CumulativeParam> params;
 
-  const CumulativeSeries({required this.periods, required this.params});
+  const CumulativeGroup({required this.label, required this.params});
+}
+
+/// A sector's full longitudinal dataset: BMK ages, optional scope identities,
+/// and an equal-identity overall series used by the table/chart summary.
+class CumulativeSeries {
+  final List<ScopePeriod> periods;
+  final List<CumulativeGroup> groups;
+  final List<CumulativeParam> overallParams;
+
+  const CumulativeSeries({
+    required this.periods,
+    required List<CumulativeParam> params,
+    this.groups = const [],
+  }) : overallParams = params;
+
+  List<CumulativeParam> get params => overallParams;
 
   bool get isEmpty => periods.isEmpty || params.isEmpty;
 }

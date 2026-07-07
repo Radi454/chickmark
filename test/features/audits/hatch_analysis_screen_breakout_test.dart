@@ -8,6 +8,7 @@ import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
+import 'package:hatchaudit/features/audits/widgets/photo_button.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -278,6 +279,10 @@ void main() {
     expect(find.text('Position'), findsNothing);
     expect(find.text('Black eye'), findsNothing);
     expect(find.text('Mid dead'), findsNothing);
+    expect(
+      find.byType(MultiPhotoButton),
+      findsNWidgets(freshCountFields.length),
+    );
   });
 
   testWidgets('fresh egg tray samples default tray size to thirty', (
@@ -315,6 +320,10 @@ void main() {
     expect(find.text('Position'), findsOneWidget);
     expect(find.text('Black Eye'), findsOneWidget);
     expect(find.text('Mid dead'), findsNothing);
+    expect(
+      find.byType(MultiPhotoButton),
+      findsNWidgets(candledCountFields.length),
+    );
   });
 
   testWidgets('residue hatch day shows hatchability and breakout samples', (
@@ -341,6 +350,10 @@ void main() {
     expect(find.text('HOF'), findsOneWidget);
     expect(find.text('Breakout Samples'), findsOneWidget);
     expect(find.byKey(const ValueKey('breakout-add-sample')), findsOneWidget);
+    expect(
+      find.byType(MultiPhotoButton),
+      findsNWidgets(residueCountFields.length),
+    );
     expect(find.text('Delta --'), findsNothing);
     expect(find.text('Gap --'), findsWidgets);
     expect(find.text('BMK Age 268 days'), findsNothing);
@@ -357,6 +370,87 @@ void main() {
     expect(find.text('Crossed beak'), findsNothing);
     expect(find.text('Culled %'), findsOneWidget);
     expect(find.text('Dead %'), findsOneWidget);
+  });
+
+  testWidgets('breakout items keep metric photos beside their rows', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    await addVisibleSample(tester);
+
+    var sample = activeBreakoutSample(provider);
+    sample = sample.copyWith(
+      photos: const {'midDead:photo-1': '/tmp/chickmark-mid-dead-breakout.jpg'},
+    );
+    provider.updateHatchField(
+      0,
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([sample]),
+    );
+    await tester.pumpAndSettle();
+
+    final buttons = tester
+        .widgetList<MultiPhotoButton>(find.byType(MultiPhotoButton))
+        .toList();
+    expect(buttons, hasLength(residueCountFields.length));
+    expect(
+      buttons.map((button) => button.fieldKey),
+      containsAll(<String>[
+        'breakout_infertile_photo',
+        'breakout_earlyDead_photo',
+        'breakout_midDead_photo',
+        'breakout_lateDead_photo',
+        'breakout_externalPip_photo',
+        'breakout_cracked_photo',
+        'breakout_contaminated_photo',
+      ]),
+    );
+    expect(
+      buttons
+          .singleWhere((button) => button.fieldKey == 'breakout_midDead_photo')
+          .panelRowId,
+      endsWith(':residue_breakout:${sample.id}:midDead'),
+    );
+
+    buttons
+        .singleWhere((button) => button.fieldKey == 'breakout_earlyDead_photo')
+        .onPhotoCaptured(0, '/tmp/chickmark-early-dead-breakout.jpg');
+    await tester.pumpAndSettle();
+    expect(
+      activeBreakoutSample(provider).photos.entries,
+      contains(
+        isA<MapEntry<String, String>>()
+            .having((entry) => entry.key, 'key', startsWith('earlyDead:photo_'))
+            .having(
+              (entry) => entry.value,
+              'value',
+              '/tmp/chickmark-early-dead-breakout.jpg',
+            ),
+      ),
+    );
+
+    final midDeadRow = find.byKey(const ValueKey('breakout-row-midDead'));
+    final midDeadPhotos = find.byKey(
+      ValueKey('breakout-photo-${sample.id}-midDead'),
+    );
+    expect(midDeadPhotos, findsOneWidget);
+    expect(
+      find.descendant(
+        of: midDeadPhotos,
+        matching: find.byKey(const ValueKey('multi-photo-thumbnail-0')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      (tester.getCenter(midDeadRow).dy - tester.getCenter(midDeadPhotos).dy)
+          .abs(),
+      lessThan(1),
+    );
   });
 
   testWidgets('residue performance metrics render as one summary card', (

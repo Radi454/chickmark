@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'core/constants/supabase_config.dart';
 import 'core/debug/startup_timer.dart';
 import 'core/security/safe_debug_log.dart';

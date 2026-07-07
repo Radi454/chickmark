@@ -10,6 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   supabase_flutter: ^2.5.0
   sqflite: ^2.3.3+1
   sqflite_common_ffi_web: ^0.4.5+2
@@ -30,6 +32,7 @@ dependencies:
   share_plus: ^10.1.4
   flutter_local_notifications: ^18.0.1
   file_picker: ^8.1.4
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

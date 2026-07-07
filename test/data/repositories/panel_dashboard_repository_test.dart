@@ -194,6 +194,71 @@ void main() {
       expect(ages, contains(40));
     },
   );
+
+  test(
+    'EST evidence uses cloud-pulled photos saved with generic grid keys',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('customers', {
+        'id': 'customer-1',
+        'name': 'Customer 1',
+        'createdAt': '2026-01-01T00:00:00Z',
+      });
+      await db.insert('flocks', {
+        'id': 'flock-1',
+        'customerId': 'customer-1',
+        'flockId': 'Flock 1',
+        'entryDate': '2025-01-01',
+      });
+      await db.insert('hatcheries', {
+        'id': 'hatchery-1',
+        'customerId': 'customer-1',
+        'name': 'Hatchery 1',
+        'createdAt': '2026-01-01T00:00:00Z',
+      });
+      await db.insert('audit_sessions', {
+        'id': 'session-1',
+        'customerId': 'customer-1',
+        'flockId': 'flock-1',
+        'hatcheryId': 'hatchery-1',
+        'date': '2026-01-01',
+        'status': 'completed',
+        'createdAt': '2026-01-01T00:00:00Z',
+        'updatedAt': '2026-01-01T00:00:00Z',
+      });
+      await db.insert('egg_storage', {
+        'id': 'egg-storage-1',
+        'sessionId': 'session-1',
+        'customerId': 'customer-1',
+        'flockId': 'flock-1',
+        'date': '2026-01-01',
+        'estReadingsJson': '{"front_top":20.8}',
+        'createdAt': '2026-01-01T00:00:00Z',
+        'updatedAt': '2026-01-01T00:00:00Z',
+      });
+      await db.insert('photos', {
+        'id': 'photo-1',
+        'filePath': '/tmp/front-top.jpg',
+        'description': 'shell_temp',
+        'createdAt': '2026-01-01T00:00:00Z',
+        'sessionId': 'session-1',
+        'panelName': 'egg_storage',
+        'panelRowId': 'session-1:egg_storage:egg-storage-1',
+        'fieldKey': 'front_top',
+        'uploadStatus': 'synced',
+      });
+
+      final evidence = await repository.getLatestEggStorageEstEvidence(
+        DashboardFilter(customerId: 'customer-1', flockId: 'flock-1'),
+      );
+
+      final frontTop = evidence!.points.singleWhere(
+        (point) => point.key == 'front_top',
+      );
+      expect(frontTop.reading, 20.8);
+      expect(frontTop.photoPath, '/tmp/front-top.jpg');
+    },
+  );
 }
 
 Future<void> _resetDatabase() async {

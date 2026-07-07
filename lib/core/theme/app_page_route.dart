@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class AppPageRoute<T> extends PageRouteBuilder<T> {
   AppPageRoute({required WidgetBuilder builder, super.settings})

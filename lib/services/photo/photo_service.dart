@@ -18,11 +18,14 @@ class PhotoService {
 
   /// Pick a photo from camera or gallery
   /// Returns the path to the copied photo in app documents directory, or null if cancelled/failed
-  Future<String?> pickPhoto({bool fromCamera = true}) async {
+  Future<String?> pickPhoto({
+    bool fromCamera = true,
+    int imageQuality = 85,
+  }) async {
     try {
       final XFile? image = await _picker.pickImage(
         source: fromCamera ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 85,
+        imageQuality: imageQuality,
       );
 
       if (image == null) return null;

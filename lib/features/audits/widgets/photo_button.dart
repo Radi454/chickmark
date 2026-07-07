@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/photo_model.dart';
@@ -375,7 +375,7 @@ class _CameraFirstPhotoPickerState extends State<_CameraFirstPhotoPicker> {
             top: 10,
             right: 10,
             child: IconButton.filled(
-              tooltip: 'Close',
+              tooltip: context.tr('Close'),
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.close),
             ),
@@ -401,7 +401,7 @@ class _CameraFirstPhotoPickerState extends State<_CameraFirstPhotoPicker> {
                 child: Row(
                   children: [
                     IconButton.filledTonal(
-                      tooltip: 'Gallery',
+                      tooltip: context.tr('Gallery'),
                       onPressed: _isCapturing ? null : _pickFromGallery,
                       icon: const Icon(Icons.photo_library_outlined),
                     ),
@@ -490,6 +490,7 @@ class MultiPhotoButton extends StatefulWidget {
   final String? panelName;
   final String? panelRowId;
   final String? fieldKey;
+  final bool singleRow;
 
   const MultiPhotoButton({
     super.key,
@@ -501,6 +502,7 @@ class MultiPhotoButton extends StatefulWidget {
     this.panelName,
     this.panelRowId,
     this.fieldKey,
+    this.singleRow = false,
   });
 
   @override
@@ -513,54 +515,84 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        ...widget.photoPaths.asMap().entries.map((entry) {
-          final index = entry.key;
-          final path = entry.value;
-          return _buildPhotoThumbnail(index, path);
-        }),
-        if (widget.photoPaths.length < widget.maxPhotos && widget.enabled)
-          _buildAddButton(),
-      ],
-    );
+    final tiles = <Widget>[
+      ...widget.photoPaths.asMap().entries.map((entry) {
+        final index = entry.key;
+        final path = entry.value;
+        return _buildPhotoThumbnail(index, path);
+      }),
+      if (widget.photoPaths.length < widget.maxPhotos && widget.enabled)
+        _buildAddButton(),
+    ];
+    if (widget.singleRow) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: tiles),
+      );
+    }
+    return Wrap(spacing: 8, runSpacing: 8, children: tiles);
   }
 
   Widget _buildPhotoThumbnail(int index, String path) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(7),
-            child: Image.file(
-              File(path),
-              width: 54,
-              height: 54,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 54,
-                  height: 54,
-                  color: Colors.grey[200],
-                  child: const Icon(
-                    Icons.broken_image,
-                    color: Colors.grey,
-                    size: 20,
-                  ),
-                );
-              },
+        GestureDetector(
+          onTap: widget.enabled ? () => _replacePhoto(index) : null,
+          child: Container(
+            key: ValueKey('multi-photo-thumbnail-$index'),
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: Image.file(
+                File(path),
+                width: 54,
+                height: 54,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: 54,
+                    height: 54,
+                    color: Colors.grey[200],
+                    child: const Icon(
+                      Icons.broken_image,
+                      color: Colors.grey,
+                      size: 20,
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
+        if (widget.enabled)
+          Positioned(
+            left: 4,
+            bottom: 4,
+            child: Tooltip(
+              message: 'Edit photo',
+              child: GestureDetector(
+                onTap: () => _replacePhoto(index),
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.edit_outlined,
+                    color: Colors.white,
+                    size: 14,
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (widget.enabled)
           Positioned(
             top: -4,
@@ -600,6 +632,27 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
   Future<void> _addPhoto() async {
     if (!widget.enabled) return;
 
+    final path = await _pickPhotoFromSourceSheet();
+    if (path != null) {
+      final index = widget.photoPaths.length;
+      widget.onPhotoCaptured(index, path);
+      await _saveLocalPhotoRecord(path);
+    }
+  }
+
+  Future<void> _replacePhoto(int index) async {
+    if (!widget.enabled) return;
+
+    final path = await _pickPhotoFromSourceSheet();
+    if (path != null) {
+      final oldPath = widget.photoPaths[index];
+      widget.onPhotoCaptured(index, path);
+      await _saveLocalPhotoRecord(path);
+      await _photoRepository.deleteByFilePath(oldPath);
+    }
+  }
+
+  Future<String?> _pickPhotoFromSourceSheet() async {
     final fromCamera = await showModalBottomSheet<bool>(
       context: context,
       builder: (context) => SafeArea(
@@ -621,18 +674,14 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
       ),
     );
 
-    if (fromCamera == null) return;
-
-    final path = await _photoService.pickPhoto(fromCamera: fromCamera);
-    if (path != null) {
-      final index = widget.photoPaths.length;
-      widget.onPhotoCaptured(index, path);
-      await _saveLocalPhotoRecord(path);
-    }
+    if (fromCamera == null) return null;
+    return _photoService.pickPhoto(fromCamera: fromCamera);
   }
 
-  void _removePhoto(int index) {
+  Future<void> _removePhoto(int index) async {
+    final path = widget.photoPaths[index];
     widget.onPhotoRemoved?.call(index);
+    await _photoRepository.deleteByFilePath(path);
   }
 
   Future<void> _saveLocalPhotoRecord(String path) async {

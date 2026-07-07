@@ -83,6 +83,107 @@ void main() {
       await tempDir.delete(recursive: true);
     },
   );
+
+  test(
+    'syncDownloaded reconciles local paths before checking cloud availability',
+    () async {
+      final documents = await Directory.systemTemp.createTemp(
+        'photo_sync_reconcile',
+      );
+      final repo = _MockPhotoRepository();
+      final supabase = _MockSupabaseService();
+
+      when(
+        () => repo.reconcileLocalPaths(documents.path),
+      ).thenAnswer((_) async {});
+      when(() => supabase.refreshAvailability()).thenAnswer((_) async => false);
+
+      await PhotoSyncService(
+        repository: repo,
+        supabase: supabase,
+        documentDirectoryProvider: () async => documents,
+      ).syncDownloaded();
+
+      verify(() => repo.reconcileLocalPaths(documents.path)).called(1);
+      verifyNever(() => repo.getRemotePhotos());
+      await documents.delete(recursive: true);
+    },
+  );
+
+  test(
+    'syncDownloaded writes pulled Supabase photos to local files and updates rows',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'photo_sync_download',
+      );
+      final remotePhoto = _photo(
+        'supabase://photos/session-1/chick_quality/row-1/photo-1.jpg',
+        uploadStatus: 'synced',
+      );
+      final repo = _MockPhotoRepository();
+      final supabase = _MockSupabaseService();
+
+      when(
+        () => repo.reconcileLocalPaths(tempDir.path),
+      ).thenAnswer((_) async {});
+      when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+      when(() => repo.getRemotePhotos()).thenAnswer((_) async => [remotePhoto]);
+      when(
+        () => supabase.downloadPhotoBytes(remotePhoto.filePath),
+      ).thenAnswer((_) async => [4, 5, 6]);
+      when(
+        () => repo.updateLocalPath(remotePhoto.id, any()),
+      ).thenAnswer((_) async {});
+
+      await PhotoSyncService(
+        repository: repo,
+        supabase: supabase,
+        documentDirectoryProvider: () async => tempDir,
+      ).syncDownloaded();
+
+      final captured =
+          verify(
+                () => repo.updateLocalPath(remotePhoto.id, captureAny()),
+              ).captured.single
+              as String;
+      expect(captured, endsWith('photo-1.jpg'));
+      expect(await File(captured).readAsBytes(), [4, 5, 6]);
+      verify(() => supabase.downloadPhotoBytes(remotePhoto.filePath)).called(1);
+      await tempDir.delete(recursive: true);
+    },
+  );
+
+  test('syncDownloaded skips already downloaded remote photos', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'photo_sync_download_existing',
+    );
+    final existing = File('${tempDir.path}/photo-1.jpg');
+    await existing.writeAsBytes([7, 8, 9]);
+    final remotePhoto = _photo(
+      'supabase://photos/session-1/chick_quality/row-1/photo-1.jpg',
+      uploadStatus: 'synced',
+    );
+    final repo = _MockPhotoRepository();
+    final supabase = _MockSupabaseService();
+
+    when(() => repo.reconcileLocalPaths(tempDir.path)).thenAnswer((_) async {});
+    when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+    when(() => repo.getRemotePhotos()).thenAnswer((_) async => [remotePhoto]);
+    when(
+      () => repo.updateLocalPath(remotePhoto.id, any()),
+    ).thenAnswer((_) async {});
+
+    await PhotoSyncService(
+      repository: repo,
+      supabase: supabase,
+      documentDirectoryProvider: () async => tempDir,
+    ).syncDownloaded();
+
+    verifyNever(() => supabase.downloadPhotoBytes(any()));
+    verify(() => repo.updateLocalPath(remotePhoto.id, existing.path)).called(1);
+    expect(await existing.readAsBytes(), [7, 8, 9]);
+    await tempDir.delete(recursive: true);
+  });
 }
 
 Uint8List _texturedJpeg(int width, int height) {

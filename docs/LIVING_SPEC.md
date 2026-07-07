@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-06-23
+2026-07-05
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -62,6 +62,20 @@ Audits, Customers, Activity Log, Dashboard Govee charts, and active Govee
 capture surfaces. Internal persistence keys and repository filters that depend
 on ISO date strings continue to store and compare `yyyy-MM-dd`.
 
+The app supports English and Arabic UI language selection from Settings. The
+selected language is stored locally in SharedPreferences and applied at app
+startup through Flutter `Localizations` delegates. Arabic uses Flutter's
+right-to-left directionality automatically. Static text rendered through the
+shared localized Material text layer uses the central ChickMark translation
+catalog, including `Text.rich` spans, input decorations, validation errors, and
+tooltips. Dynamic translations preserve customer, hatchery, flock, product,
+and entered values while translating their surrounding operational copy.
+Directional padding, alignment, navigation-drawer corners, and control order
+follow the active text direction. App text styles provide Arabic-capable font
+fallbacks, and the Home last-audit KPI reserves a two-line value area so Arabic
+dates are not truncated. A source audit test rejects untranslated static UI
+copy while allowing approved product names and measurement abbreviations.
+
 The BMK reference tab presents benchmark data as compact dashboard sections.
 Approved internal users see a small Reference/Admin mode toolbar above the
 content. The Reference view uses custom selector bars for breed and a text-only
@@ -77,14 +91,24 @@ The BMK screen also includes an Operational BMKs reference sector backed by
 `bmk_operational_standards`. It lists global operational targets for station
 setup and hatchery work, including egg-storage EST/RH, CV and uniformity caps,
 shell UV, Pasgar, CVT, YFBM/residual yolk, culled/dead chick limits, setter EST
-and turning angle, CO2, hatcher CVT, and hatcher RH. In Admin mode, approved
-admins and auditors can edit the selected operational BMK row's minimum,
-maximum, target, and notes. The Operational BMK Admin sector includes a
-`Global defaults` scope plus every saved hatchery; saving while a hatchery is
-selected writes a hatchery-specific row that overrides the matching global
-metric for that hatchery. Existing station and dashboard warning logic still
-uses the current hard-coded `AppThresholds` values until those consumers are
-explicitly wired to the operational BMK lookup.
+and turning angle, CO2, hatcher CVT, and hatcher RH. The reference view groups
+these rows into Egg, Chicks, Hatch Results, Setters, and Hatchers categories so
+station setup values are separated from hatch-result and chick-quality values.
+Each operational BMK tile with source metadata includes a citation action beside
+the item label. Tapping it opens a compact dialog for that item, showing the
+source label, active external source link when one exists, notes, and
+source/reference photo actions. ChickMark-only operational defaults do not store
+or show an internal docs link. Source photos are saved locally for preview and
+uploaded to the Supabase `photos` storage bucket under a BMK source path; the
+dialog can replace or delete the photo and opens a zoomable high-quality image
+viewer for available previews. In Admin mode, approved admins and auditors can
+edit the selected operational BMK row's minimum, maximum, target, and notes. The
+Operational BMK Admin sector includes a `Global defaults`
+scope plus every saved hatchery; saving while a hatchery is selected writes a
+hatchery-specific row that overrides the matching global metric for that
+hatchery. Existing station and dashboard warning logic still uses the current
+hard-coded `AppThresholds` values until those consumers are explicitly wired to
+the operational BMK lookup.
 
 The supported local web development origin is `http://127.0.0.1:57863`. Web
 accounts and entered data are scoped to the browser origin, so using this stable
@@ -646,6 +670,21 @@ fields use a ceiling week conversion. When opened from a resumed visit session,
 Hatch Analysis restores all saved breakout audit rows and linked station
 samples before rendering.
 
+Every breakout item row (for example Infertile, Early Dead, Mid Dead, or
+Contaminated) includes its own fixed-width photo control beside the count and
+BMK summary. The control stays in the same horizontal row on phone layouts and
+scrolls its thumbnails horizontally instead of wrapping below the item. Photos
+are saved in the sample JSON under their metric key for in-station review and
+create `photos` rows using the active breakout panel
+(`fresh_egg_breakout`, `candled_egg_breakout`, or `residue_breakout`), a
+panel-row identity containing the sample and metric, and a metric-specific
+field key such as `breakout_infertile_photo` or `breakout_midDead_photo`.
+Existing thumbnails remain visible at their owning item; tapping a thumbnail
+or its edit control replaces that slot, while the add-photo tile remains
+available until the item reaches the multi-photo limit. Replaced and removed
+photo rows queue sync tombstones and delete their local backing files. Older
+sample-level photo entries are preserved as read-only legacy evidence.
+
 Candled Egg and Residue / Hatch Day add hierarchy controls directly below the
 Storage Days card. The controls use the same scope-card treatment as Egg and
 Chicks screens: a `House scope` card contains the house tabs and active House
@@ -1089,9 +1128,13 @@ the floating Govee capture panel. Setter and Hatcher station entries keep the
 Customer and Hatchery controls visible above the room/inside-machine choice so
 the capture scope can still be corrected before recording.
 
-Dashboard has a cascade filter for Customer, Flock, and Age. On phone-width
-layouts the filter stacks Customer above a compact Flock/Age row and constrains
-dropdown labels with ellipsis so selected customer/flock names do not overflow.
+Dashboard has a cascade filter for Customer and Flock. The filter card is part
+of the dashboard's scrolling content rather than a frozen section above it. On
+phone-width layouts the filter stacks Customer above a compact Flock row and
+constrains dropdown labels with ellipsis so selected customer/flock names do not
+overflow. When a specific flock is selected, the same card shows a compact
+summary of its name, current age in completed weeks, breed, and entrance date;
+the summary is omitted for `All flocks`.
 The current dashboard build shows the rebuilt Egg station sector and saved
 Govee Environmental Readings while the other station sectors are rebuilt one at
 a time. Egg Storage dashboard trends read the persisted
@@ -1111,18 +1154,49 @@ line. Upside Down Egg remains a separate row below the EST card. Storage days,
 turning, tray spacing, cooler proximity, and condensation render together in a
 single `Storage Info` card without a status recorded tile.
 
+Dashboard station cards and the Govee Environmental Readings sector start
+expanded and can be collapsed independently. Their expanded/collapsed state is
+owned by the current Dashboard screen, so collapsed cards stay collapsed while
+the user scrolls and during a pull-to-refresh loading cycle. The state resets
+when a new Dashboard screen visit begins.
+
+Each rebuilt dashboard comparison sector has its own BMK-age selector. The
+default `All BMK Ages` table keeps every recorded age as a separate column and
+adds an equal-age-weighted average, so visits are not silently pooled or
+weighted by their number of samples. The existing chart icon switches that same
+dataset to a trend chart. In All Ages mode, only House and Machine can be used
+as longitudinal comparisons, and they appear only when at least two comparable
+identities occur within one age. Missing identity/age intersections display as
+no data and do not count as zero in averages.
+
+Selecting one BMK age returns the sector to a pooled result first. House,
+Machine, Trolley, and Tray controls are then derived from that age's saved rows:
+a level appears only when at least one parent path has two distinct nonblank
+children at that level. For example, H1-T1 plus H2-T2 enables House but not Tray,
+while H1-T1 plus H1-T2 enables Tray. Multiple valid levels can be selected
+together, and the overall average remains visible with the detailed columns.
+Unused hierarchy levels and one-sample levels are hidden.
+
 The dashboard also includes an Egg Quality card directly under Egg Storage. It
-reads dashboard-ready `egg_quality` values joined by session/sample from the Egg
-storage trend query. The Egg Weights & Uniformity card uses the same brand-blue
-summary pattern for average egg weight, uniformity, and C.V, and raises an alarm
-when C.V is above `AppThresholds.cvAlertPct` or uniformity is below
-`AppThresholds.uniformityGood`. Its detail tiles show sample size, BMK egg
-weight, and calculated low/high margins based on the saved average weight. The
-Shell Quality UV card shows total affected percentage against the `<= 5.0%`
-dashboard limit, raises an alarm when the saved affected percentage is higher
-than that limit, and organizes Cuticle Damage, Washed, and Dirty percentages in
-separate tiles with saved UV photos below when available. The Egg sector does
-not render CO2 dashboard tabs or Chicks station dashboard content.
+reads dashboard-ready `egg_quality` values through the shared scope engine and
+renders Egg Weights & Uniformity plus Shell Quality UV as one comparison sector
+rather than separate per-house detail cards. When House scope data exists, the
+sector's `All BMK Ages` state uses the same separate-age table and equal-age
+average as the other scoped sectors. Selecting one age starts with its pooled
+result. House comparison appears only when that age contains at least two
+houses; a single recorded house does not create a false comparison control.
+When House is selected, users can unselect or reselect Pool and individual
+houses to control which columns appear in the table. The sector also includes
+the same chart/table icon toggle used by other
+dashboard scope sectors; chart mode compares the selected Egg Quality metric
+across Pool and the selected houses with paired Actual vs BMK bars, wraps the
+metric selector instead of clipping it, fits normal Pool-plus-house counts
+without horizontal scrolling, keeps per-bar values in touch tooltips instead of
+pinning overlapping labels, and shows a dashed average reference line across the
+bars. Egg Quality alarms still flag C.V above
+`AppThresholds.cvAlertPct`, uniformity below `AppThresholds.uniformityGood`, and
+UV affected above the `<= 5.0%` dashboard limit. The Egg sector does not render
+CO2 dashboard tabs or Chicks station dashboard content.
 
 Dashboard shows a dedicated `Govee Environmental Readings` sector for saved
 Govee captures. Those records are loaded from saved Govee capture rows and may
@@ -1169,7 +1243,10 @@ The implemented hierarchy is:
   `panelRowId`, and `fieldKey`, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
 - `bmk_operational_standards`: seeded global operational BMK rows plus optional
-  hatchery-specific override rows for station setup targets.
+  hatchery-specific override rows for station setup targets. Each row stores a
+  source label, optional external `sourceUrl`, optional local
+  `sourcePhotoPath`, and optional cloud `sourcePhotoRemotePath` for per-item
+  citations.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
@@ -1220,7 +1297,11 @@ Forgot Password row wraps on phone-width layouts instead of overflowing.
 `CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
 and selected-customer state. It scopes data for customer-role users, supports
 customer/flock/hatchery CRUD, and loads visit summaries for customer detail
-views.
+views. Editors can delete a customer from the customer detail screen only after
+confirming a destructive dialog. Confirmed customer deletion removes local visit
+sessions, station rows, linked photos, Govee captures, flocks, hatcheries, and
+the customer row, and queues sync tombstones for the synced rows so Supabase is
+cleaned up on the next startup/background sync.
 
 `StartupSyncService` checks cloud tombstones and applies remote deletes before
 bulk-uploading local customers, hatcheries, and flocks. This prevents a device
@@ -1355,13 +1436,42 @@ PASGAR, PM necropsy, Hatch Analysis breakout, Setter, and Hatcher evidence
 photos create local `photos` rows tied to their owning panel row and field key.
 Hatch Analysis breakout photo rows use the active breakout table
 (`fresh_egg_breakout`, `candled_egg_breakout`, or `residue_breakout`) instead
-of a generic station default. Photo sync uploads local and failed photos when
+of a generic station default, and each item uses its own field key and
+sample-plus-metric row id. Dashboard Scopes aggregates all supported breakout
+item photo field keys plus legacy `breakout_photo` / `photo` rows, de-duplicates
+their paths, and shows the combined evidence in the recorded breakout type's
+existing photo grid.
+Photo sync uploads local and failed photos when
 Supabase is available,
 skips missing files, and fails files larger than 5 MB so failed uploads retry on
 later sync runs. Uploaded photo rows store
 non-public `supabase://photos/...` storage references by default; public storage
 URLs are only written when the build explicitly sets
-`CHICKMARK_ALLOW_PUBLIC_PHOTO_URLS=true`.
+`CHICKMARK_ALLOW_PUBLIC_PHOTO_URLS=true`. Startup sync also downloads pulled
+remote photo rows from Supabase storage into the app documents directory, then
+updates the local `photos.filePath` to the downloaded file so dashboard and
+photo-grid readers can show evidence captured on another device. If a download
+fails, the remote reference is kept so later sync runs can retry. Photo
+tombstone sync removes matching Supabase storage objects before deleting remote
+`photos` metadata rows, so deleted evidence is removed from other devices and
+the backing bucket.
+
+Before checking cloud availability, downloaded-photo sync reconciles persisted
+local photo paths against the current app documents directory. If an iOS
+application-container path has changed but the same filename exists in the
+current documents directory, the `photos.filePath` row is repaired locally and
+works offline. During cloud pull, an existing local path is preserved only when
+it points to a non-empty file; a missing local file yields to the incoming
+remote reference so the normal download pass can restore it. If startup or
+manual sync finishes while Dashboard is already mounted, Dashboard refreshes
+its main and Scope providers so downloaded photo paths replace stale paths
+already cached by the selected flock view.
+
+The Egg Storage dashboard EST evidence card reads photo rows from the synced
+`photos` table for the latest egg-storage session. It accepts both current
+`shell_temp_<grid point>` field keys and generic grid-point keys such as
+`front_top`, so cloud-pulled evidence rows created by either capture path can be
+mapped back onto the 9-point dashboard grid after the file is downloaded.
 
 Supabase sync is best effort and offline-first. `StartupSyncService` pushes
 local customers, hatcheries, flocks, audit sessions, panel rows, Govee captures,
@@ -1371,7 +1481,11 @@ are not pushed or pulled. It keeps newer local session, Govee, and panel rows
 when a pulled remote row has an older or invalid `updatedAt`. Local deletes
 create `sync_tombstones`; startup sync uploads those tombstones, deletes remote
 rows child-before-parent, marks successful tombstones synced, and applies remote
-tombstones locally so another device reload removes stale rows. `BgSyncService`
+tombstones locally so another device reload removes stale rows. Customer deletes
+queue child tombstones for station panel rows, photos, audit sessions, Govee
+captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
+cloud rows even when local SQLite cascade removes the children immediately.
+`BgSyncService`
 runs this sync after the shell starts and reports failure as offline data
 available. Startup and background sync can surface a Home-screen cloud notice
 for sessions and other records pulled from another device after the local
@@ -1394,26 +1508,37 @@ longer writes separate generic Temp/RH session or reading rows.
 Thermometer OCR is no longer used for EST/CVT capture. Egg Storage EST, Setter
 EST, Chicks CVT, and Hatcher CVT each expose a local `°F` / `°C` selector that
 defaults to Fahrenheit. Grid values, targets, summaries, validation colors, and
-manual entry use the selected display unit. Unit selection is a UI concern only:
-Egg Storage EST continues to persist canonical Celsius, while Setter EST,
-Chicks CVT, and Hatcher CVT continue to persist canonical Fahrenheit.
+manual entry use the selected display unit. The selected unit is persisted with
+the saved readings, so a reading entered in `°C` is saved and later displayed as
+`°C`, and a reading entered in `°F` is saved and later displayed as `°F`.
+Legacy plain reading JSON without explicit unit metadata falls back to its
+historical storage unit: Egg Storage EST is treated as Celsius, while Setter
+EST, Chicks CVT, and Hatcher CVT are treated as Fahrenheit. Dashboard EST
+evidence tiles and summaries display the saved unit, while threshold checks can
+convert internally only for status comparison.
 
 Guided temperature capture uses the same 9-point Front/Middle/Back by
 Top/Middle/Bottom grid as the station forms. The first open point is highlighted,
-the auditor can tap any grid cell to jump, and the footer keeps only Done. For
-each point, the auditor starts from a single `Take photo` action, then types the
-reading manually against the attached photo; the custom mobile keypad uses a
-check/done action for this single entry field instead of grid-navigation arrows.
-Photo-backed saves stage the captured image as evidence, manual entry records
-the typed value, and saving advances to the next open point. Dirty-only readings
-and photo paths are returned to the caller, which continues to update the station
-draft, averages/CV, and local `photos` rows for photo sync. The station-screen
-grids are display/edit surfaces: cells show the saved reading plus evidence
-thumbnail when present, and tapping a cell
-opens the full-screen capture flow focused on that point so the attached photo
-and reading can be replaced through the same save path. Photo pick/save/delete
-failures keep recoverable return behavior and emit debug logs in development
-builds.
+the auditor can tap any grid cell to jump, the footer keeps a primary `Capture`
+action, and `Done` sits in the top-right app bar action. For each point, the
+auditor captures a photo, then types the reading manually against the attached
+photo; after capture, the manual reading field receives focus automatically.
+The custom mobile keypad uses a check/done action for this single entry field
+instead of grid-navigation arrows. Photo-backed saves stage the captured image as
+evidence, manual entry records the typed value, and saving advances to the next
+open point. A compact recorded-photo strip under the camera preview shows the
+current photo count and thumbnails for points with evidence; tapping a thumbnail
+jumps back to that point. Retake marks the current saved point as ready for a
+fresh capture, shows a retaking state for that point, and lets the attached photo
+and reading be replaced. Dirty-only readings and photo paths are returned to the
+caller, which continues to update the station draft, averages/CV, JSON photo-path
+maps, and local `photos` rows for photo sync. The station-screen grids are
+display/edit surfaces: cells show the saved reading plus evidence thumbnail when
+present, and capture-flow grid cells show a small photo badge when evidence is
+already attached. Tapping a cell opens or moves the full-screen capture flow
+focused on that point so the attached photo and reading can be replaced through
+the same save path. Photo pick/save/delete failures keep recoverable return
+behavior and emit debug logs in development builds.
 
 ## 8. Known Technical Debt
 
@@ -1436,6 +1561,48 @@ builds.
 
 ## 9. Change Log
 
+- 2026-07-05: Made dashboard comparisons BMK-age-first and data-aware. Each
+  scoped sector now defaults to a separate-age table with an equal-age average,
+  supports House/Machine trends across ages, starts pooled when one age is
+  selected, and exposes only sibling-valid House, Machine, Trolley, or Tray
+  controls. Added missing-data handling, multi-level comparisons, and matching
+  table/chart state; applied the same one-house rule and age table to the bespoke
+  Egg Quality sector.
+- 2026-07-05: Moved Hatch Analysis breakout photo capture into every Fresh,
+  Candled, and Residue metric row; saved photos with metric-specific JSON and
+  SQLite identities; kept thumbnails editable in-row; cleaned replaced/removed
+  photo rows through sync tombstones; and kept the dashboard breakout photo
+  grid loading both item-scoped and legacy evidence.
+- 2026-07-05: Refreshed an already-mounted Dashboard after successful sync so
+  downloaded breakout photos replace stale in-memory paths without requiring a
+  manual pull-to-refresh or filter change.
+- 2026-07-05: Preserved the dashboard Govee sector's collapsed state when it is
+  disposed off-screen and recreated during scrolling.
+- 2026-07-04: Preserved dashboard station-card collapse state while scrolling
+  and through pull-to-refresh loading during the current Dashboard visit.
+- 2026-07-04: Repaired stale evidence-photo paths after iOS app-container path
+  changes by reconciling filenames against the current documents directory,
+  and allowed cloud pull/download to recover rows whose local file is missing.
+- 2026-07-03: Added the selected flock's name, current age, breed, and entrance
+  date to the dashboard filter card and moved that card into the scrolling
+  dashboard content so it no longer stays frozen while the user scrolls.
+- 2026-07-03: Completed the Arabic UI copy audit across administration, auth,
+  customers, visits, poultry audit stations, BMK, Dashboard, Govee, Home, and
+  Settings; localized input decorations, validators, tooltips, semantics, and
+  dynamic operational messages while preserving entered names and values;
+  corrected directional RTL spacing/alignment and the navigation drawer shape;
+  added Arabic font fallbacks and prevented the Home last-audit date from being
+  truncated; and added regression tests for RTL, static strings, dynamic copy,
+  tooltips, fonts, and the long Arabic date layout.
+- 2026-06-26: Added English/Arabic app localization, Settings language
+  selection, local persistence for the selected language, Flutter localization
+  delegates, automatic Arabic RTL directionality, and a central Arabic
+  translation catalog for shared user-facing text.
+- 2026-06-26: Expanded the Arabic catalog for Home and Dashboard operational
+  labels, dashboard filter labels, triage alerts, and rich text spans.
+- 2026-06-28: Expanded the Arabic catalog for remaining Home focus, sync,
+  conflict, Dashboard scope, and Govee labels, including dynamic count/name
+  messages.
 - 2026-06-23: Added root auth-state navigation so logout resets the app back to
   `/login`, and covered Remember me loading, saved-email persistence, clearing,
   remember-session forwarding, and phone-width Remember me row layout with login
@@ -1444,9 +1611,43 @@ builds.
   with one Take photo action, Done-only footer navigation, display-only
   photo-backed station grid cells, and tapped-cell edit routing through the
   attached-photo capture screen.
+- 2026-06-24: Moved guided temperature capture completion to a top-right Done
+  action, changed the footer primary action to Capture, and fixed Retake so a
+  saved point returns to capture-ready state. Added a recorded-photo strip,
+  per-cell photo badges, retaking state text, and automatic manual-entry focus
+  after capture.
+- 2026-06-24: Added startup photo download sync for pulled Supabase photo rows
+  and remote storage-object cleanup for synced photo deletes, so evidence can
+  appear on other devices and deleted photo rows remove their backing bucket
+  objects.
 - 2026-06-22: Added `bmk_operational_standards` with seeded global operational
   BMKs, hatchery-specific overrides, an Operational BMKs reference sector, and
   an Admin editor with global/hatchery scope selection.
+- 2026-06-25: Organized the Operational BMKs reference sector into Egg, Chicks,
+  Hatch Results, Setters, and Hatchers categories and added a source citation
+  dialog from the sector header.
+- 2026-06-25: Added per-item Operational BMK citation actions and source URLs
+  to the `bmk_operational_standards` model, schema, and seed data.
+- 2026-06-25: Moved Operational BMK citation icons beside each metric label and
+  added per-metric citation photo attachment through `sourcePhotoPath`.
+- 2026-06-25: Removed Operational BMK category/header citation actions, made
+  external source links open from each metric dialog, stopped showing internal
+  links for ChickMark operational defaults, and added cloud-backed source photo
+  replace/delete plus zoom preview.
+- 2026-06-25: Persisted EST/CVT readings with their selected `°F`/`°C` unit,
+  preserved legacy unit fallbacks, and made dashboard EST evidence display the
+  saved unit instead of assuming Celsius.
+- 2026-06-25: Changed dashboard Egg Quality to one Pool-plus-house comparison
+  sector with default-selected Pool/house chips and a chart/table toggle, instead
+  of separate selected-house cards plus a nested `Compare houses` reveal.
+- 2026-06-25: Tightened the dashboard Egg Quality chart layout with wrapping
+  metric chips, compact Act-vs-BMK paired bars for normal house counts, and a
+  dashed average reference line.
+- 2026-06-23: Added Hatch Analysis breakout sample photo capture, saving new
+  captures under the active breakout panel and showing recorded breakout photos
+  in the dashboard Scopes grid. The dashboard Hatch breakout area now shows only
+  breakout types with real recorded rows instead of always showing Fresh,
+  Candled, and Residue tabs.
 - 2026-06-22: Added a `°F`/`°C` toggle to the dashboard Govee Environmental
   Readings sector and made its cumulative temperature metric follow the shared
   app temperature unit.

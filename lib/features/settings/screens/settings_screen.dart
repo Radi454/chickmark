@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
@@ -143,6 +143,8 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSizes.spaceLg),
+          _buildLanguageSelector(settings),
+          const SizedBox(height: AppSizes.spaceLg),
           _buildNumberField(
             'Pasgar Sample Size',
             settings.pasgarSampleSize,
@@ -169,6 +171,38 @@ class SettingsScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildLanguageSelector(SettingsProvider settings) {
+    return Row(
+      children: [
+        const Expanded(
+          flex: 2,
+          child: Text('Language', style: AppTextStyles.body),
+        ),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            initialValue: settings.languageCode,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: AppSizes.spaceSm,
+                vertical: AppSizes.spaceSm,
+              ),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'en', child: Text('English')),
+              DropdownMenuItem(value: 'ar', child: Text('العربية')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              settings.setLanguageCode(value);
+            },
+          ),
+        ),
+      ],
     );
   }
 

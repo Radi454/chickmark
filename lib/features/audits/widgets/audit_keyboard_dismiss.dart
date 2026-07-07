@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class AuditKeyboardDismiss extends StatelessWidget {
   final Widget child;

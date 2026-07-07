@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -18,8 +18,15 @@ import 'scope_severity_style.dart';
 /// `H1·S1H1·Tr2·Ty5`) wrap to two lines instead of truncating.
 class ScopeMatrixTable extends StatelessWidget {
   final String sectorId;
+  final String avgLabel;
+  final bool avgUsesPoolGroup;
 
-  const ScopeMatrixTable({super.key, required this.sectorId});
+  const ScopeMatrixTable({
+    super.key,
+    required this.sectorId,
+    this.avgLabel = '⌀ Avg',
+    this.avgUsesPoolGroup = false,
+  });
 
   static const double _rowH = 40;
   static const double _headH = 46;
@@ -33,6 +40,7 @@ class ScopeMatrixTable extends StatelessWidget {
     final visible = provider.visibleColumnIndexes(sectorId);
     final showAvg = provider.isAvgVisible(sectorId);
     final stats = provider.columnStatsFor(sectorId);
+    final poolGroup = avgUsesPoolGroup ? provider.poolGroupFor(sectorId) : null;
 
     if (!showAvg && visible.isEmpty) {
       return _empty();
@@ -112,7 +120,11 @@ class ScopeMatrixTable extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (showAvg) _avgColumn(params, stats, avgW, rowH),
+                  if (showAvg)
+                    if (avgUsesPoolGroup && poolGroup != null)
+                      _dataColumn(params, poolGroup, avgW, rowH)
+                    else
+                      _avgColumn(params, stats, avgW, rowH),
                   for (final i in visible)
                     _dataColumn(params, groups[i], dataW, rowH),
                 ],
@@ -136,11 +148,11 @@ class ScopeMatrixTable extends StatelessWidget {
           width: w,
           bg: AppColors.statusActive,
           align: Alignment.centerRight,
-          child: const Text(
-            '⌀ Avg',
+          child: Text(
+            avgLabel,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w900,
               color: Colors.white,
@@ -227,7 +239,10 @@ class ScopeMatrixTable extends StatelessWidget {
   // ── primitives ───────────────────────────────────────────────────────────
 
   Widget _column({required List<Widget> children}) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: children);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
   }
 
   Widget _headerCell({

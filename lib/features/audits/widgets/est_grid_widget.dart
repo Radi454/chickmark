@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -325,6 +325,12 @@ class EstGridWidget extends StatelessWidget {
                 onPressed: () => onClearRequested!(key),
               ),
             ),
+          if (hasPhoto && !canClear)
+            Positioned(
+              top: -5,
+              right: -5,
+              child: _PhotoEvidenceBadge(keyName: key),
+            ),
         ],
       ),
     );
@@ -340,6 +346,41 @@ class EstGridWidget extends StatelessWidget {
 
   String _title(String value) =>
       value.isEmpty ? value : '${value[0].toUpperCase()}${value.substring(1)}';
+}
+
+class _PhotoEvidenceBadge extends StatelessWidget {
+  const _PhotoEvidenceBadge({required this.keyName});
+
+  final String keyName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Photo recorded',
+      child: Container(
+        key: ValueKey('est-grid-photo-badge-$keyName'),
+        width: 22,
+        height: 22,
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(22),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.photo_camera_outlined,
+          size: 12,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
 }
 
 class _DisplayReading extends StatelessWidget {

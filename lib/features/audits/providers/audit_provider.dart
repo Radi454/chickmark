@@ -24,6 +24,8 @@ import '../models/egg_breakout_tray_rollup.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
+import '../models/temperature_entry_unit.dart';
+import '../models/temperature_readings_payload.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -4368,14 +4370,10 @@ class AuditProvider extends ChangeNotifier {
 
   int? _decodedReadingCount(String? source) {
     if (source == null || source.trim().isEmpty) return null;
-    try {
-      final decoded = jsonDecode(source);
-      if (decoded is List) return decoded.length;
-      if (decoded is Map) return decoded.length;
-    } catch (_) {
-      return null;
-    }
-    return null;
+    return TemperatureReadingsPayload.decode(
+      source,
+      legacyUnit: TemperatureEntryUnit.fahrenheit,
+    ).count;
   }
 
   int? _asInt(Object? value) {

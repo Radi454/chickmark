@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 class PhotoFullscreenScreen extends StatelessWidget {
   final String filePath;

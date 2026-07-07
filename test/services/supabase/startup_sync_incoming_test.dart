@@ -123,6 +123,7 @@ void main() {
       () => tombstones.getPendingDeletes(),
     ).thenAnswer((_) async => const []);
     when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {});
+    when(() => photoSync.syncDownloaded()).thenAnswer((_) async {});
     when(() => photoSync.syncPending()).thenAnswer((_) async {});
     when(
       () => conflicts.recordConflict(

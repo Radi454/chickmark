@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_colors.dart';
@@ -281,8 +281,8 @@ class _ShellNavigationDrawer extends StatelessWidget {
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.horizontal(
-          right: Radius.circular(AppSizes.cardRadius),
+        borderRadius: BorderRadiusDirectional.horizontal(
+          end: Radius.circular(AppSizes.cardRadius),
         ),
       ),
       child: SafeArea(
@@ -434,7 +434,7 @@ class _NavigationHeader extends StatelessWidget {
         children: [
           const Expanded(child: ChickMarkLogo(logoSize: 74)),
           IconButton(
-            tooltip: 'Close navigation',
+            tooltip: context.tr('Close navigation'),
             icon: const Icon(Icons.close, color: AppColors.statusNeutralText),
             onPressed: () => Navigator.of(context).pop(),
           ),

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -109,9 +109,7 @@ class _EvidenceTile extends StatelessWidget {
     final hasValidPhoto =
         path != null && path.trim().isNotEmpty && File(path).existsSync();
     final label = '${point.positionLabel} ${point.levelLabel}';
-    final value = point.readingC == null
-        ? '--'
-        : '${point.readingC!.toStringAsFixed(1)}°C';
+    final value = point.readingLabel;
 
     return DecoratedBox(
       decoration: BoxDecoration(

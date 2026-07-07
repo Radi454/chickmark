@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import 'audit_numeric_keyboard.dart';
 

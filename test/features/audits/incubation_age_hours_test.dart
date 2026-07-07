@@ -479,7 +479,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
-      final provider = await pumpSetterScreen(tester);
+      await pumpSetterScreen(tester);
 
       final setterTab = tester.widget<ChoiceChip>(
         find.widgetWithText(ChoiceChip, 'S5'),

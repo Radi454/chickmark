@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../scope/scope_models.dart';

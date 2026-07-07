@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -53,19 +53,25 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           actions: [
             if (canEdit)
               IconButton(
-                tooltip: 'Edit customer',
+                tooltip: context.tr('Edit customer'),
                 icon: const Icon(Icons.edit_outlined),
                 onPressed: () => _showEditCustomerSheet(context),
               ),
+            if (canEdit)
+              IconButton(
+                tooltip: context.tr('Delete customer'),
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _confirmDeleteCustomer,
+              ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
             indicatorColor: Colors.white,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
             tabs: [
-              Tab(text: 'Flocks'),
-              Tab(text: 'Hatcheries'),
-              Tab(text: 'Audits'),
+              Tab(text: context.tr('Flocks')),
+              Tab(text: context.tr('Hatcheries')),
+              Tab(text: context.tr('Audits')),
             ],
           ),
         ),
@@ -585,12 +591,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           label: Text(flock.isSold ? 'Mark active' : 'Mark sold'),
         ),
         IconButton.outlined(
-          tooltip: 'Edit flock',
+          tooltip: context.tr('Edit flock'),
           onPressed: () => _showEditFlockSheet(context, flock),
           icon: const Icon(Icons.edit_outlined),
         ),
         IconButton.outlined(
-          tooltip: 'Delete flock',
+          tooltip: context.tr('Delete flock'),
           onPressed: () => _confirmDeleteFlock(context, flock),
           color: Colors.red.shade700,
           icon: const Icon(Icons.delete_outline),
@@ -699,6 +705,51 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       _customer = updatedCustomer;
     });
     await context.read<CustomersProvider>().selectCustomer(updatedCustomer);
+  }
+
+  Future<void> _confirmDeleteCustomer() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete customer?'),
+        content: Text(
+          'This permanently removes "${_customer.name}", including its flocks, '
+          'hatcheries, visits, station data, Govee captures, and linked photos. '
+          'The deletion will also be synced to the cloud. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.statusError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await context.read<CustomersProvider>().deleteCustomer(_customer.id);
+      if (!mounted) return;
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text('${_customer.name} deleted')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not delete customer: $error')),
+      );
+    }
   }
 
   void _showEditFlockSheet(BuildContext context, FlockModel flock) {

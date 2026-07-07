@@ -1,5 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
@@ -79,7 +79,8 @@ class GoveeCaptureChart extends StatelessWidget {
                     if (startedAt != null && endedAt != null) ...[
                       const SizedBox(height: AppSizes.spaceXs),
                       Text(
-                        '${_formatClock(startedAt)} - ${_formatClock(endedAt)}',
+                        '${_formatClock(startedAt, arabic: context.l10n.isArabic)} - '
+                        '${_formatClock(endedAt, arabic: context.l10n.isArabic)}',
                         style: AppTextStyles.caption,
                       ),
                     ],
@@ -719,11 +720,11 @@ double? _temperatureValue(double? fahrenheit, bool showCelsius) {
 
 String _temperatureUnit(bool showCelsius) => showCelsius ? '°C' : '°F';
 
-String _formatClock(DateTime dateTime) {
+String _formatClock(DateTime dateTime, {bool arabic = false}) {
   final hour = dateTime.hour;
   final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
   final minute = dateTime.minute.toString().padLeft(2, '0');
-  final suffix = hour >= 12 ? 'PM' : 'AM';
+  final suffix = hour >= 12 ? (arabic ? 'م' : 'PM') : (arabic ? 'ص' : 'AM');
   return '$displayHour:$minute $suffix';
 }
 

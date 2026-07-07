@@ -10,6 +10,19 @@ void main() {
   });
 
   group('SettingsProvider.cloudStatus', () {
+    test('persists the selected language code', () async {
+      final provider = SettingsProvider();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(provider.languageCode, 'en');
+      await provider.setLanguageCode('ar');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(provider.languageCode, 'ar');
+      expect(prefs.getString('pref_language_code'), 'ar');
+      provider.dispose();
+    });
+
     test('starts in online state when nothing else has happened', () {
       final provider = SettingsProvider();
       expect(provider.cloudStatus, CloudStatus.online);

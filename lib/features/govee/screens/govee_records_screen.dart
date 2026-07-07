@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -490,7 +490,7 @@ class _CaptureRow extends StatelessWidget {
           const SizedBox(width: 8),
           _SyncDot(sync: capture.syncStatus),
           PopupMenuButton<String>(
-            tooltip: 'Capture actions',
+            tooltip: context.tr('Capture actions'),
             icon: const Icon(
               Icons.more_vert,
               size: 18,
@@ -552,7 +552,7 @@ class _SyncChip extends StatelessWidget {
       _ => (Icons.cloud_upload_outlined, _pendingColor, 'Pending'),
     };
     return Padding(
-      padding: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsetsDirectional.only(end: 4),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

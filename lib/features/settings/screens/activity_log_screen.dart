@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/utils/date_utils.dart';
@@ -30,7 +30,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         title: 'Activity Log',
         actions: [
           IconButton(
-            tooltip: 'Clear old logs',
+            tooltip: context.tr('Clear old logs'),
             icon: const Icon(Icons.auto_delete_outlined),
             onPressed: _clearOldLogs,
           ),
