@@ -31,6 +31,7 @@ class SyncOutcome {
   final int pushed;
   final int pulled;
   final int conflicts;
+  final int pendingDeletes;
 
   /// Audit sessions that arrived from the cloud this run (created/edited on
   /// another device). Empty on the first sync / after a DB reset (baseline).
@@ -45,6 +46,7 @@ class SyncOutcome {
     this.pushed = 0,
     this.pulled = 0,
     this.conflicts = 0,
+    this.pendingDeletes = 0,
     this.incomingSessions = const [],
     this.otherIncomingCount = 0,
   });
@@ -151,12 +153,15 @@ class StartupSyncService {
         details: '$pushed pushed, $pulled pulled, $_conflictsThisRun conflicts',
       );
     }
+    final pendingDeletes =
+        (await _syncTombstoneRepository.getPendingDeletes()).length;
     progress(1, 'Ready');
     return SyncOutcome(
       online: true,
       pushed: pushed,
       pulled: pulled,
       conflicts: _conflictsThisRun,
+      pendingDeletes: pendingDeletes,
       incomingSessions: List.unmodifiable(_incomingSessionsThisRun),
       otherIncomingCount: _otherIncomingThisRun,
     );

@@ -7,6 +7,7 @@ import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+import 'package:hatchaudit/data/models/sync_tombstone_model.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
@@ -181,6 +182,8 @@ void main() {
     when(
       () => tombstones.upsertRemoteTombstone(any()),
     ).thenAnswer((_) async {});
+    when(() => tombstones.markSynced(any())).thenAnswer((_) async {});
+    when(() => tombstones.markFailed(any(), any())).thenAnswer((_) async {});
     when(
       () => supabase.pullSyncTombstones(
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
@@ -403,6 +406,49 @@ void main() {
       ).called(1);
     },
   );
+
+  test('reports pending deletes when remote row deletion fails', () async {
+    final tombstone = SyncTombstone(
+      id: 'customers:customer-1',
+      tableName: 'customers',
+      rowId: 'customer-1',
+      deletedAt: DateTime(2026, 7, 5),
+      createdAt: DateTime(2026, 7, 5),
+    );
+    when(
+      () => tombstones.getPendingDeletes(),
+    ).thenAnswer((_) async => [tombstone]);
+    when(
+      () => supabase.deleteRows('customers', ['customer-1']),
+    ).thenThrow(StateError('network down'));
+
+    final outcome = await service().run();
+
+    expect(outcome.online, isTrue);
+    expect(outcome.pendingDeletes, 1);
+    verify(() => tombstones.markFailed(tombstone.id, any())).called(1);
+  });
+
+  test('reports no pending deletes after remote row deletion succeeds', () async {
+    final tombstone = SyncTombstone(
+      id: 'customers:customer-1',
+      tableName: 'customers',
+      rowId: 'customer-1',
+      deletedAt: DateTime(2026, 7, 5),
+      createdAt: DateTime(2026, 7, 5),
+    );
+    var pendingRead = 0;
+    when(() => tombstones.getPendingDeletes()).thenAnswer((_) async {
+      pendingRead++;
+      return pendingRead == 1 ? [tombstone] : const <SyncTombstone>[];
+    });
+
+    final outcome = await service().run();
+
+    expect(outcome.online, isTrue);
+    expect(outcome.pendingDeletes, 0);
+    verify(() => tombstones.markSynced(tombstone.id)).called(1);
+  });
 
   test('sync tombstones delete panel tables before owning tables', () {
     final order = SyncTombstoneRepository.deleteOrder;
