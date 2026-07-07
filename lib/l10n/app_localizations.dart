@@ -190,6 +190,20 @@ final List<_PatternTranslator> _patterns = [
   },
   (value) {
     final match = RegExp(
+      r'^(.+) deleted and synchronized$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'تم حذف ${match.group(1)} ومزامنته';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(.+) deleted locally; cloud deletion is pending sync$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'تم حذف ${match.group(1)} محليًا؛ حذف البيانات من السحابة بانتظار المزامنة';
+  },
+  (value) {
+    final match = RegExp(
       r'^Could not delete customer: (.+)$',
     ).firstMatch(value);
     if (match == null) return null;

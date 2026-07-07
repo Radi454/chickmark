@@ -1297,11 +1297,16 @@ Forgot Password row wraps on phone-width layouts instead of overflowing.
 `CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
 and selected-customer state. It scopes data for customer-role users, supports
 customer/flock/hatchery CRUD, and loads visit summaries for customer detail
-views. Editors can delete a customer from the customer detail screen only after
-confirming a destructive dialog. Confirmed customer deletion removes local visit
-sessions, station rows, linked photos, Govee captures, flocks, hatcheries, and
-the customer row, and queues sync tombstones for the synced rows so Supabase is
-cleaned up on the next startup/background sync.
+views. Editors can delete a customer from the customer list card or customer
+detail screen only after confirming a destructive dialog. Confirmed customer
+deletion removes local visit sessions, station rows, linked photos, Govee
+captures, flocks, hatcheries, and the customer row, and queues sync tombstones
+for the synced rows so Supabase is cleaned up on the next startup/background
+sync. Customer-list deletes immediately run a foreground sync attempt after the
+local cascade and show whether the cloud deletion synchronized or remains
+pending because the device is offline or the remote delete failed. Other
+devices apply the synced tombstones on their next startup/background sync and
+remove the same customer graph locally.
 
 `StartupSyncService` checks cloud tombstones and applies remote deletes before
 bulk-uploading local customers, hatcheries, and flocks. This prevents a device
@@ -1561,6 +1566,10 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-05: Added a destructive delete action to each editable Customers-list
+  card. The action confirms the named customer, runs the existing local cascade,
+  immediately attempts foreground Supabase tombstone sync, and reports whether
+  the cloud delete synchronized or remains pending for a later sync.
 - 2026-07-05: Made dashboard comparisons BMK-age-first and data-aware. Each
   scoped sector now defaults to a separate-age table with an equal-age average,
   supports House/Machine trends across ages, starts pooled when one age is

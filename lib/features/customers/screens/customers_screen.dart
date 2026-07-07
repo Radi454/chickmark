@@ -10,15 +10,22 @@ import 'package:hatchaudit/features/customers/widgets/customer_card.dart';
 import 'package:hatchaudit/features/customers/widgets/add_customer_sheet.dart';
 import 'package:hatchaudit/features/customers/screens/customer_detail_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
+import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
+
+typedef CustomerDeletionSync = Future<SyncOutcome> Function({String? userId});
 
 class CustomersScreen extends StatefulWidget {
-  const CustomersScreen({super.key});
+  final CustomerDeletionSync? syncAfterDelete;
+
+  const CustomersScreen({super.key, this.syncAfterDelete});
 
   @override
   State<CustomersScreen> createState() => _CustomersScreenState();
 }
 
 class _CustomersScreenState extends State<CustomersScreen> {
+  final Set<String> _deletingCustomerIds = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -107,6 +114,13 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                       customer,
                                     )
                                   : null,
+                              onDelete:
+                                  canEdit &&
+                                      !_deletingCustomerIds.contains(
+                                        customer.id,
+                                      )
+                                  ? () => _confirmDeleteCustomer(customer)
+                                  : null,
                               onTap: () {
                                 Navigator.push(
                                   context,
@@ -158,6 +172,81 @@ class _CustomersScreenState extends State<CustomersScreen> {
     if (!context.mounted || updatedCustomer == null) return;
     await context.read<CustomersProvider>().loadCustomers(
       currentUser: context.read<AuthProvider>().user,
+    );
+  }
+
+  Future<void> _confirmDeleteCustomer(CustomerModel customer) async {
+    final customersProvider = context.read<CustomersProvider>();
+    final authProvider = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete customer?'),
+        content: Text(
+          'This permanently removes "${customer.name}", including its flocks, hatcheries, visits, station data, Govee captures, and linked photos. The deletion will also be synced to the cloud. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.statusError,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+
+    setState(() {
+      _deletingCustomerIds.add(customer.id);
+    });
+
+    try {
+      await customersProvider.deleteCustomer(customer.id);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _deletingCustomerIds.remove(customer.id);
+      });
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not delete customer: $error')),
+      );
+      return;
+    }
+
+    var synchronized = false;
+    try {
+      final userId = authProvider.user?.id;
+      final syncAfterDelete = widget.syncAfterDelete;
+      final outcome = syncAfterDelete != null
+          ? await syncAfterDelete(userId: userId)
+          : await StartupSyncService().run(userId: userId);
+      synchronized = outcome.online && outcome.pendingDeletes == 0;
+    } catch (_) {
+      synchronized = false;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _deletingCustomerIds.remove(customer.id);
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          synchronized
+              ? '${customer.name} deleted and synchronized'
+              : '${customer.name} deleted locally; cloud deletion is pending sync',
+        ),
+      ),
     );
   }
 }
