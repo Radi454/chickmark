@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:hatchaudit/localized_material.dart';
+import 'package:hatchaudit/widgets/photo_grid.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -106,8 +105,7 @@ class _EvidenceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = point.photoPath;
-    final hasValidPhoto =
-        path != null && path.trim().isNotEmpty && File(path).existsSync();
+    final hasValidPhoto = isPhotoPathDisplayable(path);
     final label = '${point.positionLabel} ${point.levelLabel}';
     final value = point.readingLabel;
 
@@ -121,7 +119,7 @@ class _EvidenceTile extends StatelessWidget {
         key: ValueKey('est-evidence-${point.key}'),
         borderRadius: BorderRadius.circular(8),
         onTap: hasValidPhoto && onPhotoTap != null
-            ? () => onPhotoTap!(path)
+            ? () => onPhotoTap!(path!)
             : null,
         child: Padding(
           padding: const EdgeInsets.all(6),
@@ -132,12 +130,11 @@ class _EvidenceTile extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(7),
                   child: hasValidPhoto
-                      ? Image.file(
-                          File(path),
+                      ? PhotoImage(
+                          filePath: path!,
                           fit: BoxFit.cover,
                           cacheWidth: 220,
-                          errorBuilder: (context, error, stackTrace) =>
-                              _buildPlaceholder(),
+                          placeholderBuilder: (_) => _buildPlaceholder(),
                         )
                       : _buildPlaceholder(),
                 ),

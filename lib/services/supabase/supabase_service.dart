@@ -400,6 +400,20 @@ class SupabaseService {
     return _client.storage.from('photos').download(storagePath);
   }
 
+  Future<String?> createPhotoViewUrl(String? remotePath) async {
+    final normalizedPath = remotePath?.trim();
+    if (normalizedPath == null || normalizedPath.isEmpty) return null;
+    if (normalizedPath.startsWith('http://') ||
+        normalizedPath.startsWith('https://')) {
+      return normalizedPath;
+    }
+
+    final storagePath = _photoStoragePath(normalizedPath);
+    if (storagePath == null || storagePath.isEmpty) return null;
+    if (!await _prepareRemoteAccess()) return null;
+    return _client.storage.from('photos').createSignedUrl(storagePath, 3600);
+  }
+
   Future<void> syncUpdateFlock(Map<String, dynamic> flock) async {
     try {
       if (!await _prepareRemoteAccess()) return;
@@ -552,11 +566,7 @@ class SupabaseService {
   }
 
   Future<String?> createLabAnalysisReportPdfUrl(String? remotePath) async {
-    final storagePath = _photoStoragePath(remotePath);
-    if (storagePath == null || storagePath.isEmpty) return null;
-    if (remotePath != null && remotePath.startsWith('http')) return remotePath;
-    if (!await _prepareRemoteAccess()) return null;
-    return _client.storage.from('photos').createSignedUrl(storagePath, 3600);
+    return createPhotoViewUrl(remotePath);
   }
 
   Future<void> deleteBmkOperationalSourcePhoto(String? remotePath) async {

@@ -1611,8 +1611,12 @@ URLs are only written when the build explicitly sets
 `CHICKMARK_ALLOW_PUBLIC_PHOTO_URLS=true`. Startup sync also downloads pulled
 remote photo rows from Supabase storage into the app documents directory, then
 updates the local `photos.filePath` to the downloaded file so dashboard and
-photo-grid readers can show evidence captured on another device. If a download
-fails, the remote reference is kept so later sync runs can retry. Photo
+photo-grid readers can show evidence captured on another device. Flutter Web
+keeps pulled remote references because it has no app documents directory; photo
+grids, EST evidence thumbnails, and the fullscreen viewer resolve private
+`supabase://photos/...` references to signed storage URLs when rendering. If a
+native download fails, the remote reference is kept so later sync runs can
+retry. Photo
 tombstone sync removes matching Supabase storage objects before deleting remote
 `photos` metadata rows, so deleted evidence is removed from other devices and
 the backing bucket.
@@ -1661,8 +1665,9 @@ manually syncs; offline or failed sync attempts leave the notice intact. The
 Flutter Web sync path pulls photo metadata but skips the native-file photo
 cache/upload pass, because browsers do not expose an application documents
 directory. This keeps Supabase row sync successful on web while preserving
-remote photo references for a future browser-backed photo implementation. The
-app assumes Supabase tables and storage are protected by project
+remote photo references; dashboard photo renderers turn those references into
+short-lived signed storage URLs. The app assumes Supabase tables and storage
+are protected by project
 RLS/storage policies for approved authenticated users and their customer scope.
 Authorization helpers live in a non-exposed private schema; approved status is
 required for admin privileges, direct execution of trigger functions is

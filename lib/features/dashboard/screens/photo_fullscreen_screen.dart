@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:hatchaudit/localized_material.dart';
+import 'package:hatchaudit/widgets/photo_grid.dart';
 
 class PhotoFullscreenScreen extends StatelessWidget {
   final String filePath;
@@ -22,17 +22,12 @@ class PhotoFullscreenScreen extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4.0,
-          child: File(filePath).existsSync()
-              ? Image.file(
-                  File(filePath),
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.broken_image,
-                    color: Colors.white,
-                    size: 64,
-                  ),
-                )
-              : const Icon(Icons.broken_image, color: Colors.white, size: 64),
+          child: PhotoImage(
+            filePath: filePath,
+            fit: BoxFit.contain,
+            placeholderBuilder: (_) =>
+                const Icon(Icons.broken_image, color: Colors.white, size: 64),
+          ),
         ),
       ),
     );

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -1745,8 +1743,7 @@ class _EstReadingCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = point.photoPath;
-    final hasPhoto =
-        path != null && path.trim().isNotEmpty && File(path).existsSync();
+    final hasPhoto = isPhotoPathDisplayable(path);
     return Container(
       constraints: BoxConstraints(minHeight: compact ? 86 : 104),
       padding: EdgeInsets.all(compact ? AppSizes.spaceXs : AppSizes.spaceSm),
@@ -1773,18 +1770,18 @@ class _EstReadingCell extends StatelessWidget {
           InkWell(
             key: ValueKey('est-evidence-${point.key}'),
             borderRadius: BorderRadius.circular(8),
-            onTap: hasPhoto ? () => onPhotoTap(path) : null,
+            onTap: hasPhoto ? () => onPhotoTap(path!) : null,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: SizedBox(
                 height: compact ? 34 : 46,
                 width: double.infinity,
                 child: hasPhoto
-                    ? Image.file(
-                        File(path),
+                    ? PhotoImage(
+                        filePath: path!,
                         fit: BoxFit.cover,
                         cacheWidth: 220,
-                        errorBuilder: (context, error, stackTrace) =>
+                        placeholderBuilder: (_) =>
                             _EstPhotoPlaceholder(hasPhoto: point.hasPhoto),
                       )
                     : _EstPhotoPlaceholder(hasPhoto: point.hasPhoto),
