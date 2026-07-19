@@ -28,6 +28,9 @@ class ScopeCellAccumulator {
   /// Σ traySize (the denominator: total eggs) aligned to [countSum]/[weightedValueSum].
   final num traySum;
 
+  /// Generic metric-specific denominator (sample size, tray size, or count).
+  final num denominatorSum;
+
   /// Σ (value × traySize) — used when only a percentage + sample size is available.
   final num weightedValueSum;
 
@@ -37,11 +40,15 @@ class ScopeCellAccumulator {
   /// Count of non-null numeric values folded in.
   final int valueN;
 
+  /// Last non-null numeric value folded in. Repository leaves are date-ordered.
+  final num? latestValue;
+
   /// Whether any folded sample had a raw count column (so [countSum] is meaningful).
   final bool hasCountCol;
 
   /// Whether any folded sample had a positive traySize (so weighting is possible).
   final bool hasTray;
+  final bool hasDenominator;
 
   /// Distinct text values seen (for text params: unique-or-`—`).
   final Set<String> textValues;
@@ -49,11 +56,14 @@ class ScopeCellAccumulator {
   const ScopeCellAccumulator({
     this.countSum = 0,
     this.traySum = 0,
+    this.denominatorSum = 0,
     this.weightedValueSum = 0,
     this.valueSum = 0,
     this.valueN = 0,
+    this.latestValue,
     this.hasCountCol = false,
     this.hasTray = false,
+    this.hasDenominator = false,
     this.textValues = const {},
   });
 
@@ -61,6 +71,7 @@ class ScopeCellAccumulator {
   factory ScopeCellAccumulator.sample({
     num? value,
     num? traySize,
+    num? denominator,
     num? count,
     String? text,
   }) {
@@ -68,14 +79,21 @@ class ScopeCellAccumulator {
       return ScopeCellAccumulator(textValues: {text.trim()});
     }
     if (value == null) return const ScopeCellAccumulator();
+    final effectiveDenominator = denominator ?? traySize;
     final tray = (traySize != null && traySize > 0) ? traySize : 0;
+    final den = (effectiveDenominator != null && effectiveDenominator > 0)
+        ? effectiveDenominator
+        : 0;
     final hasTray = tray > 0;
     return ScopeCellAccumulator(
       valueSum: value,
       valueN: 1,
+      latestValue: value,
       traySum: tray,
-      weightedValueSum: hasTray ? value * tray : 0,
+      denominatorSum: den,
+      weightedValueSum: den > 0 ? value * den : 0,
       hasTray: hasTray,
+      hasDenominator: den > 0,
       countSum: count ?? 0,
       hasCountCol: count != null,
     );
@@ -84,11 +102,14 @@ class ScopeCellAccumulator {
   ScopeCellAccumulator combine(ScopeCellAccumulator o) => ScopeCellAccumulator(
     countSum: countSum + o.countSum,
     traySum: traySum + o.traySum,
+    denominatorSum: denominatorSum + o.denominatorSum,
     weightedValueSum: weightedValueSum + o.weightedValueSum,
     valueSum: valueSum + o.valueSum,
     valueN: valueN + o.valueN,
+    latestValue: o.valueN > 0 ? o.latestValue : latestValue,
     hasCountCol: hasCountCol || o.hasCountCol,
     hasTray: hasTray || o.hasTray,
+    hasDenominator: hasDenominator || o.hasDenominator,
     textValues: textValues.isEmpty && o.textValues.isEmpty
         ? const {}
         : {...textValues, ...o.textValues},
@@ -102,11 +123,29 @@ class ScopeCellAccumulator {
 /// string), so House+Machine nests correctly: `H1·S1H1` stays distinct from
 /// `H2·S1H1`. `cells` is keyed by parameter column name.
 class ScopeLeafRow {
+  final String? rowId;
+  final String? sessionId;
+  final String? sourceTable;
+  final String? customerId;
+  final String? hatcheryId;
+  final String? flockId;
+  final DateTime? observedAt;
+  final String? syncStatus;
+  final Set<String> qualityFlags;
   final int? bmkAge;
   final Map<SamplingLayer, String> layerSegments;
   final Map<String, ScopeCellAccumulator> cells;
 
   const ScopeLeafRow({
+    this.rowId,
+    this.sessionId,
+    this.sourceTable,
+    this.customerId,
+    this.hatcheryId,
+    this.flockId,
+    this.observedAt,
+    this.syncStatus,
+    this.qualityFlags = const {},
     this.bmkAge,
     required this.layerSegments,
     required this.cells,

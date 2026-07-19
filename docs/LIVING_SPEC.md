@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-05
+2026-07-19
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -22,10 +22,21 @@ starts token migration, notifications, and guarded Supabase initialization in
 the background. Supabase service calls wait for that initialization guard before
 reading `Supabase.instance.client`, so remote auth and sync calls cannot race
 ahead of the client setup. Supabase configuration uses complete compile-time
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` values when both are supplied; otherwise,
-only when both compile-time values are empty or placeholders, startup may load
-the bundled `.env.json` placeholder asset. Partial compile-time credentials are
-treated as unconfigured and are not completed from the asset.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` values when both are supplied. When both
+compile-time values are empty or placeholders, startup may load a local `.env`
+file copied from the ignored repository `.env` into the macOS debug/profile app
+bundle, then fall back to the bundled `.env.json` placeholder asset. Partial
+compile-time credentials are treated as unconfigured and are not completed from
+a fallback source. Local macOS development launch paths use the ignored `.env`
+credential file: `make run-macos` passes it to `flutter run -d macos`, `make
+build-macos` passes it to `flutter build macos`, the checked-in VS Code launch
+config also uses `--dart-define-from-file=.env`, and the macOS Xcode build
+copies `.env` into debug/profile bundles while removing it for Release. This
+keeps the desktop app from falling back to the placeholder `.env.json` asset and
+showing "Cloud not configured" during local sync checks. Supabase availability
+refreshes re-run the config load before declaring cloud unavailable so a
+foreground Retry can recover after the local macOS bundle/config becomes
+available.
 
 The user-facing app name is ChickMark. `MaterialApp.title`, web document
 metadata, PWA manifest metadata, and Android/iOS native launcher metadata use
@@ -123,11 +134,16 @@ Chrome extension. Debug web mode is still available by setting
 `WEB_BUILD_MODE=debug`. Local preview runs currently enable the temporary auth
 bypass by default for developer convenience; production build targets cannot
 activate that bypass.
+Local macOS development uses `make run-macos` for a debug desktop run and
+`make build-macos` for a packaged desktop build; both use the same ignored
+`.env` Supabase credentials as the mobile run/build shortcuts. Direct
+debug/profile macOS builds also copy that ignored `.env` into the app bundle as
+a local-only fallback, and Release builds remove the copied file.
 
 `HatchAuditApp` registers these root providers: `AppProvider`, `AuthProvider`,
 `CustomersProvider`, `AuditProvider`, `AuditSessionProvider`,
-`GoveeCaptureProvider`, `BmkProvider`, `SettingsProvider`, and
-`DashboardProvider`.
+`GoveeCaptureProvider`, `BmkProvider`, `LabAnalysisProvider`,
+`SettingsProvider`, `DashboardProvider`, and `ScopeComparisonProvider`.
 
 Initial route selection is auth-state driven:
 
@@ -141,12 +157,14 @@ navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
 
-The main shell has six destinations:
+The main shell has eight destinations:
 
 - Home
 - Dashboard
 - Customers
 - Audits
+- Govee Records
+- Lab Analysis
 - BMK
 - Settings
 
@@ -617,18 +635,22 @@ The right workbench column contains Chick Weights & Uniformity. Its embedded
 blue flock card shows flock, breed, and BMK age inside one compact translucent
 context strip and omits the previous `Uniform`/`Review` title pill; edit flows
 fall back to the selected flock breed when a Chicks audit row does not carry a
-legacy breed field. Chick Weights uses an Egg-quality-style House scope card
-instead of a One house / Compare houses selector or separate Active house
-editor. In pooled state the card shows `Pool` plus an add control. Pressing the
-add control switches Chick Weights to the Egg-style house scope flow: the
-first activation becomes a single active `H` placeholder, and subsequent adds
-create additional `H` placeholders until the user enters House values. The House
-entry field is blank for the active placeholder. Entered house values update the
-active chip label and persist to `chick_weights` rows through the explicit house
-hierarchy columns; removing a house sample deletes its stale `chick_weights` row
-on the next save, and removing the only active `H` sample returns Chick Weights
-to pooled `Pool` state. The panel shows sample count, BMK chick weight, average
-weight, low/high margins,
+legacy breed field. Resumed visit sessions prefer the live Flock Manager row
+for Chicks breed and age, so correcting a flock from 30 to 37 weeks updates the
+station context and rewrites Chick Weights BMK age/weight from the matching
+breed benchmark instead of keeping the stale saved session snapshot. Chick
+Weights uses an Egg-quality-style House scope card instead of a One house /
+Compare houses selector or separate Active house editor. In pooled state the
+card shows `Pool` plus an add control. Pressing the add control switches Chick
+Weights to the Egg-style house scope flow: the first activation becomes a single
+active `H` placeholder, and subsequent adds create additional `H` placeholders
+until the user enters House values. The House entry field is blank for the
+active placeholder. Entered house values update the active chip label and
+persist to `chick_weights` rows through the explicit house hierarchy columns;
+removing a house sample deletes its stale `chick_weights` row on the next save,
+and removing the only active `H` sample returns Chick Weights to pooled `Pool`
+state. The panel shows sample count, BMK chick weight, average weight,
+low/high margins,
 uniformity, and CV% in that order. The weight metrics
 render as one compact summary list instead of a nested card grid, and the
 100-chick weight entry grid opens from an
@@ -1128,11 +1150,15 @@ the floating Govee capture panel. Setter and Hatcher station entries keep the
 Customer and Hatchery controls visible above the room/inside-machine choice so
 the capture scope can still be corrected before recording.
 
-Dashboard has a cascade filter for Customer and Flock. The filter card is part
+Dashboard has a cascade filter for Customer, Hatchery, and Flock. The filter card is part
 of the dashboard's scrolling content rather than a frozen section above it. On
-phone-width layouts the filter stacks Customer above a compact Flock row and
-constrains dropdown labels with ellipsis so selected customer/flock names do not
-overflow. When a specific flock is selected, the same card shows a compact
+phone-width layouts the filter stacks the controls and constrains dropdown
+labels with ellipsis so selected names do not overflow. A customer plus
+hatchery is required for operational station analysis. `All customers`, a
+customer with no hatchery selected, and cleared filters show a portfolio summary
+only; detailed station comparisons, alerts, and corrective actions are blocked
+so unrelated houses and machines cannot be pooled. When a specific flock is
+selected, the same card shows a compact
 summary of its name, current age in completed weeks, breed, and entrance date;
 the summary is omitted for `All flocks`.
 The current dashboard build shows the rebuilt Egg station sector and saved
@@ -1160,6 +1186,25 @@ owned by the current Dashboard screen, so collapsed cards stay collapsed while
 the user scrolls and during a pull-to-refresh loading cycle. The state resets
 when a new Dashboard screen visit begins.
 
+An operational scope starts with a quality strip and a cross-station `What
+needs attention` section. Quality chips show latest observation age, last sync,
+station completion, source-row and sample counts, missing-measurement coverage,
+photo evidence coverage, pending/failed sync, and raw-versus-cache drift. Govee
+shows capture/readings totals and the latest capture age. Readings older than
+seven days are historical and excluded from active alarm triage; readings from
+48 hours through seven days are aging, while future-dated readings are invalid.
+Panel and Govee load failures remain visible within their affected section.
+
+The attention section consolidates critical/watch findings across audit
+stations and Govee, ranks them by severity, persistence, freshness, and data
+confidence, and keeps source identifiers for the station, metric, session, and
+panel row. `View source` expands and scrolls to the exact available sector (or
+its station fallback). Findings can create persistent corrective actions with
+priority, owner, status, due date, first/last observed timestamps, notes,
+resolution metadata, and sync state. Actions support open, in-progress,
+resolved, and reopened states and synchronize through Supabase like other
+offline-first records.
+
 Each rebuilt dashboard comparison sector has its own BMK-age selector. The
 default `All BMK Ages` table keeps every recorded age as a separate column and
 adds an equal-age-weighted average, so visits are not silently pooled or
@@ -1176,6 +1221,29 @@ children at that level. For example, H1-T1 plus H2-T2 enables House but not Tray
 while H1-T1 plus H1-T2 enables Tray. Multiple valid levels can be selected
 together, and the overall average remains visible with the detailed columns.
 Unused hierarchy levels and one-sample levels are hidden.
+
+Every dashboard metric declares an aggregation policy. `ratioOfSums` uses the
+sum of raw numerators divided by the sum of denominators;
+`sampleWeightedMean` weights values by their sample sizes; `equalGroupMean`
+gives each displayed group equal weight; `sum` totals values; and `latest`
+uses the last date-ordered value. The selected policy is disclosed below each
+sector. All-age cumulative results intentionally retain equal-age weighting and
+state that basis in the UI.
+
+Raw readings and counts are authoritative. Local panel writes pass through one
+canonical derivation service for EST/CVT summaries, egg/chick weight summaries,
+Pasgar, Shell UV ratios, and breakout percentages. Persisted dashboard summary
+columns are controlled caches. The analytics loader compares those caches with
+fresh derivation and raises an aggregate-drift quality flag instead of allowing
+the values to diverge silently. The normalized in-memory analytics read model
+keeps source scope, numerator, denominator, sample count, value, unit/format,
+benchmark context, timestamp, and quality flags while leaving offline panel
+tables unchanged.
+
+Legacy database repair is migration-safe: panel query and unique indexes are
+created only when their required columns exist, then rechecked after additive
+panel-column repair. Older partial panel tables therefore open without an index
+creation failure and keep their existing rows.
 
 The dashboard also includes an Egg Quality card directly under Egg Storage. It
 reads dashboard-ready `egg_quality` values through the shared scope engine and
@@ -1199,9 +1267,10 @@ UV affected above the `<= 5.0%` dashboard limit. The Egg sector does not render
 CO2 dashboard tabs or Chicks station dashboard content.
 
 Dashboard shows a dedicated `Govee Environmental Readings` sector for saved
-Govee captures. Those records are loaded from saved Govee capture rows and may
-be scoped by the dashboard Customer filter; Flock and Age filters do not affect
-Govee records. The section is organized by place, with inside-setter and
+Govee captures. Those records are loaded once from saved capture rows and are
+scoped by the selected Customer and Hatchery; Flock and BMK-age filters do not
+affect Govee records. The stored `chartPointsJson` is decoded from the same
+loaded capture rows, avoiding one reading query per capture. The section is organized by place, with inside-setter and
 inside-hatcher captures kept as separate machine records within their place
 group. Each capture card shows place, machine when present, recording time
 range, Temp avg/min/max/SD/CV%, RH avg/min/max/SD/CV%, and saved representative
@@ -1213,6 +1282,56 @@ device status, scope selection, recording, syncing, and save feedback; saved
 history cards live on Dashboard. The sector includes a compact `°F`/`°C` toggle
 backed by the shared app temperature unit, and the saved capture cards plus
 cumulative temperature trend update together when it changes.
+
+Lab Analysis is a standalone breeder-farm lab register scoped to customer,
+flock, and report date; it does not require a hatchery or audit visit session.
+The main-shell `Lab Analysis` tab lets editors choose customer, flock, and date,
+then add ELISA, PCR, HI, or Sensitivity result groups. A saved lab report header
+stores lab name, sample type, optional received date, flock age, notes, and sync
+state. It can also carry the original lab-result PDF: the app stores the PDF
+filename, local path when available, and Supabase Storage URI on the report row,
+and report cards expose a `View PDF` action that opens the local file or a
+signed cloud URL. Each report can contain multiple result groups, such as MG
+ELISA by house, PCR molecular-detection pages, HI antigen distributions, and
+antibiotic sensitivity panels. ELISA entry preserves the full per-sample rows
+from the lab paper: sample number, OD, S/P ratio, result, titer, and titer
+group, alongside summary fields such as mean, minimum, maximum, GMT, CV%,
+positives, negatives, and cutoffs. PCR rows store analyte, result, and Ct. HI
+rows store the complete log2 titer distribution including the `>=12` bin,
+number of sera, GM, and the saved protective-threshold summary. Sensitivity rows
+store antibiotic names and S/I/R categories, with optional organism/isolate
+context. Fixed-choice entry fields use dropdowns for sample type, ELISA row
+result, PCR row result, HI antigen, and sensitivity category; variable values
+such as lab name, analyte, organism, and antibiotic remain editable text.
+
+Saved Lab Analysis cards use the ChickMark blue brand strip and neutral white
+surfaces instead of tinting the full result area by severity. ELISA results
+open in a compact summary state showing sample size, mean, GMT, CV%,
+positive/negative counts, minimum titer, and maximum titer. Large whole-number
+results use thousands separators. The full per-sample ELISA table remains
+available from the collapsed `Sample details` control; PCR, HI, and sensitivity
+rows use the same progressive-disclosure pattern with test-appropriate compact
+summary metrics. Severity color is limited to the status badge, border, and
+interpretation note so alerts remain visible without overpowering the report.
+
+Lab interpretation is deliberately a dashboard guardrail rather than veterinary
+treatment advice. PCR positive rows are surfaced as alerts and Ct is shown as
+load context because lower Ct generally reflects more target nucleic acid, while
+lab/manufacturer cutoffs remain authoritative. ELISA positive samples are shown
+as seropositive signals that must be interpreted with vaccine/exposure history;
+high ELISA CV% is flagged for non-uniform flock response. HI stores a default
+protective threshold by antigen family and flags low GM or low protected
+percentage. Sensitivity reports summarize S/I/R categories and highlight panels
+with no sensitive option or resistant-dominant patterns.
+
+Dashboard shows a `Lab Analysis` sector directly under the cascade filters and
+loads it by the selected customer and flock only, independent of the selected
+hatchery. The sector shows report/test-type counts, alert/watch counts, and the
+latest saved result groups with compact per-test metrics: ELISA GMT/CV/positive
+rate, PCR positive count and minimum Ct, HI GM/protected percentage, and
+sensitivity S/I/R counts. It remains visible with all-customer or no-hatchery
+filters so breeder-farm lab results can be reviewed without entering an
+operational hatchery scope.
 
 ## 5. Data Hierarchy
 
@@ -1239,6 +1358,14 @@ The implemented hierarchy is:
   start/end timestamps, device metadata, aggregate Temp/RH average/min/max/SD/CV
   summaries, representative reading count, and LTTB-selected chart points in
   `chartPointsJson`.
+- `dashboard_actions`: persistent dashboard findings/corrective actions scoped
+  by customer and hatchery, with optional flock/session/panel source trace,
+  owner, priority, lifecycle status, due date, observed timestamps, resolution
+  evidence metadata, and offline sync state.
+- Lab Analysis tables: `lab_analysis_reports` stores customer/flock/date report
+  headers; `lab_analysis_groups` stores one ELISA, PCR, HI, or Sensitivity
+  result group; and `lab_analysis_rows` stores the full sample, analyte, HI
+  distribution, or antibiotic rows under each group.
 - `photos`: local photo records tied to `sessionId`, `panelName`,
   `panelRowId`, and `fieldKey`, with upload status.
 - `bmk_breeds` and `bmk_egg_breakout`: seeded benchmark reference data.
@@ -1300,18 +1427,20 @@ customer/flock/hatchery CRUD, and loads visit summaries for customer detail
 views. Editors can delete a customer from the customer list card or customer
 detail screen only after confirming a destructive dialog. Confirmed customer
 deletion removes local visit sessions, station rows, linked photos, Govee
-captures, flocks, hatcheries, and the customer row, and queues sync tombstones
-for the synced rows so Supabase is cleaned up on the next startup/background
-sync. Customer-list deletes immediately run a foreground sync attempt after the
-local cascade and show whether the cloud deletion synchronized or remains
-pending because the device is offline or the remote delete failed. Other
-devices apply the synced tombstones on their next startup/background sync and
-remove the same customer graph locally.
+captures, lab-analysis reports, flocks, hatcheries, and the customer row, and
+queues sync tombstones for the synced rows so Supabase is cleaned up on the next
+startup/background sync. Customer-list deletes immediately run a foreground
+sync attempt after the local cascade and show whether the cloud deletion
+synchronized or remains pending because the device is offline or the remote
+delete failed. Other devices apply the synced tombstones on their next
+startup/background sync and remove the same customer graph locally.
 
 `StartupSyncService` checks cloud tombstones and applies remote deletes before
 bulk-uploading local customers, hatcheries, and flocks. This prevents a device
 with stale local reference rows from recreating customers that another sync has
-already deleted from the cloud.
+already deleted from the cloud. It pushes dirty audit sessions, panel rows,
+Govee captures, dashboard actions, and Lab Analysis report/group/row tables,
+then pulls the same optional shared tables when they exist remotely.
 
 `AuditSessionProvider` owns the active visit session, station order, current
 station index, movement state, resume state, selected station keys, and session
@@ -1330,7 +1459,13 @@ save futures.
 `DashboardProvider` owns cascade filters, available BMK ages, setter/hatcher
 filter sets, dashboard aggregate models, photo lists, BMK references, scoped
 customer/flock data, visit summaries, selected visit summary, and saved Govee
-capture summaries loaded by the selected visit customer, hatchery, and date.
+capture summaries loaded by the selected visit customer, hatchery, and date. It
+also loads Lab Analysis dashboard summaries by customer and flock independently
+from hatchery scope.
+
+`LabAnalysisProvider` owns the standalone Lab Analysis screen state: scoped
+customer/flock/date selection, saved report batches, and create/delete actions
+for ELISA, PCR, HI, and Sensitivity result groups.
 
 `GoveeCaptureProvider` owns the active standalone Govee capture scope, existing
 capture lookup, saved same-day capture summaries, selected saved station,
@@ -1350,7 +1485,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 41. The database file
+The app uses SQLite through `sqflite` at database version 47. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1374,6 +1509,8 @@ database opens, the app
 checks panel tables against `PanelSampleSchema` and adds any missing
 measurement columns, allowing additive panel fields such as revised PM lesions
 to appear without another destructive reset.
+Later additive upgrades create dashboard action rows and Lab Analysis tables
+without resetting existing local data.
 
 Tables created by the current database helper include:
 
@@ -1398,7 +1535,12 @@ Tables created by the current database helper include:
 - `setter_optimizing`
 - `hatcher_optimizing`
 - `govee_daily_captures`
+- `dashboard_actions`
+- `lab_analysis_reports`
+- `lab_analysis_groups`
+- `lab_analysis_rows`
 - `sync_tombstones`
+- `sync_conflicts`
 
 Fresh databases do not create `audits`, `sample_records`, sample detail tables,
 `egg_weights`, `{panel}_samples` child tables, legacy generic temperature
@@ -1419,10 +1561,13 @@ Relationship safety is enforced in SQLite for the current parent-child graph:
 customer, flock, and hatchery; panel rows belong to an audit session, customer,
 optional flock, and optional hatchery; `photos` belongs to an audit session and
 targets a panel row by `panelName`, `panelRowId`, and `fieldKey`; and
-`govee_daily_captures` belongs to a customer and hatchery.
+`govee_daily_captures` belongs to a customer and hatchery. Lab Analysis reports
+belong to a customer and flock; lab groups belong to a lab report, customer, and
+flock; and lab rows belong to a lab group and report.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
-Customers, flocks, hatcheries, panel rows, and pulled Govee captures use
+Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
+actions, and pulled Lab Analysis rows use
 insert-or-update semantics so saving a parent does not trigger hidden
 delete-and-reinsert cascades. Remaining `REPLACE` usage is limited to
 childless/local reference rows such as BMK seeds, troubleshooting seeds, photo
@@ -1566,6 +1711,17 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-19: Aligned the iOS Runner deployment target with the Podfile's iOS
+  15.5 minimum and disabled parallel CocoaPods framework code signing for
+  Release builds so local device release builds complete reliably before
+  installing fresh provisioning profiles.
+- 2026-07-16: Redesigned saved Lab Analysis results as compact ChickMark cards.
+  ELISA opens with sample size, mean, GMT, CV%, positive/negative counts, and
+  minimum/maximum titers; large numbers use thousands separators, while full
+  specimen rows are collapsed under an expandable Sample details control.
+- 2026-07-11: Resumed Chicks visit sessions now prefer the live Flock Manager
+  breed and age over stale session snapshots, and Chick Weights recalculates and
+  persists BMK age plus BMK chick weight from the matching breed benchmark.
 - 2026-07-05: Added a destructive delete action to each editable Customers-list
   card. The action confirms the named customer, runs the existing local cascade,
   immediately attempts foreground Supabase tombstone sync, and reports whether

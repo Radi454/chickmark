@@ -4,6 +4,7 @@ import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/audits/models/culled_chicks_analysis.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -33,6 +34,7 @@ class _StaticScopeComparisonProvider extends ScopeComparisonProvider {
   @override
   Future<void> applyFilter({
     String? customerId,
+    String? hatcheryId,
     String? flockId,
     int? bmkAge,
   }) async {}
@@ -55,6 +57,7 @@ class _StaticDashboardProvider extends DashboardProvider {
   final CulledChicksAnalysisAvg? _testCulledChicksAnalysis;
   final List<FlockModel> _testFlocks;
   final String? _testSelectedFlockId;
+  final bool _operational;
   int refreshCount = 0;
 
   _StaticDashboardProvider({
@@ -64,12 +67,14 @@ class _StaticDashboardProvider extends DashboardProvider {
     CulledChicksAnalysisAvg? culledChicksAnalysis,
     List<FlockModel> flocks = const [],
     String? selectedFlockId,
+    bool operational = true,
   }) : _testCustomers = customers,
        _testEggStorageLatest = eggStorageLatest,
        _testEggStorageEvidence = eggStorageEvidence,
        _testCulledChicksAnalysis = culledChicksAnalysis,
        _testFlocks = flocks,
-       _testSelectedFlockId = selectedFlockId;
+       _testSelectedFlockId = selectedFlockId,
+       _operational = operational;
 
   @override
   List<CustomerModel> get customers => _testCustomers;
@@ -101,6 +106,30 @@ class _StaticDashboardProvider extends DashboardProvider {
   String? get selectedFlockId => _testSelectedFlockId;
 
   @override
+  String? get selectedCustomerId => _operational && _testCustomers.isNotEmpty
+      ? _testCustomers.first.id
+      : null;
+
+  @override
+  String? get selectedHatcheryId => _operational ? 'hatchery-1' : null;
+
+  @override
+  bool get isOperationalScope => _operational && _testCustomers.isNotEmpty;
+
+  @override
+  List<HatcheryModel> get hatcheries => _operational
+      ? [
+          HatcheryModel(
+            id: 'hatchery-1',
+            customerId: selectedCustomerId ?? 'customer-1',
+            name: 'Main Hatchery',
+            createdAt: DateTime(2026, 5, 1),
+            createdBy: 'test',
+          ),
+        ]
+      : const [];
+
+  @override
   Future<void> init({UserModel? currentUser}) async {}
 
   @override
@@ -110,6 +139,47 @@ class _StaticDashboardProvider extends DashboardProvider {
 }
 
 void main() {
+  testWidgets('portfolio mode blocks operational triage until hatchery scope', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider<ScopeComparisonProvider>(
+            create: (_) => _StaticScopeComparisonProvider(),
+          ),
+          ChangeNotifierProvider<DashboardProvider>(
+            create: (_) => _StaticDashboardProvider(
+              operational: false,
+              customers: [
+                CustomerModel(
+                  id: 'customer-1',
+                  name: 'Customer 1',
+                  createdAt: DateTime(2026, 5, 1),
+                  createdBy: 'test',
+                ),
+              ],
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DashboardScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Portfolio overview'), findsOneWidget);
+    expect(find.text('What needs attention'), findsNothing);
+    expect(find.text('Govee Environmental Readings'), findsNothing);
+    expect(find.text('Egg Storage & Handling'), findsNothing);
+  });
+
   testWidgets('dashboard refreshes cached photo paths when sync completes', (
     tester,
   ) async {
@@ -174,7 +244,9 @@ void main() {
               bypassAuth: true,
             ),
           ),
-          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
+          ChangeNotifierProvider<ScopeComparisonProvider>(
+            create: (_) => _StaticScopeComparisonProvider(),
+          ),
           ChangeNotifierProvider<DashboardProvider>(
             create: (_) => _StaticDashboardProvider(
               customers: [
@@ -405,7 +477,9 @@ void main() {
               bypassAuth: true,
             ),
           ),
-          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
+          ChangeNotifierProvider<ScopeComparisonProvider>(
+            create: (_) => _StaticScopeComparisonProvider(),
+          ),
           ChangeNotifierProvider<DashboardProvider>(
             create: (_) => _StaticDashboardProvider(
               customers: [
@@ -484,7 +558,9 @@ void main() {
               bypassAuth: true,
             ),
           ),
-          ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
+          ChangeNotifierProvider<ScopeComparisonProvider>(
+            create: (_) => _StaticScopeComparisonProvider(),
+          ),
           ChangeNotifierProvider<DashboardProvider>(
             create: (_) => _StaticDashboardProvider(
               customers: [

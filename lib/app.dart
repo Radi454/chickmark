@@ -18,6 +18,7 @@ import 'features/dashboard/providers/scope_comparison_provider.dart';
 import 'features/govee/providers/govee_capture_provider.dart';
 import 'features/govee/widgets/govee_global_overlay.dart';
 import 'features/home/widgets/main_shell.dart';
+import 'features/lab_analysis/providers/lab_analysis_provider.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/sync/screens/startup_sync_screen.dart';
 import 'providers/app_provider.dart';
@@ -76,6 +77,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
         ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ChangeNotifierProvider(create: (_) => BmkProvider()),
+        ChangeNotifierProvider(create: (_) => LabAnalysisProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),

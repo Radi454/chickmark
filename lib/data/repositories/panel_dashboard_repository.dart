@@ -19,6 +19,7 @@ class PanelDashboardRepository {
 
   Future<List<int>> getDistinctBmkAges({
     String? customerId,
+    String? hatcheryId,
     String? flockId,
   }) async {
     final db = await _dbHelper.db;
@@ -26,7 +27,11 @@ class PanelDashboardRepository {
     for (final table in const ['egg_quality']) {
       const bmkColumn = 'eggBmkAgeWeeks';
       final (:clause, :args) = _where(
-        DashboardFilter(customerId: customerId, flockId: flockId),
+        DashboardFilter(
+          customerId: customerId,
+          hatcheryId: hatcheryId,
+          flockId: flockId,
+        ),
         table,
         bmkColumn: bmkColumn,
       );
@@ -267,6 +272,10 @@ class PanelDashboardRepository {
     if (filter.customerId != null) {
       parts.add('s.customerId = ?');
       args.add(filter.customerId);
+    }
+    if (filter.hatcheryId != null) {
+      parts.add('s.hatcheryId = ?');
+      args.add(filter.hatcheryId);
     }
     if (filter.flockId != null) {
       parts.add('s.flockId = ?');
@@ -623,6 +632,10 @@ class PanelDashboardRepository {
     if (filter.customerId != null) {
       parts.add('${prefix}customerId = ?');
       args.add(filter.customerId);
+    }
+    if (filter.hatcheryId != null) {
+      parts.add('${prefix}hatcheryId = ?');
+      args.add(filter.hatcheryId);
     }
     if (filter.flockId != null) {
       parts.add('${prefix}flockId = ?');

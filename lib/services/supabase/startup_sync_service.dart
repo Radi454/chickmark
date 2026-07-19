@@ -4,9 +4,11 @@ import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/audit_session_repository.dart';
 import '../../data/repositories/bmk_repository.dart';
 import '../../data/repositories/customer_repository.dart';
+import '../../data/repositories/dashboard_action_repository.dart';
 import '../../data/repositories/flock_repository.dart';
 import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
+import '../../data/repositories/lab_analysis_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
 import '../../data/repositories/photo_repository.dart';
 import '../../data/repositories/sync_conflict_repository.dart';
@@ -62,8 +64,10 @@ enum _UpsertResult { keptLocal, appliedNew, appliedUpdate, appliedUnchanged }
 class StartupSyncService {
   final SupabaseService _supabaseService;
   final CustomerRepository _customerRepository;
+  final DashboardActionRepository _dashboardActionRepository;
   final FlockRepository _flockRepository;
   final HatcheryRepository _hatcheryRepository;
+  final LabAnalysisRepository _labAnalysisRepository;
   final ActivityLogRepository _activityLogRepository;
   final PhotoRepository _photoRepository;
   final BmkRepository _bmkRepository;
@@ -82,8 +86,10 @@ class StartupSyncService {
   StartupSyncService({
     SupabaseService? supabaseService,
     CustomerRepository? customerRepository,
+    DashboardActionRepository? dashboardActionRepository,
     FlockRepository? flockRepository,
     HatcheryRepository? hatcheryRepository,
+    LabAnalysisRepository? labAnalysisRepository,
     ActivityLogRepository? activityLogRepository,
     PhotoRepository? photoRepository,
     BmkRepository? bmkRepository,
@@ -95,8 +101,12 @@ class StartupSyncService {
     PhotoSyncService? photoSyncService,
   }) : _supabaseService = supabaseService ?? SupabaseService(),
        _customerRepository = customerRepository ?? CustomerRepository(),
+       _dashboardActionRepository =
+           dashboardActionRepository ?? DashboardActionRepository(),
        _flockRepository = flockRepository ?? FlockRepository(),
        _hatcheryRepository = hatcheryRepository ?? HatcheryRepository(),
+       _labAnalysisRepository =
+           labAnalysisRepository ?? LabAnalysisRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _photoRepository = photoRepository ?? PhotoRepository(),
@@ -215,7 +225,13 @@ class StartupSyncService {
     progress(0.64, 'Uploading Govee captures');
     pushed += await _pushDirtyGoveeCaptures();
 
-    progress(0.68, 'Preparing photo sync queue');
+    progress(0.66, 'Uploading dashboard actions');
+    pushed += await _pushDirtyDashboardActions();
+
+    progress(0.68, 'Uploading lab analysis');
+    pushed += await _pushDirtyLabAnalysis();
+
+    progress(0.69, 'Preparing photo sync queue');
     final photos = await _photoRepository.getAllPhotos();
     pushed += photos.length;
     return pushed;
@@ -285,6 +301,83 @@ class StartupSyncService {
       await _goveeCaptureRepository.markCapturesFailed(ids, error);
       return 0;
     }
+  }
+
+  Future<int> _pushDirtyDashboardActions() async {
+    final dirty = await _dashboardActionRepository.getDirtyRows();
+    if (dirty.isEmpty) return 0;
+    final ids = dirty.map((action) => action.id).toList(growable: false);
+    try {
+      await _supabaseService.upsertRowsStrict(
+        'dashboard_actions',
+        dirty.map((action) => stripSyncMeta(action.toMap())).toList(),
+      );
+      await _dashboardActionRepository.markSynced(ids);
+      return dirty.length;
+    } catch (error) {
+      await _dashboardActionRepository.markFailed(ids, error);
+      return 0;
+    }
+  }
+
+  Future<int> _pushDirtyLabAnalysis() async {
+    var pushed = 0;
+    for (final table in LabAnalysisRepository.syncTables) {
+      final dirty = await _labAnalysisRepository.getDirtyRows(table);
+      if (dirty.isEmpty) continue;
+      final ids = dirty
+          .map((row) => row['id']?.toString())
+          .whereType<String>()
+          .toList(growable: false);
+      try {
+        final prepared = await _prepareDirtyLabAnalysisRows(table, dirty);
+        await _supabaseService.upsertRowsStrict(
+          table,
+          prepared.map(stripSyncMeta).toList(),
+        );
+        await _labAnalysisRepository.markRowsSynced(table, ids);
+        pushed += dirty.length;
+      } catch (error) {
+        await _labAnalysisRepository.markRowsFailed(table, ids, error);
+      }
+    }
+    return pushed;
+  }
+
+  Future<List<Map<String, dynamic>>> _prepareDirtyLabAnalysisRows(
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (table != LabAnalysisRepository.reportsTable) return rows;
+    final prepared = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final copy = Map<String, dynamic>.from(row);
+      final localPath = copy['reportFilePath']?.toString();
+      final remotePath = copy['reportFileRemotePath']?.toString();
+      if ((remotePath == null || remotePath.isEmpty) &&
+          localPath != null &&
+          localPath.isNotEmpty) {
+        final uploaded = await _supabaseService.uploadLabAnalysisReportPdf(
+          localPath: localPath,
+          customerId: copy['customerId']?.toString() ?? '',
+          flockId: copy['flockId']?.toString() ?? '',
+          reportDate:
+              DateTime.tryParse(copy['reportDate']?.toString() ?? '') ??
+              DateTime.now(),
+          fileName: copy['reportFileName']?.toString(),
+        );
+        if (uploaded != null && uploaded.isNotEmpty) {
+          copy['reportFileRemotePath'] = uploaded;
+          await _labAnalysisRepository.updateReportFileRemotePath(
+            reportId: copy['id']?.toString() ?? '',
+            fileName: copy['reportFileName']?.toString(),
+            remotePath: uploaded,
+          );
+        }
+      }
+      prepared.add(copy);
+    }
+    return prepared;
   }
 
   Future<void> _pushPendingDeletes(
@@ -368,6 +461,10 @@ class StartupSyncService {
       upsertBmkEggBreakout: (row) => _bmkRepository.upsertBmkEggBreakout(row),
       upsertAuditSession: (row) => _upsertSessionWithConflictCheck(row),
       upsertGoveeDailyCapture: (row) => _upsertGoveeWithConflictCheck(row),
+      upsertDashboardAction: (row) =>
+          _upsertDashboardActionWithConflictCheck(row),
+      upsertLabAnalysisRow: (table, row) =>
+          _upsertLabAnalysisWithConflictCheck(table, row),
       upsertPanelRow: (table, row) => _upsertPanelWithConflictCheck(table, row),
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
@@ -406,6 +503,33 @@ class StartupSyncService {
       remoteRow,
       getLocal: (id) => _goveeCaptureRepository.getCaptureRowById(id),
       upsert: (row) => _goveeCaptureRepository.upsertCaptureRow(row),
+    );
+    _countOtherIncoming(result);
+  }
+
+  Future<void> _upsertDashboardActionWithConflictCheck(
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_hasPendingLocalDelete('dashboard_actions', remoteRow)) return;
+    final result = await _upsertWithConflictCheck(
+      'dashboard_actions',
+      remoteRow,
+      getLocal: (id) => _dashboardActionRepository.getRowById(id),
+      upsert: (row) => _dashboardActionRepository.upsertRemoteRow(row),
+    );
+    _countOtherIncoming(result);
+  }
+
+  Future<void> _upsertLabAnalysisWithConflictCheck(
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_hasPendingLocalDelete(table, remoteRow)) return;
+    final result = await _upsertWithConflictCheck(
+      table,
+      remoteRow,
+      getLocal: (id) => _labAnalysisRepository.getRowById(table, id),
+      upsert: (row) => _labAnalysisRepository.upsertRemoteRow(table, row),
     );
     _countOtherIncoming(result);
   }

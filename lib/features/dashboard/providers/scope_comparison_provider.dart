@@ -5,6 +5,7 @@ import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/repositories/panel_dashboard_repository.dart';
 import '../../../data/repositories/scope_comparison_repository.dart';
 import '../models/dashboard_filter.dart';
+import '../models/dashboard_intelligence_models.dart';
 import '../models/egg_storage_models.dart';
 import '../models/hatch_analysis_models.dart';
 import '../models/scope_cumulative.dart';
@@ -49,6 +50,10 @@ class ScopeComparisonProvider extends ChangeNotifier {
   final Map<String, int> _chartParam = {};
   final Map<String, int> _chartScope = {};
   final Map<String, List<String>> _photoPaths = {};
+  final Map<String, List<MetricObservation>> _observations = {};
+  final Map<String, DashboardDataQuality> _quality = {};
+  final Map<String, String> _errors = {};
+  final Map<String, Map<String, HistoricalMetricComparison>> _history = {};
 
   /// Per-sector Incremental (false, default) ⇄ Cumulative (true) view mode.
   /// Additive: Incremental keeps the existing tiles/matrix/chart behavior.
@@ -71,14 +76,29 @@ class ScopeComparisonProvider extends ChangeNotifier {
 
   List<HatchAgePoint> get hatchAgeSeries => _hatchByAge;
 
+  DashboardDataQuality qualityFor(String sectorId) =>
+      _quality[sectorId] ?? const DashboardDataQuality();
+
+  Map<String, DashboardDataQuality> get qualityBySector =>
+      Map.unmodifiable(_quality);
+
+  String? errorFor(String sectorId) => _errors[sectorId];
+
+  HistoricalMetricComparison? historyFor(String sectorId, String metricKey) =>
+      _history[sectorId]?[metricKey];
+
+  List<MetricObservation> observationsFor(String sectorId) =>
+      _observations[sectorId] ?? const [];
+
   /// Load every sector for the given filter (idempotent per filter). Pulls the
   /// BMK reference once and reuses it across live sectors.
   Future<void> applyFilter({
     String? customerId,
+    String? hatcheryId,
     String? flockId,
     int? bmkAge,
   }) async {
-    final key = '$customerId|$flockId|$bmkAge';
+    final key = '$customerId|$hatcheryId|$flockId|$bmkAge';
     if (key == _filterKey && _groups.isNotEmpty) return;
     _filterKey = key;
     // New filter → drop per-sector period/cumulative caches so they re-derive.
@@ -91,15 +111,30 @@ class ScopeComparisonProvider extends ChangeNotifier {
     _selectedLayers.clear();
     _eligibleLayers.clear();
     _hidden.clear();
+    _observations.clear();
+    _quality.clear();
+    _errors.clear();
+    _history.clear();
     _isLoading = true;
     notifyListeners();
 
     final filter = DashboardFilter(
       customerId: customerId,
+      hatcheryId: hatcheryId,
       flockId: flockId,
       bmkAge: bmkAge,
     );
     _lastFilter = filter;
+
+    if (!filter.isOperational) {
+      _leaves.clear();
+      _allLeaves.clear();
+      _groups.clear();
+      _isEmpty.clear();
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
 
     // Example/dummy data is limited to the demo customer; real customers show
     // live data or an empty state.
@@ -111,13 +146,15 @@ class ScopeComparisonProvider extends ChangeNotifier {
       if (refAge != null) {
         liveBmk = await _panelRepo.getBmkReferenceForAge(refAge);
       }
+      final bundle = await _repo.loadBundle(
+        ScopeConfigRegistry.sectors,
+        filter,
+      );
+      _observations.addAll(bundle.observationsBySector);
+      _quality.addAll(bundle.qualityBySector);
+      _errors.addAll(bundle.errorsBySector);
       for (final sector in ScopeConfigRegistry.sectors) {
-        List<ScopeLeafRow> leaves = const [];
-        try {
-          leaves = await _repo.getScopeLeaves(sector, filter);
-        } catch (e) {
-          debugPrint('Scope load failed for ${sector.id}: $e');
-        }
+        final leaves = bundle.leavesBySector[sector.id] ?? const [];
         if (leaves.isNotEmpty) {
           _leaves[sector.id] = leaves;
           _allLeaves[sector.id] = leaves;
@@ -140,18 +177,14 @@ class ScopeComparisonProvider extends ChangeNotifier {
         _selectedLayers[sector.id] = const [];
         _updateEligibleLayers(sector.id);
         _recompute(sector.id);
-        try {
-          _periods[sector.id] = await _repo.distinctPeriods(sector, filter);
-        } catch (e) {
-          debugPrint('Periods load failed for ${sector.id}: $e');
-          _periods[sector.id] = const [];
-        }
+        _periods[sector.id] = bundle.periodsBySector[sector.id] ?? const [];
         if (_isBreakoutSector(sector.id) &&
             !(_isDummy[sector.id] ?? false) &&
             !(_isEmpty[sector.id] ?? true)) {
           _photoPaths[sector.id] = await _loadBreakoutPhotos(filter, sector.id);
         }
       }
+      _recomputeHistory();
     } catch (e) {
       debugPrint('Scope applyFilter error: $e');
     } finally {
@@ -170,6 +203,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
     _filterKey = null;
     return applyFilter(
       customerId: f?.customerId,
+      hatcheryId: f?.hatcheryId,
       flockId: f?.flockId,
       bmkAge: f?.bmkAge,
     );
@@ -239,17 +273,17 @@ class ScopeComparisonProvider extends ChangeNotifier {
     if (_cumLoading.contains(sectorId)) _cumReloadPending.add(sectorId);
     final base = _lastFilter;
     if (base != null && !isDummyFor(sectorId)) {
-      final sector = ScopeConfigRegistry.byId(sectorId);
-      final f = DashboardFilter(
-        customerId: base.customerId,
-        flockId: base.flockId,
-        bmkAge: period?.age,
-        sessionId: period?.sessionId,
-      );
       try {
         final leaves = period == null
             ? (_allLeaves[sectorId] ?? const <ScopeLeafRow>[])
-            : await _repo.getScopeLeaves(sector, f);
+            : (_allLeaves[sectorId] ?? const <ScopeLeafRow>[])
+                  .where(
+                    (leaf) =>
+                        (period.age == null || leaf.bmkAge == period.age) &&
+                        (period.sessionId == null ||
+                            leaf.sessionId == period.sessionId),
+                  )
+                  .toList();
         BmkReference? bmk = _sectorBmk[sectorId];
         if (period?.age != null) {
           bmk = await _panelRepo.getBmkReferenceForAge(period!.age!);
@@ -287,15 +321,11 @@ class ScopeComparisonProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final sector = ScopeConfigRegistry.byId(sectorId);
     _cumLoading.add(sectorId);
     notifyListeners();
     try {
-      var periods = _periods[sectorId];
-      if (periods == null || periods.isEmpty) {
-        periods = await _repo.distinctPeriods(sector, base);
-        _periods[sectorId] = periods;
-      }
+      final sector = ScopeConfigRegistry.byId(sectorId);
+      final periods = _periods[sectorId] ?? const <ScopePeriod>[];
       _cumSeries[sectorId] = await _buildCumulative(sector, periods, base);
     } catch (e) {
       debugPrint('loadCumulative $sectorId failed: $e');
@@ -320,13 +350,13 @@ class ScopeComparisonProvider extends ChangeNotifier {
     final periodBmk = <BmkReference?>[];
     final labels = <String>[];
     for (final p in periods) {
-      final f = DashboardFilter(
-        customerId: base.customerId,
-        flockId: base.flockId,
-        bmkAge: p.age,
-        sessionId: p.sessionId,
-      );
-      final leaves = await _repo.getScopeLeaves(sector, f);
+      final leaves = (_allLeaves[sector.id] ?? const <ScopeLeafRow>[])
+          .where(
+            (leaf) =>
+                (p.age == null || leaf.bmkAge == p.age) &&
+                (p.sessionId == null || leaf.sessionId == p.sessionId),
+          )
+          .toList();
       BmkReference? bmk;
       if (p.age != null) bmk = await _panelRepo.getBmkReferenceForAge(p.age!);
       final groups = ScopeEngine.comboGroups(sector, leaves, selected, bmk);
@@ -462,6 +492,109 @@ class ScopeComparisonProvider extends ChangeNotifier {
     final present = values.whereType<num>().toList();
     if (present.isEmpty) return null;
     return present.fold<num>(0, (sum, value) => sum + value) / present.length;
+  }
+
+  void _recomputeHistory() {
+    _history.clear();
+    for (final sector in ScopeConfigRegistry.sectors) {
+      final leaves = _allLeaves[sector.id] ?? const <ScopeLeafRow>[];
+      final bySession = <String, List<ScopeLeafRow>>{};
+      for (final leaf in leaves) {
+        final sessionId = leaf.sessionId;
+        if (sessionId == null || sessionId.isEmpty) continue;
+        bySession.putIfAbsent(sessionId, () => []).add(leaf);
+      }
+      final sessions = bySession.entries.toList()
+        ..sort((a, b) {
+          DateTime? latest(List<ScopeLeafRow> items) => items
+              .map((leaf) => leaf.observedAt)
+              .nonNulls
+              .fold<DateTime?>(
+                null,
+                (best, value) =>
+                    best == null || value.isAfter(best) ? value : best,
+              );
+          final aAt = latest(a.value);
+          final bAt = latest(b.value);
+          if (aAt == null && bAt == null) return 0;
+          if (aAt == null) return 1;
+          if (bAt == null) return -1;
+          return bAt.compareTo(aAt);
+        });
+      if (sessions.isEmpty) continue;
+      final latest = sessions.first;
+      final previous = sessions.length > 1 ? sessions[1] : null;
+      final bmk = _sectorBmk[sector.id];
+      final latestGroup = ScopeEngine.comboGroups(
+        sector,
+        latest.value,
+        const [],
+        bmk,
+      ).first;
+      final previousGroup = previous == null
+          ? null
+          : ScopeEngine.comboGroups(
+              sector,
+              previous.value,
+              const [],
+              bmk,
+            ).first;
+      final values = <String, HistoricalMetricComparison>{};
+      for (var i = 0; i < sector.params.length; i++) {
+        final param = sector.params[i];
+        final current = latestGroup.cells[i];
+        final before = previousGroup?.cells[i];
+        values[param.column] = HistoricalMetricComparison(
+          sectorId: sector.id,
+          metricKey: param.column,
+          latestValue: current.value,
+          previousValue: before?.value,
+          latestAt: _latestAt(latest.value),
+          previousAt: previous == null ? null : _latestAt(previous.value),
+          state: _trendState(param, current, before),
+        );
+      }
+      _history[sector.id] = values;
+    }
+  }
+
+  DateTime? _latestAt(List<ScopeLeafRow> leaves) => leaves
+      .map((leaf) => leaf.observedAt)
+      .nonNulls
+      .fold<DateTime?>(
+        null,
+        (best, value) => best == null || value.isAfter(best) ? value : best,
+      );
+
+  MetricTrendState _trendState(
+    ScopeParam param,
+    ScopeCell current,
+    ScopeCell? previous,
+  ) {
+    if (current.value == null || previous?.value == null) {
+      return MetricTrendState.insufficient;
+    }
+    final currentIssue =
+        current.severity == ScopeSeverity.warn ||
+        current.severity == ScopeSeverity.err;
+    final previousIssue =
+        previous!.severity == ScopeSeverity.warn ||
+        previous.severity == ScopeSeverity.err;
+    if (currentIssue && !previousIssue) return MetricTrendState.newIssue;
+    if (!currentIssue && previousIssue) return MetricTrendState.resolved;
+    final delta = current.value! - previous.value!;
+    if (delta.abs() < 0.01) {
+      return currentIssue
+          ? MetricTrendState.persistent
+          : MetricTrendState.stable;
+    }
+    final improving = param.higherIsBetter ? delta > 0 : delta < 0;
+    if (currentIssue && previousIssue) {
+      return improving
+          ? MetricTrendState.improving
+          : MetricTrendState.worsening;
+    }
+    return MetricTrendState.stable;
   }
 
   String _formatAverage(ScopeParam param, num? value) {

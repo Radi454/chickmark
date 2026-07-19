@@ -51,6 +51,11 @@ This project is a starting point for a Flutter application.
   already running.
 - `make restart-web` forces the stable Flutter web preview to restart with the
   current code.
+- `make run-macos` starts the local macOS app with the same `.env` Supabase
+  credentials used by the other local run targets. Direct debug/profile macOS
+  builds also copy the local `.env` into the built app bundle.
+- `make build-macos` builds the local macOS app with `.env` Supabase
+  credentials compiled into the app.
 - The web shortcut defaults to a profile web-server build with local Flutter web
   resources so the Codex side browser can run it without the Dart Debug Chrome
   extension. Set `WEB_BUILD_MODE=debug` when you explicitly need debug web mode.

@@ -47,3 +47,10 @@ modifying product behavior.
   - `lib/services/supabase/`
 - Documentation should describe implemented behavior, not planned or deprecated
   spec behavior.
+
+## Active Technologies
+- Dart 3.10.7 / Flutter SDK compatible with the current workspace + Flutter, Provider, sqflite/sqflite_common_ffi_web, Supabase Flutter, fl_chart, uuid, existing custom localization (001-dashboard-intelligence)
+- Offline-first SQLite plus mirrored Supabase PostgreSQL tables and object storage (001-dashboard-intelligence)
+
+## Recent Changes
+- 001-dashboard-intelligence: Added Dart 3.10.7 / Flutter SDK compatible with the current workspace + Flutter, Provider, sqflite/sqflite_common_ffi_web, Supabase Flutter, fl_chart, uuid, existing custom localization

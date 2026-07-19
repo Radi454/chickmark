@@ -83,6 +83,13 @@ final List<_PatternTranslator> _patterns = [
     return 'تعذر حفظ ${_ar[match.group(1)] ?? match.group(1)}: ${match.group(2)}';
   },
   (value) {
+    final match = RegExp(
+      r'^Could not save lab result: (.+)$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'تعذر حفظ نتيجة المعمل: ${match.group(1)}';
+  },
+  (value) {
     final match = RegExp(r'^Target (.+)$').firstMatch(value);
     if (match == null) return null;
     return 'المستهدف ${match.group(1)}';
@@ -189,9 +196,7 @@ final List<_PatternTranslator> _patterns = [
     return 'تم حذف ${match.group(1)}';
   },
   (value) {
-    final match = RegExp(
-      r'^(.+) deleted and synchronized$',
-    ).firstMatch(value);
+    final match = RegExp(r'^(.+) deleted and synchronized$').firstMatch(value);
     if (match == null) return null;
     return 'تم حذف ${match.group(1)} ومزامنته';
   },
@@ -522,6 +527,128 @@ final List<_PatternTranslator> _patterns = [
     if (match == null) return null;
     return '${match.group(1)} ${_ar[match.group(2)]}';
   },
+  (value) {
+    final match = RegExp(r'^(\d+) customers$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} عملاء';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) hatcheries$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} معامل تفريخ';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+)% data coverage$').firstMatch(value);
+    if (match == null) return null;
+    return 'اكتمال البيانات ${match.group(1)}%';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(\d+)% photo coverage \((\d+)/(\d+)\)$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'اكتمال توثيق الصور ${match.group(1)}% (${match.group(2)}/${match.group(3)})';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) source rows$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} صف مصدر';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) samples$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} عينة';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) missing measurements$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} قياسًا ناقصًا';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) pending sync$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} بانتظار المزامنة';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) sync failed$').firstMatch(value);
+    if (match == null) return null;
+    return 'فشلت مزامنة ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) (critical|watch)$').firstMatch(value);
+    if (match == null) return null;
+    final label = match.group(2) == 'critical' ? 'حرج' : 'للمتابعة';
+    return '${match.group(1)} $label';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(\d+) stale environmental captures are shown as history and excluded from active alerts\.$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'توجد ${match.group(1)} تسجيلات بيئية قديمة؛ تُعرض كسجل تاريخي ولا تدخل ضمن التنبيهات النشطة.';
+  },
+  (value) {
+    final match = RegExp(r'^Latest capture (.+)$').firstMatch(value);
+    if (match == null) return null;
+    final elapsed = match.group(1)!;
+    final age = RegExp(r'^(\d+) (min|h|d) ago$').firstMatch(elapsed);
+    if (age == null) return 'أحدث تسجيل $elapsed';
+    final unit = switch (age.group(2)) {
+      'min' => 'دقيقة',
+      'h' => 'ساعة',
+      _ => 'يوم',
+    };
+    return 'أحدث تسجيل منذ ${age.group(1)} $unit';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) environmental captures$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} تسجيلات بيئية';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) environmental readings$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} قراءات بيئية';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) current captures$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} تسجيلات حديثة';
+  },
+  (value) {
+    final match = RegExp(r'^Latest vs previous: (.+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'الأحدث مقارنة بالسابق: ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^Due (.+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'الاستحقاق ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) (min|h|d) ago$').firstMatch(value);
+    if (match == null) return null;
+    final unit = switch (match.group(2)) {
+      'min' => 'دقيقة',
+      'h' => 'ساعة',
+      _ => 'يوم',
+    };
+    return 'منذ ${match.group(1)} $unit';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(Calculation|Overall: equal-age average)\:?[ ·]*(.+)$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    final policies = match
+        .group(2)!
+        .split(' / ')
+        .map((part) => _ar[part] ?? part)
+        .join(' / ');
+    return match.group(1) == 'Calculation'
+        ? 'طريقة الحساب: $policies'
+        : 'الإجمالي: متوسط متساوي الأوزان بين الأعمار · $policies';
+  },
 ];
 
 const Map<String, String> _ar = {
@@ -530,6 +657,51 @@ const Map<String, String> _ar = {
   'Dashboard': 'لوحة المتابعة',
   'All customers': 'كل العملاء',
   'All flocks': 'كل القطعان',
+  'Portfolio summary': 'ملخص نطاق العملاء',
+  'Portfolio overview': 'نظرة عامة على نطاق العملاء',
+  'Select a hatchery to view operational analysis and corrective actions.':
+      'اختر معمل التفريخ لعرض التحليل التشغيلي والإجراءات التصحيحية.',
+  'Select a customer and hatchery to view operational analysis and corrective actions.':
+      'اختر العميل ومعمل التفريخ لعرض التحليل التشغيلي والإجراءات التصحيحية.',
+  'What needs attention': 'ما يحتاج إلى تدخل',
+  'Ranked by severity, persistence, freshness, and data confidence.':
+      'مرتبة حسب شدة الحالة واستمرارها وحداثة البيانات ودرجة موثوقيتها.',
+  'No current critical or watch findings in this operational scope.':
+      'لا توجد حاليًا حالات حرجة أو بنود للمتابعة في هذا النطاق التشغيلي.',
+  'View source': 'عرض المصدر',
+  'New issue': 'حالة جديدة',
+  'Persistent': 'مستمرة',
+  'Improving': 'تتحسن',
+  'Worsening': 'تتدهور',
+  'Resolved': 'تم الحل',
+  'Stable': 'مستقرة',
+  'First comparable result': 'أول نتيجة قابلة للمقارنة',
+  'Action open': 'الإجراء مفتوح',
+  'Action in progress': 'الإجراء قيد التنفيذ',
+  'Action resolved': 'تم إغلاق الإجراء',
+  'Action reopened': 'أُعيد فتح الإجراء',
+  'Create action': 'إنشاء إجراء',
+  'Update action': 'تحديث الإجراء',
+  'Save action': 'حفظ الإجراء',
+  'Owner': 'المسؤول',
+  'In progress': 'قيد التنفيذ',
+  'Reopened': 'أُعيد فتحه',
+  'Set due date': 'تحديد موعد الاستحقاق',
+  'Resolution notes': 'ملاحظات الإغلاق',
+  'Action notes': 'ملاحظات الإجراء',
+  'Raw and summary values need review':
+      'تحتاج القراءات الخام والقيم الملخصة إلى مراجعة',
+  'Section could not refresh': 'تعذر تحديث هذا القسم',
+  'Environmental readings could not refresh.': 'تعذر تحديث القراءات البيئية.',
+  'No observation date': 'لا يوجد تاريخ للقراءة',
+  'at an invalid future time': 'بتاريخ مستقبلي غير صالح',
+  'expanded': 'موسّع',
+  'collapsed': 'مطوي',
+  'Ratio of totals': 'نسبة مجموع البسط إلى مجموع المقام',
+  'Sample-weighted average': 'متوسط مرجح بحجم العينة',
+  'Equal-group average': 'متوسط متساوي الأوزان بين المجموعات',
+  'Total': 'الإجمالي',
+  'Latest recorded value': 'أحدث قيمة مسجلة',
   'Customers': 'العملاء',
   'Audits': 'الزيارات',
   'Audit': 'زيارة / تقييم',
@@ -776,6 +948,10 @@ const Map<String, String> _ar = {
       'أقل من المستهدف — ارفع حرارة التخزين تدريجيًا للنطاق المناسب.',
   'Above target band — cool storage toward range.':
       'أعلى من المستهدف — اخفض حرارة التخزين تدريجيًا للنطاق المناسب.',
+  'Below target — corrective action required.':
+      'النتيجة أقل من المستهدف — يلزم اتخاذ إجراء تصحيحي.',
+  'Past limit — corrective action required.':
+      'النتيجة تجاوزت الحد — يلزم اتخاذ إجراء تصحيحي.',
   'Uneven shell temperature — check grid uniformity.':
       'تفاوت في حرارة سطح البيض — راجع تجانس قراءات الشبكة.',
   'Condensation present — wipe down & verify cooling.':
@@ -1499,6 +1675,144 @@ const Map<String, String> _ar = {
   'Could not load Govee records': 'تعذر تحميل سجلات Govee',
   'Could not load visits': 'تعذر تحميل الزيارات',
   'Could not load more visits': 'تعذر تحميل المزيد من الزيارات',
+  'Lab Analysis': 'تحاليل المعمل',
+  'Add lab result': 'إضافة نتيجة معمل',
+  'No lab results yet': 'لا توجد نتائج معمل بعد',
+  'Add ELISA, PCR, HI, or sensitivity results for the selected flock.':
+      'أضف نتائج ELISA أو PCR أو HI أو اختبار الحساسية للقطيع المحدد.',
+  'Lab report': 'تقرير معمل',
+  'View PDF': 'عرض PDF',
+  'Attach PDF': 'إرفاق PDF',
+  'Replace PDF': 'استبدال PDF',
+  'No PDF attached': 'لا يوجد PDF مرفق',
+  'PDF saved in cloud': 'تم حفظ PDF في السحابة',
+  'PDF preview is not available': 'معاينة PDF غير متاحة',
+  'Could not open PDF': 'تعذر فتح PDF',
+  'Delete lab report?': 'حذف تقرير المعمل؟',
+  'This removes the report, result groups, and sample rows.':
+      'سيتم حذف التقرير ومجموعات النتائج وصفوف العينات.',
+  'Reports': 'التقارير',
+  'Test types': 'أنواع الاختبارات',
+  'Alerts': 'تنبيهات',
+  'Breeder farm lab signals from ELISA, PCR, HI, and sensitivity records.':
+      'مؤشرات تحاليل مزارع الأمهات من سجلات ELISA وPCR وHI والحساسية.',
+  'No lab analysis records for this filter yet.':
+      'لا توجد سجلات تحاليل معمل لعوامل التصفية الحالية.',
+  'Lab name': 'اسم المعمل',
+  'Sample type': 'نوع العينة',
+  'Blood samples': 'عينات دم',
+  'Serum / Plasma': 'مصل / بلازما',
+  'Tissue samples': 'عينات أنسجة',
+  'Swabs': 'مسحات',
+  'Tracheal swabs': 'مسحات قصبة هوائية',
+  'Cloacal swabs': 'مسحات مجمعية',
+  'Organ samples': 'عينات أعضاء',
+  'Isolate': 'معزولة',
+  'House / sample': 'العنبر / العينة',
+  'Sample / isolate': 'العينة / المعزولة',
+  'OD': 'الكثافة الضوئية',
+  'S/P': 'نسبة S/P',
+  'S': 'S',
+  'I': 'متوسط',
+  'R': 'مقاوم',
+  'P': 'إيجابي',
+  'N': 'سلبي',
+  '+VE': 'إيجابي',
+  '-VE': 'سلبي',
+  'Detected': 'مكتشف',
+  'Not detected': 'غير مكتشف',
+  'Analyte': 'العامل المراد كشفه',
+  'Kit': 'الكيت',
+  'Product code': 'كود المنتج',
+  'Samples': 'العينات',
+  'Summary': 'الملخص',
+  'Positive / Negative': 'إيجابي / سلبي',
+  'Protected / Not protected': 'محمي / غير محمي',
+  'Sample details': 'تفاصيل العينات',
+  'View sample details': 'عرض تفاصيل العينات',
+  'Hide sample details': 'إخفاء تفاصيل العينات',
+  'Minimum Ct': 'أقل قيمة Ct',
+  'Maximum Ct': 'أعلى قيمة Ct',
+  'Positive': 'إيجابي',
+  'Negative': 'سلبي',
+  'Mean': 'المتوسط',
+  'GMT': 'المتوسط الهندسي للعيار',
+  'G.M.T.': 'المتوسط الهندسي للعيار',
+  'CV %': 'معامل الاختلاف %',
+  'Minimum': 'الحد الأدنى',
+  'Maximum': 'الحد الأقصى',
+  'Cut-off S/P': 'حد S/P',
+  'Cut-off titer': 'حد العيار',
+  'ELISA samples': 'عينات ELISA',
+  'PCR targets': 'أهداف PCR',
+  'Antigen': 'المستضد',
+  'NDV LASOTA': 'NDV لاسوتا',
+  'H5 (RE-14)': 'H5 (RE-14)',
+  'H9': 'H9',
+  'No. of sera': 'عدد السيرم',
+  'G.M.': 'المتوسط الهندسي',
+  'HI titer log-2 distribution': 'توزيع عيارات HI لوغ 2',
+  'Organism': 'الميكروب',
+  'Antibiotics': 'المضادات',
+  'Antibiotic': 'المضاد',
+  'No.': 'رقم',
+  'Result': 'النتيجة',
+  'Titer': 'العيار',
+  'Grp': 'مجموعة',
+  'Ct': 'قيمة Ct',
+  'Signal': 'الإشارة',
+  'Protected': 'محمي',
+  'Threshold': 'الحد',
+  'Sera': 'سيرم',
+  'Sensitive': 'حساس',
+  'Intermediate': 'متوسط الحساسية',
+  'Resistant': 'مقاوم',
+  'Alert': 'تنبيه',
+  'High ELISA CV%: antibody response is non-uniform; review vaccination/exposure history.':
+      'معامل اختلاف ELISA مرتفع: استجابة الأجسام المناعية غير متجانسة؛ راجع تاريخ التحصين أو التعرض.',
+  'Moderate ELISA CV%: response uniformity needs follow-up against this flock baseline.':
+      'معامل اختلاف ELISA متوسط: تجانس الاستجابة يحتاج متابعة مقارنة بخط أساس هذا القطيع.',
+  'Seropositive ELISA result: interpret with vaccination history and confirm active infection with PCR/RSA when needed.':
+      'نتيجة ELISA مصلية إيجابية: تُفسر مع تاريخ التحصين أو التعرض، ويُؤكد الاشتباه النشط بـ PCR أو RSA عند الحاجة.',
+  'ELISA summary is within the saved interpretation guardrails.':
+      'ملخص ELISA ضمن ضوابط التفسير المحفوظة.',
+  'ELISA positive sample.': 'عينة ELISA إيجابية.',
+  'ELISA negative sample.': 'عينة ELISA سلبية.',
+  'PCR targets were not detected in the saved rows.':
+      'لم تُكتشف أهداف PCR في الصفوف المحفوظة.',
+  'PCR positive with low Ct signal; prioritize this flock/house for follow-up.':
+      'PCR إيجابي مع Ct منخفض؛ أعطِ هذا القطيع أو العنبر أولوية في المتابعة.',
+  'PCR positive; Ct should be interpreted against lab cutoffs and clinical context.':
+      'PCR إيجابي؛ يجب تفسير Ct وفق حدود المعمل والسياق الحقلي.',
+  'Target not detected.': 'لم يتم اكتشاف الهدف.',
+  'PCR target detected.': 'تم اكتشاف هدف PCR.',
+  'PCR positive with low Ct signal.': 'PCR إيجابي مع Ct منخفض.',
+  'PCR positive; compare with lab cutoff and history.':
+      'PCR إيجابي؛ قارنه بحد المعمل وتاريخ القطيع.',
+  'Low-level PCR positive; confirm with lab cutoff and repeat/context.':
+      'PCR إيجابي منخفض المستوى؛ أكده بحد المعمل وإعادة الفحص أو السياق الحقلي.',
+  'HI GMT is below the saved protective threshold.':
+      'المتوسط الهندسي HI أقل من حد الحماية المحفوظ.',
+  'HI protection distribution is low for this antigen.':
+      'توزيع الحماية في HI منخفض لهذا المستضد.',
+  'HI protection distribution is borderline; monitor trend.':
+      'توزيع الحماية في HI حدّي؛ تابع الاتجاه.',
+  'HI distribution is protective by the saved threshold.':
+      'توزيع HI محقق للحماية حسب الحد المحفوظ.',
+  'HI distribution bin saved.': 'تم حفظ فئة توزيع HI.',
+  'No sensitive antibiotic was recorded for this sample.':
+      'لم يُسجل أي مضاد حساس لهذه العينة.',
+  'Resistance dominates this sensitivity panel.':
+      'المقاومة هي الغالبة في لوحة الحساسية.',
+  'Sensitivity panel has at least one sensitive option recorded.':
+      'تحتوي لوحة الحساسية على خيار حساس واحد على الأقل.',
+  'Resistant: high likelihood of treatment failure.':
+      'مقاوم: احتمال فشل العلاج مرتفع.',
+  'Intermediate: needs veterinary dosing/context.':
+      'متوسط الحساسية: يحتاج تقييم الجرعة والسياق البيطري.',
+  'Sensitive: recorded as an in-vitro option.':
+      'حساس: مسجل كخيار فعال معمليًا.',
+  'Add result': 'إضافة نتيجة',
   'Failed to start visit session': 'تعذر بدء جلسة الزيارة',
   'Failed to resume visit session': 'تعذر استئناف جلسة الزيارة',
   'Session not found': 'لم يتم العثور على الجلسة',

@@ -49,20 +49,26 @@ void main() {
         });
   });
 
-  AuditContextData contextData({String? breed, int? flockAgeWeeks}) =>
-      AuditContextData(
-        auditType: 'Chicks',
-        customerId: 'customer-1',
-        flockId: 'flock-1',
-        breed: breed,
-        flockAgeWeeks: flockAgeWeeks,
-        date: '2026-04-27',
-      );
+  AuditContextData contextData({
+    String? breed,
+    int? flockAgeWeeks,
+    String? sessionId,
+  }) => AuditContextData(
+    auditType: 'Chicks',
+    customerId: 'customer-1',
+    flockId: 'flock-1',
+    sessionId: sessionId,
+    breed: breed,
+    flockAgeWeeks: flockAgeWeeks,
+    date: '2026-04-27',
+  );
 
   Future<void> pumpScreen(
     WidgetTester tester, {
     AuditProvider? provider,
     AuditContextData? contextOverride,
+    AuditModel? initialAudit,
+    ChickBmkWeightLookup? bmkChickWeightLookup,
   }) async {
     await tester.pumpWidget(
       MultiProvider(
@@ -77,7 +83,11 @@ void main() {
         ],
         child: MaterialApp(
           theme: ThemeData(splashFactory: NoSplash.splashFactory),
-          home: ChickQualityScreen(context: contextOverride ?? contextData()),
+          home: ChickQualityScreen(
+            context: contextOverride ?? contextData(),
+            initialAudit: initialAudit,
+            bmkChickWeightLookup: bmkChickWeightLookup,
+          ),
         ),
       ),
     );
@@ -987,6 +997,53 @@ void main() {
     expect(find.text('flock-1'), findsWidgets);
     expect(find.text('Ross308'), findsOneWidget);
     expect(find.text('41 wks'), findsWidgets);
+  });
+
+  testWidgets('chick BMK follows refreshed flock age and benchmark lookup', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    final staleAudit = AuditModel(
+      id: 'chick-stale-bmk',
+      auditType: 'Chicks',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: DateTime(2026, 4, 27),
+      hatchNumber: 1,
+      status: 'active',
+      createdBy: 'auditor-1',
+      createdAt: DateTime(2026, 4, 27),
+      updatedAt: DateTime(2026, 4, 27),
+      chickBmkAge: 30,
+    );
+
+    await pumpScreen(
+      tester,
+      provider: provider,
+      initialAudit: staleAudit,
+      contextOverride: contextData(
+        breed: 'Avian',
+        flockAgeWeeks: 37,
+        sessionId: 'session-1',
+      ),
+      bmkChickWeightLookup: (breed, ageWeek) async {
+        expect(breed, 'Avian');
+        expect(ageWeek, 37);
+        return 45;
+      },
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('37 wks'), findsWidgets);
+    expect(find.text('30 wks'), findsNothing);
+    expect(find.text('45.0g'), findsOneWidget);
+    expect(provider.activeDraft.chickBmkAge, 37);
+    expect(provider.activeDraft.chickBmkWeight, 45);
   });
 
   testWidgets('weight hero hides uniform result pill', (tester) async {

@@ -3,6 +3,7 @@ import 'package:hatchaudit/localized_material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../scope/scope_models.dart';
+import '../../models/dashboard_intelligence_models.dart';
 
 /// One row in an [AlarmTriageFeed]. Severity picks the tier — `err` → Critical,
 /// `warn` → Watch, `good` → In Target. All text is pre-formatted by the builder
@@ -27,6 +28,14 @@ class TriageItem {
 
   /// Optional one-line action; shown on Critical / Watch cards only.
   final String? advice;
+  final String station;
+  final String sectorId;
+  final String metricKey;
+  final DateTime? observedAt;
+  final String? sessionId;
+  final String? panelName;
+  final String? panelRowId;
+  final HistoricalMetricComparison? history;
 
   const TriageItem({
     required this.severity,
@@ -36,6 +45,14 @@ class TriageItem {
     required this.value,
     required this.context,
     this.advice,
+    this.station = '',
+    this.sectorId = '',
+    this.metricKey = '',
+    this.observedAt,
+    this.sessionId,
+    this.panelName,
+    this.panelRowId,
+    this.history,
   });
 
   bool get isCritical => severity == ScopeSeverity.err;

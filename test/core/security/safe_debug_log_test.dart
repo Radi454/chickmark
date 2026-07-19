@@ -12,8 +12,10 @@ void main() {
   });
 
   test('sanitizeLogValue redacts Supabase keys', () {
+    const publishablePrefix = 'sb_publishable_';
+    const secretPrefix = 'sb_secret_';
     final sanitized = sanitizeLogValue(
-      'keys sb_publishable_fakePublicKey sb_secret_fakeSecretKey',
+      'keys ${publishablePrefix}fakePublicKey ${secretPrefix}fakeSecretKey',
     );
 
     expect(sanitized, isNot(contains('fakePublicKey')));

@@ -115,6 +115,40 @@ void main() {
     expect(eggQualityColumns, isNot(contains('scopeType')));
     expect(chickQualityColumns, isNot(contains('sampleIndex')));
   });
+
+  test(
+    'v46 adds persistent dashboard actions without replacing data',
+    () async {
+      final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+      await db.execute(
+        'CREATE TABLE preserved_rows (id TEXT PRIMARY KEY, value TEXT)',
+      );
+      await db.insert('preserved_rows', {'id': 'keep', 'value': 'still here'});
+
+      await DatabaseHelper().applyV46UpgradeForTest(db);
+
+      expect(await _tableNames(db), contains('dashboard_actions'));
+      expect(
+        await _columnNames(db, 'dashboard_actions'),
+        containsAll([
+          'findingKey',
+          'ownerName',
+          'status',
+          'dueAt',
+          'resolutionPhotoId',
+          'syncStatus',
+        ]),
+      );
+      expect(await db.query('preserved_rows'), [
+        {'id': 'keep', 'value': 'still here'},
+      ]);
+    },
+  );
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {

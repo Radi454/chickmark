@@ -5,6 +5,7 @@ class AppStrings {
   static const String auditsTab = 'Audits';
   static const String temperatureTab = 'Govee';
   static const String goveeRecordsTab = 'Govee Records';
+  static const String labAnalysisTab = 'Lab Analysis';
   static const String bmkTab = 'BMK';
   static const String settingsTab = 'Settings';
   static const String signIn = 'Sign In';

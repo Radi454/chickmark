@@ -25,7 +25,6 @@ void main() {
 
     test('loads Govee captures by customer hatchery and visit date', () async {
       final capture = _makeGoveeCapture();
-      final readings = _makeGoveeReadings();
 
       when(
         () => mockGoveeRepo.getCapturesForDashboard(
@@ -34,10 +33,6 @@ void main() {
           captureDate: '2026-05-02',
         ),
       ).thenAnswer((_) async => [capture]);
-      when(
-        () => mockGoveeRepo.getReadingsForCapture('capture-1'),
-      ).thenAnswer((_) async => readings);
-
       await provider.selectVisitSession(
         VisitSessionSummary.fromSession(
           session: _makeSession(date: DateTime(2026, 5, 2)),
@@ -47,6 +42,7 @@ void main() {
 
       expect(provider.goveeCaptures, hasLength(1));
       expect(provider.goveeCaptures.single.capture.id, 'capture-1');
+      expect(provider.goveeCaptures.single.readings, hasLength(180));
       verify(
         () => mockGoveeRepo.getCapturesForDashboard(
           customerId: 'c1',
@@ -54,12 +50,7 @@ void main() {
           captureDate: '2026-05-02',
         ),
       ).called(1);
-      verifyNever(
-        () => mockGoveeRepo.getCapturesForDashboard(
-          customerId: any(named: 'customerId'),
-          hatcheryId: any(named: 'hatcheryId'),
-        ),
-      );
+      verifyNever(() => mockGoveeRepo.getReadingsForCapture(any()));
     });
   });
 
@@ -356,6 +347,7 @@ AuditSessionModel _makeSession({
 
 GoveeDailyCaptureModel _makeGoveeCapture() {
   final now = DateTime(2026, 5, 2, 12);
+  final readings = _makeGoveeReadings();
   return GoveeDailyCaptureModel(
     id: 'capture-1',
     customerId: 'c1',
@@ -373,6 +365,7 @@ GoveeDailyCaptureModel _makeGoveeCapture() {
     rhMin: 55,
     rhMax: 61,
     readingCount: 180,
+    chartPointsJson: GoveePlaceReadingModel.listToJson(readings),
     createdAt: now,
     updatedAt: now,
   );

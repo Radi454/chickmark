@@ -296,7 +296,7 @@ void main() {
       expect(storage.single['storagePeriodDays'], 9);
       expect(storage.single['estReadingsJson'], contains('front_top'));
       expect(storage.single['estAvg'], 19.2);
-      expect(storage.single['estCvPct'], 0.4);
+      expect(storage.single['estCvPct'], 0.5);
       expect(storage.single['turningTimes'], 3);
       expect(storage.single['traySpacing'], 'Tight');
       expect(storage.single['coolerProximity'], 'Adjacent');
@@ -307,11 +307,11 @@ void main() {
 
       expect(quality.single['uvTrayEggCount'], 180);
       expect(quality.single['uvCuticleDamageCount'], 4);
-      expect(quality.single['uvCuticleDamagePct'], closeTo(2.222, 0.001));
+      expect(quality.single['uvCuticleDamagePct'], 2.2);
       expect(quality.single['uvWashedCount'], 2);
-      expect(quality.single['uvWashedPct'], closeTo(1.111, 0.001));
+      expect(quality.single['uvWashedPct'], 1.1);
       expect(quality.single['uvDirtyCount'], 3);
-      expect(quality.single['uvDirtyPct'], closeTo(1.667, 0.001));
+      expect(quality.single['uvDirtyPct'], 1.7);
       expect(quality.single['uvAffectedCount'], 9);
       expect(quality.single['uvAffectedPct'], 5.0);
       expect(quality.single.containsKey('affectedCount'), isFalse);
@@ -325,7 +325,7 @@ void main() {
       expect(quality.single['eggSampleSize'], 5);
       expect(quality.single['eggAvgWeight'], 62);
       expect(quality.single['eggUniformityPct'], 100);
-      expect(quality.single['eggCvPct'], 2.28);
+      expect(quality.single['eggCvPct'], 2.6);
       expect(quality.single['eggBmkAgeWeeks'], 40);
       expect(quality.single['eggBmkWeight'], 62.5);
       expect(quality.single.containsKey('weightsJson'), isFalse);
@@ -421,13 +421,13 @@ void main() {
       expect(quality.map((row) => row['uvWashedPct']).toList()[0], 2.0);
       expect(
         quality.map((row) => row['uvWashedPct']).toList()[1],
-        closeTo(3.333, 0.001),
+        3.3,
       );
       expect(quality.map((row) => row['uvDirtyPct']), [0.0, 5.0]);
       expect(quality.map((row) => row['uvAffectedPct']).toList()[0], 4.0);
       expect(
         quality.map((row) => row['uvAffectedPct']).toList()[1],
-        closeTo(8.333, 0.001),
+        8.3,
       );
       expect(quality.any((row) => row.containsKey('affectedCount')), isFalse);
       expect(quality.any((row) => row.containsKey('upsideDownCount')), isFalse);

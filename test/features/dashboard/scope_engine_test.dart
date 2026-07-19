@@ -94,6 +94,98 @@ void main() {
     });
   });
 
+  group('explicit aggregation policies', () {
+    final sector = ScopeSectorConfig(
+      id: 'policy-test',
+      title: 'Policy test',
+      station: 'Test',
+      note: '',
+      tableName: null,
+      allowedLayers: const [SamplingLayer.pool],
+      params: const [
+        ScopeParam.percent(
+          'Ratio',
+          'ratio',
+          countColumn: 'count',
+          denominatorColumn: 'denominator',
+        ),
+        ScopeParam.number(
+          'Weighted',
+          'weighted',
+          denominatorColumn: 'sampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
+        ScopeParam.number('Equal', 'equal'),
+        ScopeParam.integer('Sum', 'sum'),
+        ScopeParam.number(
+          'Latest',
+          'latest',
+          aggregationPolicy: ScopeAggregationPolicy.latest,
+        ),
+      ],
+    );
+
+    test('each declared policy produces its documented result', () {
+      ScopeLeafRow leaf({
+        required num ratio,
+        required num count,
+        required num denominator,
+        required num weighted,
+        required num equal,
+        required num sum,
+        required num latest,
+      }) => ScopeLeafRow(
+        layerSegments: const {},
+        cells: {
+          'ratio': ScopeCellAccumulator.sample(
+            value: ratio,
+            count: count,
+            denominator: denominator,
+          ),
+          'weighted': ScopeCellAccumulator.sample(
+            value: weighted,
+            denominator: denominator,
+          ),
+          'equal': ScopeCellAccumulator.sample(value: equal),
+          'sum': ScopeCellAccumulator.sample(value: sum),
+          'latest': ScopeCellAccumulator.sample(value: latest),
+        },
+      );
+
+      final group = ScopeEngine.comboGroups(
+        sector,
+        [
+          leaf(
+            ratio: 10,
+            count: 10,
+            denominator: 100,
+            weighted: 10,
+            equal: 10,
+            sum: 2,
+            latest: 1,
+          ),
+          leaf(
+            ratio: 50,
+            count: 5,
+            denominator: 10,
+            weighted: 30,
+            equal: 30,
+            sum: 3,
+            latest: 9,
+          ),
+        ],
+        const [],
+        null,
+      ).single;
+
+      expect(group.cells[0].value, closeTo(100 * 15 / 110, 1e-9));
+      expect(group.cells[1].value, closeTo(1300 / 110, 1e-9));
+      expect(group.cells[2].value, 20);
+      expect(group.cells[3].value, 5);
+      expect(group.cells[4].value, 9);
+    });
+  });
+
   group('ScopeEngine layer composition + nesting', () {
     final leaves = [
       _residueLeaf(

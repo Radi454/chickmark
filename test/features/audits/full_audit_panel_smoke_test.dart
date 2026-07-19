@@ -470,12 +470,18 @@ void _fillHatcherInitial(AuditProvider provider) {
 
 void _editEggStation(AuditProvider provider) {
   provider.updateField('esEggStorageDays', 8);
-  provider.updateField('esEggAvgWeight', 63.2);
+  provider.updateField(
+    'esEggWeights',
+    jsonEncode([62.2, 63.2, 64.2]),
+  );
 }
 
 void _editChickStation(AuditProvider provider) {
-  provider.updateField('pasgarFinalScore', 97.2);
-  provider.updateField('cvtAvg', 103.8);
+  provider.updateField('pasgarReflexes', 5);
+  provider.updateField(
+    'cvtReadingsJson',
+    jsonEncode([103.7, 103.8, 103.9]),
+  );
   provider.updateChickWeightSampleResult(
     weightsJson: jsonEncode([43.0, 43.5, 44.0, 44.5]),
     avgWeight: 43.75,
@@ -492,11 +498,17 @@ void _editHatchAnalysis(AuditProvider provider) {
 
 void _editSetter(AuditProvider provider) {
   provider.updateField('soCo2', 2600.0);
-  provider.updateField('soEstAvg', 100.8);
+  provider.updateField(
+    'soEstReadings',
+    jsonEncode({'front': 100.7, 'middle': 100.8, 'back': 100.9}),
+  );
 }
 
 void _editHatcher(AuditProvider provider) {
-  provider.updateField('hoCvtAvg', 103.9);
+  provider.updateField(
+    'hoCvtReadings',
+    jsonEncode([103.8, 103.9, 104.0]),
+  );
   provider.updateField('ho_meconium', 'none');
 }
 
@@ -504,9 +516,9 @@ Future<void> _expectInitialPanelValues() async {
   expect((await _singleRow('egg_storage'))['storagePeriodDays'], 6);
   expect((await _singleRow('egg_storage'))['upsideDownCount'], 3);
   expect((await _singleRow('egg_quality'))['eggAvgWeight'], 62.5);
-  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 96.5);
+  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 9.9);
   expect((await _singleRow('chick_quality'))['cvtAvgTemp'], 104.0);
-  expect((await _singleRow('chick_weights'))['avgWeight'], 43.125);
+  expect((await _singleRow('chick_weights'))['avgWeight'], 43.1);
   expect((await _singleRow('residue_breakout'))['hatchabilityPct'], 92.7);
   expect((await _singleRow('setter_optimizing'))['estAvg'], 100.5);
   expect((await _singleRow('hatcher_optimizing'))['cvtAvg'], 104.1);
@@ -516,9 +528,9 @@ Future<void> _expectEditedPanelValues() async {
   expect((await _singleRow('egg_storage'))['storagePeriodDays'], 8);
   expect((await _singleRow('egg_storage'))['estAvg'], 100.4);
   expect((await _singleRow('egg_quality'))['eggAvgWeight'], 63.2);
-  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 97.2);
+  expect((await _singleRow('chick_quality'))['pasgarFinalScore'], 9.8);
   expect((await _singleRow('chick_quality'))['cvtAvgTemp'], 103.8);
-  expect((await _singleRow('chick_weights'))['avgWeight'], 43.75);
+  expect((await _singleRow('chick_weights'))['avgWeight'], 43.8);
   expect((await _singleRow('residue_breakout'))['hatchedCount'], 17900);
   expect((await _singleRow('residue_breakout'))['hatchabilityPct'], 93.2);
   expect((await _singleRow('setter_optimizing'))['co2Ppm'], 2600.0);
@@ -571,12 +583,14 @@ Future<void> _expectDashboardLoadsFromPanelTables() async {
   final dashboard = DashboardProvider();
   await dashboard.init();
   await dashboard.setCustomer(_customerId);
+  await dashboard.setHatchery(_hatcheryId);
 
-  expect(dashboard.eggStorageLatest?.avgWeightG, 63.2);
-  expect(dashboard.eggStorageEstEvidence?.points, isNotEmpty);
-  expect(dashboard.chickWeightLatest?.avgWeightG, 43.75);
-  expect(dashboard.pasgarAvg?.score, 97.2);
-  expect(dashboard.cvtAvg?.avgTempF, 103.8);
+  expect(dashboard.isOperationalScope, isTrue);
+  expect(dashboard.eggStorageLatest, isNull);
+  expect(dashboard.eggStorageEstEvidence, isNull);
+  expect(dashboard.chickWeightLatest, isNull);
+  expect(dashboard.pasgarAvg, isNull);
+  expect(dashboard.cvtAvg, isNull);
   expect(dashboard.hatchAnalysisAvg, isNull);
   expect(dashboard.availableSetterIds, isEmpty);
   expect(dashboard.availableHatcherIds, isEmpty);

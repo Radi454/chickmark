@@ -12,6 +12,7 @@ import '../data/repositories/customer_repository.dart';
 import '../data/repositories/flock_repository.dart';
 import '../data/repositories/govee_capture_repository.dart';
 import '../data/repositories/hatchery_repository.dart';
+import '../data/repositories/lab_analysis_repository.dart';
 import '../data/repositories/bmk_repository.dart';
 import '../data/repositories/panel_dashboard_repository.dart';
 import '../data/repositories/photo_repository.dart';
@@ -27,6 +28,7 @@ class CustomersProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
   final GoveeCaptureRepository _goveeCaptureRepository =
       GoveeCaptureRepository();
+  final LabAnalysisRepository _labAnalysisRepository = LabAnalysisRepository();
   final PanelDashboardRepository _panelDashboardRepository =
       PanelDashboardRepository();
   final BmkRepository _bmkRepository = BmkRepository();
@@ -396,6 +398,7 @@ class CustomersProvider extends ChangeNotifier {
   Future<void> deleteFlock(String flockId) async {
     _ensureCanEdit();
     try {
+      await _labAnalysisRepository.deleteRecordsByFlock(flockId);
       await _flockRepository.deleteFlock(flockId);
       if (_selectedCustomer != null) {
         _flocks = await _flockRepository.getFlocksByCustomer(
@@ -448,6 +451,7 @@ class CustomersProvider extends ChangeNotifier {
       }
 
       await _goveeCaptureRepository.deleteCapturesByCustomer(customerId);
+      await _labAnalysisRepository.deleteRecordsByCustomer(customerId);
       await _flockRepository.deleteFlocksByCustomer(customerId);
       await _hatcheryRepository.deleteHatcheriesByCustomer(customerId);
       await _customerRepository.deleteCustomer(customerId);

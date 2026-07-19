@@ -16,6 +16,7 @@ import '../../dashboard/screens/dashboard_screen.dart';
 import '../../customers/screens/customers_screen.dart';
 import '../../audits/screens/audits_screen.dart';
 import '../../govee/screens/govee_records_screen.dart';
+import '../../lab_analysis/screens/lab_analysis_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -84,6 +85,15 @@ class _MainShellState extends State<MainShell> {
           selectedIcon: Icons.device_thermostat,
         ),
         () => const GoveeRecordsScreen(),
+      ),
+      _ShellTab(
+        'lab_analysis',
+        const _ShellDestination(
+          label: AppStrings.labAnalysisTab,
+          icon: Icons.biotech_outlined,
+          selectedIcon: Icons.biotech,
+        ),
+        () => const LabAnalysisScreen(),
       ),
       _ShellTab(
         'bmk',

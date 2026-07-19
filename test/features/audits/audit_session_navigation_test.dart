@@ -43,6 +43,15 @@ class MockGoveeCaptureRepository extends Mock
 
 class MockGoveeService extends Mock implements GoveeService {}
 
+class _TestCustomersProvider extends CustomersProvider {
+  final FlockModel flock;
+
+  _TestCustomersProvider(this.flock);
+
+  @override
+  FlockModel? flockById(String? id) => id == flock.id ? flock : null;
+}
+
 Map<String, dynamic> _panelRow({
   required String sessionId,
   required String id,
@@ -1453,6 +1462,106 @@ void main() {
     expect(find.text('Machine scope'), findsOneWidget);
     expect(find.text('S1H1'), findsOneWidget);
     expect(find.text('S2H2'), findsOneWidget);
+  });
+
+  testWidgets('resumed Chicks station uses edited flock context', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-chicks-edited-flock',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: 'Ross308',
+      flockAgeWeeks: 30,
+      status: 'in_progress',
+      selectedStationKeys: const ['chicks'],
+      stationsCompleted: const ['chicks'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final editedFlock = FlockModel(
+      id: SessionTestFixtures.testFlockId,
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      breed: 'Avian',
+      entryDate: DateTime.now().subtract(const Duration(days: 37 * 7)),
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () =>
+          panelSampleRepository.getRowsBySessionId('chick_quality', session.id),
+    ).thenAnswer((_) async => []);
+    when(
+      () =>
+          panelSampleRepository.getRowsBySessionId('chick_weights', session.id),
+    ).thenAnswer(
+      (_) async => [
+        _panelRow(
+          sessionId: session.id,
+          id: 'chick-weight-row-stale',
+          values: const {
+            'weightsJson': '[42.0]',
+            'sampleSize': 1,
+            'avgWeight': 42.0,
+            'bmkAgeWeeks': 30,
+          },
+        ),
+      ],
+    );
+
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider<CustomersProvider>.value(
+            value: _TestCustomersProvider(editedFlock),
+          ),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Avian'), findsOneWidget);
+    expect(find.text('37 wks'), findsWidgets);
+    expect(find.text('30 wks'), findsNothing);
   });
 
   testWidgets('resumed Hatch Analysis station hydrates saved breakout rows', (

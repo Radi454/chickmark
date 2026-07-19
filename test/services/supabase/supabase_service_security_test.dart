@@ -23,6 +23,33 @@ void main() {
   );
 
   test(
+    'refreshAvailability reloads config before declaring cloud unconfigured',
+    () async {
+      var configured = false;
+      var reloadCalled = false;
+      var initializerCalled = false;
+      final service = SupabaseService(
+        isConfiguredForTesting: () => configured,
+        reloadConfigForTesting: () async {
+          reloadCalled = true;
+          configured = true;
+        },
+        checkNetworkAvailableForTesting: () async => true,
+        initializeSupabaseForTesting: () async {
+          initializerCalled = true;
+          return true;
+        },
+      );
+
+      final available = await service.refreshAvailability();
+
+      expect(reloadCalled, isTrue);
+      expect(initializerCalled, isTrue);
+      expect(available, isTrue);
+    },
+  );
+
+  test(
     'remote operations do not read client before initialization succeeds',
     () async {
       var clientRead = false;

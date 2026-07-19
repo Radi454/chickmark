@@ -1,5 +1,7 @@
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 
+import 'dashboard_intelligence_models.dart';
+
 class GoveeCaptureSummary {
   final GoveeDailyCaptureModel capture;
   final List<GoveePlaceReadingModel> readings;
@@ -39,6 +41,20 @@ class GoveeCaptureSummary {
     final points = combinedPoints;
     if (points.isNotEmpty) return points.last.recordedAt;
     return null;
+  }
+
+  DateTime get effectiveRecordedAt =>
+      recordingEndedAt ?? recordingStartedAt ?? capture.updatedAt;
+
+  DashboardFreshness freshnessAt(DateTime now) {
+    final at = effectiveRecordedAt;
+    if (at.isAfter(now.add(const Duration(minutes: 5)))) {
+      return DashboardFreshness.invalid;
+    }
+    final age = now.difference(at);
+    if (age <= const Duration(hours: 48)) return DashboardFreshness.current;
+    if (age <= const Duration(days: 7)) return DashboardFreshness.aging;
+    return DashboardFreshness.stale;
   }
 }
 

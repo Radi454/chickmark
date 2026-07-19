@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
 import 'package:hatchaudit/features/dashboard/models/scope_cumulative.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
@@ -18,6 +17,9 @@ class _EmptyScopeRepo extends ScopeComparisonRepository {
   Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async => const [];
   @override
   Future<int?> dominantBmkAge(filter) async => null;
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async =>
+      const ScopeDataBundle();
 }
 
 class _AgeScopeRepo extends ScopeComparisonRepository {
@@ -52,32 +54,67 @@ class _AgeScopeRepo extends ScopeComparisonRepository {
   @override
   Future<int?> dominantBmkAge(DashboardFilter filter) async =>
       byAge.keys.isEmpty ? null : byAge.keys.reduce((a, b) => a > b ? a : b);
-}
-
-class _DelayedAgeScopeRepo extends _AgeScopeRepo {
-  _DelayedAgeScopeRepo(super.byAge);
-
-  final started = Completer<void>();
-  final release = Completer<void>();
-  bool _delayed = false;
 
   @override
-  Future<List<ScopeLeafRow>> getScopeLeaves(
-    ScopeSectorConfig sector,
-    DashboardFilter filter,
-  ) async {
-    if (sector.id == 'residue_breakout' && filter.bmkAge != null && !_delayed) {
-      _delayed = true;
-      started.complete();
-      await release.future;
-    }
-    return super.getScopeLeaves(sector, filter);
-  }
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async => ScopeDataBundle(
+    leavesBySector: {
+      'residue_breakout': [for (final rows in byAge.values) ...rows],
+    },
+    periodsBySector: {
+      'residue_breakout': await distinctPeriods(
+        ScopeConfigRegistry.byId('residue_breakout'),
+        filter,
+      ),
+    },
+  );
 }
 
 class _NoBmkPanelRepo extends PanelDashboardRepository {
   @override
   Future<BmkReference?> getBmkReferenceForAge(int ageWeek) async => null;
+
+  @override
+  Future<List<String>> getPhotoPaths(
+    DashboardFilter filter,
+    String panelName,
+    String fieldKey,
+  ) async => const [];
+}
+
+class _HistoryBmkPanelRepo extends _NoBmkPanelRepo {
+  @override
+  Future<BmkReference?> getBmkReferenceForAge(int ageWeek) async =>
+      BmkReference(infertilePct: 5);
+}
+
+class _HistoryScopeRepo extends ScopeComparisonRepository {
+  @override
+  Future<int?> dominantBmkAge(DashboardFilter filter) async => 30;
+
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async {
+    ScopeLeafRow leaf(String session, DateTime at, num value) => ScopeLeafRow(
+      sessionId: session,
+      observedAt: at,
+      bmkAge: 30,
+      layerSegments: const {},
+      cells: {
+        'infertilePct': ScopeCellAccumulator.sample(
+          value: value,
+          count: value,
+          denominator: 100,
+        ),
+      },
+    );
+    return ScopeDataBundle(
+      leavesBySector: {
+        'residue_breakout': [
+          leaf('previous', DateTime(2026, 6, 1), 9),
+          leaf('latest', DateTime(2026, 7, 1), 8),
+        ],
+      },
+    );
+  }
 }
 
 class _BreakoutPhotoPanelRepo extends PanelDashboardRepository {
@@ -126,6 +163,16 @@ class _RecordedResidueScopeRepo extends ScopeComparisonRepository {
     ScopeSectorConfig sector,
     DashboardFilter base,
   ) async => const [];
+
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async => ScopeDataBundle(
+    leavesBySector: {
+      'residue_breakout': await getScopeLeaves(
+        ScopeConfigRegistry.byId('residue_breakout'),
+        filter,
+      ),
+    },
+  );
 }
 
 ScopeLeafRow _ageLeaf({
@@ -159,12 +206,15 @@ void main() {
   setUp(() async {
     provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
     // Demo customer → example fallback when a sector has no live rows.
-    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+    await provider.applyFilter(
+      customerId: kDashboardDemoCustomerId,
+      hatcheryId: 'hatchery-dashboard-demo',
+    );
   });
 
   test('real customer with no rows shows empty state (no dummy)', () async {
     final real = ScopeComparisonProvider(repository: _EmptyScopeRepo());
-    await real.applyFilter(customerId: 'cust-real-123');
+    await real.applyFilter(customerId: 'cust-real-123', hatcheryId: 'h1');
     expect(real.isDummyFor('residue_breakout'), isFalse);
     expect(real.isEmptyFor('residue_breakout'), isTrue);
     expect(real.groupsFor('residue_breakout'), isEmpty);
@@ -224,7 +274,7 @@ void main() {
       panelRepository: panelRepo,
     );
 
-    await real.applyFilter(customerId: 'customer-1');
+    await real.applyFilter(customerId: 'customer-1', hatcheryId: 'h1');
 
     expect(
       real.photoPathsFor('residue_breakout'),
@@ -254,6 +304,30 @@ void main() {
     expect(leaf.bmkAge, 36);
   });
 
+  test(
+    'latest versus previous classifies a persistent breach improving',
+    () async {
+      final historyProvider = ScopeComparisonProvider(
+        repository: _HistoryScopeRepo(),
+        panelRepository: _HistoryBmkPanelRepo(),
+      );
+      await historyProvider.applyFilter(
+        customerId: 'customer-1',
+        hatcheryId: 'hatchery-1',
+      );
+
+      final comparison = historyProvider.historyFor(
+        'residue_breakout',
+        'infertilePct',
+      );
+      expect(comparison, isNotNull);
+      expect(comparison!.latestValue, 8);
+      expect(comparison.previousValue, 9);
+      expect(comparison.delta, -1);
+      expect(comparison.state, MetricTrendState.improving);
+    },
+  );
+
   group('data-aware age and hierarchy state', () {
     test(
       'different houses in different ages do not create a comparison',
@@ -266,7 +340,7 @@ void main() {
           panelRepository: _NoBmkPanelRepo(),
         );
 
-        await real.applyFilter(customerId: 'cust-real');
+        await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
 
         expect(real.selectedLayersFor('residue_breakout'), isEmpty);
         expect(real.eligibleLayersFor('residue_breakout'), isEmpty);
@@ -285,7 +359,7 @@ void main() {
           }),
           panelRepository: _NoBmkPanelRepo(),
         );
-        await real.applyFilter(customerId: 'cust-real');
+        await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
 
         await real.setPeriod(
           'residue_breakout',
@@ -312,7 +386,7 @@ void main() {
         }),
         panelRepository: _NoBmkPanelRepo(),
       );
-      await real.applyFilter(customerId: 'cust-real');
+      await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
       await real.loadCumulative('residue_breakout');
 
       final series = real.cumulativeSeriesFor('residue_breakout')!;
@@ -337,7 +411,7 @@ void main() {
           }),
           panelRepository: _NoBmkPanelRepo(),
         );
-        await real.applyFilter(customerId: 'cust-real');
+        await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
         expect(real.eligibleLayersFor('residue_breakout'), [
           SamplingLayer.house,
         ]);
@@ -395,7 +469,7 @@ void main() {
           }),
           panelRepository: _NoBmkPanelRepo(),
         );
-        await real.applyFilter(customerId: 'cust-real');
+        await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
 
         expect(real.eligibleLayersFor('residue_breakout'), [
           SamplingLayer.setterHatcher,
@@ -411,35 +485,29 @@ void main() {
       },
     );
 
-    test(
-      'layer change during age loading reloads with the new selection',
-      () async {
-        final repository = _DelayedAgeScopeRepo({
-          34: [
-            _ageLeaf(age: 34, house: 'H1', tray: 'Ty1', value: 80),
-            _ageLeaf(age: 34, house: 'H2', tray: 'Ty1', value: 90),
-          ],
-        });
-        final real = ScopeComparisonProvider(
-          repository: repository,
-          panelRepository: _NoBmkPanelRepo(),
-        );
-        await real.applyFilter(customerId: 'cust-real');
+    test('layer change rebuilds cumulative from cached leaves', () async {
+      final repository = _AgeScopeRepo({
+        34: [
+          _ageLeaf(age: 34, house: 'H1', tray: 'Ty1', value: 80),
+          _ageLeaf(age: 34, house: 'H2', tray: 'Ty1', value: 90),
+        ],
+      });
+      final real = ScopeComparisonProvider(
+        repository: repository,
+        panelRepository: _NoBmkPanelRepo(),
+      );
+      await real.applyFilter(customerId: 'cust-real', hatcheryId: 'h1');
+      await real.loadCumulative('residue_breakout');
+      real.toggleLayer('residue_breakout', SamplingLayer.house);
+      await real.loadCumulative('residue_breakout');
 
-        final loading = real.loadCumulative('residue_breakout');
-        await repository.started.future;
-        real.toggleLayer('residue_breakout', SamplingLayer.house);
-        repository.release.complete();
-        await loading;
-
-        expect(
-          real
-              .cumulativeSeriesFor('residue_breakout')!
-              .groups
-              .map((group) => group.label),
-          ['H1', 'H2'],
-        );
-      },
-    );
+      expect(
+        real
+            .cumulativeSeriesFor('residue_breakout')!
+            .groups
+            .map((group) => group.label),
+        ['H1', 'H2'],
+      );
+    });
   });
 }

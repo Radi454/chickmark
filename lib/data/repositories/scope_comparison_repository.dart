@@ -1,9 +1,11 @@
 import '../../features/dashboard/models/dashboard_filter.dart';
 import '../../features/dashboard/models/scope_cumulative.dart';
+import '../../features/dashboard/models/dashboard_intelligence_models.dart';
 import '../../features/dashboard/scope/scope_config.dart';
 import '../../features/dashboard/scope/scope_models.dart';
 import '../database/database_helper.dart';
 import '../models/panel_sample_schema.dart';
+import '../services/panel_aggregate_deriver.dart';
 
 /// Fetches the finest-grain sample rows for a scope sector and turns each into a
 /// [ScopeLeafRow] (with per-layer segments + per-parameter accumulators). The
@@ -58,6 +60,10 @@ class ScopeComparisonRepository {
       if (existing.contains(p.column)) measureCols.add(p.column);
       final cc = p.countColumn;
       if (cc != null && existing.contains(cc)) measureCols.add(cc);
+      final denominator = p.denominatorColumn;
+      if (denominator != null && existing.contains(denominator)) {
+        measureCols.add(denominator);
+      }
     }
 
     final selectCols = {...hierCols, ...measureCols}.toList();
@@ -71,6 +77,81 @@ class ScopeComparisonRepository {
       args,
     );
 
+    return _leavesFromRows(sector, rows);
+  }
+
+  Future<ScopeDataBundle> loadBundle(
+    List<ScopeSectorConfig> sectors,
+    DashboardFilter filter,
+  ) async {
+    if (!filter.isOperational) return const ScopeDataBundle();
+    final db = await _dbHelper.db;
+    final rowsByTable = <String, List<Map<String, Object?>>>{};
+    final tableErrors = <String, String>{};
+    for (final table
+        in sectors.map((sector) => sector.tableName).nonNulls.toSet()) {
+      try {
+        final ageColumn = _ageColumnFor(table);
+        final (:clause, :args) = _where(filter, bmkColumn: ageColumn);
+        rowsByTable[table] = await db.rawQuery(
+          'SELECT * FROM $table $clause ORDER BY date ASC, updatedAt ASC',
+          args,
+        );
+      } catch (error) {
+        rowsByTable[table] = const [];
+        tableErrors[table] = error.toString();
+      }
+    }
+
+    final leavesBySector = <String, List<ScopeLeafRow>>{};
+    final periodsBySector = <String, List<ScopePeriod>>{};
+    final observationsBySector = <String, List<MetricObservation>>{};
+    final qualityBySector = <String, DashboardDataQuality>{};
+    final errorsBySector = <String, String>{};
+
+    for (final sector in sectors) {
+      final table = sector.tableName;
+      if (table == null) continue;
+      final rows = rowsByTable[table] ?? const [];
+      final error = tableErrors[table];
+      if (error != null) errorsBySector[sector.id] = error;
+      final leaves = _leavesFromRows(sector, rows);
+      leavesBySector[sector.id] = leaves;
+      periodsBySector[sector.id] = _periodsFromLeaves(leaves);
+      final observations = _observationsFromRows(sector, rows);
+      observationsBySector[sector.id] = observations;
+      qualityBySector[sector.id] = _qualityFor(
+        sector,
+        rows,
+        leaves,
+        observations,
+        error,
+      );
+    }
+    return ScopeDataBundle(
+      leavesBySector: leavesBySector,
+      periodsBySector: periodsBySector,
+      observationsBySector: observationsBySector,
+      qualityBySector: qualityBySector,
+      errorsBySector: errorsBySector,
+    );
+  }
+
+  List<ScopeLeafRow> _leavesFromRows(
+    ScopeSectorConfig sector,
+    List<Map<String, Object?>> rows,
+  ) {
+    final table = sector.tableName;
+    if (table == null) return const [];
+    final def = PanelSampleSchema.byTable(table);
+    final existing = <String>{
+      ...def.hierarchyColumnNames,
+      ...def.measurementColumns.map((d) => d.split(' ').first),
+    };
+    final nonPool = sector.allowedLayers
+        .where((layer) => layer != SamplingLayer.pool)
+        .toList();
+    final hasTray = existing.contains('traySize');
     return rows.map((row) {
       final segments = <SamplingLayer, String>{};
       for (final layer in nonPool) {
@@ -88,20 +169,175 @@ class ScopeComparisonRepository {
           final count = p.countColumn != null
               ? _asNum(row[p.countColumn])
               : null;
+          final denominator = p.denominatorColumn != null
+              ? _asNum(row[p.denominatorColumn])
+              : traySize;
           cells[p.column] = ScopeCellAccumulator.sample(
             value: _asNum(row[p.column]),
             traySize: traySize,
+            denominator: denominator,
             count: count,
           );
         }
       }
+      final derived = PanelAggregateDeriver.derive(table, row);
+      final flags = <String>{...derived.qualityFlags};
+      for (final entry in derived.row.entries) {
+        if (!row.containsKey(entry.key)) continue;
+        if (_meaningfullyDifferent(row[entry.key], entry.value)) {
+          flags.add('aggregate_drift');
+          break;
+        }
+      }
       return ScopeLeafRow(
-        bmkAge: _asNum(row['_scopeBmkAge'])?.toInt(),
+        rowId: row['id']?.toString(),
+        sessionId: row['sessionId']?.toString(),
+        sourceTable: table,
+        customerId: row['customerId']?.toString(),
+        hatcheryId: row['hatcheryId']?.toString(),
+        flockId: row['flockId']?.toString(),
+        observedAt: _date(row['date'] ?? row['updatedAt']),
+        syncStatus: row['syncStatus']?.toString(),
+        qualityFlags: flags,
+        bmkAge: _asNum(
+          row[_ageColumnFor(table)] ?? row['_scopeBmkAge'],
+        )?.toInt(),
         layerSegments: segments,
         cells: cells,
       );
     }).toList();
   }
+
+  List<ScopePeriod> _periodsFromLeaves(List<ScopeLeafRow> leaves) {
+    final counts = <int, int>{};
+    for (final leaf in leaves) {
+      final age = leaf.bmkAge;
+      if (age != null) counts[age] = (counts[age] ?? 0) + 1;
+    }
+    final ages = counts.keys.toList()..sort();
+    return [
+      for (final age in ages)
+        ScopePeriod(label: 'W$age', age: age, n: counts[age] ?? 0),
+    ];
+  }
+
+  List<MetricObservation> _observationsFromRows(
+    ScopeSectorConfig sector,
+    List<Map<String, Object?>> rows,
+  ) {
+    final table = sector.tableName;
+    if (table == null) return const [];
+    final leaves = _leavesFromRows(sector, rows);
+    final out = <MetricObservation>[];
+    for (var i = 0; i < rows.length && i < leaves.length; i++) {
+      final row = rows[i];
+      final leaf = leaves[i];
+      final observedAt = leaf.observedAt;
+      if (observedAt == null) continue;
+      for (final param in sector.params) {
+        final value = _asNum(row[param.column]);
+        out.add(
+          MetricObservation(
+            tableName: table,
+            rowId: leaf.rowId ?? '',
+            sessionId: leaf.sessionId ?? '',
+            customerId: leaf.customerId ?? '',
+            hatcheryId: leaf.hatcheryId ?? '',
+            flockId: leaf.flockId,
+            sectorId: sector.id,
+            metricKey: param.column,
+            metricLabel: param.label,
+            policy: param.aggregationPolicy,
+            observedAt: observedAt,
+            bmkAge: leaf.bmkAge,
+            value: value,
+            numerator: param.countColumn == null
+                ? null
+                : _asNum(row[param.countColumn]),
+            denominator: param.denominatorColumn == null
+                ? _asNum(row['traySize'])
+                : _asNum(row[param.denominatorColumn]),
+            sampleCount:
+                _asNum(
+                  param.denominatorColumn == null
+                      ? row['traySize']
+                      : row[param.denominatorColumn],
+                )?.toInt() ??
+                0,
+            layerSegments: Map<Object, String>.from(leaf.layerSegments),
+            qualityFlags: leaf.qualityFlags,
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  DashboardDataQuality _qualityFor(
+    ScopeSectorConfig sector,
+    List<Map<String, Object?>> rows,
+    List<ScopeLeafRow> leaves,
+    List<MetricObservation> observations,
+    String? error,
+  ) {
+    DateTime? latest;
+    var failed = 0;
+    var pending = 0;
+    final flags = <String>{};
+    for (final leaf in leaves) {
+      final at = leaf.observedAt;
+      if (at != null && (latest == null || at.isAfter(latest))) latest = at;
+      if (leaf.syncStatus == 'failed') failed++;
+      if (leaf.syncStatus == 'pending') pending++;
+      flags.addAll(leaf.qualityFlags);
+    }
+    final expected = leaves.length * sector.params.length;
+    final missing = observations.where((item) => item.value == null).length;
+    final sampleCount = observations
+        .map((item) => item.sampleCount)
+        .where((count) => count > 0)
+        .fold<int>(0, (sum, count) => sum + count);
+    final photoColumns = rows
+        .expand((row) => row.keys)
+        .where((key) => key.toLowerCase().contains('photo'))
+        .toSet();
+    final expectedPhotos = photoColumns.length * rows.length;
+    final photoCount = rows.fold<int>(0, (count, row) {
+      return count +
+          photoColumns.where((column) {
+            final value = row[column]?.toString().trim();
+            return value != null &&
+                value.isNotEmpty &&
+                value != '[]' &&
+                value != '{}';
+          }).length;
+    });
+    return DashboardDataQuality(
+      latestAt: latest,
+      rowCount: leaves.length,
+      sampleCount: sampleCount,
+      ageCount: leaves.map((leaf) => leaf.bmkAge).nonNulls.toSet().length,
+      missingMetricCount: missing,
+      expectedMetricCount: expected,
+      photoCount: photoCount,
+      expectedPhotoCount: expectedPhotos,
+      failedSyncCount: failed,
+      pendingSyncCount: pending,
+      qualityFlags: flags,
+      error: error,
+    );
+  }
+
+  bool _meaningfullyDifferent(Object? stored, Object? derived) {
+    if (stored == null || derived == null) return stored != derived;
+    final a = _asNum(stored);
+    final b = _asNum(derived);
+    if (a != null && b != null) return (a - b).abs() > 0.11;
+    return stored.toString() != derived.toString();
+  }
+
+  DateTime? _date(Object? raw) =>
+      raw == null ? null : DateTime.tryParse(raw.toString())?.toLocal();
 
   /// The most common bmkAgeWeeks present in the breakout data for this filter,
   /// used to pick a BMK reference for severity when no age is explicitly chosen.
@@ -153,6 +389,10 @@ class ScopeComparisonRepository {
       parts.add('customerId = ?');
       args.add(filter.customerId);
     }
+    if (filter.hatcheryId != null) {
+      parts.add('hatcheryId = ?');
+      args.add(filter.hatcheryId);
+    }
     if (filter.flockId != null) {
       parts.add('flockId = ?');
       args.add(filter.flockId);
@@ -191,6 +431,7 @@ class ScopeComparisonRepository {
     final db = await _dbHelper.db;
     final cf = DashboardFilter(
       customerId: base.customerId,
+      hatcheryId: base.hatcheryId,
       flockId: base.flockId,
     );
     final ageCol = _ageColumnFor(table);

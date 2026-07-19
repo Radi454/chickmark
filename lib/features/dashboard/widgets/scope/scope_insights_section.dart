@@ -24,10 +24,14 @@ class ScopeInsightsSection extends StatelessWidget {
     super.key,
     required this.collapsedStations,
     required this.onStationToggle,
+    this.stationKeys = const {},
+    this.sectorKeys = const {},
   });
 
   final Set<String> collapsedStations;
   final ValueChanged<String> onStationToggle;
+  final Map<String, GlobalKey> stationKeys;
+  final Map<String, GlobalKey> sectorKeys;
 
   @override
   Widget build(BuildContext context) {
@@ -46,9 +50,11 @@ class ScopeInsightsSection extends StatelessWidget {
         else
           for (final station in ScopeConfigRegistry.stations)
             _StationCard(
+              key: stationKeys[station],
               station: station,
               expanded: !collapsedStations.contains(station),
               onToggle: () => onStationToggle(station),
+              sectorKeys: sectorKeys,
             ),
       ],
     );
@@ -59,11 +65,14 @@ class _StationCard extends StatelessWidget {
   final String station;
   final bool expanded;
   final VoidCallback onToggle;
+  final Map<String, GlobalKey> sectorKeys;
 
   const _StationCard({
+    super.key,
     required this.station,
     required this.expanded,
     required this.onToggle,
+    required this.sectorKeys,
   });
 
   @override
@@ -91,9 +100,15 @@ class _StationCard extends StatelessWidget {
           children: [
             Material(
               color: Colors.transparent,
-              child: InkWell(
-                onTap: onToggle,
-                child: _StationHeader(station: station, expanded: expanded),
+              child: Semantics(
+                button: true,
+                expanded: expanded,
+                label:
+                    '${context.tr(station)} ${context.tr(expanded ? 'expanded' : 'collapsed')}',
+                child: InkWell(
+                  onTap: onToggle,
+                  child: _StationHeader(station: station, expanded: expanded),
+                ),
               ),
             ),
             // Completed-item chips — a quick "what's recorded" summary that stays
@@ -140,7 +155,10 @@ class _StationCard extends StatelessWidget {
       return [
         alarms,
         const SizedBox(height: AppSizes.spaceMd),
-        const ScopeSectorWidget(sectorId: 'hatch_results'),
+        ScopeSectorWidget(
+          key: sectorKeys['hatch_results'],
+          sectorId: 'hatch_results',
+        ),
         const SizedBox(height: AppSizes.spaceMd),
         const _BreakoutTabs(
           sectorIds: [
@@ -154,7 +172,8 @@ class _StationCard extends StatelessWidget {
     return [
       alarms,
       const SizedBox(height: AppSizes.spaceMd),
-      for (final s in sectors) ScopeSectorWidget(sectorId: s.id),
+      for (final s in sectors)
+        ScopeSectorWidget(key: sectorKeys[s.id], sectorId: s.id),
     ];
   }
 }

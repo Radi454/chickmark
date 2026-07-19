@@ -18,9 +18,8 @@ void main() async {
 
   StartupTimer.lap('binding_ready');
 
-  // Load Supabase credentials from the bundled .env.json when not provided via
-  // --dart-define, so a plain `flutter run` still reaches the cloud. Must run
-  // before any sync / Supabase init.
+  // Load Supabase credentials from dart-define, local macOS debug/profile
+  // bundle config, or the bundled .env.json fallback before sync / Supabase init.
   await SupabaseConfig.ensureLoaded();
   StartupTimer.lap('supabase_config_loaded');
 

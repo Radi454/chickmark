@@ -1,0 +1,128 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/database/database_helper.dart';
+import 'package:hatchaudit/data/models/lab_analysis_models.dart';
+import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
+
+import '../../support/test_database.dart';
+
+void main() {
+  late Directory tempDir;
+  late LabAnalysisRepository repository;
+
+  setUp(() async {
+    tempDir = await useIsolatedAppDatabase();
+    repository = LabAnalysisRepository();
+    final db = await DatabaseHelper().db;
+    await db.insert('customers', {
+      'id': 'customer-1',
+      'name': 'الغريب',
+      'createdAt': DateTime.utc(2026, 6, 1).toIso8601String(),
+    });
+    await db.insert('flocks', {
+      'id': 'flock-1',
+      'customerId': 'customer-1',
+      'flockId': 'السلام',
+      'breed': 'COBB',
+      'entryDate': DateTime.utc(2025, 9, 1).toIso8601String(),
+      'isAgeEstimated': 0,
+      'status': 'active',
+      'depletionAgeWeeks': 65,
+    });
+  });
+
+  tearDown(() async {
+    await resetAppDatabase();
+    await tempDir.delete(recursive: true);
+  });
+
+  test('saves ELISA group with full sample rows for dashboard use', () async {
+    final now = DateTime.utc(2026, 6, 4);
+    final report = LabAnalysisReportModel(
+      id: 'report-1',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      reportDate: now,
+      receivedDate: now,
+      labName: 'IDvet',
+      sampleType: 'Serum / Plasma',
+      flockAgeWeeks: 40,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final group = LabAnalysisGroupModel(
+      id: 'group-1',
+      reportId: report.id,
+      customerId: report.customerId,
+      flockId: report.flockId,
+      reportDate: report.reportDate,
+      testType: LabTestType.elisa,
+      groupLabel: 'عنبر 1',
+      analyte: 'MG',
+      productCode: 'MG/0416',
+      sampleCount: 4,
+      meanTiter: 10795,
+      gmtTiter: 8891,
+      cvPct: 56,
+      positiveCount: 4,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final rows = [
+      LabAnalysisRowModel(
+        id: 'sample-1',
+        groupId: group.id,
+        reportId: report.id,
+        customerId: report.customerId,
+        flockId: report.flockId,
+        reportDate: report.reportDate,
+        testType: LabTestType.elisa,
+        rowLabel: '01',
+        result: 'P',
+        odValue: 0.624,
+        spRatio: 1.819,
+        titer: 2731,
+        titerGroup: 2,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      LabAnalysisRowModel(
+        id: 'sample-2',
+        groupId: group.id,
+        reportId: report.id,
+        customerId: report.customerId,
+        flockId: report.flockId,
+        reportDate: report.reportDate,
+        testType: LabTestType.elisa,
+        rowLabel: '02',
+        result: 'P',
+        odValue: 2.347,
+        spRatio: 7.29,
+        titer: 9662,
+        titerGroup: 6,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+
+    await repository.saveBatch(report: report, group: group, rows: rows);
+
+    final batches = await repository.getBatches(
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+    );
+    expect(batches, hasLength(1));
+    expect(batches.single.groups.single.positivePct, 100);
+    expect(batches.single.rowsByGroupId['group-1'], hasLength(2));
+    expect(batches.single.groups.single.severity, LabSeverity.watch);
+
+    final summaries = await repository.getDashboardSummaries(
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+    );
+    expect(summaries, hasLength(1));
+    expect(summaries.single.group.groupLabel, 'عنبر 1');
+    expect(summaries.single.rows.first.spRatio, 1.819);
+  });
+}

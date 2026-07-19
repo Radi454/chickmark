@@ -4,6 +4,7 @@ import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/data/models/temperature_rh_model.dart';
 import 'package:hatchaudit/features/dashboard/models/govee_capture_summary.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/widgets/govee_capture_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/alarm_triage_feed.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_cumulative_view.dart';
@@ -17,6 +18,7 @@ class GoveeEnvironmentalReadingsSection extends StatefulWidget {
   final bool isLoading;
   final bool expanded;
   final VoidCallback onToggle;
+  final String? error;
 
   const GoveeEnvironmentalReadingsSection({
     super.key,
@@ -24,6 +26,7 @@ class GoveeEnvironmentalReadingsSection extends StatefulWidget {
     required this.isLoading,
     required this.expanded,
     required this.onToggle,
+    this.error,
   });
 
   @override
@@ -44,6 +47,12 @@ class _GoveeEnvironmentalReadingsSectionState
     final placeGroups = _placeGroups(widget.captures);
     final isLoading = widget.isLoading;
     final triage = goveeTriageItems(widget.captures);
+    final now = DateTime.now();
+    final staleCount = widget.captures.where((summary) {
+      final freshness = summary.freshnessAt(now);
+      return freshness == DashboardFreshness.stale ||
+          freshness == DashboardFreshness.invalid;
+    }).length;
     final selected = placeGroups.isEmpty
         ? 0
         : _selected.clamp(0, placeGroups.length - 1);
@@ -60,68 +69,74 @@ class _GoveeEnvironmentalReadingsSectionState
           children: [
             Material(
               color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.onToggle,
-                child: Container(
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: AppColors.brandGradient,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(AppSizes.cardRadius),
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSizes.cardPadding,
-                    vertical: AppSizes.spaceMd,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Govee Environmental Readings',
-                              style: AppTextStyles.sectionTitle.copyWith(
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Continuous temp & RH · monitored places · 24h captures',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white.withValues(alpha: 0.82),
-                              ),
-                            ),
-                          ],
-                        ),
+              child: Semantics(
+                button: true,
+                expanded: widget.expanded,
+                label:
+                    '${context.tr('Govee Environmental Readings')} ${context.tr(widget.expanded ? 'expanded' : 'collapsed')}',
+                child: InkWell(
+                  onTap: widget.onToggle,
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      gradient: AppColors.brandGradient,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(AppSizes.cardRadius),
                       ),
-                      if (isLoading) ...[
-                        const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSizes.cardPadding,
+                      vertical: AppSizes.spaceMd,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Govee Environmental Readings',
+                                style: AppTextStyles.sectionTitle.copyWith(
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Continuous temp & RH · monitored places · 24h captures',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white.withValues(alpha: 0.82),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isLoading) ...[
+                          const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: AppSizes.spaceSm),
+                        AnimatedRotation(
+                          turns: widget.expanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: const Icon(
+                            Icons.keyboard_arrow_down,
                             color: Colors.white,
+                            size: 26,
                           ),
                         ),
                       ],
-                      const SizedBox(width: AppSizes.spaceSm),
-                      AnimatedRotation(
-                        turns: widget.expanded ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 200),
-                        child: const Icon(
-                          Icons.keyboard_arrow_down,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -133,6 +148,18 @@ class _GoveeEnvironmentalReadingsSectionState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.captures.isNotEmpty) ...[
+                      _GoveeQualityStrip(captures: widget.captures),
+                      const SizedBox(height: AppSizes.spaceMd),
+                    ],
+                    if (widget.error != null) ...[
+                      const _SectionLoadError(),
+                      const SizedBox(height: AppSizes.spaceMd),
+                    ],
+                    if (staleCount > 0) ...[
+                      _HistoricalDataNotice(count: staleCount),
+                      const SizedBox(height: AppSizes.spaceMd),
+                    ],
                     if (triage.isNotEmpty) ...[
                       AlarmTriageFeed(items: triage),
                       const SizedBox(height: AppSizes.spaceMd),
@@ -215,9 +242,137 @@ class _GoveeEnvironmentalReadingsSectionState
       b.capture.machineId ?? '',
     );
     if (machineCompare != 0) return machineCompare;
-    final dateCompare = b.capture.captureDate.compareTo(a.capture.captureDate);
-    if (dateCompare != 0) return dateCompare;
-    return b.capture.updatedAt.compareTo(a.capture.updatedAt);
+    return b.effectiveRecordedAt.compareTo(a.effectiveRecordedAt);
+  }
+}
+
+class _HistoricalDataNotice extends StatelessWidget {
+  const _HistoricalDataNotice({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final message =
+        '$count stale environmental captures are shown as history and excluded from active alerts.';
+    return Semantics(
+      label: context.tr(message),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+          border: Border.all(color: AppColors.borderDefault),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.history, size: 18, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoveeQualityStrip extends StatelessWidget {
+  const _GoveeQualityStrip({required this.captures});
+
+  final List<GoveeCaptureSummary> captures;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final latest = captures
+        .map((summary) => summary.effectiveRecordedAt)
+        .reduce((a, b) => a.isAfter(b) ? a : b);
+    final readings = captures.fold<int>(
+      0,
+      (sum, summary) => sum + summary.readings.length,
+    );
+    final current = captures
+        .where(
+          (summary) => summary.freshnessAt(now) == DashboardFreshness.current,
+        )
+        .length;
+    final labels = [
+      'Latest capture ${_relativeAge(now.difference(latest))}',
+      '${captures.length} environmental captures',
+      '$readings environmental readings',
+      '$current current captures',
+    ];
+    return Semantics(
+      label: labels.map(context.tr).join(', '),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final label in labels)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppColors.statusActiveBg,
+                borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.statusActive,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _relativeAge(Duration age) {
+    if (age.inMinutes < 60) return '${age.inMinutes} min ago';
+    if (age.inHours < 48) return '${age.inHours} h ago';
+    return '${age.inDays} d ago';
+  }
+}
+
+class _SectionLoadError extends StatelessWidget {
+  const _SectionLoadError();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.statusErrorBg,
+          borderRadius: BorderRadius.circular(AppSizes.badgeRadius),
+          border: Border.all(
+            color: AppColors.statusError.withValues(alpha: 0.3),
+          ),
+        ),
+        child: const Text(
+          'Environmental readings could not refresh.',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: AppColors.statusError,
+          ),
+        ),
+      ),
+    );
   }
 }
 

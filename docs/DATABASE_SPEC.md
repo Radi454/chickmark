@@ -19,10 +19,11 @@ Old generated specs are intentionally not used.
 ## Runtime
 
 - Engine: SQLite through `sqflite`.
-- Current schema version: `41`.
+- Current schema version: `47`.
 - Database file: `hatchaudit.db`.
-- Cutover behavior: upgrades to v41 are destructive and rebuild the fresh
-  schema. Old local audit history is not migrated.
+- Cutover behavior: only databases older than v41 use the destructive panel
+  cutover. v45 to v46 adds `dashboard_actions` without replacing existing data;
+  v46 to v47 adds Lab Analysis tables additively.
 - Fresh install schema: no `audits`, no `sample_records`, no sample detail
   tables, and no `{panel}_samples` child tables.
 - Local-first behavior: SQLite is the operational source. Supabase sync mirrors
@@ -37,6 +38,7 @@ erDiagram
   customers ||--o{ audit_sessions : scopes
   customers ||--o{ panel_tables : scopes
   customers ||--o{ govee_daily_captures : scopes
+  customers ||--o{ dashboard_actions : owns
 
   flocks ||--o{ audit_sessions : selected_for
   flocks ||--o{ panel_tables : selected_for
@@ -44,9 +46,11 @@ erDiagram
   hatcheries ||--o{ audit_sessions : selected_for
   hatcheries ||--o{ panel_tables : selected_for
   hatcheries ||--o{ govee_daily_captures : recorded_at
+  hatcheries ||--o{ dashboard_actions : scopes
 
   audit_sessions ||--o{ panel_tables : owns
   audit_sessions ||--o{ photos : owns
+  audit_sessions ||--o{ dashboard_actions : source_for
 
   panel_tables ||--o{ photos : evidence_for
 ```
@@ -79,8 +83,29 @@ Fresh databases create these tables:
   - `setter_optimizing`
   - `hatcher_optimizing`
 - Govee captures: `govee_daily_captures`
+- Corrective action workflow: `dashboard_actions`
+- Lab Analysis: `lab_analysis_reports`, `lab_analysis_groups`,
+  `lab_analysis_rows`
 - Reference data: `bmk_breeds`, `bmk_egg_breakout`, `troubleshooting`
 - Supporting data: `photos`, `activity_log`, `sync_tombstones`
+
+### `dashboard_actions`
+
+Persistent corrective actions derived from dashboard findings:
+
+- Scope/source: `findingKey`, `customerId`, `hatcheryId`, optional `flockId`,
+  `sessionId`, `panelName`, `panelRowId`, `fieldKey`, and `metricKey`.
+- Workflow: `title`, `description`, `priority`, `status`, `ownerId`,
+  `ownerName`, `dueAt`, `firstObservedAt`, and `lastObservedAt`.
+- Resolution: `resolvedAt`, `resolutionNotes`, `resolutionPhotoId`, and
+  `recurrenceOfId`.
+- Lifecycle/sync: `createdBy`, `createdAt`, `updatedAt`, `syncStatus`,
+  `dirtyAt`, `lastSyncedAt`, and `syncError`.
+
+Customer and hatchery deletion cascades actions. Flock and audit-session source
+deletion clears the optional reference. Local action changes are dirty-tracked,
+conflict-checked, pushed/pulled through Supabase, and explicitly tombstoned when
+an action itself is deleted.
 
 Removed tables:
 

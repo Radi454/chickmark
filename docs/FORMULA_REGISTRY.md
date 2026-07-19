@@ -78,6 +78,31 @@ screens, providers, persistence, dashboards, and tests do not drift.
   percentages, preventing impossible category percentages from entering trend
   and average cards.
 
+## Dashboard Aggregation Policies
+
+- `ratioOfSums`: `sum(numerator) / sum(denominator) * 100`. Used when raw
+  counts and their true denominators are available, including breakout and
+  Shell UV ratios.
+- `sampleWeightedMean`: `sum(value * sampleSize) / sum(sampleSize)`. Used for
+  sample-size-sensitive averages such as weights, Pasgar, EST, and CVT.
+- `equalGroupMean`: arithmetic mean of the displayed groups. This is explicit;
+  it must not be substituted for a sample-weighted mean.
+- `sum`: total of the available values.
+- `latest`: last non-null value in date-ordered source rows.
+- All-age cumulative summaries preserve equal-age weighting: calculate each
+  age independently, then average the available age results so an age with more
+  recorded samples does not dominate another age.
+
+## Canonical Derived Caches
+
+Raw arrays/counts remain authoritative. Before a local panel row is persisted,
+`PanelAggregateDeriver` recalculates EST/CVT average and CV, egg/chick weight
+sample size/average/uniformity/CV, Pasgar percentages/final score, Shell UV
+ratios, and breakout percentages plus hatchability/fertility/HOF. Corresponding
+summary columns are caches, not independent inputs. Analytics reads compare the
+stored cache with a fresh derivation and attach `aggregate_drift` when values
+materially differ.
+
 ## Validation Boundaries
 
 - Shared percent formulas reject null/invalid denominators and impossible

@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 45,
+      version: 48,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -55,6 +55,7 @@ class DatabaseHelper {
         await _dropPanelUniqueRowIndexes(db);
         await _dropDeprecatedPanelColumns(db);
         await _ensurePanelSampleSchemaColumns(db);
+        await _ensurePanelQueryIndexes(db);
         await _ensurePanelUniqueRowIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
         await _backfillOperationalBmkSeedSources(db);
@@ -97,6 +98,8 @@ class DatabaseHelper {
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
     await _createGoveeCaptureTables(db);
+    await _createDashboardActionTable(db);
+    await _createLabAnalysisTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -133,7 +136,19 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    await _resetForPanelCutover(db, newVersion);
+    if (oldVersion < 41) {
+      await _resetForPanelCutover(db, newVersion);
+      return;
+    }
+    if (oldVersion < 46) {
+      await _applyV46Upgrade(db);
+    }
+    if (oldVersion < 47) {
+      await _applyV47Upgrade(db);
+    }
+    if (oldVersion < 48) {
+      await _applyV48Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -153,6 +168,10 @@ class DatabaseHelper {
     'bmk_operational_standards',
     'troubleshooting',
     'govee_daily_captures',
+    'dashboard_actions',
+    'lab_analysis_reports',
+    'lab_analysis_groups',
+    'lab_analysis_rows',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -213,6 +232,128 @@ class DatabaseHelper {
       'sourcePhotoPath TEXT',
       'sourcePhotoRemotePath TEXT',
     ],
+    'dashboard_actions': [
+      'findingKey TEXT NOT NULL',
+      'customerId TEXT NOT NULL',
+      'hatcheryId TEXT NOT NULL',
+      'flockId TEXT',
+      'sessionId TEXT',
+      'panelName TEXT',
+      'panelRowId TEXT',
+      'fieldKey TEXT',
+      'metricKey TEXT',
+      'title TEXT NOT NULL',
+      'description TEXT',
+      "priority TEXT NOT NULL DEFAULT 'watch'",
+      "status TEXT NOT NULL DEFAULT 'open'",
+      'ownerId TEXT',
+      'ownerName TEXT',
+      'dueAt TEXT',
+      'firstObservedAt TEXT',
+      'lastObservedAt TEXT',
+      'resolvedAt TEXT',
+      'resolutionNotes TEXT',
+      'resolutionPhotoId TEXT',
+      'recurrenceOfId TEXT',
+      'createdBy TEXT',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'lab_analysis_reports': [
+      'customerId TEXT NOT NULL',
+      'flockId TEXT NOT NULL',
+      'reportDate TEXT NOT NULL',
+      'receivedDate TEXT',
+      "labName TEXT NOT NULL DEFAULT ''",
+      "sampleType TEXT NOT NULL DEFAULT ''",
+      'flockAgeWeeks INTEGER',
+      'title TEXT',
+      'notes TEXT',
+      'reportFileName TEXT',
+      'reportFilePath TEXT',
+      'reportFileRemotePath TEXT',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'lab_analysis_groups': [
+      'reportId TEXT NOT NULL',
+      'customerId TEXT NOT NULL',
+      'flockId TEXT NOT NULL',
+      'reportDate TEXT NOT NULL',
+      'testType TEXT NOT NULL',
+      "groupLabel TEXT NOT NULL DEFAULT ''",
+      "sampleScope TEXT NOT NULL DEFAULT ''",
+      "analyte TEXT NOT NULL DEFAULT ''",
+      "method TEXT NOT NULL DEFAULT ''",
+      "kitName TEXT NOT NULL DEFAULT ''",
+      "productCode TEXT NOT NULL DEFAULT ''",
+      "antigen TEXT NOT NULL DEFAULT ''",
+      'sampleCount INTEGER',
+      'meanTiter REAL',
+      'minTiter REAL',
+      'maxTiter REAL',
+      'gmtTiter REAL',
+      'cvPct REAL',
+      'positiveCount INTEGER',
+      'negativeCount INTEGER',
+      'positivePct REAL',
+      'cutoffValue REAL',
+      'cutoffTiter REAL',
+      'gmLog2 REAL',
+      'protectiveThresholdLog2 REAL',
+      'protectiveCount INTEGER',
+      'protectivePct REAL',
+      "interpretation TEXT NOT NULL DEFAULT ''",
+      "severity TEXT NOT NULL DEFAULT 'normal'",
+      'notes TEXT',
+      'sortOrder INTEGER NOT NULL DEFAULT 0',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'lab_analysis_rows': [
+      'groupId TEXT NOT NULL',
+      'reportId TEXT NOT NULL',
+      'customerId TEXT NOT NULL',
+      'flockId TEXT NOT NULL',
+      'reportDate TEXT NOT NULL',
+      'testType TEXT NOT NULL',
+      "rowLabel TEXT NOT NULL DEFAULT ''",
+      "analyte TEXT NOT NULL DEFAULT ''",
+      "result TEXT NOT NULL DEFAULT ''",
+      "resultCategory TEXT NOT NULL DEFAULT ''",
+      'numericValue REAL',
+      "unit TEXT NOT NULL DEFAULT ''",
+      'ctValue REAL',
+      'odValue REAL',
+      'spRatio REAL',
+      'titer REAL',
+      'titerGroup INTEGER',
+      'hiLog2 INTEGER',
+      'count INTEGER',
+      "antibiotic TEXT NOT NULL DEFAULT ''",
+      "sensitivityCategory TEXT NOT NULL DEFAULT ''",
+      "interpretation TEXT NOT NULL DEFAULT ''",
+      "severity TEXT NOT NULL DEFAULT 'normal'",
+      'sortOrder INTEGER NOT NULL DEFAULT 0',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
   };
 
   /// Surgical schema repair: detect missing tables/columns/indexes and restore
@@ -259,6 +400,8 @@ class DatabaseHelper {
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
     await _createGoveeCaptureTables(db);
+    await _createDashboardActionTable(db);
+    await _createLabAnalysisTables(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -388,6 +531,10 @@ class DatabaseHelper {
       'station_samples',
       'photos',
       'govee_daily_captures',
+      'dashboard_actions',
+      'lab_analysis_rows',
+      'lab_analysis_groups',
+      'lab_analysis_reports',
       'govee_place_readings',
       'govee_spot_captures',
       'govee_spot_readings',
@@ -466,6 +613,15 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV35UpgradeForTest(Database db) => _applyV35Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV46UpgradeForTest(Database db) => _applyV46Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV47UpgradeForTest(Database db) => _applyV47Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV48UpgradeForTest(Database db) => _applyV48Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

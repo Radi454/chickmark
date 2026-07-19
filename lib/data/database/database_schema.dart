@@ -228,6 +228,13 @@ Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
   }
 }
 
+Future<void> _ensurePanelQueryIndexes(DatabaseExecutor db) async {
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    await _createPanelQueryIndexesIfSupported(db, panel);
+  }
+}
+
 Future<void> _dropPanelUniqueRowIndexes(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
     await db.execute('DROP INDEX IF EXISTS idx_${panel.tableName}_unique_row');
@@ -237,6 +244,12 @@ Future<void> _dropPanelUniqueRowIndexes(DatabaseExecutor db) async {
 Future<void> _ensurePanelUniqueRowIndexes(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
     if (!await _tableExists(db, panel.tableName)) continue;
+    final columns = _columnNames(
+      await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
+    );
+    if (!columns.containsAll({'sessionId', ...panel.hierarchyColumnNames})) {
+      continue;
+    }
     await db.execute(_panelUniqueRowIndexSql(panel));
   }
 }
@@ -262,6 +275,19 @@ Future<void> _dropDeprecatedPanelColumns(DatabaseExecutor db) async {
 
 String _columnNameFromDefinition(String definition) {
   return definition.trim().split(RegExp(r'\s+')).first;
+}
+
+Future<void> _ensureColumns(
+  DatabaseExecutor db,
+  String table,
+  List<String> definitions,
+) async {
+  final existing = _columnNames(await db.rawQuery('PRAGMA table_info($table)'));
+  for (final definition in definitions) {
+    final name = _columnNameFromDefinition(definition);
+    if (existing.contains(name)) continue;
+    await db.execute('ALTER TABLE $table ADD COLUMN $definition');
+  }
 }
 
 Future<void> _createPanelTable(
@@ -296,16 +322,40 @@ Future<void> _createPanelTable(
     FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
     FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
   )''');
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${tableName}_session ON $tableName (sessionId)',
+  await _createPanelQueryIndexesIfSupported(db, panel);
+
+  final columns = _columnNames(
+    await db.rawQuery('PRAGMA table_info($tableName)'),
   );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
+  final uniqueIndexColumns = {'sessionId', ...panel.hierarchyColumnNames};
+  if (columns.containsAll(uniqueIndexColumns)) {
+    await db.execute(_panelUniqueRowIndexSql(panel));
+  }
+}
+
+Future<void> _createPanelQueryIndexesIfSupported(
+  DatabaseExecutor db,
+  PanelSampleDefinition panel,
+) async {
+  final tableName = panel.tableName;
+  final columns = _columnNames(
+    await db.rawQuery('PRAGMA table_info($tableName)'),
   );
-  await db.execute(
-    'CREATE INDEX IF NOT EXISTS idx_${tableName}_sync ON $tableName (syncStatus)',
-  );
-  await db.execute(_panelUniqueRowIndexSql(panel));
+  if (columns.contains('sessionId')) {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_session ON $tableName (sessionId)',
+    );
+  }
+  if (columns.containsAll({'customerId', 'flockId', 'date'})) {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_dashboard ON $tableName (customerId, flockId, date)',
+    );
+  }
+  if (columns.contains('syncStatus')) {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_sync ON $tableName (syncStatus)',
+    );
+  }
 }
 
 String _panelUniqueRowIndexSql(PanelSampleDefinition panel) {
@@ -399,6 +449,186 @@ Future<void> _createGoveeCaptureTables(Database db) async {
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_govee_daily_dashboard ON govee_daily_captures (customerId, hatcheryId, captureDate)',
+  );
+}
+
+Future<void> _createDashboardActionTable(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS dashboard_actions (
+    id TEXT PRIMARY KEY,
+    findingKey TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    hatcheryId TEXT NOT NULL,
+    flockId TEXT,
+    sessionId TEXT,
+    panelName TEXT,
+    panelRowId TEXT,
+    fieldKey TEXT,
+    metricKey TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'watch',
+    status TEXT NOT NULL DEFAULT 'open',
+    ownerId TEXT,
+    ownerName TEXT,
+    dueAt TEXT,
+    firstObservedAt TEXT,
+    lastObservedAt TEXT,
+    resolvedAt TEXT,
+    resolutionNotes TEXT,
+    resolutionPhotoId TEXT,
+    recurrenceOfId TEXT,
+    createdBy TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE SET NULL,
+    FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_dashboard_actions_scope ON dashboard_actions (customerId, hatcheryId, flockId, status, updatedAt DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_dashboard_actions_finding ON dashboard_actions (findingKey, updatedAt DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_dashboard_actions_sync ON dashboard_actions (syncStatus, dirtyAt)',
+  );
+}
+
+Future<void> _createLabAnalysisTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS lab_analysis_reports (
+    id TEXT PRIMARY KEY,
+    customerId TEXT NOT NULL,
+    flockId TEXT NOT NULL,
+    reportDate TEXT NOT NULL,
+    receivedDate TEXT,
+    labName TEXT NOT NULL DEFAULT '',
+    sampleType TEXT NOT NULL DEFAULT '',
+    flockAgeWeeks INTEGER,
+    title TEXT,
+    notes TEXT,
+    reportFileName TEXT,
+    reportFilePath TEXT,
+    reportFileRemotePath TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_reports_scope ON lab_analysis_reports (customerId, flockId, reportDate DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_reports_sync ON lab_analysis_reports (syncStatus, dirtyAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS lab_analysis_groups (
+    id TEXT PRIMARY KEY,
+    reportId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT NOT NULL,
+    reportDate TEXT NOT NULL,
+    testType TEXT NOT NULL,
+    groupLabel TEXT NOT NULL DEFAULT '',
+    sampleScope TEXT NOT NULL DEFAULT '',
+    analyte TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    kitName TEXT NOT NULL DEFAULT '',
+    productCode TEXT NOT NULL DEFAULT '',
+    antigen TEXT NOT NULL DEFAULT '',
+    sampleCount INTEGER,
+    meanTiter REAL,
+    minTiter REAL,
+    maxTiter REAL,
+    gmtTiter REAL,
+    cvPct REAL,
+    positiveCount INTEGER,
+    negativeCount INTEGER,
+    positivePct REAL,
+    cutoffValue REAL,
+    cutoffTiter REAL,
+    gmLog2 REAL,
+    protectiveThresholdLog2 REAL,
+    protectiveCount INTEGER,
+    protectivePct REAL,
+    interpretation TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'normal',
+    notes TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (reportId) REFERENCES lab_analysis_reports(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_groups_report ON lab_analysis_groups (reportId, sortOrder)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_groups_dashboard ON lab_analysis_groups (customerId, flockId, reportDate DESC, testType)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_groups_sync ON lab_analysis_groups (syncStatus, dirtyAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS lab_analysis_rows (
+    id TEXT PRIMARY KEY,
+    groupId TEXT NOT NULL,
+    reportId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT NOT NULL,
+    reportDate TEXT NOT NULL,
+    testType TEXT NOT NULL,
+    rowLabel TEXT NOT NULL DEFAULT '',
+    analyte TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',
+    resultCategory TEXT NOT NULL DEFAULT '',
+    numericValue REAL,
+    unit TEXT NOT NULL DEFAULT '',
+    ctValue REAL,
+    odValue REAL,
+    spRatio REAL,
+    titer REAL,
+    titerGroup INTEGER,
+    hiLog2 INTEGER,
+    count INTEGER,
+    antibiotic TEXT NOT NULL DEFAULT '',
+    sensitivityCategory TEXT NOT NULL DEFAULT '',
+    interpretation TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'normal',
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (groupId) REFERENCES lab_analysis_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (reportId) REFERENCES lab_analysis_reports(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_rows_group ON lab_analysis_rows (groupId, sortOrder)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_rows_dashboard ON lab_analysis_rows (customerId, flockId, reportDate DESC, testType)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_lab_rows_sync ON lab_analysis_rows (syncStatus, dirtyAt)',
   );
 }
 

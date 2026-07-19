@@ -19,10 +19,16 @@ run-ios:
 run-android:
 	flutter run $(DEV_DART_DEFINES) -d android
 
+run-macos:
+	flutter run $(DEV_DART_DEFINES) -d macos
+
 build-ios:
 	flutter build ios $(DART_DEFINES)
 
 build-apk:
 	flutter build apk $(DART_DEFINES)
 
-.PHONY: run run-web restart-web run-ios run-android build-ios build-apk
+build-macos:
+	flutter build macos $(DART_DEFINES)
+
+.PHONY: run run-web restart-web run-ios run-android run-macos build-ios build-apk build-macos

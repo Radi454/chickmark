@@ -24,13 +24,22 @@ List<TriageItem> stationTriageItems(
 
     for (var j = 0; j < sector.params.length; j++) {
       final param = sector.params[j];
-      final bmkVal = param.bmkField != null ? bmkLookup(bmk, param.bmkField) : null;
+      final bmkVal = param.bmkField != null
+          ? bmkLookup(bmk, param.bmkField)
+          : null;
       final hasBmk = bmkVal != null && bmkVal > 0;
       final hasLimit = param.absoluteLimit != null;
       if (!hasBmk && !hasLimit) continue; // not a monitored metric
 
       final pick = _worstGroupFor(groups, j, param);
       if (pick == null) continue;
+      final observations =
+          provider
+              .observationsFor(sector.id)
+              .where((item) => item.metricKey == param.column)
+              .toList()
+            ..sort((a, b) => b.observedAt.compareTo(a.observedAt));
+      final source = observations.isEmpty ? null : observations.first;
 
       out.add(
         TriageItem(
@@ -41,6 +50,14 @@ List<TriageItem> stationTriageItems(
           value: pick.cell.text,
           context: _context(param, pick.cell, hasBmk ? bmkVal : null),
           advice: _advice(param, pick.cell.severity),
+          station: station,
+          sectorId: sector.id,
+          metricKey: param.column,
+          observedAt: source?.observedAt,
+          sessionId: source?.sessionId,
+          panelName: source?.tableName,
+          panelRowId: source?.rowId,
+          history: provider.historyFor(sector.id, param.column),
         ),
       );
     }

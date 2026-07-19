@@ -35,7 +35,10 @@ void main() {
   tearDown(resetAppDatabase);
 
   final residue = ScopeConfigRegistry.byId('residue_breakout');
-  final demo = DashboardFilter(customerId: kDashboardDemoCustomerId);
+  final demo = DashboardFilter(
+    customerId: kDashboardDemoCustomerId,
+    hatcheryId: 'hatchery-dashboard-demo',
+  );
 
   test('demo seeding yields 16 residue leaves with layer segments', () async {
     final leaves = await repo.getScopeLeaves(residue, demo);
@@ -71,6 +74,26 @@ void main() {
 
   test('dominantBmkAge resolves the seeded age', () async {
     expect(await repo.dominantBmkAge(demo), 30);
+  });
+
+  test('bundle requires an operational customer and hatchery scope', () async {
+    final portfolio = await repo.loadBundle(
+      ScopeConfigRegistry.sectors,
+      DashboardFilter(customerId: kDashboardDemoCustomerId),
+    );
+    expect(portfolio.leavesBySector, isEmpty);
+
+    final operational = await repo.loadBundle(
+      ScopeConfigRegistry.sectors,
+      demo,
+    );
+    expect(operational.leavesBySector['residue_breakout'], hasLength(16));
+    expect(
+      operational.leavesBySector['residue_breakout']!
+          .map((leaf) => leaf.hatcheryId)
+          .toSet(),
+      {'hatchery-dashboard-demo'},
+    );
   });
 
   test('a non-demo customer has no seeded rows', () async {

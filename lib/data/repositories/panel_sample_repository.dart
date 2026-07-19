@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
+import '../services/panel_aggregate_deriver.dart';
 import 'sync_tombstone_repository.dart';
 
 class PanelSampleRepository {
@@ -23,7 +24,12 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          _stampDirty(await _withoutOrphanedPanelHatcheryId(txn, panel.toMap())),
+          _stampDirty(
+            PanelAggregateDeriver.derive(
+              definition.tableName,
+              await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
+            ).row,
+          ),
         );
         return;
       }
@@ -32,10 +38,13 @@ class PanelSampleRepository {
           txn,
           definition.tableName,
           _stampDirty(
-            await _withoutOrphanedPanelHatcheryId(
-              txn,
-              _rowFromLegacySample(panel, sample),
-            ),
+            PanelAggregateDeriver.derive(
+              definition.tableName,
+              await _withoutOrphanedPanelHatcheryId(
+                txn,
+                _rowFromLegacySample(panel, sample),
+              ),
+            ).row,
           ),
         );
       }
@@ -45,10 +54,14 @@ class PanelSampleRepository {
   Future<void> upsertRow({
     required String tableName,
     required Map<String, Object?> row,
+    bool deriveAggregates = true,
   }) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
-    await _upsertById(database, definition.tableName, Map.of(row));
+    final values = deriveAggregates
+        ? PanelAggregateDeriver.derive(definition.tableName, row).row
+        : Map<String, Object?>.of(row);
+    await _upsertById(database, definition.tableName, values);
   }
 
   Future<List<Map<String, dynamic>>> getRowsBySessionId(
@@ -396,6 +409,7 @@ class PanelSampleRepository {
     await upsertRow(
       tableName: tableName,
       row: _markRowSynced(_normalizeRow(row)),
+      deriveAggregates: false,
     );
   }
 

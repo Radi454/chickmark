@@ -36,6 +36,22 @@ Future<void> _applyV34Upgrade(Database db) async {}
 
 Future<void> _applyV35Upgrade(Database db) async {}
 
+Future<void> _applyV46Upgrade(Database db) async {
+  await _createDashboardActionTable(db);
+}
+
+Future<void> _applyV47Upgrade(Database db) async {
+  await _createLabAnalysisTables(db);
+}
+
+Future<void> _applyV48Upgrade(Database db) async {
+  await _ensureColumns(db, 'lab_analysis_reports', const [
+    'reportFileName TEXT',
+    'reportFilePath TEXT',
+    'reportFileRemotePath TEXT',
+  ]);
+}
+
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

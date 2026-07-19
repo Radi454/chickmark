@@ -202,4 +202,28 @@ void main() {
     );
     expect(l10n.translate('Flock: Cairo Farm A'), 'القطيع: Cairo Farm A');
   });
+
+  test('Arabic catalog covers dashboard intelligence and quality labels', () {
+    final l10n = AppLocalizations(const Locale('ar'));
+
+    expect(l10n.translate('What needs attention'), 'ما يحتاج إلى تدخل');
+    expect(
+      l10n.translate('Ratio of totals'),
+      'نسبة مجموع البسط إلى مجموع المقام',
+    );
+    expect(l10n.translate('Sample-weighted average'), 'متوسط مرجح بحجم العينة');
+    expect(l10n.translate('85% data coverage'), 'اكتمال البيانات 85%');
+    expect(
+      l10n.translate('75% photo coverage (3/4)'),
+      'اكتمال توثيق الصور 75% (3/4)',
+    );
+    expect(l10n.translate('4 missing measurements'), '4 قياسًا ناقصًا');
+    expect(l10n.translate('Latest capture 3 h ago'), 'أحدث تسجيل منذ 3 ساعة');
+    expect(
+      l10n.translate(
+        '2 stale environmental captures are shown as history and excluded from active alerts.',
+      ),
+      'توجد 2 تسجيلات بيئية قديمة؛ تُعرض كسجل تاريخي ولا تدخل ضمن التنبيهات النشطة.',
+    );
+  });
 }

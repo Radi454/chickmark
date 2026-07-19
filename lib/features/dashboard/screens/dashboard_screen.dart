@@ -9,9 +9,15 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
+import 'package:hatchaudit/features/dashboard/widgets/sections/lab_analysis_dashboard_section.dart';
+import 'package:hatchaudit/features/dashboard/widgets/dashboard_portfolio_summary.dart';
+import 'package:hatchaudit/features/dashboard/widgets/dashboard_quality_strip.dart';
+import 'package:hatchaudit/features/dashboard/widgets/dashboard_attention_section.dart';
+import 'package:hatchaudit/features/dashboard/scope/scope_config.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
@@ -29,6 +35,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _observedSyncTimestamp;
   bool _refreshingAfterSync = false;
   bool _goveeExpanded = true;
+  final GlobalKey _goveeKey = GlobalKey();
+  late final Map<String, GlobalKey> _stationKeys = {
+    for (final station in ScopeConfigRegistry.stations) station: GlobalKey(),
+  };
+  late final Map<String, GlobalKey> _sectorKeys = {
+    for (final sector in ScopeConfigRegistry.sectors) sector.id: GlobalKey(),
+  };
 
   @override
   void initState() {
@@ -99,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (!mounted) return;
           context.read<ScopeComparisonProvider>().applyFilter(
             customerId: provider.selectedCustomerId,
+            hatcheryId: provider.selectedHatcheryId,
             flockId: provider.selectedFlockId,
             bmkAge: provider.selectedBmkAge,
           );
@@ -126,6 +140,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // Age is no longer a global filter — each sector carries its own
               // period picker + Incremental/Cumulative toggle.
               final customerFilter = _customerFilter(context, provider);
+              final hatcheryFilter = _hatcheryFilter(context, provider);
               final flockFilter = _flockFilter(context, provider);
 
               if (constraints.maxWidth < 520) {
@@ -133,6 +148,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     customerFilter,
+                    const SizedBox(height: AppSizes.spaceSm),
+                    hatcheryFilter,
                     const SizedBox(height: AppSizes.spaceSm),
                     Row(
                       children: [
@@ -150,6 +167,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               return Row(
                 children: [
                   Expanded(child: customerFilter),
+                  const SizedBox(width: AppSizes.spaceSm),
+                  Expanded(child: hatcheryFilter),
                   const SizedBox(width: AppSizes.spaceSm),
                   Expanded(child: flockFilter),
                   if (provider.hasActiveFilters) ...[
@@ -270,6 +289,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _hatcheryFilter(BuildContext context, DashboardProvider provider) {
+    final entries = <({String? value, String label})>[
+      (value: null, label: 'Select hatchery'),
+      ...provider.hatcheries.map((h) => (value: h.id, label: h.name)),
+    ];
+    return DropdownButtonFormField<String>(
+      initialValue: provider.selectedHatcheryId,
+      isExpanded: true,
+      decoration: _filterDecoration(context, 'Hatchery'),
+      selectedItemBuilder: (context) => [
+        for (final entry in entries) _menuText(entry.label),
+      ],
+      items: [
+        for (final entry in entries)
+          DropdownMenuItem(value: entry.value, child: _menuText(entry.label)),
+      ],
+      onChanged: provider.selectedCustomerId == null
+          ? null
+          : provider.setHatchery,
+    );
+  }
+
   InputDecoration _filterDecoration(BuildContext context, String label) {
     return InputDecoration(
       labelText: context.tr(label),
@@ -324,6 +365,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _toggleGoveeSection() {
     setState(() => _goveeExpanded = !_goveeExpanded);
+  }
+
+  void _openDashboardSource(DashboardFinding finding) {
+    final station = finding.station;
+    final isGovee = station == 'Govee Environmental Readings';
+    setState(() {
+      if (isGovee) {
+        _goveeExpanded = true;
+      } else {
+        _collapsedScopeStations.remove(station);
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = isGovee
+          ? _goveeKey.currentContext
+          : _sectorKeys[finding.sectorId]?.currentContext ??
+                _stationKeys[station]?.currentContext;
+      if (target != null) {
+        Scrollable.ensureVisible(
+          target,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+          alignment: 0.05,
+        );
+      }
+    });
   }
 
   Widget _buildContent(BuildContext context, DashboardProvider provider) {
@@ -401,21 +469,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           _buildCascadeFilter(provider),
           const SizedBox(height: AppSizes.spaceLg),
-          // Egg Storage & Egg Quality are presented by the Scopes section below
-          // (same station card as every other audit station). The legacy bespoke
-          // EggStorageSection / EggQualitySection cards were dropped to avoid
-          // showing those two sectors twice on the dashboard.
-          GoveeEnvironmentalReadingsSection(
-            captures: provider.goveeCaptures,
-            isLoading: provider.isLoadingGoveeCaptures,
-            expanded: _goveeExpanded,
-            onToggle: _toggleGoveeSection,
+          LabAnalysisDashboardSection(
+            summaries: provider.labAnalysisSummaries,
+            isLoading: provider.isLoadingLabAnalysis,
           ),
           const SizedBox(height: AppSizes.spaceLg),
-          ScopeInsightsSection(
-            collapsedStations: _collapsedScopeStations,
-            onStationToggle: _toggleScopeStation,
-          ),
+          if (!provider.isOperationalScope) ...[
+            DashboardPortfolioSummary(
+              customerCount: provider.customers.length,
+              hatcheryCount: provider.hatcheries.length,
+              customerSelected: provider.selectedCustomerId != null,
+            ),
+          ] else ...[
+            const DashboardQualityStrip(),
+            const SizedBox(height: AppSizes.spaceLg),
+            DashboardAttentionSection(onOpenSource: _openDashboardSource),
+            const SizedBox(height: AppSizes.spaceLg),
+            // Egg Storage & Egg Quality are presented by the Scopes section below
+            // (same station card as every other audit station). The legacy bespoke
+            // EggStorageSection / EggQualitySection cards were dropped to avoid
+            // showing those two sectors twice on the dashboard.
+            GoveeEnvironmentalReadingsSection(
+              key: _goveeKey,
+              captures: provider.goveeCaptures,
+              isLoading: provider.isLoadingGoveeCaptures,
+              expanded: _goveeExpanded,
+              onToggle: _toggleGoveeSection,
+              error: provider.goveeError,
+            ),
+            const SizedBox(height: AppSizes.spaceLg),
+            ScopeInsightsSection(
+              collapsedStations: _collapsedScopeStations,
+              onStationToggle: _toggleScopeStation,
+              stationKeys: _stationKeys,
+              sectorKeys: _sectorKeys,
+            ),
+          ],
         ],
       ),
     );

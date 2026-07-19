@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/dashboard_action_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/govee_capture_model.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
@@ -13,9 +14,11 @@ import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
+import 'package:hatchaudit/data/repositories/dashboard_action_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
+import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
@@ -27,9 +30,15 @@ class _MockSupabaseService extends Mock implements SupabaseService {}
 
 class _MockCustomerRepository extends Mock implements CustomerRepository {}
 
+class _MockDashboardActionRepository extends Mock
+    implements DashboardActionRepository {}
+
 class _MockFlockRepository extends Mock implements FlockRepository {}
 
 class _MockHatcheryRepository extends Mock implements HatcheryRepository {}
+
+class _MockLabAnalysisRepository extends Mock
+    implements LabAnalysisRepository {}
 
 class _MockActivityLogRepository extends Mock
     implements ActivityLogRepository {}
@@ -55,8 +64,10 @@ class _MockPhotoSyncService extends Mock implements PhotoSyncService {}
 void main() {
   late _MockSupabaseService supabase;
   late _MockCustomerRepository customers;
+  late _MockDashboardActionRepository actions;
   late _MockFlockRepository flocks;
   late _MockHatcheryRepository hatcheries;
+  late _MockLabAnalysisRepository labAnalysis;
   late _MockActivityLogRepository activityLog;
   late _MockPhotoRepository photos;
   late _MockBmkRepository bmk;
@@ -75,8 +86,10 @@ void main() {
   setUp(() {
     supabase = _MockSupabaseService();
     customers = _MockCustomerRepository();
+    actions = _MockDashboardActionRepository();
     flocks = _MockFlockRepository();
     hatcheries = _MockHatcheryRepository();
+    labAnalysis = _MockLabAnalysisRepository();
     activityLog = _MockActivityLogRepository();
     photos = _MockPhotoRepository();
     bmk = _MockBmkRepository();
@@ -173,6 +186,18 @@ void main() {
     when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
     when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
     when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => const []);
+    when(() => actions.getDirtyRows()).thenAnswer((_) async => const []);
+    when(() => actions.getRowById(any())).thenAnswer((_) async => null);
+    when(() => actions.upsertRemoteRow(any())).thenAnswer((_) async {});
+    when(
+      () => labAnalysis.getDirtyRows(any()),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => labAnalysis.getRowById(any(), any()),
+    ).thenAnswer((_) async => null);
+    when(
+      () => labAnalysis.upsertRemoteRow(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => govee.markCapturesSynced(any())).thenAnswer((_) async {});
     when(() => photos.getAllPhotos()).thenAnswer((_) async => const []);
     when(
@@ -209,6 +234,8 @@ void main() {
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
         upsertAuditSession: any(named: 'upsertAuditSession'),
         upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+        upsertDashboardAction: any(named: 'upsertDashboardAction'),
+        upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
         upsertPanelRow: any(named: 'upsertPanelRow'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
@@ -218,8 +245,10 @@ void main() {
   StartupSyncService service() => StartupSyncService(
     supabaseService: supabase,
     customerRepository: customers,
+    dashboardActionRepository: actions,
     flockRepository: flocks,
     hatcheryRepository: hatcheries,
+    labAnalysisRepository: labAnalysis,
     activityLogRepository: activityLog,
     photoRepository: photos,
     bmkRepository: bmk,
@@ -370,6 +399,37 @@ void main() {
     }
   });
 
+  test('pushes dirty dashboard actions and marks them synced', () async {
+    final now = DateTime.utc(2026, 7, 12);
+    when(() => actions.getDirtyRows()).thenAnswer(
+      (_) async => [
+        DashboardActionModel(
+          id: 'action-1',
+          findingKey: 'finding-1',
+          customerId: 'customer-1',
+          hatcheryId: 'hatchery-1',
+          title: 'Correct ventilation',
+          createdAt: now,
+          updatedAt: now,
+          dirtyAt: now,
+        ),
+      ],
+    );
+    when(() => actions.markSynced(any())).thenAnswer((_) async {});
+
+    await service().run();
+
+    final payload =
+        verify(
+              () =>
+                  supabase.upsertRowsStrict('dashboard_actions', captureAny()),
+            ).captured.single
+            as List<Map<String, dynamic>>;
+    expect(payload.single['findingKey'], 'finding-1');
+    expect(payload.single, isNot(contains('dirtyAt')));
+    verify(() => actions.markSynced(['action-1'])).called(1);
+  });
+
   test(
     'pull callback exposes panel tables without legacy audit callbacks',
     () async {
@@ -385,12 +445,14 @@ void main() {
           upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
           upsertAuditSession: captureAny(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: captureAny(named: 'upsertGoveeDailyCapture'),
+          upsertDashboardAction: captureAny(named: 'upsertDashboardAction'),
+          upsertLabAnalysisRow: captureAny(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: captureAny(named: 'upsertPanelRow'),
           upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
         ),
       );
       final callback =
-          verification.captured[8]
+          verification.captured[10]
               as Future<void> Function(String, Map<String, dynamic>);
       await callback('egg_storage', {
         'id': 'row-remote',
@@ -402,6 +464,20 @@ void main() {
         () => panels.upsertPanelRow(
           'egg_storage',
           any(that: containsPair('id', 'row-remote')),
+        ),
+      ).called(1);
+
+      final actionCallback =
+          verification.captured[8]
+              as Future<void> Function(Map<String, dynamic>);
+      await actionCallback({
+        'id': 'action-remote',
+        'updatedAt': '2026-05-02T00:00:00.000Z',
+      });
+      verify(() => actions.getRowById('action-remote')).called(1);
+      verify(
+        () => actions.upsertRemoteRow(
+          any(that: containsPair('id', 'action-remote')),
         ),
       ).called(1);
     },
@@ -429,26 +505,29 @@ void main() {
     verify(() => tombstones.markFailed(tombstone.id, any())).called(1);
   });
 
-  test('reports no pending deletes after remote row deletion succeeds', () async {
-    final tombstone = SyncTombstone(
-      id: 'customers:customer-1',
-      tableName: 'customers',
-      rowId: 'customer-1',
-      deletedAt: DateTime(2026, 7, 5),
-      createdAt: DateTime(2026, 7, 5),
-    );
-    var pendingRead = 0;
-    when(() => tombstones.getPendingDeletes()).thenAnswer((_) async {
-      pendingRead++;
-      return pendingRead == 1 ? [tombstone] : const <SyncTombstone>[];
-    });
+  test(
+    'reports no pending deletes after remote row deletion succeeds',
+    () async {
+      final tombstone = SyncTombstone(
+        id: 'customers:customer-1',
+        tableName: 'customers',
+        rowId: 'customer-1',
+        deletedAt: DateTime(2026, 7, 5),
+        createdAt: DateTime(2026, 7, 5),
+      );
+      var pendingRead = 0;
+      when(() => tombstones.getPendingDeletes()).thenAnswer((_) async {
+        pendingRead++;
+        return pendingRead == 1 ? [tombstone] : const <SyncTombstone>[];
+      });
 
-    final outcome = await service().run();
+      final outcome = await service().run();
 
-    expect(outcome.online, isTrue);
-    expect(outcome.pendingDeletes, 0);
-    verify(() => tombstones.markSynced(tombstone.id)).called(1);
-  });
+      expect(outcome.online, isTrue);
+      expect(outcome.pendingDeletes, 0);
+      verify(() => tombstones.markSynced(tombstone.id)).called(1);
+    },
+  );
 
   test('sync tombstones delete panel tables before owning tables', () {
     final order = SyncTombstoneRepository.deleteOrder;

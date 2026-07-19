@@ -5,6 +5,14 @@ import 'scope_severity.dart';
 /// How a parameter's value is computed/displayed.
 enum ScopeValueFormat { percent, number, integer, text, yesNo }
 
+enum ScopeAggregationPolicy {
+  ratioOfSums,
+  sampleWeightedMean,
+  equalGroupMean,
+  sum,
+  latest,
+}
+
 /// X-axis for a sector's Cumulative view: flock age (egg/chick/hatch biology
 /// tracks hen age) or audit visit (hatchery-ops settings track over time).
 enum CumulativeAxis { age, visit }
@@ -19,6 +27,11 @@ class ScopeParam {
 
   /// Raw count column enabling true count-weighted percent (Σcount/ΣtraySize).
   final String? countColumn;
+
+  /// Denominator/sample-size column for ratio or weighted-mean policies.
+  final String? denominatorColumn;
+
+  final ScopeAggregationPolicy aggregationPolicy;
 
   /// Key into [bmkLookup] for benchmark-diff severity (null → no flag).
   final String? bmkField;
@@ -38,6 +51,8 @@ class ScopeParam {
     required this.format,
     this.decimals = 1,
     this.countColumn,
+    this.denominatorColumn,
+    this.aggregationPolicy = ScopeAggregationPolicy.equalGroupMean,
     this.bmkField,
     this.higherIsBetter = false,
     this.thresholds,
@@ -48,17 +63,26 @@ class ScopeParam {
     this.label,
     this.column, {
     this.countColumn,
+    this.denominatorColumn,
+    ScopeAggregationPolicy? aggregationPolicy,
     this.bmkField,
     this.higherIsBetter = false,
     this.decimals = 1,
     this.thresholds,
     this.absoluteLimit,
-  }) : format = ScopeValueFormat.percent;
+  }) : format = ScopeValueFormat.percent,
+       aggregationPolicy =
+           aggregationPolicy ??
+           (countColumn == null
+               ? ScopeAggregationPolicy.equalGroupMean
+               : ScopeAggregationPolicy.ratioOfSums);
 
   const ScopeParam.number(
     this.label,
     this.column, {
     this.decimals = 1,
+    this.denominatorColumn,
+    this.aggregationPolicy = ScopeAggregationPolicy.equalGroupMean,
     this.bmkField,
     this.higherIsBetter = false,
     this.thresholds,
@@ -66,19 +90,25 @@ class ScopeParam {
   }) : format = ScopeValueFormat.number,
        countColumn = null;
 
-  const ScopeParam.integer(this.label, this.column)
-    : format = ScopeValueFormat.integer,
-      decimals = 0,
-      countColumn = null,
-      bmkField = null,
-      higherIsBetter = false,
-      thresholds = null,
-      absoluteLimit = null;
+  const ScopeParam.integer(
+    this.label,
+    this.column, {
+    this.aggregationPolicy = ScopeAggregationPolicy.sum,
+  }) : format = ScopeValueFormat.integer,
+       decimals = 0,
+       countColumn = null,
+       denominatorColumn = null,
+       bmkField = null,
+       higherIsBetter = false,
+       thresholds = null,
+       absoluteLimit = null;
 
   const ScopeParam.text(this.label, this.column)
     : format = ScopeValueFormat.text,
       decimals = 0,
       countColumn = null,
+      denominatorColumn = null,
+      aggregationPolicy = ScopeAggregationPolicy.latest,
       bmkField = null,
       higherIsBetter = false,
       thresholds = null,
@@ -90,6 +120,8 @@ class ScopeParam {
     : format = ScopeValueFormat.yesNo,
       decimals = 0,
       countColumn = null,
+      denominatorColumn = null,
+      aggregationPolicy = ScopeAggregationPolicy.latest,
       bmkField = null,
       higherIsBetter = false,
       thresholds = null,
@@ -178,6 +210,15 @@ String scopeLayerLabel(SamplingLayer layer) {
   }
 }
 
+String scopeAggregationPolicyLabel(ScopeAggregationPolicy policy) =>
+    switch (policy) {
+      ScopeAggregationPolicy.ratioOfSums => 'Ratio of totals',
+      ScopeAggregationPolicy.sampleWeightedMean => 'Sample-weighted average',
+      ScopeAggregationPolicy.equalGroupMean => 'Equal-group average',
+      ScopeAggregationPolicy.sum => 'Total',
+      ScopeAggregationPolicy.latest => 'Latest recorded value',
+    };
+
 /// All sectors, grouped by station for display. Mirrors the prototype's
 /// SCOPE_DEMO. Stations are rendered in this order.
 class ScopeConfigRegistry {
@@ -219,10 +260,17 @@ class ScopeConfigRegistry {
       allowedLayers: _layersOf('egg_quality'),
       params: const [
         ScopeParam.integer('Sample', 'eggSampleSize'),
-        ScopeParam.number('Avg wt g', 'eggAvgWeight'),
+        ScopeParam.number(
+          'Avg wt g',
+          'eggAvgWeight',
+          denominatorColumn: 'eggSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
         ScopeParam.percent(
           'Unif %',
           'eggUniformityPct',
+          denominatorColumn: 'eggSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           higherIsBetter: true,
           absoluteLimit: AppThresholds.uniformityGood,
           thresholds: SeverityThresholds(nearMargin: 2),
@@ -230,18 +278,37 @@ class ScopeConfigRegistry {
         ScopeParam.percent(
           'CV%',
           'eggCvPct',
+          denominatorColumn: 'eggSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           absoluteLimit: AppThresholds.cvAlertPct,
         ),
         ScopeParam.number('BMK wt', 'eggBmkWeight'),
         ScopeParam.percent(
           'UV aff %',
           'uvAffectedPct',
+          countColumn: 'uvAffectedCount',
+          denominatorColumn: 'uvTrayEggCount',
           absoluteLimit: 5,
           thresholds: SeverityThresholds(nearMargin: 2),
         ),
-        ScopeParam.percent('Cuticle %', 'uvCuticleDamagePct'),
-        ScopeParam.percent('Washed %', 'uvWashedPct'),
-        ScopeParam.percent('Dirty %', 'uvDirtyPct'),
+        ScopeParam.percent(
+          'Cuticle %',
+          'uvCuticleDamagePct',
+          countColumn: 'uvCuticleDamageCount',
+          denominatorColumn: 'uvTrayEggCount',
+        ),
+        ScopeParam.percent(
+          'Washed %',
+          'uvWashedPct',
+          countColumn: 'uvWashedCount',
+          denominatorColumn: 'uvTrayEggCount',
+        ),
+        ScopeParam.percent(
+          'Dirty %',
+          'uvDirtyPct',
+          countColumn: 'uvDirtyCount',
+          denominatorColumn: 'uvTrayEggCount',
+        ),
       ],
     ),
 
@@ -255,48 +322,78 @@ class ScopeConfigRegistry {
       // No traySize on this table → percent params degrade to unweighted mean.
       allowedLayers: _layersOf('chick_quality'),
       params: const [
-        ScopeParam.number('Pasgar', 'pasgarFinalScore', higherIsBetter: true),
+        ScopeParam.number(
+          'Pasgar',
+          'pasgarFinalScore',
+          denominatorColumn: 'pasgarSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+          higherIsBetter: true,
+        ),
         ScopeParam.percent(
           'Reflex %',
           'pasgarReflexesPct',
+          countColumn: 'pasgarReflexesCount',
+          denominatorColumn: 'pasgarSampleSize',
           higherIsBetter: true,
         ),
         ScopeParam.percent(
           'Beak %',
           'pasgarBeakPct',
+          countColumn: 'pasgarBeakCount',
+          denominatorColumn: 'pasgarSampleSize',
           absoluteLimit: AppThresholds.pasgarAlertPct,
           thresholds: SeverityThresholds(nearMargin: 3),
         ),
         ScopeParam.percent(
           'Navel %',
           'pasgarNavelPct',
+          countColumn: 'pasgarNavelCount',
+          denominatorColumn: 'pasgarSampleSize',
           absoluteLimit: AppThresholds.pasgarAlertPct,
           thresholds: SeverityThresholds(nearMargin: 3),
         ),
         ScopeParam.percent(
           'Belly %',
           'pasgarBellyPct',
+          countColumn: 'pasgarBellyCount',
+          denominatorColumn: 'pasgarSampleSize',
           absoluteLimit: AppThresholds.pasgarAlertPct,
           thresholds: SeverityThresholds(nearMargin: 3),
         ),
         ScopeParam.percent(
           'Leg %',
           'pasgarLegPct',
+          countColumn: 'pasgarLegCount',
+          denominatorColumn: 'pasgarSampleSize',
           absoluteLimit: AppThresholds.pasgarAlertPct,
           thresholds: SeverityThresholds(nearMargin: 3),
         ),
         ScopeParam.percent(
           'Feather %',
           'pasgarFeatherDevPct',
+          countColumn: 'pasgarFeatherDevCount',
+          denominatorColumn: 'pasgarSampleSize',
           higherIsBetter: true,
         ),
-        ScopeParam.number('CVT °F', 'cvtAvgTemp'),
+        ScopeParam.number(
+          'CVT °F',
+          'cvtAvgTemp',
+          denominatorColumn: 'cvtSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
         ScopeParam.percent(
           'CVT CV%',
           'cvtCvPct',
+          denominatorColumn: 'cvtSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           absoluteLimit: AppThresholds.cvAlertPct,
         ),
-        ScopeParam.percent('YFBM %', 'yfbmAvgPct'),
+        ScopeParam.percent(
+          'YFBM %',
+          'yfbmAvgPct',
+          denominatorColumn: 'yfbmEntryCount',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
       ],
     ),
     ScopeSectorConfig(
@@ -308,10 +405,17 @@ class ScopeConfigRegistry {
       allowedLayers: _layersOf('chick_weights'),
       params: const [
         ScopeParam.integer('Sample', 'sampleSize'),
-        ScopeParam.number('Avg wt g', 'avgWeight'),
+        ScopeParam.number(
+          'Avg wt g',
+          'avgWeight',
+          denominatorColumn: 'sampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
         ScopeParam.percent(
           'Unif %',
           'uniformityPct',
+          denominatorColumn: 'sampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           higherIsBetter: true,
           absoluteLimit: AppThresholds.uniformityGood,
           thresholds: SeverityThresholds(nearMargin: 2),
@@ -319,6 +423,8 @@ class ScopeConfigRegistry {
         ScopeParam.percent(
           'CV%',
           'cvPct',
+          denominatorColumn: 'sampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           absoluteLimit: AppThresholds.cvAlertPct,
         ),
         ScopeParam.number('BMK wt', 'bmkWeight'),
@@ -504,10 +610,17 @@ class ScopeConfigRegistry {
           absoluteLimit: AppThresholds.co2Max,
           thresholds: SeverityThresholds(nearMargin: 300),
         ),
-        ScopeParam.number('EST °F', 'estAvg'),
+        ScopeParam.number(
+          'EST °F',
+          'estAvg',
+          denominatorColumn: 'estSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
         ScopeParam.percent(
           'EST CV%',
           'estCvPct',
+          denominatorColumn: 'estSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           absoluteLimit: AppThresholds.cvAlertPct,
         ),
         ScopeParam.integer('Batch sz', 'batchSize'),
@@ -535,10 +648,17 @@ class ScopeConfigRegistry {
           absoluteLimit: AppThresholds.co2Max,
           thresholds: SeverityThresholds(nearMargin: 300),
         ),
-        ScopeParam.number('CVT °F', 'cvtAvg'),
+        ScopeParam.number(
+          'CVT °F',
+          'cvtAvg',
+          denominatorColumn: 'cvtSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
+        ),
         ScopeParam.percent(
           'CVT CV%',
           'cvtCvPct',
+          denominatorColumn: 'cvtSampleSize',
+          aggregationPolicy: ScopeAggregationPolicy.sampleWeightedMean,
           absoluteLimit: AppThresholds.cvAlertPct,
         ),
         ScopeParam.integer('Panting', 'chickPanting'),

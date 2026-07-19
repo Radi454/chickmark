@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_sector_widget.dart';
@@ -13,6 +14,9 @@ class _EmptyScopeRepo extends ScopeComparisonRepository {
   Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async => const [];
   @override
   Future<int?> dominantBmkAge(filter) async => null;
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async =>
+      const ScopeDataBundle();
 }
 
 void main() {
@@ -31,7 +35,10 @@ void main() {
 
   Future<void> pumpResidue(WidgetTester tester) async {
     final provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
-    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+    await provider.applyFilter(
+      customerId: kDashboardDemoCustomerId,
+      hatcheryId: 'hatchery-dashboard-demo',
+    );
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(
         value: provider,
@@ -61,7 +68,10 @@ void main() {
     tester,
   ) async {
     final provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
-    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+    await provider.applyFilter(
+      customerId: kDashboardDemoCustomerId,
+      hatcheryId: 'hatchery-dashboard-demo',
+    );
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(
         value: provider,
@@ -81,7 +91,10 @@ void main() {
 
   testWidgets('chart mode renders a bar chart', (tester) async {
     final provider = ScopeComparisonProvider(repository: _EmptyScopeRepo());
-    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+    await provider.applyFilter(
+      customerId: kDashboardDemoCustomerId,
+      hatcheryId: 'hatchery-dashboard-demo',
+    );
     provider.toggleChartMode('residue_breakout');
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(

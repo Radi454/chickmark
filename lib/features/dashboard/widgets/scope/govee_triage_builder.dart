@@ -1,5 +1,6 @@
 import '../../../../data/models/temperature_rh_model.dart';
 import '../../models/govee_capture_summary.dart';
+import '../../models/dashboard_intelligence_models.dart';
 import '../../scope/scope_models.dart';
 import '../../scope/scope_severity.dart';
 import 'alarm_triage_feed.dart';
@@ -39,14 +40,16 @@ class _GoveeTarget {
 /// Build triage items from the latest Govee capture per place: one Temperature
 /// item and (where a target exists) one Relative Humidity item, graded against
 /// [_GoveeTarget]. In-target readings emit as `good` for the collapsible list.
-List<TriageItem> goveeTriageItems(List<GoveeCaptureSummary> captures) {
+List<TriageItem> goveeTriageItems(
+  List<GoveeCaptureSummary> captures, {
+  DateTime? now,
+}) {
+  final referenceNow = now ?? DateTime.now();
   final latest = <TemperaturePlace, GoveeCaptureSummary>{};
   for (final s in captures) {
     final place = s.capture.place;
     final cur = latest[place];
-    // captureDate is an ISO date string (sorts lexically).
-    if (cur == null ||
-        s.capture.captureDate.compareTo(cur.capture.captureDate) > 0) {
+    if (cur == null || s.effectiveRecordedAt.isAfter(cur.effectiveRecordedAt)) {
       latest[place] = s;
     }
   }
@@ -59,6 +62,11 @@ List<TriageItem> goveeTriageItems(List<GoveeCaptureSummary> captures) {
     final target = _GoveeTarget.forPlace(place);
     if (target == null) continue;
     final summary = latest[place]!;
+    final freshness = summary.freshnessAt(referenceNow);
+    if (freshness == DashboardFreshness.stale ||
+        freshness == DashboardFreshness.invalid) {
+      continue;
+    }
     final points = summary.combinedPoints;
     if (points.isEmpty) continue;
 
@@ -67,11 +75,21 @@ List<TriageItem> goveeTriageItems(List<GoveeCaptureSummary> captures) {
 
     if (target.tempMin != null || target.tempMax != null) {
       final avgC = _avg(points.map((p) => _fToC(p.temperatureFahrenheit)));
-      out.add(_tempItem(place.label, tag, avgC, target));
+      out.add(
+        _tempItem(place.label, tag, avgC, target, summary.effectiveRecordedAt),
+      );
     }
     if (target.rhMax != null) {
       final avgRh = _avg(points.map((p) => p.humidity));
-      out.add(_rhItem(place.label, tag, avgRh, target.rhMax!));
+      out.add(
+        _rhItem(
+          place.label,
+          tag,
+          avgRh,
+          target.rhMax!,
+          summary.effectiveRecordedAt,
+        ),
+      );
     }
   }
 
@@ -84,6 +102,7 @@ TriageItem _tempItem(
   String? tag,
   double avgC,
   _GoveeTarget target,
+  DateTime observedAt,
 ) {
   final ScopeSeverity sev;
   final String context;
@@ -109,10 +128,20 @@ TriageItem _tempItem(
     value: '${_one(avgC)} °C',
     context: context,
     advice: _advice(sev, 'temperature'),
+    station: 'Govee Environmental Readings',
+    sectorId: 'govee_${placeLabel.replaceAll(' ', '_').toLowerCase()}',
+    metricKey: 'temperature',
+    observedAt: observedAt,
   );
 }
 
-TriageItem _rhItem(String placeLabel, String? tag, double avgRh, double max) {
+TriageItem _rhItem(
+  String placeLabel,
+  String? tag,
+  double avgRh,
+  double max,
+  DateTime observedAt,
+) {
   final sev = ceilingSeverity(avgRh, max, 8.0);
   return TriageItem(
     severity: sev,
@@ -122,6 +151,10 @@ TriageItem _rhItem(String placeLabel, String? tag, double avgRh, double max) {
     value: '${avgRh.round()}%',
     context: 'Target ≤ ${max.round()}%',
     advice: _advice(sev, 'humidity'),
+    station: 'Govee Environmental Readings',
+    sectorId: 'govee_${placeLabel.replaceAll(' ', '_').toLowerCase()}',
+    metricKey: 'relative_humidity',
+    observedAt: observedAt,
   );
 }
 

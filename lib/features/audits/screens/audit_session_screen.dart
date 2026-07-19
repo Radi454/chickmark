@@ -428,17 +428,22 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final stationKey = stationKeys[index];
     CustomersProvider? customersProvider;
     try {
-      customersProvider = context.read<CustomersProvider>();
+      customersProvider = context.watch<CustomersProvider>();
     } on ProviderNotFoundException {
       customersProvider = null;
     }
     final flock = customersProvider?.flockById(session.flockId);
     final sessionFlockAgeWeeks = session.flockAgeWeeks;
+    final currentFlockAgeWeeks = flock?.currentAgeWeeks.toInt();
     final resolvedFlockAgeWeeks =
-        sessionFlockAgeWeeks != null && sessionFlockAgeWeeks > 0
-        ? sessionFlockAgeWeeks
-        : flock?.currentAgeWeeks.toInt();
+        (currentFlockAgeWeeks != null && currentFlockAgeWeeks > 0
+            ? currentFlockAgeWeeks
+            : null) ??
+        (sessionFlockAgeWeeks != null && sessionFlockAgeWeeks > 0
+            ? sessionFlockAgeWeeks
+            : null);
     final sessionBreed = session.breed;
+    final flockBreed = flock?.breed.trim();
 
     final auditContext = AuditContextData(
       auditType:
@@ -447,9 +452,11 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       flockId: session.flockId,
       hatcheryId: session.hatcheryId,
       sessionId: session.id,
-      breed: sessionBreed != null && sessionBreed.trim().isNotEmpty
+      breed: flockBreed != null && flockBreed.isNotEmpty
+          ? flockBreed
+          : sessionBreed != null && sessionBreed.trim().isNotEmpty
           ? sessionBreed
-          : flock?.breed,
+          : null,
       setterId: null,
       hatcherId: null,
       flockEntryDate: flock?.entryDate,
@@ -1858,6 +1865,9 @@ class _StationFrameState extends State<_StationFrame> {
         );
       case 'chicks':
         return ChickQualityScreen(
+          key: ValueKey(
+            'chicks:${widget.sessionId}:${widget.context.breed ?? ''}:${widget.context.flockAgeWeeks ?? ''}',
+          ),
           context: widget.context,
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,

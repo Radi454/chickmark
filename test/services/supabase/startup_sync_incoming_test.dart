@@ -165,6 +165,8 @@ void main() {
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
         upsertAuditSession: any(named: 'upsertAuditSession'),
         upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+        upsertDashboardAction: any(named: 'upsertDashboardAction'),
+        upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
         upsertPanelRow: any(named: 'upsertPanelRow'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),

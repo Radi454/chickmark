@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/supabase_config.dart';
 import '../../core/network/network_reachability.dart';
 import '../../core/security/safe_debug_log.dart';
@@ -30,6 +30,8 @@ class SupabasePullSummary {
   final int bmkBreeds;
   final int bmkEggBreakout;
   final int goveeDailyCaptures;
+  final int dashboardActions;
+  final int labAnalysisRows;
   final int panelRows;
   final int syncTombstones;
 
@@ -42,6 +44,8 @@ class SupabasePullSummary {
     this.bmkBreeds = 0,
     this.bmkEggBreakout = 0,
     this.goveeDailyCaptures = 0,
+    this.dashboardActions = 0,
+    this.labAnalysisRows = 0,
     this.panelRows = 0,
     this.syncTombstones = 0,
   });
@@ -55,6 +59,8 @@ class SupabasePullSummary {
       bmkBreeds +
       bmkEggBreakout +
       goveeDailyCaptures +
+      dashboardActions +
+      labAnalysisRows +
       panelRows +
       syncTombstones;
 
@@ -67,6 +73,8 @@ class SupabasePullSummary {
     int? bmkBreeds,
     int? bmkEggBreakout,
     int? goveeDailyCaptures,
+    int? dashboardActions,
+    int? labAnalysisRows,
     int? panelRows,
     int? syncTombstones,
   }) {
@@ -79,6 +87,8 @@ class SupabasePullSummary {
       bmkBreeds: bmkBreeds ?? this.bmkBreeds,
       bmkEggBreakout: bmkEggBreakout ?? this.bmkEggBreakout,
       goveeDailyCaptures: goveeDailyCaptures ?? this.goveeDailyCaptures,
+      dashboardActions: dashboardActions ?? this.dashboardActions,
+      labAnalysisRows: labAnalysisRows ?? this.labAnalysisRows,
       panelRows: panelRows ?? this.panelRows,
       syncTombstones: syncTombstones ?? this.syncTombstones,
     );
@@ -88,6 +98,7 @@ class SupabasePullSummary {
 class SupabaseService {
   final UserRepository _userRepo;
   final bool Function() _isConfigured;
+  final Future<void> Function() _reloadConfig;
   final Future<bool> Function() _initializeSupabase;
   final Future<bool> Function() _checkNetworkAvailable;
   final SupabaseClient Function() _clientProvider;
@@ -107,12 +118,14 @@ class SupabaseService {
   SupabaseService({
     UserRepository? userRepository,
     bool Function()? isConfiguredForTesting,
+    Future<void> Function()? reloadConfigForTesting,
     Future<bool> Function()? initializeSupabaseForTesting,
     Future<bool> Function()? checkNetworkAvailableForTesting,
     SupabaseClient Function()? clientForTesting,
   }) : _userRepo = userRepository ?? UserRepository(),
        _isConfigured =
            isConfiguredForTesting ?? (() => SupabaseConfig.isConfigured),
+       _reloadConfig = reloadConfigForTesting ?? SupabaseConfig.ensureLoaded,
        _initializeSupabase =
            initializeSupabaseForTesting ??
            SupabaseInitializer.ensureInitialized,
@@ -140,6 +153,9 @@ class SupabaseService {
   }
 
   Future<bool> _ensureSupabaseReady() async {
+    if (!_isConfigured()) {
+      await _reloadConfig();
+    }
     if (!_isConfigured() || !_isNetworkAvailable) {
       _supabaseInitialized = false;
       return false;
@@ -472,6 +488,77 @@ class SupabaseService {
         : 'supabase://photos/$storagePath';
   }
 
+  Future<String?> uploadLabAnalysisReportPdf({
+    required String localPath,
+    required String customerId,
+    required String flockId,
+    required DateTime reportDate,
+    String? fileName,
+  }) async {
+    if (!await _prepareRemoteAccess()) return null;
+
+    final file = File(localPath);
+    final bytes = await file.readAsBytes();
+    return uploadLabAnalysisReportPdfBytes(
+      bytes: bytes,
+      customerId: customerId,
+      flockId: flockId,
+      reportDate: reportDate,
+      fileName: fileName ?? localPath.split('/').last,
+    );
+  }
+
+  Future<String?> uploadLabAnalysisReportPdfBytes({
+    required Uint8List bytes,
+    required String customerId,
+    required String flockId,
+    required DateTime reportDate,
+    String? fileName,
+  }) async {
+    if (bytes.isEmpty || !await _prepareRemoteAccess()) return null;
+
+    final customer = _safeStorageSegment(customerId);
+    final flock = _safeStorageSegment(flockId);
+    final date = reportDate.toIso8601String().split('T').first;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final rawName = (fileName == null || fileName.trim().isEmpty)
+        ? 'lab-report.pdf'
+        : fileName.trim();
+    final extension = _fileExtension(rawName) == 'jpg'
+        ? 'pdf'
+        : _fileExtension(rawName);
+    final name = _safeStorageSegment(
+      rawName.toLowerCase().endsWith('.$extension')
+          ? rawName.substring(0, rawName.length - extension.length - 1)
+          : rawName,
+    );
+    final storagePath =
+        'lab_analysis_reports/$customer/$flock/$date/${stamp}_$name.$extension';
+
+    await _client.storage
+        .from('photos')
+        .uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            upsert: true,
+            contentType: _contentTypeForExtension(extension),
+          ),
+        );
+
+    return SupabaseSecurityPolicy.isPublicPhotoUrlEnabled
+        ? _client.storage.from('photos').getPublicUrl(storagePath)
+        : 'supabase://photos/$storagePath';
+  }
+
+  Future<String?> createLabAnalysisReportPdfUrl(String? remotePath) async {
+    final storagePath = _photoStoragePath(remotePath);
+    if (storagePath == null || storagePath.isEmpty) return null;
+    if (remotePath != null && remotePath.startsWith('http')) return remotePath;
+    if (!await _prepareRemoteAccess()) return null;
+    return _client.storage.from('photos').createSignedUrl(storagePath, 3600);
+  }
+
   Future<void> deleteBmkOperationalSourcePhoto(String? remotePath) async {
     final storagePath = _photoStoragePath(remotePath);
     if (storagePath == null || storagePath.isEmpty) return;
@@ -514,6 +601,9 @@ class SupabaseService {
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
     Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
+    Future<void> Function(Map<String, dynamic>)? upsertDashboardAction,
+    Future<void> Function(String table, Map<String, dynamic> row)?
+    upsertLabAnalysisRow,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
@@ -584,6 +674,27 @@ class SupabaseService {
             upsertGoveeDailyCapture,
           ),
         );
+      }
+      if (upsertDashboardAction != null) {
+        summary = summary.copyWith(
+          dashboardActions: await pullTable(
+            'dashboard_actions',
+            upsertDashboardAction,
+          ),
+        );
+      }
+      if (upsertLabAnalysisRow != null) {
+        var count = 0;
+        for (final table in const [
+          'lab_analysis_reports',
+          'lab_analysis_groups',
+          'lab_analysis_rows',
+        ]) {
+          count += await pullTable(table, (row) {
+            return upsertLabAnalysisRow(table, row);
+          });
+        }
+        summary = summary.copyWith(labAnalysisRows: count);
       }
       if (upsertPanelRow != null) {
         var count = 0;
@@ -708,6 +819,8 @@ class SupabaseService {
 
   String _contentTypeForExtension(String extension) {
     switch (extension) {
+      case 'pdf':
+        return 'application/pdf';
       case 'png':
         return 'image/png';
       case 'webp':

@@ -10,8 +10,9 @@ GoveeCaptureSummary _cap(
   TemperaturePlace place, {
   required double tempF,
   required double rh,
+  DateTime? recordedAt,
 }) {
-  final now = DateTime(2026, 6, 6);
+  final now = recordedAt ?? DateTime.now();
   final capture = GoveeDailyCaptureModel(
     id: place.name,
     customerId: 'c',
@@ -70,6 +71,19 @@ void main() {
     final items = goveeTriageItems([
       _cap(TemperaturePlace.outsideHatchery, tempF: 50, rh: 90),
     ]);
+    expect(items, isEmpty);
+  });
+
+  test('stale captures stay historical and never create active alarms', () {
+    final items = goveeTriageItems([
+      _cap(
+        TemperaturePlace.insideHatcher,
+        tempF: 120,
+        rh: 90,
+        recordedAt: DateTime.now().subtract(const Duration(days: 8)),
+      ),
+    ]);
+
     expect(items, isEmpty);
   });
 }

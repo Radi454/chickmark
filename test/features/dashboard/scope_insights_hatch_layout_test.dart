@@ -6,6 +6,7 @@ import 'package:hatchaudit/data/database/seeds/dashboard_demo_seeds.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/hatch_analysis_models.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
@@ -19,6 +20,9 @@ class _EmptyScopeRepo extends ScopeComparisonRepository {
   Future<List<ScopeLeafRow>> getScopeLeaves(sector, filter) async => const [];
   @override
   Future<int?> dominantBmkAge(filter) async => null;
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async =>
+      const ScopeDataBundle();
 }
 
 /// Canned Hatch age series so the chart has data without a DB.
@@ -68,6 +72,16 @@ class _RecordedBreakoutScopeRepo extends ScopeComparisonRepository {
 
   @override
   Future<int?> dominantBmkAge(filter) async => null;
+
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, filter) async {
+    final leaves = <String, List<ScopeLeafRow>>{};
+    for (final sector in sectors) {
+      final rows = await getScopeLeaves(sector, filter);
+      if (rows.isNotEmpty) leaves[sector.id] = rows;
+    }
+    return ScopeDataBundle(leavesBySector: leaves);
+  }
 }
 
 class _ScopeInsightsHarness extends StatefulWidget {
@@ -106,7 +120,10 @@ void main() {
       repository: repository ?? _EmptyScopeRepo(),
       panelRepository: panelRepo ?? _FakePanelRepo(const []),
     );
-    await provider.applyFilter(customerId: kDashboardDemoCustomerId);
+    await provider.applyFilter(
+      customerId: kDashboardDemoCustomerId,
+      hatcheryId: 'hatchery-dashboard-demo',
+    );
     prime?.call(provider);
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(
@@ -147,7 +164,10 @@ void main() {
         },
       ),
     );
-    await provider.applyFilter(customerId: 'customer-1');
+    await provider.applyFilter(
+      customerId: 'customer-1',
+      hatcheryId: 'hatchery-1',
+    );
 
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(

@@ -3,14 +3,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
 
+import 'local_supabase_env_loader_stub.dart'
+    if (dart.library.io) 'local_supabase_env_loader_io.dart';
+
 /// Supabase configuration constants.
 ///
-/// Credentials come from one of two sources, in priority order:
+/// Credentials come from three sources, in priority order:
 ///   1. Compile-time `--dart-define` / `--dart-define-from-file` (production,
 ///      CI). These win and skip the runtime load entirely.
-///   2. The bundled `.env.json` asset, loaded at runtime via [ensureLoaded].
-///      This lets a plain `flutter run` (no --dart-define) still reach the
-///      cloud during local development.
+///   2. A local `.env` file copied into the macOS debug/profile app bundle.
+///      This keeps direct local desktop runs from falling back to placeholders.
+///   3. The bundled `.env.json` asset, loaded at runtime via [ensureLoaded].
 ///
 /// The committed `.env.json` contains placeholders only. Real credentials
 /// should be supplied with `--dart-define` / `--dart-define-from-file`, or kept
@@ -50,6 +53,7 @@ class SupabaseConfig {
     final credentials = await _resolveCredentials(
       compileTimeUrl: _compileTimeUrl,
       compileTimeAnonKey: _compileTimeAnonKey,
+      loadLocalEnv: loadLocalSupabaseEnv,
       loadAsset: () => rootBundle.loadString('.env.json'),
     );
 
@@ -62,10 +66,12 @@ class SupabaseConfig {
     required String compileTimeUrl,
     required String compileTimeAnonKey,
     required Future<String> Function() loadAsset,
+    Future<String?> Function()? loadLocalEnv,
   }) {
     return _resolveCredentials(
       compileTimeUrl: compileTimeUrl,
       compileTimeAnonKey: compileTimeAnonKey,
+      loadLocalEnv: loadLocalEnv ?? () async => null,
       loadAsset: loadAsset,
     );
   }
@@ -73,6 +79,7 @@ class SupabaseConfig {
   static Future<SupabaseCredentials> _resolveCredentials({
     required String compileTimeUrl,
     required String compileTimeAnonKey,
+    required Future<String?> Function() loadLocalEnv,
     required Future<String> Function() loadAsset,
   }) async {
     final normalizedCompileUrl = compileTimeUrl.trim();
@@ -93,6 +100,16 @@ class SupabaseConfig {
     }
 
     try {
+      final raw = await loadLocalEnv();
+      final localCredentials = _credentialsFromDotEnv(raw);
+      if (localCredentials != null) {
+        return localCredentials;
+      }
+    } catch (_) {
+      // Local development config is best-effort. Fall through to bundled asset.
+    }
+
+    try {
       final raw = await loadAsset();
       final map = json.decode(raw) as Map<String, dynamic>;
       final url = (map['SUPABASE_URL'] as String?)?.trim();
@@ -109,6 +126,48 @@ class SupabaseConfig {
 
   static bool _hasUsableCredentials(String? url, String? anonKey) =>
       !_isEmptyOrPlaceholder(url) && !_isEmptyOrPlaceholder(anonKey);
+
+  static SupabaseCredentials? _credentialsFromDotEnv(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+
+    final values = <String, String>{};
+    for (final line in const LineSplitter().convert(raw)) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+
+      final separator = trimmed.indexOf('=');
+      if (separator <= 0) continue;
+
+      final key = trimmed.substring(0, separator).trim();
+      final value = _cleanDotEnvValue(trimmed.substring(separator + 1));
+      values[key] = value;
+    }
+
+    final url = values['SUPABASE_URL']?.trim();
+    final anonKey = values['SUPABASE_ANON_KEY']?.trim();
+    if (_hasUsableCredentials(url, anonKey)) {
+      return SupabaseCredentials(url: url!, anonKey: anonKey!);
+    }
+    return null;
+  }
+
+  static String _cleanDotEnvValue(String raw) {
+    var value = raw.trim();
+    final commentIndex = value.indexOf(' #');
+    if (commentIndex >= 0) {
+      value = value.substring(0, commentIndex).trimRight();
+    }
+    if (value.length >= 2) {
+      final first = value.codeUnitAt(0);
+      final last = value.codeUnitAt(value.length - 1);
+      final isQuoted =
+          (first == 0x22 && last == 0x22) || (first == 0x27 && last == 0x27);
+      if (isQuoted) {
+        value = value.substring(1, value.length - 1);
+      }
+    }
+    return value;
+  }
 
   static bool _isEmptyOrPlaceholder(String? value) {
     final normalized = value?.trim() ?? '';

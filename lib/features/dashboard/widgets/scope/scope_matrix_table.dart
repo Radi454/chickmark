@@ -115,20 +115,33 @@ class ScopeMatrixTable extends StatelessWidget {
           ),
           // Scrolling data pane.
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (showAvg)
-                    if (avgUsesPoolGroup && poolGroup != null)
-                      _dataColumn(params, poolGroup, avgW, rowH)
-                    else
-                      _avgColumn(params, stats, avgW, rowH),
-                  for (final i in visible)
-                    _dataColumn(params, groups[i], dataW, rowH),
-                ],
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final columnCount = visible.length + (showAvg ? 1 : 0);
+                final fillWidth = columnCount == 0
+                    ? dataW
+                    : constraints.maxWidth / columnCount;
+                final resolvedDataW = fillWidth > dataW ? fillWidth : dataW;
+                final resolvedAvgW = fillWidth > avgW ? fillWidth : avgW;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (showAvg)
+                          if (avgUsesPoolGroup && poolGroup != null)
+                            _dataColumn(params, poolGroup, resolvedAvgW, rowH)
+                          else
+                            _avgColumn(params, stats, resolvedAvgW, rowH),
+                        for (final i in visible)
+                          _dataColumn(params, groups[i], resolvedDataW, rowH),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],

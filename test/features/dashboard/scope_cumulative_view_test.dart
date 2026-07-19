@@ -5,6 +5,8 @@ import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/data/repositories/scope_comparison_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
+import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/models/scope_cumulative.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
@@ -42,6 +44,18 @@ class _FakeScopeRepo extends ScopeComparisonRepository {
   @override
   Future<int?> dominantBmkAge(filter) async => 36;
 
+  @override
+  Future<ScopeDataBundle> loadBundle(sectors, DashboardFilter filter) async {
+    final sector = sectors.firstWhere((item) => item.id == 'residue_breakout');
+    final leaves = await getScopeLeaves(sector, filter);
+    return ScopeDataBundle(
+      leavesBySector: {'residue_breakout': leaves},
+      periodsBySector: {
+        'residue_breakout': await distinctPeriods(sector, filter),
+      },
+    );
+  }
+
   ScopeLeafRow _leaf(
     int age,
     num infert, {
@@ -63,6 +77,13 @@ class _FakeScopeRepo extends ScopeComparisonRepository {
 class _FakePanelRepo extends PanelDashboardRepository {
   @override
   Future<BmkReference?> getBmkReferenceForAge(int ageWeek) async => null;
+
+  @override
+  Future<List<String>> getPhotoPaths(
+    DashboardFilter filter,
+    String panelName,
+    String fieldKey,
+  ) async => const [];
 }
 
 void main() {
@@ -77,7 +98,7 @@ void main() {
       repository: _FakeScopeRepo(),
       panelRepository: _FakePanelRepo(),
     );
-    await provider.applyFilter(customerId: 'cust-1');
+    await provider.applyFilter(customerId: 'cust-1', hatcheryId: 'hatchery-1');
     await tester.pumpWidget(
       ChangeNotifierProvider<ScopeComparisonProvider>.value(
         value: provider,

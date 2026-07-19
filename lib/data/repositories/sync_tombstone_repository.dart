@@ -14,6 +14,10 @@ class SyncTombstoneRepository {
 
   static const baseDeleteOrder = [
     'photos',
+    'dashboard_actions',
+    'lab_analysis_rows',
+    'lab_analysis_groups',
+    'lab_analysis_reports',
     'audit_sessions',
     'govee_daily_captures',
     'flocks',

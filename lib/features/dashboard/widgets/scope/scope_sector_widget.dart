@@ -14,6 +14,7 @@ import 'scope_chart_view.dart';
 import 'scope_cumulative_view.dart';
 import 'scope_matrix_table.dart';
 import 'scope_tiles_grid.dart';
+import '../dashboard_quality_strip.dart';
 
 /// One audit sector with an independent BMK-age selector, data-aware hierarchy
 /// controls, and a table/chart toggle over the same selected dataset.
@@ -102,6 +103,19 @@ class ScopeSectorWidget extends StatelessWidget {
               color: AppColors.textTertiary,
             ),
           ),
+          const SizedBox(height: 6),
+          DashboardQualityStrip(sectorId: sectorId),
+          const SizedBox(height: 6),
+          Text(
+            isAllAges
+                ? 'Overall: equal-age average · ${sector.params.map((p) => scopeAggregationPolicyLabel(p.aggregationPolicy)).toSet().join(' / ')}'
+                : 'Calculation: ${sector.params.map((p) => scopeAggregationPolicyLabel(p.aggregationPolicy)).toSet().join(' / ')}',
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textTertiary,
+            ),
+          ),
           if (showChartToggle || showPicker) ...[
             const SizedBox(height: AppSizes.spaceSm),
             Row(
@@ -180,21 +194,29 @@ class _ChartToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: AppColors.statusActiveBg,
+    final label = context.tr(isChart ? 'Show table' : 'Show chart');
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(AppSizes.pillRadius),
-          ),
-          child: Icon(
-            isChart ? Icons.table_chart_outlined : Icons.bar_chart,
-            size: 18,
-            color: AppColors.statusActive,
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.statusActiveBg,
+                borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+              ),
+              child: Icon(
+                isChart ? Icons.table_chart_outlined : Icons.bar_chart,
+                size: 18,
+                color: AppColors.statusActive,
+              ),
+            ),
           ),
         ),
       ),

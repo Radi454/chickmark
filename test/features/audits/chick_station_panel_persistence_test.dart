@@ -287,14 +287,16 @@ void main() {
       expect(quality.map((row) => row['hatcher']), ['H-1', 'H-2']);
       expect(quality.map((row) => row['pasgarSampleSize']), [40, 40]);
       expect(quality.map((row) => row['pasgarReflexesCount']), [2, 4]);
-      expect(quality.map((row) => row['pasgarFinalScore']), [9.8, 9.4]);
+      // The saved score is a controlled cache derived from the raw five
+      // scored defect counts; the manually supplied 9.4 cannot drift from them.
+      expect(quality.map((row) => row['pasgarFinalScore']), [9.8, 9.8]);
 
       expect(quality.map((row) => row['yfbmEntryCount']), [2, 1]);
       expect(quality.map((row) => row['yfbmAvgPct']), [9.7, 10.2]);
       expect(quality.first['yfbmEntriesJson'], contains('yolkWeight'));
 
       expect(quality.map((row) => row['cvtSampleSize']), [3, 2]);
-      expect(quality.map((row) => row['cvtAvgTemp']), [101.7, 102.25]);
+      expect(quality.map((row) => row['cvtAvgTemp']), [101.7, 102.3]);
       expect(quality.last['cvtReadingsJson'], jsonEncode([102.1, 102.4]));
 
       expect(quality.map((row) => row['pmSampleSize']), [12, 8]);

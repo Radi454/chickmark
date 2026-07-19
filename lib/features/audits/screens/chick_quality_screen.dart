@@ -10,6 +10,7 @@ import '../../../core/constants/app_thresholds.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/utils/calculation_utils.dart';
+import '../../../data/database/database_helper.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../providers/audit_provider.dart';
@@ -28,12 +29,16 @@ import '../widgets/tabs/yfbm_tab.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'audit_context_screen.dart';
 
+typedef ChickBmkWeightLookup =
+    Future<double?> Function(String? breed, int ageWeek);
+
 class ChickQualityScreen extends StatefulWidget {
   final AuditContextData context;
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
   final int initialTabIndex;
+  final ChickBmkWeightLookup? bmkChickWeightLookup;
 
   const ChickQualityScreen({
     super.key,
@@ -42,6 +47,7 @@ class ChickQualityScreen extends StatefulWidget {
     this.initialAudits = const [],
     this.initialStationSamples = const [],
     this.initialTabIndex = 0,
+    this.bmkChickWeightLookup,
   });
 
   @override
@@ -65,6 +71,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
   String? _loadedWeightsAuditId;
   Timer? _weightUpdateDebounce;
   bool _hasPendingWeightUpdate = false;
+  double? _bmkChickWeight;
+  int _bmkLookupGeneration = 0;
 
   @override
   void initState() {
@@ -93,6 +101,11 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
     );
+    _bmkChickWeight = auditProvider.activeDraft.chickBmkWeight;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncCurrentChickWeightBmk(auditProvider);
+    });
   }
 
   @override
@@ -262,6 +275,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
             contextData: widget.context,
             provider: provider,
             audit: audit,
+            bmkChickWeight: _bmkChickWeight,
             weightControllers: _weightControllers,
             weightFocusNodes: _weightFocusNodes,
             onWeightsChanged: _updateWeightCalculations,
@@ -500,6 +514,83 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       }
     } catch (_) {
       return null;
+    }
+    return null;
+  }
+
+  void _syncCurrentChickWeightBmk(AuditProvider provider) {
+    unawaited(_syncChickWeightBmk(provider));
+  }
+
+  Future<void> _syncChickWeightBmk(AuditProvider provider) async {
+    final generation = ++_bmkLookupGeneration;
+    final bmkAge = _chickBmkAgeForContext();
+    final draft = provider.activeDraft;
+    if (draft.chickBmkAge != bmkAge) {
+      provider.updateField('chickBmkAge', bmkAge);
+    }
+
+    if (bmkAge == null) {
+      if (mounted) setState(() => _bmkChickWeight = null);
+      if (provider.activeDraft.chickBmkWeight != null) {
+        provider.updateField('chickBmkWeight', null);
+      }
+      return;
+    }
+
+    final chickWeight = await _lookupBmkChickWeight(
+      _firstText(widget.context.breed, draft.soBreed, draft.hoBreed),
+      bmkAge,
+    );
+    if (!mounted || generation != _bmkLookupGeneration) return;
+    setState(() => _bmkChickWeight = chickWeight);
+    if (provider.activeDraft.chickBmkWeight != chickWeight) {
+      provider.updateField('chickBmkWeight', chickWeight);
+    }
+  }
+
+  int? _chickBmkAgeForContext() {
+    final age = widget.context.flockAgeWeeks;
+    return age == null || age <= 0 ? null : age;
+  }
+
+  Future<double?> _lookupBmkChickWeight(String? breed, int ageWeek) async {
+    final injectedLookup = widget.bmkChickWeightLookup;
+    if (injectedLookup != null) {
+      return injectedLookup(breed, ageWeek);
+    }
+
+    final normalizedBreed = _normalizeBreed(breed);
+    if (normalizedBreed == null) return null;
+
+    try {
+      final db = await DatabaseHelper().db;
+      final rows = await db.rawQuery(
+        '''
+        SELECT chickWeightG
+        FROM bmk_breeds
+        WHERE lower(replace(breed, ' ', '')) = ?
+        ORDER BY ABS(ageWeek - ?) ASC
+        LIMIT 1
+        ''',
+        [normalizedBreed, ageWeek],
+      );
+      if (rows.isEmpty) return null;
+      return (rows.first['chickWeightG'] as num?)?.toDouble();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _normalizeBreed(String? breed) {
+    final value = breed?.trim().toLowerCase().replaceAll(' ', '');
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String? _firstText(String? first, String? second, String? third) {
+    for (final value in [first, second, third]) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) return trimmed;
     }
     return null;
   }
@@ -763,6 +854,7 @@ class _ChickWeightsPanel extends StatelessWidget {
   final AuditContextData contextData;
   final AuditProvider provider;
   final AuditModel audit;
+  final double? bmkChickWeight;
   final List<TextEditingController> weightControllers;
   final List<FocusNode> weightFocusNodes;
   final VoidCallback onWeightsChanged;
@@ -772,6 +864,7 @@ class _ChickWeightsPanel extends StatelessWidget {
     required this.contextData,
     required this.provider,
     required this.audit,
+    required this.bmkChickWeight,
     required this.weightControllers,
     required this.weightFocusNodes,
     required this.onWeightsChanged,
@@ -788,7 +881,7 @@ class _ChickWeightsPanel extends StatelessWidget {
         const SizedBox(height: 12),
         _HouseWeightSampleControls(provider: provider),
         const SizedBox(height: 12),
-        _MetricGrid(audit: audit, stats: stats),
+        _MetricGrid(audit: audit, stats: stats, bmkChickWeight: bmkChickWeight),
         const SizedBox(height: 14),
         Align(
           alignment: AlignmentDirectional.centerStart,
@@ -873,7 +966,10 @@ class _FlockCard extends StatelessWidget {
   }
 
   String get _bmkAgeLabel {
-    final bmkAge = audit.chickBmkAge ?? contextData.flockAgeWeeks;
+    final contextAge = contextData.flockAgeWeeks;
+    final bmkAge = contextAge != null && contextAge > 0
+        ? contextAge
+        : audit.chickBmkAge;
     return bmkAge == null ? '--' : '$bmkAge wks';
   }
 
@@ -1645,8 +1741,13 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
 class _MetricGrid extends StatelessWidget {
   final AuditModel audit;
   final _WeightStats stats;
+  final double? bmkChickWeight;
 
-  const _MetricGrid({required this.audit, required this.stats});
+  const _MetricGrid({
+    required this.audit,
+    required this.stats,
+    required this.bmkChickWeight,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1658,9 +1759,9 @@ class _MetricGrid extends StatelessWidget {
       ),
       _MetricSummaryItem(
         label: 'BMK Chick Weight',
-        value: audit.chickBmkWeight == null
+        value: (bmkChickWeight ?? audit.chickBmkWeight) == null
             ? '--'
-            : '${audit.chickBmkWeight!.toStringAsFixed(1)}g',
+            : '${(bmkChickWeight ?? audit.chickBmkWeight)!.toStringAsFixed(1)}g',
       ),
       _MetricSummaryItem(
         label: 'Avg Weight',

@@ -169,28 +169,17 @@ class ScopeEngine {
     String text;
     switch (param.format) {
       case ScopeValueFormat.percent:
-        if (param.countColumn != null && acc.hasCountCol && acc.traySum > 0) {
-          value =
-              100 * acc.countSum / acc.traySum; // count-weighted Σbad/Σtotal
-        } else if (acc.hasTray && acc.traySum > 0) {
-          value = acc.weightedValueSum / acc.traySum; // weighted mean of pct
-        } else if (acc.valueN > 0) {
-          value = acc.valueSum / acc.valueN; // unweighted mean (no traySize)
-        }
+        value = _aggregateNumeric(param, acc);
         text = value == null
             ? '—'
             : '${value.toStringAsFixed(param.decimals)}%';
         break;
       case ScopeValueFormat.number:
-        if (acc.hasTray && acc.traySum > 0) {
-          value = acc.weightedValueSum / acc.traySum;
-        } else if (acc.valueN > 0) {
-          value = acc.valueSum / acc.valueN;
-        }
+        value = _aggregateNumeric(param, acc);
         text = value == null ? '—' : value.toStringAsFixed(param.decimals);
         break;
       case ScopeValueFormat.integer:
-        if (acc.valueN > 0) value = acc.valueSum;
+        value = _aggregateNumeric(param, acc);
         text = value == null ? '—' : value.round().toString();
         break;
       case ScopeValueFormat.yesNo:
@@ -219,5 +208,27 @@ class ScopeEngine {
       isPercent: param.format == ScopeValueFormat.percent,
       severity: severity,
     );
+  }
+
+  static num? _aggregateNumeric(ScopeParam param, ScopeCellAccumulator acc) {
+    if (acc.valueN == 0) return null;
+    switch (param.aggregationPolicy) {
+      case ScopeAggregationPolicy.ratioOfSums:
+        if (acc.hasCountCol && acc.denominatorSum > 0) {
+          return 100 * acc.countSum / acc.denominatorSum;
+        }
+        return acc.valueSum / acc.valueN;
+      case ScopeAggregationPolicy.sampleWeightedMean:
+        if (acc.hasDenominator && acc.denominatorSum > 0) {
+          return acc.weightedValueSum / acc.denominatorSum;
+        }
+        return acc.valueSum / acc.valueN;
+      case ScopeAggregationPolicy.equalGroupMean:
+        return acc.valueSum / acc.valueN;
+      case ScopeAggregationPolicy.sum:
+        return acc.valueSum;
+      case ScopeAggregationPolicy.latest:
+        return acc.latestValue;
+    }
   }
 }
