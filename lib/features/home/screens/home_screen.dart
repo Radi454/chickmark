@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   //  - spamming the bar on every rebuild while still offline,
   //  - missing a re-offline event after the user briefly went online again.
   CloudStatus? _lastSeenStatus;
+  bool _postSyncRefreshScheduled = false;
 
   @override
   void initState() {
@@ -60,23 +61,43 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _maybeShowOfflineSnackBar(SettingsProvider settings) {
+  void _handleCloudStatus(SettingsProvider settings) {
     final current = settings.cloudStatus;
     final previous = _lastSeenStatus;
     // Update synchronously — multiple builds inside one frame must not each
-    // schedule a SnackBar callback.
+    // schedule the same post-sync work.
     _lastSeenStatus = current;
-    if (current != CloudStatus.offline) return;
-    if (previous == CloudStatus.offline) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Offline — sync paused. Local data still available.'),
-          duration: Duration(seconds: 4),
-        ),
-      );
-    });
+    if (current == CloudStatus.offline && previous != CloudStatus.offline) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Offline — sync paused. Local data still available.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      });
+    }
+
+    // MainShell starts background sync after Home's first frame. Once that
+    // pull completes, refresh Home's private cache so cloud audits become
+    // visible without a page reload or a second manual sync.
+    if (previous == CloudStatus.syncing &&
+        current == CloudStatus.online &&
+        settings.lastSyncError == null &&
+        !_postSyncRefreshScheduled) {
+      _postSyncRefreshScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          if (!mounted) return;
+          await _homeProvider.load(
+            currentUser: context.read<AuthProvider>().user,
+          );
+        } finally {
+          _postSyncRefreshScheduled = false;
+        }
+      });
+    }
   }
 
   @override
@@ -110,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
         value: _homeProvider,
         child: Consumer3<CustomersProvider, SettingsProvider, HomeProvider>(
           builder: (context, provider, settings, home, child) {
-            _maybeShowOfflineSnackBar(settings);
+            _handleCloudStatus(settings);
             if (provider.isLoading &&
                 provider.allCustomers.isEmpty &&
                 home.isLoading) {

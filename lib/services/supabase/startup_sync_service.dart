@@ -15,6 +15,7 @@ import '../../data/repositories/sync_conflict_repository.dart';
 import '../../data/repositories/sync_tombstone_repository.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/incoming_change.dart';
+import '../../core/security/safe_debug_log.dart';
 import '../photo/photo_sync_service.dart';
 import 'sync_meta.dart';
 import 'supabase_service.dart';
@@ -154,8 +155,7 @@ class StartupSyncService {
     }
     final pulled = await _pullRemoteData(progress);
     progress(0.96, 'Syncing photos');
-    await _photoSyncService.syncDownloaded();
-    await _photoSyncService.syncPending();
+    await _syncPhotosBestEffort();
     if (userId != null && userId.isNotEmpty) {
       await _activityLogRepository.log(
         userId,
@@ -175,6 +175,19 @@ class StartupSyncService {
       incomingSessions: List.unmodifiable(_incomingSessionsThisRun),
       otherIncomingCount: _otherIncomingThisRun,
     );
+  }
+
+  Future<void> _syncPhotosBestEffort() async {
+    try {
+      await _photoSyncService.syncDownloaded();
+    } catch (error) {
+      safeDebugLog('Downloaded photo sync skipped', error: error);
+    }
+    try {
+      await _photoSyncService.syncPending();
+    } catch (error) {
+      safeDebugLog('Pending photo sync skipped', error: error);
+    }
   }
 
   Future<void> _applyRemoteDeletesBeforePush(

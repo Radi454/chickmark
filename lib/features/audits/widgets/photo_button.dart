@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/photo_model.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/photo/photo_service.dart';
+import '../../../widgets/photo_image.dart';
 import '../providers/audit_provider.dart';
 import 'inline_camera_capture.dart';
 
@@ -116,8 +116,8 @@ class _PhotoButtonState extends State<PhotoButton> {
             // Thumbnail
             ClipRRect(
               borderRadius: BorderRadius.circular(7),
-              child: Image.file(
-                File(widget.photoPath!),
+              child: PhotoImage(
+                path: widget.photoPath!,
                 width: widget.size - 2,
                 height: widget.size - 2,
                 fit: BoxFit.cover,
@@ -243,7 +243,7 @@ class _PhotoButtonState extends State<PhotoButton> {
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.file(File(widget.photoPath!), fit: BoxFit.contain),
+                PhotoImage(path: widget.photoPath!, fit: BoxFit.contain),
               ],
             ),
             Positioned(
@@ -549,8 +549,8 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(7),
-              child: Image.file(
-                File(path),
+              child: PhotoImage(
+                path: path,
                 width: 54,
                 height: 54,
                 fit: BoxFit.cover,

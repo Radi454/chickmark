@@ -5,6 +5,7 @@ import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:hatchaudit/features/home/screens/home_screen.dart';
 import 'package:hatchaudit/features/home/providers/home_provider.dart';
+import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/l10n/app_localizations.dart';
 import 'package:hatchaudit/localized_material.dart' as localized;
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
@@ -22,6 +23,15 @@ class _MockSupabaseService extends Mock implements SupabaseService {}
 class _LongArabicDateHomeProvider extends HomeProvider {
   @override
   String? get lastAuditDate => '٣ يوليو ٢٠٢٦';
+}
+
+class _TrackingHomeProvider extends HomeProvider {
+  int loadCount = 0;
+
+  @override
+  Future<void> load({required UserModel? currentUser}) async {
+    loadCount++;
+  }
 }
 
 void main() {
@@ -106,6 +116,42 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('successful background sync refreshes the home data cache', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    final home = _TrackingHomeProvider();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider(create: (_) => DashboardProvider()),
+          ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
+        ],
+        child: MaterialApp(
+          home: HomeScreen(loadInitialData: false, homeProvider: home),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    settings.markSyncing();
+    await tester.pump();
+    await settings.recordSync(online: true, pushed: 0, pulled: 2);
+    await tester.pump();
+    await tester.pump();
+
+    expect(home.loadCount, 1);
   });
 
   testWidgets('Arabic last audit date is not truncated', (tester) async {
