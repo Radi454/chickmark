@@ -1,4 +1,5 @@
 import 'package:hatchaudit/localized_material.dart';
+import '../../../core/security/password_policy.dart';
 
 class PasswordStrengthIndicator extends StatelessWidget {
   final String password;
@@ -15,7 +16,9 @@ class PasswordStrengthIndicator extends StatelessWidget {
         const SizedBox(width: 4),
         _buildBar(strength >= 2, Colors.orange),
         const SizedBox(width: 4),
-        _buildBar(strength >= 3, Colors.green),
+        _buildBar(strength >= 3, Colors.lightGreen),
+        const SizedBox(width: 4),
+        _buildBar(strength >= 4, Colors.green),
       ],
     );
   }
@@ -33,15 +36,6 @@ class PasswordStrengthIndicator extends StatelessWidget {
   }
 
   int _calculateStrength(String password) {
-    if (password.length < 8) return 0;
-
-    bool hasNumber = password.contains(RegExp(r'\d'));
-    if (!hasNumber) return 1;
-
-    bool hasUppercase = password.contains(RegExp(r'[A-Z]'));
-    bool hasSpecialChar = password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
-
-    if (hasUppercase || hasSpecialChar) return 3;
-    return 2;
+    return PasswordPolicy.strengthScore(password);
   }
 }

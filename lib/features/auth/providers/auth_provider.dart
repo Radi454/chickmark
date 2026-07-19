@@ -98,13 +98,6 @@ class AuthProvider extends ChangeNotifier {
         return true;
       } else {
         if (result.error == 'offline') {
-          final cachedUser = await _userRepository.getCachedUserByEmail(email);
-          if (cachedUser != null) {
-            _user = cachedUser;
-            await _activityLogRepository.log(_user!.id, 'login');
-            _setState(AuthState.authenticated);
-            return true;
-          }
           if (await _tryLocalLogin(email, password)) {
             return true;
           }

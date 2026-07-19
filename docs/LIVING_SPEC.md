@@ -1415,6 +1415,17 @@ disabled by default for release builds, and can only be enabled in release with
 v3 PBKDF2-HMAC-SHA256 hashes with per-password random salts and iteration
 metadata. Legacy local tokens and v2 salted SHA-256 hashes are accepted only for
 migration and are upgraded to v3 after a successful local login.
+An explicit login attempt must verify the entered password through Supabase or
+through an enabled local fallback account. A cached Supabase profile is not
+accepted as proof of the newly entered password when the device is offline.
+Startup may still resume a previously remembered, unexpired remote session from
+secure local token storage without asking the user to sign in again.
+The live Supabase Auth configuration requires at least 12 characters with
+lowercase and uppercase letters, a digit, and a symbol; the registration form
+enforces the same policy locally. Password changes require both a recent
+reauthenticated session and the current password. HaveIBeenPwned leaked-password
+checking is not available on the project's current Supabase Free plan, so the
+security advisor retains that single plan-bound warning.
 The login screen's Remember me option stores only the saved email in shared
 preferences and forwards the remember-session choice into Supabase sign-in. When
 Remember me is unchecked on a successful login, the saved email is removed and
@@ -1635,6 +1646,11 @@ tombstones locally so another device reload removes stale rows. Customer deletes
 queue child tombstones for station panel rows, photos, audit sessions, Govee
 captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
 cloud rows even when local SQLite cascade removes the children immediately.
+Supabase derives each new tombstone's customer from the still-existing target
+row before remote deletion and snapshots the approved users authorized for that
+customer. RLS exposes the deletion event only to that audience (or an approved
+admin), preventing one tenant's tombstones from deleting another tenant's local
+cache. Historical tombstones that predate customer scope remain admin-only.
 `BgSyncService`
 runs this sync after the shell starts and reports failure as offline data
 available. Startup and background sync can surface a Home-screen cloud notice
@@ -1643,8 +1659,11 @@ database has previously synced. A successful foreground `Sync Now` action in
 Home or Settings acknowledges that notice so it disappears after the user
 manually syncs; offline or failed sync attempts leave the notice intact. The
 app assumes Supabase tables and storage are protected by project
-RLS/storage policies for authenticated users and their customer scope; the
-client only ships anon credentials and never needs service-role access. Debug
+RLS/storage policies for approved authenticated users and their customer scope.
+Authorization helpers live in a non-exposed private schema; approved status is
+required for admin privileges, direct execution of trigger functions is
+revoked, and the anonymous database role has no public-table CRUD grants. The
+client only ships a publishable key and never needs service-role access. Debug
 sync logs are sanitized and do not print stack traces, tokens, row payloads, or
 raw BLE bytes. Shared debug logging redacts JWTs, Supabase publishable/secret
 keys, and token/password/API-key values in query/form and JSON-style messages
@@ -1711,6 +1730,17 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-19: Hardened Supabase authorization by moving RLS helpers out of the
+  exposed API schema, requiring approved admin status, revoking anonymous table
+  and trigger-function grants, and tenant-scoping deletion tombstones with a
+  server-derived immutable customer and snapshotted audience. Explicit offline
+  login no longer accepts a cached Supabase profile as proof of an entered
+  password; remembered valid sessions still resume during startup. Strengthened
+  live Auth and registration rules to 12 characters with lowercase, uppercase,
+  digit, and symbol requirements, plus recent-session and current-password
+  checks for password changes. Registration counts user-perceived Unicode
+  characters consistently, and disposable PostgreSQL integration checks verify
+  the effective helper, policy, and function-grant state across migrations.
 - 2026-07-19: Aligned the iOS Runner deployment target with the Podfile's iOS
   15.5 minimum and disabled parallel CocoaPods framework code signing for
   Release builds so local device release builds complete reliably before

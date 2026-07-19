@@ -572,7 +572,13 @@ Startup sync pushes and pulls the current table set in dependency order:
 8. `sync_tombstones`
 
 Removed tables are not pushed or pulled. Tombstones support panel tables and
-photos directly.
+photos directly. On Supabase, a before-insert trigger derives each tombstone's
+`customer_id` from the target row and snapshots the approved user ids that may
+receive the deletion. The browser cannot provide or later change this scope.
+RLS permits only that audience (plus approved admins) to read the event; legacy
+unscoped tombstones are admin-only. Public data tables do not grant CRUD access
+to the anonymous role, and tenant authorization helpers are security-definer
+functions in the non-exposed `chickmark_private` schema.
 
 ## Removed Fields And Safe Deletions
 

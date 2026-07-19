@@ -174,21 +174,18 @@ void main() {
       ).thenAnswer((_) async => AuthResult(success: false, error: 'offline'));
     });
 
-    test('authenticated using cached Supabase session', () async {
-      when(
-        () => mockRepo.getCachedUserByEmail(email),
-      ).thenAnswer((_) async => approvedSupabaseUser());
+    test('does not use a cached Supabase profile as password proof', () async {
+      when(() => mockRepo.getUserByEmail(email)).thenAnswer((_) async => null);
 
       final result = await provider.login(email, password);
 
-      expect(result, isTrue);
-      expect(provider.state, AuthState.authenticated);
+      expect(result, isFalse);
+      expect(provider.state, AuthState.error);
+      expect(provider.errorMessage, contains('Internet access'));
+      verifyNever(() => mockRepo.getCachedUserByEmail(email));
     });
 
     test('authenticated using local account with correct password', () async {
-      when(
-        () => mockRepo.getCachedUserByEmail(email),
-      ).thenAnswer((_) async => null);
       final hash = provider.hashPasswordForTesting(password, iterations: 1000);
       final localUser = localUserFixture(hash);
       when(
@@ -205,9 +202,6 @@ void main() {
     });
 
     test('error when no cached user and no local account', () async {
-      when(
-        () => mockRepo.getCachedUserByEmail(email),
-      ).thenAnswer((_) async => null);
       when(() => mockRepo.getUserByEmail(email)).thenAnswer((_) async => null);
 
       final result = await provider.login(email, password);
@@ -218,9 +212,6 @@ void main() {
     });
 
     test('error when local account has wrong password', () async {
-      when(
-        () => mockRepo.getCachedUserByEmail(email),
-      ).thenAnswer((_) async => null);
       final wrongHash = provider.hashPasswordForTesting(
         'wrong-password',
         iterations: 1000,

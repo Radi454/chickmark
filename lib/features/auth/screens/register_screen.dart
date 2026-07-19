@@ -5,6 +5,7 @@ import '../../../features/auth/providers/auth_provider.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../../widgets/section_card.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/security/password_policy.dart';
 import '../../../features/auth/widgets/password_strength_indicator.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/gradient_app_bar.dart';
@@ -170,18 +171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           textInputAction: TextInputAction.next,
                           onFieldSubmitted: (_) =>
                               _confirmPasswordFocusNode.requestFocus(),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter a password';
-                            }
-                            if (value.length < 8) {
-                              return 'Password must be at least 8 characters';
-                            }
-                            if (!value.contains(RegExp(r'\d'))) {
-                              return 'Password must contain at least one number';
-                            }
-                            return null;
-                          },
+                          validator: PasswordPolicy.validationMessage,
                           onChanged: (value) {
                             setState(() {});
                           },

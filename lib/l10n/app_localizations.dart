@@ -1537,9 +1537,16 @@ const Map<String, String> _ar = {
   'Please enter your password': 'يرجى إدخال كلمة المرور',
   'Please enter your full name': 'يرجى إدخال الاسم الكامل',
   'Please enter a password': 'يرجى إدخال كلمة مرور',
-  'Password must be at least 8 characters': 'يجب ألا تقل كلمة المرور عن 8 أحرف',
+  'Password must be at least 12 characters':
+      'يجب ألا تقل كلمة المرور عن 12 حرفًا',
+  'Password must contain a lowercase letter':
+      'يجب أن تحتوي كلمة المرور على حرف إنجليزي صغير',
+  'Password must contain an uppercase letter':
+      'يجب أن تحتوي كلمة المرور على حرف إنجليزي كبير',
   'Password must contain at least one number':
       'يجب أن تحتوي كلمة المرور على رقم واحد على الأقل',
+  'Password must contain at least one symbol':
+      'يجب أن تحتوي كلمة المرور على رمز واحد على الأقل',
   'Please confirm your password': 'يرجى تأكيد كلمة المرور',
   'Passwords do not match': 'كلمتا المرور غير متطابقتين',
   'Egg Weight Sheet': 'سجل أوزان البيض',
