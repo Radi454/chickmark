@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/calculation_utils.dart';
+import '../../../widgets/photo_image.dart';
 import '../models/est_grid_data.dart';
 import 'audit_numeric_keyboard.dart';
 import 'photo_button.dart';
@@ -500,8 +499,8 @@ class _EvidenceThumbnail extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.file(
-              File(path),
+            PhotoImage(
+              path: path,
               fit: BoxFit.cover,
               cacheWidth: 120,
               cacheHeight: 80,

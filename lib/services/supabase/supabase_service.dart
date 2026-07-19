@@ -400,6 +400,26 @@ class SupabaseService {
     return _client.storage.from('photos').download(storagePath);
   }
 
+  /// Resolves a private photo storage reference to a browser-displayable URL.
+  ///
+  /// Mobile and desktop download remote photos into their documents directory.
+  /// Flutter Web has no path_provider documents directory, so it displays the
+  /// authenticated object through a short-lived signed URL instead.
+  Future<String?> createPhotoUrl(String? remoteFilePath) async {
+    if (remoteFilePath == null || remoteFilePath.trim().isEmpty) return null;
+    final value = remoteFilePath.trim();
+    final uri = Uri.tryParse(value);
+    final isHttp = uri?.scheme == 'http' || uri?.scheme == 'https';
+    final isSignedStorageUrl =
+        isHttp && (uri?.path.contains('/object/sign/photos/') ?? false);
+    if (isHttp && !isSignedStorageUrl) return value;
+
+    final storagePath = _photoStoragePath(value);
+    if (storagePath == null || storagePath.isEmpty) return null;
+    if (!await _prepareRemoteAccess()) return null;
+    return _client.storage.from('photos').createSignedUrl(storagePath, 3600);
+  }
+
   Future<void> syncUpdateFlock(Map<String, dynamic> flock) async {
     try {
       if (!await _prepareRemoteAccess()) return;

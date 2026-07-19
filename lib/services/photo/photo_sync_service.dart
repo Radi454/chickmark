@@ -15,15 +15,18 @@ class PhotoSyncService {
     SupabaseService? supabase,
     int maxUploadBytes = 5 * 1024 * 1024,
     Future<Directory> Function()? documentDirectoryProvider,
+    bool? isWebForTesting,
   }) : _repo = repository ?? PhotoRepository(),
        _supabase = supabase ?? SupabaseService(),
        _maxBytes = maxUploadBytes,
+       _isWeb = isWebForTesting ?? kIsWeb,
        _documentDirectoryProvider =
            documentDirectoryProvider ?? getApplicationDocumentsDirectory;
 
   final PhotoRepository _repo;
   final SupabaseService _supabase;
   final int _maxBytes;
+  final bool _isWeb;
   final Future<Directory> Function() _documentDirectoryProvider;
 
   // Re-encode oversize captures below the capture default so they still sync.
@@ -31,6 +34,11 @@ class PhotoSyncService {
   static const int _shrinkQuality = 80;
 
   Future<void> syncDownloaded() async {
+    if (_isWeb) {
+      await _refreshWebPhotoUrls();
+      return;
+    }
+
     final documentsDir = await _documentDirectoryProvider();
     try {
       await _repo.reconcileLocalPaths(documentsDir.path);
@@ -63,6 +71,11 @@ class PhotoSyncService {
   }
 
   Future<void> syncPending() async {
+    // Browser captures do not have stable dart:io file paths. Their upload
+    // path is handled separately; never let mobile-only File access abort the
+    // core customer/audit cloud sync on Flutter Web.
+    if (_isWeb) return;
+
     final available = await _supabase.refreshAvailability();
     if (!available) return;
 
@@ -93,6 +106,22 @@ class PhotoSyncService {
         await _repo.updateStatus(photo.id, 'synced');
       } catch (_) {
         await _repo.updateStatus(photo.id, 'failed');
+      }
+    }
+  }
+
+  Future<void> _refreshWebPhotoUrls() async {
+    final available = await _supabase.refreshAvailability();
+    if (!available) return;
+
+    final remotePhotos = await _repo.getRemotePhotos();
+    for (final photo in remotePhotos) {
+      try {
+        final url = await _supabase.createPhotoUrl(photo.filePath);
+        if (url == null || url.isEmpty) continue;
+        await _repo.updateLocalPath(photo.id, url);
+      } catch (_) {
+        // Keep the storage reference so a later sync can retry URL creation.
       }
     }
   }

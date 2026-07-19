@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../widgets/photo_image.dart';
 
 class InlineCameraCapture extends StatefulWidget {
   const InlineCameraCapture({
@@ -311,7 +311,7 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
       fit: StackFit.expand,
       children: [
         if (capturedImagePath != null)
-          Image.file(File(capturedImagePath), fit: BoxFit.cover)
+          PhotoImage(path: capturedImagePath, fit: BoxFit.cover)
         else
           _buildLivePreview(),
         _buildScanFrame(isScanning: widget.isScanning),

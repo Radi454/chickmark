@@ -1606,6 +1606,15 @@ tombstone sync removes matching Supabase storage objects before deleting remote
 `photos` metadata rows, so deleted evidence is removed from other devices and
 the backing bucket.
 
+Flutter Web does not call the mobile-only application documents-directory API
+during photo sync. Instead, pulled private `supabase://photos/...` references
+are resolved to authenticated signed URLs and the shared photo widgets render
+those URLs with network images. Pending local-file photo uploads are skipped on
+web because browser captures do not expose stable `dart:io` paths. Download and
+pending-photo failures are isolated as best-effort work, so they cannot turn an
+otherwise completed customer/audit/panel cloud pull into a failed sync or
+prevent the website from refreshing its data.
+
 Before checking cloud availability, downloaded-photo sync reconciles persisted
 local photo paths against the current app documents directory. If an iOS
 application-container path has changed but the same filename exists in the
@@ -1641,8 +1650,11 @@ available. Startup and background sync can surface a Home-screen cloud notice
 for sessions and other records pulled from another device after the local
 database has previously synced. A successful foreground `Sync Now` action in
 Home or Settings acknowledges that notice so it disappears after the user
-manually syncs; offline or failed sync attempts leave the notice intact. The
-app assumes Supabase tables and storage are protected by project
+manually syncs; offline or failed sync attempts leave the notice intact. Home
+refreshes its private audit summary cache when a background sync transitions
+from syncing to online, so newly pulled cloud visits appear without a browser
+reload or a second manual sync. The app assumes Supabase tables and storage are
+protected by project
 RLS/storage policies for authenticated users and their customer scope; the
 client only ships anon credentials and never needs service-role access. Debug
 sync logs are sanitized and do not print stack traces, tokens, row payloads, or
@@ -1711,6 +1723,13 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-19: Made Supabase sync web-safe by replacing the unsupported
+  documents-directory photo step with signed storage URLs, isolating photo work
+  from the core data pull, rendering remote evidence through shared web-aware
+  photo widgets, and refreshing Home after successful background hydration.
+  Applied the repository's previously skipped `0004_dashboard_actions`
+  migration to the connected ChickMark Supabase project so every implemented
+  sync table is present remotely with RLS enabled.
 - 2026-07-19: Aligned the iOS Runner deployment target with the Podfile's iOS
   15.5 minimum and disabled parallel CocoaPods framework code signing for
   Release builds so local device release builds complete reliably before

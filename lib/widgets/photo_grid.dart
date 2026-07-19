@@ -1,8 +1,8 @@
-import 'dart:io';
 import 'package:hatchaudit/localized_material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
+import 'package:hatchaudit/widgets/photo_image.dart';
 
 class PhotoGrid extends StatelessWidget {
   final List<String> filePaths;
@@ -34,9 +34,9 @@ class PhotoGrid extends StatelessWidget {
       onTap: onTap != null ? () => onTap!(path) : null,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppSizes.spaceXs),
-        child: File(path).existsSync()
-            ? Image.file(
-                File(path),
+        child: isDisplayablePhotoPath(path)
+            ? PhotoImage(
+                path: path,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) =>
                     _buildPlaceholder(),

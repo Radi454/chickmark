@@ -483,6 +483,22 @@ void main() {
     },
   );
 
+  test('photo failures do not discard a completed cloud data pull', () async {
+    when(
+      () => photoSync.syncDownloaded(),
+    ).thenThrow(StateError('documents directory unavailable'));
+    when(
+      () => photoSync.syncPending(),
+    ).thenThrow(StateError('local files unavailable'));
+
+    final outcome = await service().run();
+
+    expect(outcome.online, isTrue);
+    expect(outcome.pulled, 1);
+    verify(() => photoSync.syncDownloaded()).called(1);
+    verify(() => photoSync.syncPending()).called(1);
+  });
+
   test('reports pending deletes when remote row deletion fails', () async {
     final tombstone = SyncTombstone(
       id: 'customers:customer-1',

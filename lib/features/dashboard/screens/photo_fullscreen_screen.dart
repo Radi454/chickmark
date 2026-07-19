@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:hatchaudit/localized_material.dart';
+import 'package:hatchaudit/widgets/photo_image.dart';
 
 class PhotoFullscreenScreen extends StatelessWidget {
   final String filePath;
@@ -22,9 +22,9 @@ class PhotoFullscreenScreen extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4.0,
-          child: File(filePath).existsSync()
-              ? Image.file(
-                  File(filePath),
+          child: isDisplayablePhotoPath(filePath)
+              ? PhotoImage(
+                  path: filePath,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) => const Icon(
                     Icons.broken_image,

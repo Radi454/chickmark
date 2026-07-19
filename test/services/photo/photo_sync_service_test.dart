@@ -184,6 +184,66 @@ void main() {
     expect(await existing.readAsBytes(), [7, 8, 9]);
     await tempDir.delete(recursive: true);
   });
+
+  test(
+    'web download sync resolves remote photos without a documents directory',
+    () async {
+      final remotePhoto = _photo(
+        'supabase://photos/session-1/chick_quality/row-1/photo-1.jpg',
+        uploadStatus: 'synced',
+      );
+      final repo = _MockPhotoRepository();
+      final supabase = _MockSupabaseService();
+      var requestedDocumentsDirectory = false;
+
+      when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+      when(() => repo.getRemotePhotos()).thenAnswer((_) async => [remotePhoto]);
+      when(
+        () => supabase.createPhotoUrl(remotePhoto.filePath),
+      ).thenAnswer((_) async => 'https://example.test/signed/photo-1.jpg');
+      when(
+        () => repo.updateLocalPath(
+          remotePhoto.id,
+          'https://example.test/signed/photo-1.jpg',
+        ),
+      ).thenAnswer((_) async {});
+
+      await PhotoSyncService(
+        repository: repo,
+        supabase: supabase,
+        isWebForTesting: true,
+        documentDirectoryProvider: () async {
+          requestedDocumentsDirectory = true;
+          throw StateError('web has no documents directory');
+        },
+      ).syncDownloaded();
+
+      expect(requestedDocumentsDirectory, isFalse);
+      verify(
+        () => repo.updateLocalPath(
+          remotePhoto.id,
+          'https://example.test/signed/photo-1.jpg',
+        ),
+      ).called(1);
+      verifyNever(() => repo.reconcileLocalPaths(any()));
+      verifyNever(() => supabase.downloadPhotoBytes(any()));
+    },
+  );
+
+  test('web pending sync never touches dart:io photo paths', () async {
+    final repo = _MockPhotoRepository();
+    final supabase = _MockSupabaseService();
+
+    await PhotoSyncService(
+      repository: repo,
+      supabase: supabase,
+      isWebForTesting: true,
+    ).syncPending();
+
+    verifyNever(() => supabase.refreshAvailability());
+    verifyNever(() => repo.getByStatus(any()));
+    verifyNever(() => supabase.uploadPhoto(any()));
+  });
 }
 
 Uint8List _texturedJpeg(int width, int height) {

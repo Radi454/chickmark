@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:hatchaudit/localized_material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../services/photo/photo_service.dart';
+import '../../../widgets/photo_image.dart';
 import '../models/est_grid_data.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/est_grid_widget.dart';
@@ -543,8 +543,8 @@ class _PhotoStripItem extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(
-                File(path),
+              PhotoImage(
+                path: path,
                 fit: BoxFit.cover,
                 cacheWidth: 104,
                 cacheHeight: 104,

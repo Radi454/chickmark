@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -16,6 +14,7 @@ import 'package:hatchaudit/features/dashboard/widgets/bmk_line_chart.dart';
 import 'package:hatchaudit/features/dashboard/widgets/bmk_bar_chart.dart';
 import 'package:hatchaudit/features/audits/models/temperature_entry_unit.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
+import 'package:hatchaudit/widgets/photo_image.dart';
 import 'package:hatchaudit/features/dashboard/screens/photo_fullscreen_screen.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
 
@@ -1745,8 +1744,7 @@ class _EstReadingCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = point.photoPath;
-    final hasPhoto =
-        path != null && path.trim().isNotEmpty && File(path).existsSync();
+    final hasPhoto = isDisplayablePhotoPath(path);
     return Container(
       constraints: BoxConstraints(minHeight: compact ? 86 : 104),
       padding: EdgeInsets.all(compact ? AppSizes.spaceXs : AppSizes.spaceSm),
@@ -1773,15 +1771,15 @@ class _EstReadingCell extends StatelessWidget {
           InkWell(
             key: ValueKey('est-evidence-${point.key}'),
             borderRadius: BorderRadius.circular(8),
-            onTap: hasPhoto ? () => onPhotoTap(path) : null,
+            onTap: hasPhoto ? () => onPhotoTap(path!) : null,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: SizedBox(
                 height: compact ? 34 : 46,
                 width: double.infinity,
                 child: hasPhoto
-                    ? Image.file(
-                        File(path),
+                    ? PhotoImage(
+                        path: path!,
                         fit: BoxFit.cover,
                         cacheWidth: 220,
                         errorBuilder: (context, error, stackTrace) =>
