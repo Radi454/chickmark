@@ -15,15 +15,18 @@ class PhotoSyncService {
     SupabaseService? supabase,
     int maxUploadBytes = 5 * 1024 * 1024,
     Future<Directory> Function()? documentDirectoryProvider,
+    bool? fileSyncSupported,
   }) : _repo = repository ?? PhotoRepository(),
        _supabase = supabase ?? SupabaseService(),
        _maxBytes = maxUploadBytes,
+       _fileSyncSupported = fileSyncSupported ?? !kIsWeb,
        _documentDirectoryProvider =
            documentDirectoryProvider ?? getApplicationDocumentsDirectory;
 
   final PhotoRepository _repo;
   final SupabaseService _supabase;
   final int _maxBytes;
+  final bool _fileSyncSupported;
   final Future<Directory> Function() _documentDirectoryProvider;
 
   // Re-encode oversize captures below the capture default so they still sync.
@@ -31,6 +34,11 @@ class PhotoSyncService {
   static const int _shrinkQuality = 80;
 
   Future<void> syncDownloaded() async {
+    // Flutter Web has no application documents directory. Photo metadata is
+    // already pulled by StartupSyncService, so leave its remote storage path
+    // intact and let the rest of the database sync complete normally.
+    if (!_fileSyncSupported) return;
+
     final documentsDir = await _documentDirectoryProvider();
     try {
       await _repo.reconcileLocalPaths(documentsDir.path);
@@ -63,6 +71,11 @@ class PhotoSyncService {
   }
 
   Future<void> syncPending() async {
+    // Native File APIs and path_provider's documents directory are not
+    // available in the browser. Web photo persistence needs a browser-backed
+    // implementation rather than the native file queue used here.
+    if (!_fileSyncSupported) return;
+
     final available = await _supabase.refreshAvailability();
     if (!available) return;
 

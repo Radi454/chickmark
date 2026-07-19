@@ -1658,6 +1658,10 @@ for sessions and other records pulled from another device after the local
 database has previously synced. A successful foreground `Sync Now` action in
 Home or Settings acknowledges that notice so it disappears after the user
 manually syncs; offline or failed sync attempts leave the notice intact. The
+Flutter Web sync path pulls photo metadata but skips the native-file photo
+cache/upload pass, because browsers do not expose an application documents
+directory. This keeps Supabase row sync successful on web while preserving
+remote photo references for a future browser-backed photo implementation. The
 app assumes Supabase tables and storage are protected by project
 RLS/storage policies for approved authenticated users and their customer scope.
 Authorization helpers live in a non-exposed private schema; approved status is

@@ -111,6 +111,32 @@ void main() {
   );
 
   test(
+    'file sync is skipped when the platform has no native file support',
+    () async {
+      final repo = _MockPhotoRepository();
+      final supabase = _MockSupabaseService();
+      var directoryRequested = false;
+      final service = PhotoSyncService(
+        repository: repo,
+        supabase: supabase,
+        fileSyncSupported: false,
+        documentDirectoryProvider: () async {
+          directoryRequested = true;
+          return Directory.systemTemp;
+        },
+      );
+
+      await service.syncDownloaded();
+      await service.syncPending();
+
+      expect(directoryRequested, isFalse);
+      verifyNever(() => supabase.refreshAvailability());
+      verifyNever(() => repo.getRemotePhotos());
+      verifyNever(() => repo.getByStatus(any()));
+    },
+  );
+
+  test(
     'syncDownloaded writes pulled Supabase photos to local files and updates rows',
     () async {
       final tempDir = await Directory.systemTemp.createTemp(
