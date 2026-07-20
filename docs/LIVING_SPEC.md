@@ -1191,7 +1191,12 @@ Dashboard station cards and the Govee Environmental Readings sector start
 expanded and can be collapsed independently. Their expanded/collapsed state is
 owned by the current Dashboard screen, so collapsed cards stay collapsed while
 the user scrolls and during a pull-to-refresh loading cycle. The state resets
-when a new Dashboard screen visit begins.
+when a new Dashboard screen visit begins. Dashboard reloads are serialized and
+coalesced when sync completion, pull-to-refresh, or another refresh request
+arrives while a load is already running. Background refresh keeps the existing
+sector data mounted, and the Dashboard owns one stable scroll controller, so a
+long Lab Analysis sector cannot temporarily collapse and clamp the reader into
+a different sector while fresh data is queried.
 
 An operational scope starts with a quality strip and a cross-station `What
 needs attention` section. Quality chips show latest observation age, last sync,
@@ -1807,6 +1812,11 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-21: Stabilized Dashboard background refresh and scrolling. Overlapping
+  refresh requests are now serialized/coalesced, existing Lab Analysis content
+  remains mounted while refreshed data is queried, stale filter-scope loads are
+  ignored, and the Dashboard keeps one scroll controller so refreshes no longer
+  make the reader jump between Lab Analysis and adjacent sectors.
 - 2026-07-21: Completed Arabic localization coverage for the new Lab Analysis
   report workflow, bacterial-culture interpretations, and longitudinal trend
   labels.

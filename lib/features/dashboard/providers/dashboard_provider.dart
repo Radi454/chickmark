@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
@@ -25,19 +27,29 @@ import 'package:hatchaudit/features/dashboard/models/visit_session_summary.dart'
 import 'package:hatchaudit/features/dashboard/scope/scope_models.dart';
 
 class DashboardProvider extends ChangeNotifier {
-  final PanelDashboardRepository _panelDashboardRepo =
-      PanelDashboardRepository();
-  final CustomerRepository _customerRepo = CustomerRepository();
-  final FlockRepository _flockRepo = FlockRepository();
-  final HatcheryRepository _hatcheryRepo = HatcheryRepository();
-  final LabAnalysisRepository _labAnalysisRepo = LabAnalysisRepository();
+  final PanelDashboardRepository _panelDashboardRepo;
+  final CustomerRepository _customerRepo;
+  final FlockRepository _flockRepo;
+  final HatcheryRepository _hatcheryRepo;
+  final LabAnalysisRepository _labAnalysisRepo;
   final GoveeCaptureRepository _goveeCaptureRepo;
   final DashboardActionRepository _actionRepo;
 
   DashboardProvider({
+    PanelDashboardRepository? panelDashboardRepository,
+    CustomerRepository? customerRepository,
+    FlockRepository? flockRepository,
+    HatcheryRepository? hatcheryRepository,
+    LabAnalysisRepository? labAnalysisRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
     DashboardActionRepository? dashboardActionRepository,
-  }) : _goveeCaptureRepo = goveeCaptureRepository ?? GoveeCaptureRepository(),
+  }) : _panelDashboardRepo =
+           panelDashboardRepository ?? PanelDashboardRepository(),
+       _customerRepo = customerRepository ?? CustomerRepository(),
+       _flockRepo = flockRepository ?? FlockRepository(),
+       _hatcheryRepo = hatcheryRepository ?? HatcheryRepository(),
+       _labAnalysisRepo = labAnalysisRepository ?? LabAnalysisRepository(),
+       _goveeCaptureRepo = goveeCaptureRepository ?? GoveeCaptureRepository(),
        _actionRepo = dashboardActionRepository ?? DashboardActionRepository();
 
   String? _selectedCustomerId;
@@ -47,6 +59,9 @@ class DashboardProvider extends ChangeNotifier {
   String _selectedBreakoutType = 'residue';
   bool _isInitialized = false;
   int _scopeGeneration = 0;
+  Completer<void>? _reloadDrain;
+  bool _reloadRequested = false;
+  bool _reloadRequestedWithLoading = false;
 
   List<CustomerModel> _customers = [];
   List<HatcheryModel> _hatcheries = [];
@@ -319,6 +334,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> setCustomer(String? customerId) async {
+    _scopeGeneration++;
     _selectedCustomerId = canUseAllCustomers
         ? customerId
         : _currentUser?.customerId;
@@ -331,6 +347,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> setHatchery(String? hatcheryId) async {
+    _scopeGeneration++;
     _selectedHatcheryId = hatcheryId;
     _selectedFlockId = null;
     _selectedBmkAge = null;
@@ -339,6 +356,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> setFlock(String? flockId) async {
+    _scopeGeneration++;
     _selectedFlockId = flockId;
     _selectedBmkAge = null;
     await _loadBmkAges();
@@ -346,11 +364,13 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   void setBmkAge(int? age) {
+    _scopeGeneration++;
     _selectedBmkAge = age;
     reload();
   }
 
   Future<void> clearFilters() async {
+    _scopeGeneration++;
     _selectedCustomerId = canUseAllCustomers ? null : _currentUser?.customerId;
     _selectedFlockId = null;
     _selectedHatcheryId = null;
@@ -365,6 +385,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   void setBreakoutType(String type) {
+    _scopeGeneration++;
     _selectedBreakoutType = type;
     reload();
   }
@@ -381,6 +402,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   void toggleSetter(String setterId) {
+    _scopeGeneration++;
     if (_selectedSetterIds.contains(setterId)) {
       _selectedSetterIds.remove(setterId);
     } else {
@@ -390,6 +412,7 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   void toggleHatcher(String hatcherId) {
+    _scopeGeneration++;
     if (_selectedHatcherIds.contains(hatcherId)) {
       _selectedHatcherIds.remove(hatcherId);
     } else {
@@ -403,7 +426,41 @@ class DashboardProvider extends ChangeNotifier {
   /// own spinner, so the content stays put and updates in place.
   Future<void> refresh() => reload(showLoading: false);
 
-  Future<void> reload({bool showLoading = true}) async {
+  /// Serializes and coalesces dashboard reloads. Sync completion, reconnect,
+  /// pull-to-refresh, and filter changes can otherwise overlap and expose the
+  /// temporary cleared sector state. That collapses the long Lab Analysis card
+  /// and clamps the outer scroll position, which looks like a random jump to a
+  /// different dashboard sector.
+  Future<void> reload({bool showLoading = true}) {
+    _reloadRequested = true;
+    _reloadRequestedWithLoading = _reloadRequestedWithLoading || showLoading;
+
+    final active = _reloadDrain;
+    if (active != null) return active.future;
+
+    final drain = Completer<void>();
+    _reloadDrain = drain;
+    unawaited(_drainReloadQueue(drain));
+    return drain.future;
+  }
+
+  Future<void> _drainReloadQueue(Completer<void> drain) async {
+    try {
+      while (_reloadRequested) {
+        final showLoading = _reloadRequestedWithLoading;
+        _reloadRequested = false;
+        _reloadRequestedWithLoading = false;
+        await _reloadOnce(showLoading: showLoading);
+      }
+      drain.complete();
+    } catch (error, stackTrace) {
+      drain.completeError(error, stackTrace);
+    } finally {
+      if (identical(_reloadDrain, drain)) _reloadDrain = null;
+    }
+  }
+
+  Future<void> _reloadOnce({required bool showLoading}) async {
     final generation = _scopeGeneration;
     if (_currentUser == null) {
       _clearHiddenSectorData();
@@ -429,14 +486,20 @@ class DashboardProvider extends ChangeNotifier {
         bmkAge: _selectedBmkAge,
       );
 
-      _clearHiddenSectorData();
+      // A background refresh must keep the current sector widgets mounted.
+      // Clearing Lab Analysis here can remove several screen-heights of content
+      // while the query is in flight and permanently clamp the ListView offset.
+      if (showLoading) _clearHiddenSectorData();
       _isLoadingLabAnalysis = true;
-      await _loadLabAnalysis(filter, generation);
+      if (!showLoading) notifyListeners();
+      await _loadLabAnalysis(filter, generation, preserveOnError: !showLoading);
       if (!_isCurrentScope(generation)) return;
       _isLoadingLabAnalysis = false;
       if (!filter.isOperational) {
         _goveeCaptures = const [];
+        _goveeError = null;
         _isLoadingGoveeCaptures = false;
+        _actions = const [];
         return;
       }
       _isLoadingGoveeCaptures = true;
@@ -517,7 +580,11 @@ class DashboardProvider extends ChangeNotifier {
     _actions = actions;
   }
 
-  Future<void> _loadLabAnalysis(DashboardFilter filter, int generation) async {
+  Future<void> _loadLabAnalysis(
+    DashboardFilter filter,
+    int generation, {
+    bool preserveOnError = false,
+  }) async {
     try {
       final summaries = await _labAnalysisRepo.getDashboardSummaries(
         customerId: filter.customerId,
@@ -528,7 +595,7 @@ class DashboardProvider extends ChangeNotifier {
     } catch (e) {
       if (!_isCurrentScope(generation)) return;
       debugPrint('Error loading lab analysis dashboard data: $e');
-      _labAnalysisSummaries = [];
+      if (!preserveOnError) _labAnalysisSummaries = [];
     }
   }
 

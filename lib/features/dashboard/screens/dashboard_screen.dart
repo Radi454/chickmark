@@ -30,6 +30,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  final ScrollController _scrollController = ScrollController();
   final Set<String> _collapsedScopeStations = <String>{};
   SettingsProvider? _settingsProvider;
   String? _observedSyncTimestamp;
@@ -77,6 +78,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _settingsProvider?.removeListener(_handleSettingsChange);
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -413,6 +415,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildContent(BuildContext context, DashboardProvider provider) {
     if (provider.isLoading) {
       return ListView(
+        controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSizes.spaceSm,
@@ -433,6 +436,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onRefresh: () => _handleRefresh(context),
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSizes.spaceSm,
@@ -477,6 +481,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return RefreshIndicator(
       onRefresh: () => _handleRefresh(context),
       child: ListView(
+        key: const PageStorageKey('dashboard-main-scroll'),
+        controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSizes.spaceSm,
