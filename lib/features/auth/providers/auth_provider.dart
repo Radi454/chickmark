@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
+import '../../../core/auth/customer_account_identifier.dart';
 import '../../../core/security/security_policy.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
@@ -81,8 +82,9 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     _setState(AuthState.loading);
     try {
+      final loginEmail = CustomerAccountIdentifier.loginEmail(email);
       final result = await _supabaseService.signIn(
-        email,
+        loginEmail,
         password,
         rememberSession: rememberSession,
       );
@@ -98,7 +100,7 @@ class AuthProvider extends ChangeNotifier {
         return true;
       } else {
         if (result.error == 'offline') {
-          if (await _tryLocalLogin(email, password)) {
+          if (await _tryLocalLogin(loginEmail, password)) {
             return true;
           }
           _setState(
@@ -106,7 +108,7 @@ class AuthProvider extends ChangeNotifier {
             error: 'Internet access is required to sign in on this device.',
           );
         } else {
-          if (await _tryLocalLogin(email, password)) {
+          if (await _tryLocalLogin(loginEmail, password)) {
             return true;
           }
           _setState(
@@ -398,7 +400,7 @@ class AuthProvider extends ChangeNotifier {
       return 'Internet access is required to sign in on this device.';
     }
     if (lower.contains('invalid login credentials')) {
-      return 'The email or password is incorrect.';
+      return 'The username/email or password is incorrect.';
     }
     if (lower.contains('email not confirmed')) {
       return 'Please confirm your email before signing in.';

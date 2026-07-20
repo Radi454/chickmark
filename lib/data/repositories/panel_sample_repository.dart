@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../services/panel_aggregate_deriver.dart';
+import '../../services/sync/app_sync_coordinator.dart';
 import 'sync_tombstone_repository.dart';
 
 class PanelSampleRepository {
@@ -49,6 +50,7 @@ class PanelSampleRepository {
         );
       }
     });
+    AppSyncCoordinator.nudge();
   }
 
   Future<void> upsertRow({
@@ -62,6 +64,7 @@ class PanelSampleRepository {
         ? PanelAggregateDeriver.derive(definition.tableName, row).row
         : Map<String, Object?>.of(row);
     await _upsertById(database, definition.tableName, values);
+    AppSyncCoordinator.nudge();
   }
 
   Future<List<Map<String, dynamic>>> getRowsBySessionId(

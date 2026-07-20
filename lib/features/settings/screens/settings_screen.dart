@@ -5,6 +5,7 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
 import 'package:hatchaudit/core/constants/app_strings.dart';
+import 'package:hatchaudit/core/auth/customer_account_identifier.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
 import 'package:hatchaudit/widgets/status_badge.dart';
@@ -94,7 +95,11 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: AppSizes.spaceXs),
                     Text(
-                      user?.email ?? 'No email',
+                      user == null
+                          ? 'No account'
+                          : user.isCustomer
+                          ? 'Username: ${CustomerAccountIdentifier.displayIdentifier(user.email)}'
+                          : user.email,
                       style: AppTextStyles.caption,
                     ),
                     const SizedBox(height: AppSizes.spaceXs),

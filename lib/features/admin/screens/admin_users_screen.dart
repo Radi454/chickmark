@@ -1,8 +1,11 @@
 import 'package:hatchaudit/localized_material.dart';
+import 'package:flutter/services.dart';
 
+import '../../../core/auth/customer_account_identifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
+import '../../../core/security/password_policy.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/admin_repository.dart';
@@ -83,10 +86,34 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     if (changed == true) _load();
   }
 
+  Future<void> _openCreateCustomerAccount() async {
+    final created = await showModalBottomSheet<AdminProfile>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _CreateCustomerAccountSheet(
+        customers: _customers,
+        adminRepo: _adminRepo,
+      ),
+    );
+    if (created == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Customer account ${created.loginIdentifier} created.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('User Access')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _customers.isEmpty ? null : _openCreateCustomerAccount,
+        icon: const Icon(Icons.person_add_alt_1),
+        label: const Text('Customer account'),
+      ),
       body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
     );
   }
@@ -138,7 +165,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           title: Text(p.displayName),
           subtitle: Text(
             p.role == 'customer'
-                ? '${p.email ?? ''}\nCustomer: ${_customerName(p.customerId)}'
+                ? 'Login: ${p.loginIdentifier}\nCustomer: ${_customerName(p.customerId)}'
                 : (p.email ?? ''),
           ),
           isThreeLine: p.role == 'customer',
@@ -161,6 +188,197 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     if (name.isEmpty) return '?';
     final parts = name.split(RegExp(r'\s+'));
     return parts.take(2).map((e) => e[0].toUpperCase()).join();
+  }
+}
+
+class _CreateCustomerAccountSheet extends StatefulWidget {
+  final List<CustomerModel> customers;
+  final AdminRepository adminRepo;
+
+  const _CreateCustomerAccountSheet({
+    required this.customers,
+    required this.adminRepo,
+  });
+
+  @override
+  State<_CreateCustomerAccountSheet> createState() =>
+      _CreateCustomerAccountSheetState();
+}
+
+class _CreateCustomerAccountSheetState
+    extends State<_CreateCustomerAccountSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _fullNameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String? _customerId;
+  bool _obscurePassword = true;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    if (_saving) return;
+    if (!_formKey.currentState!.validate()) return;
+    if (_customerId == null) {
+      _toast('Pick which customer can use this account.');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final profile = await widget.adminRepo.createCustomerAccount(
+        fullName: _fullNameController.text.trim(),
+        username: CustomerAccountIdentifier.normalizeUsername(
+          _usernameController.text,
+        ),
+        password: _passwordController.text,
+        customerId: _customerId!,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _toast('Create failed: $error');
+    }
+  }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Create customer account',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSizes.spaceXs),
+              const Text(
+                'This account can only read the assigned customer dashboard.',
+              ),
+              const SizedBox(height: AppSizes.spaceLg),
+              DropdownButtonFormField<String>(
+                initialValue: _customerId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Customer'),
+                items: widget.customers
+                    .map(
+                      (customer) => DropdownMenuItem(
+                        value: customer.id,
+                        child: Text(
+                          customer.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                validator: (value) => value == null ? 'Pick a customer' : null,
+                onChanged: (value) => setState(() => _customerId = value),
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              TextFormField(
+                controller: _fullNameController,
+                decoration: const InputDecoration(labelText: 'Display name'),
+                textInputAction: TextInputAction.next,
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a display name'
+                    : null,
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              TextFormField(
+                controller: _usernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  helperText: 'Example: Ghareeb',
+                ),
+                textInputAction: TextInputAction.next,
+                validator: CustomerAccountIdentifier.validateUsername,
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              TextFormField(
+                controller: _passwordController,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  helperText:
+                      '12+ characters with upper/lowercase, number, and symbol',
+                  suffixIcon: IconButton(
+                    tooltip: _obscurePassword
+                        ? 'Show password'
+                        : 'Hide password',
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                  ),
+                ),
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.done,
+                onChanged: (_) => setState(() {}),
+                onFieldSubmitted: (_) => _create(),
+                validator: PasswordPolicy.validationMessage,
+              ),
+              const SizedBox(height: AppSizes.spaceSm),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  onPressed: _passwordController.text.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: _passwordController.text),
+                          );
+                          if (mounted) _toast('Password copied.');
+                        },
+                  icon: const Icon(Icons.copy, size: 18),
+                  label: const Text('Copy password'),
+                ),
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _create,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.person_add_alt_1),
+                  label: const Text('Create account'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -280,6 +498,20 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     }
   }
 
+  Future<void> _resetPassword() async {
+    final reset = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ResetCustomerPasswordSheet(
+        profile: widget.profile,
+        adminRepo: widget.adminRepo,
+      ),
+    );
+    if (reset == true && mounted) {
+      _toast('Password updated for ${widget.profile.loginIdentifier}.');
+    }
+  }
+
   void _toast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
@@ -336,6 +568,17 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
             const SizedBox(height: AppSizes.spaceLg),
             if (_role == 'customer') _buildCustomerPicker(),
             if (_role == 'auditor') _buildAuditorAssignments(),
+            if (widget.profile.role == 'customer') ...[
+              const SizedBox(height: AppSizes.spaceLg),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _resetPassword,
+                  icon: const Icon(Icons.password),
+                  label: const Text('Reset customer password'),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -418,6 +661,110 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _ResetCustomerPasswordSheet extends StatefulWidget {
+  final AdminProfile profile;
+  final AdminRepository adminRepo;
+
+  const _ResetCustomerPasswordSheet({
+    required this.profile,
+    required this.adminRepo,
+  });
+
+  @override
+  State<_ResetCustomerPasswordSheet> createState() =>
+      _ResetCustomerPasswordSheetState();
+}
+
+class _ResetCustomerPasswordSheetState
+    extends State<_ResetCustomerPasswordSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reset() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      await widget.adminRepo.resetCustomerPassword(
+        userId: widget.profile.id,
+        password: _passwordController.text,
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Reset failed: $error')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Reset ${widget.profile.loginIdentifier} password',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSizes.spaceLg),
+            TextFormField(
+              controller: _passwordController,
+              decoration: InputDecoration(
+                labelText: 'New password',
+                helperText:
+                    '12+ characters with upper/lowercase, number, and symbol',
+                suffixIcon: IconButton(
+                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  ),
+                ),
+              ),
+              obscureText: _obscurePassword,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _reset(),
+              validator: PasswordPolicy.validationMessage,
+            ),
+            const SizedBox(height: AppSizes.spaceLg),
+            FilledButton.icon(
+              onPressed: _saving ? null : _reset,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.password),
+              label: const Text('Reset password'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

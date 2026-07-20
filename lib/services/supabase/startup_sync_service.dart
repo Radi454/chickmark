@@ -62,6 +62,8 @@ class SyncOutcome {
 enum _UpsertResult { keptLocal, appliedNew, appliedUpdate, appliedUnchanged }
 
 class StartupSyncService {
+  static Future<SyncOutcome>? _activeRun;
+
   final SupabaseService _supabaseService;
   final CustomerRepository _customerRepository;
   final DashboardActionRepository _dashboardActionRepository;
@@ -128,6 +130,29 @@ class StartupSyncService {
     String? userId,
     bool canPush = true,
     bool collectIncoming = false,
+  }) {
+    final activeRun = _activeRun;
+    if (activeRun != null) return activeRun;
+
+    final operation = _run(
+      onProgress: onProgress,
+      userId: userId,
+      canPush: canPush,
+      collectIncoming: collectIncoming,
+    );
+    _activeRun = operation;
+    return operation.whenComplete(() {
+      if (identical(_activeRun, operation)) {
+        _activeRun = null;
+      }
+    });
+  }
+
+  Future<SyncOutcome> _run({
+    ValueChanged<StartupSyncProgress>? onProgress,
+    String? userId,
+    required bool canPush,
+    required bool collectIncoming,
   }) async {
     void progress(double value, String message) {
       onProgress?.call(StartupSyncProgress(value: value, message: message));
@@ -194,7 +219,7 @@ class StartupSyncService {
     var pushed = 0;
     progress(0.12, 'Uploading customers');
     final customers = await _customerRepository.getAllCustomers();
-    await _supabaseService.upsertRows(
+    await _supabaseService.upsertRowsStrict(
       'customers',
       customers.map((customer) => customer.toMap()).toList(),
     );
@@ -202,7 +227,7 @@ class StartupSyncService {
 
     progress(0.22, 'Uploading hatcheries');
     final hatcheries = await _hatcheryRepository.getAllHatcheries();
-    await _supabaseService.upsertRows(
+    await _supabaseService.upsertRowsStrict(
       'hatcheries',
       hatcheries.map((hatchery) => hatchery.toMap()).toList(),
     );
@@ -210,7 +235,7 @@ class StartupSyncService {
 
     progress(0.32, 'Uploading flocks');
     final flocks = await _flockRepository.getAllFlocks();
-    await _supabaseService.upsertRows(
+    await _supabaseService.upsertRowsStrict(
       'flocks',
       flocks.map((flock) => flock.toMap()).toList(),
     );

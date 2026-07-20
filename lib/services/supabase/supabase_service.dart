@@ -374,7 +374,7 @@ class SupabaseService {
     if (!await _prepareRemoteAccess()) {
       throw StateError('Supabase sync is not available');
     }
-    await _upsertRowsWithFallback(table, rows);
+    await _upsertRowsWithFallback(table, rows, verifyAffectedRows: true);
   }
 
   Future<void> deleteRows(String table, List<String> ids) async {
@@ -760,13 +760,35 @@ class SupabaseService {
 
   Future<void> _upsertRowsWithFallback(
     String table,
-    List<Map<String, dynamic>> rows,
-  ) async {
-    final safeRows = rows.map((row) => _stripLocalOnlyColumns(table, row));
+    List<Map<String, dynamic>> rows, {
+    bool verifyAffectedRows = false,
+  }) async {
+    final safeRows = rows
+        .map((row) => _stripLocalOnlyColumns(table, row))
+        .toList(growable: false);
+    List<dynamic>? persistedRows;
     try {
-      await _client.from(table).upsert(safeRows.map(_snakeCaseKeys).toList());
+      final request = _client
+          .from(table)
+          .upsert(safeRows.map(_snakeCaseKeys).toList());
+      if (verifyAffectedRows) {
+        persistedRows = await request.select('id');
+      } else {
+        await request;
+      }
     } catch (_) {
-      await _client.from(table).upsert(safeRows.toList());
+      final request = _client.from(table).upsert(safeRows);
+      if (verifyAffectedRows) {
+        persistedRows = await request.select('id');
+      } else {
+        await request;
+      }
+    }
+    if (verifyAffectedRows && persistedRows?.length != safeRows.length) {
+      throw StateError(
+        'Supabase did not persist every $table row '
+        '(${persistedRows?.length ?? 0}/${safeRows.length})',
+      );
     }
   }
 

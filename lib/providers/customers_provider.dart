@@ -18,6 +18,7 @@ import '../data/repositories/panel_dashboard_repository.dart';
 import '../data/repositories/photo_repository.dart';
 import '../services/photo/photo_service.dart';
 import '../services/supabase/supabase_service.dart';
+import '../services/sync/app_sync_coordinator.dart';
 import '../features/dashboard/models/visit_session_summary.dart';
 
 class CustomersProvider extends ChangeNotifier {
@@ -193,6 +194,7 @@ class CustomersProvider extends ChangeNotifier {
     try {
       // Save to SQLite first
       await _customerRepository.insertCustomer(customer);
+      AppSyncCoordinator.nudge();
 
       // Refresh customers list and flock counts
       await loadCustomers();
@@ -206,6 +208,7 @@ class CustomersProvider extends ChangeNotifier {
     _ensureCanEdit();
     try {
       await _customerRepository.updateCustomer(customer);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer?.id == customer.id) {
         _selectedCustomer = customer;
       }
@@ -282,6 +285,7 @@ class CustomersProvider extends ChangeNotifier {
     try {
       // Save to SQLite first
       await _flockRepository.insertFlock(flock);
+      AppSyncCoordinator.nudge();
 
       // Refresh flocks list
       if (_selectedCustomer != null) {
@@ -314,6 +318,7 @@ class CustomersProvider extends ChangeNotifier {
     _ensureCanEdit();
     try {
       await _hatcheryRepository.insertHatchery(hatchery);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer?.id == hatchery.customerId) {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           hatchery.customerId,
@@ -331,6 +336,7 @@ class CustomersProvider extends ChangeNotifier {
     _ensureCanEdit();
     try {
       await _hatcheryRepository.updateHatchery(hatchery);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer?.id == hatchery.customerId) {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           hatchery.customerId,
@@ -348,6 +354,7 @@ class CustomersProvider extends ChangeNotifier {
     _ensureCanEdit();
     try {
       await _hatcheryRepository.deleteHatchery(hatcheryId);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer != null) {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           _selectedCustomer!.id,
@@ -370,6 +377,7 @@ class CustomersProvider extends ChangeNotifier {
     _ensureCanEdit();
     try {
       await _flockRepository.updateFlock(flock);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer != null) {
         _flocks = await _flockRepository.getFlocksByCustomer(
           _selectedCustomer!.id,
@@ -400,6 +408,7 @@ class CustomersProvider extends ChangeNotifier {
     try {
       await _labAnalysisRepository.deleteRecordsByFlock(flockId);
       await _flockRepository.deleteFlock(flockId);
+      AppSyncCoordinator.nudge();
       if (_selectedCustomer != null) {
         _flocks = await _flockRepository.getFlocksByCustomer(
           _selectedCustomer!.id,

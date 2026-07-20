@@ -2,6 +2,7 @@ enum LabTestType {
   elisa,
   pcr,
   hi,
+  culture,
   sensitivity;
 
   String get label {
@@ -12,6 +13,8 @@ enum LabTestType {
         return 'PCR';
       case LabTestType.hi:
         return 'HI';
+      case LabTestType.culture:
+        return 'Bacterial Culture';
       case LabTestType.sensitivity:
         return 'Sensitivity';
     }
@@ -699,13 +702,12 @@ class LabAnalysisDashboardSummary {
     required this.rows,
   });
 
-  int get alertCount =>
-      rows.where((row) => row.severity == LabSeverity.alert).length +
-      (group.severity == LabSeverity.alert ? 1 : 0);
+  // Dashboard counters represent actionable result groups, not every sample
+  // row. Counting positive ELISA samples here made a single 40-sera plate look
+  // like 41 separate warnings.
+  int get alertCount => group.severity == LabSeverity.alert ? 1 : 0;
 
-  int get watchCount =>
-      rows.where((row) => row.severity == LabSeverity.watch).length +
-      (group.severity == LabSeverity.watch ? 1 : 0);
+  int get watchCount => group.severity == LabSeverity.watch ? 1 : 0;
 }
 
 class LabAnalysisBatch {
@@ -734,6 +736,8 @@ class LabInterpretationRules {
         return _interpretPcrGroup(rows);
       case LabTestType.hi:
         return _interpretHi(group);
+      case LabTestType.culture:
+        return _interpretCulture(rows);
       case LabTestType.sensitivity:
         return _interpretSensitivity(rows);
     }
@@ -745,6 +749,8 @@ class LabInterpretationRules {
     switch (row.testType) {
       case LabTestType.pcr:
         return _interpretPcrRow(row);
+      case LabTestType.culture:
+        return _interpretCultureRow(row);
       case LabTestType.sensitivity:
         return _interpretSensitivityRow(row);
       case LabTestType.elisa:
@@ -891,6 +897,44 @@ class LabInterpretationRules {
     );
   }
 
+  static ({String message, LabSeverity severity}) _interpretCulture(
+    List<LabAnalysisRowModel> rows,
+  ) {
+    final positive = rows.where(_isPositiveCulture).toList();
+    if (positive.isNotEmpty) {
+      final organisms = positive
+          .map((row) => row.analyte.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .join(', ');
+      return (
+        message: organisms.isEmpty
+            ? 'Bacterial culture is positive; review the isolated organism and clinical context.'
+            : 'Bacterial culture is positive for $organisms; review biosecurity and clinical context.',
+        severity: LabSeverity.alert,
+      );
+    }
+    return (
+      message: 'No bacterial organism was isolated in the saved culture rows.',
+      severity: LabSeverity.normal,
+    );
+  }
+
+  static ({String message, LabSeverity severity}) _interpretCultureRow(
+    LabAnalysisRowModel row,
+  ) {
+    if (_isPositiveCulture(row)) {
+      return (
+        message: 'Organism isolated / culture positive.',
+        severity: LabSeverity.alert,
+      );
+    }
+    return (
+      message: 'Organism not isolated / culture negative.',
+      severity: LabSeverity.normal,
+    );
+  }
+
   static ({String message, LabSeverity severity}) _interpretSensitivity(
     List<LabAnalysisRowModel> rows,
   ) {
@@ -948,6 +992,18 @@ class LabInterpretationRules {
         result == '+ve' ||
         result == 'positive' ||
         result == 'detected';
+  }
+
+  static bool _isPositiveCulture(LabAnalysisRowModel row) {
+    final value = '${row.resultCategory} ${row.result}'.toLowerCase().trim();
+    if (value.contains('negative') ||
+        value.contains('not isolated') ||
+        value.contains('no growth')) {
+      return false;
+    }
+    return value.contains('positive') ||
+        value.contains('isolated') ||
+        value.contains('growth');
   }
 
   static String _normalizedSensitivity(String value) {

@@ -41,7 +41,7 @@ class BgSyncService extends ChangeNotifier {
 
       final outcome = await syncService.run(
         userId: user?.id,
-        canPush: user?.canEditAudits ?? true,
+        canPush: user?.canEditAudits ?? false,
         collectIncoming: settingsProvider?.hasSyncedBefore ?? false,
         onProgress: (progress) {
           _progress = progress.value;

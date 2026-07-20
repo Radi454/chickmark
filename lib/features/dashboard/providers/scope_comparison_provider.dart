@@ -36,6 +36,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
 
   bool _isLoading = false;
   String? _filterKey;
+  int _filterGeneration = 0;
 
   final Map<String, List<ScopeLeafRow>> _leaves = {};
   final Map<String, List<ScopeLeafRow>> _allLeaves = {};
@@ -76,6 +77,16 @@ class ScopeComparisonProvider extends ChangeNotifier {
 
   List<HatchAgePoint> get hatchAgeSeries => _hatchByAge;
 
+  /// Clears app-scoped comparison caches before a different signed-in user can
+  /// build a frame. In-flight queries are invalidated by the generation bump.
+  void prepareForAccountChange() {
+    _filterGeneration++;
+    _filterKey = null;
+    _lastFilter = null;
+    _clearTenantData();
+    _isLoading = true;
+  }
+
   DashboardDataQuality qualityFor(String sectorId) =>
       _quality[sectorId] ?? const DashboardDataQuality();
 
@@ -100,24 +111,12 @@ class ScopeComparisonProvider extends ChangeNotifier {
   }) async {
     final key = '$customerId|$hatcheryId|$flockId|$bmkAge';
     if (key == _filterKey && _groups.isNotEmpty) return;
+    final generation = ++_filterGeneration;
     _filterKey = key;
+    _clearTenantData();
     // New filter → drop per-sector period/cumulative caches so they re-derive.
-    _selectedPeriod.clear();
-    _periods.clear();
-    _cumSeries.clear();
-    _cumLoading.clear();
-    _cumReloadPending.clear();
-    _photoPaths.clear();
-    _selectedLayers.clear();
-    _eligibleLayers.clear();
-    _hidden.clear();
-    _observations.clear();
-    _quality.clear();
-    _errors.clear();
-    _history.clear();
     _isLoading = true;
     notifyListeners();
-
     final filter = DashboardFilter(
       customerId: customerId,
       hatcheryId: hatcheryId,
@@ -127,10 +126,6 @@ class ScopeComparisonProvider extends ChangeNotifier {
     _lastFilter = filter;
 
     if (!filter.isOperational) {
-      _leaves.clear();
-      _allLeaves.clear();
-      _groups.clear();
-      _isEmpty.clear();
       _isLoading = false;
       notifyListeners();
       return;
@@ -143,13 +138,16 @@ class ScopeComparisonProvider extends ChangeNotifier {
     try {
       // Pick a BMK reference: explicit age, else the dominant age in the data.
       final refAge = bmkAge ?? await _repo.dominantBmkAge(filter);
+      if (generation != _filterGeneration) return;
       if (refAge != null) {
         liveBmk = await _panelRepo.getBmkReferenceForAge(refAge);
+        if (generation != _filterGeneration) return;
       }
       final bundle = await _repo.loadBundle(
         ScopeConfigRegistry.sectors,
         filter,
       );
+      if (generation != _filterGeneration) return;
       _observations.addAll(bundle.observationsBySector);
       _quality.addAll(bundle.qualityBySector);
       _errors.addAll(bundle.errorsBySector);
@@ -181,19 +179,49 @@ class ScopeComparisonProvider extends ChangeNotifier {
         if (_isBreakoutSector(sector.id) &&
             !(_isDummy[sector.id] ?? false) &&
             !(_isEmpty[sector.id] ?? true)) {
-          _photoPaths[sector.id] = await _loadBreakoutPhotos(filter, sector.id);
+          final photos = await _loadBreakoutPhotos(filter, sector.id);
+          if (generation != _filterGeneration) return;
+          _photoPaths[sector.id] = photos;
         }
       }
       _recomputeHistory();
     } catch (e) {
-      debugPrint('Scope applyFilter error: $e');
+      if (generation == _filterGeneration) {
+        debugPrint('Scope applyFilter error: $e');
+      }
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (generation == _filterGeneration) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
+    if (generation != _filterGeneration) return;
     // Refresh the lazily-loaded Hatch age chart if it's already open so a filter
     // change updates it. Fire-and-forget — never blocks the main load.
     if (isChartMode('hatch_results')) _loadHatchAgeSeries();
+  }
+
+  void _clearTenantData() {
+    _selectedPeriod.clear();
+    _periods.clear();
+    _cumSeries.clear();
+    _cumLoading.clear();
+    _cumReloadPending.clear();
+    _photoPaths.clear();
+    _selectedLayers.clear();
+    _eligibleLayers.clear();
+    _hidden.clear();
+    _observations.clear();
+    _quality.clear();
+    _errors.clear();
+    _history.clear();
+    _hatchByAge = const [];
+    _leaves.clear();
+    _allLeaves.clear();
+    _isDummy.clear();
+    _isEmpty.clear();
+    _sectorBmk.clear();
+    _groups.clear();
   }
 
   /// Pull-to-refresh: force a re-query for the current filter, bypassing the
@@ -266,6 +294,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
   /// hierarchy breakdown to Pool before deriving the valid layers for the new
   /// age scope.
   Future<void> setPeriod(String sectorId, ScopePeriod? period) async {
+    final generation = _filterGeneration;
     _selectedPeriod[sectorId] = period;
     _selectedLayers[sectorId] = const [];
     _hidden[sectorId] = <int>{};
@@ -287,6 +316,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
         BmkReference? bmk = _sectorBmk[sectorId];
         if (period?.age != null) {
           bmk = await _panelRepo.getBmkReferenceForAge(period!.age!);
+          if (generation != _filterGeneration) return;
         }
         _leaves[sectorId] = leaves;
         _sectorBmk[sectorId] = bmk;
@@ -297,6 +327,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
         debugPrint('setPeriod $sectorId failed: $e');
       }
     }
+    if (generation != _filterGeneration) return;
     notifyListeners();
     if (period == null) await loadCumulative(sectorId);
   }
@@ -314,6 +345,7 @@ class ScopeComparisonProvider extends ChangeNotifier {
       return;
     }
     final base = _lastFilter;
+    final generation = _filterGeneration;
     // Dummy/example sectors and the no-filter state have no DB rows to spread —
     // cache an empty series so the view shows its note instead of spinning.
     if (base == null || isDummyFor(sectorId)) {
@@ -326,14 +358,20 @@ class ScopeComparisonProvider extends ChangeNotifier {
     try {
       final sector = ScopeConfigRegistry.byId(sectorId);
       final periods = _periods[sectorId] ?? const <ScopePeriod>[];
-      _cumSeries[sectorId] = await _buildCumulative(sector, periods, base);
+      final series = await _buildCumulative(sector, periods, base);
+      if (generation != _filterGeneration) return;
+      _cumSeries[sectorId] = series;
     } catch (e) {
+      if (generation != _filterGeneration) return;
       debugPrint('loadCumulative $sectorId failed: $e');
       _cumSeries[sectorId] = const CumulativeSeries(periods: [], params: []);
     } finally {
-      _cumLoading.remove(sectorId);
-      notifyListeners();
+      if (generation == _filterGeneration) {
+        _cumLoading.remove(sectorId);
+        notifyListeners();
+      }
     }
+    if (generation != _filterGeneration) return;
     if (_cumReloadPending.remove(sectorId)) {
       _cumSeries.remove(sectorId);
       await loadCumulative(sectorId);
@@ -621,10 +659,14 @@ class ScopeComparisonProvider extends ChangeNotifier {
   Future<void> _loadHatchAgeSeries() async {
     final filter = _lastFilter;
     if (filter == null) return;
+    final generation = _filterGeneration;
     try {
-      _hatchByAge = await _panelRepo.getHatchByAge(filter);
+      final series = await _panelRepo.getHatchByAge(filter);
+      if (generation != _filterGeneration) return;
+      _hatchByAge = series;
       notifyListeners();
     } catch (e) {
+      if (generation != _filterGeneration) return;
       debugPrint('Hatch age series load failed: $e');
       _hatchByAge = const [];
     }

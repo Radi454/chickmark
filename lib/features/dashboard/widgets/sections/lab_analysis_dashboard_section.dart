@@ -6,6 +6,8 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../data/models/lab_analysis_models.dart';
 import '../../../../widgets/app_card.dart';
+import '../../models/lab_analysis_trend_models.dart';
+import '../lab_analysis_trend_panel.dart';
 
 class LabAnalysisDashboardSection extends StatelessWidget {
   const LabAnalysisDashboardSection({
@@ -27,6 +29,7 @@ class LabAnalysisDashboardSection extends StatelessWidget {
     });
     final reportCount = summaries.map((item) => item.report.id).toSet().length;
     final types = summaries.map((item) => item.group.testType).toSet().length;
+    final elisaTrends = LabAnalysisTrendBuilder.buildElisa(summaries);
 
     return AppCard(
       margin: EdgeInsets.zero,
@@ -50,7 +53,7 @@ class LabAnalysisDashboardSection extends StatelessWidget {
           ),
           const SizedBox(height: AppSizes.spaceSm),
           Text(
-            'Breeder farm lab signals from ELISA, PCR, HI, and sensitivity records.',
+            'Breeder farm lab signals from ELISA, PCR, HI, bacterial culture, and sensitivity records.',
             style: AppTextStyles.caption,
           ),
           const SizedBox(height: AppSizes.spaceMd),
@@ -67,7 +70,13 @@ class LabAnalysisDashboardSection extends StatelessWidget {
           const SizedBox(height: AppSizes.spaceMd),
           if (!isLoading && summaries.isEmpty)
             const _EmptyLabState()
-          else
+          else ...[
+            if (elisaTrends.isNotEmpty) ...[
+              LabAnalysisTrendPanel(series: elisaTrends.first),
+              const SizedBox(height: AppSizes.spaceLg),
+            ],
+            Text('Recent findings', style: AppTextStyles.subtitle),
+            const SizedBox(height: AppSizes.spaceSm),
             LayoutBuilder(
               builder: (context, constraints) {
                 final columns = constraints.maxWidth < 720 ? 1 : 2;
@@ -86,6 +95,7 @@ class LabAnalysisDashboardSection extends StatelessWidget {
                 );
               },
             ),
+          ],
         ],
       ),
     );
@@ -181,6 +191,10 @@ class _SummaryLine extends StatelessWidget {
         if (group.gmLog2 != null) 'GM ${group.gmLog2!.toStringAsFixed(1)}',
         if (group.protectivePct != null)
           'protected ${group.protectivePct!.toStringAsFixed(0)}%',
+      ],
+      LabTestType.culture => [
+        '${group.positiveCount ?? 0}/${group.sampleCount ?? rows.length} positive',
+        if ((group.method).trim().isNotEmpty) group.method,
       ],
       LabTestType.sensitivity => [
         '${_categoryCount(rows, 'S')} S',

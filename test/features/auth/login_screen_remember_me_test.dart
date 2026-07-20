@@ -156,6 +156,67 @@ void main() {
       ),
     ).called(1);
   });
+
+  testWidgets('customer can sign in with a username instead of an email', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    when(
+      () => supabase.signIn(
+        'ghareeb@customers.chickmark.app',
+        'Ghareeb#12345',
+        rememberSession: false,
+      ),
+    ).thenAnswer(
+      (_) async => AuthResult(
+        success: true,
+        user: UserModel(
+          id: 'customer-user',
+          fullName: 'Ghareeb',
+          email: 'ghareeb@customers.chickmark.app',
+          role: 'customer',
+          status: 'approved',
+          customerId: 'customer-ghareeb',
+          createdAt: DateTime(2026),
+        ),
+      ),
+    );
+
+    await pumpLogin(tester);
+    await tester.enterText(find.byType(TextFormField).first, 'Ghareeb');
+    await tester.enterText(find.byType(TextFormField).at(1), 'Ghareeb#12345');
+    await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Sign In'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Sign In'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    verify(
+      () => supabase.signIn(
+        'ghareeb@customers.chickmark.app',
+        'Ghareeb#12345',
+        rememberSession: false,
+      ),
+    ).called(1);
+  });
+
+  testWidgets('username recovery directs customers to their admin', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await pumpLogin(tester);
+    await tester.enterText(find.byType(TextFormField).first, 'Ghareeb');
+    await tester.ensureVisible(find.text('Forgot password?'));
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pump();
+
+    expect(
+      find.text(
+        'Customer password resets are handled by your ChickMark admin.',
+      ),
+      findsOneWidget,
+    );
+    verifyNever(() => supabase.sendPasswordReset(any()));
+  });
 }
 
 UserModel _approvedUser(String email) {

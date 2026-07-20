@@ -9,6 +9,7 @@ import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
@@ -470,18 +471,12 @@ void _fillHatcherInitial(AuditProvider provider) {
 
 void _editEggStation(AuditProvider provider) {
   provider.updateField('esEggStorageDays', 8);
-  provider.updateField(
-    'esEggWeights',
-    jsonEncode([62.2, 63.2, 64.2]),
-  );
+  provider.updateField('esEggWeights', jsonEncode([62.2, 63.2, 64.2]));
 }
 
 void _editChickStation(AuditProvider provider) {
   provider.updateField('pasgarReflexes', 5);
-  provider.updateField(
-    'cvtReadingsJson',
-    jsonEncode([103.7, 103.8, 103.9]),
-  );
+  provider.updateField('cvtReadingsJson', jsonEncode([103.7, 103.8, 103.9]));
   provider.updateChickWeightSampleResult(
     weightsJson: jsonEncode([43.0, 43.5, 44.0, 44.5]),
     avgWeight: 43.75,
@@ -505,10 +500,7 @@ void _editSetter(AuditProvider provider) {
 }
 
 void _editHatcher(AuditProvider provider) {
-  provider.updateField(
-    'hoCvtReadings',
-    jsonEncode([103.8, 103.9, 104.0]),
-  );
+  provider.updateField('hoCvtReadings', jsonEncode([103.8, 103.9, 104.0]));
   provider.updateField('ho_meconium', 'none');
 }
 
@@ -581,7 +573,16 @@ Future<void> _expectDashboardLoadsFromPanelTables() async {
   );
 
   final dashboard = DashboardProvider();
-  await dashboard.init();
+  await dashboard.init(
+    currentUser: UserModel(
+      id: 'panel-smoke-admin',
+      fullName: 'Panel Smoke Admin',
+      email: 'panel-smoke-admin@example.com',
+      role: 'admin',
+      status: 'approved',
+      createdAt: DateTime(2026),
+    ),
+  );
   await dashboard.setCustomer(_customerId);
   await dashboard.setHatchery(_hatcheryId);
 

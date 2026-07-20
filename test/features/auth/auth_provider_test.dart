@@ -247,7 +247,10 @@ void main() {
       await provider.login(email, password);
 
       expect(provider.state, AuthState.error);
-      expect(provider.errorMessage, 'The email or password is incorrect.');
+      expect(
+        provider.errorMessage,
+        'The username/email or password is incorrect.',
+      );
     });
 
     test('surfaces Supabase config error verbatim', () async {

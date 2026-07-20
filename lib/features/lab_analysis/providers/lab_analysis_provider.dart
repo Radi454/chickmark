@@ -369,7 +369,6 @@ class LabAnalysisProvider extends ChangeNotifier {
     required String sampleType,
     DateTime? receivedDate,
     required String groupLabel,
-    String organism = '',
     required List<SensitivityInput> antibiotics,
     String? notes,
     String? reportFileName,
@@ -396,7 +395,6 @@ class LabAnalysisProvider extends ChangeNotifier {
       testType: LabTestType.sensitivity,
       groupLabel: groupLabel,
       sampleScope: groupLabel,
-      analyte: organism,
       method: 'Sensitivity',
       notes: notes,
       sortOrder: _nextSortOrder(report.id),
@@ -418,6 +416,72 @@ class LabAnalysisProvider extends ChangeNotifier {
           sensitivityCategory: antibiotics[i].category,
           result: antibiotics[i].category,
           resultCategory: antibiotics[i].category,
+          sortOrder: i,
+          createdAt: now,
+          updatedAt: now,
+        ),
+    ];
+    await _labAnalysisRepository.saveBatch(
+      report: report,
+      group: group,
+      rows: rows,
+    );
+    await reload();
+  }
+
+  Future<void> saveCulture({
+    required String labName,
+    required String sampleType,
+    DateTime? receivedDate,
+    required String groupLabel,
+    required String method,
+    required List<CultureResultInput> findings,
+    String? notes,
+    String? reportFileName,
+    String? reportFilePath,
+    String? reportFileRemotePath,
+  }) async {
+    final context = _saveContext(labName: labName, sampleType: sampleType);
+    final now = DateTime.now();
+    final report = _reportForContext(
+      context,
+      receivedDate: receivedDate,
+      title: 'Bacterial Culture $groupLabel',
+      reportFileName: reportFileName,
+      reportFilePath: reportFilePath,
+      reportFileRemotePath: reportFileRemotePath,
+    );
+    final groupId = _uuid.v4();
+    final group = LabAnalysisGroupModel(
+      id: groupId,
+      reportId: report.id,
+      customerId: context.customerId,
+      flockId: context.flockId,
+      reportDate: context.reportDate,
+      testType: LabTestType.culture,
+      groupLabel: groupLabel,
+      sampleScope: groupLabel,
+      analyte: findings.length == 1 ? findings.first.organism : method,
+      method: method,
+      createdAt: now,
+      updatedAt: now,
+      notes: notes,
+      sortOrder: _nextSortOrder(report.id),
+    );
+    final rows = <LabAnalysisRowModel>[
+      for (var i = 0; i < findings.length; i++)
+        LabAnalysisRowModel(
+          id: _uuid.v4(),
+          groupId: groupId,
+          reportId: report.id,
+          customerId: context.customerId,
+          flockId: context.flockId,
+          reportDate: context.reportDate,
+          testType: LabTestType.culture,
+          rowLabel: findings[i].organism,
+          analyte: findings[i].organism,
+          result: findings[i].result,
+          resultCategory: findings[i].result,
           sortOrder: i,
           createdAt: now,
           updatedAt: now,
@@ -602,6 +666,13 @@ class SensitivityInput {
   final String category;
 
   const SensitivityInput({required this.antibiotic, required this.category});
+}
+
+class CultureResultInput {
+  final String organism;
+  final String result;
+
+  const CultureResultInput({required this.organism, required this.result});
 }
 
 class _SaveContext {

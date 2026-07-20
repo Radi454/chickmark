@@ -118,7 +118,7 @@ class LabAnalysisRepository {
   Future<List<LabAnalysisDashboardSummary>> getDashboardSummaries({
     String? customerId,
     String? flockId,
-    int limit = 30,
+    int limit = 120,
   }) async {
     final db = await _dbHelper.db;
     final clauses = <String>[];
@@ -367,6 +367,24 @@ class LabAnalysisRepository {
         return value.contains('+ve') ||
             value.contains('positive') ||
             value.contains('detected');
+      }).length;
+      prepared = prepared.copyWith(
+        sampleCount: rows.length,
+        positiveCount: positive,
+        negativeCount: rows.length - positive,
+        positivePct: rows.isEmpty ? null : positive * 100 / rows.length,
+      );
+    } else if (group.testType == LabTestType.culture) {
+      final positive = rows.where((row) {
+        final value = '${row.resultCategory} ${row.result}'.toLowerCase();
+        if (value.contains('negative') ||
+            value.contains('not isolated') ||
+            value.contains('no growth')) {
+          return false;
+        }
+        return value.contains('positive') ||
+            value.contains('isolated') ||
+            value.contains('growth');
       }).length;
       prepared = prepared.copyWith(
         sampleCount: rows.length,

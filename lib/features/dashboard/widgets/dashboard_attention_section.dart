@@ -93,11 +93,13 @@ class DashboardAttentionSection extends StatelessWidget {
                 finding: finding,
                 action: dashboard.actionForFinding(finding.key),
                 onOpenSource: () => onOpenSource(finding),
-                onAction: () => showDashboardActionSheet(
-                  context,
-                  finding: finding,
-                  action: dashboard.actionForFinding(finding.key),
-                ),
+                onAction: dashboard.canManageActions
+                    ? () => showDashboardActionSheet(
+                        context,
+                        finding: finding,
+                        action: dashboard.actionForFinding(finding.key),
+                      )
+                    : null,
               ),
               if (finding != findings.take(6).last)
                 const SizedBox(height: AppSizes.spaceSm),
@@ -187,7 +189,7 @@ class _FindingCard extends StatelessWidget {
   final DashboardFinding finding;
   final DashboardActionModel? action;
   final VoidCallback onOpenSource;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -290,19 +292,21 @@ class _FindingCard extends StatelessWidget {
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: Text(context.tr('View source')),
                 ),
-                const SizedBox(width: 6),
-                FilledButton.tonalIcon(
-                  onPressed: onAction,
-                  icon: Icon(
-                    action == null ? Icons.add_task : Icons.edit_note,
-                    size: 17,
-                  ),
-                  label: Text(
-                    context.tr(
-                      action == null ? 'Create action' : 'Update action',
+                if (onAction != null) ...[
+                  const SizedBox(width: 6),
+                  FilledButton.tonalIcon(
+                    onPressed: onAction,
+                    icon: Icon(
+                      action == null ? Icons.add_task : Icons.edit_note,
+                      size: 17,
+                    ),
+                    label: Text(
+                      context.tr(
+                        action == null ? 'Create action' : 'Update action',
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ],

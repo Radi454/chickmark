@@ -7,6 +7,7 @@ import '../../../core/debug/startup_timer.dart';
 import '../../../core/navigation/shell_navigation_scope.dart';
 import '../../../data/models/user_model.dart';
 import '../../../providers/customers_provider.dart';
+import '../../../services/sync/app_sync_coordinator.dart';
 import '../../../services/sync/bg_sync_service.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -27,17 +28,18 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final BgSyncService _bgSync = BgSyncService();
   int _currentIndex = 0;
   final List<int> _tabHistory = [];
-  bool _syncTriggered = false;
+  bool _syncConfigured = false;
 
   // Tabs a read-only customer is allowed to see. Everything else (Home,
-  // Customers, Audits) is auditor/admin only. Settings stays so customers can
-  // still reach account + sign-out. The real boundary is RLS on the server;
-  // this just hides what they cannot use.
-  static const Set<String> _customerTabKeys = {'dashboard', 'bmk', 'settings'};
+  // Customers, Audits, Govee, Lab Analysis and BMK) is auditor/admin only.
+  // Settings stays so customers can still reach account + sign-out. The real
+  // boundary is RLS on the server; this just hides what they cannot use.
+  static const Set<String> _customerTabKeys = {'dashboard', 'settings'};
 
   List<_ShellTab> _tabsFor(UserModel? user) {
     final all = <_ShellTab>[
@@ -127,22 +129,40 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     StartupTimer.lap('main_shell_init');
   }
 
-  void _triggerBackgroundSync() {
-    if (_syncTriggered) return;
-    _syncTriggered = true;
+  @override
+  void dispose() {
+    AppSyncCoordinator.disable();
+    WidgetsBinding.instance.removeObserver(this);
+    _bgSync.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppSyncCoordinator.nudge(immediate: true);
+    }
+  }
+
+  void _configureBackgroundSync() {
+    if (_syncConfigured) return;
+    _syncConfigured = true;
     StartupTimer.lap('bg_sync_triggering');
     final authProvider = context.read<AuthProvider>();
     final customersProvider = context.read<CustomersProvider>();
     final settingsProvider = context.read<SettingsProvider>();
-    final bgSync = BgSyncService();
-    bgSync.runBackgroundSync(
-      authProvider: authProvider,
-      customersProvider: customersProvider,
-      settingsProvider: settingsProvider,
+    AppSyncCoordinator.enable(
+      sync: () => _bgSync.runBackgroundSync(
+        authProvider: authProvider,
+        customersProvider: customersProvider,
+        settingsProvider: settingsProvider,
+      ),
     );
+    AppSyncCoordinator.nudge(immediate: true);
   }
 
   @override
@@ -166,7 +186,7 @@ class _MainShellState extends State<MainShell> {
       _homeLoaded = true;
       StartupTimer.lap('home_screen_built');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _triggerBackgroundSync();
+        _configureBackgroundSync();
       });
     }
 

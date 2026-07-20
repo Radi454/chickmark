@@ -34,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   SettingsProvider? _settingsProvider;
   String? _observedSyncTimestamp;
   bool _refreshingAfterSync = false;
+  String? _preparedUserScope;
   bool _goveeExpanded = true;
   final GlobalKey _goveeKey = GlobalKey();
   late final Map<String, GlobalKey> _stationKeys = {
@@ -44,18 +45,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   };
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final user = context.read<AuthProvider>().user;
-      context.read<DashboardProvider>().init(currentUser: user);
-    });
-  }
-
-  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final user = context.watch<AuthProvider>().user;
+    final userScope = user == null
+        ? 'signed-out'
+        : '${user.id}|${user.role}|${user.status}|${user.customerId ?? ''}';
+    if (_preparedUserScope != userScope) {
+      _preparedUserScope = userScope;
+      final dashboard = context.read<DashboardProvider>();
+      dashboard.prepareForUser(user);
+      context.read<ScopeComparisonProvider>().prepareForAccountChange();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _preparedUserScope != userScope) return;
+        unawaited(dashboard.init(currentUser: user));
+      });
+    }
     SettingsProvider? settings;
     try {
       settings = context.read<SettingsProvider>();
@@ -248,6 +253,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _customerFilter(BuildContext context, DashboardProvider provider) {
+    if (provider.isLoading && provider.customers.isEmpty) {
+      return InputDecorator(
+        decoration: _filterDecoration(context, 'Customer'),
+        child: Text(
+          context.tr('Loading customer…'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.caption,
+        ),
+      );
+    }
     final entries = <({String? value, String label})>[
       if (provider.canUseAllCustomers) (value: null, label: 'All customers'),
       ...provider.customers.map((c) => (value: c.id, label: c.name)),

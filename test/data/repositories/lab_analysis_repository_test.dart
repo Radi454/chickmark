@@ -125,4 +125,68 @@ void main() {
     expect(summaries.single.group.groupLabel, 'عنبر 1');
     expect(summaries.single.rows.first.spRatio, 1.819);
   });
+
+  test(
+    'saves bacterial culture findings independently of sensitivity',
+    () async {
+      final now = DateTime.utc(2026, 7, 19);
+      final report = LabAnalysisReportModel(
+        id: 'culture-report',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        reportDate: now,
+        labName: 'معمل أبو العمايم',
+        sampleType: 'Broiler chicks',
+        createdAt: now,
+        updatedAt: now,
+      );
+      final group = LabAnalysisGroupModel(
+        id: 'culture-group',
+        reportId: report.id,
+        customerId: report.customerId,
+        flockId: report.flockId,
+        reportDate: report.reportDate,
+        testType: LabTestType.culture,
+        groupLabel: 'Whole flock / pooled',
+        analyte: 'Salmonella spp.',
+        method: 'Salmonella isolation',
+        createdAt: now,
+        updatedAt: now,
+      );
+      final row = LabAnalysisRowModel(
+        id: 'culture-row',
+        groupId: group.id,
+        reportId: report.id,
+        customerId: report.customerId,
+        flockId: report.flockId,
+        reportDate: report.reportDate,
+        testType: LabTestType.culture,
+        rowLabel: 'Salmonella spp.',
+        analyte: 'Salmonella spp.',
+        result: 'Negative',
+        resultCategory: 'Negative',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await repository.saveBatch(report: report, group: group, rows: [row]);
+
+      final batches = await repository.getBatches(
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+      );
+      final savedGroup = batches.single.groups.single;
+      final savedRow = batches.single.rowsByGroupId[savedGroup.id]!.single;
+
+      expect(savedGroup.testType, LabTestType.culture);
+      expect(savedGroup.method, 'Salmonella isolation');
+      expect(savedGroup.sampleCount, 1);
+      expect(savedGroup.positiveCount, 0);
+      expect(savedGroup.negativeCount, 1);
+      expect(savedGroup.severity, LabSeverity.normal);
+      expect(savedRow.analyte, 'Salmonella spp.');
+      expect(savedRow.result, 'Negative');
+      expect(savedRow.interpretation, contains('not isolated'));
+    },
+  );
 }

@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/audit_session_model.dart';
 import '../models/panel_sample_schema.dart';
+import '../../services/sync/app_sync_coordinator.dart';
 import 'sync_tombstone_repository.dart';
 
 const _recentSessionOrderBy = 'updatedAt DESC, date DESC, createdAt DESC';
@@ -23,6 +24,7 @@ class AuditSessionRepository {
     );
     final db = await _dbHelper.db;
     await _upsertById(db, 'audit_sessions', _stampDirty(session.toMap()));
+    AppSyncCoordinator.nudge();
   }
 
   Future<void> updateSession(AuditSessionModel session) async {
@@ -33,6 +35,7 @@ class AuditSessionRepository {
       where: 'id = ?',
       whereArgs: [session.id],
     );
+    AppSyncCoordinator.nudge();
   }
 
   Future<void> deleteSession(String id) async {
@@ -75,6 +78,7 @@ class AuditSessionRepository {
       );
       await txn.delete('audit_sessions', where: 'id = ?', whereArgs: [id]);
     });
+    AppSyncCoordinator.nudge();
   }
 
   Future<AuditSessionModel?> getSessionById(String id) async {
@@ -225,6 +229,7 @@ class AuditSessionRepository {
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+    AppSyncCoordinator.nudge();
   }
 
   Future<void> updateSelectedStationKeys(
@@ -258,6 +263,7 @@ class AuditSessionRepository {
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+    AppSyncCoordinator.nudge();
   }
 
   Future<void> updateSessionProgress(
@@ -292,6 +298,7 @@ class AuditSessionRepository {
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+    AppSyncCoordinator.nudge();
   }
 
   Future<List<AuditSessionModel>> getSessionsByDateRange(

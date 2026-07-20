@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-19
+2026-07-21
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -157,7 +157,7 @@ navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
 
-The main shell has eight destinations:
+The main shell has eight destinations for approved admins and auditors:
 
 - Home
 - Dashboard
@@ -167,6 +167,13 @@ The main shell has eight destinations:
 - Lab Analysis
 - BMK
 - Settings
+
+Approved customer-role accounts see only Dashboard and Settings. Settings is
+reduced to account details and sign-out, so the only product data surface they
+can open is Dashboard. Their Dashboard customer selector is locked to the
+profile's assigned `customerId`; hatchery and flock selectors are populated
+only from that customer. Dashboard action creation/editing is hidden and also
+rejected by provider guards for customer-role users.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
@@ -1286,30 +1293,42 @@ cumulative temperature trend update together when it changes.
 Lab Analysis is a standalone breeder-farm lab register scoped to customer,
 flock, and report date; it does not require a hatchery or audit visit session.
 The main-shell `Lab Analysis` tab lets editors choose customer, flock, and date,
-then add ELISA, PCR, HI, or Sensitivity result groups. A saved lab report header
+then add ELISA, PCR, HI, Bacterial Culture, or Sensitivity result groups. The add-report sheet is a
+three-section flow: report context, test-specific results, then source PDF and
+notes. Test-type cards change both the guidance and visible fields so unrelated
+assay inputs are not mixed together. A saved lab report header
 stores lab name, sample type, optional received date, flock age, notes, and sync
 state. It can also carry the original lab-result PDF: the app stores the PDF
 filename, local path when available, and Supabase Storage URI on the report row,
 and report cards expose a `View PDF` action that opens the local file or a
 signed cloud URL. Each report can contain multiple result groups, such as MG
-ELISA by house, PCR molecular-detection pages, HI antigen distributions, and
-antibiotic sensitivity panels. ELISA entry preserves the full per-sample rows
-from the lab paper: sample number, OD, S/P ratio, result, titer, and titer
-group, alongside summary fields such as mean, minimum, maximum, GMT, CV%,
-positives, negatives, and cutoffs. PCR rows store analyte, result, and Ct. HI
+ELISA by house, PCR molecular-detection pages, HI antigen distributions,
+bacterial culture/isolation findings, and antibiotic sensitivity panels. ELISA entry saves the printed plate summary
+first: mean, minimum, maximum, GMT, CV%, positives, negatives, and cutoffs.
+Individual sample entry is optional and hidden by default; enabling it stores
+sample number, OD, S/P ratio, result, titer, and titer group, while blank
+default rows are never persisted. PCR rows store analyte, result, and Ct. HI
 rows store the complete log2 titer distribution including the `>=12` bin,
-number of sera, GM, and the saved protective-threshold summary. Sensitivity rows
-store antibiotic names and S/I/R categories, with optional organism/isolate
-context. Fixed-choice entry fields use dropdowns for sample type, ELISA row
-result, PCR row result, HI antigen, and sensitivity category; variable values
-such as lab name, analyte, organism, and antibiotic remain editable text.
+number of sera, GM, and the saved protective-threshold summary. Bacterial
+Culture is a separate test type that stores the culture/isolation method plus
+one or more organism/result findings (for example, Salmonella isolation with a
+negative result). Sensitivity no longer asks for a bacterial organism; it stores
+only antimicrobial names and laboratory S/I/R categories for the selected
+sample/isolate scope. Known-value entry fields use controlled lists for sample type,
+house/scope, ELISA analyte, kit manufacturer (`IDvet`, `IDEXX`, or `Other`),
+ELISA row result, PCR target and result, HI antigen, culture method and organism,
+antimicrobial, culture result, and sensitivity category. The actual laboratory name, numeric
+results, kit/product codes, notes, and sample identifiers remain editable.
+Selecting the MG IDvet preset fills its saved `MG/0416`,
+S/P `0.5`, and titer `843` defaults, while other analytes clear MG-specific
+cutoffs rather than reusing them accidentally.
 
 Saved Lab Analysis cards use the ChickMark blue brand strip and neutral white
 surfaces instead of tinting the full result area by severity. ELISA results
 open in a compact summary state showing sample size, mean, GMT, CV%,
 positive/negative counts, minimum titer, and maximum titer. Large whole-number
 results use thousands separators. The full per-sample ELISA table remains
-available from the collapsed `Sample details` control; PCR, HI, and sensitivity
+available from the collapsed `Sample details` control; PCR, HI, Culture, and sensitivity
 rows use the same progressive-disclosure pattern with test-appropriate compact
 summary metrics. Severity color is limited to the status badge, border, and
 interpretation note so alerts remain visible without overpowering the report.
@@ -1326,12 +1345,22 @@ with no sensitive option or resistant-dominant patterns.
 
 Dashboard shows a `Lab Analysis` sector directly under the cascade filters and
 loads it by the selected customer and flock only, independent of the selected
-hatchery. The sector shows report/test-type counts, alert/watch counts, and the
-latest saved result groups with compact per-test metrics: ELISA GMT/CV/positive
-rate, PCR positive count and minimum Ct, HI GM/protected percentage, and
-sensitivity S/I/R counts. It remains visible with all-customer or no-hatchery
-filters so breeder-farm lab results can be reviewed without entering an
-operational hatchery scope.
+hatchery. The sector shows report/test-type counts and group-level alert/watch
+counts; sample-row severities are not added to these counters, preventing a
+single multi-sera plate from appearing as dozens of warnings. When an ELISA
+analyte has at least two canonical report dates, the sector adds a longitudinal
+panel with selectable GMT, CV%, and positivity lines, house range shading,
+latest-snapshot metrics, change callouts, and a house-by-date GMT/CV heatmap.
+Pooled repeat plates remain visible as a separate dashed series but are excluded
+from canonical house averages and row-level trend weighting. The sector then
+shows the latest saved result groups with compact per-test metrics: ELISA
+GMT/CV/positive rate, PCR positive count and minimum Ct, HI GM/protected
+percentage, bacterial-culture positive/negative counts, and sensitivity S/I/R
+counts. It remains visible with all-customer
+or no-hatchery filters so breeder-farm lab results can be reviewed without
+entering an operational hatchery scope. Dashboard Lab Analysis loading retains
+up to 120 recent result groups so multi-date house trends are not truncated by
+the previous 30-group cap.
 
 ## 5. Data Hierarchy
 
@@ -1420,17 +1449,38 @@ through an enabled local fallback account. A cached Supabase profile is not
 accepted as proof of the newly entered password when the device is offline.
 Startup may still resume a previously remembered, unexpired remote session from
 secure local token storage without asking the user to sign in again.
+The login identifier accepts either an internal user's email or an
+admin-issued customer username. Customer usernames are case-insensitive and are
+mapped internally to `<username>@customers.chickmark.app` for Supabase password
+authentication; the synthetic email is not presented as a mailbox to the
+customer.
 The live Supabase Auth configuration requires at least 12 characters with
 lowercase and uppercase letters, a digit, and a symbol; the registration form
 enforces the same policy locally. Password changes require both a recent
 reauthenticated session and the current password. HaveIBeenPwned leaked-password
 checking is not available on the project's current Supabase Free plan, so the
 security advisor retains that single plan-bound warning.
-The login screen's Remember me option stores only the saved email in shared
-preferences and forwards the remember-session choice into Supabase sign-in. When
-Remember me is unchecked on a successful login, the saved email is removed and
-the remote session is not persisted by the sign-in request. The Remember me /
-Forgot Password row wraps on phone-width layouts instead of overflowing.
+The login screen's Remember me option stores only the entered username/email in
+shared preferences and forwards the remember-session choice into Supabase
+sign-in. When Remember me is unchecked on a successful login, the saved
+identifier is removed and the remote session is not persisted by the sign-in
+request. The Remember me / Forgot Password row wraps on phone-width layouts
+instead of overflowing.
+
+Approved admins can open Settings > User access and create a customer account
+without leaving or replacing their own session. The creation sheet requires an
+existing customer assignment, display name, unique username, and a password
+that matches the live 12-character complexity policy. The Flutter client calls
+the `create-customer-account` Supabase Edge Function; that function verifies
+the caller is an approved admin, creates a confirmed Auth user with the
+server-only service-role key, and writes an approved `customer` profile linked
+to the chosen `customer_id`. The `profiles.username` column has a
+case-insensitive unique index and format constraint. The service-role key stays
+inside the deployed Edge Function and is never bundled into the app. Username
+accounts do not have a real recovery mailbox: Forgot Password directs them to
+their ChickMark admin, and the admin can open that customer profile in User
+access and set a new policy-compliant password through the separately verified
+`reset-customer-password` Edge Function.
 
 `CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
 and selected-customer state. It scopes data for customer-role users, supports
@@ -1650,6 +1700,10 @@ tombstones locally so another device reload removes stale rows. Customer deletes
 queue child tombstones for station panel rows, photos, audit sessions, Govee
 captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
 cloud rows even when local SQLite cascade removes the children immediately.
+Customer-role startup and background sync runs are explicitly pull-only: they
+skip local uploads and tombstone writes, then download only the tenant rows
+allowed by Supabase RLS. A missing user identity also defaults to pull-only
+instead of enabling writes.
 Supabase derives each new tombstone's customer from the still-existing target
 row before remote deletion and snapshots the approved users authorized for that
 customer. RLS exposes the deletion event only to that audience (or an approved
@@ -1666,9 +1720,23 @@ Flutter Web sync path pulls photo metadata but skips the native-file photo
 cache/upload pass, because browsers do not expose an application documents
 directory. This keeps Supabase row sync successful on web while preserving
 remote photo references; dashboard photo renderers turn those references into
-short-lived signed storage URLs. The app assumes Supabase tables and storage
-are protected by project
+short-lived signed storage URLs. The authenticated shell also requests a
+debounced sync after local customer,
+hatchery, flock, audit-session, or panel writes, whenever connectivity changes,
+and whenever a mobile/desktop app resumes. Concurrent requests share one sync
+pass and a write that lands during that pass schedules one retry. Customer,
+hatchery, and flock pushes use strict response verification so a database
+trigger or policy cannot silently cancel a parent insert while the UI reports
+it as uploaded. Production no longer installs the obsolete
+`customers_keep_only_ghareeb` trigger; multi-customer inserts are supported and
+existing device-local rows retry on the next automatic or manual sync.
+The app assumes Supabase tables and storage are protected by project
 RLS/storage policies for approved authenticated users and their customer scope.
+The private `photos` bucket authorizes audit evidence through its audit-session
+path and authorizes Lab Analysis PDFs either through the customer ID in the
+standard `lab_analysis_reports/<customerId>/...` path or through an authorized
+Lab Analysis report row that references the exact storage object. This keeps
+signed PDF viewing and replacement customer-scoped without opening the bucket.
 Authorization helpers live in a non-exposed private schema; approved status is
 required for admin privileges, direct execution of trigger functions is
 revoked, and the anonymous database role has no public-table CRUD grants. The
@@ -1739,6 +1807,23 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-21: Completed Arabic localization coverage for the new Lab Analysis
+  report workflow, bacterial-culture interpretations, and longitudinal trend
+  labels.
+- 2026-07-19: Restored mobile multi-customer sync by removing the obsolete
+  production trigger that silently cancelled every non-`الغريب` customer
+  insert. Parent uploads now verify returned Supabase rows, and local customer,
+  hatchery, flock, audit-session, and panel writes automatically request a
+  debounced sync that also retries on connectivity changes and app resume.
+- 2026-07-19: Added admin-issued, username-based customer accounts. Admins can
+  create an approved read-only Supabase Auth identity and assign it to one
+  existing customer through Settings > User access; the privileged user-create
+  operation lives in a caller-verified Edge Function. Customer accounts see
+  only Dashboard plus account/sign-out Settings, are locked to their assigned
+  customer/hatcheries/flocks, cannot create dashboard actions, and run both
+  startup and background sync in pull-only mode. Added admin-assisted password
+  reset for username accounts and fail-closed clearing of dashboard state when
+  the active identity or assigned tenant changes.
 - 2026-07-19: Hardened Supabase authorization by moving RLS helpers out of the
   exposed API schema, requiring approved admin status, revoking anonymous table
   and trigger-function grants, and tenant-scoping deletion tombstones with a
@@ -1750,6 +1835,22 @@ behavior and emit debug logs in development builds.
   checks for password changes. Registration counts user-perceived Unicode
   characters consistently, and disposable PostgreSQL integration checks verify
   the effective helper, policy, and function-grant state across migrations.
+- 2026-07-20: Reorganized Lab Analysis entry into test-aware report, result, and
+  source-document sections; replaced known specimen, scope, analyte/target,
+  kit-manufacturer, antigen, organism, antimicrobial, and interpretation text
+  fields with controlled choices while leaving the actual laboratory name
+  editable; made ELISA specimen rows explicitly
+  optional; and added ELISA longitudinal GMT/CV/positivity charts, pooled-repeat
+  separation, latest snapshot callouts, and a house/date heatmap to Dashboard.
+  Dashboard alert/watch KPIs now count result groups instead of every sample
+  row. Extended the private photos-bucket RLS policy so customer-authorized Lab
+  Analysis report rows can open their attached PDF and new uploads can use the
+  standard customer-scoped lab-report path.
+- 2026-07-20: Split bacterial culture from antibiotic sensitivity in Lab
+  Analysis. Sensitivity now records antimicrobial S/I/R results only, while the
+  new Bacterial Culture tab records the isolation method, tested organisms, and
+  positive/negative or isolated/not-isolated findings, based on the supplied
+  Salmonella isolation report.
 - 2026-07-19: Aligned the iOS Runner deployment target with the Podfile's iOS
   15.5 minimum and disabled parallel CocoaPods framework code signing for
   Release builds so local device release builds complete reliably before

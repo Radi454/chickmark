@@ -35,12 +35,14 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
     // Don't flag incoming changes on the very first sync (nothing local yet) —
     // only once the device has synced before.
     final collectIncoming = settings.hasSyncedBefore;
+    final currentUser = context.read<AuthProvider>().user;
     settings.markSyncing();
     // Wrap the sync future so outcomes (online + counts) land in
     // SettingsProvider regardless of whether the grace-period timer wins.
     final syncFuture = _syncService
         .run(
-          userId: context.read<AuthProvider>().user?.id,
+          userId: currentUser?.id,
+          canPush: currentUser?.canEditAudits ?? false,
           collectIncoming: collectIncoming,
         )
         .then((outcome) async {
@@ -69,7 +71,7 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
 
     if (!mounted) return;
     await context.read<CustomersProvider>().loadCustomers(
-      currentUser: context.read<AuthProvider>().user,
+      currentUser: currentUser,
     );
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/main');

@@ -102,7 +102,7 @@ class _LabAnalysisScreenState extends State<LabAnalysisScreen> {
                   Text('No lab results yet', style: AppTextStyles.title),
                   const SizedBox(height: AppSizes.spaceXs),
                   Text(
-                    'Add ELISA, PCR, HI, or sensitivity results for the selected flock.',
+                    'Add ELISA, PCR, HI, bacterial culture, or sensitivity results for the selected flock.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.caption,
                   ),
@@ -685,6 +685,22 @@ class _GroupMetrics extends StatelessWidget {
           'Maximum',
           _formatNumber(context, _maximum(populatedBins), decimals: 0),
         );
+      case LabTestType.culture:
+        final tested = group.sampleCount ?? rows.length;
+        final positive = group.positiveCount ?? _positiveCount(rows);
+        final negative = group.negativeCount ?? (tested - positive);
+        _add(
+          metrics,
+          'Organisms tested',
+          _formatInteger(context, tested),
+          emphasized: true,
+        );
+        _add(
+          metrics,
+          'Positive / Negative',
+          '${_formatInteger(context, positive)} / ${_formatInteger(context, negative)}',
+          emphasized: true,
+        );
       case LabTestType.sensitivity:
         _add(
           metrics,
@@ -766,8 +782,18 @@ class _GroupMetrics extends StatelessWidget {
 
   int _resultPolarity(String result) {
     return switch (result.trim().toUpperCase()) {
-      'P' || '+VE' || 'POSITIVE' || 'DETECTED' => 1,
-      'N' || '-VE' || 'NEGATIVE' || 'NOT DETECTED' => -1,
+      'P' ||
+      '+VE' ||
+      'POSITIVE' ||
+      'DETECTED' ||
+      'ISOLATED' ||
+      'MIXED GROWTH' => 1,
+      'N' ||
+      '-VE' ||
+      'NEGATIVE' ||
+      'NOT DETECTED' ||
+      'NOT ISOLATED' ||
+      'NO GROWTH' => -1,
       _ => 0,
     };
   }
@@ -871,6 +897,14 @@ class _RowsView extends StatelessWidget {
         );
       case LabTestType.hi:
         return _HiDistribution(rows: rows);
+      case LabTestType.culture:
+        return _SimpleTable(
+          columns: const ['Organism', 'Result', 'Interpretation'],
+          rows: [
+            for (final row in rows)
+              [row.analyte, row.result, row.interpretation],
+          ],
+        );
       case LabTestType.sensitivity:
         return _SensitivityChips(rows: rows);
     }
@@ -1002,8 +1036,10 @@ class _AddLabResultSheet extends StatefulWidget {
 }
 
 const _sampleTypeOptions = [
+  'Broiler chicks',
   'Blood samples',
   'Serum / Plasma',
+  'Egg yolk',
   'Tissue samples',
   'Swabs',
   'Tracheal swabs',
@@ -1012,6 +1048,89 @@ const _sampleTypeOptions = [
   'Isolate',
 ];
 
+const _scopeOptions = [
+  'House 1',
+  'House 2',
+  'House 3',
+  'House 4',
+  'House 5',
+  'House 6',
+  'House 7',
+  'House 8',
+  'Isolation',
+  'Whole flock / pooled',
+];
+const _elisaAnalyteOptions = [
+  'Mycoplasma gallisepticum',
+  'Mycoplasma synoviae',
+  'Infectious Bronchitis',
+  'Newcastle Disease',
+  'Infectious Bursal Disease',
+  'Avian Influenza H5',
+  'Avian Influenza H9',
+  'Reovirus',
+  'Chicken Anemia Virus',
+  'Egg Drop Syndrome',
+];
+const _elisaKitOptions = ['IDvet', 'IDEXX', 'Other'];
+const _pcrAnalyteOptions = [
+  'MG',
+  'MS',
+  'IBV',
+  'NDV',
+  'IBDV',
+  'H5',
+  'H9',
+  'ILT',
+  'CAV',
+  'Reovirus',
+];
+const _organismOptions = [
+  'Escherichia coli',
+  'Salmonella spp.',
+  'Staphylococcus spp.',
+  'Enterococcus spp.',
+  'Pasteurella multocida',
+  'Ornithobacterium rhinotracheale',
+  'Mycoplasma gallisepticum',
+  'Mycoplasma synoviae',
+  'Other',
+];
+const _cultureMethodOptions = [
+  'Salmonella isolation',
+  'General bacterial culture',
+  'Other',
+];
+const _cultureResultOptions = [
+  'Negative',
+  'Positive',
+  'Not isolated',
+  'Isolated',
+  'No growth',
+  'Mixed growth',
+  'Other',
+];
+const _antibioticOptions = [
+  'Amikacin',
+  'Amoxicillin',
+  'Ampicillin',
+  'Ceftiofur',
+  'Ciprofloxacin',
+  'Difloxacin',
+  'Doxycycline',
+  'Enrofloxacin',
+  'Erythromycin',
+  'Florfenicol',
+  'Gentamicin',
+  'Levofloxacin',
+  'Lincomycin',
+  'Neomycin',
+  'Oxytetracycline',
+  'Spectinomycin',
+  'Tiamulin',
+  'Tilmicosin',
+  'Tylosin',
+];
 const _elisaResultOptions = ['P', 'N'];
 const _pcrResultOptions = ['+VE', '-VE', 'Detected', 'Not detected'];
 const _hiAntigenOptions = ['NDV LASOTA', 'H5 (RE-14)', 'H9'];
@@ -1020,13 +1139,15 @@ const _sensitivityCategoryOptions = ['S', 'I', 'R'];
 class _AddLabResultSheetState extends State<_AddLabResultSheet> {
   final SupabaseService _supabaseService = SupabaseService();
   LabTestType _type = LabTestType.elisa;
+  bool _showElisaSamples = false;
+  bool _isSaving = false;
   final _formKey = GlobalKey<FormState>();
-  final _labName = TextEditingController();
-  final _sampleType = TextEditingController(text: 'Blood samples');
-  final _groupLabel = TextEditingController();
+  final _labName = TextEditingController(text: 'IDvet');
+  final _sampleType = TextEditingController(text: 'Serum / Plasma');
+  final _groupLabel = TextEditingController(text: 'House 1');
   final _notes = TextEditingController();
-  final _analyte = TextEditingController(text: 'MG');
-  final _kitName = TextEditingController();
+  final _analyte = TextEditingController(text: 'Mycoplasma gallisepticum');
+  final _kitName = TextEditingController(text: 'IDvet');
   final _productCode = TextEditingController(text: 'MG/0416');
   final _sampleCount = TextEditingController();
   final _mean = TextEditingController();
@@ -1041,9 +1162,10 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
   final _hiAntigen = TextEditingController(text: 'NDV LASOTA');
   final _hiSera = TextEditingController(text: '20');
   final _hiGm = TextEditingController();
-  final _organism = TextEditingController();
+  final _cultureMethod = TextEditingController(text: 'Salmonella isolation');
   final List<_ElisaSampleDraft> _elisaSamples = [];
   final List<_PcrDraft> _pcrRows = [];
+  final List<_CultureDraft> _cultureRows = [];
   final List<_SensitivityDraft> _sensitivityRows = [];
   final Map<int, TextEditingController> _hiBins = {};
   String? _reportFileName;
@@ -1054,27 +1176,18 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
   @override
   void initState() {
     super.initState();
-    _elisaSamples.addAll(
-      List.generate(4, (index) {
-        return _ElisaSampleDraft(
-          sampleNo: (index + 1).toString().padLeft(2, '0'),
-        );
-      }),
-    );
     _pcrRows.addAll([
       _PcrDraft(analyte: 'MG', result: '+VE'),
-      _PcrDraft(analyte: 'IB', result: '+VE'),
+      _PcrDraft(analyte: 'IBV', result: '+VE'),
       _PcrDraft(analyte: 'H9', result: '-VE'),
     ]);
+    _cultureRows.add(
+      _CultureDraft(organism: 'Salmonella spp.', result: 'Negative'),
+    );
+    _sensitivityRows.add(_SensitivityDraft());
     for (var bin = 0; bin <= 12; bin++) {
       _hiBins[bin] = TextEditingController();
     }
-    _sensitivityRows.addAll([
-      _SensitivityDraft(antibiotic: 'Amikacin', category: 'S'),
-      _SensitivityDraft(antibiotic: 'Doxycycline', category: 'S'),
-      _SensitivityDraft(antibiotic: 'Difloxacin', category: 'I'),
-      _SensitivityDraft(antibiotic: 'Levofloxacin', category: 'R'),
-    ]);
   }
 
   @override
@@ -1100,7 +1213,7 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
       _hiAntigen,
       _hiSera,
       _hiGm,
-      _organism,
+      _cultureMethod,
     ]) {
       controller.dispose();
     }
@@ -1108,6 +1221,9 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
       sample.dispose();
     }
     for (final row in _pcrRows) {
+      row.dispose();
+    }
+    for (final row in _cultureRows) {
       row.dispose();
     }
     for (final row in _sensitivityRows) {
@@ -1122,72 +1238,186 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
-      child: Form(
-        key: _formKey,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.biotech_outlined, color: AppColors.primary),
-                const SizedBox(width: AppSizes.spaceSm),
-                Expanded(
-                  child: Text(
-                    'Add lab result',
-                    style: AppTextStyles.sectionTitle,
+    final provider = context.watch<LabAnalysisProvider>();
+    return ColoredBox(
+      color: AppColors.background,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 920),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          gradient: AppColors.brandGradient,
+                          borderRadius: BorderRadius.circular(
+                            AppSizes.iconRadius,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.biotech_outlined,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: AppSizes.spaceMd),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'New lab report',
+                              style: AppTextStyles.sectionTitle,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${HatchDateUtils.formatDisplayDate(provider.selectedDate)}'
+                              ' · choose the test first, then enter only its '
+                              'relevant fields',
+                              style: AppTextStyles.caption,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: context.tr('Close'),
+                        onPressed: _isSaving
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
                   ),
-                ),
-                IconButton(
-                  tooltip: context.tr('Close'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _TestTypePicker(selected: _type, onSelected: _selectTestType),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  _FormSection(
+                    number: '1',
+                    title: 'Report context',
+                    subtitle:
+                        'Who performed the test and what flock material was tested.',
+                    child: _FieldGrid(
+                      children: [
+                        _TextInput(
+                          controller: _labName,
+                          label: 'Laboratory',
+                          required: true,
+                        ),
+                        _DropdownInput(
+                          controller: _sampleType,
+                          label: 'Sample type',
+                          options: _sampleTypeOptions,
+                          required: true,
+                        ),
+                        _DropdownInput(
+                          controller: _groupLabel,
+                          label: _type == LabTestType.sensitivity
+                              ? 'House / isolate scope'
+                              : 'House / sample scope',
+                          options: _scopeOptions,
+                          required: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSizes.spaceMd),
+                  _FormSection(
+                    number: '2',
+                    title: '${_type.label} results',
+                    subtitle: _typeGuidance(_type),
+                    child: _buildTypeFields(),
+                  ),
+                  const SizedBox(height: AppSizes.spaceMd),
+                  _FormSection(
+                    number: '3',
+                    title: 'Source report',
+                    subtitle:
+                        'Attach the original PDF so every saved result remains auditable.',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ReportPdfPicker(
+                          fileName: _reportFileName,
+                          hasRemoteFile:
+                              (_reportFileRemotePath ?? '').isNotEmpty,
+                          onPick: _pickReportPdf,
+                          onClear: _clearReportPdf,
+                        ),
+                        _TextInput(
+                          controller: _notes,
+                          label: 'Notes / clinical context',
+                          maxLines: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSizes.spaceLg),
+                  FilledButton.icon(
+                    onPressed: _isSaving ? null : _save,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.cloud_upload_outlined),
+                    label: Text(
+                      _isSaving ? 'Saving report…' : 'Save report and results',
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: AppSizes.spaceMd),
-            SegmentedButton<LabTestType>(
-              segments: [
-                for (final type in LabTestType.values)
-                  ButtonSegment(value: type, label: Text(type.label)),
-              ],
-              selected: {_type},
-              onSelectionChanged: (value) =>
-                  setState(() => _type = value.first),
-            ),
-            const SizedBox(height: AppSizes.spaceMd),
-            _TextInput(controller: _labName, label: 'Lab name'),
-            _DropdownInput(
-              controller: _sampleType,
-              label: 'Sample type',
-              options: _sampleTypeOptions,
-            ),
-            _TextInput(
-              controller: _groupLabel,
-              label: _type == LabTestType.sensitivity
-                  ? 'Sample / isolate'
-                  : 'House / sample',
-              required: true,
-            ),
-            _ReportPdfPicker(
-              fileName: _reportFileName,
-              hasRemoteFile: (_reportFileRemotePath ?? '').isNotEmpty,
-              onPick: _pickReportPdf,
-              onClear: _clearReportPdf,
-            ),
-            _buildTypeFields(),
-            _TextInput(controller: _notes, label: 'Notes', maxLines: 2),
-            const SizedBox(height: AppSizes.spaceMd),
-            FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save'),
-            ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  void _selectTestType(LabTestType type) {
+    setState(() {
+      _type = type;
+      switch (type) {
+        case LabTestType.elisa:
+        case LabTestType.hi:
+          _sampleType.text = 'Serum / Plasma';
+        case LabTestType.pcr:
+          _sampleType.text = 'Tracheal swabs';
+        case LabTestType.culture:
+          _sampleType.text = 'Broiler chicks';
+          _groupLabel.text = 'Whole flock / pooled';
+        case LabTestType.sensitivity:
+          _sampleType.text = 'Isolate';
+          _groupLabel.text = 'Isolation';
+      }
+    });
+  }
+
+  String _typeGuidance(LabTestType type) {
+    return switch (type) {
+      LabTestType.elisa =>
+        'Save the plate summary first. Individual sera are optional and useful for distribution analysis.',
+      LabTestType.pcr =>
+        'Record one row per target with the reported detected status and Ct when available.',
+      LabTestType.hi =>
+        'Record the antigen, geometric mean, and number of sera at each log₂ titer.',
+      LabTestType.culture =>
+        'Record the culture or isolation method, each organism tested, and whether it was isolated.',
+      LabTestType.sensitivity =>
+        'Record only the laboratory S / I / R category for each tested antimicrobial.',
+    };
   }
 
   Widget _buildTypeFields() {
@@ -1198,6 +1428,8 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
         return _buildPcrFields();
       case LabTestType.hi:
         return _buildHiFields();
+      case LabTestType.culture:
+        return _buildCultureFields();
       case LabTestType.sensitivity:
         return _buildSensitivityFields();
     }
@@ -1271,125 +1503,157 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TextInput(controller: _analyte, label: 'Analyte', required: true),
-        Row(
+        _FieldGrid(
           children: [
-            Expanded(
-              child: _TextInput(controller: _kitName, label: 'Kit'),
+            _DropdownInput(
+              controller: _analyte,
+              label: 'Analyte / antibody',
+              options: _elisaAnalyteOptions,
+              required: true,
+              onChanged: _applyElisaPreset,
             ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _productCode,
-                label: 'Product code',
-              ),
+            _DropdownInput(
+              controller: _kitName,
+              label: 'Assay kit',
+              options: _elisaKitOptions,
+              required: true,
+            ),
+            _TextInput(controller: _productCode, label: 'Product / kit code'),
+          ],
+        ),
+        const _SubsectionLabel(
+          title: 'Plate summary',
+          caption: 'Enter the statistics printed on the laboratory report.',
+        ),
+        _FieldGrid(
+          children: [
+            _TextInput(
+              controller: _sampleCount,
+              label: 'Number of samples',
+              number: true,
+            ),
+            _TextInput(
+              controller: _positive,
+              label: 'Positive samples',
+              number: true,
+            ),
+            _TextInput(
+              controller: _negative,
+              label: 'Negative samples',
+              number: true,
             ),
           ],
         ),
-        Row(
+        _FieldGrid(
           children: [
-            Expanded(
-              child: _TextInput(
-                controller: _sampleCount,
-                label: 'Samples',
-                number: true,
-              ),
+            _TextInput(controller: _mean, label: 'Mean titer', number: true),
+            _TextInput(
+              controller: _gmt,
+              label: 'Geometric mean titer (GMT)',
+              number: true,
             ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _positive,
-                label: 'Positive',
-                number: true,
-              ),
-            ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _negative,
-                label: 'Negative',
-                number: true,
-              ),
+            _TextInput(
+              controller: _cv,
+              label: 'Coefficient of variation (CV%)',
+              number: true,
             ),
           ],
         ),
-        Row(
+        _FieldGrid(
           children: [
-            Expanded(
-              child: _TextInput(controller: _mean, label: 'Mean', number: true),
+            _TextInput(controller: _min, label: 'Minimum titer', number: true),
+            _TextInput(controller: _max, label: 'Maximum titer', number: true),
+            _TextInput(
+              controller: _cutoffSp,
+              label: 'Positive cut-off S/P',
+              number: true,
             ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _gmt,
-                label: 'G.M.T.',
-                number: true,
-              ),
-            ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(controller: _cv, label: 'CV %', number: true),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _TextInput(
-                controller: _min,
-                label: 'Minimum',
-                number: true,
-              ),
-            ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _max,
-                label: 'Maximum',
-                number: true,
-              ),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _TextInput(
-                controller: _cutoffSp,
-                label: 'Cut-off S/P',
-                number: true,
-              ),
-            ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(
-                controller: _cutoffTiter,
-                label: 'Cut-off titer',
-                number: true,
-              ),
+            _TextInput(
+              controller: _cutoffTiter,
+              label: 'Positive cut-off titer',
+              number: true,
             ),
           ],
         ),
         const SizedBox(height: AppSizes.spaceSm),
-        _SectionHeader(
-          title: 'ELISA samples',
-          onAdd: () => setState(() {
-            _elisaSamples.add(
-              _ElisaSampleDraft(
-                sampleNo: (_elisaSamples.length + 1).toString().padLeft(2, '0'),
-              ),
-            );
-          }),
-        ),
-        for (var i = 0; i < _elisaSamples.length; i++)
-          _ElisaSampleEditor(
-            draft: _elisaSamples[i],
-            onRemove: _elisaSamples.length <= 1
-                ? null
-                : () => setState(() => _elisaSamples.removeAt(i).dispose()),
+        Material(
+          color: AppColors.surfaceVariant,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+            side: const BorderSide(color: AppColors.borderDefault),
           ),
+          child: SwitchListTile.adaptive(
+            value: _showElisaSamples,
+            title: Text(
+              'Enter individual sample rows',
+              style: AppTextStyles.subtitle,
+            ),
+            subtitle: Text(
+              'Optional. Turn this on when OD, S/P, titer, and result are available.',
+              style: AppTextStyles.caption,
+            ),
+            onChanged: (value) {
+              setState(() {
+                _showElisaSamples = value;
+                if (value && _elisaSamples.isEmpty) {
+                  _elisaSamples.addAll(
+                    List.generate(
+                      5,
+                      (index) => _ElisaSampleDraft(
+                        sampleNo: (index + 1).toString().padLeft(2, '0'),
+                      ),
+                    ),
+                  );
+                }
+              });
+            },
+          ),
+        ),
+        if (_showElisaSamples) ...[
+          const SizedBox(height: AppSizes.spaceSm),
+          _SectionHeader(
+            title: 'Individual sera',
+            onAdd: () => setState(() {
+              _elisaSamples.add(
+                _ElisaSampleDraft(
+                  sampleNo: (_elisaSamples.length + 1).toString().padLeft(
+                    2,
+                    '0',
+                  ),
+                ),
+              );
+            }),
+          ),
+          for (var i = 0; i < _elisaSamples.length; i++)
+            _ElisaSampleEditor(
+              index: i,
+              draft: _elisaSamples[i],
+              onRemove: _elisaSamples.length <= 1
+                  ? null
+                  : () => setState(() => _elisaSamples.removeAt(i).dispose()),
+            ),
+        ],
       ],
     );
+  }
+
+  void _applyElisaPreset(String analyte) {
+    if (analyte == 'Mycoplasma gallisepticum') {
+      _kitName.text = 'IDvet';
+      _productCode.text = 'MG/0416';
+      _cutoffSp.text = '0.5';
+      _cutoffTiter.text = '843';
+    } else if (analyte == 'Mycoplasma synoviae') {
+      _kitName.text = 'IDvet';
+      _productCode.clear();
+      _cutoffSp.clear();
+      _cutoffTiter.clear();
+    } else if (analyte == 'Infectious Bronchitis') {
+      _kitName.text = 'IDvet';
+      _productCode.clear();
+      _cutoffSp.clear();
+      _cutoffTiter.clear();
+    }
   }
 
   Widget _buildPcrFields() {
@@ -1415,29 +1679,31 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _DropdownInput(
-          controller: _hiAntigen,
-          label: 'Antigen',
-          options: _hiAntigenOptions,
-          required: true,
-        ),
-        Row(
+        _FieldGrid(
           children: [
-            Expanded(
-              child: _TextInput(
-                controller: _hiSera,
-                label: 'No. of sera',
-                number: true,
-              ),
+            _DropdownInput(
+              controller: _hiAntigen,
+              label: 'Antigen',
+              options: _hiAntigenOptions,
+              required: true,
             ),
-            const SizedBox(width: AppSizes.spaceSm),
-            Expanded(
-              child: _TextInput(controller: _hiGm, label: 'G.M.', number: true),
+            _TextInput(
+              controller: _hiSera,
+              label: 'Number of sera',
+              number: true,
+            ),
+            _TextInput(
+              controller: _hiGm,
+              label: 'Geometric mean (log₂)',
+              number: true,
             ),
           ],
         ),
         const SizedBox(height: AppSizes.spaceSm),
-        Text('HI titer log-2 distribution', style: AppTextStyles.subtitle),
+        const _SubsectionLabel(
+          title: 'Titer distribution',
+          caption: 'Enter the number of sera observed at each log₂ titer.',
+        ),
         const SizedBox(height: AppSizes.spaceXs),
         Wrap(
           spacing: AppSizes.spaceXs,
@@ -1465,7 +1731,6 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TextInput(controller: _organism, label: 'Organism'),
         _SectionHeader(
           title: 'Antibiotics',
           onAdd: () =>
@@ -1482,8 +1747,38 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
     );
   }
 
+  Widget _buildCultureFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _FieldGrid(
+          children: [
+            _DropdownInput(
+              controller: _cultureMethod,
+              label: 'Culture / isolation test',
+              options: _cultureMethodOptions,
+              required: true,
+            ),
+          ],
+        ),
+        _SectionHeader(
+          title: 'Culture findings',
+          onAdd: () => setState(() => _cultureRows.add(_CultureDraft())),
+        ),
+        for (var i = 0; i < _cultureRows.length; i++)
+          _CultureRowEditor(
+            draft: _cultureRows[i],
+            onRemove: _cultureRows.length <= 1
+                ? null
+                : () => setState(() => _cultureRows.removeAt(i).dispose()),
+          ),
+      ],
+    );
+  }
+
   Future<void> _save() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_isSaving || !(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _isSaving = true);
     final provider = context.read<LabAnalysisProvider>();
     try {
       final reportFileRemotePath = await _uploadReportPdfIfNeeded(provider);
@@ -1506,18 +1801,23 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
             negativeCount: _int(_negative.text),
             cutoffValue: _double(_cutoffSp.text),
             cutoffTiter: _double(_cutoffTiter.text),
-            samples: [
-              for (final sample in _elisaSamples)
-                if (sample.sampleNo.text.trim().isNotEmpty)
-                  ElisaSampleInput(
-                    sampleNo: sample.sampleNo.text.trim(),
-                    od: _double(sample.od.text),
-                    spRatio: _double(sample.sp.text),
-                    result: sample.result.text.trim(),
-                    titer: _double(sample.titer.text),
-                    titerGroup: _int(sample.group.text),
-                  ),
-            ],
+            samples: _showElisaSamples
+                ? [
+                    for (final sample in _elisaSamples)
+                      if (sample.sampleNo.text.trim().isNotEmpty &&
+                          (sample.od.text.trim().isNotEmpty ||
+                              sample.sp.text.trim().isNotEmpty ||
+                              sample.titer.text.trim().isNotEmpty))
+                        ElisaSampleInput(
+                          sampleNo: sample.sampleNo.text.trim(),
+                          od: _double(sample.od.text),
+                          spRatio: _double(sample.sp.text),
+                          result: sample.result.text.trim(),
+                          titer: _double(sample.titer.text),
+                          titerGroup: _int(sample.group.text),
+                        ),
+                  ]
+                : const [],
             notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
             reportFileName: _reportFileName,
             reportFilePath: _reportFilePath,
@@ -1560,12 +1860,30 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
             reportFilePath: _reportFilePath,
             reportFileRemotePath: reportFileRemotePath,
           );
+        case LabTestType.culture:
+          await provider.saveCulture(
+            labName: _labName.text,
+            sampleType: _sampleType.text,
+            groupLabel: _groupLabel.text.trim(),
+            method: _cultureMethod.text.trim(),
+            findings: [
+              for (final row in _cultureRows)
+                if (row.organism.text.trim().isNotEmpty)
+                  CultureResultInput(
+                    organism: row.organism.text.trim(),
+                    result: row.result.text.trim(),
+                  ),
+            ],
+            notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+            reportFileName: _reportFileName,
+            reportFilePath: _reportFilePath,
+            reportFileRemotePath: reportFileRemotePath,
+          );
         case LabTestType.sensitivity:
           await provider.saveSensitivity(
             labName: _labName.text,
             sampleType: _sampleType.text,
             groupLabel: _groupLabel.text.trim(),
-            organism: _organism.text.trim(),
             antibiotics: [
               for (final row in _sensitivityRows)
                 if (row.antibiotic.text.trim().isNotEmpty)
@@ -1586,6 +1904,8 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not save lab result: $error')),
       );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -1593,6 +1913,264 @@ class _AddLabResultSheetState extends State<_AddLabResultSheet> {
 
   double? _double(String value) {
     return double.tryParse(value.trim().replaceAll(',', ''));
+  }
+}
+
+class _TestTypePicker extends StatelessWidget {
+  const _TestTypePicker({required this.selected, required this.onSelected});
+
+  final LabTestType selected;
+  final ValueChanged<LabTestType> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 860
+            ? 5
+            : constraints.maxWidth >= 680
+            ? 3
+            : constraints.maxWidth >= 420
+            ? 2
+            : 1;
+        final width =
+            (constraints.maxWidth - AppSizes.spaceSm * (columns - 1)) / columns;
+        return Wrap(
+          spacing: AppSizes.spaceSm,
+          runSpacing: AppSizes.spaceSm,
+          children: [
+            for (final type in LabTestType.values)
+              SizedBox(
+                width: width,
+                child: _TestTypeOption(
+                  type: type,
+                  selected: selected == type,
+                  onTap: () => onSelected(type),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TestTypeOption extends StatelessWidget {
+  const _TestTypeOption({
+    required this.type,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final LabTestType type;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, caption) = switch (type) {
+      LabTestType.elisa => (Icons.water_drop_outlined, 'Antibodies & titers'),
+      LabTestType.pcr => (Icons.hub_outlined, 'Targets & Ct values'),
+      LabTestType.hi => (Icons.scatter_plot_outlined, 'Log₂ distribution'),
+      LabTestType.culture => (
+        Icons.science_outlined,
+        'Isolation & identification',
+      ),
+      LabTestType.sensitivity => (
+        Icons.medication_outlined,
+        'Antibiotic S / I / R',
+      ),
+    };
+    return Material(
+      color: selected ? AppColors.statusActiveBg : AppColors.surface,
+      borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        child: Container(
+          padding: const EdgeInsets.all(AppSizes.spaceMd),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.borderDefault,
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors.statusNeutralBg,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: selected ? Colors.white : AppColors.statusNeutralText,
+                ),
+              ),
+              const SizedBox(width: AppSizes.spaceSm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      type.label,
+                      style: AppTextStyles.subtitle.copyWith(
+                        color: selected
+                            ? AppColors.primaryDark
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_circle,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FormSection extends StatelessWidget {
+  const _FormSection({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  final String number;
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSizes.spaceLg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius + 4),
+        border: Border.all(color: AppColors.borderDefault),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.cardShadow,
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: AppColors.statusActiveBg,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  number,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSizes.spaceSm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: AppTextStyles.title),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: AppTextStyles.caption),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceLg),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _FieldGrid extends StatelessWidget {
+  const _FieldGrid({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 680
+            ? 3
+            : constraints.maxWidth >= 420
+            ? 2
+            : 1;
+        final width =
+            (constraints.maxWidth - AppSizes.spaceSm * (columns - 1)) / columns;
+        return Wrap(
+          spacing: AppSizes.spaceSm,
+          runSpacing: 0,
+          children: [
+            for (final child in children) SizedBox(width: width, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SubsectionLabel extends StatelessWidget {
+  const _SubsectionLabel({required this.title, required this.caption});
+
+  final String title;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(
+        top: AppSizes.spaceSm,
+        bottom: AppSizes.spaceSm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTextStyles.subtitle),
+          const SizedBox(height: 2),
+          Text(caption, style: AppTextStyles.caption),
+        ],
+      ),
+    );
   }
 }
 
@@ -1699,12 +2277,14 @@ class _DropdownInput extends StatelessWidget {
     required this.label,
     required this.options,
     this.required = false,
+    this.onChanged,
   });
 
   final TextEditingController controller;
   final String label;
   final List<String> options;
   final bool required;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1712,7 +2292,9 @@ class _DropdownInput extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
       child: DropdownButtonFormField<String>(
+        key: ValueKey('$label-$selected'),
         initialValue: selected,
+        isExpanded: true,
         decoration: InputDecoration(
           labelText: context.tr(label),
           isDense: true,
@@ -1730,7 +2312,9 @@ class _DropdownInput extends StatelessWidget {
             DropdownMenuItem(value: option, child: Text(context.tr(option))),
         ],
         onChanged: (value) {
-          if (value != null) controller.text = value;
+          if (value == null) return;
+          controller.text = value;
+          onChanged?.call(value);
         },
       ),
     );
@@ -1798,59 +2382,97 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _ElisaSampleEditor extends StatelessWidget {
-  const _ElisaSampleEditor({required this.draft, this.onRemove});
+  const _ElisaSampleEditor({
+    required this.index,
+    required this.draft,
+    this.onRemove,
+  });
 
+  final int index;
   final _ElisaSampleDraft draft;
   final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSizes.spaceXs),
-      child: Row(
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 58,
-            child: _MiniInput(controller: draft.sampleNo, label: 'No.'),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Sample ${index + 1}',
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: context.tr('Remove'),
+                visualDensity: VisualDensity.compact,
+                onPressed: onRemove,
+                icon: const Icon(Icons.remove_circle_outline, size: 19),
+              ),
+            ],
           ),
-          const SizedBox(width: AppSizes.spaceXs),
-          Expanded(
-            child: _MiniInput(controller: draft.od, label: 'OD', number: true),
-          ),
-          const SizedBox(width: AppSizes.spaceXs),
-          Expanded(
-            child: _MiniInput(controller: draft.sp, label: 'S/P', number: true),
-          ),
-          const SizedBox(width: AppSizes.spaceXs),
-          SizedBox(
-            width: 68,
-            child: _MiniDropdown(
-              controller: draft.result,
-              label: 'Result',
-              options: _elisaResultOptions,
-            ),
-          ),
-          const SizedBox(width: AppSizes.spaceXs),
-          Expanded(
-            child: _MiniInput(
-              controller: draft.titer,
-              label: 'Titer',
-              number: true,
-            ),
-          ),
-          const SizedBox(width: AppSizes.spaceXs),
-          SizedBox(
-            width: 54,
-            child: _MiniInput(
-              controller: draft.group,
-              label: 'Grp',
-              number: true,
-            ),
-          ),
-          IconButton(
-            tooltip: context.tr('Remove'),
-            onPressed: onRemove,
-            icon: const Icon(Icons.remove_circle_outline),
+          Wrap(
+            spacing: AppSizes.spaceXs,
+            runSpacing: AppSizes.spaceXs,
+            children: [
+              SizedBox(
+                width: 72,
+                child: _MiniInput(controller: draft.sampleNo, label: 'No.'),
+              ),
+              SizedBox(
+                width: 100,
+                child: _MiniInput(
+                  controller: draft.od,
+                  label: 'OD',
+                  number: true,
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: _MiniInput(
+                  controller: draft.sp,
+                  label: 'S/P',
+                  number: true,
+                ),
+              ),
+              SizedBox(
+                width: 94,
+                child: _MiniDropdown(
+                  controller: draft.result,
+                  label: 'Result',
+                  options: _elisaResultOptions,
+                ),
+              ),
+              SizedBox(
+                width: 120,
+                child: _MiniInput(
+                  controller: draft.titer,
+                  label: 'Titer',
+                  number: true,
+                ),
+              ),
+              SizedBox(
+                width: 84,
+                child: _MiniInput(
+                  controller: draft.group,
+                  label: 'Group',
+                  number: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1866,26 +2488,90 @@ class _PcrRowEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSizes.spaceXs),
-      child: Row(
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Wrap(
+        spacing: AppSizes.spaceSm,
+        runSpacing: AppSizes.spaceXs,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
-            child: _MiniInput(controller: draft.analyte, label: 'Analyte'),
-          ),
-          const SizedBox(width: AppSizes.spaceXs),
           SizedBox(
-            width: 92,
+            width: 190,
+            child: _MiniDropdown(
+              controller: draft.analyte,
+              label: 'Target',
+              options: _pcrAnalyteOptions,
+            ),
+          ),
+          SizedBox(
+            width: 130,
             child: _MiniDropdown(
               controller: draft.result,
               label: 'Result',
               options: _pcrResultOptions,
             ),
           ),
-          const SizedBox(width: AppSizes.spaceXs),
           SizedBox(
-            width: 88,
-            child: _MiniInput(controller: draft.ct, label: 'Ct', number: true),
+            width: 120,
+            child: _MiniInput(
+              controller: draft.ct,
+              label: 'Ct value',
+              number: true,
+            ),
+          ),
+          IconButton(
+            tooltip: context.tr('Remove'),
+            onPressed: onRemove,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CultureRowEditor extends StatelessWidget {
+  const _CultureRowEditor({required this.draft, this.onRemove});
+
+  final _CultureDraft draft;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Wrap(
+        spacing: AppSizes.spaceSm,
+        runSpacing: AppSizes.spaceXs,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SizedBox(
+            width: 250,
+            child: _MiniDropdown(
+              controller: draft.organism,
+              label: 'Bacterial organism',
+              options: _organismOptions,
+            ),
+          ),
+          SizedBox(
+            width: 170,
+            child: _MiniDropdown(
+              controller: draft.result,
+              label: 'Culture result',
+              options: _cultureResultOptions,
+            ),
           ),
           IconButton(
             tooltip: context.tr('Remove'),
@@ -1906,24 +2592,37 @@ class _SensitivityRowEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSizes.spaceXs),
-      child: Row(
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Wrap(
+        spacing: AppSizes.spaceSm,
+        runSpacing: AppSizes.spaceXs,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
-            child: _MiniInput(
+          SizedBox(
+            width: 220,
+            child: _MiniDropdown(
               controller: draft.antibiotic,
-              label: 'Antibiotic',
+              label: 'Antimicrobial',
+              options: _antibioticOptions,
             ),
           ),
-          const SizedBox(width: AppSizes.spaceXs),
           SizedBox(
-            width: 94,
+            width: 150,
             child: DropdownButtonFormField<String>(
               initialValue: _sensitivityCategoryOptions.contains(draft.category)
                   ? draft.category
                   : _sensitivityCategoryOptions.first,
-              decoration: const InputDecoration(isDense: true),
+              decoration: const InputDecoration(
+                labelText: 'Interpretation',
+                isDense: true,
+              ),
               items: [
                 for (final option in _sensitivityCategoryOptions)
                   DropdownMenuItem(
@@ -1983,6 +2682,7 @@ class _MiniDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final selected = _selectedDropdownValue(controller, options);
     return DropdownButtonFormField<String>(
+      key: ValueKey('$label-$selected'),
       initialValue: selected,
       isExpanded: true,
       decoration: InputDecoration(labelText: context.tr(label), isDense: true),
@@ -2050,9 +2750,22 @@ class _PcrDraft {
   }
 }
 
+class _CultureDraft {
+  _CultureDraft({String organism = '', String result = ''})
+    : organism = TextEditingController(text: organism),
+      result = TextEditingController(text: result);
+
+  final TextEditingController organism;
+  final TextEditingController result;
+
+  void dispose() {
+    organism.dispose();
+    result.dispose();
+  }
+}
+
 class _SensitivityDraft {
-  _SensitivityDraft({String antibiotic = '', this.category = 'S'})
-    : antibiotic = TextEditingController(text: antibiotic);
+  _SensitivityDraft() : antibiotic = TextEditingController(), category = 'S';
 
   final TextEditingController antibiotic;
   String category;

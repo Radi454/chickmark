@@ -72,6 +72,25 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleForgotPassword() async {
+    final entered = _emailController.text.trim();
+    if (entered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter your email to reset your password.'),
+        ),
+      );
+      return;
+    }
+    if (!entered.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Customer password resets are handled by your ChickMark admin.',
+          ),
+        ),
+      );
+      return;
+    }
     final controller = TextEditingController(
       text: _emailController.text.trim(),
     );
@@ -184,19 +203,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _emailController,
                           focusNode: _emailFocusNode,
                           decoration: _fieldDecoration(
-                            labelText: 'Email',
+                            labelText: 'Username or email',
                             icon: Icons.alternate_email_rounded,
                           ),
-                          keyboardType: TextInputType.emailAddress,
+                          keyboardType: TextInputType.text,
                           textInputAction: TextInputAction.next,
                           onFieldSubmitted: (_) =>
                               _passwordFocusNode.requestFocus(),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Please enter your email';
-                            }
-                            if (!value.contains('@')) {
-                              return 'Please enter a valid email';
+                              return 'Please enter your username or email';
                             }
                             return null;
                           },

@@ -216,7 +216,6 @@ void main() {
     ).thenAnswer((_) async => 0);
     when(() => photoSync.syncDownloaded()).thenAnswer((_) async {});
     when(() => photoSync.syncPending()).thenAnswer((_) async {});
-    when(() => supabase.upsertRows(any(), any())).thenAnswer((_) async {});
     when(
       () => supabase.upsertRowsStrict(any(), any()),
     ).thenAnswer((_) async {});
@@ -264,10 +263,11 @@ void main() {
     () async {
       await service().run();
 
-      // Reference data stays on the bulk push.
-      verify(() => supabase.upsertRows('customers', any())).called(1);
-      verify(() => supabase.upsertRows('hatcheries', any())).called(1);
-      verify(() => supabase.upsertRows('flocks', any())).called(1);
+      // Parent rows use strict, confirmed uploads so a silently cancelled
+      // customer insert cannot be reported as pushed.
+      verify(() => supabase.upsertRowsStrict('customers', any())).called(1);
+      verify(() => supabase.upsertRowsStrict('hatcheries', any())).called(1);
+      verify(() => supabase.upsertRowsStrict('flocks', any())).called(1);
 
       // Audit data uses the strict (confirmable) dirty-row push, then is marked
       // synced.
@@ -321,7 +321,9 @@ void main() {
     when(() => tombstones.applyRemoteDeletes()).thenAnswer((_) async {
       events.add('apply deletes');
     });
-    when(() => supabase.upsertRows('customers', any())).thenAnswer((_) async {
+    when(() => supabase.upsertRowsStrict('customers', any())).thenAnswer((
+      _,
+    ) async {
       events.add('upload customers');
     });
 
@@ -336,6 +338,19 @@ void main() {
         'upload customers',
       ]),
     );
+  });
+
+  test('surfaces a blocked customer upload before dependent rows', () async {
+    when(
+      () => supabase.upsertRowsStrict('customers', any()),
+    ).thenThrow(StateError('customer insert was not persisted'));
+
+    await expectLater(service().run(), throwsStateError);
+
+    verifyNever(() => supabase.upsertRowsStrict('hatcheries', any()));
+    verifyNever(() => supabase.upsertRowsStrict('flocks', any()));
+    verifyNever(() => supabase.upsertRowsStrict('audit_sessions', any()));
+    verifyNever(() => sessions.markSessionsSynced(any()));
   });
 
   test('pushes dirty Govee captures and marks them synced', () async {

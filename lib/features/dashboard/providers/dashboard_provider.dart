@@ -46,6 +46,7 @@ class DashboardProvider extends ChangeNotifier {
   int? _selectedBmkAge;
   String _selectedBreakoutType = 'residue';
   bool _isInitialized = false;
+  int _scopeGeneration = 0;
 
   List<CustomerModel> _customers = [];
   List<HatcheryModel> _hatcheries = [];
@@ -168,8 +169,10 @@ class DashboardProvider extends ChangeNotifier {
   String? get actionError => _actionError;
   bool get canUseAllCustomers {
     final user = _currentUser;
-    return user == null || !user.isCustomer;
+    return user != null && !user.isCustomer;
   }
+
+  bool get canManageActions => _currentUser?.canEditAudits ?? false;
 
   bool get isOperationalScope =>
       _selectedCustomerId != null && _selectedHatcheryId != null;
@@ -182,17 +185,17 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> init({UserModel? currentUser}) async {
+    prepareForUser(currentUser);
+    final generation = _scopeGeneration;
     if (_isInitialized) {
       // Singleton provider: this runs on every dashboard mount. Refresh the
       // pick list so customers synced since first load — or a different scope
       // after an account switch (auditor → admin) — show up without a restart.
-      if (currentUser != null) _currentUser = currentUser;
       // reload() refreshes the pick lists then reloads the sector data.
       await reload();
       return;
     }
     _isInitialized = true;
-    _currentUser = currentUser;
     _isLoading = true;
     notifyListeners();
 
@@ -201,19 +204,53 @@ class DashboardProvider extends ChangeNotifier {
       // owns the full-screen spinner, so it runs without flipping the flag.
       await reload(showLoading: false);
     } catch (e) {
-      debugPrint('Error loading dashboard: $e');
+      if (_isCurrentScope(generation)) {
+        debugPrint('Error loading dashboard: $e');
+      }
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_isCurrentScope(generation)) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
+
+  /// Synchronously clears data retained by the app-scoped provider when the
+  /// signed-in identity or tenant changes. DashboardScreen calls this before
+  /// its first build so a customer never sees a frame cached for a prior user.
+  void prepareForUser(UserModel? user) {
+    final previousKey = _userScopeKey(_currentUser);
+    final nextKey = _userScopeKey(user);
+    if (previousKey == nextKey) return;
+    _scopeGeneration++;
+    _currentUser = user;
+    _selectedCustomerId = user?.isCustomer == true ? user?.customerId : null;
+    _selectedHatcheryId = null;
+    _selectedFlockId = null;
+    _selectedBmkAge = null;
+    _customers = [];
+    _hatcheries = [];
+    _flocks = [];
+    _availableBmkAges = [];
+    _clearHiddenSectorData();
+    _isLoading = true;
+  }
+
+  bool _isCurrentScope(int generation) => generation == _scopeGeneration;
+
+  String _userScopeKey(UserModel? user) => user == null
+      ? 'signed-out'
+      : '${user.id}|${user.role}|${user.status}|${user.customerId ?? ''}';
 
   /// (Re)load the customer + flock + bmk-age pick lists from local storage.
   /// **Pure**: refreshes list state only — it never triggers a sector-data
   /// reload, so [reload] can call it without re-entering itself. Callers that
   /// also want fresh sector data call [reload] (which calls this first).
-  Future<void> _refreshPickLists() async {
-    _customers = _scopeCustomers(await _customerRepo.getAllCustomers());
+  Future<void> _refreshPickLists([int? expectedGeneration]) async {
+    final generation = expectedGeneration ?? _scopeGeneration;
+    final customers = await _customerRepo.getAllCustomers();
+    if (!_isCurrentScope(generation)) return;
+    _customers = _scopeCustomers(customers);
     // Keep the user's current pick if still valid; otherwise fall back. Customer
     // role can't use "All", so it must always land on a concrete customer.
     final selectionValid =
@@ -224,14 +261,19 @@ class DashboardProvider extends ChangeNotifier {
           ? _customers.first.id
           : (canUseAllCustomers ? null : _selectedCustomerId);
     }
-    await _refreshHatcheries();
-    await _refreshFlocks();
+    await _refreshHatcheries(generation);
+    if (!_isCurrentScope(generation)) return;
+    await _refreshFlocks(generation);
   }
 
-  Future<void> _refreshHatcheries() async {
-    _hatcheries = _selectedCustomerId == null
+  Future<void> _refreshHatcheries([int? expectedGeneration]) async {
+    final generation = expectedGeneration ?? _scopeGeneration;
+    final customerId = _selectedCustomerId;
+    final hatcheries = customerId == null
         ? await _hatcheryRepo.getAllHatcheries()
-        : await _hatcheryRepo.getHatcheriesByCustomer(_selectedCustomerId!);
+        : await _hatcheryRepo.getHatcheriesByCustomer(customerId);
+    if (!_isCurrentScope(generation)) return;
+    _hatcheries = hatcheries;
     final selectionValid =
         _selectedHatcheryId != null &&
         _hatcheries.any((hatchery) => hatchery.id == _selectedHatcheryId);
@@ -246,24 +288,30 @@ class DashboardProvider extends ChangeNotifier {
   /// (Re)load the flock pick list for the current customer plus its bmk ages.
   /// **Pure**: list state only, no sector-data reload. Mutators that change the
   /// customer/flock set call this then [reload] explicitly.
-  Future<void> _refreshFlocks() async {
-    final flocks = _selectedCustomerId == null
+  Future<void> _refreshFlocks([int? expectedGeneration]) async {
+    final generation = expectedGeneration ?? _scopeGeneration;
+    final customerId = _selectedCustomerId;
+    final flocks = customerId == null
         ? await _flockRepo.getAllFlocks()
-        : await _flockRepo.getFlocksByCustomer(_selectedCustomerId!);
+        : await _flockRepo.getFlocksByCustomer(customerId);
+    if (!_isCurrentScope(generation)) return;
     _flocks = _scopeFlocks(flocks);
     if (_selectedFlockId != null &&
         !_flocks.any((flock) => flock.id == _selectedFlockId)) {
       _selectedFlockId = null;
     }
-    await _loadBmkAges();
+    await _loadBmkAges(generation);
   }
 
-  Future<void> _loadBmkAges() async {
-    _availableBmkAges = await _panelDashboardRepo.getDistinctBmkAges(
+  Future<void> _loadBmkAges([int? expectedGeneration]) async {
+    final generation = expectedGeneration ?? _scopeGeneration;
+    final ages = await _panelDashboardRepo.getDistinctBmkAges(
       customerId: _selectedCustomerId,
       hatcheryId: _selectedHatcheryId,
       flockId: _selectedFlockId,
     );
+    if (!_isCurrentScope(generation)) return;
+    _availableBmkAges = ages;
     if (!_availableBmkAges.contains(_selectedBmkAge)) {
       _selectedBmkAge = null;
     }
@@ -322,10 +370,12 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<void> selectVisitSession(VisitSessionSummary session) async {
+    final generation = _scopeGeneration;
     _selectedVisitSession = session;
     _isLoadingGoveeCaptures = true;
     notifyListeners();
-    await _loadGoveeCapturesForVisit(session);
+    await _loadGoveeCapturesForVisit(session, generation);
+    if (!_isCurrentScope(generation)) return;
     _isLoadingGoveeCaptures = false;
     notifyListeners();
   }
@@ -354,6 +404,13 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> refresh() => reload(showLoading: false);
 
   Future<void> reload({bool showLoading = true}) async {
+    final generation = _scopeGeneration;
+    if (_currentUser == null) {
+      _clearHiddenSectorData();
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
     if (showLoading) {
       _isLoading = true;
       notifyListeners();
@@ -362,7 +419,8 @@ class DashboardProvider extends ChangeNotifier {
     try {
       // Refresh the pick lists first so customers/flocks synced since the last
       // load appear in the filter (pull-to-refresh after a Sync Now).
-      await _refreshPickLists();
+      await _refreshPickLists(generation);
+      if (!_isCurrentScope(generation)) return;
 
       final filter = DashboardFilter(
         customerId: _selectedCustomerId,
@@ -373,7 +431,8 @@ class DashboardProvider extends ChangeNotifier {
 
       _clearHiddenSectorData();
       _isLoadingLabAnalysis = true;
-      await _loadLabAnalysis(filter);
+      await _loadLabAnalysis(filter, generation);
+      if (!_isCurrentScope(generation)) return;
       _isLoadingLabAnalysis = false;
       if (!filter.isOperational) {
         _goveeCaptures = const [];
@@ -385,35 +444,45 @@ class DashboardProvider extends ChangeNotifier {
         // Station metrics are loaded once by ScopeComparisonRepository's
         // analytics bundle. The legacy per-card queries are intentionally not
         // repeated here because those bespoke cards are no longer rendered.
-        _loadSavedGoveeCaptures(filter),
-        _loadActions(filter),
+        _loadSavedGoveeCaptures(filter, generation),
+        _loadActions(filter, generation),
       ];
 
       await Future.wait(futures);
+      if (!_isCurrentScope(generation)) return;
       _isLoadingGoveeCaptures = false;
 
       _bmkReference = null;
       if (_selectedBmkAge != null) {
-        _bmkReference = await _panelDashboardRepo.getBmkReferenceForAge(
+        final reference = await _panelDashboardRepo.getBmkReferenceForAge(
           _selectedBmkAge!,
         );
+        if (!_isCurrentScope(generation)) return;
+        _bmkReference = reference;
       }
     } catch (e) {
+      if (!_isCurrentScope(generation)) return;
       debugPrint('Error reloading dashboard: $e');
       _isLoadingGoveeCaptures = false;
       _isLoadingLabAnalysis = false;
     } finally {
-      if (showLoading) _isLoading = false;
-      notifyListeners();
+      if (_isCurrentScope(generation)) {
+        if (showLoading) _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
-  Future<void> _loadSavedGoveeCaptures(DashboardFilter filter) async {
+  Future<void> _loadSavedGoveeCaptures(
+    DashboardFilter filter,
+    int generation,
+  ) async {
     try {
       final captures = await _goveeCaptureRepo.getCapturesForDashboard(
         customerId: filter.customerId,
         hatcheryId: filter.hatcheryId,
       );
+      if (!_isCurrentScope(generation)) return;
       _goveeCaptures = [
         for (final capture in captures)
           GoveeCaptureSummary(
@@ -423,31 +492,41 @@ class DashboardProvider extends ChangeNotifier {
       ];
       _goveeError = null;
     } catch (e) {
+      if (!_isCurrentScope(generation)) return;
       debugPrint('Error loading saved Govee captures: $e');
       _goveeCaptures = [];
       _goveeError = e.toString();
     }
   }
 
-  Future<void> _loadActions(DashboardFilter filter) async {
+  Future<void> _loadActions(
+    DashboardFilter filter, [
+    int? expectedGeneration,
+  ]) async {
+    final generation = expectedGeneration ?? _scopeGeneration;
     if (!filter.isOperational) {
       _actions = const [];
       return;
     }
-    _actions = await _actionRepo.getForScope(
+    final actions = await _actionRepo.getForScope(
       customerId: filter.customerId!,
       hatcheryId: filter.hatcheryId!,
       flockId: filter.flockId,
     );
+    if (!_isCurrentScope(generation)) return;
+    _actions = actions;
   }
 
-  Future<void> _loadLabAnalysis(DashboardFilter filter) async {
+  Future<void> _loadLabAnalysis(DashboardFilter filter, int generation) async {
     try {
-      _labAnalysisSummaries = await _labAnalysisRepo.getDashboardSummaries(
+      final summaries = await _labAnalysisRepo.getDashboardSummaries(
         customerId: filter.customerId,
         flockId: filter.flockId,
       );
+      if (!_isCurrentScope(generation)) return;
+      _labAnalysisSummaries = summaries;
     } catch (e) {
+      if (!_isCurrentScope(generation)) return;
       debugPrint('Error loading lab analysis dashboard data: $e');
       _labAnalysisSummaries = [];
     }
@@ -459,6 +538,7 @@ class DashboardProvider extends ChangeNotifier {
     DateTime? dueAt,
     String? description,
   }) async {
+    if (!canManageActions) return null;
     final customerId = _selectedCustomerId;
     final hatcheryId = _selectedHatcheryId;
     if (customerId == null || hatcheryId == null) return null;
@@ -496,6 +576,7 @@ class DashboardProvider extends ChangeNotifier {
     DateTime? dueAt,
     String? resolutionNotes,
   }) {
+    if (!canManageActions) return Future.value(null);
     final nextStatus = status ?? action.status;
     return _saveAction(
       action.copyWith(
@@ -512,28 +593,35 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Future<DashboardActionModel?> _saveAction(DashboardActionModel action) async {
+    final generation = _scopeGeneration;
     _isSavingAction = true;
     _actionError = null;
     notifyListeners();
     try {
       await _actionRepo.save(action);
+      if (!_isCurrentScope(generation)) return null;
       await _loadActions(
         DashboardFilter(
           customerId: _selectedCustomerId,
           hatcheryId: _selectedHatcheryId,
           flockId: _selectedFlockId,
         ),
+        generation,
       );
+      if (!_isCurrentScope(generation)) return null;
       for (final item in _actions) {
         if (item.id == action.id) return item;
       }
       return null;
     } catch (error) {
+      if (!_isCurrentScope(generation)) return null;
       _actionError = error.toString();
       return null;
     } finally {
-      _isSavingAction = false;
-      notifyListeners();
+      if (_isCurrentScope(generation)) {
+        _isSavingAction = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -551,19 +639,32 @@ class DashboardProvider extends ChangeNotifier {
     _culledChicksAnalysis = null;
     _cvtPhotos = [];
     _yfbmPhotos = [];
+    _eggStorageTrend.clear();
+    _eggStorageEstEvidence = null;
+    _uvPhotos.clear();
     _setterComparisons = [];
     _hatcherComparisons = [];
     _visitSessions = [];
     _selectedVisitSession = null;
     _labAnalysisSummaries = [];
     _actions = [];
+    _goveeCaptures = const [];
+    _goveeError = null;
+    _bmkReference = null;
+    _isLoadingGoveeCaptures = false;
+    _isLoadingLabAnalysis = false;
+    _actionError = null;
+    _isSavingAction = false;
     _availableSetterIds.clear();
     _availableHatcherIds.clear();
     _selectedSetterIds.clear();
     _selectedHatcherIds.clear();
   }
 
-  Future<void> _loadGoveeCapturesForVisit(VisitSessionSummary visit) async {
+  Future<void> _loadGoveeCapturesForVisit(
+    VisitSessionSummary visit,
+    int generation,
+  ) async {
     try {
       final session = visit.session;
       final captures = await _goveeCaptureRepo.getCapturesForDashboard(
@@ -571,6 +672,7 @@ class DashboardProvider extends ChangeNotifier {
         hatcheryId: session.hatcheryId,
         captureDate: _captureDateKey(session.date),
       );
+      if (!_isCurrentScope(generation)) return;
       _goveeCaptures = [
         for (final capture in captures)
           GoveeCaptureSummary(
@@ -580,6 +682,7 @@ class DashboardProvider extends ChangeNotifier {
       ];
       _goveeError = null;
     } catch (e) {
+      if (!_isCurrentScope(generation)) return;
       debugPrint('Error loading Govee captures: $e');
       _goveeCaptures = [];
       _goveeError = e.toString();

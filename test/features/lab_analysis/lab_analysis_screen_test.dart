@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/models/customer_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/lab_analysis_models.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/lab_analysis/providers/lab_analysis_provider.dart';
@@ -18,6 +20,33 @@ class _StaticLabAnalysisProvider extends LabAnalysisProvider {
   List<LabAnalysisBatch> get batches => [batch];
 
   @override
+  List<CustomerModel> get customers => [
+    CustomerModel(
+      id: 'customer-1',
+      name: 'Test customer',
+      createdAt: DateTime(2026),
+      createdBy: 'test',
+    ),
+  ];
+
+  @override
+  List<FlockModel> get flocks => [
+    FlockModel(
+      id: 'flock-1',
+      customerId: 'customer-1',
+      flockId: 'Test flock',
+      breed: 'Test breed',
+      entryDate: DateTime(2025),
+    ),
+  ];
+
+  @override
+  String? get selectedCustomerId => 'customer-1';
+
+  @override
+  String? get selectedFlockId => 'flock-1';
+
+  @override
   Future<void> init({currentUser}) async {}
 
   @override
@@ -25,6 +54,82 @@ class _StaticLabAnalysisProvider extends LabAnalysisProvider {
 }
 
 void main() {
+  testWidgets(
+    'laboratory stays editable and culture is separate from sensitivity',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime(2026, 7, 20);
+      final report = LabAnalysisReportModel(
+        id: 'report-form',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        reportDate: now,
+        labName: 'Existing lab',
+        sampleType: 'Serum / Plasma',
+        createdAt: now,
+        updatedAt: now,
+      );
+      final provider = _StaticLabAnalysisProvider(
+        LabAnalysisBatch(
+          report: report,
+          groups: const [],
+          rowsByGroupId: const {},
+        ),
+      );
+      addTearDown(provider.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => AuthProvider()),
+            ChangeNotifierProvider<LabAnalysisProvider>.value(value: provider),
+          ],
+          child: const MaterialApp(home: LabAnalysisScreen()),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('Add lab result'));
+      await tester.pumpAndSettle();
+
+      Finder laboratoryTextField() => find.ancestor(
+        of: find.text('Laboratory'),
+        matching: find.byType(TextFormField),
+      );
+      Finder laboratoryDropdown() => find.ancestor(
+        of: find.text('Laboratory'),
+        matching: find.byType(DropdownButtonFormField<String>),
+      );
+
+      expect(laboratoryTextField(), findsOneWidget);
+      expect(laboratoryDropdown(), findsNothing);
+
+      expect(find.byKey(const ValueKey('Assay kit-IDvet')), findsOneWidget);
+
+      for (final type in const ['PCR', 'HI', 'Bacterial Culture']) {
+        await tester.tap(find.text(type));
+        await tester.pumpAndSettle();
+        expect(laboratoryTextField(), findsOneWidget, reason: type);
+        expect(laboratoryDropdown(), findsNothing, reason: type);
+      }
+
+      expect(find.text('Culture / isolation test'), findsOneWidget);
+      expect(find.text('Bacterial organism'), findsOneWidget);
+      expect(find.text('Culture result'), findsOneWidget);
+
+      await tester.tap(find.text('Sensitivity'));
+      await tester.pumpAndSettle();
+      expect(laboratoryTextField(), findsOneWidget);
+      expect(laboratoryDropdown(), findsNothing);
+      expect(find.text('Bacterial organism'), findsNothing);
+      expect(find.text('Antimicrobial'), findsOneWidget);
+      expect(find.text('Interpretation'), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'ELISA card shows compact formatted summary and expands sample details',
     (tester) async {
