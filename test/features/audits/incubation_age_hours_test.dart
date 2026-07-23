@@ -61,12 +61,16 @@ void main() {
     date: '2026-04-27',
   );
 
-  AuditContextData setterContext({String? setterId = '5'}) => AuditContextData(
+  AuditContextData setterContext({
+    String? setterId = '5',
+    String? sessionId,
+  }) => AuditContextData(
     auditType: 'Setters',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
     setterId: setterId,
+    sessionId: sessionId,
     date: '2026-04-27',
   );
 
@@ -133,6 +137,7 @@ void main() {
     WidgetTester tester, {
     String? setterId = '5',
     AuditProvider? provider,
+    AuditModel? initialAudit,
   }) async {
     final auditProvider = provider ?? AuditProvider(autosaveEnabled: false);
     await tester.pumpWidget(
@@ -145,13 +150,46 @@ void main() {
         ],
         child: MaterialApp(
           home: SetterOptimizingScreen(
-            context: setterContext(setterId: setterId),
+            context: setterContext(
+              setterId: setterId,
+              sessionId: initialAudit?.sessionId,
+            ),
+            initialAudit: initialAudit,
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
     return auditProvider;
+  }
+
+  Future<void> addNamedScope(
+    WidgetTester tester, {
+    required String tooltip,
+    required Map<String, String> identities,
+  }) async {
+    final button = find.byTooltip(tooltip);
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    for (final entry in identities.entries) {
+      await tester.enterText(
+        find.byKey(ValueKey('scope-identity-${entry.key}')),
+        entry.value,
+      );
+    }
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openTooltip(WidgetTester tester, String tooltip) async {
+    final button = find.byTooltip(tooltip);
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
   }
 
   testWidgets('Setter Capture readings launches the capture screen (EST)', (
@@ -366,14 +404,17 @@ void main() {
     expect(find.text('S5'), findsOneWidget);
     expect(find.text('SH'), findsNothing);
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pump();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7'},
+    );
 
     expect(provider.sampleCount, 2);
     expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
     expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
     expect(find.text('S5'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'S'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'S7'), findsOneWidget);
     expect(find.text('SH'), findsNothing);
   });
 
@@ -404,23 +445,28 @@ void main() {
       expect(provider.activeDraft.setterId, 'S');
       expect(provider.activeDraft.soSetterId, 'S');
 
-      await tester.ensureVisible(find.byTooltip('Add machine sample'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Add machine sample'));
-      await tester.pump();
+      await addNamedScope(
+        tester,
+        tooltip: 'Add machine sample',
+        identities: const {'setter': '12'},
+      );
 
       expect(provider.sampleCount, 2);
-      expect(tester.widget<TextField>(setterNumberField).controller?.text, 'S');
-      expect(provider.drafts.map((draft) => draft.setterId), ['S', 'S']);
-      expect(provider.drafts.map((draft) => draft.soSetterId), ['S', 'S']);
-      expect(find.widgetWithText(ChoiceChip, 'S'), findsNWidgets(2));
+      expect(
+        tester.widget<TextField>(setterNumberField).controller?.text,
+        '12',
+      );
+      expect(provider.drafts.map((draft) => draft.setterId), ['S', '12']);
+      expect(provider.drafts.map((draft) => draft.soSetterId), ['S', '12']);
+      expect(find.widgetWithText(ChoiceChip, 'S'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'S12'), findsOneWidget);
 
-      await tester.enterText(setterNumberField, 'S12');
+      await tester.enterText(setterNumberField, 'S13');
       await tester.pump();
 
-      expect(provider.activeDraft.setterId, 'S12');
-      expect(provider.activeDraft.soSetterId, 'S12');
-      expect(find.widgetWithText(ChoiceChip, 'S12'), findsOneWidget);
+      expect(provider.activeDraft.setterId, 'S13');
+      expect(provider.activeDraft.soSetterId, 'S13');
+      expect(find.widgetWithText(ChoiceChip, 'S13'), findsOneWidget);
     },
   );
 
@@ -704,10 +750,11 @@ void main() {
       }).toList();
       expect(inlineCameraIcons, hasLength(1));
 
-      await tester.ensureVisible(find.byTooltip('Add machine sample'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Add machine sample'));
-      await tester.pump();
+      await addNamedScope(
+        tester,
+        tooltip: 'Add machine sample',
+        identities: const {'hatcher': '7'},
+      );
 
       expect(provider.sampleCount, 2);
       expect(
@@ -715,7 +762,7 @@ void main() {
         StationSampleModel.sampleModeComparison,
       );
       expect(find.text('H01'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'H7'), findsOneWidget);
       expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -752,26 +799,28 @@ void main() {
       expect(provider.activeDraft.hatcherId, 'H');
       expect(provider.activeDraft.hoHatcherId, 'H');
 
-      await tester.ensureVisible(find.byTooltip('Add machine sample'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Add machine sample'));
-      await tester.pump();
+      await addNamedScope(
+        tester,
+        tooltip: 'Add machine sample',
+        identities: const {'hatcher': '12'},
+      );
 
       expect(provider.sampleCount, 2);
       expect(
         tester.widget<TextField>(hatcherNumberField).controller?.text,
-        'H',
+        '12',
       );
-      expect(provider.drafts.map((draft) => draft.hatcherId), ['H', 'H']);
-      expect(provider.drafts.map((draft) => draft.hoHatcherId), ['H', 'H']);
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsNWidgets(2));
+      expect(provider.drafts.map((draft) => draft.hatcherId), ['H', '12']);
+      expect(provider.drafts.map((draft) => draft.hoHatcherId), ['H', '12']);
+      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'H12'), findsOneWidget);
 
-      await tester.enterText(hatcherNumberField, 'H12');
+      await tester.enterText(hatcherNumberField, 'H13');
       await tester.pump();
 
-      expect(provider.activeDraft.hatcherId, 'H12');
-      expect(provider.activeDraft.hoHatcherId, 'H12');
-      expect(find.widgetWithText(ChoiceChip, 'H12'), findsOneWidget);
+      expect(provider.activeDraft.hatcherId, 'H13');
+      expect(provider.activeDraft.hoHatcherId, 'H13');
+      expect(find.widgetWithText(ChoiceChip, 'H13'), findsOneWidget);
     },
   );
 
@@ -891,14 +940,14 @@ void main() {
         findsNothing,
       );
 
-      await tester.ensureVisible(find.byTooltip('Add incubation age sample'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Add incubation age sample'));
-      await tester.pump();
+      await addNamedScope(
+        tester,
+        tooltip: 'Add incubation age sample',
+        identities: const {'incubationAge': '2', 'incubationHours': '4'},
+      );
 
-      expect(find.widgetWithText(ChoiceChip, 'Day 1 · 1'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Day 1 · 2'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Day 1'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, 'Day 1'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Day 2'), findsOneWidget);
       expect(find.text('Incubation age 1'), findsNothing);
       expect(
         find.byTooltip('Remove active incubation age sample'),
@@ -908,8 +957,8 @@ void main() {
           jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
       expect(samples, hasLength(2));
       expect(samples.last['breed'], 'Ross308');
-      expect(samples.last['incubationAge'], 1);
-      expect(samples.last['incubationHours'], 0);
+      expect(samples.last['incubationAge'], 2);
+      expect(samples.last['incubationHours'], 4);
     },
   );
 
@@ -967,5 +1016,216 @@ void main() {
     expect(find.text('Sample Mode'), findsNothing);
     expect(find.text('Single Sample'), findsNothing);
     expect(find.text('Compare Samples'), findsNothing);
+  });
+
+  testWidgets('Setter machine add validates identity and guards result loss', (
+    tester,
+  ) async {
+    final provider = await pumpSetterScreen(tester);
+
+    await openTooltip(tester, 'Add machine sample');
+    expect(find.text('Add Machine scope'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 1);
+
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7'},
+    );
+    expect(provider.sampleCount, 2);
+    expect(provider.activeDraft.setterId, '7');
+    expect(provider.activeDraft.soSetterId, '7');
+
+    await openTooltip(tester, 'Add machine sample');
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-setter')),
+      'S7',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('A Machine scope with this identity already exists.'),
+      findsOneWidget,
+    );
+    expect(provider.sampleCount, 2);
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+
+    provider.updateField('soCo2', 1800.0);
+    await tester.pumpAndSettle();
+    await openTooltip(tester, 'Remove active machine sample');
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 2);
+    expect(provider.activeDraft.soCo2, 1800);
+
+    await openTooltip(tester, 'Remove active machine sample');
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 1);
+  });
+
+  testWidgets('Hatcher machine add validates identity and guards result loss', (
+    tester,
+  ) async {
+    final provider = await pumpHatcherScreen(tester);
+
+    await openTooltip(tester, 'Add machine sample');
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 1);
+
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'hatcher': '7'},
+    );
+    expect(provider.activeDraft.hatcherId, '7');
+    expect(provider.activeDraft.hoHatcherId, '7');
+
+    await openTooltip(tester, 'Add machine sample');
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-hatcher')),
+      'H7',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('A Machine scope with this identity already exists.'),
+      findsOneWidget,
+    );
+    expect(provider.sampleCount, 2);
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+
+    provider.updateField('hoChickPanting', false);
+    await tester.pumpAndSettle();
+    await openTooltip(tester, 'Remove active machine sample');
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 2);
+    expect(provider.activeDraft.hoChickPanting, isFalse);
+
+    await openTooltip(tester, 'Remove active machine sample');
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.sampleCount, 1);
+  });
+
+  testWidgets('Setter EST add validates age and identity before mutation', (
+    tester,
+  ) async {
+    final provider = await pumpSetterScreen(tester);
+    final beforeJson = provider.activeDraft.soEstSamplesJson;
+
+    await openTooltip(tester, 'Add incubation age sample');
+    expect(find.text('Add Incubation age scope'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.activeDraft.soEstSamplesJson, beforeJson);
+
+    await addNamedScope(
+      tester,
+      tooltip: 'Add incubation age sample',
+      identities: const {'incubationAge': '2', 'incubationHours': '4'},
+    );
+    var samples =
+        jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
+    expect(samples, hasLength(2));
+    expect(samples.last['incubationAge'], 2);
+    expect(samples.last['incubationHours'], 4);
+
+    await openTooltip(tester, 'Add incubation age sample');
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-incubationAge')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-incubationHours')),
+      '4',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('An incubation age scope with this identity already exists.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+
+    await openTooltip(tester, 'Remove active incubation age sample');
+    expect(find.text('Remove scope?'), findsNothing);
+    samples =
+        jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
+    expect(samples, hasLength(1));
+  });
+
+  testWidgets('Setter EST removal protects selected readings', (tester) async {
+    final now = DateTime(2026, 4, 27, 12);
+    final initialAudit = AuditModel(
+      id: 'setter-est-results',
+      auditType: 'Setters',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      setterId: '5',
+      soSetterId: '5',
+      date: now,
+      hatchNumber: 1,
+      status: 'active',
+      createdBy: 'tester',
+      createdAt: now,
+      updatedAt: now,
+      sessionId: 'session-1',
+      soEstSamplesJson: jsonEncode([
+        {
+          'id': 'est-result',
+          'breed': 'Ross308',
+          'incubationAge': 1,
+          'incubationHours': 0,
+          'estReadings': {
+            'unit': 'fahrenheit',
+            'readings': {'front_top': 100.0},
+          },
+          'estPhotos': <String, String>{},
+          'estAvg': 100.0,
+          'estCv': 0.0,
+        },
+        {
+          'id': 'est-empty',
+          'breed': 'Ross308',
+          'incubationAge': 2,
+          'incubationHours': 4,
+          'estReadings': <String, double>{},
+          'estPhotos': <String, String>{},
+          'estAvg': null,
+          'estCv': null,
+        },
+      ]),
+    );
+    final provider = await pumpSetterScreen(tester, initialAudit: initialAudit);
+
+    await openTooltip(tester, 'Remove active incubation age sample');
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(
+      jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>,
+      hasLength(2),
+    );
+
+    await openTooltip(tester, 'Remove active incubation age sample');
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    final remaining =
+        jsonDecode(provider.activeDraft.soEstSamplesJson!) as List<dynamic>;
+    expect(remaining, hasLength(1));
+    expect(remaining.single['id'], 'est-empty');
   });
 }

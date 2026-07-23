@@ -24,6 +24,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
@@ -583,12 +584,35 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     );
   }
 
-  void _addSetterMachineSample(AuditProvider provider) {
+  Future<void> _addSetterMachineSample(AuditProvider provider) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Machine',
+      fields: const [AuditScopeIdentityField(key: 'setter', label: 'Setter')],
+      validator: (values) => _hasDuplicateSetter(provider, values['setter']!)
+          ? 'A Machine scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    final setter = values['setter']!;
     provider.addSample();
-    if (!mounted) return;
+    provider.updateField('setterId', setter);
+    provider.updateField('soSetterId', setter);
     setState(() {
       _syncActiveSampleForm(provider, provider.activeDraft);
     });
+  }
+
+  bool _hasDuplicateSetter(AuditProvider provider, String setter) {
+    final normalized = normalizeAuditScopeIdentity(setter, prefix: 'S');
+    return provider.drafts.any(
+      (draft) =>
+          normalizeAuditScopeIdentity(
+            draft.setterId ?? draft.soSetterId ?? '',
+            prefix: 'S',
+          ) ==
+          normalized,
+    );
   }
 
   void _switchSetterSample(AuditProvider provider, int index) {
@@ -599,9 +623,15 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     });
   }
 
-  void _removeActiveSetterSample(AuditProvider provider) {
+  Future<void> _removeActiveSetterSample(AuditProvider provider) async {
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: provider.stationScopeHasEnteredResults(
+        provider.activeSampleIndex,
+      ),
+    );
+    if (!confirmed || !mounted) return;
     provider.removeActiveSample();
-    if (!mounted) return;
     setState(() {
       _syncActiveSampleForm(provider, provider.activeDraft);
     });
@@ -825,7 +855,43 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     );
   }
 
-  void _addEstSample(AuditProvider provider) {
+  Future<void> _addEstSample(AuditProvider provider) async {
+    final currentSamples = _setterEstSamples(provider.activeDraft);
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Incubation age',
+      fields: const [
+        AuditScopeIdentityField(
+          key: 'incubationAge',
+          label: 'Incubation Age (days)',
+          keyboardType: TextInputType.number,
+        ),
+        AuditScopeIdentityField(
+          key: 'incubationHours',
+          label: 'Incubation Hours',
+          keyboardType: TextInputType.number,
+        ),
+      ],
+      validator: (values) {
+        final age = int.tryParse(values['incubationAge']!);
+        final hours = int.tryParse(values['incubationHours']!);
+        if (age == null || age < 1 || age > 18) {
+          return 'Incubation age must be a whole number from 1 to 18.';
+        }
+        if (hours == null || hours < 0 || hours > 23) {
+          return 'Incubation hours must be a whole number from 0 to 23.';
+        }
+        final duplicate = currentSamples.any(
+          (sample) =>
+              _clampInt(sample['incubationAge'], min: 1, max: 18) == age &&
+              _clampInt(sample['incubationHours'], min: 0, max: 23) == hours,
+        );
+        return duplicate
+            ? 'An incubation age scope with this identity already exists.'
+            : null;
+      },
+    );
+    if (values == null || !mounted) return;
     _syncActiveEstSampleToDraft(provider);
     final samples = _setterEstSamples(provider.activeDraft);
     final base = samples[_activeEstSampleIndex.clamp(0, samples.length - 1)];
@@ -833,8 +899,8 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       _normalizeEstSample({
         'id': DateTime.now().microsecondsSinceEpoch.toString(),
         'breed': base['breed'],
-        'incubationAge': base['incubationAge'],
-        'incubationHours': base['incubationHours'],
+        'incubationAge': int.parse(values['incubationAge']!),
+        'incubationHours': int.parse(values['incubationHours']!),
         'estReadings': <String, double>{},
         'estPhotos': <String, String>{},
         'estAvg': null,
@@ -849,9 +915,20 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
     _syncSelectedEstSampleToFlatFields(provider);
   }
 
-  void _removeActiveEstSample(AuditProvider provider) {
+  Future<void> _removeActiveEstSample(AuditProvider provider) async {
     final samples = _setterEstSamples(provider.activeDraft);
     if (samples.length <= 1) return;
+    final currentIndex = _activeEstSampleIndex
+        .clamp(0, samples.length - 1)
+        .toInt();
+    final selected = currentIndex == _activeEstSampleIndex
+        ? _activeEstSampleFromForm(provider.activeDraft)
+        : samples[currentIndex];
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: _estSampleHasEnteredResults(selected),
+    );
+    if (!confirmed || !mounted) return;
     _syncActiveEstSampleToDraft(provider);
     final refreshedSamples = _setterEstSamples(provider.activeDraft);
     final index = _activeEstSampleIndex
@@ -866,6 +943,17 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       _initializeFormState(provider.activeDraft);
     });
     _syncSelectedEstSampleToFlatFields(provider);
+  }
+
+  bool _estSampleHasEnteredResults(Map<String, dynamic> sample) {
+    final readings = _mapFromObject(sample['estReadings']);
+    final readingValues = readings.containsKey('readings')
+        ? _mapFromObject(readings['readings'])
+        : readings;
+    return readingValues.isNotEmpty ||
+        _mapFromObject(sample['estPhotos']).isNotEmpty ||
+        sample['estAvg'] != null ||
+        sample['estCv'] != null;
   }
 
   void _switchEstSample(AuditProvider provider, int index) {

@@ -22,6 +22,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
@@ -647,12 +648,35 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     );
   }
 
-  void _addHatcherMachineSample(AuditProvider provider) {
+  Future<void> _addHatcherMachineSample(AuditProvider provider) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Machine',
+      fields: const [AuditScopeIdentityField(key: 'hatcher', label: 'Hatcher')],
+      validator: (values) => _hasDuplicateHatcher(provider, values['hatcher']!)
+          ? 'A Machine scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    final hatcher = values['hatcher']!;
     provider.addSample();
-    if (!mounted) return;
+    provider.updateField('hatcherId', hatcher);
+    provider.updateField('hoHatcherId', hatcher);
     setState(() {
       _syncActiveSampleForm(provider.activeDraft);
     });
+  }
+
+  bool _hasDuplicateHatcher(AuditProvider provider, String hatcher) {
+    final normalized = normalizeAuditScopeIdentity(hatcher, prefix: 'H');
+    return provider.drafts.any(
+      (draft) =>
+          normalizeAuditScopeIdentity(
+            draft.hatcherId ?? draft.hoHatcherId ?? '',
+            prefix: 'H',
+          ) ==
+          normalized,
+    );
   }
 
   void _switchHatcherSample(AuditProvider provider, int index) {
@@ -663,9 +687,15 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
     });
   }
 
-  void _removeActiveHatcherSample(AuditProvider provider) {
+  Future<void> _removeActiveHatcherSample(AuditProvider provider) async {
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: provider.stationScopeHasEnteredResults(
+        provider.activeSampleIndex,
+      ),
+    );
+    if (!confirmed || !mounted) return;
     provider.removeActiveSample();
-    if (!mounted) return;
     setState(() {
       _syncActiveSampleForm(provider.activeDraft);
     });
