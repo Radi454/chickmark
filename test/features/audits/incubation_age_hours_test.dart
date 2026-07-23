@@ -61,18 +61,16 @@ void main() {
     date: '2026-04-27',
   );
 
-  AuditContextData setterContext({
-    String? setterId = '5',
-    String? sessionId,
-  }) => AuditContextData(
-    auditType: 'Setters',
-    customerId: 'customer-1',
-    flockId: 'flock-1',
-    breed: 'Ross 308',
-    setterId: setterId,
-    sessionId: sessionId,
-    date: '2026-04-27',
-  );
+  AuditContextData setterContext({String? setterId = '5', String? sessionId}) =>
+      AuditContextData(
+        auditType: 'Setters',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        breed: 'Ross 308',
+        setterId: setterId,
+        sessionId: sessionId,
+        date: '2026-04-27',
+      );
 
   Future<AuditProvider> pumpHatcherScreen(
     WidgetTester tester, {
