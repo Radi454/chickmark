@@ -636,4 +636,85 @@ void main() {
     ]);
     expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
   });
+
+  test(
+    'station result probe ignores scope identity and detects chick results',
+    () {
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(stationContext('Chicks'), notify: false);
+      provider.addChickQualityMachineScopeSample();
+      provider.updateSampleMetadata({'setterNo': '7', 'hatcherNo': '8'});
+
+      expect(provider.stationScopeHasEnteredResults(0), isFalse);
+
+      provider.updateField('pasgarSampleSize', 100);
+
+      expect(provider.stationScopeHasEnteredResults(0), isTrue);
+    },
+  );
+
+  test('station result probe ignores setter identity and detects readings', () {
+    final provider = AuditProvider(autosaveEnabled: false);
+    provider.initialize(stationContext('Setters'), notify: false);
+    provider.updateField('setterId', '7');
+    provider.updateField('soSetterId', '7');
+
+    expect(provider.stationScopeHasEnteredResults(0), isFalse);
+
+    provider.updateField('soCo2', 1800.0);
+
+    expect(provider.stationScopeHasEnteredResults(0), isTrue);
+  });
+
+  test(
+    'station result probe ignores hatcher identity and detects assessment',
+    () {
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(stationContext('Hatchers'), notify: false);
+      provider.updateField('hatcherId', '9');
+      provider.updateField('hoHatcherId', '9');
+
+      expect(provider.stationScopeHasEnteredResults(0), isFalse);
+
+      provider.updateField('hoChickPanting', 0);
+
+      expect(provider.stationScopeHasEnteredResults(0), isTrue);
+    },
+  );
+
+  test(
+    'station result probe ignores egg storage data shared across houses',
+    () {
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(stationContext('Egg'), notify: false);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({
+        'houseNo': '12',
+        'houseLabel': 'House 12',
+      });
+      provider.updateField('esEggStorageDays', 4);
+
+      expect(provider.stationScopeHasEnteredResults(0), isFalse);
+
+      provider.updateField('esEggSampleSize', 30);
+
+      expect(provider.stationScopeHasEnteredResults(0), isTrue);
+    },
+  );
+
+  test('chick weight result probe is scoped to the selected house', () {
+    final provider = AuditProvider(autosaveEnabled: false);
+    provider.initialize(stationContext('Chicks'), notify: false);
+    provider.addChickWeightSample();
+    provider.updateChickWeightSampleMetadata({'houseNo': '12'});
+
+    expect(provider.chickWeightScopeHasEnteredResults(0), isFalse);
+
+    provider.updateChickWeightSampleResult(
+      weightsJson: '[42.0]',
+      avgWeight: 42,
+    );
+
+    expect(provider.chickWeightScopeHasEnteredResults(0), isTrue);
+  });
 }

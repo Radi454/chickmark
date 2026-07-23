@@ -192,5 +192,27 @@ void main() {
       expect(sample.counts.containsKey('earlyDead'), isFalse);
       expect(sample.counts.containsKey('early24h'), isFalse);
     });
+
+    test('detects entered results while ignoring identity and defaults', () {
+      final empty = EggBreakoutSampleEntry.tray(
+        id: 'tray-1',
+        label: 'Tray 1',
+        tray: '1',
+        traySize: 150,
+      );
+
+      expect(empty.hasEnteredResults, isFalse);
+      expect(
+        empty.copyWith(counts: const {'infertile': 0}).hasEnteredResults,
+        isTrue,
+      );
+      expect(
+        empty
+            .copyWith(photos: const {'tray:photo_1': '/tmp/tray.jpg'})
+            .hasEnteredResults,
+        isTrue,
+      );
+      expect(empty.copyWith(traySize: 120).hasEnteredResults, isTrue);
+    });
   });
 }

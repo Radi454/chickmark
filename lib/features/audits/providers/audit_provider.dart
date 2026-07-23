@@ -168,6 +168,27 @@ class AuditProvider extends ChangeNotifier {
   String get stationSampleMode => activeStationSample.sampleMode;
   String? get comparisonType => activeStationSample.comparisonType;
 
+  bool stationScopeHasEnteredResults(int index) {
+    if (index < 0 || index >= _drafts.length) return false;
+    final draft = _drafts[index];
+    return switch (draft.auditType) {
+      'Egg' => _hasMeaningfulEggQualityData(draft),
+      'Chicks' => _hasChickQualityScopeResults(draft),
+      'Hatch Analysis & Egg Breakouts' => _hasHatchScopeResults(draft),
+      'Setters' => _hasSetterScopeResults(draft),
+      'Hatchers' => _hasHatcherScopeResults(draft),
+      _ => false,
+    };
+  }
+
+  bool chickWeightScopeHasEnteredResults(int index) {
+    if (index < 0 || index >= _chickWeightSamples.length) return false;
+    return _hasMeaningfulChickWeightSample(
+      activeDraft,
+      _chickWeightSamples[index],
+    );
+  }
+
   @override
   void dispose() {
     _isDisposed = true;
@@ -2699,6 +2720,35 @@ class AuditProvider extends ChangeNotifier {
         _hasText(draft.notes);
   }
 
+  bool _hasChickQualityScopeResults(AuditModel draft) {
+    return _hasMeaningfulPasgarData(draft) ||
+        _hasText(draft.yfbmPhoto) ||
+        _hasMeaningfulJsonData(draft.yfbmEntries) ||
+        draft.yfbmAvgPct != null ||
+        draft.yfbmCvPct != null ||
+        draft.cvtSampleSize != null ||
+        _hasText(draft.cvtTopBasket) ||
+        draft.cvtTopTemp != null ||
+        _hasText(draft.cvtTopPhoto) ||
+        _hasText(draft.cvtMiddleBasket) ||
+        draft.cvtMiddleTemp != null ||
+        _hasText(draft.cvtMiddlePhoto) ||
+        _hasText(draft.cvtBottomBasket) ||
+        draft.cvtBottomTemp != null ||
+        _hasText(draft.cvtBottomPhoto) ||
+        draft.cvtAvg != null ||
+        draft.cvtCvPct != null ||
+        _hasMeaningfulJsonObject(draft.cvtReadingsJson) ||
+        _hasMeaningfulJsonObject(draft.cvtPhotosJson) ||
+        _hasMeaningfulPmData(draft) ||
+        draft.culledChicksTotalEggSet != null ||
+        _hasMeaningfulJsonData(draft.culledChicksAnalysisJson) ||
+        draft.culledChicksAffectedPct != null ||
+        _hasText(draft.culledChicksTopCategory) ||
+        _hasText(draft.culledChicksTopSubtype) ||
+        _hasText(draft.notes);
+  }
+
   bool _hasMeaningfulPasgarData(AuditModel draft) {
     return (draft.pasgarSampleSize ?? 0) > 0 ||
         (draft.pasgarReflexes ?? 0) > 0 ||
@@ -2754,6 +2804,45 @@ class AuditProvider extends ChangeNotifier {
     return _hasMeaningfulHatchCoreData(draft) || _hasText(draft.notes);
   }
 
+  bool _hasHatchScopeResults(AuditModel draft) {
+    final breakoutSamples = EggBreakoutSampleEntry.decodeList(
+      draft.ebTrayBreakoutJson,
+      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
+        draft.ebBreakoutType,
+      ),
+    );
+    return ((draft.haTotalEggsSet ?? 19200) != 19200) ||
+        draft.haHatched != null ||
+        draft.haCulled != null ||
+        draft.haDead != null ||
+        draft.haHatchability != null ||
+        draft.haFertility != null ||
+        draft.haHof != null ||
+        _hasMeaningfulJsonData(draft.haTrays) ||
+        draft.haPipped != null ||
+        draft.haInfertileClear != null ||
+        draft.haEarlyDead != null ||
+        draft.haMidDead != null ||
+        draft.haMidLateDead != null ||
+        draft.haLateDead != null ||
+        draft.haContaminatedExploders != null ||
+        _hasMeaningfulJsonData(draft.haBenchmarkStatusesJson) ||
+        breakoutSamples.any((sample) => sample.hasEnteredResults) ||
+        draft.ebInfertileCount != null ||
+        draft.ebEarlyDeadCount != null ||
+        draft.ebMidDeadCount != null ||
+        draft.ebLateDeadCount != null ||
+        draft.ebInternalPipCount != null ||
+        draft.ebExternalPipCount != null ||
+        draft.ebCrackedCount != null ||
+        draft.ebContaminatedCount != null ||
+        draft.ebMalpositionCount != null ||
+        draft.ebExposedBrainCount != null ||
+        draft.ebCrossedBeakCount != null ||
+        draft.ebCulledDeadCount != null ||
+        _hasText(draft.notes);
+  }
+
   bool _hasMeaningfulHatchCompletionCoreData(AuditModel draft) {
     return (draft.haHatched ?? 0) > 0 ||
         (draft.haCulled ?? 0) > 0 ||
@@ -2804,6 +2893,36 @@ class AuditProvider extends ChangeNotifier {
         _hasText(draft.notes);
   }
 
+  bool _hasSetterScopeResults(AuditModel draft) {
+    return draft.soCo2 != null ||
+        _hasText(draft.soCo2Photo) ||
+        _hasMeaningfulJsonObject(draft.soEstReadings) ||
+        _hasMeaningfulJsonObject(draft.soEstPhotos) ||
+        draft.soEstAvg != null ||
+        draft.soEstCv != null ||
+        draft.soTurningAngle != null ||
+        draft.soSetpointF != null ||
+        draft.soActualF != null ||
+        draft.soSetpointRh != null ||
+        draft.soActualRh != null ||
+        _hasText(draft.soMachineScreenPhoto) ||
+        ((draft.soBatchSize ?? 19200) != 19200) ||
+        ((draft.soBatchCount ?? 1) != 1) ||
+        ((draft.soTotalEggsSet ?? 19200) != 19200) ||
+        _hasSetterEstSampleResults(draft) ||
+        _hasText(draft.notes);
+  }
+
+  bool _hasSetterEstSampleResults(AuditModel draft) {
+    return _decodedMaps(draft.soEstSamplesJson).any(
+      (sample) =>
+          _isMeaningfulJsonValue(sample['estReadings']) ||
+          _isMeaningfulJsonValue(sample['estPhotos']) ||
+          sample['estAvg'] != null ||
+          sample['estCv'] != null,
+    );
+  }
+
   bool _hasMeaningfulSetterCoreData(AuditModel draft) {
     return _hasMeaningfulMachineId(
           draft.soSetterId,
@@ -2842,6 +2961,24 @@ class AuditProvider extends ChangeNotifier {
   bool _hasMeaningfulHatcherData(AuditModel draft) {
     return _hasMeaningfulHatcherCoreData(draft) ||
         _hasText(draft.hoBreed) ||
+        draft.hoTransferDay != null ||
+        _hasText(draft.notes);
+  }
+
+  bool _hasHatcherScopeResults(AuditModel draft) {
+    return ((draft.hoIncubationAge ?? 18) != 18) ||
+        ((draft.hoIncubationHours ?? 0) != 0) ||
+        draft.hoSetpointF != null ||
+        draft.hoSetpointRh != null ||
+        draft.hoCo2 != null ||
+        _hasText(draft.hoCo2Photo) ||
+        _hasMeaningfulJsonObject(draft.hoCvtReadings) ||
+        _hasMeaningfulJsonObject(draft.hoCvtPhotos) ||
+        draft.hoCvtAvg != null ||
+        draft.hoCvtCv != null ||
+        draft.hoChickPanting != null ||
+        _hasText(draft.hoChickPantingPhoto) ||
+        _hasText(draft.hoMeconium) ||
         draft.hoTransferDay != null ||
         _hasText(draft.notes);
   }

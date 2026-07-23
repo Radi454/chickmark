@@ -268,6 +268,18 @@ class EggBreakoutSampleEntry {
     return CalculationUtils.percentOf(counts[countKey] ?? 0, total);
   }
 
+  bool get hasEnteredResults {
+    final defaultTraySize = breakoutType == EggBreakoutType.freshEggBreakout
+        ? 30
+        : 150;
+    return counts.isNotEmpty ||
+        photos.isNotEmpty ||
+        (traySize != null && traySize != defaultTraySize) ||
+        (sampleMode == EggBreakoutSampleMode.pool &&
+            numberOfTrays != null &&
+            numberOfTrays != 1);
+  }
+
   EggBreakoutSampleEntry copyWith({
     String? id,
     EggBreakoutSampleMode? sampleMode,
