@@ -133,21 +133,84 @@ void main() {
     return provider;
   }
 
-  Future<void> addVisibleSample(WidgetTester tester) async {
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('breakout-add-sample')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
+  int countValueKeys({required String prefix}) {
+    return find
+        .byWidgetPredicate(
+          (widget) =>
+              widget.key is ValueKey &&
+              (widget.key! as ValueKey).value.toString().startsWith(prefix),
+        )
+        .evaluate()
+        .length;
+  }
+
+  Future<void> completeScopeDialog(
+    WidgetTester tester, {
+    Map<String, String>? values,
+  }) async {
+    final addButton = find.byKey(const ValueKey('scope-identity-add'));
+    if (addButton.evaluate().isEmpty) return;
+
+    final defaults = <String, String>{};
+    if (find
+        .byKey(const ValueKey('scope-identity-house'))
+        .evaluate()
+        .isNotEmpty) {
+      defaults['house'] = 'H';
+    }
+    if (find
+        .byKey(const ValueKey('scope-identity-setter'))
+        .evaluate()
+        .isNotEmpty) {
+      final machineCount = countValueKeys(prefix: 'residue-batch-tab-');
+      defaults['setter'] = machineCount == 0 ? 'S' : '$machineCount';
+      defaults['hatcher'] = machineCount == 0 ? 'H' : '$machineCount';
+    }
+    if (find
+        .byKey(const ValueKey('scope-identity-trolley'))
+        .evaluate()
+        .isNotEmpty) {
+      final trolleyCount = countValueKeys(prefix: 'residue-trolley-tab-');
+      defaults['trolley'] = trolleyCount == 0 ? 'T' : '$trolleyCount';
+    }
+    if (find
+        .byKey(const ValueKey('scope-identity-tray'))
+        .evaluate()
+        .isNotEmpty) {
+      final trayCount = countValueKeys(prefix: 'breakout-sample-tab-');
+      defaults['tray'] = 'Tray ${trayCount + 1}';
+    }
+
+    for (final entry in {...defaults, ...?values}.entries) {
+      await tester.enterText(
+        find.byKey(ValueKey('scope-identity-${entry.key}')),
+        entry.value,
+      );
+    }
+    await tester.pump();
+    await tester.tap(addButton);
     await tester.pumpAndSettle();
   }
 
-  Future<void> tapVisibleKey(WidgetTester tester, Key key) async {
+  Future<void> openVisibleKey(WidgetTester tester, Key key) async {
     final finder = find.byKey(key);
     await tester.ensureVisible(finder);
     await tester.pumpAndSettle();
     await tester.tap(finder);
     await tester.pumpAndSettle();
+  }
+
+  Future<void> tapVisibleKey(
+    WidgetTester tester,
+    Key key, {
+    Map<String, String>? scopeIdentities,
+  }) async {
+    await openVisibleKey(tester, key);
+    await completeScopeDialog(tester, values: scopeIdentities);
+  }
+
+  Future<void> addVisibleSample(WidgetTester tester) async {
+    await tapVisibleKey(tester, const ValueKey('breakout-add-sample'));
   }
 
   Future<void> enterVisibleNumber(
@@ -901,7 +964,8 @@ void main() {
         final beforeTrolleyAdd = mainScrollOffset(tester);
 
         await tester.tap(find.byKey(const ValueKey('residue-add-trolley')));
-        await tester.pump();
+        await tester.pumpAndSettle();
+        await completeScopeDialog(tester);
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(
@@ -913,7 +977,7 @@ void main() {
             tester,
             const ValueKey('residue-trolley-number-0'),
           ),
-          '8',
+          '1',
         );
 
         final beforeTrolleyTap = mainScrollOffset(tester);
@@ -947,10 +1011,12 @@ void main() {
         // The first Tray + converts the active pooled trolley into Tray 1; the
         // second adds Tray 2. Neither should scroll to the tray entry fields.
         await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
-        await tester.pump();
+        await tester.pumpAndSettle();
+        await completeScopeDialog(tester);
         await tester.pump(const Duration(milliseconds: 300));
         await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
-        await tester.pump();
+        await tester.pumpAndSettle();
+        await completeScopeDialog(tester);
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(
@@ -1891,5 +1957,273 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(numericFieldHasFocus(tester, early24hKey), isTrue);
+  });
+
+  testWidgets('hatch hierarchy asks for names and rejects sibling duplicates', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    final initialJson = provider.activeDraft.ebTrayBreakoutJson;
+
+    Future<void> cancelAdd(Key key, String title) async {
+      await openVisibleKey(tester, key);
+      expect(find.text(title), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+      await tester.pumpAndSettle();
+    }
+
+    for (final entry in const [
+      (ValueKey('residue-add-house'), 'Add House scope'),
+      (ValueKey('residue-add-batch'), 'Add Machine scope'),
+      (ValueKey('residue-add-trolley'), 'Add Trolley scope'),
+      (ValueKey('breakout-add-sample'), 'Add Tray scope'),
+    ]) {
+      await cancelAdd(entry.$1, entry.$2);
+    }
+    expect(provider.hatchCount, 1);
+    expect(provider.isCompareMode, isFalse);
+    expect(provider.activeDraft.ebTrayBreakoutJson, initialJson);
+
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-house'),
+      scopeIdentities: const {'house': '12'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-batch'),
+      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-trolley'),
+      scopeIdentities: const {'trolley': '3'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('breakout-add-sample'),
+      scopeIdentities: const {'tray': 'Tray 4'},
+    );
+
+    expect(provider.activeDraft.houseId, '12');
+    expect(provider.activeDraft.setterId, '7');
+    expect(provider.activeDraft.hatcherId, '8');
+    final namedSample = EggBreakoutSampleEntry.decodeList(
+      provider.activeDraft.ebTrayBreakoutJson,
+    ).single;
+    expect(namedSample.trolley, '3');
+    expect(namedSample.tray, 'Tray 4');
+    expect(namedSample.label, 'Tray 4');
+
+    Future<void> expectDuplicate(
+      Key key,
+      Map<String, String> values,
+      String message,
+    ) async {
+      await openVisibleKey(tester, key);
+      for (final entry in values.entries) {
+        await tester.enterText(
+          find.byKey(ValueKey('scope-identity-${entry.key}')),
+          entry.value,
+        );
+      }
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+      await tester.pumpAndSettle();
+      expect(find.text(message), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+      await tester.pumpAndSettle();
+    }
+
+    await expectDuplicate(
+      const ValueKey('residue-add-house'),
+      const {'house': 'H12'},
+      'A House scope with this identity already exists.',
+    );
+    await expectDuplicate(
+      const ValueKey('residue-add-batch'),
+      const {'setter': 'S7', 'hatcher': 'H8'},
+      'A Machine scope with this identity already exists.',
+    );
+    await expectDuplicate(
+      const ValueKey('residue-add-trolley'),
+      const {'trolley': 'T3'},
+      'A Trolley scope with this identity already exists.',
+    );
+    await expectDuplicate(
+      const ValueKey('breakout-add-sample'),
+      const {'tray': 'Tray 4'},
+      'A Tray scope with this identity already exists.',
+    );
+    expect(provider.hatchCount, 1);
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.activeDraft.ebTrayBreakoutJson,
+      ),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('house removal protects result-bearing descendant machines', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-house'),
+      scopeIdentities: const {'house': '12'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-batch'),
+      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-house'),
+      scopeIdentities: const {'house': '13'},
+    );
+    expect(provider.hatchCount, 2);
+
+    await tapVisibleKey(tester, const ValueKey('residue-house-tab-0'));
+    await openVisibleKey(tester, const ValueKey('residue-remove-house'));
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.hatchCount, 2);
+    expect(provider.drafts.first.houseId, '12');
+
+    await openVisibleKey(tester, const ValueKey('residue-remove-house'));
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.hatchCount, 1);
+    expect(provider.activeDraft.houseId, '13');
+  });
+
+  testWidgets('machine and trolley removals protect scoped results', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-batch'),
+      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-batch'),
+      scopeIdentities: const {'setter': '9', 'hatcher': '10'},
+    );
+    provider.updateHatchField(provider.activeHatchIndex, 'haHatched', 100);
+    await tester.pumpAndSettle();
+
+    await openVisibleKey(tester, const ValueKey('residue-remove-batch'));
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.hatchCount, 2);
+
+    await openVisibleKey(tester, const ValueKey('residue-remove-batch'));
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.hatchCount, 1);
+
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-trolley'),
+      scopeIdentities: const {'trolley': '1'},
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('residue-add-trolley'),
+      scopeIdentities: const {'trolley': '2'},
+    );
+    await enterVisibleNumber(
+      tester,
+      const ValueKey('breakout-count-infertile'),
+      '12',
+    );
+    final samples = EggBreakoutSampleEntry.decodeList(
+      provider.activeDraft.ebTrayBreakoutJson,
+    );
+    expect(samples, hasLength(2));
+    expect(samples.last.hasEnteredResults, isTrue);
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('residue-trolley-tab-1')),
+          )
+          .selected,
+      isTrue,
+    );
+
+    await openVisibleKey(tester, const ValueKey('residue-remove-trolley'));
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.activeDraft.ebTrayBreakoutJson,
+      ),
+      hasLength(2),
+    );
+
+    await openVisibleKey(tester, const ValueKey('residue-remove-trolley'));
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.activeDraft.ebTrayBreakoutJson,
+      ),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('tray removal cancel preserves entered counts until confirmed', (
+    tester,
+  ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+    );
+    await tapVisibleKey(
+      tester,
+      const ValueKey('breakout-add-sample'),
+      scopeIdentities: const {'tray': 'Tray 1'},
+    );
+    await enterVisibleNumber(
+      tester,
+      const ValueKey('breakout-count-infertile'),
+      '12',
+    );
+
+    await openVisibleKey(tester, const ValueKey('breakout-remove-sample'));
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider.activeDraft.ebTrayBreakoutJson,
+      ).single.counts,
+      {'infertile': 12},
+    );
+
+    await openVisibleKey(tester, const ValueKey('breakout-remove-sample'));
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('breakout-pool-sample-tab')),
+      findsOneWidget,
+    );
   });
 }

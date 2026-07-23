@@ -16,6 +16,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/photo_button.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -300,7 +301,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           icon: Icons.add,
                           onPressed: provider.isReadOnly
                               ? null
-                              : () => _addResidueHouse(provider),
+                              : () => _promptAddResidueHouse(provider),
                         ),
                         if (selectedHouseScopeActive)
                           _buildTrayActionButton(
@@ -379,7 +380,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           icon: Icons.add,
                           onPressed: provider.isReadOnly
                               ? null
-                              : () => _addResidueMachine(provider),
+                              : () => _promptAddResidueMachine(provider),
                         ),
                         if (hasSelectedMachineEntry)
                           _buildTrayActionButton(
@@ -482,7 +483,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                           icon: Icons.add,
                           onPressed: provider.isReadOnly || activeAudit == null
                               ? null
-                              : () => _addResidueTrolley(
+                              : () => _promptAddResidueTrolley(
                                   provider,
                                   activeIndex,
                                   activeAudit,
@@ -757,26 +758,104 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return 'T$value';
   }
 
-  void _addResidueHouse(AuditProvider provider) {
-    final existingHouseKeys = provider.isCompareMode
-        ? _residueHouseTabs(provider.drafts).map((house) => house.key).toSet()
-        : <String>{};
-    final nextHouse = existingHouseKeys.isEmpty
-        ? 'H'
-        : _nextHierarchyNumber(existingHouseKeys);
+  Future<void> _promptAddResidueHouse(AuditProvider provider) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'House',
+      fields: const [AuditScopeIdentityField(key: 'house', label: 'House')],
+      validator: (values) =>
+          _hasDuplicateResidueHouse(provider, values['house']!)
+          ? 'A House scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    _addResidueHouse(provider, values['house']!);
+  }
+
+  bool _hasDuplicateResidueHouse(AuditProvider provider, String house) {
+    if (!provider.isCompareMode) return false;
+    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
+    return _residueHouseTabs(provider.drafts).any(
+      (entry) =>
+          normalizeAuditScopeIdentity(entry.key, prefix: 'H') == normalized,
+    );
+  }
+
+  void _addResidueHouse(AuditProvider provider, String house) {
     if (!provider.isCompareMode && provider.hatchCount == 1) {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
     } else {
       provider.addHatch();
     }
     final nextIndex = provider.activeHatchIndex;
-    provider.updateHatchField(nextIndex, 'houseId', nextHouse);
+    provider.updateHatchField(nextIndex, 'houseId', house);
     provider.updateHatchField(nextIndex, 'setterId', null);
     provider.updateHatchField(nextIndex, 'hatcherId', null);
     _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, nextIndex);
   }
 
-  void _addResidueMachine(AuditProvider provider) {
+  Future<void> _promptAddResidueMachine(AuditProvider provider) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Machine',
+      fields: const [
+        AuditScopeIdentityField(key: 'setter', label: 'Setter'),
+        AuditScopeIdentityField(key: 'hatcher', label: 'Hatcher'),
+      ],
+      validator: (values) =>
+          _hasDuplicateResidueMachine(
+            provider,
+            setter: values['setter']!,
+            hatcher: values['hatcher']!,
+          )
+          ? 'A Machine scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    _addResidueMachine(
+      provider,
+      setter: values['setter']!,
+      hatcher: values['hatcher']!,
+    );
+  }
+
+  bool _hasDuplicateResidueMachine(
+    AuditProvider provider, {
+    required String setter,
+    required String hatcher,
+  }) {
+    if (provider.drafts.isEmpty || !provider.isCompareMode) return false;
+    final activeIndex = provider.activeHatchIndex
+        .clamp(0, provider.drafts.length - 1)
+        .toInt();
+    final activeHouse = _residueHouseKey(
+      provider.drafts[activeIndex],
+      activeIndex,
+    );
+    final normalizedSetter = normalizeAuditScopeIdentity(setter, prefix: 'S');
+    final normalizedHatcher = normalizeAuditScopeIdentity(hatcher, prefix: 'H');
+    return provider.drafts.asMap().entries.any(
+      (entry) =>
+          _residueHouseKey(entry.value, entry.key) == activeHouse &&
+          _isResidueMachineDraft(entry.value) &&
+          normalizeAuditScopeIdentity(
+                entry.value.setterId ?? '',
+                prefix: 'S',
+              ) ==
+              normalizedSetter &&
+          normalizeAuditScopeIdentity(
+                entry.value.hatcherId ?? '',
+                prefix: 'H',
+              ) ==
+              normalizedHatcher,
+    );
+  }
+
+  void _addResidueMachine(
+    AuditProvider provider, {
+    required String setter,
+    required String hatcher,
+  }) {
     if (provider.drafts.isEmpty) return;
     final wasCompareMode = provider.isCompareMode;
     final initialActiveIndex = provider.activeHatchIndex
@@ -785,24 +864,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final activeHouseOrNull = wasCompareMode
         ? _residueHouseKeyOrNull(provider.drafts[initialActiveIndex])
         : null;
-    final activeHouseKey = wasCompareMode
-        ? _residueHouseKey(
-            provider.drafts[initialActiveIndex],
-            initialActiveIndex,
-          )
-        : 'pool';
-    final existingMachineEntries = wasCompareMode
-        ? provider.drafts
-              .asMap()
-              .entries
-              .where(
-                (entry) =>
-                    _residueHouseKey(entry.value, entry.key) ==
-                        activeHouseKey &&
-                    _isResidueMachineDraft(entry.value),
-              )
-              .toList()
-        : const <MapEntry<int, AuditModel>>[];
     final activeDraftHasData = _residueDraftHasEnteredData(
       provider.drafts[initialActiveIndex],
     );
@@ -821,13 +882,50 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final nextIndex = shouldConvertActiveDraft
         ? initialActiveIndex
         : provider.activeHatchIndex;
-    final nextMachineNumber = existingMachineEntries.isEmpty
-        ? null
-        : _nextResidueMachineNumber(existingMachineEntries);
     provider.updateHatchField(nextIndex, 'houseId', activeHouseOrNull);
-    provider.updateHatchField(nextIndex, 'setterId', nextMachineNumber ?? 'S');
-    provider.updateHatchField(nextIndex, 'hatcherId', nextMachineNumber ?? 'H');
+    provider.updateHatchField(nextIndex, 'setterId', setter);
+    provider.updateHatchField(nextIndex, 'hatcherId', hatcher);
     _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, nextIndex);
+  }
+
+  Future<void> _promptAddResidueTrolley(
+    AuditProvider provider,
+    int hatchIndex,
+    AuditModel audit,
+    EggBreakoutType breakoutType,
+    List<EggBreakoutSampleEntry> samples,
+  ) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Trolley',
+      fields: const [AuditScopeIdentityField(key: 'trolley', label: 'Trolley')],
+      validator: (values) =>
+          _hasDuplicateResidueTrolley(samples, values['trolley']!)
+          ? 'A Trolley scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    _addResidueTrolley(
+      provider,
+      hatchIndex,
+      audit,
+      breakoutType,
+      samples,
+      values['trolley']!,
+    );
+  }
+
+  bool _hasDuplicateResidueTrolley(
+    List<EggBreakoutSampleEntry> samples,
+    String trolley,
+  ) {
+    final normalized = normalizeAuditScopeIdentity(trolley, prefix: 'T');
+    return samples.any(
+      (sample) =>
+          _trimmedOrNull(sample.trolley) != null &&
+          normalizeAuditScopeIdentity(sample.trolley ?? '', prefix: 'T') ==
+              normalized,
+    );
   }
 
   void _addResidueTrolley(
@@ -836,14 +934,12 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     AuditModel audit,
     EggBreakoutType breakoutType,
     List<EggBreakoutSampleEntry> samples,
+    String trolley,
   ) {
     if (hatchIndex < 0 || hatchIndex >= provider.drafts.length) return;
     final existingTrolleys = _residueTrolleyTabs(
       samples,
     ).map((trolley) => trolley.key).toSet();
-    final nextTrolley = existingTrolleys.isEmpty
-        ? 'T'
-        : _nextPrefixedScopeNumber(existingTrolleys, 'T');
     final trayScopeActive = samples.any(
       (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
     );
@@ -858,7 +954,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         _trimmedOrNull(samples.first.trolley) == null) {
       _activeBreakoutSampleIndexes[hatchIndex] = 0;
       _persistBreakoutSamples(provider, hatchIndex, breakoutType, [
-        samples.first.copyWith(trolley: nextTrolley),
+        samples.first.copyWith(trolley: trolley),
       ]);
       return;
     }
@@ -868,7 +964,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         ? EggBreakoutSampleEntry.tray(
             id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
             label: 'Tray $nextSampleIndex',
-            trolley: nextTrolley,
+            trolley: trolley,
             position: 'random',
             traySize: _defaultTraySizeForBreakout(breakoutType),
             breakoutType: breakoutType,
@@ -876,7 +972,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         : EggBreakoutSampleEntry.pool(
             id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
             label: 'Pool $nextSampleIndex',
-            trolley: nextTrolley,
+            trolley: trolley,
             numberOfTrays: 1,
             traySize: _defaultTraySizeForBreakout(breakoutType),
             breakoutType: breakoutType,
@@ -891,13 +987,13 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
   }
 
-  void _removeActiveResidueTrolley(
+  Future<void> _removeActiveResidueTrolley(
     AuditProvider provider,
     int hatchIndex,
     EggBreakoutType breakoutType,
     List<EggBreakoutSampleEntry> samples,
     String trolleyKey,
-  ) {
+  ) async {
     if (samples.isEmpty) return;
     final trayScopeActive = samples.any(
       (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
@@ -908,6 +1004,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final remainingHasTrolley = remaining.any(
       (sample) => _trimmedOrNull(sample.trolley) != null,
     );
+    final discardsSamples = !trayScopeActive && remainingHasTrolley;
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults:
+          discardsSamples &&
+          samples
+              .where((sample) => _trimmedOrNull(sample.trolley) == trolleyKey)
+              .any((sample) => sample.hasEnteredResults),
+    );
+    if (!confirmed || !mounted) return;
     // In tray comparison, or when this is the only trolley, keep the samples
     // and just drop the trolley label (preserving entered counts). For pooled
     // multi-trolley scopes, removing a trolley removes its pool sample so no
@@ -975,7 +1081,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         _trimmedOrNull(audit.ebTrayBreakoutJson) != null;
   }
 
-  void _removeActiveResidueHouse(AuditProvider provider) {
+  Future<void> _removeActiveResidueHouse(AuditProvider provider) async {
     if (provider.drafts.isEmpty) return;
     final activeIndex = provider.activeHatchIndex
         .clamp(0, provider.drafts.length - 1)
@@ -995,6 +1101,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             .map((entry) => entry.key)
             .toList()
           ..sort((a, b) => b.compareTo(a));
+    final discardedIndexes = indexes.length >= provider.drafts.length
+        ? indexes.where((index) => index != 0)
+        : indexes;
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: discardedIndexes.any(
+        provider.stationScopeHasEnteredResults,
+      ),
+    );
+    if (!confirmed || !mounted) return;
     if (indexes.length >= provider.drafts.length) {
       provider.updateHatchField(0, 'houseId', null);
       provider.updateHatchField(0, 'setterId', null);
@@ -1009,7 +1125,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     }
   }
 
-  void _removeActiveResidueMachine(AuditProvider provider) {
+  Future<void> _removeActiveResidueMachine(AuditProvider provider) async {
     if (provider.drafts.isEmpty) return;
     final activeIndex = provider.activeHatchIndex
         .clamp(0, provider.drafts.length - 1)
@@ -1034,6 +1150,11 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, activeIndex);
       return;
     }
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: provider.stationScopeHasEnteredResults(activeIndex),
+    );
+    if (!confirmed || !mounted) return;
     provider.removeActiveHatch();
     if (!provider.isCompareMode && provider.drafts.isNotEmpty) {
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
@@ -1104,58 +1225,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     ).where((sample) => sample.breakoutType == breakoutType).toList();
     if (samples.isEmpty) return;
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, samples);
-  }
-
-  String _nextHierarchyNumber(Set<String> existing) {
-    var maxNumber = 0;
-    for (final value in existing) {
-      final parsed = int.tryParse(value.trim());
-      if (parsed != null && parsed > maxNumber) maxNumber = parsed;
-    }
-    var next = maxNumber + 1;
-    while (existing.contains('$next')) {
-      next++;
-    }
-    return '$next';
-  }
-
-  String _nextPrefixedScopeNumber(Set<String> existing, String prefix) {
-    var maxNumber = 0;
-    for (final value in existing) {
-      final parsed = int.tryParse(_machineLabelPart(value, prefix, ''));
-      if (parsed != null && parsed > maxNumber) maxNumber = parsed;
-    }
-    var next = maxNumber + 1;
-    while (existing.any(
-      (value) => _machineLabelPart(value, prefix, '') == '$next',
-    )) {
-      next++;
-    }
-    return '$next';
-  }
-
-  String _nextResidueMachineNumber(
-    List<MapEntry<int, AuditModel>> existingMachines,
-  ) {
-    final existingNumbers = <String>{};
-    var maxNumber = 0;
-    for (final entry in existingMachines) {
-      final audit = entry.value;
-      for (final part in [
-        _machineLabelPart(audit.setterId, 'S', ''),
-        _machineLabelPart(audit.hatcherId, 'H', ''),
-      ]) {
-        if (part.isEmpty) continue;
-        existingNumbers.add(part);
-        final parsed = int.tryParse(part);
-        if (parsed != null && parsed > maxNumber) maxNumber = parsed;
-      }
-    }
-    var next = maxNumber + 1;
-    while (existingNumbers.contains('$next')) {
-      next++;
-    }
-    return '$next';
   }
 
   String? _trimmedOrNull(String? value) {
@@ -2283,34 +2352,14 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           icon: Icons.add,
           onPressed: provider.isReadOnly
               ? null
-              : () {
-                  final nextIndex = trayScopeActive ? samples.length + 1 : 1;
-                  final activeTrolley = _trimmedOrNull(
-                    samples[activeIndex].trolley,
-                  );
-                  final nextSample = EggBreakoutSampleEntry.tray(
-                    id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
-                    label: 'Tray $nextIndex',
-                    trolley: activeTrolley,
-                    position: 'random',
-                    traySize: _defaultTraySizeForBreakout(breakoutType),
-                    breakoutType: breakoutType,
-                  );
-                  final nextSampleWithHierarchy =
-                      _sampleWithActiveBatchHierarchy(
-                        audit,
-                        nextSample,
-                        breakoutType,
-                      );
-                  final nextSamples = trayScopeActive
-                      ? [...samples, nextSampleWithHierarchy]
-                      : [nextSampleWithHierarchy];
-                  _activeBreakoutSampleIndexes[hatchIndex] =
-                      nextSamples.length - 1;
-                  _persistBreakoutSamples(provider, hatchIndex, breakoutType, [
-                    ...nextSamples,
-                  ]);
-                },
+              : () => _promptAddBreakoutTray(
+                  provider,
+                  hatchIndex,
+                  audit,
+                  breakoutType,
+                  samples,
+                  activeIndex,
+                ),
         ),
         if (trayScopeActive) ...[
           const SizedBox(width: 8),
@@ -2320,22 +2369,13 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
-                : () {
-                    final next = [...samples]..removeAt(activeIndex);
-                    final nextActiveIndex = next.isEmpty
-                        ? 0
-                        : activeIndex.clamp(0, next.length - 1).toInt();
-                    _activeBreakoutSampleIndexes[hatchIndex] = nextActiveIndex;
-                    _persistBreakoutSamples(
-                      provider,
-                      hatchIndex,
-                      breakoutType,
-                      next,
-                    );
-                    if (next.isNotEmpty) {
-                      _scrollToBreakoutSample(next[nextActiveIndex].id);
-                    }
-                  },
+                : () => _removeActiveBreakoutTray(
+                    provider,
+                    hatchIndex,
+                    breakoutType,
+                    samples,
+                    activeIndex,
+                  ),
           ),
         ],
       ],
@@ -2369,6 +2409,116 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         );
       },
     );
+  }
+
+  Future<void> _promptAddBreakoutTray(
+    AuditProvider provider,
+    int hatchIndex,
+    AuditModel audit,
+    EggBreakoutType breakoutType,
+    List<EggBreakoutSampleEntry> samples,
+    int activeIndex,
+  ) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Tray',
+      fields: const [AuditScopeIdentityField(key: 'tray', label: 'Tray')],
+      validator: (values) =>
+          _hasDuplicateBreakoutTray(samples, activeIndex, values['tray']!)
+          ? 'A Tray scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    _addBreakoutTray(
+      provider,
+      hatchIndex,
+      audit,
+      breakoutType,
+      samples,
+      activeIndex,
+      values['tray']!,
+    );
+  }
+
+  bool _hasDuplicateBreakoutTray(
+    List<EggBreakoutSampleEntry> samples,
+    int activeIndex,
+    String tray,
+  ) {
+    final normalized = normalizeAuditScopeIdentity(tray, prefix: 'Tray');
+    final activeTrolley = samples.isEmpty
+        ? null
+        : normalizeAuditScopeIdentity(
+            samples[activeIndex].trolley ?? '',
+            prefix: 'T',
+          );
+    return samples.any(
+      (sample) =>
+          normalizeAuditScopeIdentity(sample.trolley ?? '', prefix: 'T') ==
+              activeTrolley &&
+          normalizeAuditScopeIdentity(
+                sample.tray ?? sample.label,
+                prefix: 'Tray',
+              ) ==
+              normalized,
+    );
+  }
+
+  void _addBreakoutTray(
+    AuditProvider provider,
+    int hatchIndex,
+    AuditModel audit,
+    EggBreakoutType breakoutType,
+    List<EggBreakoutSampleEntry> samples,
+    int activeIndex,
+    String tray,
+  ) {
+    final trayScopeActive = samples.any(
+      (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
+    );
+    final activeTrolley = _trimmedOrNull(samples[activeIndex].trolley);
+    final nextSample = EggBreakoutSampleEntry.tray(
+      id: 'sample-${DateTime.now().microsecondsSinceEpoch}',
+      label: tray,
+      tray: tray,
+      trolley: activeTrolley,
+      position: 'random',
+      traySize: _defaultTraySizeForBreakout(breakoutType),
+      breakoutType: breakoutType,
+    );
+    final nextSampleWithHierarchy = _sampleWithActiveBatchHierarchy(
+      audit,
+      nextSample,
+      breakoutType,
+    );
+    final nextSamples = trayScopeActive
+        ? [...samples, nextSampleWithHierarchy]
+        : [nextSampleWithHierarchy];
+    _activeBreakoutSampleIndexes[hatchIndex] = nextSamples.length - 1;
+    _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
+  }
+
+  Future<void> _removeActiveBreakoutTray(
+    AuditProvider provider,
+    int hatchIndex,
+    EggBreakoutType breakoutType,
+    List<EggBreakoutSampleEntry> samples,
+    int activeIndex,
+  ) async {
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: samples[activeIndex].hasEnteredResults,
+    );
+    if (!confirmed || !mounted) return;
+    final next = [...samples]..removeAt(activeIndex);
+    final nextActiveIndex = next.isEmpty
+        ? 0
+        : activeIndex.clamp(0, next.length - 1).toInt();
+    _activeBreakoutSampleIndexes[hatchIndex] = nextActiveIndex;
+    _persistBreakoutSamples(provider, hatchIndex, breakoutType, next);
+    if (next.isNotEmpty) {
+      _scrollToBreakoutSample(next[nextActiveIndex].id);
+    }
   }
 
   Widget _buildTrayActionButton({
