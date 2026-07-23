@@ -300,6 +300,19 @@ Station save behavior:
   deeper layer, each saved row carries every populated parent scope. For example,
   two houses with two machines per house, two trolleys per machine, and two
   trays per trolley save sixteen tray rows.
+- Audit-station scope add actions collect the new scope identity before they
+  create or switch any sample. House, machine, trolley, tray, and Setter EST
+  incubation-age dialogs require all applicable identity fields, reject an
+  identity already present under the same parent scope, and leave the current
+  data unchanged when cancelled. Identity comparisons ignore case and the
+  display prefixes `H`, `S`, `T`, and `Tray`.
+- Removing a scope asks for confirmation only when that action would discard
+  entered result values, counts, measurements, observations, or evidence
+  photos. Scope identity fields by themselves do not trigger the warning.
+  Removal paths that only return the last scoped sample to `Pool` while
+  preserving its results also do not warn. The destructive dialog states that
+  the entered results will be permanently discarded and offers Cancel and
+  Remove actions.
 - One-sample rows leave unused hierarchy columns null. Multi-sample rows repeat
   the shared parent context and differ at the selected leaf scope, while keeping
   parent columns populated for comparison and dashboard grouping.
@@ -481,12 +494,11 @@ Quality cards, and station notes.
   a dedicated Quality Storage Days entry used for Egg Quality BMK age and BMK
   egg-weight lookup. Egg Quality no longer shows the old One sample / Multiple
   samples selector; it uses a single House scope card instead. House scope shows
-  `Pool` while inactive. Pressing the House scope add control turns the pooled
-  Egg Quality sample into a single House placeholder chip (`H`) with a blank
-  House field until the user enters the house value. Egg Quality scope rows do
-  not receive serial defaults: converted and newly added House scope rows start
-  as `H`, with the identity input shown blank. Edited values update the active
-  chip label, such as `H2`, and the saved Egg Quality hierarchy identity. House
+  `Pool` while inactive. Pressing the House scope add control first asks for the
+  House identity, then turns the pooled Egg Quality sample into a named chip
+  such as `H2`; duplicate House identities are rejected before creation. Edited
+  values continue to update the active chip and saved Egg Quality hierarchy.
+  House
   identity input keeps its active editing focus while provider state refreshes
   and syncs provider-side identity changes back into the field when the user is
   not actively editing that field. Removing a House scope removes that house and
@@ -518,9 +530,7 @@ Quality cards, and station notes.
   header status pills such as `0/100` and `Avg affected 0.0%`. Expandable
   headers keep the title icon, title, and chevron as the only header controls.
   Egg Quality house comparison persists each house as a comparison row with
-  the entered house identity. A new House placeholder remains a prefix-only `H`
-  sample until the user enters the value that produces the final label, such as
-  `H2`. Egg Storage remains a station-level
+  the entered house identity. Egg Storage remains a station-level
   pooled row with null sample hierarchy columns (`house`, `setter`, `hatcher`,
   `trolley`, `tray`, and `position`) even when Egg Quality has an active House
   scope. When a saved Egg station is resumed, the screen rebuilds Egg
@@ -560,13 +570,13 @@ are the only header controls.
 The quality sampling control is a single `Machine scope` card matching the Egg
 quality machine-scope pattern. In pooled state it shows a disabled `Pool` chip
 and an add control; there is no separate One sample / Multisamples segmented
-control and no separate Machine ID card. Pressing the add control switches
-Chick Quality to a single active `SH` placeholder on first activation;
-subsequent adds create additional `SH` placeholders until the user enters
-Setter/Hatcher values. The active sample can then be switched or removed from
-the same card; removing the only active machine sample returns the card to
-`Pool` and hides the Setter/Hatcher entry fields. Active comparison mode shows
-the same blank Setter and Hatcher entry fields used by Egg quality machine scope.
+control and no separate Machine ID card. Pressing the add control asks for both
+Setter and Hatcher identities before creating the named machine sample;
+duplicate Setter/Hatcher pairs are rejected. The active sample can then be
+switched or removed from the same card; removing the only active machine sample
+returns the card to `Pool` and hides the Setter/Hatcher entry fields. Active
+comparison mode shows the same Setter and Hatcher entry fields used by Egg
+quality machine scope.
 Chick Quality machine
 scope does not expose a House entry, and saved `chick_quality` rows keep house
 hierarchy columns empty while using setter/hatcher as the explicit leaf scope.
@@ -577,8 +587,7 @@ mode has no per-card sample subtitle and saves one pooled sample row for Pasgar,
 YFBM, Chick Vent Temperature, and PM Necropsy, while machine scope shows the
 active setter/hatcher label, such as `SH setter/hatcher sample`, and saves one
 `chick_quality` follower row per setter/hatcher sample. Chicks quality machine
-rows use the explicit `setter` and `hatcher` hierarchy columns, with generated
-setter/hatcher values stored on the normalized sample and panel sample rows.
+rows use the explicit `setter` and `hatcher` hierarchy columns.
 The consolidated `chick_quality` row stores prefixed Pasgar, YFBM, CVT, and PM
 Necropsy fields so optional quality sections share the same sample identity
 without colliding with weight fields.
@@ -648,14 +657,13 @@ station context and rewrites Chick Weights BMK age/weight from the matching
 breed benchmark instead of keeping the stale saved session snapshot. Chick
 Weights uses an Egg-quality-style House scope card instead of a One house /
 Compare houses selector or separate Active house editor. In pooled state the
-card shows `Pool` plus an add control. Pressing the add control switches Chick
-Weights to the Egg-style house scope flow: the first activation becomes a single
-active `H` placeholder, and subsequent adds create additional `H` placeholders
-until the user enters House values. The House entry field is blank for the
-active placeholder. Entered house values update the active chip label and
-persist to `chick_weights` rows through the explicit house hierarchy columns;
+card shows `Pool` plus an add control. Pressing the add control asks for the
+House identity before switching Chick Weights to the Egg-style named house scope
+flow; duplicate House identities are rejected. Entered house values update the
+active chip label and persist to `chick_weights` rows through the explicit house
+hierarchy columns;
 removing a house sample deletes its stale `chick_weights` row on the next save,
-and removing the only active `H` sample returns Chick Weights to pooled `Pool`
+and removing the only active house sample returns Chick Weights to pooled `Pool`
 state. The panel shows sample count, BMK chick weight, average weight,
 low/high margins,
 uniformity, and CV% in that order. The weight metrics
@@ -720,32 +728,27 @@ Chicks screens: a `House scope` card contains the house tabs and active House
 field, and a `Machine scope` card contains setter/hatcher machine tabs for the
 selected house plus the active Setter and Hatcher fields. Both cards show a
 disabled selected `Pool` chip while their scope has not been activated. Pressing
-House scope `+` turns the pooled hatch row into the first house scope, shows a
-blank House field, and labels the first chip as prefix-only `H` until a house
-number is entered. Entered values update the chip to compact labels such as
-`H1` and `H2`. The House scope remove action is available as soon as House
+House scope `+` asks for the House identity before turning the pooled hatch row
+into the first named house scope, with compact labels such as `H1` and `H2`.
+The House scope remove action is available as soon as House
 scope is active; removing the only active house returns the Hatch Analysis
-hierarchy to pooled mode. Pressing Machine scope `+` creates the first
-setter/hatcher machine row without creating a synthetic House scope. If House
+hierarchy to pooled mode without discarding its results. Pressing Machine scope
+`+` asks for Setter and Hatcher identities before creating the first machine row
+without creating a synthetic House scope. If House
 scope is still pooled, the House card remains `Pool` and does not show House
 entry or House remove controls; if a House scope is active, the machine row
-inherits that active house. Machine rows show blank Setter and Hatcher fields
-and label the chip as prefix-only `SH` until either number field is entered.
-Additional Machine scope `+` actions in the same
-house or pooled context default to matching numeric Setter and Hatcher values,
-so chips advance like House and Trolley scopes: `SH`, `S1H1`, `S2H2`, and so
-on, with the numeric fields showing `1`, `2`, etc. Entered values update chips
-as `S{setter}H{hatcher}`; the label itself is not separately editable. The
+inherits that active house. Machine chips use the submitted identities as
+`S{setter}H{hatcher}`; duplicate pairs are rejected within the same House or
+pooled parent context, and the label itself is not separately editable. The
 Machine scope remove action is available as soon as a real machine chip is
 active; removing the only active machine returns the selected context to
 machine `Pool` without changing House scope. A `Trolley scope` card appears
 directly below Machine scope even while House and Machine are pooled. It shows
-`Pool` until a trolley is added. Pressing
-Trolley scope `+` attaches the trolley to the pooled breakout sample with a
-prefix-only `T` trolley placeholder, so the Tray scope stays on `Pool` and adding
-a trolley never starts tray comparison on its own. It selects the new trolley
-without scrolling to the tray entry fields, shows the active Trolley field blank,
-and labels the chip `T` until a number is entered. A second trolley in the same
+`Pool` until a trolley is added. Pressing Trolley scope `+` asks for the
+Trolley identity and attaches it to the pooled breakout sample, so the Tray
+scope stays on `Pool` and adding a trolley never starts tray comparison on its
+own. It selects the new trolley without scrolling to the tray entry fields.
+A second trolley in the same
 scope adds another pooled sample, so trolleys can be compared while the Tray
 scope is still pooled. If House or Machine scope is active, the trolley sample
 inherits that parent hierarchy; if they are pooled, the trolley comparison keeps
@@ -794,8 +797,9 @@ House and Machine scope pattern. In pooled state the Tray scope card shows a
 selected `Pool` chip, the sample card records one aggregate pool sample, and no
 tray-local Trolley, Tray, or Position fields are shown. Adding a Trolley scope
 keeps the Tray scope on `Pool`; only Tray scope `+` starts tray comparison.
-Pressing Tray scope `+`
-switches the active breakout type into tray comparison, creates `Tray 1`,
+Pressing Tray scope `+` first asks for the Tray identity, rejects a duplicate
+within the selected trolley, then switches the active breakout type into tray
+comparison with that named tray,
 selects the new tray without scrolling the page to the tray entry fields, and
 shows tray chips plus circular add and remove controls while keeping the tray
 entry panel tabbed: only the selected tray's entry card is rendered below the
@@ -882,9 +886,10 @@ Setters captures:
   Egg and Chicks machine-scope pattern with S-only chips and circular icon
   actions. The active setter-number entry is inside this Machine scope card.
   The first setter uses the selected visit setter id when present; otherwise it
-  defaults to `S`. The add action creates another setter machine in the same
-  audit session, defaulted to `S`, and the remove action appears once more than
-  one machine is available. Setter machine chips use labels from the setter
+  defaults to `S`. The add action asks for the Setter identity before creating
+  another machine in the same audit session and rejects duplicate S-normalized
+  identities. The remove action appears once more than one machine is available.
+  Setter machine chips use labels from the setter
   number, such as `S5` and `S7`, and they never include the hatcher-oriented
   `H` suffix used by setter/hatcher machine scope elsewhere. The Setter type
   selector remains text-only without selected checkmarks.
@@ -904,9 +909,10 @@ Setters captures:
   incubation-age sample is shown as `Pool` in the same compact outlined chip
   style as multi-sample days; once multiple incubation-age samples exist, chips
   are labeled from the entered age, such as `Day 1` and `Day 12`.
-  Duplicate days are disambiguated with compact occurrence labels such as
-  `Day 1 · 1` and `Day 1 · 2`. Small icon-only actions add or remove
-  incubation-age samples with accessible tap targets. Each scope keeps its own
+  The add action asks for a 1-18 day incubation age and 0-23 incubation hours
+  before creating the sample, and rejects duplicate age/hour pairs. Small
+  icon-only actions add or remove incubation-age samples with accessible tap
+  targets. Each scope keeps its own
   incubation age numeric entry from 1 to 18 days, 0-23 hour numeric entry, EST
   readings/photos, average, and CV, so switching between incubation-age samples
   restores that sample's own EST grid and active save payload. Setters does not
@@ -938,8 +944,9 @@ Hatchers captures:
   machine-scope pattern with H-only chips and circular icon actions. The active
   hatcher-number entry is inside this Machine scope card. The first hatcher uses
   the selected visit hatcher id when present; otherwise it defaults to `H`. The
-  add action creates another hatcher machine in the same audit session, defaulted
-  to `H`, and the remove action appears once more than one machine is available.
+  add action asks for the Hatcher identity before creating another machine in the
+  same audit session and rejects duplicate H-normalized identities. The remove
+  action appears once more than one machine is available.
   Hatcher machine chips use labels from the hatcher number, such as `H5` and
   `H7`, and they never include setter scope.
 - A Hatcher settings card for the active hatcher sample, containing outlined
