@@ -29,6 +29,7 @@ import '../temperature_capture/temperature_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
@@ -1387,10 +1388,38 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     );
   }
 
-  void _addEggHouseSample(AuditProvider provider) {
+  Future<void> _addEggHouseSample(AuditProvider provider) async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'House',
+      fields: const [AuditScopeIdentityField(key: 'house', label: 'House')],
+      validator: (values) => _hasDuplicateEggHouse(provider, values['house']!)
+          ? 'A House scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    final house = values['house']!;
     provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({
+      'houseNo': house,
+      'houseLabel': 'House $house',
+    });
     _syncActiveSampleForm(provider.activeDraft);
-    if (mounted) setState(() {});
+    setState(() {});
+  }
+
+  bool _hasDuplicateEggHouse(AuditProvider provider, String house) {
+    if (!provider.isEggQualityHouseScopeActive) return false;
+    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
+    return provider.stationSamples.any(
+      (sample) =>
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          normalizeAuditScopeIdentity(
+                sample.houseNo ?? sample.sampleLabel,
+                prefix: 'H',
+              ) ==
+              normalized,
+    );
   }
 
   void _switchEggHouseSample(AuditProvider provider, int index) {
@@ -1399,10 +1428,21 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     if (mounted) setState(() {});
   }
 
-  void _removeActiveEggScopeSample(AuditProvider provider, String sampleKind) {
+  Future<void> _removeActiveEggScopeSample(
+    AuditProvider provider,
+    String sampleKind,
+  ) async {
+    final discardsResults =
+        provider.stationSamples.length > 1 &&
+        provider.stationScopeHasEnteredResults(provider.activeSampleIndex);
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: discardsResults,
+    );
+    if (!confirmed || !mounted) return;
     provider.removeActiveEggQualityScopeSample(sampleKind);
     _syncActiveSampleForm(provider.activeDraft);
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   Widget _buildEggWeightsPanel(AuditProvider auditProvider) {

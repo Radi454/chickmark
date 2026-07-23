@@ -73,6 +73,26 @@ void main() {
     await tester.pump();
   }
 
+  Future<void> addNamedScope(
+    WidgetTester tester, {
+    required String tooltip,
+    required Map<String, String> identities,
+  }) async {
+    await tester.ensureVisible(find.byTooltip(tooltip));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(tooltip));
+    await tester.pumpAndSettle();
+    for (final entry in identities.entries) {
+      await tester.enterText(
+        find.byKey(ValueKey('scope-identity-${entry.key}')),
+        entry.value,
+      );
+    }
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('Capture readings launches the reusable capture screen', (
     tester,
   ) async {
@@ -377,10 +397,13 @@ void main() {
 
     await tester.ensureVisible(find.byTooltip('Add house sample'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '12'},
+    );
 
-    final h = find.widgetWithText(ChoiceChip, 'H');
+    final h = find.widgetWithText(ChoiceChip, 'H12');
     final addHouse = find.byTooltip('Add house sample');
     final removeHouse = find.byTooltip('Remove active house sample');
 
@@ -706,5 +729,88 @@ void main() {
       expect(top, greaterThan(previousTop));
       previousTop = top;
     }
+  });
+
+  testWidgets('egg house add cancels safely and rejects normalized duplicate', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+
+    await tester.ensureVisible(find.byTooltip('Add house sample'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add house sample'));
+    await tester.pumpAndSettle();
+    expect(find.text('Add House scope'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.isCompareMode, isFalse);
+
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '12'},
+    );
+    expect(provider.stationSamples, hasLength(1));
+
+    await tester.ensureVisible(find.byTooltip('Add house sample'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add house sample'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-house')),
+      'H12',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('A House scope with this identity already exists.'),
+      findsOneWidget,
+    );
+    expect(provider.stationSamples, hasLength(1));
+  });
+
+  testWidgets('egg house removal confirms before discarding entered results', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '12'},
+    );
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '13'},
+    );
+    provider.updateField('esEggSampleSize', 30);
+    await tester.pump();
+
+    await tester.ensureVisible(find.byTooltip('Remove active house sample'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Remove active house sample'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.stationSamples, hasLength(2));
+    expect(provider.activeDraft.esEggSampleSize, 30);
+
+    await tester.tap(find.byTooltip('Remove active house sample'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.stationSamples, hasLength(1));
+    expect(provider.activeStationSample.houseNo, '12');
   });
 }

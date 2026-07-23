@@ -112,6 +112,26 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> addNamedScope(
+    WidgetTester tester, {
+    required String tooltip,
+    required Map<String, String> identities,
+  }) async {
+    await tester.ensureVisible(find.byTooltip(tooltip));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(tooltip));
+    await tester.pumpAndSettle();
+    for (final entry in identities.entries) {
+      await tester.enterText(
+        find.byKey(ValueKey('scope-identity-${entry.key}')),
+        entry.value,
+      );
+    }
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('renders the split workbench instead of the tabbed screen', (
     tester,
   ) async {
@@ -794,8 +814,11 @@ void main() {
     expect(find.byTooltip('Remove active house sample'), findsNothing);
     expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
 
-    await tester.tap(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '12'},
+    );
 
     expect(
       find.descendant(of: weightsPanel, matching: find.text('Pool')),
@@ -805,7 +828,7 @@ void main() {
       find.descendant(of: weightsPanel, matching: find.text('H1')),
       findsNothing,
     );
-    expect(find.text('H'), findsWidgets);
+    expect(find.text('H12'), findsWidgets);
     expect(find.byTooltip('Remove active house sample'), findsOneWidget);
     final houseField = find.widgetWithText(TextFormField, 'House');
     expect(houseField, findsOneWidget);
@@ -823,7 +846,7 @@ void main() {
           )
           .controller
           ?.text,
-      '',
+      '12',
     );
 
     await tester.enterText(houseField, '12');
@@ -849,8 +872,11 @@ void main() {
       await tester.ensureVisible(weightsPanel);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Add house sample'));
-      await tester.pumpAndSettle();
+      await addNamedScope(
+        tester,
+        tooltip: 'Add house sample',
+        identities: const {'house': '12'},
+      );
 
       expect(provider.isChickWeightCompareMode, isTrue);
       expect(
@@ -1095,15 +1121,18 @@ void main() {
     expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
     expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7', 'hatcher': '8'},
+    );
 
     expect(
       find.descendant(of: machineScope, matching: find.text('Pool')),
       findsNothing,
     );
     expect(find.text('S1H1'), findsNothing);
-    expect(find.text('SH'), findsWidgets);
+    expect(find.text('S7H8'), findsWidgets);
     expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
     final setterField = find.widgetWithText(TextFormField, 'Setter');
@@ -1125,17 +1154,17 @@ void main() {
             )
             .controller
             ?.text,
-        '',
+        label == 'Setter' ? '7' : '8',
       );
     }
 
-    await tester.enterText(setterField, '7');
-    await tester.enterText(hatcherField, '8');
+    await tester.enterText(setterField, '9');
+    await tester.enterText(hatcherField, '10');
     await tester.pumpAndSettle();
 
-    expect(find.text('S7H8'), findsWidgets);
-    expect(provider.activeStationSample.setterNo, '7');
-    expect(provider.activeStationSample.hatcherNo, '8');
+    expect(find.text('S9H10'), findsWidgets);
+    expect(provider.activeStationSample.setterNo, '9');
+    expect(provider.activeStationSample.hatcherNo, '10');
   });
 
   testWidgets('machine scope can remove the only active sample back to pool', (
@@ -1147,8 +1176,11 @@ void main() {
       const ValueKey('chick-quality-machine-sampling'),
     );
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7', 'hatcher': '8'},
+    );
 
     expect(
       find.descendant(of: machineScope, matching: find.text('Pool')),
@@ -1180,8 +1212,11 @@ void main() {
 
     await pumpScreen(tester);
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7', 'hatcher': '8'},
+    );
 
     expect(find.text('Machine scope'), findsOneWidget);
     final setterField = find.widgetWithText(TextFormField, 'Setter');
@@ -1208,16 +1243,134 @@ void main() {
     expect(find.text('One shared sample'), findsNothing);
     expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '7', 'hatcher': '8'},
+    );
 
-    expect(find.text('SH setter/hatcher sample'), findsWidgets);
+    expect(find.text('S7H8 setter/hatcher sample'), findsWidgets);
 
-    await tester.tap(find.byTooltip('Add machine sample'));
-    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add machine sample',
+      identities: const {'setter': '9', 'hatcher': '10'},
+    );
 
-    expect(find.text('SH setter/hatcher sample'), findsWidgets);
+    expect(find.text('S9H10 setter/hatcher sample'), findsWidgets);
+
+    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+      'S7H8',
+      'S9H10',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.setterNo), [
+      '7',
+      '9',
+    ]);
+    expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
+      '8',
+      '10',
+    ]);
   });
+
+  testWidgets('chick weight removal confirms before discarding house results', (
+    tester,
+  ) async {
+    final provider = AuditProvider(autosaveEnabled: false);
+    await pumpScreen(tester, provider: provider);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('chick-quality-panel-weights')),
+    );
+    await tester.pumpAndSettle();
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '12'},
+    );
+    await addNamedScope(
+      tester,
+      tooltip: 'Add house sample',
+      identities: const {'house': '13'},
+    );
+    provider.updateChickWeightSampleResult(
+      weightsJson: '[42.0]',
+      avgWeight: 42,
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Remove active house sample'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove scope?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+    await tester.pumpAndSettle();
+    expect(provider.chickWeightSamples, hasLength(2));
+    expect(provider.activeChickWeightSample.resultSummaryJson, isNotNull);
+
+    await tester.tap(find.byTooltip('Remove active house sample'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+    await tester.pumpAndSettle();
+    expect(provider.chickWeightSamples, hasLength(1));
+    expect(provider.activeChickWeightSample.houseNo, '12');
+  });
+
+  testWidgets(
+    'chick machine add rejects duplicate and removal guards entered results',
+    (tester) async {
+      final provider = AuditProvider(autosaveEnabled: false);
+      await pumpScreen(tester, provider: provider);
+      await addNamedScope(
+        tester,
+        tooltip: 'Add machine sample',
+        identities: const {'setter': '7', 'hatcher': '8'},
+      );
+
+      await tester.tap(find.byTooltip('Add machine sample'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('scope-identity-setter')),
+        'S7',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('scope-identity-hatcher')),
+        'H8',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('A Machine scope with this identity already exists.'),
+        findsOneWidget,
+      );
+      expect(provider.stationSamples, hasLength(1));
+      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
+      await tester.pumpAndSettle();
+
+      await addNamedScope(
+        tester,
+        tooltip: 'Add machine sample',
+        identities: const {'setter': '9', 'hatcher': '10'},
+      );
+      provider.updateField('pasgarSampleSize', 100);
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Remove active machine sample'));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove scope?'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
+      await tester.pumpAndSettle();
+      expect(provider.stationSamples, hasLength(2));
+      expect(provider.activeDraft.pasgarSampleSize, 100);
+
+      await tester.tap(find.byTooltip('Remove active machine sample'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
+      await tester.pumpAndSettle();
+      expect(provider.stationSamples, hasLength(1));
+      expect(provider.activeStationSample.setterNo, '7');
+      expect(provider.activeStationSample.hatcherNo, '8');
+    },
+  );
 
   testWidgets('does not render its own sticky save footer', (tester) async {
     await pumpScreen(tester);

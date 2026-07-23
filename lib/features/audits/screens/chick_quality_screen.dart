@@ -17,6 +17,7 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
+import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/weight_entry_sheet_scroll_view.dart';
@@ -1200,7 +1201,9 @@ class _HouseWeightSampleControlsState
         _buildHouseSampleActionButton(
           tooltip: context.tr('Add house sample'),
           icon: Icons.add,
-          onPressed: provider.isReadOnly ? null : provider.addChickWeightSample,
+          onPressed: provider.isReadOnly
+              ? null
+              : () => _addChickWeightHouseSample(),
         ),
         if (active) ...[
           const SizedBox(width: 8),
@@ -1209,7 +1212,7 @@ class _HouseWeightSampleControlsState
             icon: Icons.remove,
             onPressed: provider.isReadOnly
                 ? null
-                : provider.removeActiveChickWeightSample,
+                : () => _removeActiveChickWeightHouseSample(),
           ),
         ],
       ],
@@ -1267,6 +1270,51 @@ class _HouseWeightSampleControlsState
         ]),
       ],
     );
+  }
+
+  Future<void> _addChickWeightHouseSample() async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'House',
+      fields: const [AuditScopeIdentityField(key: 'house', label: 'House')],
+      validator: (values) => _hasDuplicateChickWeightHouse(values['house']!)
+          ? 'A House scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    final house = values['house']!;
+    provider.addChickWeightSample();
+    provider.updateChickWeightSampleMetadata({
+      'houseNo': house,
+      'houseLabel': 'House $house',
+    });
+  }
+
+  bool _hasDuplicateChickWeightHouse(String house) {
+    if (!provider.isChickWeightCompareMode) return false;
+    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
+    return provider.chickWeightSamples.any(
+      (sample) =>
+          normalizeAuditScopeIdentity(
+            sample.houseNo ?? sample.sampleLabel,
+            prefix: 'H',
+          ) ==
+          normalized,
+    );
+  }
+
+  Future<void> _removeActiveChickWeightHouseSample() async {
+    final discardsResults =
+        provider.chickWeightSamples.length > 1 &&
+        provider.chickWeightScopeHasEnteredResults(
+          provider.activeChickWeightSampleIndex,
+        );
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: discardsResults,
+    );
+    if (!confirmed || !mounted) return;
+    provider.removeActiveChickWeightSample();
   }
 
   TextEditingController _identityController(StationSampleModel sample) {
@@ -1500,18 +1548,14 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
         _buildMachineSampleActionButton(
           tooltip: context.tr('Add machine sample'),
           icon: Icons.add,
-          onPressed: provider.isReadOnly
-              ? null
-              : provider.addChickQualityMachineScopeSample,
+          onPressed: provider.isReadOnly ? null : _addMachineSample,
         ),
         if (active) ...[
           const SizedBox(width: 8),
           _buildMachineSampleActionButton(
             tooltip: context.tr('Remove active machine sample'),
             icon: Icons.remove,
-            onPressed: provider.isReadOnly
-                ? null
-                : provider.removeActiveChickQualityMachineScopeSample,
+            onPressed: provider.isReadOnly ? null : _removeActiveMachineSample,
           ),
         ],
       ],
@@ -1578,6 +1622,55 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
         ]),
       ],
     );
+  }
+
+  Future<void> _addMachineSample() async {
+    final values = await showAuditScopeIdentityDialog(
+      context,
+      scopeLabel: 'Machine',
+      fields: const [
+        AuditScopeIdentityField(key: 'setter', label: 'Setter'),
+        AuditScopeIdentityField(key: 'hatcher', label: 'Hatcher'),
+      ],
+      validator: (values) =>
+          _hasDuplicateMachine(
+            setter: values['setter']!,
+            hatcher: values['hatcher']!,
+          )
+          ? 'A Machine scope with this identity already exists.'
+          : null,
+    );
+    if (values == null || !mounted) return;
+    provider.addChickQualityMachineScopeSample();
+    provider.updateSampleMetadata({
+      'setterNo': values['setter'],
+      'hatcherNo': values['hatcher'],
+    });
+  }
+
+  bool _hasDuplicateMachine({required String setter, required String hatcher}) {
+    if (!provider.isChickQualityMachineScopeActive) return false;
+    final normalizedSetter = normalizeAuditScopeIdentity(setter, prefix: 'S');
+    final normalizedHatcher = normalizeAuditScopeIdentity(hatcher, prefix: 'H');
+    return provider.stationSamples.any(
+      (sample) =>
+          normalizeAuditScopeIdentity(sample.setterNo ?? '', prefix: 'S') ==
+              normalizedSetter &&
+          normalizeAuditScopeIdentity(sample.hatcherNo ?? '', prefix: 'H') ==
+              normalizedHatcher,
+    );
+  }
+
+  Future<void> _removeActiveMachineSample() async {
+    final discardsResults =
+        provider.stationSamples.length > 1 &&
+        provider.stationScopeHasEnteredResults(provider.activeSampleIndex);
+    final confirmed = await confirmAuditScopeRemoval(
+      context,
+      hasEnteredResults: discardsResults,
+    );
+    if (!confirmed || !mounted) return;
+    provider.removeActiveChickQualityMachineScopeSample();
   }
 
   TextEditingController _identityController(
