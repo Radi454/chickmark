@@ -1052,6 +1052,28 @@ const Map<String, String> _ar = {
   'Remove active house sample': 'إزالة عينة العنبر الحالية',
   'Add machine sample': 'إضافة عينة ماكينة',
   'Remove active machine sample': 'إزالة عينة الماكينة الحالية',
+  'Add House scope': 'إضافة نطاق عنبر',
+  'Add Machine scope': 'إضافة نطاق ماكينة',
+  'Add Trolley scope': 'إضافة نطاق عربة',
+  'Add Tray scope': 'إضافة نطاق صينية',
+  'Add Incubation age scope': 'إضافة نطاق عمر التحضين',
+  'A House scope with this identity already exists.':
+      'يوجد بالفعل نطاق عنبر بهذه الهوية.',
+  'A Machine scope with this identity already exists.':
+      'يوجد بالفعل نطاق ماكينة بهذه الهوية.',
+  'A Trolley scope with this identity already exists.':
+      'يوجد بالفعل نطاق عربة بهذه الهوية.',
+  'A Tray scope with this identity already exists.':
+      'يوجد بالفعل نطاق صينية بهذه الهوية.',
+  'An incubation age scope with this identity already exists.':
+      'يوجد بالفعل نطاق عمر تحضين بهذه الهوية.',
+  'Incubation age must be a whole number from 1 to 18.':
+      'يجب أن يكون عمر التحضين عددًا صحيحًا من 1 إلى 18.',
+  'Incubation hours must be a whole number from 0 to 23.':
+      'يجب أن تكون ساعات التحضين عددًا صحيحًا من 0 إلى 23.',
+  'Remove scope?': 'إزالة النطاق؟',
+  'This scope contains entered results. Removing it will permanently discard those results.':
+      'يحتوي هذا النطاق على نتائج مُدخلة. ستؤدي إزالته إلى حذف هذه النتائج نهائيًا.',
   'Audit station': 'محطة الزيارة',
   'Enter Weights': 'إدخال الأوزان',
   'Chick Weights & Uniformity': 'أوزان الكتاكيت وتجانسها',
