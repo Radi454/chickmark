@@ -1729,6 +1729,17 @@ Saving validates each started house independently: valid houses append their
 revision, invalid house drafts remain editable, and a per-house summary reports
 what still needs attention. Corrected entries expose and require a correction
 reason.
+Operational alert rules are separate from genetic objectives. Seeded defaults
+cover sustained weight and mortality deviations plus mortality/population
+mismatches, decreasing cumulative feed, unexplained water changes, repeated
+identical values, implausible weekly weight change, and extended zero mortality.
+Customer rules override the matching global metric rule. Evaluation requires
+the configured number of valid observations, records structured evidence and
+recommended investigation keys, and never treats null data as a performance
+loss. A detected scope/rule/metric combination updates one persistent open or
+monitoring concern instead of creating dashboard duplicates. Resolution and
+dismissal retain explicit user evidence, and a later detection creates a linked
+recurrence.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
