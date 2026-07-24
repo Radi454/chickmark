@@ -71,6 +71,13 @@ void main() {
           bodyWeightG: 210,
         ),
       ]);
+      final db = await DatabaseHelper().db;
+      final targetDeletes = await db.query(
+        'sync_tombstones',
+        where: 'tableName = ?',
+        whereArgs: ['broiler_target_rows'],
+      );
+      expect(targetDeletes, hasLength(57));
       await repository.activateVersion(draft.id);
 
       final active = await repository.listProfiles(

@@ -5,6 +5,7 @@ import '../database/database_helper.dart';
 import '../database/seeds/broiler_target_seeds.dart';
 import '../models/broiler_target_models.dart';
 import '../models/poultry_hierarchy_models.dart';
+import 'sync_tombstone_repository.dart';
 
 class BroilerTargetRepository {
   BroilerTargetRepository({
@@ -184,6 +185,17 @@ class BroilerTargetRepository {
         throw TargetProfileImmutableException(profileId);
       }
 
+      final existingRows = await txn.query(
+        'broiler_target_rows',
+        columns: const ['id'],
+        where: 'profileId = ?',
+        whereArgs: [profileId],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        'broiler_target_rows',
+        existingRows.map((row) => row['id']),
+      );
       await txn.delete(
         'broiler_target_rows',
         where: 'profileId = ?',

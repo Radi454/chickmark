@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/panel_sample_schema.dart';
 import '../models/sync_tombstone_model.dart';
+import 'performance_sync_repository.dart';
 
 class SyncTombstoneRepository {
   SyncTombstoneRepository({DatabaseHelper? dbHelper})
@@ -29,7 +30,11 @@ class SyncTombstoneRepository {
     final panels = PanelSampleSchema.panels
         .map((panel) => panel.tableName)
         .toList();
-    return [...panels, ...baseDeleteOrder];
+    return [
+      ...panels,
+      ...PerformanceSyncRepository.deleteOrder,
+      ...baseDeleteOrder,
+    ];
   }
 
   Future<List<SyncTombstone>> getPendingDeletes() async {
