@@ -1679,6 +1679,13 @@ placement/date; source corrections are stored as numbered revision rows rather
 than overwriting earlier evidence. Visits, findings, cause assessments,
 corrective actions, and action KPI evaluations use farm-specific tables and do
 not overload hatchery `audit_sessions` or `dashboard_actions`.
+The hierarchy repository saves active/inactive customer-sector membership,
+sector-filtered farms, farm houses, and flock placements with offline dirty
+metadata. Creating a new Broiler flock and all selected house placements is one
+transaction, so a placement validation or active-house conflict cannot leave a
+partially created flock. Existing legacy flock models continue to load without a
+farm or sector; new performance flocks can retain farm, sector, sex-profile,
+target-profile, and production-phase context.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
