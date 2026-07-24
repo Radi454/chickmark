@@ -177,6 +177,37 @@ class PerformanceConcernRepository {
     return _getConcernWithExecutor(db, id);
   }
 
+  Future<List<PerformanceConcern>> listConcerns({
+    required String customerId,
+    String? farmId,
+    String? flockId,
+    bool activeOnly = true,
+  }) async {
+    final db = await _databaseHelper.db;
+    final clauses = <String>['customerId = ?'];
+    final arguments = <Object?>[customerId];
+    if (farmId != null) {
+      clauses.add('farmId = ?');
+      arguments.add(farmId);
+    }
+    if (flockId != null) {
+      clauses.add('flockId = ?');
+      arguments.add(flockId);
+    }
+    if (activeOnly) {
+      clauses.add("status IN ('open', 'monitoring', 'assigned_to_visit')");
+    }
+    final rows = await db.query(
+      'performance_concerns',
+      where: clauses.join(' AND '),
+      whereArgs: arguments,
+      orderBy:
+          "CASE severity WHEN 'critical' THEN 0 ELSE 1 END, "
+          'lastObservedAt DESC',
+    );
+    return rows.map(PerformanceConcern.fromMap).toList(growable: false);
+  }
+
   Future<void> setMonitoring(String id) =>
       _setStatus(id, ConcernStatus.monitoring);
 

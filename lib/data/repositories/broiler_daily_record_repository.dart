@@ -237,6 +237,37 @@ class BroilerDailyRecordRepository {
     return grid;
   }
 
+  Future<List<SavedBroilerDailyRevision>> listCurrentForFlock(
+    String flockId, {
+    DateTime? rangeStart,
+    DateTime? rangeEnd,
+  }) async {
+    final db = await _databaseHelper.db;
+    final clauses = <String>['p.flockId = ?'];
+    final arguments = <Object?>[flockId];
+    if (rangeStart != null) {
+      clauses.add('r.recordDate >= ?');
+      arguments.add(dateKey(rangeStart));
+    }
+    if (rangeEnd != null) {
+      clauses.add('r.recordDate <= ?');
+      arguments.add(dateKey(rangeEnd));
+    }
+    final rows = await db.rawQuery('''
+      SELECT r.*
+      FROM broiler_daily_records r
+      INNER JOIN flock_placements p ON p.id = r.placementId
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY r.recordDate, r.placementId
+      ''', arguments);
+    final current = <SavedBroilerDailyRevision>[];
+    for (final row in rows) {
+      final saved = await _loadCurrent(db, BroilerDailyRecord.fromMap(row));
+      if (saved != null) current.add(saved);
+    }
+    return current;
+  }
+
   Future<BroilerDailyRecord?> _findRecord(
     DatabaseExecutor db, {
     required String? recordId,

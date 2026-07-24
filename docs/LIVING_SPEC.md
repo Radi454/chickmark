@@ -1740,6 +1740,16 @@ loss. A detected scope/rule/metric combination updates one persistent open or
 monitoring concern instead of creating dashboard duplicates. Resolution and
 dismissal retain explicit user evidence, and a later detection creates a linked
 recurrence.
+The Broiler Performance workspace follows Customer → Broiler farm → flock and
+an explicit date range. It aggregates the current revision from every selected
+flock house into immutable view snapshots and presents Current status, Trends,
+Active concerns, and Audits and corrective actions. Current metrics never
+render missing data as zero; they show the calculator's missing-data reason.
+The context strip distinguishes farm-reported data from its current
+entered/reviewed/verified/corrected state and labels the exact target
+publication. Trend cards use valid daily values from the selected period.
+Changing scope or date range rebuilds the snapshot, and returning from manual
+quick entry refreshes it from SQLite.
 Farm visits use a generated briefing snapshot that freezes the concern ids,
 performance evidence, target/rule versions, and suggested investigations at
 planning time. A visit selects one or more houses and can add manual
@@ -1943,6 +1953,11 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added the responsive Broiler Performance workspace with
+  customer/farm/flock/date scope, multi-house SQLite aggregation, current KPI
+  cards, daily trend charts, active concerns, visits/actions, provenance and
+  verification badges, exact objective-source labels, and a daily quick-entry
+  path.
 - 2026-07-24: Added corrective-action KPI follow-up with immutable baseline and
   evaluation windows, implementation confirmation, valid scoped observations,
   all four effectiveness outcomes, explicit reasons, and persisted evaluator
