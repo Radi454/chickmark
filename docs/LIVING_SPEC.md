@@ -1771,6 +1771,15 @@ target is met, partially effective when the KPI moved toward the target, and
 ineffective when it did not; incomplete or insufficient evidence remains
 explicitly not evaluated with a reason. Calculated results are persisted only
 through an explicit evaluator action.
+The diagnostic visit screen renders the frozen daily briefing as read-only
+evidence, then keeps visit-only investigations, measured findings, staff
+explanations, and attachment counts separate from daily entry. Users can add
+manual investigations and findings, complete investigation results, and
+explicitly change a cause among suspected, probable, confirmed, and ruled out.
+The corrective-action screen supports issuing an owned action with a KPI
+baseline/target/evaluation window, confirming implementation, reviewing
+before/target/after evidence, and explicitly recording the effectiveness
+decision and reason.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
@@ -1953,6 +1962,10 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added localized diagnostic visit and corrective-action workflow
+  screens. Daily evidence remains read-only during visits; investigations,
+  findings, staff explanations, explicit cause decisions, action ownership,
+  implementation confirmation, and before/after KPI decisions are editable.
 - 2026-07-24: Added the responsive Broiler Performance workspace with
   customer/farm/flock/date scope, multi-house SQLite aggregation, current KPI
   cards, daily trend charts, active concerns, visits/actions, provenance and
