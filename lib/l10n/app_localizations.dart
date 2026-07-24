@@ -688,6 +688,11 @@ final List<_PatternTranslator> _patterns = [
 
 const Map<String, String> _ar = {
   'ChickMark': 'ChickMark',
+  'Add customer': 'إضافة عميل',
+  'Incomplete Visits': 'زيارات غير مكتملة',
+  'Incomplete visit': 'زيارة غير مكتملة',
+  'Please complete this visit soon.': 'يرجى إكمال هذه الزيارة قريبًا.',
+  'Complete now': 'أكمل الآن',
   'Home': 'الرئيسية',
   'Dashboard': 'لوحة المتابعة',
   'Agent': 'الوكيل',
