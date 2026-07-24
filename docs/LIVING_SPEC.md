@@ -1740,6 +1740,16 @@ loss. A detected scope/rule/metric combination updates one persistent open or
 monitoring concern instead of creating dashboard duplicates. Resolution and
 dismissal retain explicit user evidence, and a later detection creates a linked
 recurrence.
+Farm visits use a generated briefing snapshot that freezes the concern ids,
+performance evidence, target/rule versions, and suggested investigations at
+planning time. A visit selects one or more houses and can add manual
+investigations without mutating that original briefing. Investigations retain
+their source-concern link, house/location, origin, lifecycle status, and result.
+Visit findings can store measurements, structured observations, staff
+explanations, and attachment references. Cause assessments link the findings
+back to a concern and retain supporting and conflicting evidence; a newly saved
+assessment remains `suspected` until a user explicitly changes it to
+`probable`, `confirmed`, or `ruled_out`.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
@@ -1922,6 +1932,11 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added the diagnostic farm-visit evidence layer for performance
+  concerns: immutable pre-visit briefing snapshots, selected houses, suggested
+  and manual investigations, measurements and observations, staff explanations,
+  attachment references, and explicit suspected/probable/confirmed/ruled-out
+  cause assessment states.
 - 2026-07-24: Added the Home `Incomplete Visits` section. It lists every
   customer-visible in-progress visit with station progress, remaining stations,
   and an explicit completion reminder. `Complete now` resumes the first
