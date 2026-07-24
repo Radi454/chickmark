@@ -146,6 +146,7 @@ void main() {
     await loaded.load(currentUser: currentUser);
 
     expect(loaded.recentSessions.map((item) => item.id), ['customer-session']);
+    expect(loaded.activeSessions.map((item) => item.id), ['customer-session']);
     expect(loaded.activeFlocksCount, 1);
   });
 }

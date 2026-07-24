@@ -23,6 +23,7 @@ import 'package:hatchaudit/features/customers/widgets/add_customer_sheet.dart';
 import 'package:hatchaudit/features/customers/screens/customer_detail_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/home/providers/home_provider.dart';
+import 'package:hatchaudit/features/home/widgets/incomplete_visit_card.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
@@ -41,6 +42,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final HomeProvider _homeProvider;
+  bool _isOpeningIncompleteSession = false;
   // Tracks the previously observed cloud status so we only fire the offline
   // SnackBar on a transition INTO offline (online→offline, syncing→offline,
   // error→offline). This avoids:
@@ -135,6 +137,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   _buildKpiRow(home),
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildQuickActions(context),
+                  if (home.activeSessions.isNotEmpty) ...[
+                    const SizedBox(height: AppSizes.spaceLg),
+                    _buildIncompleteVisits(provider, home),
+                  ],
                   const SizedBox(height: AppSizes.spaceLg),
                   _buildRecentAudits(provider, home),
                   const SizedBox(height: AppSizes.spaceLg),
@@ -269,6 +275,53 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ],
             ),
+    );
+  }
+
+  Widget _buildIncompleteVisits(
+    CustomersProvider customers,
+    HomeProvider home,
+  ) {
+    return KeyedSubtree(
+      key: const ValueKey('home-incomplete-visits-section'),
+      child: _HomeSection(
+        title: 'Incomplete Visits',
+        child: Column(
+          children: [
+            for (var i = 0; i < home.activeSessions.length; i++) ...[
+              IncompleteVisitCard(
+                session: home.activeSessions[i],
+                customerName:
+                    customers
+                        .customerById(home.activeSessions[i].customerId)
+                        ?.name ??
+                    home.activeSessions[i].customerId,
+                flockLabel:
+                    customers
+                        .flockById(home.activeSessions[i].flockId)
+                        ?.flockId ??
+                    home.activeSessions[i].flockId,
+                breed: customers
+                    .flockById(home.activeSessions[i].flockId)
+                    ?.breed,
+                missingStationLabels: home.activeSessions[i].selectedStationKeys
+                    .where(
+                      (key) => !home.activeSessions[i].stationsCompleted
+                          .contains(key),
+                    )
+                    .map(
+                      (key) =>
+                          AuditSessionProvider.stationDisplayLabels[key] ?? key,
+                    )
+                    .toList(growable: false),
+                onTap: () => _openIncompleteSession(home.activeSessions[i]),
+              ),
+              if (i < home.activeSessions.length - 1)
+                const SizedBox(height: AppSizes.spaceMd),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -754,6 +807,18 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       AppPageRoute(builder: (context) => const AuditContextScreen()),
     );
+  }
+
+  Future<void> _openIncompleteSession(AuditSessionModel session) async {
+    if (_isOpeningIncompleteSession) return;
+    _isOpeningIncompleteSession = true;
+    try {
+      await _openStationWorkflow(session);
+      if (!mounted) return;
+      await _reloadHomeData();
+    } finally {
+      _isOpeningIncompleteSession = false;
+    }
   }
 
   Future<void> _openSession(AuditSessionModel session) async {

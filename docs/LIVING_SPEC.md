@@ -410,6 +410,14 @@ continuation screen, Attention opens the first setup/action item, and Ready
 starts a new audit when a ready customer setup exists. Active and recent visit
 cards show station completion progress such as `3/5`; Recent Audits uses the
 latest saved session order so editing an older visit moves it back into view.
+When incomplete visits exist, Home shows an `Incomplete Visits` section
+immediately after Quick Actions. It renders every customer-visible
+`in_progress` visit with customer, flock, breed, and date context,
+completed/selected station progress, the remaining station labels, the reminder
+to complete the visit soon, and a `Complete now` action. The action resumes
+`AuditSessionScreen` directly at the first selected station absent from
+`stationsCompleted`; returning to Home reloads the list, so a completed visit
+disappears. The section is hidden when no incomplete visits remain.
 The previous Audit Type Breakdown, extra
 Customers/Active Audits/Total Audits stat cards, and duplicate New Customer/New
 Audit action row are not shown on Home. Home section headings and quick actions
@@ -1819,6 +1827,11 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added the Home `Incomplete Visits` section. It lists every
+  customer-visible in-progress visit with station progress, remaining stations,
+  and an explicit completion reminder. `Complete now` resumes the first
+  unfinished station directly, and Home reloads the list after the workflow
+  closes.
 - 2026-07-21: Stabilized Dashboard background refresh and scrolling. Overlapping
   refresh requests are now serialized/coalesced, existing Lab Analysis content
   remains mounted while refreshed data is queried, stale filter-scope loads are
