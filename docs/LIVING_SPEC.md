@@ -157,7 +157,7 @@ navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
 
-The main shell has eight destinations for approved admins and auditors:
+The main shell has nine destinations for approved admins and auditors:
 
 - Home
 - Dashboard
@@ -166,6 +166,7 @@ The main shell has eight destinations for approved admins and auditors:
 - Govee Records
 - Lab Analysis
 - BMK
+- Performance
 - Settings
 
 Approved customer-role accounts see only Dashboard and Settings. Settings is
@@ -1686,6 +1687,14 @@ transaction, so a placement validation or active-house conflict cannot leave a
 partially created flock. Existing legacy flock models continue to load without a
 farm or sector; new performance flocks can retain farm, sector, sex-profile,
 target-profile, and production-phase context.
+Customer detail exposes this hierarchy through a Structure tab. Editors can
+enable Breeder, Broiler, and Layer together, add farms using exactly one of the
+customer's enabled sectors, and add houses beneath each farm. Disabling a
+sector keeps its membership history inactive and prevents new farms from being
+assigned to it. Hatchery management is available only while Breeder is enabled;
+the Hatcheries tab otherwise explains how to enable the required sector. The
+main shell exposes the Broiler Performance workspace to approved staff without
+changing the customer-role Dashboard-and-Settings destination set.
 The Broiler objective catalogue contains versioned day 0-56 as-hatched, male,
 and female profiles for Ross 308 / Ross 308 FF, Indian River / Indian River FF,
 Arbor Acres Plus / Arbor Acres Plus S, Hubbard Efficiency Plus, and Cobb500.
@@ -1962,6 +1971,10 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added customer poultry-structure management for concurrent
+  Breeder, Broiler, and Layer membership, single-sector farms, nested houses,
+  and the Breeder-only hatchery gate. Added Performance as a staff main-shell
+  destination while preserving the customer-role navigation boundary.
 - 2026-07-24: Added localized diagnostic visit and corrective-action workflow
   screens. Daily evidence remains read-only during visits; investigations,
   findings, staff explanations, explicit cause decisions, action ownership,

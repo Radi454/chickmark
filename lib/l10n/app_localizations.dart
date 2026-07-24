@@ -684,6 +684,35 @@ const Map<String, String> _ar = {
   'Reset password': 'إعادة تعيين كلمة المرور',
   'All customers': 'كل العملاء',
   'All flocks': 'كل القطعان',
+  'Customer sectors': 'قطاعات العميل',
+  'A customer can use multiple sectors. Each farm belongs to exactly one enabled sector.':
+      'يمكن للعميل استخدام عدة قطاعات، وتنتمي كل مزرعة إلى قطاع مفعّل واحد فقط.',
+  'Hatcheries belong to Breeder customers and are available when Breeder is enabled.':
+      'ترتبط معامل التفريخ بقطاع الأمهات، وتتوفر عند تفعيل هذا القطاع.',
+  'Save sectors': 'حفظ القطاعات',
+  'Breeder': 'أمهات',
+  'Broiler': 'تسمين',
+  'Layer': 'بيّاض',
+  'Structure': 'الهيكل',
+  'No sectors enabled': 'لا توجد قطاعات مفعّلة',
+  'Enable Breeder, Broiler, or Layer before adding farms.':
+      'فعّل قطاع الأمهات أو التسمين أو البيّاض قبل إضافة المزارع.',
+  'Manage sectors': 'إدارة القطاعات',
+  'Farm hierarchy': 'هيكل المزارع',
+  'Farm and house hierarchy': 'هيكل المزارع والعنابر',
+  'No farms added': 'لم تتم إضافة مزارع',
+  'Farm name': 'اسم المزرعة',
+  'Sector': 'القطاع',
+  'Enable a customer sector before adding a farm.':
+      'فعّل قطاعًا للعميل قبل إضافة مزرعة.',
+  'Add farm': 'إضافة مزرعة',
+  'houses': 'عنابر',
+  'No houses added': 'لم تتم إضافة عنابر',
+  'House name': 'اسم العنبر',
+  'bird capacity': 'طائر (السعة الاستيعابية)',
+  'Breeder sector required': 'قطاع الأمهات مطلوب',
+  'Hatcheries belong to Breeder customers. Enable Breeder in Structure to manage hatcheries.':
+      'ترتبط معامل التفريخ بعملاء الأمهات. فعّل قطاع الأمهات من الهيكل لإدارة معامل التفريخ.',
   'Portfolio summary': 'ملخص نطاق العملاء',
   'Portfolio overview': 'نظرة عامة على نطاق العملاء',
   'Select a hatchery to view operational analysis and corrective actions.':
@@ -737,6 +766,7 @@ const Map<String, String> _ar = {
   'BMK': 'BMK',
   'EST': 'حرارة سطح البيض',
   'CVT': 'حرارة جسم الكتكوت',
+  'EPEF': 'مؤشر كفاءة الإنتاج الأوروبي',
   'RH': 'الرطوبة النسبية',
   'CV': 'معامل الاختلاف',
   'C.V': 'معامل الاختلاف',

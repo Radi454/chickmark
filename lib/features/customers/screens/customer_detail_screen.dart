@@ -8,6 +8,7 @@ import '../../../core/utils/scorecard_formatter.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/models/flock_model.dart';
+import '../../../data/models/poultry_hierarchy_models.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../features/dashboard/providers/dashboard_provider.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
@@ -16,6 +17,8 @@ import '../../../features/customers/widgets/flock_management_sheet.dart';
 import '../../../features/customers/widgets/add_hatchery_sheet.dart';
 import '../../../features/customers/widgets/add_customer_sheet.dart';
 import '../../../features/customers/widgets/audit_history_card.dart';
+import '../../../features/customers/widgets/customer_sector_management_sheet.dart';
+import '../../../features/customers/widgets/farm_management_sheet.dart';
 import '../../../features/customers/screens/audit_detail_screen.dart';
 import '../../../features/customers/screens/visit_detail_screen.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -46,7 +49,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     final canEdit = context.watch<AuthProvider>().user?.canEditAudits ?? false;
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: GradientAppBar(
           title: _customer.name,
@@ -69,6 +72,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
             tabs: [
+              Tab(text: context.tr('Structure')),
               Tab(text: context.tr('Flocks')),
               Tab(text: context.tr('Hatcheries')),
               Tab(text: context.tr('Audits')),
@@ -83,6 +87,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
             return TabBarView(
               children: [
+                _buildStructureTab(provider, canEdit),
                 _buildFlocksTab(provider, canEdit),
                 _buildHatcheriesTab(provider, canEdit),
                 _buildAuditHistoryTab(provider),
@@ -91,6 +96,71 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildStructureTab(CustomersProvider provider, bool canEdit) {
+    final sectors = provider.enabledSectors.toList()
+      ..sort((left, right) => left.storageKey.compareTo(right.storageKey));
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildTabHeader(
+          title: 'Customer sectors',
+          count: sectors.length,
+          actionLabel: 'Manage',
+          icon: Icons.tune_outlined,
+          onAction: canEdit ? () => _showSectorManagementSheet(context) : null,
+        ),
+        const SizedBox(height: 10),
+        if (sectors.isEmpty)
+          _buildEmptyState(
+            title: 'No sectors enabled',
+            subtitle: 'Enable Breeder, Broiler, or Layer before adding farms.',
+            actionLabel: 'Manage sectors',
+            icon: Icons.tune_outlined,
+            onAction: canEdit
+                ? () => _showSectorManagementSheet(context)
+                : null,
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final sector in sectors)
+                Chip(
+                  avatar: Icon(_sectorIcon(sector), size: 18),
+                  label: Text(context.tr(sectorLabel(sector))),
+                ),
+            ],
+          ),
+        const SizedBox(height: 22),
+        _buildTabHeader(
+          title: 'Farm hierarchy',
+          count: provider.farms.length,
+          actionLabel: 'Manage',
+          icon: Icons.account_tree_outlined,
+          onAction: canEdit ? () => _showFarmManagementSheet(context) : null,
+        ),
+        const SizedBox(height: 10),
+        if (provider.farms.isEmpty)
+          Text(context.tr('No farms added'))
+        else
+          for (final farm in provider.farms)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: const Icon(Icons.agriculture_outlined),
+                title: Text(farm.name),
+                subtitle: Text(context.tr(sectorLabel(farm.sector))),
+                trailing: Text(
+                  '${provider.housesForFarm(farm.id).length} '
+                  '${context.tr('houses')}',
+                ),
+              ),
+            ),
+      ],
     );
   }
 
@@ -128,6 +198,19 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   }
 
   Widget _buildHatcheriesTab(CustomersProvider provider, bool canEdit) {
+    if (!provider.hatcheryManagementEnabled) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildEmptyState(
+            title: 'Breeder sector required',
+            subtitle:
+                'Hatcheries belong to Breeder customers. Enable Breeder in '
+                'Structure to manage hatcheries.',
+          ),
+        ],
+      );
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -684,6 +767,28 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     );
   }
 
+  void _showSectorManagementSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ChangeNotifierProvider<CustomersProvider>.value(
+        value: context.read<CustomersProvider>(),
+        child: CustomerSectorManagementSheet(customerId: _customer.id),
+      ),
+    );
+  }
+
+  void _showFarmManagementSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ChangeNotifierProvider<CustomersProvider>.value(
+        value: context.read<CustomersProvider>(),
+        child: FarmManagementSheet(customerId: _customer.id),
+      ),
+    );
+  }
+
   void _showAddHatcherySheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -795,5 +900,16 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         ],
       ),
     );
+  }
+}
+
+IconData _sectorIcon(PoultrySector sector) {
+  switch (sector) {
+    case PoultrySector.breeder:
+      return Icons.egg_outlined;
+    case PoultrySector.broiler:
+      return Icons.monitor_heart_outlined;
+    case PoultrySector.layer:
+      return Icons.egg_alt_outlined;
   }
 }

@@ -19,7 +19,31 @@ import '../../audits/screens/audits_screen.dart';
 import '../../govee/screens/govee_records_screen.dart';
 import '../../lab_analysis/screens/lab_analysis_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
+import '../../performance/screens/performance_screen.dart';
 import '../../settings/screens/settings_screen.dart';
+
+const _allMainShellTabKeys = <String>[
+  'home',
+  'dashboard',
+  'customers',
+  'audits',
+  'govee',
+  'lab_analysis',
+  'bmk',
+  'performance',
+  'settings',
+];
+
+const _customerMainShellTabKeys = <String>{'dashboard', 'settings'};
+
+List<String> mainShellTabKeysForUser(UserModel? user) {
+  if (user?.isCustomer == true) {
+    return _allMainShellTabKeys
+        .where(_customerMainShellTabKeys.contains)
+        .toList(growable: false);
+  }
+  return List<String>.unmodifiable(_allMainShellTabKeys);
+}
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -39,8 +63,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // Customers, Audits, Govee, Lab Analysis and BMK) is auditor/admin only.
   // Settings stays so customers can still reach account + sign-out. The real
   // boundary is RLS on the server; this just hides what they cannot use.
-  static const Set<String> _customerTabKeys = {'dashboard', 'settings'};
-
   List<_ShellTab> _tabsFor(UserModel? user) {
     final all = <_ShellTab>[
       _ShellTab(
@@ -107,6 +129,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         () => const BmkScreen(),
       ),
       _ShellTab(
+        'performance',
+        const _ShellDestination(
+          label: AppStrings.performanceTab,
+          icon: Icons.monitor_heart_outlined,
+          selectedIcon: Icons.monitor_heart,
+        ),
+        () => const PerformanceScreen(),
+      ),
+      _ShellTab(
         'settings',
         const _ShellDestination(
           label: AppStrings.settingsTab,
@@ -116,10 +147,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         () => const SettingsScreen(),
       ),
     ];
-    if (user?.isCustomer == true) {
-      return all.where((t) => _customerTabKeys.contains(t.key)).toList();
-    }
-    return all;
+    final visibleKeys = mainShellTabKeysForUser(user).toSet();
+    return all.where((tab) => visibleKeys.contains(tab.key)).toList();
   }
 
   late List<_ShellTab> _tabs = _tabsFor(null);
