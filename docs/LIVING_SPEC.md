@@ -1750,6 +1750,17 @@ explanations, and attachment references. Cause assessments link the findings
 back to a concern and retain supporting and conflicting evidence; a newly saved
 assessment remains `suspected` until a user explicitly changes it to
 `probable`, `confirmed`, or `ruled_out`.
+Corrective actions link a performance concern to the originating visit and
+optional cause assessment, with an owner, due date, implementation confirmer,
+completion evidence, and one or more KPI definitions. Each KPI definition
+freezes its baseline window/value, target rule/value, evaluation scope, and
+future evaluation window when the action is issued. Effectiveness uses the
+latest valid in-scope observation only after implementation is confirmed and
+the complete evaluation window is available. It reports effective when the
+target is met, partially effective when the KPI moved toward the target, and
+ineffective when it did not; incomplete or insufficient evidence remains
+explicitly not evaluated with a reason. Calculated results are persisted only
+through an explicit evaluator action.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
@@ -1932,6 +1943,10 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-24: Added corrective-action KPI follow-up with immutable baseline and
+  evaluation windows, implementation confirmation, valid scoped observations,
+  all four effectiveness outcomes, explicit reasons, and persisted evaluator
+  identity/time.
 - 2026-07-24: Added the diagnostic farm-visit evidence layer for performance
   concerns: immutable pre-visit briefing snapshots, selected houses, suggested
   and manual investigations, measurements and observations, staff explanations,
