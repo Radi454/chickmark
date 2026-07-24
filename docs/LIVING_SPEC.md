@@ -1698,6 +1698,17 @@ inactive custom draft, replace the draft's rows, and activate it as a new
 version. Activation deactivates the previous matching version without changing
 its historical row set, so flocks that reference the older profile remain
 reproducible.
+Broiler daily entry uses one stable record per house placement and logical date,
+with every submission stored as a numbered immutable revision. Corrections add
+a revision and move the stable record's current pointer instead of overwriting
+earlier farm evidence. Each revision can retain reported/entered/reviewed/
+verified provenance, population changes, mortality causes, feed, water,
+weighing samples, environment, health facts, typed operational events, and
+source-document metadata. Validation rejects negative facts, inconsistent
+closing-population arithmetic, corrections without a reason, and verified rows
+without verifier metadata before any transaction is written. The repository
+also exposes the current placement/day value, previous-day value, complete
+revision history, and a house-by-house flock entry grid.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
