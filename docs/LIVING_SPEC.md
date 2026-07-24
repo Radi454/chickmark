@@ -1686,6 +1686,18 @@ transaction, so a placement validation or active-house conflict cannot leave a
 partially created flock. Existing legacy flock models continue to load without a
 farm or sector; new performance flocks can retain farm, sector, sex-profile,
 target-profile, and production-phase context.
+The Broiler objective catalogue contains versioned day 0-56 as-hatched, male,
+and female profiles for Ross 308 / Ross 308 FF, Indian River / Indian River FF,
+Arbor Acres Plus / Arbor Acres Plus S, Hubbard Efficiency Plus, and Cobb500.
+Every official row retains its source title, publication version, official URL,
+units, and metric-method notes; Ross 308 AP is not included. Source-absent values
+remain null. Hubbard water targets are derived only on its as-hatched profile
+from the published daily feed objective multiplied by 1.70, with that method
+stored on each applicable row. Administrators can clone a profile into an
+inactive custom draft, replace the draft's rows, and activate it as a new
+version. Activation deactivates the previous matching version without changing
+its historical row set, so flocks that reference the older profile remain
+reproducible.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
