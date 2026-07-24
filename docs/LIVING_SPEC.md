@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-21
+2026-07-24
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -1566,7 +1566,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 47. The database file
+The app uses SQLite through `sqflite` at database version 51. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1591,7 +1591,14 @@ checks panel tables against `PanelSampleSchema` and adds any missing
 measurement columns, allowing additive panel fields such as revised PM lesions
 to appear without another destructive reset.
 Later additive upgrades create dashboard action rows and Lab Analysis tables
-without resetting existing local data.
+without resetting existing local data. Version 51 adds the persistence
+foundation for poultry customer sectors, farms, houses, multi-house flock
+placements, revision-safe Broiler daily evidence, versioned Broiler objectives,
+operational concern state, diagnostic farm visits, probable-cause assessments,
+corrective actions, and KPI-based effectiveness evaluations. Existing flock
+rows remain valid: only flocks already linked to a hatchery audit are safely
+backfilled as Breeder; other legacy flock sectors remain unset for later user
+classification.
 
 Tables created by the current database helper include:
 
@@ -1622,6 +1629,25 @@ Tables created by the current database helper include:
 - `lab_analysis_rows`
 - `sync_tombstones`
 - `sync_conflicts`
+- `customer_sectors`
+- `farms`
+- `houses`
+- `flock_placements`
+- `broiler_daily_records`
+- `broiler_daily_record_revisions`
+- `daily_record_sources`
+- `broiler_daily_events`
+- `broiler_target_profiles`
+- `broiler_target_rows`
+- `performance_alert_rules`
+- `performance_concerns`
+- `farm_visit_sessions`
+- `farm_visit_houses`
+- `visit_investigations`
+- `visit_findings`
+- `cause_assessments`
+- `corrective_actions`
+- `action_kpi_evaluations`
 
 Fresh databases do not create `audits`, `sample_records`, sample detail tables,
 `egg_weights`, `{panel}_samples` child tables, legacy generic temperature
@@ -1645,6 +1671,14 @@ targets a panel row by `panelName`, `panelRowId`, and `fieldKey`; and
 `govee_daily_captures` belongs to a customer and hatchery. Lab Analysis reports
 belong to a customer and flock; lab groups belong to a lab report, customer, and
 flock; and lab rows belong to a lab group and report.
+For performance monitoring, a customer may enable multiple poultry sectors,
+each farm has exactly one sector, houses belong to farms, and a flock may span
+multiple house placements. A partial unique index prevents two active flock
+placements in one house. One stable Broiler daily record exists per
+placement/date; source corrections are stored as numbered revision rows rather
+than overwriting earlier evidence. Visits, findings, cause assessments,
+corrective actions, and action KPI evaluations use farm-specific tables and do
+not overload hatchery `audit_sessions` or `dashboard_actions`.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard

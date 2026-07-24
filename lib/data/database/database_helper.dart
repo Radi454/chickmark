@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 48,
+      version: 51,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -100,6 +100,7 @@ class DatabaseHelper {
     await _createGoveeCaptureTables(db);
     await _createDashboardActionTable(db);
     await _createLabAnalysisTables(db);
+    await _createPerformanceMonitoringTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -149,6 +150,9 @@ class DatabaseHelper {
     if (oldVersion < 48) {
       await _applyV48Upgrade(db);
     }
+    if (oldVersion < 51) {
+      await _applyV51Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -172,6 +176,25 @@ class DatabaseHelper {
     'lab_analysis_reports',
     'lab_analysis_groups',
     'lab_analysis_rows',
+    'customer_sectors',
+    'farms',
+    'houses',
+    'flock_placements',
+    'broiler_daily_records',
+    'broiler_daily_record_revisions',
+    'daily_record_sources',
+    'broiler_daily_events',
+    'broiler_target_profiles',
+    'broiler_target_rows',
+    'performance_alert_rules',
+    'performance_concerns',
+    'farm_visit_sessions',
+    'farm_visit_houses',
+    'visit_investigations',
+    'visit_findings',
+    'cause_assessments',
+    'corrective_actions',
+    'action_kpi_evaluations',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -179,6 +202,13 @@ class DatabaseHelper {
   /// during surgical repair. Existing rows keep their values (NULL for new
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
+    'flocks': [
+      'farmId TEXT',
+      'sectorKey TEXT',
+      "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
+      'targetProfileId TEXT',
+      'productionPhase TEXT',
+    ],
     'audit_sessions': [
       'customerId TEXT NOT NULL',
       'flockId TEXT NOT NULL',
@@ -402,6 +432,7 @@ class DatabaseHelper {
     await _createGoveeCaptureTables(db);
     await _createDashboardActionTable(db);
     await _createLabAnalysisTables(db);
+    await _createPerformanceMonitoringTables(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -622,6 +653,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV48UpgradeForTest(Database db) => _applyV48Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV51UpgradeForTest(Database db) => _applyV51Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

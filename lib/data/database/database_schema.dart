@@ -31,6 +31,11 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     flockId TEXT,
     breed TEXT,
     entryDate TEXT,
+    farmId TEXT,
+    sectorKey TEXT,
+    sexProfile TEXT NOT NULL DEFAULT 'as_hatched',
+    targetProfileId TEXT,
+    productionPhase TEXT,
     isAgeEstimated INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active',
     depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
@@ -629,6 +634,587 @@ Future<void> _createLabAnalysisTables(DatabaseExecutor db) async {
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_lab_rows_sync ON lab_analysis_rows (syncStatus, dirtyAt)',
+  );
+}
+
+Future<void> _createPerformanceMonitoringTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS customer_sectors (
+    id TEXT PRIMARY KEY,
+    customerId TEXT NOT NULL,
+    sectorKey TEXT NOT NULL CHECK (sectorKey IN ('breeder', 'broiler', 'layer')),
+    isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1)),
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_sectors_unique '
+    'ON customer_sectors (customerId, sectorKey)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS farms (
+    id TEXT PRIMARY KEY,
+    customerId TEXT NOT NULL,
+    sectorKey TEXT NOT NULL CHECK (sectorKey IN ('breeder', 'broiler', 'layer')),
+    name TEXT NOT NULL,
+    location TEXT,
+    notes TEXT,
+    isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1)),
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_farms_customer_sector '
+    'ON farms (customerId, sectorKey, isActive, name)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS houses (
+    id TEXT PRIMARY KEY,
+    farmId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    code TEXT,
+    capacity INTEGER,
+    notes TEXT,
+    isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1)),
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (farmId) REFERENCES farms(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_houses_farm_name '
+    'ON houses (farmId, name)',
+  );
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_houses_farm_code '
+    'ON houses (farmId, code) WHERE code IS NOT NULL AND code <> \'\'',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS flock_placements (
+    id TEXT PRIMARY KEY,
+    flockId TEXT NOT NULL,
+    houseId TEXT NOT NULL,
+    placedBirds INTEGER NOT NULL CHECK (placedBirds > 0),
+    placedAt TEXT NOT NULL,
+    endedAt TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'ended', 'transferred')),
+    notes TEXT,
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
+    FOREIGN KEY (houseId) REFERENCES houses(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_flock_placements_flock '
+    'ON flock_placements (flockId, status, placedAt)',
+  );
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_active_placement_per_house '
+    'ON flock_placements (houseId) '
+    "WHERE status = 'active' AND endedAt IS NULL",
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS broiler_daily_records (
+    id TEXT PRIMARY KEY,
+    placementId TEXT NOT NULL,
+    recordDate TEXT NOT NULL,
+    currentRevisionId TEXT,
+    verificationStatus TEXT NOT NULL DEFAULT 'pending_entry'
+      CHECK (verificationStatus IN (
+        'pending_entry', 'entered', 'reviewed', 'verified',
+        'requires_clarification', 'corrected'
+      )),
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (placementId) REFERENCES flock_placements(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS '
+    'idx_broiler_daily_records_placement_date '
+    'ON broiler_daily_records (placementId, recordDate)',
+  );
+
+  await db.execute(
+    '''CREATE TABLE IF NOT EXISTS broiler_daily_record_revisions (
+    id TEXT PRIMARY KEY,
+    recordId TEXT NOT NULL,
+    revisionNumber INTEGER NOT NULL CHECK (revisionNumber > 0),
+    verificationStatus TEXT NOT NULL
+      CHECK (verificationStatus IN (
+        'pending_entry', 'entered', 'reviewed', 'verified',
+        'requires_clarification', 'corrected'
+      )),
+    dataSourceType TEXT NOT NULL DEFAULT 'manual',
+    sourceDescription TEXT,
+    reportedBy TEXT,
+    enteredBy TEXT NOT NULL,
+    enteredAt TEXT NOT NULL,
+    reviewedBy TEXT,
+    reviewedAt TEXT,
+    verifiedBy TEXT,
+    verifiedAt TEXT,
+    correctionReason TEXT,
+    openingBirdCount INTEGER,
+    dailyMortality INTEGER,
+    dailyCulls INTEGER,
+    transfersIn INTEGER,
+    transfersOut INTEGER,
+    partialDepletion INTEGER,
+    otherPopulationAdjustment INTEGER,
+    mortalityCausesJson TEXT,
+    closingLiveBirdCount INTEGER,
+    dailyFeedConsumedKg REAL,
+    feedType TEXT,
+    feedPhase TEXT,
+    feedChange TEXT,
+    feedInterruptionMinutes INTEGER,
+    feedShortage INTEGER CHECK (feedShortage IN (0, 1)),
+    waterConsumedLiters REAL,
+    flushingWaterLiters REAL,
+    waterInterruptionMinutes INTEGER,
+    waterMedication TEXT,
+    waterVaccination TEXT,
+    averageBodyWeightG REAL,
+    birdsWeighed INTEGER,
+    uniformityPct REAL,
+    cvPct REAL,
+    individualWeightsJson TEXT,
+    minTemperatureC REAL,
+    maxTemperatureC REAL,
+    averageTemperatureC REAL,
+    relativeHumidityPct REAL,
+    co2Ppm REAL,
+    ammoniaPpm REAL,
+    environmentIncident TEXT,
+    clinicalSigns TEXT,
+    treatmentStarted TEXT,
+    treatmentStopped TEXT,
+    vaccination TEXT,
+    powerFailure INTEGER CHECK (powerFailure IN (0, 1)),
+    equipmentFailure TEXT,
+    veterinaryObservation TEXT,
+    notes TEXT,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (recordId, revisionNumber),
+    FOREIGN KEY (recordId) REFERENCES broiler_daily_records(id) ON DELETE CASCADE
+  )''',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_broiler_daily_revisions_record '
+    'ON broiler_daily_record_revisions (recordId, revisionNumber DESC)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS daily_record_sources (
+    id TEXT PRIMARY KEY,
+    revisionId TEXT NOT NULL,
+    sourceKind TEXT NOT NULL,
+    localPath TEXT,
+    remoteStoragePath TEXT,
+    originalFilename TEXT,
+    checksum TEXT,
+    uploadState TEXT NOT NULL DEFAULT 'local',
+    uploadError TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (revisionId)
+      REFERENCES broiler_daily_record_revisions(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_daily_record_sources_revision '
+    'ON daily_record_sources (revisionId, createdAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS broiler_daily_events (
+    id TEXT PRIMARY KEY,
+    revisionId TEXT NOT NULL,
+    eventType TEXT NOT NULL,
+    eventAt TEXT,
+    isAllDay INTEGER NOT NULL DEFAULT 1 CHECK (isAllDay IN (0, 1)),
+    eventState TEXT,
+    description TEXT,
+    treatment TEXT,
+    vaccination TEXT,
+    feedPhase TEXT,
+    equipment TEXT,
+    createdAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (revisionId)
+      REFERENCES broiler_daily_record_revisions(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_broiler_daily_events_revision '
+    'ON broiler_daily_events (revisionId, eventAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS broiler_target_profiles (
+    id TEXT PRIMARY KEY,
+    brand TEXT NOT NULL,
+    breed TEXT NOT NULL,
+    featheringVariant TEXT,
+    sexProfile TEXT NOT NULL
+      CHECK (sexProfile IN ('as_hatched', 'male', 'female')),
+    publicationVersion TEXT NOT NULL,
+    publicationDate TEXT,
+    sourceTitle TEXT NOT NULL,
+    sourceUrl TEXT NOT NULL,
+    sourceFilePath TEXT,
+    region TEXT,
+    languageCode TEXT NOT NULL DEFAULT 'en',
+    activeFrom TEXT,
+    activeTo TEXT,
+    isOfficial INTEGER NOT NULL DEFAULT 0 CHECK (isOfficial IN (0, 1)),
+    isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1)),
+    supersedesProfileId TEXT,
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (supersedesProfileId)
+      REFERENCES broiler_target_profiles(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_broiler_target_profiles_lookup '
+    'ON broiler_target_profiles '
+    '(brand, breed, sexProfile, isActive, publicationVersion)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS broiler_target_rows (
+    id TEXT PRIMARY KEY,
+    profileId TEXT NOT NULL,
+    ageDay INTEGER NOT NULL CHECK (ageDay >= 0),
+    bodyWeightG REAL,
+    dailyGainG REAL,
+    averageDailyGainG REAL,
+    dailyFeedIntakeGPerLivingBird REAL,
+    cumulativeFeedIntakeGPerLivingBird REAL,
+    fcr REAL,
+    waterMlPerLivingBird REAL,
+    metricMethodNotes TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (profileId)
+      REFERENCES broiler_target_profiles(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_broiler_target_rows_profile_age '
+    'ON broiler_target_rows (profileId, ageDay)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS performance_alert_rules (
+    id TEXT PRIMARY KEY,
+    metricKey TEXT NOT NULL,
+    scopeLevel TEXT NOT NULL CHECK (scopeLevel IN ('global', 'customer')),
+    customerId TEXT,
+    watchThreshold REAL,
+    criticalThreshold REAL,
+    lowerThreshold REAL,
+    upperThreshold REAL,
+    direction TEXT NOT NULL
+      CHECK (direction IN ('above', 'below', 'outside_range', 'rate_of_change')),
+    persistenceWindow INTEGER NOT NULL DEFAULT 1,
+    minimumValidObservations INTEGER NOT NULL DEFAULT 1,
+    source TEXT NOT NULL,
+    rationale TEXT,
+    isEnabled INTEGER NOT NULL DEFAULT 1 CHECK (isEnabled IN (0, 1)),
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_performance_alert_rules_scope '
+    'ON performance_alert_rules (metricKey, scopeLevel, customerId)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS performance_concerns (
+    id TEXT PRIMARY KEY,
+    ruleId TEXT,
+    customerId TEXT NOT NULL,
+    farmId TEXT,
+    flockId TEXT,
+    placementId TEXT,
+    houseId TEXT,
+    metricKey TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('watch', 'critical')),
+    firstObservedAt TEXT NOT NULL,
+    lastObservedAt TEXT NOT NULL,
+    evidenceWindowStart TEXT,
+    evidenceWindowEnd TEXT,
+    baselineValue REAL,
+    targetValue REAL,
+    actualValue REAL,
+    evidenceJson TEXT,
+    status TEXT NOT NULL DEFAULT 'open'
+      CHECK (status IN (
+        'open', 'monitoring', 'assigned_to_visit', 'resolved', 'dismissed'
+      )),
+    resolvedAt TEXT,
+    resolvedBy TEXT,
+    resolutionNotes TEXT,
+    dismissedAt TEXT,
+    dismissedBy TEXT,
+    dismissalReason TEXT,
+    recurrenceOfId TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (ruleId) REFERENCES performance_alert_rules(id) ON DELETE SET NULL,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (farmId) REFERENCES farms(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
+    FOREIGN KEY (placementId) REFERENCES flock_placements(id) ON DELETE CASCADE,
+    FOREIGN KEY (houseId) REFERENCES houses(id) ON DELETE CASCADE,
+    FOREIGN KEY (recurrenceOfId)
+      REFERENCES performance_concerns(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_performance_concerns_scope '
+    'ON performance_concerns '
+    '(customerId, farmId, flockId, placementId, metricKey, status, updatedAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS farm_visit_sessions (
+    id TEXT PRIMARY KEY,
+    customerId TEXT NOT NULL,
+    farmId TEXT NOT NULL,
+    flockId TEXT,
+    visitDate TEXT NOT NULL,
+    briefingSnapshotJson TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'planned'
+      CHECK (status IN ('planned', 'in_progress', 'completed', 'cancelled')),
+    assignedAuditorId TEXT,
+    startedAt TEXT,
+    completedAt TEXT,
+    notes TEXT,
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (farmId) REFERENCES farms(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_farm_visit_sessions_scope '
+    'ON farm_visit_sessions (customerId, farmId, flockId, visitDate DESC)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS farm_visit_houses (
+    id TEXT PRIMARY KEY,
+    visitId TEXT NOT NULL,
+    houseId TEXT NOT NULL,
+    createdAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (visitId, houseId),
+    FOREIGN KEY (visitId) REFERENCES farm_visit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (houseId) REFERENCES houses(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS visit_investigations (
+    id TEXT PRIMARY KEY,
+    visitId TEXT NOT NULL,
+    sourceConcernId TEXT,
+    houseId TEXT,
+    location TEXT,
+    origin TEXT NOT NULL DEFAULT 'suggested',
+    investigationType TEXT NOT NULL,
+    instruction TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'in_progress', 'completed', 'not_applicable')),
+    resultSummary TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (visitId) REFERENCES farm_visit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (sourceConcernId)
+      REFERENCES performance_concerns(id) ON DELETE SET NULL,
+    FOREIGN KEY (houseId) REFERENCES houses(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_visit_investigations_visit '
+    'ON visit_investigations (visitId, status)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS visit_findings (
+    id TEXT PRIMARY KEY,
+    visitId TEXT NOT NULL,
+    investigationId TEXT,
+    findingType TEXT NOT NULL,
+    severity TEXT,
+    measuredValue REAL,
+    unit TEXT,
+    observationJson TEXT,
+    houseId TEXT,
+    location TEXT,
+    staffExplanation TEXT,
+    attachmentRefsJson TEXT,
+    authoredBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (visitId) REFERENCES farm_visit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (investigationId)
+      REFERENCES visit_investigations(id) ON DELETE SET NULL,
+    FOREIGN KEY (houseId) REFERENCES houses(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_visit_findings_visit '
+    'ON visit_findings (visitId, investigationId, createdAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS cause_assessments (
+    id TEXT PRIMARY KEY,
+    visitId TEXT NOT NULL,
+    concernId TEXT NOT NULL,
+    probableCause TEXT NOT NULL,
+    alternativeCausesJson TEXT,
+    supportingEvidenceJson TEXT,
+    conflictingEvidenceJson TEXT,
+    status TEXT NOT NULL DEFAULT 'suspected'
+      CHECK (status IN ('suspected', 'probable', 'confirmed', 'ruled_out')),
+    authoredBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (visitId) REFERENCES farm_visit_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (concernId)
+      REFERENCES performance_concerns(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_cause_assessments_visit_concern '
+    'ON cause_assessments (visitId, concernId, status)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS corrective_actions (
+    id TEXT PRIMARY KEY,
+    concernId TEXT NOT NULL,
+    visitId TEXT,
+    causeAssessmentId TEXT,
+    instruction TEXT NOT NULL,
+    ownerId TEXT,
+    ownerName TEXT,
+    dueAt TEXT,
+    implementedAt TEXT,
+    implementationConfirmedBy TEXT,
+    status TEXT NOT NULL DEFAULT 'open'
+      CHECK (status IN (
+        'open', 'in_progress', 'implemented', 'completed', 'cancelled'
+      )),
+    completionNotes TEXT,
+    evidenceRefsJson TEXT,
+    createdBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (concernId)
+      REFERENCES performance_concerns(id) ON DELETE CASCADE,
+    FOREIGN KEY (visitId) REFERENCES farm_visit_sessions(id) ON DELETE SET NULL,
+    FOREIGN KEY (causeAssessmentId)
+      REFERENCES cause_assessments(id) ON DELETE SET NULL
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_corrective_actions_concern_status '
+    'ON corrective_actions (concernId, status, dueAt)',
+  );
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS action_kpi_evaluations (
+    id TEXT PRIMARY KEY,
+    actionId TEXT NOT NULL,
+    kpiKey TEXT NOT NULL,
+    scopeJson TEXT NOT NULL DEFAULT '{}',
+    baselineWindowStart TEXT,
+    baselineWindowEnd TEXT,
+    baselineValue REAL,
+    targetRule TEXT,
+    targetValue REAL,
+    evaluationStart TEXT NOT NULL,
+    evaluationEnd TEXT NOT NULL,
+    observedValue REAL,
+    effectiveness TEXT NOT NULL DEFAULT 'not_evaluated'
+      CHECK (effectiveness IN (
+        'effective', 'partially_effective', 'ineffective', 'not_evaluated'
+      )),
+    evaluationReason TEXT,
+    evaluatedBy TEXT,
+    evaluatedAt TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (actionId) REFERENCES corrective_actions(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_action_kpi_evaluations_action '
+    'ON action_kpi_evaluations (actionId, kpiKey, evaluationEnd)',
   );
 }
 
