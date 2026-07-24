@@ -1719,6 +1719,16 @@ with a specific missing-data reason when live population, current weight,
 placement weight, or cumulative feed is unavailable. EPEF is calculated only
 after cycle completion is explicitly confirmed; unvalidated final-weight and
 final-FCR projections are not produced.
+The Broiler manual quick-entry screen follows Customer → Broiler farm → flock →
+date selection and loads every active house placement together. Each house card
+keeps previous-day and target context read-only while today's draft remains
+separate, then places population, feed, and water before expandable weight,
+environment, events, mortality causes, and source-document sections. Wide
+screens use a two-column house grid and narrow screens use a single list.
+Saving validates each started house independently: valid houses append their
+revision, invalid house drafts remain editable, and a per-house summary reports
+what still needs attention. Corrected entries expose and require a correction
+reason.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
