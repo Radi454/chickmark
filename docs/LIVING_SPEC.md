@@ -1709,6 +1709,16 @@ closing-population arithmetic, corrections without a reason, and verified rows
 without verifier metadata before any transaction is written. The repository
 also exposes the current placement/day value, previous-day value, complete
 revision history, and a house-by-house flock entry grid.
+The pure Broiler KPI calculator derives local-calendar flock age, average live
+birds, daily and cumulative mortality, livability, feed and water per live bird,
+water-to-feed ratio, cumulative feed per placed bird, weight gain, sampled
+uniformity and CV, target deviations, and mortality trend direction. Expected
+cumulative feed is adjusted by each day's actual average live population before
+comparison with actual feed. Actual FCR is labeled estimated and is withheld
+with a specific missing-data reason when live population, current weight,
+placement weight, or cumulative feed is unavailable. EPEF is calculated only
+after cycle completion is explicitly confirmed; unvalidated final-weight and
+final-FCR projections are not produced.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
