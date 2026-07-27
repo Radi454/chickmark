@@ -5,6 +5,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/l10n/app_localizations.dart';
 
 void main() {
+  test('Agent Monitor status copy has direct Arabic translations', () {
+    final arabic = AppLocalizations(const Locale('ar'));
+
+    expect(arabic.translate('Agent'), 'الوكيل');
+    expect(arabic.translate('Agent Monitor'), 'مراقبة الوكيل');
+    expect(arabic.translate('Draft ready'), 'المسودة جاهزة');
+    expect(arabic.translate('Waiting for staff answer'), 'بانتظار رد الموظف');
+    expect(arabic.translate('Needs admin review'), 'تحتاج مراجعة المدير');
+    expect(arabic.translate('Telegram running'), 'تيليجرام يعمل');
+    expect(arabic.translate('Telegram paused'), 'تم إيقاف تيليجرام مؤقتًا');
+    expect(arabic.translate('Confidence'), 'الثقة');
+    expect(arabic.translate('Warnings'), 'تنبيهات');
+    expect(arabic.translate('Hatchability'), 'نسبة الفقس');
+  });
+
   test('static user-facing strings have Arabic translations', () {
     final arabic = AppLocalizations(const Locale('ar'));
     final patterns = <RegExp>[
@@ -36,6 +51,7 @@ void main() {
       'STD',
       'PASGAR',
       'Pasgar',
+      'PDF',
       'Ross308',
       'S',
       'H',

@@ -11,6 +11,8 @@ import '../../../services/sync/app_sync_coordinator.dart';
 import '../../../services/sync/bg_sync_service.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../agents/providers/agent_monitor_provider.dart';
+import '../../agents/screens/agent_monitor_screen.dart';
 import '../../home/screens/home_screen.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
@@ -20,6 +22,29 @@ import '../../govee/screens/govee_records_screen.dart';
 import '../../lab_analysis/screens/lab_analysis_screen.dart';
 import '../../bmk/screens/bmk_screen.dart';
 import '../../settings/screens/settings_screen.dart';
+
+const _allMainShellTabKeys = <String>[
+  'home',
+  'dashboard',
+  'customers',
+  'audits',
+  'govee',
+  'lab_analysis',
+  'bmk',
+  'agent',
+  'settings',
+];
+
+const _customerMainShellTabKeys = <String>{'dashboard', 'settings'};
+
+List<String> mainShellTabKeysForUser(UserModel? user) {
+  if (user?.isCustomer == true) {
+    return _allMainShellTabKeys
+        .where(_customerMainShellTabKeys.contains)
+        .toList(growable: false);
+  }
+  return List<String>.unmodifiable(_allMainShellTabKeys);
+}
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -105,6 +130,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           selectedIcon: Icons.science,
         ),
         () => const BmkScreen(),
+      ),
+      _ShellTab(
+        'agent',
+        const _ShellDestination(
+          label: AppStrings.agentTab,
+          icon: Icons.smart_toy_outlined,
+          selectedIcon: Icons.smart_toy,
+        ),
+        () => ChangeNotifierProvider(
+          create: (_) => AgentMonitorProvider(),
+          child: const AgentMonitorScreen(),
+        ),
       ),
       _ShellTab(
         'settings',

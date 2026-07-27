@@ -301,6 +301,21 @@ final List<_PatternTranslator> _patterns = [
     return '$label: ${match.group(2)}';
   },
   (value) {
+    final match = RegExp(r'^Telegram user (.+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'مستخدم تيليجرام ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^Row (\d+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'الصف ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) rows$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} صفوف';
+  },
+  (value) {
     final match = RegExp(r'^(\d+) (weeks|wks)$').firstMatch(value);
     if (match == null) return null;
     return '${match.group(1)} أسبوعًا';
@@ -655,6 +670,72 @@ const Map<String, String> _ar = {
   'ChickMark': 'ChickMark',
   'Home': 'الرئيسية',
   'Dashboard': 'لوحة المتابعة',
+  'Agent': 'الوكيل',
+  'Agent Monitor': 'مراقبة الوكيل',
+  'Refresh': 'تحديث',
+  'Pause Telegram agent': 'إيقاف وكيل تيليجرام مؤقتًا',
+  'Resume Telegram agent': 'استئناف وكيل تيليجرام',
+  'Telegram running': 'تيليجرام يعمل',
+  'Telegram paused': 'تم إيقاف تيليجرام مؤقتًا',
+  'New submissions are accepted': 'يتم استقبال الإرسالات الجديدة',
+  'New submissions paused': 'تم إيقاف الإرسالات الجديدة مؤقتًا',
+  'Unable to load agent data. Please try again.':
+      'تعذر تحميل بيانات الوكيل. حاول مرة أخرى.',
+  'Unable to update Telegram agent. Please try again.':
+      'تعذر تحديث وكيل تيليجرام. حاول مرة أخرى.',
+  'Unable to load this draft. Please try again.':
+      'تعذر تحميل هذه المسودة. حاول مرة أخرى.',
+  'Select a submission to review': 'اختر إرسالًا لمراجعته',
+  'Extracted rows': 'الصفوف المستخرجة',
+  'Staff submitter': 'الموظف المرسل',
+  'Source type': 'نوع المصدر',
+  'Submitted': 'وقت الإرسال',
+  'Original source': 'المصدر الأصلي',
+  'Original Telegram source': 'مصدر تيليجرام الأصلي',
+  'Questions and answers': 'الأسئلة والإجابات',
+  'Admin action history': 'سجل إجراءات المدير',
+  'No admin actions yet': 'لا توجد إجراءات للمدير بعد',
+  'No agent submissions': 'لا توجد إرسالات للوكيل',
+  'Telegram submissions will appear here for review.':
+      'ستظهر إرسالات تيليجرام هنا للمراجعة.',
+  'Text': 'نص',
+  'Image': 'صورة',
+  'PDF': 'PDF',
+  'Spreadsheet': 'جدول بيانات',
+  'File': 'ملف',
+  'Agent event': 'حدث للوكيل',
+  'Row extracted': 'تم استخراج الصف',
+  'Received': 'تم الاستلام',
+  'Processing': 'قيد المعالجة',
+  'Waiting for staff answer': 'بانتظار رد الموظف',
+  'Draft ready': 'المسودة جاهزة',
+  'Needs admin review': 'تحتاج مراجعة المدير',
+  'Partially approved': 'معتمدة جزئيًا',
+  'Rejected': 'مرفوض',
+  'Telegram submission': 'إرسال تيليجرام',
+  'Unknown staff': 'موظف غير معروف',
+  'Needs review': 'تحتاج مراجعة',
+  'Confidence': 'الثقة',
+  'Warnings': 'تنبيهات',
+  'No warnings': 'لا توجد تنبيهات',
+  'Info': 'معلومة',
+  'Approve': 'اعتماد',
+  'Reject': 'رفض',
+  'Row actions will be available in the approval stage.':
+      'ستتوفر إجراءات الصف في مرحلة الاعتماد.',
+  'Station': 'المحطة',
+  'Eggs placed': 'البيض الموضوع',
+  'Production date': 'تاريخ الإنتاج',
+  'Placement date': 'تاريخ الوضع',
+  'Transfer weight': 'وزن النقل',
+  'Hatch date': 'تاريخ الفقس',
+  'Healthy chicks': 'الكتاكيت السليمة',
+  'Second grade': 'درجة ثانية',
+  'Condemned': 'النافق أو المعدوم',
+  'Total production': 'إجمالي الإنتاج',
+  'Proposed flock age': 'عمر القطيع المقترح',
+  'Source unavailable': 'المصدر غير متاح',
+  'Waiting for answer': 'بانتظار الإجابة',
   'Loading customer…': 'جارٍ تحميل العميل…',
   'Username or email': 'اسم المستخدم أو البريد الإلكتروني',
   'Please enter your username or email':
@@ -705,7 +786,6 @@ const Map<String, String> _ar = {
   'Create action': 'إنشاء إجراء',
   'Update action': 'تحديث الإجراء',
   'Save action': 'حفظ الإجراء',
-  'Owner': 'المسؤول',
   'In progress': 'قيد التنفيذ',
   'Reopened': 'أُعيد فتحه',
   'Set due date': 'تحديد موعد الاستحقاق',
