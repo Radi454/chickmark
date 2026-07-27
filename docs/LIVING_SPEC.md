@@ -1609,9 +1609,38 @@ repository can create a submission/batch/rows/questions/events graph in one
 transaction, load or update default agent thresholds, list newest draft batch
 summaries, load complete batch details, and find the previous approved
 customer/flock/station/breed record before a hatch date. Every local repository
-write is marked pending with dirty metadata. This persistence foundation does
-not yet receive Telegram webhooks, extract data with AI, expose an Agent
-Monitor, or approve draft rows.
+write is marked pending with dirty metadata.
+
+The `telegram-hatchery-agent` Supabase Edge Function now receives Telegram POST
+webhooks and validates Telegram's secret-token header before reading the
+payload. It accepts only pre-authorized, non-revoked staff links, refreshes the
+known staff member's Telegram metadata, honors the remote pause setting, and
+treats a repeated Telegram update as an idempotent success. Unknown or revoked
+staff receive a bilingual rejection without creating a submission or draft.
+Accepted text, photo, PDF, spreadsheet, and document submissions create a
+`received` submission before extraction; Telegram file IDs are retained as
+source references and file bytes are downloaded only inside the backend.
+
+OpenAI extraction uses the Responses API with a strict JSON schema, server-only
+credentials, and text, image, or file input appropriate to the Telegram source.
+The prompt supports English, Arabic, and mixed tables, requires nulls for
+unknown values, and forbids guessing customer, flock, station, or breed names.
+One draft batch groups every returned row. The backend calculates hatchability
+as total production divided by positive eggs placed times 100, stores the raw
+structured extraction, and marks invalid-count or unresolved rows for review.
+Configured minimum confidence selects `draft_ready` versus
+`needs_admin_review`; extracted bilingual missing questions are stored and set
+the submission and batch to `waiting_for_staff_answer` before being sent to the
+same Telegram chat. Processing failures are persisted as `failed` and
+acknowledged to Telegram so the durable submission remains available to an
+admin.
+
+The Edge Function reads `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+`OPENAI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only from its
+server environment. Deployment must disable Supabase JWT verification for this
+signed webhook; the function itself authenticates Telegram's secret-token
+header. The app still does not expose an Agent Monitor or approve, reject, or
+save final hatchery rows.
 
 The hatchery-agent rule service calculates hatchability as total production
 divided by eggs placed times 100 only when both counts are present, production
@@ -1721,7 +1750,7 @@ links, and final-shaped hatchery daily rows require customer/flock/station/breed
 identity. The matching Supabase migration uses snake_case tables, validates
 flock and hatchery customer scope, enables RLS on every agent table, exposes
 authenticated reads/writes only to approved admins, and leaves backend
-service-role access available for a future server-side agent.
+service-role access available to the Telegram hatchery-agent Edge Function.
 The hierarchy repository saves active/inactive customer-sector membership,
 sector-filtered farms, farm houses, and flock placements with offline dirty
 metadata. Creating a new Broiler flock and all selected house placements is one
@@ -2019,12 +2048,19 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-27: Added the Telegram hatchery-agent Edge Function with verified
+  webhook ingestion, allowed-staff enforcement, idempotent update handling,
+  Telegram text/photo/document loading, strict OpenAI structured extraction,
+  multi-row draft creation, hatchability calculation, confidence routing,
+  bilingual missing-data questions, and durable failure status. All backend
+  tests use injected fakes; Agent Monitor UI and approval/final-save behavior
+  remain unimplemented.
 - 2026-07-27: Added the v52 hatchery-agent data foundation with additive local
   and Supabase tables, immutable storage models, atomic draft-graph repository
   writes, settings and historical comparable queries, operational sync
   allowlisting, admin-only remote RLS, tenant-scope validation, and
-  Telegram-token-shaped secret scanning. Telegram ingestion, AI extraction,
-  Agent Monitor UI, and row approval remain unimplemented.
+  Telegram-token-shaped secret scanning. Agent Monitor UI and row approval
+  remain unimplemented.
 - 2026-07-24: Added customer poultry-structure management for concurrent
   Breeder, Broiler, and Layer membership, single-sector farms, nested houses,
   and the Breeder-only hatchery gate. Added Performance as a staff main-shell
