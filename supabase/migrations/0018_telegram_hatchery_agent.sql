@@ -1,3 +1,11 @@
+-- Required Edge Function secrets:
+-- TELEGRAM_BOT_TOKEN: regenerated bot token from BotFather.
+-- TELEGRAM_WEBHOOK_SECRET: random 32+ character value used with Telegram
+-- setWebhook secret_token.
+-- OPENAI_API_KEY: OpenAI API key used only by the Edge Function.
+-- Deploy telegram-hatchery-agent without Supabase JWT verification; the
+-- function authenticates each webhook with Telegram's secret-token header.
+
 begin;
 
 create table public.telegram_staff_links (
