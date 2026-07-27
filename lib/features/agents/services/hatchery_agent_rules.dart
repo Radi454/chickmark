@@ -75,7 +75,9 @@ HatcheryRowWarning? buildHistoricalWarning({
   if (previousPct == null) return null;
 
   final absoluteChange = (currentPct - previousPct).abs();
-  if (absoluteChange < thresholdPoints) return null;
+  if (absoluteChange + _percentagePointComparisonTolerance < thresholdPoints) {
+    return null;
+  }
 
   return HatcheryRowWarning(
     kind: HatcheryRowWarningKind.historicalChange,
@@ -100,7 +102,7 @@ HatcheryRowWarning? buildBmkWarning({
   final isRising = previousPct != null && currentPct > previousPct;
   if (!isRising) return null;
 
-  if (flockAgeWeeks == null) {
+  if (flockAgeWeeks == null || flockAgeWeeks <= 0) {
     return HatcheryRowWarning(
       kind: HatcheryRowWarningKind.missingFlockAge,
       severity: HatcheryRowWarningSeverity.info,
@@ -180,8 +182,9 @@ class HatcheryAgentRuleEngine {
     );
     if (historicalWarning != null) warnings.add(historicalWarning);
 
+    final hasValidFlockAge = flockAgeWeeks != null && flockAgeWeeks > 0;
     Map<String, Object?>? benchmark;
-    if (flockAgeWeeks != null) {
+    if (hasValidFlockAge) {
       benchmark = await _benchmarkLookup.nearestBreedBenchmark(
         calculatedBmkAgeDays: flockAgeWeeks * 7,
         breed: breed,
@@ -191,7 +194,7 @@ class HatcheryAgentRuleEngine {
       currentPct: currentHatchabilityPct,
       previousPct: previousPct,
       bmkPct: _double(benchmark?['hatchabilityPct']),
-      flockAgeWeeks: flockAgeWeeks,
+      flockAgeWeeks: _int(benchmark?['ageWeek']) ?? flockAgeWeeks,
     );
     if (bmkWarning != null) warnings.add(bmkWarning);
 
@@ -203,7 +206,7 @@ HatcheryRowWarningKind _warningKind(Object? value) {
   final name = value?.toString();
   return HatcheryRowWarningKind.values.firstWhere(
     (kind) => kind.name == name,
-    orElse: () => HatcheryRowWarningKind.historicalChange,
+    orElse: () => throw FormatException('Unknown warning kind: $name'),
   );
 }
 
@@ -211,7 +214,7 @@ HatcheryRowWarningSeverity _warningSeverity(Object? value) {
   final name = value?.toString();
   return HatcheryRowWarningSeverity.values.firstWhere(
     (severity) => severity.name == name,
-    orElse: () => HatcheryRowWarningSeverity.info,
+    orElse: () => throw FormatException('Unknown warning severity: $name'),
   );
 }
 
@@ -226,3 +229,5 @@ int? _int(Object? value) {
 }
 
 String _pct(double value) => value.toStringAsFixed(1);
+
+const _percentagePointComparisonTolerance = 1e-12;

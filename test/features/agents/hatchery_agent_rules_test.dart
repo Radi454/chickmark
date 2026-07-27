@@ -76,6 +76,22 @@ void main() {
     expect(warning.severity, HatcheryRowWarningSeverity.review);
   });
 
+  test('flags a ratio-derived historical change of exactly three points', () {
+    final warning = buildHistoricalWarning(
+      currentPct: calculateHatchabilityPct(
+        totalProduction: 259,
+        eggsPlaced: 300,
+      )!,
+      previousPct: calculateHatchabilityPct(
+        totalProduction: 250,
+        eggsPlaced: 300,
+      ),
+      thresholdPoints: 3,
+    );
+
+    expect(warning, isNotNull);
+  });
+
   test('does not flag a two point historical increase', () {
     expect(
       buildHistoricalWarning(
@@ -202,6 +218,26 @@ void main() {
     expect(copy.flockAgeWeeks, 30);
   });
 
+  test('warning JSON rejects an unknown warning kind', () {
+    expect(
+      () => HatcheryRowWarning.fromJson({
+        'kind': 'futureWarningKind',
+        'severity': 'info',
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('warning JSON rejects an unknown warning severity', () {
+    expect(
+      () => HatcheryRowWarning.fromJson({
+        'kind': 'historicalChange',
+        'severity': 'futureWarningSeverity',
+      }),
+      throwsFormatException,
+    );
+  });
+
   test('review engine combines comparable and BMK warnings', () async {
     final db = await DatabaseHelper().db;
     await _insertDailyRecord(
@@ -233,6 +269,66 @@ void main() {
       HatcheryRowWarningKind.bmkContext,
     ]);
   });
+
+  test(
+    'review engine preserves the selected nearest BMK age in its context',
+    () async {
+      final db = await DatabaseHelper().db;
+      await _insertDailyRecord(
+        db,
+        id: 'previous',
+        hatchDate: DateTime.utc(2026, 7, 20),
+        hatchabilityPct: 80,
+      );
+
+      final warnings = await HatcheryAgentRuleEngine().buildReviewWarnings(
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        stationName: 'Station A',
+        breed: 'Ross308',
+        hatchDate: DateTime.utc(2026, 7, 27),
+        currentHatchabilityPct: 85,
+        flockAgeWeeks: 20,
+      );
+
+      final bmkWarning = warnings.singleWhere(
+        (warning) => warning.kind == HatcheryRowWarningKind.bmkContext,
+      );
+      expect(bmkWarning.flockAgeWeeks, 25);
+      expect(bmkWarning.messageEn, contains('at 25 weeks'));
+      expect(bmkWarning.toJson()['flockAgeWeeks'], 25);
+    },
+  );
+
+  test(
+    'review engine treats nonpositive flock ages as missing BMK input',
+    () async {
+      final db = await DatabaseHelper().db;
+      await _insertDailyRecord(
+        db,
+        id: 'previous',
+        hatchDate: DateTime.utc(2026, 7, 20),
+        hatchabilityPct: 80,
+      );
+
+      for (final flockAgeWeeks in [0, -1]) {
+        final warnings = await HatcheryAgentRuleEngine().buildReviewWarnings(
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          stationName: 'Station A',
+          breed: 'Ross308',
+          hatchDate: DateTime.utc(2026, 7, 27),
+          currentHatchabilityPct: 85,
+          flockAgeWeeks: flockAgeWeeks,
+        );
+
+        expect(warnings.map((warning) => warning.kind), [
+          HatcheryRowWarningKind.historicalChange,
+          HatcheryRowWarningKind.missingFlockAge,
+        ]);
+      }
+    },
+  );
 
   test(
     'review engine returns missing age context for a rising comparable result',

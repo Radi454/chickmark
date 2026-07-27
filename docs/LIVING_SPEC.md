@@ -1617,12 +1617,16 @@ The hatchery-agent rule service calculates hatchability as total production
 divided by eggs placed times 100 only when both counts are present, production
 is non-negative, and eggs placed is positive. It emits a review warning when
 the absolute change from the previous approved comparable hatchability meets
-or exceeds the configured percentage-point threshold. For rising results, a
+or exceeds the configured percentage-point threshold, allowing for normal
+floating-point representation error at the boundary. For rising results, a
 breed BMK at or above the current result adds informational context that the
-increase may be consistent with BMK; an unavailable BMK or flock age adds an
-informational missing-data warning instead. The rule engine retrieves the
-previous comparable record using the exact customer/flock/station/breed key and
-looks up BMK using flock age in days.
+increase may be consistent with BMK; an unavailable BMK or missing/nonpositive
+flock age adds an informational missing-data warning instead. The rule engine
+retrieves the previous comparable record using the exact
+customer/flock/station/breed key, looks up BMK using a positive flock age in
+days, and records the selected BMK row's age in warning context. Serialized
+warnings reject unknown kind or severity values rather than silently
+reclassifying them.
 
 Tables created by the current database helper include:
 
