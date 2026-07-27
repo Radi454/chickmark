@@ -211,6 +211,37 @@ void main() {
       );
     },
   );
+
+  test('v52 adds hatchery agent tables without replacing data', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+    await db.execute(
+      'CREATE TABLE preserved_rows (id TEXT PRIMARY KEY, value TEXT)',
+    );
+    await db.insert('preserved_rows', {'id': 'keep', 'value': 'still here'});
+
+    await DatabaseHelper().applyV52UpgradeForTest(db);
+
+    expect(
+      await _tableNames(db),
+      containsAll(const [
+        'telegram_staff_links',
+        'agent_settings',
+        'agent_submissions',
+        'agent_questions',
+        'hatchery_draft_batches',
+        'hatchery_draft_rows',
+        'hatchery_agent_audit_events',
+        'hatchery_daily_records',
+      ]),
+    );
+    expect(await db.query('preserved_rows'), [
+      {'id': 'keep', 'value': 'still here'},
+    ]);
+  });
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {

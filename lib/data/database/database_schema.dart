@@ -1218,6 +1218,207 @@ Future<void> _createPerformanceMonitoringTables(DatabaseExecutor db) async {
   );
 }
 
+Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS telegram_staff_links (
+    id TEXT PRIMARY KEY,
+    telegramUserId TEXT NOT NULL UNIQUE,
+    telegramChatId TEXT,
+    displayName TEXT,
+    username TEXT,
+    status TEXT NOT NULL DEFAULT 'allowed',
+    invitedBy TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    telegramEnabled INTEGER NOT NULL DEFAULT 1,
+    hatchabilityWarningThresholdPoints REAL NOT NULL DEFAULT 3.0,
+    minimumReadyConfidencePct REAL NOT NULL DEFAULT 85.0,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_submissions (
+    id TEXT PRIMARY KEY,
+    telegramUpdateId TEXT UNIQUE,
+    telegramMessageId TEXT,
+    telegramChatId TEXT,
+    telegramUserId TEXT,
+    staffLinkId TEXT,
+    sourceKind TEXT NOT NULL,
+    sourceText TEXT,
+    sourceFileName TEXT,
+    sourceMimeType TEXT,
+    sourceRemotePath TEXT,
+    status TEXT NOT NULL,
+    errorMessage TEXT,
+    submittedAt TEXT NOT NULL,
+    processedAt TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (staffLinkId) REFERENCES telegram_staff_links(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_questions (
+    id TEXT PRIMARY KEY,
+    submissionId TEXT NOT NULL,
+    rowOrdinal INTEGER,
+    fieldKey TEXT NOT NULL,
+    questionTextEn TEXT NOT NULL,
+    questionTextAr TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    answerText TEXT,
+    answeredAt TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (submissionId) REFERENCES agent_submissions(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS hatchery_draft_batches (
+    id TEXT PRIMARY KEY,
+    submissionId TEXT NOT NULL,
+    status TEXT NOT NULL,
+    sourceSummary TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (submissionId) REFERENCES agent_submissions(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS hatchery_draft_rows (
+    id TEXT PRIMARY KEY,
+    batchId TEXT NOT NULL,
+    rowOrdinal INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    customerId TEXT,
+    customerName TEXT,
+    flockId TEXT,
+    flockName TEXT,
+    hatcheryId TEXT,
+    stationName TEXT,
+    breed TEXT,
+    eggsPlaced INTEGER,
+    productionDate TEXT,
+    placementDate TEXT,
+    eggWeightG REAL,
+    fertilityPct REAL,
+    transferWeightG REAL,
+    setterNumber TEXT,
+    hatcherNumber TEXT,
+    hatchDate TEXT,
+    healthyChicks INTEGER,
+    secondGradeChicks INTEGER,
+    condemnedChicks INTEGER,
+    totalProduction INTEGER,
+    hatchabilityPct REAL,
+    confidencePct REAL,
+    extractionJson TEXT,
+    warningsJson TEXT,
+    proposedFlockAgeWeeks INTEGER,
+    approvedRecordId TEXT,
+    reviewedBy TEXT,
+    reviewedAt TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (batchId) REFERENCES hatchery_draft_batches(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS hatchery_agent_audit_events (
+    id TEXT PRIMARY KEY,
+    submissionId TEXT NOT NULL,
+    rowId TEXT,
+    actorType TEXT NOT NULL,
+    actorId TEXT,
+    eventType TEXT NOT NULL,
+    detailsJson TEXT,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (submissionId) REFERENCES agent_submissions(id) ON DELETE CASCADE,
+    FOREIGN KEY (rowId) REFERENCES hatchery_draft_rows(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS hatchery_daily_records (
+    id TEXT PRIMARY KEY,
+    sourceDraftRowId TEXT,
+    customerId TEXT NOT NULL,
+    flockId TEXT NOT NULL,
+    hatcheryId TEXT,
+    stationName TEXT NOT NULL,
+    breed TEXT NOT NULL,
+    eggsPlaced INTEGER NOT NULL,
+    productionDate TEXT,
+    placementDate TEXT,
+    eggWeightG REAL,
+    fertilityPct REAL,
+    transferWeightG REAL,
+    setterNumber TEXT,
+    hatcherNumber TEXT,
+    hatchDate TEXT NOT NULL,
+    healthyChicks INTEGER,
+    secondGradeChicks INTEGER,
+    condemnedChicks INTEGER,
+    totalProduction INTEGER NOT NULL,
+    hatchabilityPct REAL NOT NULL,
+    approvedBy TEXT,
+    approvedAt TEXT,
+    createdAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (sourceDraftRowId) REFERENCES hatchery_draft_rows(id) ON DELETE SET NULL,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_submissions_status '
+    'ON agent_submissions (status, submittedAt DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_questions_submission '
+    'ON agent_questions (submissionId, status)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_hatchery_draft_rows_batch '
+    'ON hatchery_draft_rows (batchId, rowOrdinal)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_hatchery_daily_records_comparable '
+    'ON hatchery_daily_records '
+    '(customerId, flockId, stationName, breed, hatchDate DESC)',
+  );
+}
+
 Future<void> _createOperationalIndexes(Database db) async {
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_photos_panel ON photos (sessionId, panelName, panelRowId)',

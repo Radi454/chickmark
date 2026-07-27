@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-SECRET_PATTERN='sb_publishable_[A-Za-z0-9_-]{10,}|sb_secret_[A-Za-z0-9_-]{10,}|https://[A-Za-z0-9-]+\.supabase\.co|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*(cm9sZSI6ImFub24i|cm9sZSI6InNlcnZpY2Vfcm9sZSI)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+'
+SECRET_PATTERN='sb_publishable_[A-Za-z0-9_-]{10,}|sb_secret_[A-Za-z0-9_-]{10,}|https://[A-Za-z0-9-]+\.supabase\.co|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*(cm9sZSI6ImFub24i|cm9sZSI6InNlcnZpY2Vfcm9sZSI)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+|[0-9]{8,12}:AA[A-Za-z0-9_-]{30,}'
 
 if git grep -nIE "${SECRET_PATTERN}" -- \
   ':!scripts/check_supabase_secrets.sh' \

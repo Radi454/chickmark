@@ -82,6 +82,10 @@ Future<void> _applyV51Upgrade(Database db) async {
   }
 }
 
+Future<void> _applyV52Upgrade(Database db) async {
+  await _createHatcheryAgentTables(db);
+}
+
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

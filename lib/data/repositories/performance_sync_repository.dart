@@ -3,11 +3,14 @@ import 'package:sqflite/sqflite.dart';
 import '../../services/supabase/sync_meta.dart';
 import '../database/database_helper.dart';
 
-/// Generic offline-sync adapter for the performance-monitoring table graph.
+/// Generic offline-sync adapter for the operational table graph.
 ///
 /// Domain repositories remain responsible for validation and business writes.
 /// This adapter only exposes dirty rows, applies filtered cloud rows, and
 /// updates device-local sync metadata in a dependency-safe table order.
+///
+/// The adapter began with performance monitoring and now also covers agent
+/// data that depends on the customer/flock/hatchery master graph.
 class PerformanceSyncRepository {
   PerformanceSyncRepository({DatabaseHelper? databaseHelper})
     : _databaseHelper = databaseHelper ?? DatabaseHelper();
@@ -37,6 +40,14 @@ class PerformanceSyncRepository {
     'cause_assessments',
     'corrective_actions',
     'action_kpi_evaluations',
+    'telegram_staff_links',
+    'agent_settings',
+    'agent_submissions',
+    'agent_questions',
+    'hatchery_draft_batches',
+    'hatchery_draft_rows',
+    'hatchery_agent_audit_events',
+    'hatchery_daily_records',
   ];
 
   static const allPushTables = <String>[
