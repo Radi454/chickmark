@@ -1639,8 +1639,26 @@ The Edge Function reads `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
 `OPENAI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only from its
 server environment. Deployment must disable Supabase JWT verification for this
 signed webhook; the function itself authenticates Telegram's secret-token
-header. The app still does not expose an Agent Monitor or approve, reject, or
-save final hatchery rows.
+header. The app does not approve, reject, edit, or save final hatchery rows yet.
+
+Approved staff roles now have an `Agent` main-shell destination before
+Settings; read-only customer users do not receive that destination. The Agent
+Monitor loads the locally mirrored agent setting and newest draft batches,
+automatically selects the newest available batch, and preserves the selected
+batch across refreshes while it remains available. Admins can refresh the
+monitor and pause or resume Telegram ingestion through the persisted agent
+setting.
+
+The responsive monitor presents submission cards beside draft detail on wide
+screens and above detail on narrower screens. It shows the original Telegram
+text or file reference, source type, submitter identifier, submission and row
+statuses, questions and staff answers, extracted hatchery values, calculated
+hatchability, extraction confidence, historical/BMK warning messages, and
+agent audit history. Confidence and biological/historical warnings are
+displayed separately. Edit, approve, and reject controls are visible but
+disabled; they do not mutate drafts or operational records in this stage.
+Agent Monitor labels, statuses, empty/error states, and dynamic row/Telegram
+identity labels are available in English and Arabic.
 
 The hatchery-agent rule service calculates hatchability as total production
 divided by eggs placed times 100 only when both counts are present, production
@@ -2048,19 +2066,22 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-27: Added the admin/staff Agent Monitor tab with persisted Telegram
+  pause/resume control, responsive submission and draft evidence review,
+  question/answer and audit-history display, separate confidence and warning
+  presentation, bilingual copy, and role-gated navigation. Row edit, approval,
+  rejection, and final-save controls remain disabled until the approval stage.
 - 2026-07-27: Added the Telegram hatchery-agent Edge Function with verified
   webhook ingestion, allowed-staff enforcement, idempotent update handling,
   Telegram text/photo/document loading, strict OpenAI structured extraction,
   multi-row draft creation, hatchability calculation, confidence routing,
   bilingual missing-data questions, and durable failure status. All backend
-  tests use injected fakes; Agent Monitor UI and approval/final-save behavior
-  remain unimplemented.
+  tests use injected fakes.
 - 2026-07-27: Added the v52 hatchery-agent data foundation with additive local
   and Supabase tables, immutable storage models, atomic draft-graph repository
   writes, settings and historical comparable queries, operational sync
   allowlisting, admin-only remote RLS, tenant-scope validation, and
-  Telegram-token-shaped secret scanning. Agent Monitor UI and row approval
-  remain unimplemented.
+  Telegram-token-shaped secret scanning.
 - 2026-07-24: Added customer poultry-structure management for concurrent
   Breeder, Broiler, and Layer membership, single-sector farms, nested houses,
   and the Breeder-only hatchery gate. Added Performance as a staff main-shell

@@ -3,7 +3,7 @@ import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/home/widgets/main_shell.dart';
 
 void main() {
-  test('performance is added without changing customer role destinations', () {
+  test('staff tools are added without changing customer role destinations', () {
     final auditor = UserModel(
       id: 'auditor-1',
       fullName: 'Auditor',
@@ -31,6 +31,7 @@ void main() {
       'lab_analysis',
       'bmk',
       'performance',
+      'agent',
       'settings',
     ]);
     expect(mainShellTabKeysForUser(customer), ['dashboard', 'settings']);

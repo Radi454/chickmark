@@ -11,6 +11,8 @@ import '../../../services/sync/app_sync_coordinator.dart';
 import '../../../services/sync/bg_sync_service.dart';
 import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../agents/providers/agent_monitor_provider.dart';
+import '../../agents/screens/agent_monitor_screen.dart';
 import '../../home/screens/home_screen.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
@@ -31,6 +33,7 @@ const _allMainShellTabKeys = <String>[
   'lab_analysis',
   'bmk',
   'performance',
+  'agent',
   'settings',
 ];
 
@@ -136,6 +139,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           selectedIcon: Icons.monitor_heart,
         ),
         () => const PerformanceScreen(),
+      ),
+      _ShellTab(
+        'agent',
+        const _ShellDestination(
+          label: AppStrings.agentTab,
+          icon: Icons.smart_toy_outlined,
+          selectedIcon: Icons.smart_toy,
+        ),
+        () => ChangeNotifierProvider(
+          create: (_) => AgentMonitorProvider(),
+          child: const AgentMonitorScreen(),
+        ),
       ),
       _ShellTab(
         'settings',
