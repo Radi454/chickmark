@@ -690,6 +690,12 @@ const Map<String, String> _ar = {
       'تعذر تحديث وكيل تيليجرام. حاول مرة أخرى.',
   'Unable to load this draft. Please try again.':
       'تعذر تحميل هذه المسودة. حاول مرة أخرى.',
+  'Unable to approve this row. Please try again.':
+      'تعذر اعتماد هذا الصف. حاول مرة أخرى.',
+  'Unable to reject this row. Please try again.':
+      'تعذر رفض هذا الصف. حاول مرة أخرى.',
+  'Unable to save this row. Please try again.':
+      'تعذر حفظ هذا الصف. حاول مرة أخرى.',
   'Select a submission to review': 'اختر إرسالًا لمراجعته',
   'Extracted rows': 'الصفوف المستخرجة',
   'Staff submitter': 'الموظف المرسل',
@@ -726,6 +732,14 @@ const Map<String, String> _ar = {
   'Info': 'معلومة',
   'Approve': 'اعتماد',
   'Reject': 'رفض',
+  'Edit row': 'تعديل الصف',
+  'Reject row': 'رفض الصف',
+  'Rejection reason (optional)': 'سبب الرفض (اختياري)',
+  'Customer ID': 'معرّف العميل',
+  'Flock ID': 'معرّف القطيع',
+  'Hatchery ID': 'معرّف المفرخ',
+  'Use YYYY-MM-DD for dates.': 'استخدم YYYY-MM-DD للتواريخ.',
+  'Enter a valid value': 'أدخل قيمة صحيحة',
   'Row actions will be available in the approval stage.':
       'ستتوفر إجراءات الصف في مرحلة الاعتماد.',
   'Station': 'المحطة',

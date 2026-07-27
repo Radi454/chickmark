@@ -10,9 +10,18 @@ import '../../../widgets/app_card.dart';
 import '../services/hatchery_agent_rules.dart';
 
 class HatcheryDraftRowCard extends StatelessWidget {
-  const HatcheryDraftRowCard({super.key, required this.row});
+  const HatcheryDraftRowCard({
+    super.key,
+    required this.row,
+    this.onEdit,
+    this.onApprove,
+    this.onReject,
+  });
 
   final HatcheryDraftRow row;
+  final VoidCallback? onEdit;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
 
   @override
   Widget build(BuildContext context) {
@@ -78,38 +87,46 @@ class HatcheryDraftRowCard extends StatelessWidget {
             Text('No warnings', style: AppTextStyles.caption)
           else
             ...warnings.map((warning) => _WarningRow(warning: warning)),
-          const SizedBox(height: AppSizes.spaceLg),
-          const Divider(height: 1),
-          const SizedBox(height: AppSizes.spaceMd),
-          Wrap(
-            spacing: AppSizes.spaceSm,
-            runSpacing: AppSizes.spaceSm,
-            children: [
-              OutlinedButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit'),
-              ),
-              FilledButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('Approve'),
-              ),
-              OutlinedButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.cancel_outlined),
-                label: const Text('Reject'),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSizes.spaceXs),
-          Text(
-            'Row actions will be available in the approval stage.',
-            style: AppTextStyles.caption,
-          ),
+          if (_hasActions) ...[
+            const SizedBox(height: AppSizes.spaceLg),
+            const Divider(height: 1),
+            const SizedBox(height: AppSizes.spaceMd),
+            Wrap(
+              spacing: AppSizes.spaceSm,
+              runSpacing: AppSizes.spaceSm,
+              children: [
+                OutlinedButton.icon(
+                  key: ValueKey('agent-edit-row-${row.id}'),
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit'),
+                ),
+                FilledButton.icon(
+                  key: ValueKey('agent-approve-row-${row.id}'),
+                  onPressed: onApprove,
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Approve'),
+                ),
+                OutlinedButton.icon(
+                  key: ValueKey('agent-reject-row-${row.id}'),
+                  onPressed: onReject,
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: const Text('Reject'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  bool get _hasActions {
+    final reviewable =
+        row.status == HatcheryDraftRowStatus.pending ||
+        row.status == HatcheryDraftRowStatus.needsReview;
+    return reviewable &&
+        (onEdit != null || onApprove != null || onReject != null);
   }
 }
 

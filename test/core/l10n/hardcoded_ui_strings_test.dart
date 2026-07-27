@@ -18,6 +18,18 @@ void main() {
     expect(arabic.translate('Confidence'), 'الثقة');
     expect(arabic.translate('Warnings'), 'تنبيهات');
     expect(arabic.translate('Hatchability'), 'نسبة الفقس');
+    expect(
+      arabic.translate('Unable to approve this row. Please try again.'),
+      isNot('Unable to approve this row. Please try again.'),
+    );
+    expect(
+      arabic.translate('Unable to reject this row. Please try again.'),
+      isNot('Unable to reject this row. Please try again.'),
+    );
+    expect(
+      arabic.translate('Unable to save this row. Please try again.'),
+      isNot('Unable to save this row. Please try again.'),
+    );
   });
 
   test('static user-facing strings have Arabic translations', () {

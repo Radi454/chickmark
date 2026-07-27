@@ -126,6 +126,11 @@ void main() {
     when(() => photoSync.syncDownloaded()).thenAnswer((_) async {});
     when(() => photoSync.syncPending()).thenAnswer((_) async {});
     when(
+      () => supabase.pullOperationalRows(
+        upsertOperationalRow: any(named: 'upsertOperationalRow'),
+      ),
+    ).thenAnswer((_) async => 0);
+    when(
       () => conflicts.recordConflict(
         table: any(named: 'table'),
         rowId: any(named: 'rowId'),

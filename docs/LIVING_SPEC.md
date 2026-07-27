@@ -1639,7 +1639,7 @@ The Edge Function reads `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
 `OPENAI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only from its
 server environment. Deployment must disable Supabase JWT verification for this
 signed webhook; the function itself authenticates Telegram's secret-token
-header. The app does not approve, reject, edit, or save final hatchery rows yet.
+header.
 
 Approved staff roles now have an `Agent` main-shell destination before
 Settings; read-only customer users do not receive that destination. The Agent
@@ -1655,8 +1655,23 @@ text or file reference, source type, submitter identifier, submission and row
 statuses, questions and staff answers, extracted hatchery values, calculated
 hatchability, extraction confidence, historical/BMK warning messages, and
 agent audit history. Confidence and biological/historical warnings are
-displayed separately. Edit, approve, and reject controls are visible but
-disabled; they do not mutate drafts or operational records in this stage.
+displayed separately. Edit, approve, and reject controls are available only to
+signed-in admins. Admins can correct every extracted business field before
+saving a draft row, reject a row with an optional reason, or approve a complete
+row. Approval requires resolved customer and flock IDs plus station, breed,
+eggs placed, hatch date, total production, and hatchability. It atomically
+creates one pending-sync `hatchery_daily_records` row, links the approved draft
+row to it, and records the approving admin in an audit event. Rejection creates
+no final record and retains its reason in the audit trail.
+
+After each row decision, a batch remains partially approved while unresolved
+rows coexist with approved rows, becomes approved when all rows are resolved
+and at least one was approved, becomes rejected when every row was rejected,
+or requires admin review when rejected and unresolved rows remain without an
+approval. Draft edits, decisions, final records, batch status changes, and
+audit events are all marked for sync. Startup sync pushes and pulls the eight
+hatchery-agent operational tables after their customer, flock, and hatchery
+dependencies, using the operational dirty-row and conflict handling.
 Agent Monitor labels, statuses, empty/error states, and dynamic row/Telegram
 identity labels are available in English and Arabic.
 
@@ -1983,10 +1998,8 @@ trigger or policy cannot silently cancel a parent insert while the UI reports
 it as uploaded. Production no longer installs the obsolete
 `customers_keep_only_ghareeb` trigger; multi-customer inserts are supported and
 existing device-local rows retry on the next automatic or manual sync.
-The generic operational sync adapter recognizes the eight hatchery-agent tables
-after the customer/flock/hatchery dependency graph. Stage 1 does not yet connect
-those tables to the startup push/pull orchestration; that remains part of the
-later approval and sync-completion stage.
+The generic operational sync adapter recognizes and synchronizes the eight
+hatchery-agent tables after the customer/flock/hatchery dependency graph.
 The app assumes Supabase tables and storage are protected by project
 RLS/storage policies for approved authenticated users and their customer scope.
 The private `photos` bucket authorizes audit evidence through its audit-session
@@ -2066,11 +2079,14 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-27: Added admin-only hatchery draft row editing, rejection with an
+  audited reason, atomic approval into final hatchery daily records,
+  batch-status recalculation, and startup push/pull coverage for the
+  hatchery-agent operational tables.
 - 2026-07-27: Added the admin/staff Agent Monitor tab with persisted Telegram
   pause/resume control, responsive submission and draft evidence review,
   question/answer and audit-history display, separate confidence and warning
-  presentation, bilingual copy, and role-gated navigation. Row edit, approval,
-  rejection, and final-save controls remain disabled until the approval stage.
+  presentation, bilingual copy, and role-gated navigation.
 - 2026-07-27: Added the Telegram hatchery-agent Edge Function with verified
   webhook ingestion, allowed-staff enforcement, idempotent update handling,
   Telegram text/photo/document loading, strict OpenAI structured extraction,

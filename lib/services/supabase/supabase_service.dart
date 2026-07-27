@@ -9,6 +9,7 @@ import '../../core/security/security_policy.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/photo_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/repositories/performance_sync_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import 'sync_meta.dart';
 import 'supabase_initializer.dart';
@@ -744,6 +745,31 @@ class SupabaseService {
       safeDebugLog('Supabase sync_tombstones pull skipped', error: e);
       return 0;
     }
+  }
+
+  Future<int> pullOperationalRows({
+    required Future<void> Function(String table, Map<String, dynamic> row)
+    upsertOperationalRow,
+  }) async {
+    var pulled = 0;
+    try {
+      if (!await _prepareRemoteAccess()) return 0;
+      for (final table in PerformanceSyncRepository.allPushTables) {
+        try {
+          final rows = await _client.from(table).select();
+          safeDebugLog('Supabase pull: ${rows.length} $table rows');
+          for (final row in rows) {
+            await upsertOperationalRow(table, Map<String, dynamic>.from(row));
+          }
+          pulled += rows.length;
+        } catch (error) {
+          safeDebugLog('Supabase $table pull skipped', error: error);
+        }
+      }
+    } catch (error) {
+      safeDebugLog('Supabase operational pull failed', error: error);
+    }
+    return pulled;
   }
 
   Future<void> _upsertWithFallback(

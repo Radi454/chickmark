@@ -139,6 +139,69 @@ void main() {
     expect(provider.isLoading, isFalse);
     expect(provider.error, 'Unable to load this draft. Please try again.');
   });
+
+  test(
+    'approveRow approves then reloads selected details and summaries',
+    () async {
+      final repository = _FakeHatcheryAgentRepository(
+        summaries: [
+          _summary(id: 'batch-1', submittedAt: DateTime.utc(2026, 7, 27)),
+        ],
+        detailsById: {'batch-1': _details('batch-1')},
+      );
+      final provider = AgentMonitorProvider(repository: repository);
+      await provider.load();
+      final initialDetailLoads = repository.detailLoadCount;
+      final initialSummaryLoads = repository.summaryLoadCount;
+
+      await provider.approveRow('row-1', 'admin-1');
+
+      expect(repository.approvedRowId, 'row-1');
+      expect(repository.approvedBy, 'admin-1');
+      expect(repository.detailLoadCount, initialDetailLoads + 1);
+      expect(repository.summaryLoadCount, initialSummaryLoads + 1);
+    },
+  );
+
+  test('rejectRow forwards its reason then refreshes monitor data', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: [
+        _summary(id: 'batch-1', submittedAt: DateTime.utc(2026, 7, 27)),
+      ],
+      detailsById: {'batch-1': _details('batch-1')},
+    );
+    final provider = AgentMonitorProvider(repository: repository);
+    await provider.load();
+
+    await provider.rejectRow('row-1', 'admin-1', reason: 'Wrong flock');
+
+    expect(repository.rejectedRowId, 'row-1');
+    expect(repository.rejectedBy, 'admin-1');
+    expect(repository.rejectionReason, 'Wrong flock');
+    expect(repository.detailLoadCount, 2);
+    expect(repository.summaryLoadCount, 2);
+  });
+
+  test('saveRowEdit persists the row then refreshes monitor data', () async {
+    final row = _row('row-1');
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: [
+        _summary(id: 'batch-1', submittedAt: DateTime.utc(2026, 7, 27)),
+      ],
+      detailsById: {
+        'batch-1': _details('batch-1', rows: [row]),
+      },
+    );
+    final provider = AgentMonitorProvider(repository: repository);
+    await provider.load();
+    final edited = row.copyWith(stationName: 'Station B');
+
+    await provider.saveRowEdit(edited);
+
+    expect(repository.updatedRow?.stationName, 'Station B');
+    expect(repository.detailLoadCount, 2);
+    expect(repository.summaryLoadCount, 2);
+  });
 }
 
 class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
@@ -157,6 +220,14 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   final Object? listError;
   final Object? saveError;
   final Object? detailError;
+  int summaryLoadCount = 0;
+  int detailLoadCount = 0;
+  String? approvedRowId;
+  String? approvedBy;
+  String? rejectedRowId;
+  String? rejectedBy;
+  String? rejectionReason;
+  HatcheryDraftRow? updatedRow;
 
   @override
   Future<AgentSettings> loadSettings() async => settings;
@@ -164,12 +235,14 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   @override
   Future<List<HatcheryDraftBatchSummary>> listBatchSummaries() async {
     if (listError case final error?) throw error;
+    summaryLoadCount++;
     return summaries;
   }
 
   @override
   Future<HatcheryDraftBatchDetails?> loadBatchDetails(String batchId) async {
     if (detailError case final error?) throw error;
+    detailLoadCount++;
     return detailsById[batchId];
   }
 
@@ -177,6 +250,47 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   Future<void> saveSettings(AgentSettings settings) async {
     if (saveError case final error?) throw error;
     this.settings = settings;
+  }
+
+  @override
+  Future<HatcheryDailyRecord> approveDraftRow({
+    required String rowId,
+    required String approvedBy,
+    required DateTime approvedAt,
+  }) async {
+    approvedRowId = rowId;
+    this.approvedBy = approvedBy;
+    return HatcheryDailyRecord(
+      id: 'record-1',
+      sourceDraftRowId: rowId,
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      stationName: 'Station A',
+      breed: 'Ross',
+      eggsPlaced: 1000,
+      hatchDate: DateTime.utc(2026, 7, 27),
+      totalProduction: 850,
+      hatchabilityPct: 85,
+      approvedBy: approvedBy,
+      approvedAt: approvedAt,
+    );
+  }
+
+  @override
+  Future<void> rejectDraftRow({
+    required String rowId,
+    required String rejectedBy,
+    required DateTime rejectedAt,
+    String? reason,
+  }) async {
+    rejectedRowId = rowId;
+    this.rejectedBy = rejectedBy;
+    rejectionReason = reason;
+  }
+
+  @override
+  Future<void> updateDraftRow(HatcheryDraftRow row) async {
+    updatedRow = row;
   }
 }
 
@@ -200,6 +314,7 @@ HatcheryDraftBatchSummary _summary({
 HatcheryDraftBatchDetails _details(
   String batchId, {
   AgentSubmissionStatus status = AgentSubmissionStatus.draftReady,
+  List<HatcheryDraftRow> rows = const [],
 }) {
   return HatcheryDraftBatchDetails(
     submission: HatcheryAgentSubmission(
@@ -213,8 +328,25 @@ HatcheryDraftBatchDetails _details(
       submissionId: 'submission-$batchId',
       status: status,
     ),
-    rows: const [],
+    rows: rows,
     questions: const [],
     events: const [],
+  );
+}
+
+HatcheryDraftRow _row(String id) {
+  return HatcheryDraftRow(
+    id: id,
+    batchId: 'batch-1',
+    rowOrdinal: 1,
+    status: HatcheryDraftRowStatus.needsReview,
+    customerId: 'customer-1',
+    flockId: 'flock-1',
+    stationName: 'Station A',
+    breed: 'Ross',
+    eggsPlaced: 1000,
+    hatchDate: DateTime.utc(2026, 7, 27),
+    totalProduction: 850,
+    hatchabilityPct: 85,
   );
 }
