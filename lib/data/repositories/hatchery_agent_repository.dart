@@ -1,3 +1,8 @@
+import 'dart:convert';
+
+import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
+
 import '../database/database_helper.dart';
 import '../models/hatchery_agent_models.dart';
 
@@ -191,6 +196,302 @@ class HatcheryAgentRepository {
       limit: 1,
     );
     return rows.isEmpty ? null : HatcheryHistoricalPoint.fromMap(rows.single);
+  }
+
+  Future<HatcheryDailyRecord> approveDraftRow({
+    required String rowId,
+    required String approvedBy,
+    required DateTime approvedAt,
+  }) async {
+    final db = await _databaseHelper.db;
+    return db.transaction((txn) async {
+      final rowMaps = await txn.query(
+        'hatchery_draft_rows',
+        where: 'id = ?',
+        whereArgs: [rowId],
+        limit: 1,
+      );
+      if (rowMaps.isEmpty) {
+        throw StateError('Draft row not found');
+      }
+      final row = HatcheryDraftRow.fromMap(rowMaps.single);
+      final batch = await _loadBatch(txn, row.batchId);
+
+      if (row.status == HatcheryDraftRowStatus.approved) {
+        final approvedRecordId = row.approvedRecordId;
+        if (approvedRecordId == null) {
+          throw StateError('Approved draft row is missing its final record');
+        }
+        final records = await txn.query(
+          'hatchery_daily_records',
+          where: 'id = ?',
+          whereArgs: [approvedRecordId],
+          limit: 1,
+        );
+        if (records.isEmpty) {
+          throw StateError('Approved draft row final record was not found');
+        }
+        return HatcheryDailyRecord.fromMap(records.single);
+      }
+      if (row.status == HatcheryDraftRowStatus.rejected) {
+        throw StateError('Rejected draft rows cannot be approved');
+      }
+
+      final customerId = _requiredText(row.customerId, 'customerId');
+      final flockId = _requiredText(row.flockId, 'flockId');
+      final stationName = _requiredText(row.stationName, 'stationName');
+      final breed = _requiredText(row.breed, 'breed');
+      final eggsPlaced = _requiredValue(row.eggsPlaced, 'eggsPlaced');
+      final hatchDate = _requiredValue(row.hatchDate, 'hatchDate');
+      final totalProduction = _requiredValue(
+        row.totalProduction,
+        'totalProduction',
+      );
+      final hatchabilityPct = _requiredValue(
+        row.hatchabilityPct,
+        'hatchabilityPct',
+      );
+      final reviewedAt = approvedAt.toUtc();
+      final now = reviewedAt.toIso8601String();
+      final record = HatcheryDailyRecord(
+        id: const Uuid().v4(),
+        sourceDraftRowId: row.id,
+        customerId: customerId,
+        flockId: flockId,
+        hatcheryId: row.hatcheryId,
+        stationName: stationName,
+        breed: breed,
+        eggsPlaced: eggsPlaced,
+        productionDate: row.productionDate,
+        placementDate: row.placementDate,
+        eggWeightG: row.eggWeightG,
+        fertilityPct: row.fertilityPct,
+        transferWeightG: row.transferWeightG,
+        setterNumber: row.setterNumber,
+        hatcherNumber: row.hatcherNumber,
+        hatchDate: hatchDate,
+        healthyChicks: row.healthyChicks,
+        secondGradeChicks: row.secondGradeChicks,
+        condemnedChicks: row.condemnedChicks,
+        totalProduction: totalProduction,
+        hatchabilityPct: hatchabilityPct,
+        approvedBy: approvedBy,
+        approvedAt: reviewedAt,
+        createdAt: reviewedAt,
+        updatedAt: reviewedAt,
+      );
+
+      await txn.insert(
+        'hatchery_daily_records',
+        _pendingWrite(record.toMap(), now),
+      );
+      await txn.update(
+        'hatchery_draft_rows',
+        {
+          'status': HatcheryDraftRowStatus.approved.storageKey,
+          'approvedRecordId': record.id,
+          'reviewedBy': approvedBy,
+          'reviewedAt': now,
+          'updatedAt': now,
+          'syncStatus': 'pending',
+          'dirtyAt': now,
+          'syncError': null,
+        },
+        where: 'id = ?',
+        whereArgs: [row.id],
+      );
+      await txn.insert(
+        'hatchery_agent_audit_events',
+        _pendingWrite(
+          HatcheryAgentAuditEvent(
+            id: const Uuid().v4(),
+            submissionId: batch.submissionId,
+            rowId: row.id,
+            actorType: 'admin',
+            actorId: approvedBy,
+            eventType: 'row_approved',
+            createdAt: reviewedAt,
+            detailsJson: jsonEncode({'approvedRecordId': record.id}),
+          ).toMap(),
+          now,
+        ),
+      );
+      await _recalculateBatchStatus(txn, batch.id, now);
+      return record;
+    });
+  }
+
+  Future<void> rejectDraftRow({
+    required String rowId,
+    required String rejectedBy,
+    required DateTime rejectedAt,
+    String? reason,
+  }) async {
+    final db = await _databaseHelper.db;
+    await db.transaction((txn) async {
+      final rowMaps = await txn.query(
+        'hatchery_draft_rows',
+        where: 'id = ?',
+        whereArgs: [rowId],
+        limit: 1,
+      );
+      if (rowMaps.isEmpty) {
+        throw StateError('Draft row not found');
+      }
+      final row = HatcheryDraftRow.fromMap(rowMaps.single);
+      final batch = await _loadBatch(txn, row.batchId);
+      if (row.status == HatcheryDraftRowStatus.approved) {
+        throw StateError('Approved draft rows cannot be rejected');
+      }
+      if (row.status == HatcheryDraftRowStatus.rejected) return;
+
+      final reviewedAt = rejectedAt.toUtc();
+      final now = reviewedAt.toIso8601String();
+      await txn.update(
+        'hatchery_draft_rows',
+        {
+          'status': HatcheryDraftRowStatus.rejected.storageKey,
+          'reviewedBy': rejectedBy,
+          'reviewedAt': now,
+          'updatedAt': now,
+          'syncStatus': 'pending',
+          'dirtyAt': now,
+          'syncError': null,
+        },
+        where: 'id = ?',
+        whereArgs: [row.id],
+      );
+      final normalizedReason = reason?.trim();
+      await txn.insert(
+        'hatchery_agent_audit_events',
+        _pendingWrite(
+          HatcheryAgentAuditEvent(
+            id: const Uuid().v4(),
+            submissionId: batch.submissionId,
+            rowId: row.id,
+            actorType: 'admin',
+            actorId: rejectedBy,
+            eventType: 'row_rejected',
+            createdAt: reviewedAt,
+            detailsJson: normalizedReason == null || normalizedReason.isEmpty
+                ? null
+                : jsonEncode({'reason': normalizedReason}),
+          ).toMap(),
+          now,
+        ),
+      );
+      await _recalculateBatchStatus(txn, batch.id, now);
+    });
+  }
+
+  Future<void> updateDraftRow(HatcheryDraftRow row) async {
+    final db = await _databaseHelper.db;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      final existingMaps = await txn.query(
+        'hatchery_draft_rows',
+        where: 'id = ?',
+        whereArgs: [row.id],
+        limit: 1,
+      );
+      if (existingMaps.isEmpty) {
+        throw StateError('Draft row not found');
+      }
+      final existing = HatcheryDraftRow.fromMap(existingMaps.single);
+      if (existing.status == HatcheryDraftRowStatus.approved ||
+          existing.status == HatcheryDraftRowStatus.rejected) {
+        throw StateError('Reviewed draft rows cannot be edited');
+      }
+      final values = _pendingWrite(row.toMap(), now)
+        ..remove('id')
+        ..['batchId'] = existing.batchId
+        ..['rowOrdinal'] = existing.rowOrdinal
+        ..['status'] = existing.status.storageKey
+        ..['approvedRecordId'] = existing.approvedRecordId
+        ..['reviewedBy'] = existing.reviewedBy
+        ..['reviewedAt'] = existing.reviewedAt?.toUtc().toIso8601String()
+        ..['createdAt'] = existing.createdAt?.toUtc().toIso8601String();
+      await txn.update(
+        'hatchery_draft_rows',
+        values,
+        where: 'id = ?',
+        whereArgs: [row.id],
+      );
+    });
+  }
+
+  Future<HatcheryDraftBatch> _loadBatch(
+    DatabaseExecutor db,
+    String batchId,
+  ) async {
+    final batchMaps = await db.query(
+      'hatchery_draft_batches',
+      where: 'id = ?',
+      whereArgs: [batchId],
+      limit: 1,
+    );
+    if (batchMaps.isEmpty) {
+      throw StateError('Draft row is missing its batch');
+    }
+    return HatcheryDraftBatch.fromMap(batchMaps.single);
+  }
+
+  Future<void> _recalculateBatchStatus(
+    DatabaseExecutor db,
+    String batchId,
+    String now,
+  ) async {
+    final rows = await db.query(
+      'hatchery_draft_rows',
+      columns: const ['status'],
+      where: 'batchId = ?',
+      whereArgs: [batchId],
+    );
+    final statuses = rows
+        .map((row) => HatcheryDraftRowStatus.fromStorage(row['status']))
+        .toList(growable: false);
+    final approvedCount = statuses
+        .where((status) => status == HatcheryDraftRowStatus.approved)
+        .length;
+    final rejectedCount = statuses
+        .where((status) => status == HatcheryDraftRowStatus.rejected)
+        .length;
+    final pendingCount = statuses.length - approvedCount - rejectedCount;
+    final status = pendingCount == 0
+        ? (approvedCount > 0
+              ? AgentSubmissionStatus.approved
+              : AgentSubmissionStatus.rejected)
+        : (approvedCount > 0
+              ? AgentSubmissionStatus.partiallyApproved
+              : AgentSubmissionStatus.needsAdminReview);
+
+    await db.update(
+      'hatchery_draft_batches',
+      {
+        'status': status.storageKey,
+        'updatedAt': now,
+        'syncStatus': 'pending',
+        'dirtyAt': now,
+        'syncError': null,
+      },
+      where: 'id = ?',
+      whereArgs: [batchId],
+    );
+  }
+
+  String _requiredText(String? value, String field) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      throw StateError('Draft row requires $field');
+    }
+    return normalized;
+  }
+
+  T _requiredValue<T>(T? value, String field) {
+    if (value == null) {
+      throw StateError('Draft row requires $field');
+    }
+    return value;
   }
 
   Map<String, Object?> _pendingWrite(Map<String, Object?> values, String now) {

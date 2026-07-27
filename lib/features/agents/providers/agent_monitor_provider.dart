@@ -83,4 +83,58 @@ class AgentMonitorProvider extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  Future<void> approveRow(String rowId, String adminUserId) {
+    return _runRowAction(
+      action: () async {
+        await _repository.approveDraftRow(
+          rowId: rowId,
+          approvedBy: adminUserId,
+          approvedAt: DateTime.now().toUtc(),
+        );
+      },
+      errorMessage: 'Unable to approve this row. Please try again.',
+    );
+  }
+
+  Future<void> rejectRow(String rowId, String adminUserId, {String? reason}) {
+    return _runRowAction(
+      action: () => _repository.rejectDraftRow(
+        rowId: rowId,
+        rejectedBy: adminUserId,
+        rejectedAt: DateTime.now().toUtc(),
+        reason: reason,
+      ),
+      errorMessage: 'Unable to reject this row. Please try again.',
+    );
+  }
+
+  Future<void> saveRowEdit(HatcheryDraftRow row) {
+    return _runRowAction(
+      action: () => _repository.updateDraftRow(row),
+      errorMessage: 'Unable to save this row. Please try again.',
+    );
+  }
+
+  Future<void> _runRowAction({
+    required Future<void> Function() action,
+    required String errorMessage,
+  }) async {
+    final batchId = _selectedBatch?.batch.id;
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await action();
+      _batches = List.unmodifiable(await _repository.listBatchSummaries());
+      if (batchId != null) {
+        _selectedBatch = await _repository.loadBatchDetails(batchId);
+      }
+    } catch (_) {
+      _error = errorMessage;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }

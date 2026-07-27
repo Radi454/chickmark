@@ -20,6 +20,7 @@ import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
 import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
+import 'package:hatchaudit/data/repositories/performance_sync_repository.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
@@ -56,6 +57,9 @@ class _MockGoveeCaptureRepository extends Mock
 class _MockPanelSampleRepository extends Mock
     implements PanelSampleRepository {}
 
+class _MockPerformanceSyncRepository extends Mock
+    implements PerformanceSyncRepository {}
+
 class _MockSyncTombstoneRepository extends Mock
     implements SyncTombstoneRepository {}
 
@@ -74,6 +78,7 @@ void main() {
   late _MockAuditSessionRepository sessions;
   late _MockGoveeCaptureRepository govee;
   late _MockPanelSampleRepository panels;
+  late _MockPerformanceSyncRepository operational;
   late _MockSyncTombstoneRepository tombstones;
   late _MockPhotoSyncService photoSync;
 
@@ -96,6 +101,7 @@ void main() {
     sessions = _MockAuditSessionRepository();
     govee = _MockGoveeCaptureRepository();
     panels = _MockPanelSampleRepository();
+    operational = _MockPerformanceSyncRepository();
     tombstones = _MockSyncTombstoneRepository();
     photoSync = _MockPhotoSyncService();
 
@@ -185,6 +191,35 @@ void main() {
     when(() => panels.markRowsSynced(any(), any())).thenAnswer((_) async {});
     when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
     when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
+    when(
+      () => operational.getDirtyRows(any()),
+    ).thenAnswer((_) async => const []);
+    when(() => operational.prepareRemoteRow(any(), any())).thenAnswer((
+      invocation,
+    ) {
+      return Map<String, dynamic>.from(
+        invocation.positionalArguments[1] as Map<String, dynamic>,
+      )..removeWhere(
+        (key, _) => const {
+          'syncStatus',
+          'dirtyAt',
+          'lastSyncedAt',
+          'syncError',
+        }.contains(key),
+      );
+    });
+    when(
+      () => operational.markRowsSynced(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => operational.markRowsFailed(any(), any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => operational.getRowById(any(), any()),
+    ).thenAnswer((_) async => null);
+    when(
+      () => operational.upsertRemoteRow(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => govee.getDirtyCaptureRows()).thenAnswer((_) async => const []);
     when(() => actions.getDirtyRows()).thenAnswer((_) async => const []);
     when(() => actions.getRowById(any())).thenAnswer((_) async => null);
@@ -239,6 +274,11 @@ void main() {
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
     ).thenAnswer((_) async => const SupabasePullSummary(panelRows: 1));
+    when(
+      () => supabase.pullOperationalRows(
+        upsertOperationalRow: any(named: 'upsertOperationalRow'),
+      ),
+    ).thenAnswer((_) async => 0);
   });
 
   StartupSyncService service() => StartupSyncService(
@@ -254,6 +294,7 @@ void main() {
     auditSessionRepository: sessions,
     goveeCaptureRepository: govee,
     panelSampleRepository: panels,
+    performanceSyncRepository: operational,
     syncTombstoneRepository: tombstones,
     photoSyncService: photoSync,
   );
@@ -444,6 +485,72 @@ void main() {
     expect(payload.single, isNot(contains('dirtyAt')));
     verify(() => actions.markSynced(['action-1'])).called(1);
   });
+
+  test(
+    'pushes and marks every changed hatchery approval table synced',
+    () async {
+      const approvalTables = [
+        'hatchery_draft_batches',
+        'hatchery_draft_rows',
+        'hatchery_agent_audit_events',
+        'hatchery_daily_records',
+      ];
+      when(() => operational.getDirtyRows(any())).thenAnswer((
+        invocation,
+      ) async {
+        final table = invocation.positionalArguments.first as String;
+        if (!approvalTables.contains(table)) return const [];
+        return [
+          {
+            'id': '$table-1',
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-07-27T10:00:00.000Z',
+          },
+        ];
+      });
+
+      await service().run();
+
+      for (final table in approvalTables) {
+        verify(() => supabase.upsertRowsStrict(table, any())).called(1);
+        verify(() => operational.markRowsSynced(table, ['$table-1'])).called(1);
+      }
+    },
+  );
+
+  test(
+    'pulls every hatchery approval table through operational storage',
+    () async {
+      await service().run();
+
+      final captured = verify(
+        () => supabase.pullOperationalRows(
+          upsertOperationalRow: captureAny(named: 'upsertOperationalRow'),
+        ),
+      ).captured.single;
+      final callback =
+          captured
+              as Future<void> Function(String table, Map<String, dynamic> row);
+      for (final table in const [
+        'hatchery_draft_batches',
+        'hatchery_draft_rows',
+        'hatchery_agent_audit_events',
+        'hatchery_daily_records',
+      ]) {
+        await callback(table, {
+          'id': '$table-remote',
+          'updated_at': '2026-07-27T10:00:00.000Z',
+        });
+        verify(() => operational.getRowById(table, '$table-remote')).called(1);
+        verify(
+          () => operational.upsertRemoteRow(
+            table,
+            any(that: containsPair('id', '$table-remote')),
+          ),
+        ).called(1);
+      }
+    },
+  );
 
   test(
     'pull callback exposes panel tables without legacy audit callbacks',

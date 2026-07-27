@@ -10,6 +10,7 @@ import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
 import '../../data/repositories/lab_analysis_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
+import '../../data/repositories/performance_sync_repository.dart';
 import '../../data/repositories/photo_repository.dart';
 import '../../data/repositories/sync_conflict_repository.dart';
 import '../../data/repositories/sync_tombstone_repository.dart';
@@ -76,6 +77,7 @@ class StartupSyncService {
   final AuditSessionRepository _auditSessionRepository;
   final GoveeCaptureRepository _goveeCaptureRepository;
   final PanelSampleRepository _panelSampleRepository;
+  final PerformanceSyncRepository _performanceSyncRepository;
   final SyncTombstoneRepository _syncTombstoneRepository;
   final SyncConflictRepository _syncConflictRepository;
   final PhotoSyncService _photoSyncService;
@@ -98,6 +100,7 @@ class StartupSyncService {
     AuditSessionRepository? auditSessionRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
     PanelSampleRepository? panelSampleRepository,
+    PerformanceSyncRepository? performanceSyncRepository,
     SyncTombstoneRepository? syncTombstoneRepository,
     SyncConflictRepository? syncConflictRepository,
     PhotoSyncService? photoSyncService,
@@ -119,6 +122,8 @@ class StartupSyncService {
            goveeCaptureRepository ?? GoveeCaptureRepository(),
        _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
+       _performanceSyncRepository =
+           performanceSyncRepository ?? PerformanceSyncRepository(),
        _syncTombstoneRepository =
            syncTombstoneRepository ?? SyncTombstoneRepository(),
        _syncConflictRepository =
@@ -225,6 +230,11 @@ class StartupSyncService {
     );
     pushed += customers.length;
 
+    progress(0.18, 'Uploading operational setup');
+    pushed += await _pushDirtyOperationalRows(
+      PerformanceSyncRepository.preFlockPushOrder,
+    );
+
     progress(0.22, 'Uploading hatcheries');
     final hatcheries = await _hatcheryRepository.getAllHatcheries();
     await _supabaseService.upsertRowsStrict(
@@ -240,6 +250,11 @@ class StartupSyncService {
       flocks.map((flock) => flock.toMap()).toList(),
     );
     pushed += flocks.length;
+
+    progress(0.38, 'Uploading operational records');
+    pushed += await _pushDirtyOperationalRows(
+      PerformanceSyncRepository.postFlockPushOrder,
+    );
 
     progress(0.42, 'Uploading audit sessions');
     pushed += await _pushDirtySessions();
@@ -259,6 +274,34 @@ class StartupSyncService {
     progress(0.69, 'Preparing photo sync queue');
     final photos = await _photoRepository.getAllPhotos();
     pushed += photos.length;
+    return pushed;
+  }
+
+  Future<int> _pushDirtyOperationalRows(Iterable<String> tables) async {
+    var pushed = 0;
+    for (final table in tables) {
+      final dirty = await _performanceSyncRepository.getDirtyRows(table);
+      if (dirty.isEmpty) continue;
+      final ids = dirty
+          .map((row) => row['id']?.toString())
+          .whereType<String>()
+          .toList(growable: false);
+      try {
+        await _supabaseService.upsertRowsStrict(
+          table,
+          dirty
+              .map(
+                (row) =>
+                    _performanceSyncRepository.prepareRemoteRow(table, row),
+              )
+              .toList(growable: false),
+        );
+        await _performanceSyncRepository.markRowsSynced(table, ids);
+        pushed += dirty.length;
+      } catch (error) {
+        await _performanceSyncRepository.markRowsFailed(table, ids, error);
+      }
+    }
     return pushed;
   }
 
@@ -494,9 +537,26 @@ class StartupSyncService {
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
     );
+    final operationalRows = await _supabaseService.pullOperationalRows(
+      upsertOperationalRow: _upsertOperationalWithConflictCheck,
+    );
     await _syncTombstoneRepository.applyRemoteDeletes();
     progress(0.92, 'Preparing workspace');
-    return summary.total;
+    return summary.total + operationalRows;
+  }
+
+  Future<void> _upsertOperationalWithConflictCheck(
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_hasPendingLocalDelete(table, remoteRow)) return;
+    final result = await _upsertWithConflictCheck(
+      table,
+      remoteRow,
+      getLocal: (id) => _performanceSyncRepository.getRowById(table, id),
+      upsert: (row) => _performanceSyncRepository.upsertRemoteRow(table, row),
+    );
+    _countOtherIncoming(result);
   }
 
   Future<void> _upsertSessionWithConflictCheck(
