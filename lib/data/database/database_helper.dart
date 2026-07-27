@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 48,
+      version: 52,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -100,6 +100,8 @@ class DatabaseHelper {
     await _createGoveeCaptureTables(db);
     await _createDashboardActionTable(db);
     await _createLabAnalysisTables(db);
+    await _createPerformanceMonitoringTables(db);
+    await _createHatcheryAgentTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -149,6 +151,12 @@ class DatabaseHelper {
     if (oldVersion < 48) {
       await _applyV48Upgrade(db);
     }
+    if (oldVersion < 51) {
+      await _applyV51Upgrade(db);
+    }
+    if (oldVersion < 52) {
+      await _applyV52Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -172,6 +180,33 @@ class DatabaseHelper {
     'lab_analysis_reports',
     'lab_analysis_groups',
     'lab_analysis_rows',
+    'customer_sectors',
+    'farms',
+    'houses',
+    'flock_placements',
+    'broiler_daily_records',
+    'broiler_daily_record_revisions',
+    'daily_record_sources',
+    'broiler_daily_events',
+    'broiler_target_profiles',
+    'broiler_target_rows',
+    'performance_alert_rules',
+    'performance_concerns',
+    'farm_visit_sessions',
+    'farm_visit_houses',
+    'visit_investigations',
+    'visit_findings',
+    'cause_assessments',
+    'corrective_actions',
+    'action_kpi_evaluations',
+    'telegram_staff_links',
+    'agent_settings',
+    'agent_submissions',
+    'agent_questions',
+    'hatchery_draft_batches',
+    'hatchery_draft_rows',
+    'hatchery_agent_audit_events',
+    'hatchery_daily_records',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -179,6 +214,13 @@ class DatabaseHelper {
   /// during surgical repair. Existing rows keep their values (NULL for new
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
+    'flocks': [
+      'farmId TEXT',
+      'sectorKey TEXT',
+      "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
+      'targetProfileId TEXT',
+      'productionPhase TEXT',
+    ],
     'audit_sessions': [
       'customerId TEXT NOT NULL',
       'flockId TEXT NOT NULL',
@@ -354,6 +396,47 @@ class DatabaseHelper {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
+    'agent_submissions': [
+      'sourceKind TEXT NOT NULL',
+      'status TEXT NOT NULL',
+      'submittedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'hatchery_draft_rows': [
+      'batchId TEXT NOT NULL',
+      'rowOrdinal INTEGER NOT NULL',
+      'status TEXT NOT NULL',
+      'customerName TEXT',
+      'flockName TEXT',
+      'stationName TEXT',
+      'breed TEXT',
+      'eggsPlaced INTEGER',
+      'totalProduction INTEGER',
+      'hatchabilityPct REAL',
+      'confidencePct REAL',
+      'warningsJson TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'hatchery_daily_records': [
+      'customerId TEXT NOT NULL',
+      'flockId TEXT NOT NULL',
+      'stationName TEXT NOT NULL',
+      'breed TEXT NOT NULL',
+      'eggsPlaced INTEGER NOT NULL',
+      'hatchDate TEXT NOT NULL',
+      'totalProduction INTEGER NOT NULL',
+      'hatchabilityPct REAL NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
   };
 
   /// Surgical schema repair: detect missing tables/columns/indexes and restore
@@ -402,6 +485,8 @@ class DatabaseHelper {
     await _createGoveeCaptureTables(db);
     await _createDashboardActionTable(db);
     await _createLabAnalysisTables(db);
+    await _createPerformanceMonitoringTables(db);
+    await _createHatcheryAgentTables(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -622,6 +707,12 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV48UpgradeForTest(Database db) => _applyV48Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV51UpgradeForTest(Database db) => _applyV51Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV52UpgradeForTest(Database db) => _applyV52Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

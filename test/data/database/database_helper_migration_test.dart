@@ -149,6 +149,99 @@ void main() {
       ]);
     },
   );
+
+  test(
+    'v51 preserves legacy flocks and classifies only hatchery context',
+    () async {
+      final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('''CREATE TABLE flocks (
+      id TEXT PRIMARY KEY,
+      legacyNote TEXT
+    )''');
+      await db.execute('''CREATE TABLE audit_sessions (
+      id TEXT PRIMARY KEY,
+      flockId TEXT,
+      hatcheryId TEXT
+    )''');
+      await db.insert('flocks', {
+        'id': 'breeder-flock',
+        'legacyNote': 'preserve breeder',
+      });
+      await db.insert('flocks', {
+        'id': 'unknown-flock',
+        'legacyNote': 'preserve unknown',
+      });
+      await db.insert('audit_sessions', {
+        'id': 'visit-1',
+        'flockId': 'breeder-flock',
+        'hatcheryId': 'hatchery-1',
+      });
+
+      await DatabaseHelper().applyV51UpgradeForTest(db);
+
+      expect(
+        await _columnNames(db, 'flocks'),
+        containsAll([
+          'farmId',
+          'sectorKey',
+          'sexProfile',
+          'targetProfileId',
+          'productionPhase',
+        ]),
+      );
+      expect(
+        await db.query(
+          'flocks',
+          columns: ['id', 'legacyNote', 'sectorKey'],
+          orderBy: 'id',
+        ),
+        [
+          {
+            'id': 'breeder-flock',
+            'legacyNote': 'preserve breeder',
+            'sectorKey': 'breeder',
+          },
+          {
+            'id': 'unknown-flock',
+            'legacyNote': 'preserve unknown',
+            'sectorKey': null,
+          },
+        ],
+      );
+    },
+  );
+
+  test('v52 adds hatchery agent tables without replacing data', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+    await db.execute(
+      'CREATE TABLE preserved_rows (id TEXT PRIMARY KEY, value TEXT)',
+    );
+    await db.insert('preserved_rows', {'id': 'keep', 'value': 'still here'});
+
+    await DatabaseHelper().applyV52UpgradeForTest(db);
+
+    expect(
+      await _tableNames(db),
+      containsAll(const [
+        'telegram_staff_links',
+        'agent_settings',
+        'agent_submissions',
+        'agent_questions',
+        'hatchery_draft_batches',
+        'hatchery_draft_rows',
+        'hatchery_agent_audit_events',
+        'hatchery_daily_records',
+      ]),
+    );
+    expect(await db.query('preserved_rows'), [
+      {'id': 'keep', 'value': 'still here'},
+    ]);
+  });
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {

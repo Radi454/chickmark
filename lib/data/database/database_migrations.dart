@@ -52,6 +52,40 @@ Future<void> _applyV48Upgrade(Database db) async {
   ]);
 }
 
+Future<void> _applyV51Upgrade(Database db) async {
+  if (await _tableExists(db, 'flocks')) {
+    await _ensureColumns(db, 'flocks', const [
+      'farmId TEXT',
+      'sectorKey TEXT',
+      "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
+      'targetProfileId TEXT',
+      'productionPhase TEXT',
+    ]);
+  }
+  await _createPerformanceMonitoringTables(db);
+
+  // Existing hatchery-audit flocks are safely classifiable as Breeder. Other
+  // legacy flocks remain unclassified until a user assigns their sector.
+  if (await _tableExists(db, 'flocks') &&
+      await _tableExists(db, 'audit_sessions')) {
+    await db.execute('''
+      UPDATE flocks
+      SET sectorKey = 'breeder'
+      WHERE sectorKey IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM audit_sessions
+          WHERE audit_sessions.flockId = flocks.id
+            AND audit_sessions.hatcheryId IS NOT NULL
+        )
+    ''');
+  }
+}
+
+Future<void> _applyV52Upgrade(Database db) async {
+  await _createHatcheryAgentTables(db);
+}
+
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

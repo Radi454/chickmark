@@ -29,5 +29,12 @@ void main() {
         'Y2Vfcm9sZSI',
       ),
     );
+    expect(
+      body,
+      contains(
+        r'[0-9]{8,12}:AA'
+        r'[A-Za-z0-9_-]{30,}',
+      ),
+    );
   });
 }

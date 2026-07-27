@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-21
+2026-07-27
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -157,7 +157,7 @@ navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
 
-The main shell has eight destinations for approved admins and auditors:
+The main shell has nine destinations for approved admins and auditors:
 
 - Home
 - Dashboard
@@ -166,6 +166,7 @@ The main shell has eight destinations for approved admins and auditors:
 - Govee Records
 - Lab Analysis
 - BMK
+- Performance
 - Settings
 
 Approved customer-role accounts see only Dashboard and Settings. Settings is
@@ -1566,7 +1567,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 47. The database file
+The app uses SQLite through `sqflite` at database version 52. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1591,7 +1592,26 @@ checks panel tables against `PanelSampleSchema` and adds any missing
 measurement columns, allowing additive panel fields such as revised PM lesions
 to appear without another destructive reset.
 Later additive upgrades create dashboard action rows and Lab Analysis tables
-without resetting existing local data.
+without resetting existing local data. Version 51 adds the persistence
+foundation for poultry customer sectors, farms, houses, multi-house flock
+placements, revision-safe Broiler daily evidence, versioned Broiler objectives,
+operational concern state, diagnostic farm visits, probable-cause assessments,
+corrective actions, and KPI-based effectiveness evaluations. Existing flock
+rows remain valid: only flocks already linked to a hatchery audit are safely
+backfilled as Breeder; other legacy flock sectors remain unset for later user
+classification.
+
+Version 52 adds the Telegram hatchery-agent data foundation. Local SQLite now
+stores allowed staff links, one agent-settings row, original submission
+metadata, bilingual follow-up questions and answers, draft batches and rows,
+agent audit events, and approved hatchery daily-record-shaped rows. The
+repository can create a submission/batch/rows/questions/events graph in one
+transaction, load or update default agent thresholds, list newest draft batch
+summaries, load complete batch details, and find the previous approved
+customer/flock/station/breed record before a hatch date. Every local repository
+write is marked pending with dirty metadata. This persistence foundation does
+not yet receive Telegram webhooks, extract data with AI, expose an Agent
+Monitor, or approve draft rows.
 
 Tables created by the current database helper include:
 
@@ -1622,6 +1642,33 @@ Tables created by the current database helper include:
 - `lab_analysis_rows`
 - `sync_tombstones`
 - `sync_conflicts`
+- `customer_sectors`
+- `farms`
+- `houses`
+- `flock_placements`
+- `broiler_daily_records`
+- `broiler_daily_record_revisions`
+- `daily_record_sources`
+- `broiler_daily_events`
+- `broiler_target_profiles`
+- `broiler_target_rows`
+- `performance_alert_rules`
+- `performance_concerns`
+- `farm_visit_sessions`
+- `farm_visit_houses`
+- `visit_investigations`
+- `visit_findings`
+- `cause_assessments`
+- `corrective_actions`
+- `action_kpi_evaluations`
+- `telegram_staff_links`
+- `agent_settings`
+- `agent_submissions`
+- `agent_questions`
+- `hatchery_draft_batches`
+- `hatchery_draft_rows`
+- `hatchery_agent_audit_events`
+- `hatchery_daily_records`
 
 Fresh databases do not create `audits`, `sample_records`, sample detail tables,
 `egg_weights`, `{panel}_samples` child tables, legacy generic temperature
@@ -1645,6 +1692,130 @@ targets a panel row by `panelName`, `panelRowId`, and `fieldKey`; and
 `govee_daily_captures` belongs to a customer and hatchery. Lab Analysis reports
 belong to a customer and flock; lab groups belong to a lab report, customer, and
 flock; and lab rows belong to a lab group and report.
+For performance monitoring, a customer may enable multiple poultry sectors,
+each farm has exactly one sector, houses belong to farms, and a flock may span
+multiple house placements. A partial unique index prevents two active flock
+placements in one house. One stable Broiler daily record exists per
+placement/date; source corrections are stored as numbered revision rows rather
+than overwriting earlier evidence. Visits, findings, cause assessments,
+corrective actions, and action KPI evaluations use farm-specific tables and do
+not overload hatchery `audit_sessions` or `dashboard_actions`.
+Hatchery-agent questions and draft batches belong to one submission, draft rows
+belong to one batch, agent audit events retain their submission and optional row
+links, and final-shaped hatchery daily rows require customer/flock/station/breed
+identity. The matching Supabase migration uses snake_case tables, validates
+flock and hatchery customer scope, enables RLS on every agent table, exposes
+authenticated reads/writes only to approved admins, and leaves backend
+service-role access available for a future server-side agent.
+The hierarchy repository saves active/inactive customer-sector membership,
+sector-filtered farms, farm houses, and flock placements with offline dirty
+metadata. Creating a new Broiler flock and all selected house placements is one
+transaction, so a placement validation or active-house conflict cannot leave a
+partially created flock. Existing legacy flock models continue to load without a
+farm or sector; new performance flocks can retain farm, sector, sex-profile,
+target-profile, and production-phase context.
+Customer detail exposes this hierarchy through a Structure tab. Editors can
+enable Breeder, Broiler, and Layer together, add farms using exactly one of the
+customer's enabled sectors, and add houses beneath each farm. Disabling a
+sector keeps its membership history inactive and prevents new farms from being
+assigned to it. Hatchery management is available only while Breeder is enabled;
+the Hatcheries tab otherwise explains how to enable the required sector. The
+main shell exposes the Broiler Performance workspace to approved staff without
+changing the customer-role Dashboard-and-Settings destination set.
+The Broiler objective catalogue contains versioned day 0-56 as-hatched, male,
+and female profiles for Ross 308 / Ross 308 FF, Indian River / Indian River FF,
+Arbor Acres Plus / Arbor Acres Plus S, Hubbard Efficiency Plus, and Cobb500.
+Every official row retains its source title, publication version, official URL,
+units, and metric-method notes; Ross 308 AP is not included. Source-absent values
+remain null. Hubbard water targets are derived only on its as-hatched profile
+from the published daily feed objective multiplied by 1.70, with that method
+stored on each applicable row. Administrators can clone a profile into an
+inactive custom draft, replace the draft's rows, and activate it as a new
+version. Activation deactivates the previous matching version without changing
+its historical row set, so flocks that reference the older profile remain
+reproducible.
+Broiler daily entry uses one stable record per house placement and logical date,
+with every submission stored as a numbered immutable revision. Corrections add
+a revision and move the stable record's current pointer instead of overwriting
+earlier farm evidence. Each revision can retain reported/entered/reviewed/
+verified provenance, population changes, mortality causes, feed, water,
+weighing samples, environment, health facts, typed operational events, and
+source-document metadata. Validation rejects negative facts, inconsistent
+closing-population arithmetic, corrections without a reason, and verified rows
+without verifier metadata before any transaction is written. The repository
+also exposes the current placement/day value, previous-day value, complete
+revision history, and a house-by-house flock entry grid.
+The pure Broiler KPI calculator derives local-calendar flock age, average live
+birds, daily and cumulative mortality, livability, feed and water per live bird,
+water-to-feed ratio, cumulative feed per placed bird, weight gain, sampled
+uniformity and CV, target deviations, and mortality trend direction. Expected
+cumulative feed is adjusted by each day's actual average live population before
+comparison with actual feed. Actual FCR is labeled estimated and is withheld
+with a specific missing-data reason when live population, current weight,
+placement weight, or cumulative feed is unavailable. EPEF is calculated only
+after cycle completion is explicitly confirmed; unvalidated final-weight and
+final-FCR projections are not produced.
+The Broiler manual quick-entry screen follows Customer → Broiler farm → flock →
+date selection and loads every active house placement together. Each house card
+keeps previous-day and target context read-only while today's draft remains
+separate, then places population, feed, and water before expandable weight,
+environment, events, mortality causes, and source-document sections. Wide
+screens use a two-column house grid and narrow screens use a single list.
+Saving validates each started house independently: valid houses append their
+revision, invalid house drafts remain editable, and a per-house summary reports
+what still needs attention. Corrected entries expose and require a correction
+reason.
+Operational alert rules are separate from genetic objectives. Seeded defaults
+cover sustained weight and mortality deviations plus mortality/population
+mismatches, decreasing cumulative feed, unexplained water changes, repeated
+identical values, implausible weekly weight change, and extended zero mortality.
+Customer rules override the matching global metric rule. Evaluation requires
+the configured number of valid observations, records structured evidence and
+recommended investigation keys, and never treats null data as a performance
+loss. A detected scope/rule/metric combination updates one persistent open or
+monitoring concern instead of creating dashboard duplicates. Resolution and
+dismissal retain explicit user evidence, and a later detection creates a linked
+recurrence.
+The Broiler Performance workspace follows Customer → Broiler farm → flock and
+an explicit date range. It aggregates the current revision from every selected
+flock house into immutable view snapshots and presents Current status, Trends,
+Active concerns, and Audits and corrective actions. Current metrics never
+render missing data as zero; they show the calculator's missing-data reason.
+The context strip distinguishes farm-reported data from its current
+entered/reviewed/verified/corrected state and labels the exact target
+publication. Trend cards use valid daily values from the selected period.
+Changing scope or date range rebuilds the snapshot, and returning from manual
+quick entry refreshes it from SQLite.
+Farm visits use a generated briefing snapshot that freezes the concern ids,
+performance evidence, target/rule versions, and suggested investigations at
+planning time. A visit selects one or more houses and can add manual
+investigations without mutating that original briefing. Investigations retain
+their source-concern link, house/location, origin, lifecycle status, and result.
+Visit findings can store measurements, structured observations, staff
+explanations, and attachment references. Cause assessments link the findings
+back to a concern and retain supporting and conflicting evidence; a newly saved
+assessment remains `suspected` until a user explicitly changes it to
+`probable`, `confirmed`, or `ruled_out`.
+Corrective actions link a performance concern to the originating visit and
+optional cause assessment, with an owner, due date, implementation confirmer,
+completion evidence, and one or more KPI definitions. Each KPI definition
+freezes its baseline window/value, target rule/value, evaluation scope, and
+future evaluation window when the action is issued. Effectiveness uses the
+latest valid in-scope observation only after implementation is confirmed and
+the complete evaluation window is available. It reports effective when the
+target is met, partially effective when the KPI moved toward the target, and
+ineffective when it did not; incomplete or insufficient evidence remains
+explicitly not evaluated with a reason. Calculated results are persisted only
+through an explicit evaluator action.
+The diagnostic visit screen renders the frozen daily briefing as read-only
+evidence, then keeps visit-only investigations, measured findings, staff
+explanations, and attachment counts separate from daily entry. Users can add
+manual investigations and findings, complete investigation results, and
+explicitly change a cause among suspected, probable, confirmed, and ruled out.
+The corrective-action screen supports issuing an owned action with a KPI
+baseline/target/evaluation window, confirming implementation, reviewing
+before/target/after evidence, and explicitly recording the effectiveness
+decision and reason.
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
@@ -1750,6 +1921,10 @@ trigger or policy cannot silently cancel a parent insert while the UI reports
 it as uploaded. Production no longer installs the obsolete
 `customers_keep_only_ghareeb` trigger; multi-customer inserts are supported and
 existing device-local rows retry on the next automatic or manual sync.
+The generic operational sync adapter recognizes the eight hatchery-agent tables
+after the customer/flock/hatchery dependency graph. Stage 1 does not yet connect
+those tables to the startup push/pull orchestration; that remains part of the
+later approval and sync-completion stage.
 The app assumes Supabase tables and storage are protected by project
 RLS/storage policies for approved authenticated users and their customer scope.
 The private `photos` bucket authorizes audit evidence through its audit-session
@@ -1765,6 +1940,8 @@ sync logs are sanitized and do not print stack traces, tokens, row payloads, or
 raw BLE bytes. Shared debug logging redacts JWTs, Supabase publishable/secret
 keys, and token/password/API-key values in query/form and JSON-style messages
 before printing in debug builds.
+The tracked-file secret scanner also rejects Telegram bot-token-shaped content.
+No Telegram bot token is stored in the app, migration, tests, or documentation.
 
 Govee place captures are persisted as one completed daily capture row per
 customer, hatchery, place, machine, and date. The row stores Temp/RH summary
@@ -1827,6 +2004,34 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-27: Added the v52 hatchery-agent data foundation with additive local
+  and Supabase tables, immutable storage models, atomic draft-graph repository
+  writes, settings and historical comparable queries, operational sync
+  allowlisting, admin-only remote RLS, tenant-scope validation, and
+  Telegram-token-shaped secret scanning. Telegram ingestion, AI extraction,
+  Agent Monitor UI, and row approval remain unimplemented.
+- 2026-07-24: Added customer poultry-structure management for concurrent
+  Breeder, Broiler, and Layer membership, single-sector farms, nested houses,
+  and the Breeder-only hatchery gate. Added Performance as a staff main-shell
+  destination while preserving the customer-role navigation boundary.
+- 2026-07-24: Added localized diagnostic visit and corrective-action workflow
+  screens. Daily evidence remains read-only during visits; investigations,
+  findings, staff explanations, explicit cause decisions, action ownership,
+  implementation confirmation, and before/after KPI decisions are editable.
+- 2026-07-24: Added the responsive Broiler Performance workspace with
+  customer/farm/flock/date scope, multi-house SQLite aggregation, current KPI
+  cards, daily trend charts, active concerns, visits/actions, provenance and
+  verification badges, exact objective-source labels, and a daily quick-entry
+  path.
+- 2026-07-24: Added corrective-action KPI follow-up with immutable baseline and
+  evaluation windows, implementation confirmation, valid scoped observations,
+  all four effectiveness outcomes, explicit reasons, and persisted evaluator
+  identity/time.
+- 2026-07-24: Added the diagnostic farm-visit evidence layer for performance
+  concerns: immutable pre-visit briefing snapshots, selected houses, suggested
+  and manual investigations, measurements and observations, staff explanations,
+  attachment references, and explicit suspected/probable/confirmed/ruled-out
+  cause assessment states.
 - 2026-07-24: Added the Home `Incomplete Visits` section. It lists every
   customer-visible in-progress visit with station progress, remaining stations,
   and an explicit completion reminder. `Complete now` resumes the first
