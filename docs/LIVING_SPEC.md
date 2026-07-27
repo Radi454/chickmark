@@ -1613,6 +1613,17 @@ write is marked pending with dirty metadata. This persistence foundation does
 not yet receive Telegram webhooks, extract data with AI, expose an Agent
 Monitor, or approve draft rows.
 
+The hatchery-agent rule service calculates hatchability as total production
+divided by eggs placed times 100 only when both counts are present, production
+is non-negative, and eggs placed is positive. It emits a review warning when
+the absolute change from the previous approved comparable hatchability meets
+or exceeds the configured percentage-point threshold. For rising results, a
+breed BMK at or above the current result adds informational context that the
+increase may be consistent with BMK; an unavailable BMK or flock age adds an
+informational missing-data warning instead. The rule engine retrieves the
+previous comparable record using the exact customer/flock/station/breed key and
+looks up BMK using flock age in days.
+
 Tables created by the current database helper include:
 
 - `users`
