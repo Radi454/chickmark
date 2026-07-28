@@ -432,6 +432,66 @@ Deno.test('attachment bytes and metadata reach the runtime and model reply is un
   assertEquals(messages, ['هذا هو الرد كما كتبه النموذج.'])
 })
 
+Deno.test('largest Telegram photo reaches the unified runtime without legacy submission writes', async () => {
+  const client = new FakeAdmin()
+  const downloadedFileIds: string[] = []
+  let invocation: AgentTurnInput | null = null
+  const deps = dependencies({
+    client,
+    run: (input) => {
+      invocation = input
+      return Promise.resolve({
+        status: 'replied',
+        reply: 'تمت قراءة الصورة.',
+        providerResponseId: 'response-photo',
+        toolCallCount: 0,
+      })
+    },
+  })
+
+  const response = await handleTelegramUpdate(
+    new Request('https://example.test', {
+      method: 'POST',
+      headers: { 'X-Telegram-Bot-Api-Secret-Token': 'secret' },
+      body: JSON.stringify({
+        update_id: 750,
+        message: {
+          message_id: 751,
+          chat: { id: 123 },
+          from: { id: 456 },
+          caption: 'راجع الصورة',
+          photo: [
+            { file_id: 'photo-small' },
+            { file_id: 'photo-largest' },
+          ],
+        },
+      }),
+    }),
+    {
+      ...deps,
+      loadTelegramFile: ({ fileId, mimeType }) => {
+        downloadedFileIds.push(fileId)
+        assertEquals(mimeType, 'image/jpeg')
+        return Promise.resolve({
+          fileData: 'data:image/jpeg;base64,PHOTO',
+          mimeType,
+        })
+      },
+    },
+  )
+
+  assertEquals((await response.json()).agent, true)
+  assertEquals(downloadedFileIds, ['photo-largest'])
+  assertEquals(invocation!.attachment, {
+    kind: 'image',
+    fileName: 'telegram-photo.jpg',
+    mimeType: 'image/jpeg',
+    fileData: 'data:image/jpeg;base64,PHOTO',
+  })
+  assertEquals(client.inserts.agent_submissions, undefined)
+  assertEquals(client.inserts.hatchery_draft_batches, undefined)
+})
+
 Deno.test('delivery failure is recorded without rerunning the model', async () => {
   let modelCalls = 0
   const client = new FakeAdmin()

@@ -1,20 +1,25 @@
-import { assertEquals, assertMatch } from '@std/assert'
+import { assertEquals } from '@std/assert'
 
+import * as telegramAgent from './index.ts'
 import { handleTelegramUpdate } from './index.ts'
 
-Deno.test('runtime constructs the audit store and registers its handlers', async () => {
-  const indexSource = await Deno.readTextFile(
-    new URL('./index.ts', import.meta.url),
-  )
+Deno.test('production handler registry includes executable audit handlers', () => {
+  const compose = (telegramAgent as unknown as {
+    createUnifiedAgentToolHandlers?: (
+      adminClient: unknown,
+    ) => Record<string, unknown>
+  }).createUnifiedAgentToolHandlers
 
-  assertMatch(
-    indexSource,
-    /const auditStore = createSupabaseAgentAuditStore\(\s*adminClient as unknown as AgentAuditClient,\s*\)/,
-  )
-  assertMatch(
-    indexSource,
-    /const handlers = \{[\s\S]*?\.\.\.createAgentAuditToolHandlers\(auditStore\),/,
-  )
+  assertEquals(typeof compose, 'function')
+  if (typeof compose !== 'function') return
+
+  const handlers = compose({
+    from() {
+      throw new Error('store construction must not query the database')
+    },
+  })
+  assertEquals(typeof handlers.list_customer_audits, 'function')
+  assertEquals(typeof handlers.get_audit_summary, 'function')
 })
 
 Deno.test('webhook rejects a missing Telegram secret before invoking the agent', async () => {
