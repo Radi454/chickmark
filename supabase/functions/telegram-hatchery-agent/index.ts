@@ -1041,6 +1041,30 @@ function normalizeDigits(value: string): string {
   }).join('')
 }
 
+export function createUnifiedAgentToolHandlers(
+  adminClient: AdminClient,
+) {
+  const intakeClient = adminClient as unknown as AgentIntakeClient
+  const intakeStore = createSupabaseAgentIntakeStore(intakeClient)
+  const readStore = createSupabaseAgentReadStore(
+    adminClient as unknown as AgentReadClient,
+  )
+  const auditStore = createSupabaseAgentAuditStore(
+    adminClient as unknown as AgentAuditClient,
+  )
+  return {
+    ...createAgentReadToolHandlers(readStore),
+    ...createAgentAuditToolHandlers(auditStore),
+    ...createAgentIntakeToolHandlers({
+      store: intakeStore,
+      contextResolver: createSupabaseAgentIntakeContextResolver(intakeClient),
+    }),
+    ...createAgentLegacyToolHandlers(
+      createSupabaseAgentLegacyQuestionStore(adminClient),
+    ),
+  }
+}
+
 export function serveTelegramWebhook(
   request: Request,
 ): Response | Promise<Response> {
@@ -1065,25 +1089,7 @@ export function serveTelegramWebhook(
   const agentScopeStore = createSupabaseAgentScopeStore(
     adminClient as unknown as AgentScopeClient,
   )
-  const intakeClient = adminClient as unknown as AgentIntakeClient
-  const intakeStore = createSupabaseAgentIntakeStore(intakeClient)
-  const readStore = createSupabaseAgentReadStore(
-    adminClient as unknown as AgentReadClient,
-  )
-  const auditStore = createSupabaseAgentAuditStore(
-    adminClient as unknown as AgentAuditClient,
-  )
-  const handlers = {
-    ...createAgentReadToolHandlers(readStore),
-    ...createAgentAuditToolHandlers(auditStore),
-    ...createAgentIntakeToolHandlers({
-      store: intakeStore,
-      contextResolver: createSupabaseAgentIntakeContextResolver(intakeClient),
-    }),
-    ...createAgentLegacyToolHandlers(
-      createSupabaseAgentLegacyQuestionStore(adminClient),
-    ),
-  }
+  const handlers = createUnifiedAgentToolHandlers(adminClient)
   const provider = createResponsesAgentProvider(aiConfig)
   return handleTelegramUpdate(request, {
     expectedTelegramSecret,
