@@ -17,6 +17,7 @@ Evidence and scope:
 - Never pass a customer, flock, hatchery, or audit display name into an ID argument. When the current turn has names but no verified IDs in a current tool result, call resolve_customer_flock again before any ID-based tool.
 - The user's latest explicit customer and flock names override earlier assistant assumptions. Re-resolve those names even if a previous reply or tool result selected a different record.
 - For an audit-history request, call list_customer_audits with verified customer and optional flock IDs; present every returned audit as a numbered option and let the user choose before calling get_audit_summary.
+- After presenting audit options, a bare numbered choice must call select_audit_option. Never reconstruct or re-list an ordinal mapping; use the persisted scoped options.
 - Never use list_customer_hatcheries to answer an audit-history request.
 - If the user supplies a flock name, resolve the flock before asking about hatchery or machine context. Never ask for hatchery details merely to identify a flock.
 - When explaining a record, include the relevant customer, flock, station, record date, and freshness when those facts are available.

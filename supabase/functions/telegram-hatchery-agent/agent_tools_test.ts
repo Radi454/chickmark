@@ -1,6 +1,9 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
 
-import type { AgentToolResult } from './agent_protocol.ts'
+import type {
+  AgentToolExecutionInput,
+  AgentToolResult,
+} from './agent_protocol.ts'
 import {
   AGENT_TOOL_DEFINITIONS,
   type AgentToolEvidence,
@@ -20,11 +23,21 @@ Deno.test('tool definitions expose typed capabilities without database internals
   assertStringIncludes(json, 'resolve_customer_flock')
   assertStringIncludes(json, 'list_customer_flocks')
   assertStringIncludes(json, 'list_customer_audits')
+  assertStringIncludes(json, 'select_audit_option')
   assertStringIncludes(json, 'get_audit_summary')
   const auditCatalog = AGENT_TOOL_DEFINITIONS.find(
     (tool) => tool.name === 'list_customer_audits',
   )
   assertEquals(auditCatalog?.parameters.properties.limit.maximum, 20)
+  const selectionCatalog = AGENT_TOOL_DEFINITIONS.find(
+    (tool) => tool.name === 'select_audit_option',
+  )
+  assertEquals(selectionCatalog?.parameters.required, ['position'])
+  assertEquals(selectionCatalog?.parameters.properties.position, {
+    type: 'integer',
+    minimum: 1,
+    maximum: 20,
+  })
   for (
     const forbidden of [
       'service_role',
@@ -144,6 +157,53 @@ Deno.test('gateway injects enforced scope and validates bounded read arguments',
     ),
     { ok: false, code: 'invalid_arguments', data: null },
   )
+})
+
+Deno.test('audit option selection accepts only integer positions one through twenty', async () => {
+  const positions: unknown[] = []
+  const selectionHandler = (
+    input: AgentToolExecutionInput,
+  ): Promise<AgentToolResult> => {
+    positions.push(input.arguments.position)
+    return Promise.resolve({ ok: true, code: 'ok', data: { selected: true } })
+  }
+  const context = {
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    evidence: { record: () => undefined },
+    handlers: {
+      select_audit_option: selectionHandler,
+    },
+  }
+
+  for (const position of [0, 21, 1.5, '2']) {
+    assertEquals(
+      await executeAgentTool(
+        {
+          id: `call-invalid-${position}`,
+          name: 'select_audit_option',
+          arguments: { position },
+        },
+        context,
+      ),
+      { ok: false, code: 'invalid_arguments', data: null },
+    )
+  }
+  for (const position of [1, 20]) {
+    assertEquals(
+      await executeAgentTool(
+        {
+          id: `call-valid-${position}`,
+          name: 'select_audit_option',
+          arguments: { position },
+        },
+        context,
+      ),
+      { ok: true, code: 'ok', data: { selected: true } },
+    )
+  }
+  assertEquals(positions, [1, 20])
 })
 
 Deno.test('tool evidence strips secret-shaped arguments and results', async () => {
