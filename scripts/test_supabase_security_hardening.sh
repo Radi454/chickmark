@@ -124,7 +124,7 @@ begin
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'chickmark_private'
-    and p.proname like 'app_%';
+    and p.proname like 'app$_%' escape '$';
 
   if helper_count <> 7 then
     raise exception 'expected 7 private authorization helpers, found %', helper_count;
@@ -135,7 +135,7 @@ begin
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'chickmark_private'
-      and p.proname like 'app_%'
+      and p.proname like 'app$_%' escape '$'
       and (
         not p.prosecdef
         or coalesce(array_to_string(p.proconfig, ','), '') not like '%search_path=""%'
@@ -149,7 +149,7 @@ begin
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
-    and p.proname like 'app_%';
+    and p.proname like 'app$_%' escape '$';
 
   if public_helper_count <> 0 then
     raise exception 'public authorization helpers were not removed';
@@ -184,7 +184,7 @@ begin
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'chickmark_private'
-      and p.proname like 'app_%'
+      and p.proname like 'app$_%' escape '$'
   loop
     if has_function_privilege('anon', function_row.oid, 'EXECUTE') then
       raise exception 'anon can execute private helper %', function_row.proname;

@@ -86,6 +86,121 @@ Future<void> _applyV52Upgrade(Database db) async {
   await _createHatcheryAgentTables(db);
 }
 
+Future<void> _applyV53Upgrade(Database db) async {
+  await _createAgentIntakeTables(db);
+}
+
+Future<void> _applyV54Upgrade(Database db) async {
+  if (await _tableExists(db, 'telegram_staff_links')) {
+    await _ensureColumns(db, 'telegram_staff_links', const [
+      "accessRole TEXT NOT NULL DEFAULT 'customer'",
+      'customerId TEXT',
+    ]);
+    // Approved links before v54 belonged to the administrator who configured
+    // the bot. Preserve that access explicitly instead of assigning a random
+    // customer or invalidating the link.
+    await db.execute('''
+      UPDATE telegram_staff_links
+      SET accessRole = 'admin', customerId = NULL
+      WHERE status = 'allowed' AND customerId IS NULL
+    ''');
+  }
+  if (await _tableExists(db, 'agent_intake_sessions')) {
+    await _ensureColumns(db, 'agent_intake_sessions', const [
+      'visitId TEXT',
+      'rowVersion INTEGER NOT NULL DEFAULT 1',
+      'lastToolEventId TEXT',
+    ]);
+  }
+
+  // Create the graph before its guards so incomplete legacy rows can be
+  // preserved and grouped. Every new write is guarded after the backfill.
+  await _createUnifiedAgentHarnessTables(db, createGuards: false);
+
+  if (await _tableExists(db, 'agent_intake_sessions')) {
+    await db.execute('''
+      INSERT OR IGNORE INTO agent_conversations (
+        id,
+        staffLinkId,
+        telegramChatId,
+        stateVersion,
+        createdAt,
+        updatedAt,
+        syncStatus
+      )
+      SELECT
+        'legacy-conversation-' || staffLinkId || '-' || telegramChatId,
+        staffLinkId,
+        telegramChatId,
+        1,
+        MIN(createdAt),
+        MAX(updatedAt),
+        'synced'
+      FROM agent_intake_sessions
+      GROUP BY staffLinkId, telegramChatId
+    ''');
+    await db.execute('''
+      INSERT OR IGNORE INTO agent_intake_visits (
+        id,
+        conversationId,
+        customerId,
+        flockId,
+        hatcheryId,
+        auditDate,
+        state,
+        approvedSessionId,
+        createdAt,
+        updatedAt,
+        syncStatus
+      )
+      SELECT
+        'legacy-visit-' || intake.id,
+        conversation.id,
+        intake.customerId,
+        intake.flockId,
+        intake.hatcheryId,
+        intake.auditDate,
+        CASE
+          WHEN intake.state = 'approved' THEN 'completed'
+          WHEN intake.state IN ('rejected', 'cancelled') THEN 'cancelled'
+          WHEN intake.state = 'awaiting_admin_review'
+            THEN 'awaiting_admin_review'
+          ELSE 'collecting'
+        END,
+        intake.approvedSessionId,
+        intake.createdAt,
+        intake.updatedAt,
+        'synced'
+      FROM agent_intake_sessions intake
+      INNER JOIN agent_conversations conversation
+        ON conversation.staffLinkId = intake.staffLinkId
+       AND conversation.telegramChatId = intake.telegramChatId
+    ''');
+    await db.execute('''
+      UPDATE agent_intake_sessions
+      SET visitId = 'legacy-visit-' || id, rowVersion = 1
+      WHERE visitId IS NULL
+    ''');
+    await db.execute('''
+      UPDATE agent_conversations
+      SET activeVisitId = (
+        SELECT visit.id
+        FROM agent_intake_visits visit
+        WHERE visit.conversationId = agent_conversations.id
+          AND visit.state IN (
+            'selecting_station',
+            'collecting',
+            'awaiting_admin_review'
+          )
+        ORDER BY visit.updatedAt DESC, visit.id DESC
+        LIMIT 1
+      )
+    ''');
+  }
+
+  await _createUnifiedAgentHarnessGuards(db);
+}
+
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

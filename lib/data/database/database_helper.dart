@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 52,
+      version: 54,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -102,6 +102,8 @@ class DatabaseHelper {
     await _createLabAnalysisTables(db);
     await _createPerformanceMonitoringTables(db);
     await _createHatcheryAgentTables(db);
+    await _createAgentIntakeTables(db);
+    await _createUnifiedAgentHarnessTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -157,6 +159,12 @@ class DatabaseHelper {
     if (oldVersion < 52) {
       await _applyV52Upgrade(db);
     }
+    if (oldVersion < 53) {
+      await _applyV53Upgrade(db);
+    }
+    if (oldVersion < 54) {
+      await _applyV54Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -207,6 +215,13 @@ class DatabaseHelper {
     'hatchery_draft_rows',
     'hatchery_agent_audit_events',
     'hatchery_daily_records',
+    'agent_intake_sessions',
+    'agent_intake_turns',
+    'agent_intake_values',
+    'agent_conversations',
+    'agent_conversation_turns',
+    'agent_tool_events',
+    'agent_intake_visits',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -437,6 +452,101 @@ class DatabaseHelper {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
+    'agent_intake_sessions': [
+      'staffLinkId TEXT NOT NULL',
+      'telegramChatId TEXT NOT NULL',
+      'schemaKey TEXT NOT NULL',
+      'schemaVersion INTEGER NOT NULL',
+      'state TEXT NOT NULL',
+      'language TEXT NOT NULL',
+      'auditDate TEXT NOT NULL',
+      "workingValuesJson TEXT NOT NULL DEFAULT '{}'",
+      'summaryVersion INTEGER NOT NULL DEFAULT 0',
+      'visitId TEXT',
+      'rowVersion INTEGER NOT NULL DEFAULT 1',
+      'lastToolEventId TEXT',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'telegram_staff_links': [
+      "accessRole TEXT NOT NULL DEFAULT 'customer'",
+      'customerId TEXT',
+    ],
+    'agent_conversations': [
+      'staffLinkId TEXT NOT NULL',
+      'telegramChatId TEXT NOT NULL',
+      'stateVersion INTEGER NOT NULL DEFAULT 1',
+      'pendingActionJson TEXT',
+      'activeVisitId TEXT',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'synced'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'agent_conversation_turns': [
+      'conversationId TEXT NOT NULL',
+      'direction TEXT NOT NULL',
+      'text TEXT NOT NULL',
+      'language TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'synced'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'agent_tool_events': [
+      'conversationTurnId TEXT NOT NULL',
+      'toolCallId TEXT NOT NULL',
+      'toolName TEXT NOT NULL',
+      "argumentsJson TEXT NOT NULL DEFAULT '{}'",
+      'status TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'synced'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'agent_intake_visits': [
+      'conversationId TEXT NOT NULL',
+      'auditDate TEXT NOT NULL',
+      'state TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'synced'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'agent_intake_turns': [
+      'intakeSessionId TEXT NOT NULL',
+      'direction TEXT NOT NULL',
+      'text TEXT NOT NULL',
+      'language TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'agent_intake_values': [
+      'intakeSessionId TEXT NOT NULL',
+      'fieldKey TEXT NOT NULL',
+      'valueJson TEXT NOT NULL',
+      'sourcePhrase TEXT NOT NULL',
+      'confidence REAL NOT NULL',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
   };
 
   /// Surgical schema repair: detect missing tables/columns/indexes and restore
@@ -487,6 +597,8 @@ class DatabaseHelper {
     await _createLabAnalysisTables(db);
     await _createPerformanceMonitoringTables(db);
     await _createHatcheryAgentTables(db);
+    await _createAgentIntakeTables(db);
+    await _createUnifiedAgentHarnessTables(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -713,6 +825,12 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV52UpgradeForTest(Database db) => _applyV52Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV53UpgradeForTest(Database db) => _applyV53Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV54UpgradeForTest(Database db) => _applyV54Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

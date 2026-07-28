@@ -40,6 +40,35 @@ void main() {
         syncError TEXT
       )
     ''');
+    await db.execute('''
+      CREATE TABLE agent_intake_sessions (
+        id TEXT PRIMARY KEY,
+        state TEXT,
+        workingValuesJson TEXT,
+        pendingClarificationJson TEXT,
+        summarySnapshotJson TEXT,
+        syncStatus TEXT NOT NULL DEFAULT 'pending',
+        dirtyAt TEXT,
+        lastSyncedAt TEXT,
+        syncError TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE agent_tool_events (
+        id TEXT PRIMARY KEY,
+        conversationTurnId TEXT NOT NULL,
+        toolCallId TEXT NOT NULL,
+        toolName TEXT NOT NULL,
+        argumentsJson TEXT NOT NULL,
+        resultJson TEXT,
+        status TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        syncStatus TEXT NOT NULL DEFAULT 'synced',
+        dirtyAt TEXT,
+        lastSyncedAt TEXT,
+        syncError TEXT
+      )
+    ''');
     final dbHelper = _MockDatabaseHelper();
     when(() => dbHelper.db).thenAnswer((_) async => db);
     repository = PerformanceSyncRepository(databaseHelper: dbHelper);
@@ -70,12 +99,97 @@ void main() {
       'cause_assessments',
       'corrective_actions',
       'action_kpi_evaluations',
+      'telegram_staff_links',
+      'agent_settings',
+      'agent_submissions',
+      'agent_questions',
+      'hatchery_draft_batches',
+      'hatchery_draft_rows',
+      'hatchery_agent_audit_events',
+      'hatchery_daily_records',
+      'agent_intake_sessions',
+      'agent_intake_turns',
+      'agent_intake_values',
     ]);
     expect(
       PerformanceSyncRepository.deleteOrder,
       PerformanceSyncRepository.allPushTables.reversed,
     );
+    expect(
+      PerformanceSyncRepository.postFlockPushOrder,
+      containsAllInOrder([
+        'agent_intake_sessions',
+        'agent_intake_turns',
+        'agent_intake_values',
+      ]),
+    );
+    expect(
+      PerformanceSyncRepository.allPushTables,
+      isNot(contains('agent_tool_events')),
+    );
+    expect(
+      PerformanceSyncRepository.allPullTables,
+      containsAllInOrder(const [
+        'agent_conversations',
+        'agent_conversation_turns',
+        'agent_tool_events',
+        'agent_intake_visits',
+        'agent_intake_sessions',
+        'agent_intake_turns',
+        'agent_intake_values',
+      ]),
+    );
+    expect(
+      PerformanceSyncRepository.deleteOrder,
+      isNot(contains('agent_tool_events')),
+    );
   });
+
+  test(
+    'pulls server tool evidence with snake/camel and JSON conversion',
+    () async {
+      await repository.upsertRemoteRow('agent_tool_events', {
+        'id': 'tool-1',
+        'conversation_turn_id': 'turn-1',
+        'tool_call_id': 'call-1',
+        'tool_name': 'record_station_values',
+        'arguments_json': {'pasgarSampleSize': 40},
+        'result_json': {'accepted': true},
+        'status': 'succeeded',
+        'created_at': '2026-07-28T10:00:00.000Z',
+      });
+
+      final row = await repository.getRowById('agent_tool_events', 'tool-1');
+      expect(row, isNotNull);
+      expect(row!['conversationTurnId'], 'turn-1');
+      expect(row['toolCallId'], 'call-1');
+      expect(row['argumentsJson'], '{"pasgarSampleSize":40}');
+      expect(row['resultJson'], '{"accepted":true}');
+      expect(row['syncStatus'], 'synced');
+
+      await repository.upsertRemoteRow('agent_tool_events', {
+        'id': 'tool-1',
+        'conversation_turn_id': 'turn-1',
+        'tool_call_id': 'call-1',
+        'tool_name': 'record_station_values',
+        'arguments_json': {'pasgarSampleSize': 40},
+        'result_json': {'accepted': false},
+        'status': 'failed',
+        'created_at': '2026-07-28T10:00:00.000Z',
+      });
+      final preserved = await repository.getRowById(
+        'agent_tool_events',
+        'tool-1',
+      );
+      expect(preserved!['resultJson'], '{"accepted":true}');
+      expect(preserved['status'], 'succeeded');
+
+      await expectLater(
+        repository.getDirtyRows('agent_tool_events'),
+        throwsArgumentError,
+      );
+    },
+  );
 
   test(
     'normalizes pulled snake_case rows and tracks per-row sync state',
@@ -167,4 +281,41 @@ void main() {
     expect(payload, isNot(contains('syncStatus')));
     expect(payload['remoteStoragePath'], contains('performance_sources'));
   });
+
+  test(
+    'intake JSON crosses the SQLite and Supabase boundary as JSON',
+    () async {
+      final payload = repository.prepareRemoteRow('agent_intake_sessions', {
+        'id': 'intake-1',
+        'workingValuesJson': '{"pasgarSampleSize":40}',
+        'pendingClarificationJson': null,
+        'summarySnapshotJson': '{"version":1,"values":{}}',
+        'syncStatus': 'pending',
+      });
+
+      expect(payload['workingValuesJson'], {'pasgarSampleSize': 40});
+      expect(payload['summarySnapshotJson'], {
+        'version': 1,
+        'values': <String, Object?>{},
+      });
+
+      await repository.upsertRemoteRow('agent_intake_sessions', {
+        'id': 'intake-1',
+        'state': 'awaiting_admin_review',
+        'working_values_json': {'pasgarSampleSize': 40},
+        'pending_clarification_json': null,
+        'summary_snapshot_json': {
+          'version': 1,
+          'values': {'pasgarSampleSize': 40},
+        },
+      });
+      final row = (await db.query('agent_intake_sessions')).single;
+      expect(row['workingValuesJson'], '{"pasgarSampleSize":40}');
+      expect(
+        row['summarySnapshotJson'],
+        '{"version":1,"values":{"pasgarSampleSize":40}}',
+      );
+      expect(row['syncStatus'], 'synced');
+    },
+  );
 }

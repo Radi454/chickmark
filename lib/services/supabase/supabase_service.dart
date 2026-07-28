@@ -96,6 +96,32 @@ class SupabasePullSummary {
   }
 }
 
+Map<String, dynamic> toSupabaseUpsertPayload(
+  String table,
+  Map<String, dynamic> row,
+) {
+  final safeRow = _stripLocalOnlyColumnsForSupabase(table, row);
+  return safeRow.map((key, value) => MapEntry(_supabaseSnakeCase(key), value));
+}
+
+Map<String, dynamic> _stripLocalOnlyColumnsForSupabase(
+  String table,
+  Map<String, dynamic> row,
+) {
+  return stripSyncMeta(row);
+}
+
+String _supabaseSnakeCase(String key) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < key.length; i++) {
+    final char = key[i];
+    final isUpper = char.toUpperCase() == char && char.toLowerCase() != char;
+    if (isUpper && i > 0) buffer.write('_');
+    buffer.write(char.toLowerCase());
+  }
+  return buffer.toString();
+}
+
 class SupabaseService {
   final UserRepository _userRepo;
   final bool Function() _isConfigured;
@@ -754,7 +780,7 @@ class SupabaseService {
     var pulled = 0;
     try {
       if (!await _prepareRemoteAccess()) return 0;
-      for (final table in PerformanceSyncRepository.allPushTables) {
+      for (final table in PerformanceSyncRepository.allPullTables) {
         try {
           final rows = await _client.from(table).select();
           safeDebugLog('Supabase pull: ${rows.length} $table rows');
@@ -778,7 +804,7 @@ class SupabaseService {
   ) async {
     final safeRow = _stripLocalOnlyColumns(table, row);
     try {
-      await _client.from(table).upsert(_snakeCaseKeys(safeRow));
+      await _client.from(table).upsert(toSupabaseUpsertPayload(table, row));
     } catch (_) {
       await _client.from(table).upsert(safeRow);
     }
@@ -796,7 +822,9 @@ class SupabaseService {
     try {
       final request = _client
           .from(table)
-          .upsert(safeRows.map(_snakeCaseKeys).toList());
+          .upsert(
+            rows.map((row) => toSupabaseUpsertPayload(table, row)).toList(),
+          );
       if (verifyAffectedRows) {
         persistedRows = await request.select('id');
       } else {
@@ -822,22 +850,7 @@ class SupabaseService {
     String table,
     Map<String, dynamic> row,
   ) {
-    return row;
-  }
-
-  Map<String, dynamic> _snakeCaseKeys(Map<String, dynamic> row) {
-    return row.map((key, value) => MapEntry(_snakeCase(key), value));
-  }
-
-  String _snakeCase(String key) {
-    final buffer = StringBuffer();
-    for (var i = 0; i < key.length; i++) {
-      final char = key[i];
-      final isUpper = char.toUpperCase() == char && char.toLowerCase() != char;
-      if (isUpper && i > 0) buffer.write('_');
-      buffer.write(char.toLowerCase());
-    }
-    return buffer.toString();
+    return _stripLocalOnlyColumnsForSupabase(table, row);
   }
 
   String _remoteDeleteIdColumn(String table) {

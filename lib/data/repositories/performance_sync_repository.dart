@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../services/supabase/sync_meta.dart';
@@ -48,12 +50,38 @@ class PerformanceSyncRepository {
     'hatchery_draft_rows',
     'hatchery_agent_audit_events',
     'hatchery_daily_records',
+    'agent_intake_sessions',
+    'agent_intake_turns',
+    'agent_intake_values',
   ];
 
   static const allPushTables = <String>[
     ...preFlockPushOrder,
     ...postFlockPushOrder,
   ];
+
+  /// Conversation, tool-call, and visit evidence is authored by the Edge
+  /// agent. The Flutter admin app may pull it for review but never pushes or
+  /// tombstones it.
+  static const serverEvidencePullOrder = <String>[
+    'agent_conversations',
+    'agent_conversation_turns',
+    'agent_tool_events',
+    'agent_intake_visits',
+  ];
+
+  static final List<String> allPullTables = List<String>.unmodifiable([
+    ...allPushTables.where(
+      (table) =>
+          table != 'agent_intake_sessions' &&
+          table != 'agent_intake_turns' &&
+          table != 'agent_intake_values',
+    ),
+    ...serverEvidencePullOrder,
+    'agent_intake_sessions',
+    'agent_intake_turns',
+    'agent_intake_values',
+  ]);
 
   static final List<String> deleteOrder = List<String>.unmodifiable(
     allPushTables.reversed,
@@ -63,6 +91,7 @@ class PerformanceSyncRepository {
     'broiler_daily_record_revisions',
     'broiler_daily_events',
     'daily_record_sources',
+    'agent_tool_events',
   };
 
   static const _deviceOnlySourceColumns = <String>{
@@ -71,8 +100,20 @@ class PerformanceSyncRepository {
     'uploadError',
   };
 
+  static const _jsonColumnsByTable = <String, Set<String>>{
+    'agent_conversations': {'pendingActionJson'},
+    'agent_conversation_turns': {'attachmentJson'},
+    'agent_tool_events': {'argumentsJson', 'resultJson'},
+    'agent_intake_sessions': {
+      'workingValuesJson',
+      'pendingClarificationJson',
+      'summarySnapshotJson',
+    },
+    'agent_intake_values': {'valueJson'},
+  };
+
   Future<List<Map<String, dynamic>>> getDirtyRows(String table) async {
-    _assertTable(table);
+    _assertPushTable(table);
     final db = await _databaseHelper.db;
     final rows = await db.query(
       table,
@@ -85,7 +126,7 @@ class PerformanceSyncRepository {
   }
 
   Future<Map<String, dynamic>?> getRowById(String table, String id) async {
-    _assertTable(table);
+    _assertPullTable(table);
     final db = await _databaseHelper.db;
     final rows = await db.query(
       table,
@@ -100,10 +141,13 @@ class PerformanceSyncRepository {
     String table,
     Map<String, dynamic> remoteRow,
   ) async {
-    _assertTable(table);
+    _assertPullTable(table);
     final db = await _databaseHelper.db;
     final columns = await _tableColumns(db, table);
-    final normalized = _filterColumns(_normalizeRemoteRow(remoteRow), columns);
+    final normalized = _filterColumns(
+      _normalizeRemoteRow(table, remoteRow),
+      columns,
+    );
     final now = DateTime.now().toUtc().toIso8601String();
     final synced = <String, dynamic>{
       ...normalized,
@@ -112,7 +156,16 @@ class PerformanceSyncRepository {
       'lastSyncedAt': now,
       'syncError': null,
     };
-    await _upsertById(db, table, _filterColumns(synced, columns));
+    final filtered = _filterColumns(synced, columns);
+    if (immutableEvidenceTables.contains(table)) {
+      await db.insert(
+        table,
+        filtered,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      return;
+    }
+    await _upsertById(db, table, filtered);
   }
 
   Future<void> markRowsSynced(String table, Iterable<String> ids) {
@@ -140,10 +193,19 @@ class PerformanceSyncRepository {
     String table,
     Map<String, dynamic> row,
   ) {
-    _assertTable(table);
+    _assertPushTable(table);
     final prepared = stripSyncMeta(row);
     if (table == 'daily_record_sources') {
       prepared.removeWhere((key, _) => _deviceOnlySourceColumns.contains(key));
+    }
+    for (final column in _jsonColumnsByTable[table] ?? const <String>{}) {
+      final value = prepared[column];
+      if (value is! String) continue;
+      try {
+        prepared[column] = jsonDecode(value);
+      } on FormatException {
+        // Preserve malformed evidence for server-side validation and review.
+      }
     }
     return prepared;
   }
@@ -153,7 +215,7 @@ class PerformanceSyncRepository {
     Map<String, dynamic> localRow,
     Map<String, dynamic> remoteRow,
   ) async {
-    _assertTable(table);
+    _assertPullTable(table);
     final db = await _databaseHelper.db;
     final columns = await _tableColumns(db, table);
     final local = _businessColumns(
@@ -162,7 +224,7 @@ class PerformanceSyncRepository {
     );
     final remote = _businessColumns(
       table,
-      _filterColumns(_normalizeRemoteRow(remoteRow), columns),
+      _filterColumns(_normalizeRemoteRow(table, remoteRow), columns),
     );
     final keys = <String>{...local.keys, ...remote.keys};
     for (final key in keys) {
@@ -234,7 +296,7 @@ class PerformanceSyncRepository {
     Iterable<String> ids,
     Map<String, Object?> changes,
   ) async {
-    _assertTable(table);
+    _assertPushTable(table);
     final uniqueIds = ids.where((id) => id.isNotEmpty).toSet().toList();
     if (uniqueIds.isEmpty) return;
     final db = await _databaseHelper.db;
@@ -274,8 +336,18 @@ class PerformanceSyncRepository {
     return false;
   }
 
-  Map<String, dynamic> _normalizeRemoteRow(Map<String, dynamic> row) {
-    return row.map((key, value) => MapEntry(_camelize(key), value));
+  Map<String, dynamic> _normalizeRemoteRow(
+    String table,
+    Map<String, dynamic> row,
+  ) {
+    final normalized = row.map((key, value) => MapEntry(_camelize(key), value));
+    for (final column in _jsonColumnsByTable[table] ?? const <String>{}) {
+      final value = normalized[column];
+      if (value != null && value is! String) {
+        normalized[column] = jsonEncode(value);
+      }
+    }
+    return normalized;
   }
 
   String _camelize(String key) {
@@ -316,9 +388,15 @@ class PerformanceSyncRepository {
     await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
   }
 
-  void _assertTable(String table) {
+  void _assertPushTable(String table) {
     if (!allPushTables.contains(table)) {
-      throw ArgumentError.value(table, 'table', 'Unsupported sync table');
+      throw ArgumentError.value(table, 'table', 'Unsupported push table');
+    }
+  }
+
+  void _assertPullTable(String table) {
+    if (!allPullTables.contains(table)) {
+      throw ArgumentError.value(table, 'table', 'Unsupported pull table');
     }
   }
 }

@@ -486,71 +486,87 @@ void main() {
     verify(() => actions.markSynced(['action-1'])).called(1);
   });
 
-  test(
-    'pushes and marks every changed hatchery approval table synced',
-    () async {
-      const approvalTables = [
-        'hatchery_draft_batches',
-        'hatchery_draft_rows',
-        'hatchery_agent_audit_events',
-        'hatchery_daily_records',
+  test('pushes and marks every changed agent review table synced', () async {
+    const approvalTables = [
+      'hatchery_draft_batches',
+      'hatchery_draft_rows',
+      'hatchery_agent_audit_events',
+      'hatchery_daily_records',
+      'agent_intake_sessions',
+      'agent_intake_turns',
+      'agent_intake_values',
+    ];
+    when(() => operational.getDirtyRows(any())).thenAnswer((invocation) async {
+      final table = invocation.positionalArguments.first as String;
+      if (!approvalTables.contains(table)) return const [];
+      return [
+        {
+          'id': '$table-1',
+          'syncStatus': 'pending',
+          'dirtyAt': '2026-07-27T10:00:00.000Z',
+        },
       ];
-      when(() => operational.getDirtyRows(any())).thenAnswer((
-        invocation,
-      ) async {
-        final table = invocation.positionalArguments.first as String;
-        if (!approvalTables.contains(table)) return const [];
-        return [
-          {
-            'id': '$table-1',
-            'syncStatus': 'pending',
-            'dirtyAt': '2026-07-27T10:00:00.000Z',
-          },
-        ];
+    });
+
+    await service().run();
+
+    for (final table in approvalTables) {
+      verify(() => supabase.upsertRowsStrict(table, any())).called(1);
+      verify(() => operational.markRowsSynced(table, ['$table-1'])).called(1);
+    }
+  });
+
+  test('never pushes server-authored conversation or tool evidence', () async {
+    await service().run();
+
+    for (final table in const [
+      'agent_conversations',
+      'agent_conversation_turns',
+      'agent_tool_events',
+      'agent_intake_visits',
+    ]) {
+      verifyNever(() => operational.getDirtyRows(table));
+      verifyNever(() => supabase.upsertRowsStrict(table, any()));
+    }
+  });
+
+  test('pulls every agent review table through operational storage', () async {
+    await service().run();
+
+    final captured = verify(
+      () => supabase.pullOperationalRows(
+        upsertOperationalRow: captureAny(named: 'upsertOperationalRow'),
+      ),
+    ).captured.single;
+    final callback =
+        captured
+            as Future<void> Function(String table, Map<String, dynamic> row);
+    for (final table in const [
+      'hatchery_draft_batches',
+      'hatchery_draft_rows',
+      'hatchery_agent_audit_events',
+      'hatchery_daily_records',
+      'agent_conversations',
+      'agent_conversation_turns',
+      'agent_tool_events',
+      'agent_intake_visits',
+      'agent_intake_sessions',
+      'agent_intake_turns',
+      'agent_intake_values',
+    ]) {
+      await callback(table, {
+        'id': '$table-remote',
+        'updated_at': '2026-07-27T10:00:00.000Z',
       });
-
-      await service().run();
-
-      for (final table in approvalTables) {
-        verify(() => supabase.upsertRowsStrict(table, any())).called(1);
-        verify(() => operational.markRowsSynced(table, ['$table-1'])).called(1);
-      }
-    },
-  );
-
-  test(
-    'pulls every hatchery approval table through operational storage',
-    () async {
-      await service().run();
-
-      final captured = verify(
-        () => supabase.pullOperationalRows(
-          upsertOperationalRow: captureAny(named: 'upsertOperationalRow'),
+      verify(() => operational.getRowById(table, '$table-remote')).called(1);
+      verify(
+        () => operational.upsertRemoteRow(
+          table,
+          any(that: containsPair('id', '$table-remote')),
         ),
-      ).captured.single;
-      final callback =
-          captured
-              as Future<void> Function(String table, Map<String, dynamic> row);
-      for (final table in const [
-        'hatchery_draft_batches',
-        'hatchery_draft_rows',
-        'hatchery_agent_audit_events',
-        'hatchery_daily_records',
-      ]) {
-        await callback(table, {
-          'id': '$table-remote',
-          'updated_at': '2026-07-27T10:00:00.000Z',
-        });
-        verify(() => operational.getRowById(table, '$table-remote')).called(1);
-        verify(
-          () => operational.upsertRemoteRow(
-            table,
-            any(that: containsPair('id', '$table-remote')),
-          ),
-        ).called(1);
-      }
-    },
-  );
+      ).called(1);
+    }
+  });
 
   test(
     'pull callback exposes panel tables without legacy audit callbacks',
@@ -658,6 +674,10 @@ void main() {
     expect(order, isNot(contains('audits')));
     expect(order, isNot(contains('sample_records')));
     expect(order.where((table) => table.endsWith('_samples')), isEmpty);
+    expect(order, isNot(contains('agent_conversations')));
+    expect(order, isNot(contains('agent_conversation_turns')));
+    expect(order, isNot(contains('agent_tool_events')));
+    expect(order, isNot(contains('agent_intake_visits')));
     expect(
       order.indexOf('egg_storage'),
       lessThan(order.indexOf('audit_sessions')),
