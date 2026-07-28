@@ -3,6 +3,31 @@ import 'package:hatchaudit/services/supabase/supabase_service.dart';
 
 void main() {
   test(
+    'upsert payload strips local sync metadata before snake case conversion',
+    () {
+      final payload = toSupabaseUpsertPayload('flocks', {
+        'id': 'flock-1',
+        'customerId': 'customer-1',
+        'flockId': 'F-1',
+        'depletionAgeWeeks': 65,
+        'updatedAt': '2026-07-28T00:24:00Z',
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-07-28T00:24:01Z',
+        'lastSyncedAt': null,
+        'syncError': 'previous failure',
+      });
+
+      expect(payload, {
+        'id': 'flock-1',
+        'customer_id': 'customer-1',
+        'flock_id': 'F-1',
+        'depletion_age_weeks': 65,
+        'updated_at': '2026-07-28T00:24:00Z',
+      });
+    },
+  );
+
+  test(
     'refreshAvailability waits for Supabase initialization readiness',
     () async {
       var initializerCalled = false;

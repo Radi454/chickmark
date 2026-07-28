@@ -1225,14 +1225,23 @@ Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
     telegramChatId TEXT,
     displayName TEXT,
     username TEXT,
-    status TEXT NOT NULL DEFAULT 'allowed',
+    status TEXT NOT NULL DEFAULT 'pending',
+    accessRole TEXT NOT NULL DEFAULT 'customer'
+      CHECK (accessRole IN ('customer', 'admin')),
+    customerId TEXT,
     invitedBy TEXT,
     createdAt TEXT,
     updatedAt TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     dirtyAt TEXT,
     lastSyncedAt TEXT,
-    syncError TEXT
+    syncError TEXT,
+    CHECK (
+      status <> 'allowed'
+      OR (accessRole = 'customer' AND customerId IS NOT NULL)
+      OR (accessRole = 'admin' AND customerId IS NULL)
+    ),
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE RESTRICT
   )''');
 
   await db.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
@@ -1417,6 +1426,368 @@ Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
     'ON hatchery_daily_records '
     '(customerId, flockId, stationName, breed, hatchDate DESC)',
   );
+}
+
+Future<void> _createAgentIntakeTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_sessions (
+    id TEXT PRIMARY KEY,
+    staffLinkId TEXT NOT NULL,
+    telegramChatId TEXT NOT NULL,
+    schemaKey TEXT NOT NULL,
+    schemaVersion INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN (
+      'collecting',
+      'awaiting_clarification',
+      'paused',
+      'ready_for_summary',
+      'awaiting_user_confirmation',
+      'awaiting_admin_review',
+      'approved',
+      'rejected',
+      'cancelled'
+    )),
+    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
+    customerId TEXT,
+    customerName TEXT,
+    flockId TEXT,
+    flockName TEXT,
+    hatcheryId TEXT,
+    hatcheryName TEXT,
+    auditDate TEXT NOT NULL,
+    scope TEXT CHECK (scope IS NULL OR scope IN ('pool', 'setter_hatcher')),
+    setterIdentity TEXT,
+    hatcherIdentity TEXT,
+    workingValuesJson TEXT NOT NULL DEFAULT '{}',
+    pendingClarificationJson TEXT,
+    summaryVersion INTEGER NOT NULL DEFAULT 0,
+    summarySnapshotJson TEXT,
+    userConfirmedAt TEXT,
+    visitId TEXT,
+    rowVersion INTEGER NOT NULL DEFAULT 1 CHECK (rowVersion >= 1),
+    lastToolEventId TEXT,
+    approvedSessionId TEXT,
+    approvedPanelRowId TEXT,
+    reviewedBy TEXT,
+    reviewedAt TEXT,
+    rejectionReason TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (staffLinkId)
+      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE SET NULL,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE SET NULL,
+    FOREIGN KEY (visitId)
+      REFERENCES agent_intake_visits(id) ON DELETE SET NULL,
+    FOREIGN KEY (lastToolEventId)
+      REFERENCES agent_tool_events(id) ON DELETE SET NULL,
+    FOREIGN KEY (approvedSessionId)
+      REFERENCES audit_sessions(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_turns (
+    id TEXT PRIMARY KEY,
+    intakeSessionId TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    telegramUpdateId TEXT UNIQUE,
+    telegramMessageId TEXT,
+    text TEXT NOT NULL,
+    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
+    intent TEXT,
+    deliveryStatus TEXT,
+    attachmentKind TEXT,
+    attachmentFileName TEXT,
+    attachmentMimeType TEXT,
+    attachmentRemotePath TEXT,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (intakeSessionId)
+      REFERENCES agent_intake_sessions(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_values (
+    id TEXT PRIMARY KEY,
+    intakeSessionId TEXT NOT NULL,
+    fieldKey TEXT NOT NULL,
+    valueJson TEXT NOT NULL,
+    sourcePhrase TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+    clarificationReason TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (intakeSessionId, fieldKey),
+    FOREIGN KEY (intakeSessionId)
+      REFERENCES agent_intake_sessions(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_intake_sessions_active '
+    'ON agent_intake_sessions (staffLinkId, telegramChatId) '
+    "WHERE state IN ('collecting', 'awaiting_clarification', 'paused', "
+    "'ready_for_summary', 'awaiting_user_confirmation')",
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_sessions_review '
+    'ON agent_intake_sessions (state, updatedAt DESC)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_turns_session '
+    'ON agent_intake_turns (intakeSessionId, createdAt, id)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_values_session '
+    'ON agent_intake_values (intakeSessionId, fieldKey)',
+  );
+}
+
+Future<void> _createUnifiedAgentHarnessTables(
+  DatabaseExecutor db, {
+  bool createGuards = true,
+}) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_conversations (
+    id TEXT PRIMARY KEY,
+    staffLinkId TEXT NOT NULL,
+    telegramChatId TEXT NOT NULL,
+    stateVersion INTEGER NOT NULL DEFAULT 1 CHECK (stateVersion >= 1),
+    pendingActionJson TEXT,
+    activeVisitId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (staffLinkId, telegramChatId),
+    FOREIGN KEY (staffLinkId)
+      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
+    FOREIGN KEY (activeVisitId)
+      REFERENCES agent_intake_visits(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_conversation_turns (
+    id TEXT PRIMARY KEY,
+    conversationId TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    telegramUpdateId TEXT UNIQUE,
+    telegramMessageId TEXT,
+    text TEXT NOT NULL,
+    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
+    model TEXT,
+    attachmentJson TEXT,
+    deliveryStatus TEXT,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (conversationId)
+      REFERENCES agent_conversations(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_tool_events (
+    id TEXT PRIMARY KEY,
+    conversationTurnId TEXT NOT NULL,
+    toolCallId TEXT NOT NULL,
+    toolName TEXT NOT NULL,
+    argumentsJson TEXT NOT NULL DEFAULT '{}',
+    resultJson TEXT,
+    status TEXT NOT NULL CHECK (status IN (
+      'requested', 'succeeded', 'rejected', 'failed'
+    )),
+    durationMs INTEGER CHECK (durationMs IS NULL OR durationMs >= 0),
+    stateVersionBefore INTEGER
+      CHECK (stateVersionBefore IS NULL OR stateVersionBefore >= 1),
+    stateVersionAfter INTEGER
+      CHECK (stateVersionAfter IS NULL OR stateVersionAfter >= 1),
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (conversationTurnId, toolCallId),
+    FOREIGN KEY (conversationTurnId)
+      REFERENCES agent_conversation_turns(id) ON DELETE CASCADE
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_visits (
+    id TEXT PRIMARY KEY,
+    conversationId TEXT NOT NULL,
+    customerId TEXT,
+    flockId TEXT,
+    hatcheryId TEXT,
+    auditDate TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN (
+      'selecting_station',
+      'collecting',
+      'awaiting_admin_review',
+      'completed',
+      'cancelled'
+    )),
+    approvedSessionId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (conversationId)
+      REFERENCES agent_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE RESTRICT,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE RESTRICT,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE RESTRICT,
+    FOREIGN KEY (approvedSessionId)
+      REFERENCES audit_sessions(id) ON DELETE SET NULL
+  )''');
+
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_conversations_staff_chat '
+    'ON agent_conversations (staffLinkId, telegramChatId)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_conversation_turns_conversation '
+    'ON agent_conversation_turns (conversationId, createdAt, id)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_tool_events_turn '
+    'ON agent_tool_events (conversationTurnId, createdAt, id)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_visits_conversation '
+    'ON agent_intake_visits (conversationId, createdAt, id)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_visits_customer '
+    'ON agent_intake_visits (customerId, auditDate) '
+    'WHERE customerId IS NOT NULL',
+  );
+  await db.execute('DROP INDEX IF EXISTS idx_agent_intake_sessions_active');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS '
+    'idx_agent_intake_sessions_active_conversation '
+    'ON agent_intake_sessions (visitId) '
+    'WHERE visitId IS NOT NULL AND state IN ('
+    "'collecting', 'awaiting_clarification', 'paused', "
+    "'ready_for_summary', 'awaiting_user_confirmation')",
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_agent_intake_sessions_visit '
+    'ON agent_intake_sessions (visitId, createdAt, id) '
+    'WHERE visitId IS NOT NULL',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_telegram_staff_links_customer '
+    'ON telegram_staff_links (customerId) WHERE customerId IS NOT NULL',
+  );
+
+  if (createGuards) await _createUnifiedAgentHarnessGuards(db);
+}
+
+Future<void> _createUnifiedAgentHarnessGuards(DatabaseExecutor db) async {
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_telegram_staff_links_scope_insert
+    BEFORE INSERT ON telegram_staff_links
+    WHEN NEW.status = 'allowed' AND NOT (
+      (NEW.accessRole = 'customer' AND NEW.customerId IS NOT NULL)
+      OR (NEW.accessRole = 'admin' AND NEW.customerId IS NULL)
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Allowed Telegram link has invalid access scope');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_telegram_staff_links_scope_update
+    BEFORE UPDATE OF status, accessRole, customerId ON telegram_staff_links
+    WHEN NEW.status = 'allowed' AND NOT (
+      (NEW.accessRole = 'customer' AND NEW.customerId IS NOT NULL)
+      OR (NEW.accessRole = 'admin' AND NEW.customerId IS NULL)
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Allowed Telegram link has invalid access scope');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_agent_intake_visit_scope_insert
+    BEFORE INSERT ON agent_intake_visits
+    WHEN NEW.customerId IS NULL
+      OR (
+        NEW.flockId IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM flocks
+          WHERE id = NEW.flockId AND customerId = NEW.customerId
+        )
+      )
+      OR (
+        NEW.hatcheryId IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM hatcheries
+          WHERE id = NEW.hatcheryId AND customerId = NEW.customerId
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'Agent intake visit has invalid customer scope');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_agent_intake_visit_scope_update
+    BEFORE UPDATE OF customerId, flockId, hatcheryId ON agent_intake_visits
+    WHEN NEW.customerId IS NULL
+      OR (
+        NEW.flockId IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM flocks
+          WHERE id = NEW.flockId AND customerId = NEW.customerId
+        )
+      )
+      OR (
+        NEW.hatcheryId IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM hatcheries
+          WHERE id = NEW.hatcheryId AND customerId = NEW.customerId
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'Agent intake visit has invalid customer scope');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_agent_intake_summary_immutable
+    BEFORE UPDATE ON agent_intake_sessions
+    WHEN OLD.userConfirmedAt IS NOT NULL AND (
+      NEW.schemaKey IS NOT OLD.schemaKey
+      OR NEW.schemaVersion IS NOT OLD.schemaVersion
+      OR NEW.summaryVersion IS NOT OLD.summaryVersion
+      OR NEW.summarySnapshotJson IS NOT OLD.summarySnapshotJson
+      OR NEW.userConfirmedAt IS NOT OLD.userConfirmedAt
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Confirmed intake summary evidence is immutable');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_agent_tool_events_immutable
+    BEFORE UPDATE ON agent_tool_events
+    BEGIN
+      SELECT RAISE(ABORT, 'Tool-call evidence is immutable');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_agent_tool_events_delete_immutable
+    BEFORE DELETE ON agent_tool_events
+    BEGIN
+      SELECT RAISE(ABORT, 'Tool-call evidence is immutable');
+    END
+  ''');
 }
 
 Future<void> _createOperationalIndexes(Database db) async {
