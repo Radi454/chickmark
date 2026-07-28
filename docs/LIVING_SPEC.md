@@ -1707,14 +1707,28 @@ schema, customer, flock, record date, fetch time, and fresh/stale/missing state
 without estimating absent facts or revealing whether an inaccessible record
 exists.
 
-Audit discovery is a two-step scoped read: `list_customer_audits` returns all
-authorized recent audits as numbered choices for an allowed customer and
-optional owned flock, then `get_audit_summary` retrieves one selected audit by
-its opaque ID. Name text is never accepted in ID arguments; the model must
-resolve names through the scoped customer/flock resolver before invoking either
-audit tool. Both listing and detail lookup return the same `scope_denied` shape
-for unknown, inaccessible, or mismatched records, so neither response reveals
-whether an out-of-scope audit exists.
+Audit discovery is a scoped, stable selection flow. `list_customer_audits`
+defaults to 10 authorized recent audits for an allowed customer and optional
+owned flock, accepts a limit of at most 20, and returns `truncated` when more
+matches exist. Its numbered options are persisted in immutable tool evidence.
+A later numbered reply calls `select_audit_option` with only a one-based
+position from 1 through 20; the server uses the injected conversation ID to
+load that conversation's latest successful audit-list snapshot, so a newly
+inserted audit cannot remap an already displayed number. The selected opaque
+audit ID is then revalidated through the current customer scope before its
+summary is returned. The model never reconstructs or re-lists an ordinal
+mapping.
+
+Name text is never accepted in audit ID arguments; the model must resolve names
+through the scoped customer/flock resolver before listing audits. Audit rows
+are discarded unless embedded customer, flock, and hatchery relation IDs match
+their foreign keys and the flock/hatchery owners match the audit customer.
+Summary `findings_json` and `scorecard_json` decode only bounded valid JSON
+arrays or objects; malformed, scalar, or oversized values remain null. Listing
+orders date, creation time, and ID descending with nulls last. Listing,
+selection, and detail lookup fail closed for missing, malformed, unknown,
+inaccessible, changed-scope, or mismatched evidence without revealing whether
+an out-of-scope audit exists.
 
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and

@@ -28,6 +28,7 @@ export interface AgentAuditReadRow {
 
 export interface AgentAuditStore {
   findFlockCustomerId(flockId: string): Promise<string | null>
+  findLatestAuditListResult(conversationId: string): Promise<unknown | null>
   listAudits(input: {
     customerId: string
     flockId: string | null
@@ -45,7 +46,7 @@ interface AuditDatabaseQuery {
   in(column: string, values: readonly unknown[]): AuditDatabaseQuery
   order(
     column: string,
-    options: { ascending: boolean },
+    options: { ascending: boolean; nullsFirst?: boolean },
   ): AuditDatabaseQuery
   limit(
     count: number,
@@ -79,12 +80,14 @@ const AUDIT_COLUMNS = [
   'notes',
   'created_at',
   'completed_at',
-  'customer:customers(name)',
-  'flock:flocks(flock_id)',
-  'hatchery:hatcheries(name)',
+  'customer:customers(id,name)',
+  'flock:flocks(id,customer_id,flock_id)',
+  'hatchery:hatcheries(id,customer_id,name)',
 ].join(', ')
 
 const MAX_AUDIT_JSON_CHARS = 100_000
+const MAX_AUDIT_OPTIONS = 20
+const MAX_RECENT_CONVERSATION_TURNS = 40
 
 export function createSupabaseAgentAuditStore(
   client: AgentAuditClient,
@@ -99,6 +102,32 @@ export function createSupabaseAgentAuditStore(
       throwIfDatabaseError(result)
       return optionalText(result.data?.customer_id)
     },
+    async findLatestAuditListResult(conversationId) {
+      const turnsResult = await client
+        .from('agent_conversation_turns')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(MAX_RECENT_CONVERSATION_TURNS)
+      throwIfDatabaseError(turnsResult)
+      const turnIds = (turnsResult.data ?? [])
+        .map((row) => boundedIdentifier(row.id))
+        .filter((id): id is string => id !== null)
+      if (turnIds.length === 0) return null
+
+      const eventsResult = await client
+        .from('agent_tool_events')
+        .select('result_json')
+        .in('conversation_turn_id', turnIds)
+        .eq('tool_name', 'list_customer_audits')
+        .eq('status', 'succeeded')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(1)
+      throwIfDatabaseError(eventsResult)
+      return eventsResult.data?.[0]?.result_json ?? null
+    },
     async listAudits(input) {
       let query = client
         .from('audit_sessions')
@@ -106,12 +135,14 @@ export function createSupabaseAgentAuditStore(
         .eq('customer_id', input.customerId)
       if (input.flockId) query = query.eq('flock_id', input.flockId)
       const result = await query
-        .order('date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
+        .order('date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false, nullsFirst: false })
         .limit(input.limit + 1)
       throwIfDatabaseError(result)
-      return (result.data ?? []).map(auditFromRemote)
+      return (result.data ?? [])
+        .map(auditFromRemote)
+        .filter((audit): audit is AgentAuditReadRow => audit !== null)
     },
     async findAudit(auditId, allowedCustomerIds) {
       if (allowedCustomerIds.length === 0) return null
@@ -132,6 +163,7 @@ export function createAgentAuditToolHandlers(
 ): Partial<Record<AgentToolName, AgentToolHandler>> {
   return {
     list_customer_audits: (input) => listCustomerAudits(store, input),
+    select_audit_option: (input) => selectAuditOption(store, input),
     get_audit_summary: (input) => getAuditSummary(store, input),
   }
 }
@@ -174,6 +206,36 @@ async function getAuditSummary(
   ) {
     return scopeDenied()
   }
+  return auditSummary(audit)
+}
+
+async function selectAuditOption(
+  store: AgentAuditStore,
+  input: AgentToolExecutionInput,
+): Promise<AgentToolResult> {
+  const snapshot = await store.findLatestAuditListResult(input.conversationId)
+  const selected = selectedAuditFromSnapshot(
+    snapshot,
+    input.arguments.position as number,
+    input.scope.allowedCustomerIds,
+  )
+  if (!selected) return scopeDenied()
+
+  const audit = await store.findAudit(
+    selected.auditId,
+    input.scope.allowedCustomerIds,
+  )
+  if (
+    !audit ||
+    audit.customerId !== selected.customerId ||
+    !input.scope.allowedCustomerIds.includes(audit.customerId)
+  ) {
+    return scopeDenied()
+  }
+  return auditSummary(audit)
+}
+
+function auditSummary(audit: AgentAuditReadRow): AgentToolResult {
   return ok({
     ...publicAuditOption(audit),
     customerId: audit.customerId,
@@ -185,6 +247,33 @@ async function getAuditSummary(
     scorecard: audit.scorecard,
     notes: audit.notes,
   })
+}
+
+function selectedAuditFromSnapshot(
+  snapshot: unknown,
+  position: number,
+  allowedCustomerIds: readonly string[],
+): { customerId: string; auditId: string } | null {
+  if (!isRecord(snapshot) || snapshot.ok !== true || snapshot.code !== 'ok') {
+    return null
+  }
+  const data = snapshot.data
+  if (!isRecord(data)) return null
+  const customerId = boundedIdentifier(data.customerId)
+  if (!customerId || !allowedCustomerIds.includes(customerId)) return null
+  const audits = data.audits
+  if (
+    !Array.isArray(audits) ||
+    audits.length === 0 ||
+    audits.length > MAX_AUDIT_OPTIONS
+  ) return null
+
+  const auditIds = audits.map((audit) =>
+    isRecord(audit) ? boundedIdentifier(audit.id) : null
+  )
+  if (auditIds.some((auditId) => auditId === null)) return null
+  const auditId = auditIds[position - 1]
+  return auditId ? { customerId, auditId } : null
 }
 
 function publicAuditOption(row: AgentAuditReadRow): Record<string, unknown> {
@@ -211,12 +300,30 @@ function compareAuditRows(
     right.id.localeCompare(left.id)
 }
 
-function auditFromRemote(row: Record<string, unknown>): AgentAuditReadRow {
+function auditFromRemote(
+  row: Record<string, unknown>,
+): AgentAuditReadRow | null {
+  const id = boundedIdentifier(row.id)
+  const customerId = boundedIdentifier(row.customer_id)
+  const flockId = row.flock_id === null ? null : boundedIdentifier(row.flock_id)
+  const hatcheryId = row.hatchery_id === null
+    ? null
+    : boundedIdentifier(row.hatchery_id)
+  if (
+    !id ||
+    !customerId ||
+    (row.flock_id !== null && !flockId) ||
+    (row.hatchery_id !== null && !hatcheryId) ||
+    !matchesCustomerRelation(row.customer, customerId) ||
+    !matchesOwnedRelation(row.flock, flockId, customerId) ||
+    !matchesOwnedRelation(row.hatchery, hatcheryId, customerId)
+  ) return null
+
   return {
-    id: requiredText(row.id),
-    customerId: requiredText(row.customer_id),
-    flockId: optionalText(row.flock_id),
-    hatcheryId: optionalText(row.hatchery_id),
+    id,
+    customerId,
+    flockId,
+    hatcheryId,
     date: optionalText(row.date),
     status: optionalText(row.status),
     customerName: relationText(row.customer, 'name'),
@@ -228,10 +335,28 @@ function auditFromRemote(row: Record<string, unknown>): AgentAuditReadRow {
     completedAt: optionalText(row.completed_at),
     breed: optionalText(row.breed),
     flockAgeWeeks: optionalNumber(row.flock_age_weeks),
-    findings: jsonObject(row.findings_json),
-    scorecard: jsonObject(row.scorecard_json),
+    findings: jsonContainer(row.findings_json),
+    scorecard: jsonContainer(row.scorecard_json),
     notes: optionalText(row.notes),
   }
+}
+
+function matchesCustomerRelation(
+  value: unknown,
+  customerId: string,
+): boolean {
+  return isRecord(value) && boundedIdentifier(value.id) === customerId
+}
+
+function matchesOwnedRelation(
+  value: unknown,
+  relationId: string | null,
+  customerId: string,
+): boolean {
+  if (relationId === null) return value === null || value === undefined
+  return isRecord(value) &&
+    boundedIdentifier(value.id) === relationId &&
+    boundedIdentifier(value.customer_id) === customerId
 }
 
 function relationText(value: unknown, field: string): string | null {
@@ -246,9 +371,11 @@ function jsonStringArray(value: unknown): string[] | null {
     : null
 }
 
-function jsonObject(value: unknown): Record<string, unknown> | null {
+function jsonContainer(
+  value: unknown,
+): Record<string, unknown> | unknown[] | null {
   const parsed = parseJson(value)
-  return isRecord(parsed) ? parsed : null
+  return isRecord(parsed) || Array.isArray(parsed) ? parsed : null
 }
 
 function parseJson(value: unknown): unknown {
@@ -262,14 +389,15 @@ function parseJson(value: unknown): unknown {
   }
 }
 
-function requiredText(value: unknown): string {
-  const text = optionalText(value)
-  if (text === null) throw new Error('Expected required audit field')
-  return text
-}
-
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function boundedIdentifier(value: unknown): string | null {
+  const text = optionalText(value)
+  return text !== null && text.length <= 160 && text.trim().length > 0
+    ? text
+    : null
 }
 
 function optionalNumber(value: unknown): number | null {

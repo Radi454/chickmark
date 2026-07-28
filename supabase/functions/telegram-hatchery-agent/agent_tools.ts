@@ -95,6 +95,11 @@ const auditLimitRule: ArgumentRule = {
   minimum: 1,
   maximum: 20,
 }
+const auditPositionRule: ArgumentRule = {
+  type: 'integer',
+  minimum: 1,
+  maximum: 20,
+}
 const versionRule: ArgumentRule = {
   type: 'integer',
   minimum: 1,
@@ -162,6 +167,12 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
       'List all recent audit options for an allowed customer and optional flock so the user can choose one.',
       { customerId: idRule, flockId: idRule, limit: auditLimitRule },
       ['customerId'],
+    ),
+    definition(
+      'select_audit_option',
+      'Select one numbered audit from the latest persisted audit options in this conversation.',
+      { position: auditPositionRule },
+      ['position'],
     ),
     definition(
       'get_audit_summary',

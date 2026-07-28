@@ -19,6 +19,7 @@ Deno.test('production handler registry includes executable audit handlers', () =
     },
   })
   assertEquals(typeof handlers.list_customer_audits, 'function')
+  assertEquals(typeof handlers.select_audit_option, 'function')
   assertEquals(typeof handlers.get_audit_summary, 'function')
 })
 

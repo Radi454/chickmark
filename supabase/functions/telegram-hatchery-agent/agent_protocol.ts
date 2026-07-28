@@ -12,6 +12,7 @@ export type AgentToolName =
   | 'list_customer_flocks'
   | 'list_customer_hatcheries'
   | 'list_customer_audits'
+  | 'select_audit_option'
   | 'get_audit_summary'
   | 'get_flock_context'
   | 'query_station_records'
