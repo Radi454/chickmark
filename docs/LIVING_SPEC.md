@@ -1709,8 +1709,9 @@ exists.
 
 Audit discovery is a scoped, stable selection flow. `list_customer_audits`
 defaults to 10 authorized recent audits for an allowed customer and optional
-owned flock, accepts a limit of at most 20, and returns `truncated` when more
-matches exist. Its numbered options are persisted in immutable tool evidence.
+owned flock, accepts a limit of at most 20, and returns `truncated` when a
+larger result exists or the bounded scan cannot prove source exhaustion. Its
+numbered options are persisted in immutable tool evidence.
 A later numbered reply calls `select_audit_option` with only a one-based
 position from 1 through 20; the server uses the injected conversation ID to
 load that conversation's latest successful audit-list snapshot, so a newly

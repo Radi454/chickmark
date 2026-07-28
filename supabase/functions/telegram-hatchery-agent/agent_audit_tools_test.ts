@@ -35,7 +35,7 @@ interface AuditStore {
     customerId: string
     flockId: string | null
     limit: number
-  }): Promise<readonly AuditRow[]>
+  }): Promise<{ rows: readonly AuditRow[]; truncated: boolean }>
   findAudit(
     auditId: string,
     allowedCustomerIds: readonly string[],
@@ -131,7 +131,7 @@ function fixtureStore(): FixtureAuditStore {
       Promise.resolve(store.latestAuditListResult),
     listAudits(input) {
       listInputs.push(input)
-      return Promise.resolve(store.rows)
+      return Promise.resolve({ rows: store.rows, truncated: false })
     },
     findAudit(auditId, allowedCustomerIds) {
       selectedAuditIds.push(auditId)
@@ -429,6 +429,7 @@ interface RecordedAuditQuery {
     nullsFirst?: boolean
   }>
   limit: number | null
+  range: { from: number; to: number } | null
 }
 
 class FakeAuditClient {
@@ -444,6 +445,7 @@ class FakeAuditClient {
       included: {},
       orders: [],
       limit: null,
+      range: null,
     }
     this.queries.push(recorded)
     const matching = () => {
@@ -498,6 +500,13 @@ class FakeAuditClient {
         recorded.limit = count
         return Promise.resolve({
           data: matching().slice(0, count),
+          error: null,
+        })
+      },
+      range(from: number, to: number) {
+        recorded.range = { from, to }
+        return Promise.resolve({
+          data: matching().slice(from, to + 1),
           error: null,
         })
       },
@@ -764,8 +773,8 @@ Deno.test('audit list discards rows with mismatched or cross-customer relations'
     limit: 20,
   })
 
-  assertEquals(audits.map((audit) => audit.id), ['audit-valid'])
-  assertEquals(JSON.stringify(audits).includes('FOREIGN'), false)
+  assertEquals(audits.rows.map((audit) => audit.id), ['audit-valid'])
+  assertEquals(JSON.stringify(audits.rows).includes('FOREIGN'), false)
   const query = client.queries.find((item) => item.table === 'audit_sessions')
   assertEquals(
     query?.selectedColumns?.includes(
@@ -821,3 +830,96 @@ Deno.test('audit list sends descending date and identity ordering with nulls las
     { column: 'id', ascending: false, nullsFirst: false },
   ])
 })
+
+Deno.test(
+  'audit list scans past malformed leading rows to fill the valid page',
+  async () => {
+    const malformedRows = Array.from({ length: 50 }, (_, index) => ({
+      ...remoteAudit(`aa-malformed-${String(index).padStart(2, '0')}`),
+      date: '2026-07-29',
+      customer: { id: 'customer-b', name: 'FOREIGN CUSTOMER' },
+    }))
+    const client = new FakeAuditClient({
+      audit_sessions: [
+        ...malformedRows,
+        remoteAudit('aa-valid-new'),
+        { ...remoteAudit('aa-valid-old'), date: '2026-07-27' },
+      ],
+    })
+    const store = createSupabaseAgentAuditStore(client)
+
+    const result = await call(store, 'list_customer_audits', {
+      customerId: 'customer-a',
+      limit: 1,
+    })
+    assertEquals(
+      result,
+      {
+        ok: true,
+        code: 'ok',
+        data: {
+          customerId: 'customer-a',
+          flockId: null,
+          audits: [{
+            id: 'aa-valid-new',
+            date: '2026-07-28',
+            status: 'completed',
+            customerName: 'Customer a',
+            flockName: 'Flock a',
+            hatcheryName: 'Hatchery a',
+            selectedStationKeys: ['egg'],
+            stationsCompleted: ['egg'],
+            createdAt: '2026-07-28T12:00:00Z',
+            completedAt: '2026-07-28T13:00:00Z',
+          }],
+          truncated: true,
+        },
+      },
+    )
+    const ranges = client.queries
+      .filter((query) => query.table === 'audit_sessions')
+      .map((query) => query.range)
+    assertEquals(ranges, [{ from: 0, to: 49 }, { from: 50, to: 99 }])
+    assertEquals(JSON.stringify(result).includes('FOREIGN CUSTOMER'), false)
+  },
+)
+
+Deno.test(
+  'audit list reports truncation when invalid rows exhaust the scan cap',
+  async () => {
+    const client = new FakeAuditClient({
+      audit_sessions: Array.from({ length: 500 }, (_, index) => ({
+        ...remoteAudit(`aa-malformed-${String(index).padStart(3, '0')}`),
+        customer: { id: 'customer-b', name: 'FOREIGN CUSTOMER' },
+      })),
+    })
+    const store = createSupabaseAgentAuditStore(client)
+
+    assertEquals(
+      await call(store, 'list_customer_audits', {
+        customerId: 'customer-a',
+        limit: 10,
+      }),
+      {
+        ok: true,
+        code: 'ok',
+        data: {
+          customerId: 'customer-a',
+          flockId: null,
+          audits: [],
+          truncated: true,
+        },
+      },
+    )
+    const ranges = client.queries
+      .filter((query) => query.table === 'audit_sessions')
+      .map((query) => query.range)
+    assertEquals(
+      ranges,
+      Array.from(
+        { length: 10 },
+        (_, index) => ({ from: index * 50, to: index * 50 + 49 }),
+      ),
+    )
+  },
+)
