@@ -1,0 +1,668 @@
+{
+  "registryVersion": 1,
+  "stations": [
+    {
+      "schemaKey": "chicks.pasgar",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "pasgar",
+      "names": {
+        "en": "Chick Quality — Pasgar",
+        "ar": "جودة الكتاكيت — باسجار"
+      },
+      "aliases": {
+        "en": ["pasgar", "chick quality score"],
+        "ar": ["باسجار", "جودة الكتكوت", "جودة الكتاكيت"]
+      },
+      "allowedLayers": ["pool", "setter_hatcher"],
+      "fields": [
+        {
+          "fieldKey": "pasgarSampleSize",
+          "names": {"en": "Sample size", "ar": "حجم العينة"},
+          "aliases": {
+            "en": ["sample", "sample number", "sample size"],
+            "ar": ["العينة", "عدد العينة", "حجم العينة"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1, "max": 500},
+          "persistence": {
+            "localColumn": "pasgarSampleSize",
+            "remoteColumn": "pasgar_sample_size"
+          }
+        },
+        {
+          "fieldKey": "pasgarReflexesCount",
+          "names": {"en": "Reflexes", "ar": "ردود الأفعال"},
+          "aliases": {
+            "en": ["reflex", "reflexes"],
+            "ar": ["رد الفعل", "ردود الافعال", "ردود الأفعال"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarReflexesCount",
+            "remoteColumn": "pasgar_reflexes_count"
+          }
+        },
+        {
+          "fieldKey": "pasgarBeakCount",
+          "names": {"en": "Beak", "ar": "المنقار"},
+          "aliases": {
+            "en": ["beak", "peak"],
+            "ar": ["المنقار", "منقار"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarBeakCount",
+            "remoteColumn": "pasgar_beak_count"
+          }
+        },
+        {
+          "fieldKey": "pasgarNavelCount",
+          "names": {"en": "Navel", "ar": "السرة"},
+          "aliases": {
+            "en": ["navel"],
+            "ar": ["السرة", "سره", "سرة"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarNavelCount",
+            "remoteColumn": "pasgar_navel_count"
+          }
+        },
+        {
+          "fieldKey": "pasgarBellyCount",
+          "names": {"en": "Belly", "ar": "البطن"},
+          "aliases": {
+            "en": ["belly"],
+            "ar": ["البطن", "بطن"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarBellyCount",
+            "remoteColumn": "pasgar_belly_count"
+          }
+        },
+        {
+          "fieldKey": "pasgarLegCount",
+          "names": {"en": "Legs", "ar": "الأرجل"},
+          "aliases": {
+            "en": ["leg", "legs"],
+            "ar": ["الأرجل", "الارجل", "رجل"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarLegCount",
+            "remoteColumn": "pasgar_leg_count"
+          }
+        },
+        {
+          "fieldKey": "pasgarFeatherDevCount",
+          "names": {"en": "Feather development", "ar": "تطور الريش"},
+          "aliases": {
+            "en": ["feather", "feather development"],
+            "ar": ["الريش", "تطور الريش"]
+          },
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "persistence": {
+            "localColumn": "pasgarFeatherDevCount",
+            "remoteColumn": "pasgar_feather_dev_count"
+          }
+        }
+      ],
+      "calculations": [
+        {
+          "fieldKey": "pasgarFinalScore",
+          "kind": "pasgar_score",
+          "inputFieldKeys": [
+            "pasgarSampleSize",
+            "pasgarReflexesCount",
+            "pasgarBeakCount",
+            "pasgarNavelCount",
+            "pasgarBellyCount",
+            "pasgarLegCount"
+          ],
+          "unit": "score",
+          "persistence": {
+            "localColumn": "pasgarFinalScore",
+            "remoteColumn": "pasgar_final_score"
+          }
+        }
+      ],
+      "completion": {
+        "requiredFieldKeys": [
+          "pasgarSampleSize",
+          "pasgarReflexesCount",
+          "pasgarBeakCount",
+          "pasgarNavelCount",
+          "pasgarBellyCount",
+          "pasgarLegCount",
+          "pasgarFeatherDevCount"
+        ]
+      },
+      "persistence": [
+        {
+          "localTable": "chick_quality",
+          "remoteTable": "chick_quality"
+        }
+      ],
+      "read": {
+        "dimensions": ["date", "scopeType", "setter", "hatcher"],
+        "measures": [
+          "pasgarSampleSize",
+          "pasgarReflexesCount",
+          "pasgarBeakCount",
+          "pasgarNavelCount",
+          "pasgarBellyCount",
+          "pasgarLegCount",
+          "pasgarFeatherDevCount",
+          "pasgarFinalScore"
+        ]
+      },
+      "warnings": []
+    },
+    {
+      "schemaKey": "egg.storage_environment",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "egg",
+      "moduleKey": "storage_environment",
+      "names": {"en": "Egg Storage — Environment", "ar": "تخزين البيض — البيئة"},
+      "aliases": {"en": ["egg storage", "storage checklist"], "ar": ["تخزين البيض", "قائمة التخزين"]},
+      "allowedLayers": ["pool"],
+      "fields": [
+        {
+          "fieldKey": "turningTimes",
+          "names": {"en": "Turning times per day", "ar": "مرات التقليب يوميًا"},
+          "aliases": {"en": ["turning times", "turns per day"], "ar": ["مرات التقليب", "التقليب يوميا"]},
+          "type": "integer",
+          "unit": "times_per_day",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0, "max": 24},
+          "persistence": {"localColumn": "turningTimes", "remoteColumn": "turning_times"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["turningTimes"]},
+      "persistence": [{"localTable": "egg_storage", "remoteTable": "egg_storage"}],
+      "read": {"dimensions": ["date"], "measures": ["turningTimes"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "egg.shell_temperature",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "egg",
+      "moduleKey": "shell_temperature",
+      "names": {"en": "Egg Storage — Shell Temperature", "ar": "تخزين البيض — حرارة القشرة"},
+      "aliases": {"en": ["egg shell temperature", "est"], "ar": ["حرارة قشرة البيض", "حرارة القشرة"]},
+      "allowedLayers": ["pool"],
+      "fields": [
+        {
+          "fieldKey": "estReadingsJson",
+          "names": {"en": "Shell temperature readings", "ar": "قراءات حرارة القشرة"},
+          "aliases": {"en": ["est readings", "shell temperatures"], "ar": ["قراءات الحرارة", "حرارة القشرة"]},
+          "type": "number_list",
+          "unit": "celsius",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 0, "itemMax": 60},
+          "persistence": {"localColumn": "estReadingsJson", "remoteColumn": "est_readings_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["estReadingsJson"]},
+      "persistence": [{"localTable": "egg_storage", "remoteTable": "egg_storage"}],
+      "read": {"dimensions": ["date"], "measures": ["estAvg", "estCvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "egg.upside_down",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "egg",
+      "moduleKey": "upside_down",
+      "names": {"en": "Egg Storage — Upside Down", "ar": "تخزين البيض — البيض المقلوب"},
+      "aliases": {"en": ["upside down eggs", "inverted eggs"], "ar": ["البيض المقلوب", "بيض مقلوب"]},
+      "allowedLayers": ["pool"],
+      "fields": [
+        {
+          "fieldKey": "upsideDownCount",
+          "names": {"en": "Upside-down eggs", "ar": "عدد البيض المقلوب"},
+          "aliases": {"en": ["upside down count", "inverted count"], "ar": ["عدد البيض المقلوب", "المقلوب"]},
+          "type": "integer",
+          "unit": "eggs",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"min": 0},
+          "persistence": {"localColumn": "upsideDownCount", "remoteColumn": "upside_down_count"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["upsideDownCount"]},
+      "persistence": [{"localTable": "egg_storage", "remoteTable": "egg_storage"}],
+      "read": {"dimensions": ["date"], "measures": ["upsideDownCount", "upsideDownPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "egg.quality_uv",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "egg",
+      "moduleKey": "quality_uv",
+      "names": {"en": "Egg Quality — UV Shell Check", "ar": "جودة البيض — فحص القشرة بالأشعة"},
+      "aliases": {"en": ["uv shell quality", "cuticle check"], "ar": ["فحص القشرة", "فحص الكيوتيكل"]},
+      "allowedLayers": ["pool", "house"],
+      "fields": [
+        {
+          "fieldKey": "uvTrayEggCount",
+          "names": {"en": "Eggs checked", "ar": "عدد البيض المفحوص"},
+          "aliases": {"en": ["eggs checked", "uv sample"], "ar": ["البيض المفحوص", "عينة الأشعة"]},
+          "type": "integer",
+          "unit": "eggs",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1},
+          "persistence": {"localColumn": "uvTrayEggCount", "remoteColumn": "uv_tray_egg_count"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["uvTrayEggCount"]},
+      "persistence": [{"localTable": "egg_quality", "remoteTable": "egg_quality"}],
+      "read": {"dimensions": ["date", "house"], "measures": ["uvTrayEggCount", "uvAffectedPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "egg.weights",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "egg",
+      "moduleKey": "weights",
+      "names": {"en": "Egg Quality — Weights", "ar": "جودة البيض — الأوزان"},
+      "aliases": {"en": ["egg weights", "egg weight sample"], "ar": ["أوزان البيض", "عينة وزن البيض"]},
+      "allowedLayers": ["pool", "house"],
+      "fields": [
+        {
+          "fieldKey": "eggWeightsJson",
+          "names": {"en": "Egg weights", "ar": "أوزان البيض"},
+          "aliases": {"en": ["weights", "egg weights"], "ar": ["الأوزان", "أوزان البيض"]},
+          "type": "number_list",
+          "unit": "grams",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 1, "itemMax": 200},
+          "persistence": {"localColumn": "eggWeightsJson", "remoteColumn": "egg_weights_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["eggWeightsJson"]},
+      "persistence": [{"localTable": "egg_quality", "remoteTable": "egg_quality"}],
+      "read": {"dimensions": ["date", "house"], "measures": ["eggSampleSize", "eggAvgWeight", "eggUniformityPct", "eggCvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "chicks.yfbm",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "yfbm",
+      "names": {"en": "Chick Quality — YFBM", "ar": "جودة الكتاكيت — كتلة الصفار"},
+      "aliases": {"en": ["yfbm", "yolk free body mass"], "ar": ["كتلة الجسم بدون صفار", "كتلة الصفار"]},
+      "allowedLayers": ["pool", "setter_hatcher"],
+      "fields": [
+        {
+          "fieldKey": "yfbmEntriesJson",
+          "names": {"en": "YFBM entries", "ar": "قياسات كتلة الجسم بدون صفار"},
+          "aliases": {"en": ["yfbm entries", "body and yolk weights"], "ar": ["قياسات الكتلة", "وزن الجسم والصفار"]},
+          "type": "object_list",
+          "unit": "grams",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1},
+          "persistence": {"localColumn": "yfbmEntriesJson", "remoteColumn": "yfbm_entries_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["yfbmEntriesJson"]},
+      "persistence": [{"localTable": "chick_quality", "remoteTable": "chick_quality"}],
+      "read": {"dimensions": ["date", "setter", "hatcher"], "measures": ["yfbmEntryCount", "yfbmAvgPct", "yfbmCvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "chicks.cvt",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "cvt",
+      "names": {"en": "Chick Quality — Vent Temperature", "ar": "جودة الكتاكيت — حرارة المخرج"},
+      "aliases": {"en": ["cvt", "chick vent temperature"], "ar": ["حرارة مخرج الكتكوت", "حرارة الكتاكيت"]},
+      "allowedLayers": ["pool", "setter_hatcher"],
+      "fields": [
+        {
+          "fieldKey": "cvtReadingsJson",
+          "names": {"en": "Vent temperature readings", "ar": "قراءات حرارة المخرج"},
+          "aliases": {"en": ["cvt readings", "vent temperatures"], "ar": ["قراءات حرارة المخرج", "درجات حرارة الكتاكيت"]},
+          "type": "number_list",
+          "unit": "fahrenheit",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 80, "itemMax": 110},
+          "persistence": {"localColumn": "cvtReadingsJson", "remoteColumn": "cvt_readings_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["cvtReadingsJson"]},
+      "persistence": [{"localTable": "chick_quality", "remoteTable": "chick_quality"}],
+      "read": {"dimensions": ["date", "setter", "hatcher"], "measures": ["cvtSampleSize", "cvtAvgTemp", "cvtCvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "chicks.postmortem",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "postmortem",
+      "names": {"en": "Chick Quality — PM Necropsy", "ar": "جودة الكتاكيت — التشريح"},
+      "aliases": {"en": ["pm necropsy", "postmortem"], "ar": ["التشريح", "فحص ما بعد النفوق"]},
+      "allowedLayers": ["pool", "setter_hatcher"],
+      "fields": [
+        {
+          "fieldKey": "pmSampleSize",
+          "names": {"en": "Necropsy sample size", "ar": "حجم عينة التشريح"},
+          "aliases": {"en": ["pm sample", "necropsy sample"], "ar": ["عينة التشريح", "عدد التشريح"]},
+          "type": "integer",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1, "max": 500},
+          "persistence": {"localColumn": "pmSampleSize", "remoteColumn": "pm_sample_size"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["pmSampleSize"]},
+      "persistence": [{"localTable": "chick_quality", "remoteTable": "chick_quality"}],
+      "read": {"dimensions": ["date", "setter", "hatcher"], "measures": ["pmSampleSize", "pmSuspectedCauseAuto", "pmSuspectedCauseManual"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "chicks.culled_analysis",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "culled_analysis",
+      "names": {"en": "Chick Quality — Culled Analysis", "ar": "جودة الكتاكيت — تحليل المستبعد"},
+      "aliases": {"en": ["culled chicks analysis", "cull analysis"], "ar": ["تحليل الكتاكيت المستبعدة", "تحليل المستبعد"]},
+      "allowedLayers": ["pool", "setter_hatcher"],
+      "fields": [
+        {
+          "fieldKey": "culledChicksAnalysisJson",
+          "names": {"en": "Culled chick observations", "ar": "ملاحظات الكتاكيت المستبعدة"},
+          "aliases": {"en": ["culled observations", "cull defects"], "ar": ["ملاحظات المستبعد", "عيوب الكتاكيت"]},
+          "type": "object_list",
+          "unit": "chicks",
+          "required": true,
+          "explicitZero": true,
+          "validation": {"minItems": 1},
+          "persistence": {"localColumn": "culledChicksAnalysisJson", "remoteColumn": "culled_chicks_analysis_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["culledChicksAnalysisJson"]},
+      "persistence": [{"localTable": "chick_quality", "remoteTable": "chick_quality"}],
+      "read": {"dimensions": ["date", "setter", "hatcher"], "measures": ["culledChicksAffectedPct", "culledChicksTopCategory", "culledChicksTopSubtype"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "chicks.weights",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "chicks",
+      "moduleKey": "weights",
+      "names": {"en": "Chick Quality — Weights", "ar": "جودة الكتاكيت — الأوزان"},
+      "aliases": {"en": ["chick weights", "chick weight sample"], "ar": ["أوزان الكتاكيت", "عينة وزن الكتاكيت"]},
+      "allowedLayers": ["pool", "house"],
+      "fields": [
+        {
+          "fieldKey": "weightsJson",
+          "names": {"en": "Chick weights", "ar": "أوزان الكتاكيت"},
+          "aliases": {"en": ["weights", "chick weights"], "ar": ["الأوزان", "أوزان الكتاكيت"]},
+          "type": "number_list",
+          "unit": "grams",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 1, "itemMax": 200},
+          "persistence": {"localColumn": "weightsJson", "remoteColumn": "weights_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["weightsJson"]},
+      "persistence": [{"localTable": "chick_weights", "remoteTable": "chick_weights"}],
+      "read": {"dimensions": ["date", "house"], "measures": ["sampleSize", "avgWeight", "uniformityPct", "cvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "hatch_analysis.fresh_breakout",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "hatch_analysis_egg_breakouts",
+      "moduleKey": "fresh_breakout",
+      "names": {"en": "Hatch Analysis — Fresh Egg Breakout", "ar": "تحليل الفقس — كسر البيض الطازج"},
+      "aliases": {"en": ["fresh breakout", "fresh egg breakout"], "ar": ["كسر البيض الطازج", "الكسر الطازج"]},
+      "allowedLayers": ["pool", "house", "tray"],
+      "fields": [
+        {
+          "fieldKey": "traySize",
+          "names": {"en": "Tray size", "ar": "حجم الصينية"},
+          "aliases": {"en": ["tray size", "sample eggs"], "ar": ["حجم الصينية", "عدد البيض"]},
+          "type": "integer",
+          "unit": "eggs",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1, "max": 500},
+          "persistence": {"localColumn": "traySize", "remoteColumn": "tray_size"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["traySize"]},
+      "persistence": [{"localTable": "fresh_egg_breakout", "remoteTable": "fresh_egg_breakout"}],
+      "read": {"dimensions": ["date", "house", "tray"], "measures": ["traySize", "infertilePct", "early24hPct", "early48hPct", "bloodRingPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "hatch_analysis.candled_breakout",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "hatch_analysis_egg_breakouts",
+      "moduleKey": "candled_breakout",
+      "names": {"en": "Hatch Analysis — Candled Breakout", "ar": "تحليل الفقس — كسر البيض المفحوص"},
+      "aliases": {"en": ["candled breakout", "candling breakout"], "ar": ["كسر البيض المفحوص", "كسر التسقيط"]},
+      "allowedLayers": ["pool", "house", "setter_hatcher", "trolley", "tray"],
+      "fields": [
+        {
+          "fieldKey": "traySize",
+          "names": {"en": "Tray size", "ar": "حجم الصينية"},
+          "aliases": {"en": ["tray size", "sample eggs"], "ar": ["حجم الصينية", "عدد البيض"]},
+          "type": "integer",
+          "unit": "eggs",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1, "max": 500},
+          "persistence": {"localColumn": "traySize", "remoteColumn": "tray_size"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["traySize"]},
+      "persistence": [{"localTable": "candled_egg_breakout", "remoteTable": "candled_egg_breakout"}],
+      "read": {"dimensions": ["date", "house", "setter", "hatcher", "trolley", "tray"], "measures": ["candlingDay", "traySize", "infertilePct", "early24hPct", "early48hPct", "bloodRingPct", "blackEyePct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "hatch_analysis.residue_breakout",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "hatch_analysis_egg_breakouts",
+      "moduleKey": "residue_breakout",
+      "names": {"en": "Hatch Analysis — Residue Breakout", "ar": "تحليل الفقس — كسر مخلفات الفقس"},
+      "aliases": {"en": ["residue breakout", "hatch residue"], "ar": ["كسر مخلفات الفقس", "كسر المتبقي"]},
+      "allowedLayers": ["pool", "house", "setter_hatcher", "trolley", "tray"],
+      "fields": [
+        {
+          "fieldKey": "traySize",
+          "names": {"en": "Tray size", "ar": "حجم الصينية"},
+          "aliases": {"en": ["tray size", "sample eggs"], "ar": ["حجم الصينية", "عدد البيض"]},
+          "type": "integer",
+          "unit": "eggs",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 1, "max": 500},
+          "persistence": {"localColumn": "traySize", "remoteColumn": "tray_size"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["traySize"]},
+      "persistence": [{"localTable": "residue_breakout", "remoteTable": "residue_breakout"}],
+      "read": {"dimensions": ["date", "house", "setter", "hatcher", "trolley", "tray"], "measures": ["traySize", "hatchabilityPct", "fertilityPct", "hofPct", "culledPct", "deadPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "setters.environment",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "setters",
+      "moduleKey": "environment",
+      "names": {"en": "Setter — Environment and Settings", "ar": "المفرخ — البيئة والإعدادات"},
+      "aliases": {"en": ["setter settings", "setter environment"], "ar": ["إعدادات المفرخ", "بيئة المفرخ"]},
+      "allowedLayers": ["setter"],
+      "fields": [
+        {
+          "fieldKey": "setpointF",
+          "names": {"en": "Temperature setpoint", "ar": "درجة الحرارة المضبوطة"},
+          "aliases": {"en": ["setpoint", "temperature setpoint"], "ar": ["الحرارة المضبوطة", "نقطة الضبط"]},
+          "type": "number",
+          "unit": "fahrenheit",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 80, "max": 110},
+          "persistence": {"localColumn": "setpointF", "remoteColumn": "setpoint_f"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["setpointF"]},
+      "persistence": [{"localTable": "setter_optimizing", "remoteTable": "setter_optimizing"}],
+      "read": {"dimensions": ["date", "setter"], "measures": ["setpointF", "actualF", "setpointRh", "actualRh", "turningAngle", "co2Ppm"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "setters.shell_temperature",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "setters",
+      "moduleKey": "shell_temperature",
+      "names": {"en": "Setter — Shell Temperature", "ar": "المفرخ — حرارة القشرة"},
+      "aliases": {"en": ["setter est", "setter shell temperature"], "ar": ["حرارة القشرة بالمفرخ", "قراءات حرارة القشرة"]},
+      "allowedLayers": ["setter"],
+      "fields": [
+        {
+          "fieldKey": "estReadingsJson",
+          "names": {"en": "Shell temperature readings", "ar": "قراءات حرارة القشرة"},
+          "aliases": {"en": ["est readings", "shell temperatures"], "ar": ["قراءات الحرارة", "حرارة القشرة"]},
+          "type": "number_list",
+          "unit": "fahrenheit",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 80, "itemMax": 110},
+          "persistence": {"localColumn": "estReadingsJson", "remoteColumn": "est_readings_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["estReadingsJson"]},
+      "persistence": [{"localTable": "setter_optimizing", "remoteTable": "setter_optimizing"}],
+      "read": {"dimensions": ["date", "setter"], "measures": ["incubationAgeDays", "incubationHours", "estSampleSize", "estAvg", "estCvPct"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "hatchers.environment",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "hatchers",
+      "moduleKey": "environment",
+      "names": {"en": "Hatcher — Environment and Settings", "ar": "الفقاسة — البيئة والإعدادات"},
+      "aliases": {"en": ["hatcher settings", "hatcher environment"], "ar": ["إعدادات الفقاسة", "بيئة الفقاسة"]},
+      "allowedLayers": ["hatcher"],
+      "fields": [
+        {
+          "fieldKey": "setpointF",
+          "names": {"en": "Temperature setpoint", "ar": "درجة الحرارة المضبوطة"},
+          "aliases": {"en": ["setpoint", "temperature setpoint"], "ar": ["الحرارة المضبوطة", "نقطة الضبط"]},
+          "type": "number",
+          "unit": "fahrenheit",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"min": 80, "max": 110},
+          "persistence": {"localColumn": "setpointF", "remoteColumn": "setpoint_f"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["setpointF"]},
+      "persistence": [{"localTable": "hatcher_optimizing", "remoteTable": "hatcher_optimizing"}],
+      "read": {"dimensions": ["date", "hatcher"], "measures": ["setpointF", "setpointRh", "co2Ppm", "chickPanting", "meconium", "transferDay"]},
+      "warnings": []
+    },
+    {
+      "schemaKey": "hatchers.cvt",
+      "version": 1,
+      "sectorKeys": ["breeder"],
+      "stationKey": "hatchers",
+      "moduleKey": "cvt",
+      "names": {"en": "Hatcher — Chick Vent Temperature", "ar": "الفقاسة — حرارة مخرج الكتكوت"},
+      "aliases": {"en": ["hatcher cvt", "hatcher vent temperature"], "ar": ["حرارة الكتاكيت بالفقاسة", "حرارة المخرج"]},
+      "allowedLayers": ["hatcher"],
+      "fields": [
+        {
+          "fieldKey": "cvtReadingsJson",
+          "names": {"en": "Vent temperature readings", "ar": "قراءات حرارة المخرج"},
+          "aliases": {"en": ["cvt readings", "vent temperatures"], "ar": ["قراءات حرارة المخرج", "درجات حرارة الكتاكيت"]},
+          "type": "number_list",
+          "unit": "fahrenheit",
+          "required": true,
+          "explicitZero": false,
+          "validation": {"minItems": 1, "itemMin": 80, "itemMax": 110},
+          "persistence": {"localColumn": "cvtReadingsJson", "remoteColumn": "cvt_readings_json"}
+        }
+      ],
+      "calculations": [],
+      "completion": {"requiredFieldKeys": ["cvtReadingsJson"]},
+      "persistence": [{"localTable": "hatcher_optimizing", "remoteTable": "hatcher_optimizing"}],
+      "read": {"dimensions": ["date", "hatcher"], "measures": ["cvtSampleSize", "cvtAvg", "cvtCvPct"]},
+      "warnings": []
+    }
+  ]
+}
