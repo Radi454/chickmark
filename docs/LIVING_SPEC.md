@@ -2462,8 +2462,10 @@ behavior and emit debug logs in development builds.
 ## 9. Change Log
 
 - 2026-07-28: Exposed scoped audit browsing to the unified Telegram agent.
-  Authorized users receive every matching recent audit as numbered choices, and
-  the selected audit is retrieved in a second opaque-ID summary call. Name text
+  Authorized users receive numbered choices from a bounded page of recent
+  audits (default 10, maximum 20); `truncated` signals either a larger valid
+  result or that the 500-row bounded scan could not prove exhaustion. The
+  selected audit is retrieved in a second opaque-ID summary call. Name text
   remains forbidden in ID arguments, while list/detail denials stay
   indistinguishable for unknown and out-of-scope records.
 - 2026-07-28: Added scoped customer/flock name resolution to the unified
