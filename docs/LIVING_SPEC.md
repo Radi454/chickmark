@@ -8,7 +8,7 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-27
+2026-07-28
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
@@ -157,7 +157,7 @@ navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
 
-The main shell has nine destinations for approved admins and auditors:
+The main shell has ten destinations for approved admins:
 
 - Home
 - Dashboard
@@ -167,7 +167,12 @@ The main shell has nine destinations for approved admins and auditors:
 - Lab Analysis
 - BMK
 - Performance
+- Agent
 - Settings
+
+Approved auditors receive the same destination set except Agent, leaving nine
+auditor destinations. Agent Monitor is restricted to approved admins because
+its remote tables use admin-only RLS.
 
 Approved customer-role accounts see only Dashboard and Settings. Settings is
 reduced to account details and sign-out, so the only product data surface they
@@ -212,11 +217,13 @@ Debug auth bypass is available only when the app is running as a non-release
 build or on a localhost/127.0.0.1 web preview. The bypass is enabled by default
 for now and can be disabled for a local run with
 `CHICKMARK_DEBUG_AUTH_BYPASS=false`. The bypass
-creates a local approved auditor identity and maps auth routes back to the main
-shell, so the app opens on Home and audit creation is enabled for local
-development. The Home and new-visit edit gates also honor this non-release
-bypass so local previews can start new audits even before remote auth is
-configured. The bypass cannot activate in release builds. Outside
+creates a local approved auditor identity, so the app opens on Home and audit
+creation is enabled for local development. If that development user signs out,
+the provider stays unauthenticated for the current session and the `/login`
+route renders the real login screen instead of the main shell. The Home and
+new-visit edit gates also honor this non-release bypass so local previews can
+start new audits even before remote auth is configured. The bypass cannot
+activate in release builds. Outside
 that temporary bypass, only
 approved admins and auditors can create or edit audits. Customer-role users are
 read-only and scoped to their assigned `customerId`.
@@ -1457,7 +1464,9 @@ stored on the corresponding panel row for dashboard queries and sync.
 `AuthProvider` manages auth state, Supabase sign-in/sign-up, offline/local login
 fallback, cached token checks, pending approval state, and logout. The temporary
 auth bypass starts the provider as an approved local auditor in non-release
-builds unless the run explicitly sets `CHICKMARK_DEBUG_AUTH_BYPASS=false`.
+builds unless the run explicitly sets `CHICKMARK_DEBUG_AUTH_BYPASS=false`; an
+explicit debug-bypass logout clears that development identity for the current
+session instead of immediately reactivating it.
 Local fallback users are stored with ids prefixed by `local-`. Local fallback
 auth remains available by default for non-release development builds, is
 disabled by default for release builds, and can only be enabled in release with
@@ -1567,7 +1576,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 52. The database file
+The app uses SQLite through `sqflite` at database version 54. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1602,55 +1611,381 @@ backfilled as Breeder; other legacy flock sectors remain unset for later user
 classification.
 
 Version 52 adds the Telegram hatchery-agent data foundation. Local SQLite now
-stores allowed staff links, one agent-settings row, original submission
-metadata, bilingual follow-up questions and answers, draft batches and rows,
-agent audit events, and approved hatchery daily-record-shaped rows. The
+stores Telegram staff links with `pending`, `allowed`, and `revoked` states;
+new staff links default to `pending` unless an admin explicitly allows them.
+It also stores one agent-settings row, original submission metadata, bilingual follow-up
+questions and answers, draft batches and rows, agent audit events, and approved
+hatchery daily-record-shaped rows. The
 repository can create a submission/batch/rows/questions/events graph in one
 transaction, load or update default agent thresholds, list newest draft batch
-summaries, load complete batch details, and find the previous approved
+summaries, list newest pending Telegram staff requests, update staff-link
+approval decisions, load complete batch details, and find the previous approved
 customer/flock/station/breed record before a hatch date. Every local repository
 write is marked pending with dirty metadata.
+
+Version 53 adds the schema-driven conversational intake graph:
+`agent_intake_sessions` owns the current workflow state, resolved customer,
+flock, hatchery, audit date, scope, machine identities, working values, and
+versioned confirmation snapshot; `agent_intake_turns` preserves immutable
+inbound and outbound conversation evidence; and `agent_intake_values` stores
+the latest normalized value, source phrase, confidence, and any clarification
+reason for each schema field. The three tables participate in normal
+dependency-ordered startup push/pull sync.
+
+Version 54 adds the persistence and authorization boundary for the unified AI
+agent. Every Telegram staff link now carries an explicit `customer` or `admin`
+access role; an allowed customer link must reference exactly one customer,
+while an allowed admin link cannot carry a customer restriction. Existing
+allowed links are preserved as explicit admin links during the additive
+upgrade. The new `agent_conversations`, `agent_conversation_turns`,
+`agent_tool_events`, and `agent_intake_visits` tables preserve free-form chat,
+model/tool evidence, and a multi-station visit context. Intake sessions now
+reference their visit, carry an optimistic row version, and may reference the
+tool event that last changed them. Each deployed v53 intake is preserved and
+backfilled into its own legacy visit under a deterministic staff/chat
+conversation; no intake or confirmed summary is deleted or merged.
+
+Conversation turns, tool events, and visit rows are authored by the Supabase
+Edge agent. The Flutter admin app pulls these rows read-only in dependency
+order and never pushes or tombstones them. Remote RLS exposes them only for
+approved app-admin review and retains service-role Edge access. Database
+guards reject invalid visit/customer relationships, protect a user-confirmed
+summary from later mutation, and make completed tool-call evidence immutable.
+One visit can contain multiple sequential confirmed station sessions, while a
+partial unique index permits only one active station intake for that visit at
+a time.
+
+Version 55 widens the local conversational-intake scope constraint from the
+original pooled/machine Pasgar scopes to every sampling layer used by the
+station registry: pool, house, setter, hatcher, setter+hatcher, trolley, and
+tray. The additive upgrade rebuilds only `agent_intake_sessions`, preserves its
+rows and references, and recreates the active/review indexes and database
+guards.
+
+The unified-agent station registry foundation is generated from
+`tool/agent_schema/station_registry.json`. The generator validates localized
+names and aliases, unique schema identities, field/completion references,
+validation metadata, and local/remote persistence mappings, then emits the
+typed Dart and TypeScript contracts used by Flutter and Supabase functions.
+Its first registry version exposes 18 Breeder hatchery modules across all nine
+active panel tables: egg storage environment, egg shell temperature,
+upside-down eggs, UV shell quality, egg weights, Pasgar, YFBM, chick vent
+temperature, PM necropsy, culled-chick analysis, chick weights, fresh/candled/
+residue breakout, setter environment and shell temperature, and hatcher
+environment and vent temperature. These aliases are schema vocabulary for the
+AI and are not backend intent triggers.
+
+The Edge harness now resolves the authorized Telegram staff-link scope from
+the database before any AI path can run. Customer links receive exactly their
+assigned customer ID; explicit agent-admin links receive the current customer
+catalog. Missing, revoked, malformed, or unassigned links fail closed. Flock,
+hatchery, and customer authorization use indistinguishable `scope_denied`
+results for unknown and out-of-scope identifiers so the model cannot probe
+another customer's records.
+
+The unified runtime exposes a typed tool catalog rather than database access.
+The gateway rejects unknown tools, extra arguments, invalid types, oversized
+strings, reads over 100 rows, and date windows over 366 days. It injects the
+server-resolved scope plus conversation/visit IDs into each handler, limits a
+turn to five tool calls, and records sanitized arguments, structured results,
+status, duration, bounded access scope, and optimistic state versions through an
+evidence port. Tool definitions and evidence never contain service credentials,
+unrestricted table names, raw attachment bytes, or secret-shaped values.
+
+Customer-data tools can now return the enforced customer's identity, flock
+list, flock status/breed/sector/entry date, and an exact age calculated for the
+query date. The model receives customer IDs only through scoped read tools, not
+through its trusted prompt or scope summary. When a user supplies customer and
+flock names, an exact Arabic-normalized resolver evaluates them together; a
+unique flock can disambiguate duplicate customer names, while missing or
+multiple matches return structured clarification candidates instead of choosing
+an ID. Versioned station reads derive their table and selectable columns
+only from the canonical registry, always inject customer scope, optionally
+verify flock ownership, use inclusive bounded dates, keep nulls as null, and
+return at most 100 records in stable date/ID order. Provenance reports the
+schema, customer, flock, record date, fetch time, and fresh/stale/missing state
+without estimating absent facts or revealing whether an inaccessible record
+exists.
+
+Audit discovery is a two-step scoped read: `list_customer_audits` returns all
+authorized recent audits as numbered choices for an allowed customer and
+optional owned flock, then `get_audit_summary` retrieves one selected audit by
+its opaque ID. Name text is never accepted in ID arguments; the model must
+resolve names through the scoped customer/flock resolver before invoking either
+audit tool. Both listing and detail lookup return the same `scope_denied` shape
+for unknown, inaccessible, or mismatched records, so neither response reveals
+whether an out-of-scope audit exists.
+
+Shared calculation parity vectors now verify the Dart and Edge implementations
+of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
+HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from
+raw observed rows, reports its observation count, and returns null when no
+valid evidence exists. Configured warning deltas also remain deterministic.
+
+Generic station intake is now a durable, registry-driven state machine rather
+than a fixed question sequence. A model-selected data-entry proposal records
+only a pending action and cannot create a session until the user explicitly
+confirms on a later turn; the proposal expires after five turns or 15 minutes.
+After confirmation, the server resolves authorized customer, flock, hatchery,
+date, layer, and machine context before opening the selected schema. One message
+may supply several fields in any order. Static and sample-dependent limits are
+validated against the complete message, accepted values retain their source
+phrase and confidence, and uncertain or invalid values return structured
+clarification needs without guessing.
+
+The applicable-station catalog is resolved from the selected authorized flock's
+persisted sector. It returns only matching registry schemas together with their
+localized names, aliases, and valid sampling layers. The AI can therefore
+interpret a selection by number, module name, Arabic/English alias, or natural
+description without a phrase router or fixed scenario list.
+
+The state machine does not interrupt after each accepted field. It creates one
+backend-calculated, versioned summary only when every required field for the
+station is present, and only that exact summary version can be confirmed.
+Corrections invalidate the previous summary, optimistic row versions prevent
+stale overwrites, and submission moves the station to admin review without
+creating an operational panel row. Pausing, resuming, or cancelling preserves
+the collected evidence, while sequential station sessions for the same
+customer/flock/hatchery/date reuse one visit. Legacy Pasgar readers remain only
+for compatibility with already-created rows; new intake semantics come from the
+canonical `chicks.pasgar@1` registry schema.
+
+All 18 registry schemas have matching Dart and TypeScript adapters. Each
+adapter validates its current UI-equivalent required inputs, field types,
+explicit-zero rules, static and dynamic limits, nested list/object values,
+backend calculations, and allowlisted local/remote persistence mapping. The
+same registry drives the AI's questions, the server-side summary, and the
+generic Flutter admin review card.
+
+The unified provider runtime now sends that state and the latest 20 bounded
+conversation turns to one policy-guided Responses-compatible AI loop. The
+model—not a backend phrase router—writes the normal Arabic, English, or mixed
+reply and may request typed tools; each structured result is returned to the
+same model turn before the reply. Calls execute serially, stop after five or
+the 20-second turn budget, and preserve reasoning/function output items needed
+by the provider protocol. Malformed and unknown calls never reach a handler,
+tool data cannot add instructions or capabilities, and provider
+unavailability returns an infrastructure status for the webhook boundary.
+OpenRouter HTTP 402 fallback remains contained inside the provider adapter.
+The policy distinguishes an informational flock question from a request to
+record operational data: asking to review, explain, or compare existing flock
+data uses scoped read tools and cannot by itself propose an intake. Intake is
+proposed only when the user expresses an intent to add, record, submit, correct,
+or update data.
+
+The live Telegram webhook routes every authorized text, photo, PDF,
+spreadsheet, and document turn through this same runtime, including greetings,
+questions, possible data-entry requests, active intakes, and legacy open-draft
+contexts. There is no deployed phrase-classifier branch for normal replies.
+Downloaded attachment bytes and trusted Telegram metadata are supplied to the
+model in provider-native image or file input blocks. The webhook sends the
+model's final response as Telegram-safe plain text; visible Markdown emphasis
+and code markers are removed at the transport boundary. Only a bounded
+bilingual infrastructure retry is fixed at that boundary.
+
+Each accepted Telegram update is deduplicated before mutable staff metadata or
+conversation state is changed. Its inbound turn receives a monotonically
+allocated index that is unique inside the conversation, and the exact inbound
+evidence is persisted before the runtime starts. The corresponding assistant
+turn is stored with pending delivery before Telegram is called, then marked
+delivered or failed. A Telegram retry sees the original inbound update and
+cannot rerun the model or duplicate a delivered reply. Provider or tool failures
+never fall through into a second conversational implementation.
+
+The `chicks.pasgar@1` schema requires sample size,
+reflexes, beak, navel, belly, leg, and feather-development counts, while
+reusing the app's Pasgar percentage and score calculations. Approved staff may
+provide several values in either Arabic or English, in any order. Valid values
+are saved without a confirmation interruption; an uncertain, ambiguous, or
+invalid value produces one focused clarification and is never silently guessed.
+Zeroes must be explicit, including an explicit "all remaining are zero"
+instruction. The bot asks only for missing context or measurements, and a
+normal mission question can interrupt an active intake without changing its
+data.
+
+Only after a whole station schema is complete does the bot send one localized,
+versioned summary and ask the staff member to confirm it. A correction updates
+the relevant values and generates a new complete summary; only an affirmative
+answer to the current summary moves that station to admin review. The deleted
+Pasgar-specific interpreter/controller is no longer a callable conversation
+path.
+
+Agent Monitor lists all confirmed generic station intakes separately from
+legacy hatchery drafts. Approved admins can inspect the registry-driven context,
+values, calculated results, schema version, language, scope, and expandable
+conversation evidence; edit a typed scalar or JSON list/object value; reject
+with a reason; or approve into a new audit or a matching existing audit. The
+original user-confirmed summary remains immutable evidence when an admin makes
+a correction; approval validates the reviewed working values against the same
+schema.
+
+Final approval calls the authenticated `approve-agent-intake` Edge Function
+with the expected summary version. The function authenticates the caller,
+requires an approved app-admin profile, revalidates context/schema/values and
+any target audit, derives only registry-allowlisted panel columns, then invokes
+a service-role-only atomic RPC. The RPC locks the intake and target audit,
+writes the proper allowlisted panel table, updates selected/completed stations,
+and records the approved audit/panel IDs idempotently. Customer users and
+ordinary authenticated clients cannot execute the commit function directly.
 
 The `telegram-hatchery-agent` Supabase Edge Function now receives Telegram POST
 webhooks and validates Telegram's secret-token header before reading the
 payload. It accepts only pre-authorized, non-revoked staff links, refreshes the
 known staff member's Telegram metadata, honors the remote pause setting, and
 treats a repeated Telegram update as an idempotent success. Unknown or revoked
-staff receive a bilingual rejection without creating a submission or draft.
-Accepted text, photo, PDF, spreadsheet, and document submissions create a
-`received` submission before extraction; Telegram file IDs are retained as
-source references and file bytes are downloaded only inside the backend.
+staff do not create a submission or draft. Unknown staff are inserted or
+refreshed as pending `telegram_staff_links` rows and receive an Arabic-only
+message telling them that admin approval is required. Existing pending staff
+receive the same waiting message. Revoked staff receive an Arabic-only
+rejection.
+Telegram exposes numeric user IDs, chat IDs, usernames, and display names to the
+bot; it does not provide a phone number unless a user explicitly sends a contact
+message. Accepted text, photo, PDF, spreadsheet, and document turns create
+durable unified-conversation evidence; Telegram file IDs are retained as source
+references and file bytes are downloaded only inside the backend. The AI
+decides from the whole turn whether it should answer a scoped flock question,
+ask a natural clarifying question, propose a station intake, or continue the
+current intake. It cannot create an intake from inferred intent alone: the
+generic intake tool requires the later explicit confirmation described above.
+Unknown, pending, or revoked senders still receive only the access-flow
+messages and cannot invoke the AI runtime.
 
-OpenAI extraction uses the Responses API with a strict JSON schema, server-only
-credentials, and text, image, or file input appropriate to the Telegram source.
+The earlier draft-extraction compatibility helper uses a deterministic
+labeled-text parser when text clearly provides hatchery fields as
+`Label: value` lines. This allows old draft workflows and tests to reconstruct
+their original extraction. Its structured extraction uses either the OpenAI
+Responses API or the OpenRouter
+Responses-compatible API with a strict JSON schema, server-only credentials, and
+input appropriate to the Telegram source. `AI_PROVIDER`
+can explicitly select `openai` or `openrouter`; otherwise the backend uses
+OpenRouter when `OPENROUTER_API_KEY` is present and falls back to OpenAI. The
+model can be set with `OPENROUTER_MODEL`, `OPENAI_MODEL`, or shared `AI_MODEL`;
+when OpenRouter returns HTTP 402 for a configured paid model, the backend
+retries once with `openrouter/free` for testing continuity. Without an explicit
+OpenRouter model, testing deployments default to `openrouter/free`.
 The prompt supports English, Arabic, and mixed tables, requires nulls for
 unknown values, and forbids guessing customer, flock, station, or breed names.
 One draft batch groups every returned row. The backend calculates hatchability
 as total production divided by positive eggs placed times 100, stores the raw
 structured extraction, and marks invalid-count or unresolved rows for review.
+This extractor remains available for existing draft records and compatibility
+tests; it is not the live authorized Telegram conversation router.
+Before storing rows, the backend loads existing customers, flocks, and
+hatcheries and compares extracted identity names using Unicode-normalized,
+case-insensitive exact matching with collapsed whitespace. A uniquely matched
+customer and customer-scoped flock are stored as their real IDs; an omitted
+customer can also be derived from a globally unique exact flock match. A
+resolved customer with exactly one hatchery receives that hatchery ID.
+When duplicate customer names exist, an exact flock match may disambiguate
+them only if that customer/flock combination is unique. Other duplicate,
+conflicting, or missing customer/flock matches and multiple customer
+hatcheries are never guessed: their affected IDs remain null and the draft
+stores identity-resolution warnings and Arabic Telegram follow-up questions.
+When the backend can safely derive relevant choices, such as known flocks for
+the resolved customer or multiple hatcheries for the customer, the question
+includes a numbered Arabic choice list. Staff can answer with the option number
+instead of retyping the full name. If the
+hierarchy lookup itself is unavailable, extraction still produces editable
+unresolved drafts with a distinct lookup-unavailable warning instead of
+claiming that the names do not exist or discarding the submission.
+
+Parseable extracted dates are normalized to the submitted calendar date at UTC
+midnight before persistence and text-date comparison. For a resolved
+customer/flock/station/breed/hatch-date key, the backend loads the latest
+earlier approved hatchery daily row and recalculates both current and historical
+hatchability from their production and egg counts; a legacy stored historical
+percentage is only a fallback when its counts are invalid. An absolute change at
+or above `hatchability_warning_threshold_points` is stored as a
+`historicalChange` review warning. The setting defaults to 3 percentage points.
+A review warning routes the draft to `needs_admin_review`.
+
+Structured extraction includes nullable flock age. A positive extracted age is
+stored as proposed draft metadata; otherwise a uniquely resolved flock entry
+date and the row hatch date derive completed whole weeks. For a rising
+historical result, the backend loads the nearest breed BMK age and stores
+informational `bmkContext` when the rise remains at or below that BMK, or
+`missingBmk` when no benchmark exists. The nearest lookup compares the closest
+available BMK at or below the flock age with the closest one at or above it, so
+it does not depend on an arbitrary query page. When no positive flock age can
+be extracted or derived, the backend stores an Arabic staff-facing
+`flockAgeWeeks` question for that row, adds `missingFlockAge` context when a
+rising comparison requested BMK, and keeps the row in `needs_review` while the
+submission and batch wait in `waiting_for_staff_answer`.
+
 Configured minimum confidence selects `draft_ready` versus
-`needs_admin_review`; extracted bilingual missing questions are stored and set
-the submission and batch to `waiting_for_staff_answer` before being sent to the
-same Telegram chat. Processing failures are persisted as `failed` and
-acknowledged to Telegram so the durable submission remains available to an
-admin.
+`needs_admin_review`; extracted and deterministic missing questions are stored
+and sent to the same Telegram chat as clean Arabic prompts without exposing
+draft identifiers or internal field keys when only one submission is waiting.
+Historical/BMK enrichment is
+owned by the Edge Function because it is the authoritative ingestion boundary
+with current cloud history and reference data. Startup pull preserves the
+stored warning evidence without locally recomputing or dirtying the row; local
+post-pull enrichment is deliberately avoided because an offline client can
+have stale history/BMK data and a pull-triggered write would risk sync conflicts
+or replay loops. Processing failures are persisted as `failed` and acknowledged
+to Telegram so the durable submission remains available to an admin.
+
+The legacy draft-answer compatibility operations can check text replies against
+open questions for the same staff link and Telegram chat. A single
+open question accepts a direct answer; multiple questions use deterministic
+row/field ordering and require numbered, row/field-referenced answers. If a
+question lists choices, a numbered reply such as `2: 1` stores the first
+displayed choice for question 2. Numbered answers accept either punctuation
+(`1: 30`) or a natural space-separated form (`1 30`). When more than one draft is waiting, the
+Arabic prompt separates the pending requests by request number. Ambiguous,
+duplicate-target, out-of-range, or invalid typed replies leave all affected
+questions open and return an Arabic clarification. In the live webhook, legacy
+open questions are exposed only as state/tool data to the unified runtime
+instead of taking over inbound routing. Greetings, thanks, help requests,
+ordinary questions, and data-bearing answers therefore remain one AI
+conversation while the underlying legacy draft is preserved.
+The unified AI must explicitly call `list_legacy_draft_questions` for one
+submission before those questions are returned, and it must provide both the
+submission and question identity to `answer_legacy_draft_question`. Ordinary
+messages never auto-bind to an old question.
+Resolved replies store `answer_text`, `answered_at`, and the `answered` status.
+Supported hatchery fields are type-checked and copied to the matching draft
+row, with hatchability recalculated after count changes; unsupported fields or
+missing row links retain the answer for admin review. Partially answered
+submissions stay `waiting_for_staff_answer`. Fully answered submissions and
+batches move only to `needs_admin_review`, and their rows remain
+`needs_review` until explicit admin approval. Successful answer webhooks also
+write a service-role-only Telegram update receipt so a replay is acknowledged
+idempotently instead of becoming a new submission; this backend receipt table
+is intentionally excluded from the app's mirrored sync graph.
 
 The Edge Function reads `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-`OPENAI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only from its
-server environment. Deployment must disable Supabase JWT verification for this
-signed webhook; the function itself authenticates Telegram's secret-token
-header.
+`AI_PROVIDER`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`,
+`OPENAI_MODEL`, `AI_MODEL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`
+only from its server environment. Either `OPENROUTER_API_KEY` or
+`OPENAI_API_KEY` must be present for extraction. Deployment must disable
+Supabase JWT verification for this signed webhook; the function itself
+authenticates Telegram's secret-token header.
 
-Approved staff roles now have an `Agent` main-shell destination before
-Settings; read-only customer users do not receive that destination. The Agent
-Monitor loads the locally mirrored agent setting and newest draft batches,
-automatically selects the newest available batch, and preserves the selected
-batch across refreshes while it remains available. Admins can refresh the
-monitor and pause or resume Telegram ingestion through the persisted agent
-setting.
+Only approved admins have an `Agent` main-shell destination before Settings.
+Auditors and customer-role users do not receive that destination. The screen
+and `AgentMonitorProvider` repeat the approved-admin check before loading or
+mutating the offline agent mirror, so unauthorized users cannot create pending
+local agent-setting writes that remote RLS will reject. For approved admins,
+the Agent Monitor loads the locally mirrored agent setting and newest draft
+batches plus pending and allowed Telegram staff links, automatically selects
+the newest available batch, and preserves the selected batch across refreshes
+while it remains available. Admins can refresh the monitor, approve or reject
+pending Telegram staff access, and pause or resume Telegram ingestion through
+the persisted agent setting. Approval opens an assignment sheet instead of
+granting access immediately: the default customer role requires one customer
+selection, while the explicit agent-admin role grants all-customer access and
+cannot carry a customer restriction. Allowed Telegram users appear with their
+enforced scope and can be reassigned or revoked. The model, repository,
+provider, SQLite checks, and Supabase constraints all repeat the role/customer
+consistency rule. Rejection or revocation changes the link to `revoked`. The
+original unauthorized message remains unprocessed, so staff must resend the
+hatchery data after approval.
 
 The responsive monitor presents submission cards beside draft detail on wide
-screens and above detail on narrower screens. It shows the original Telegram
+screens and above detail on narrower screens. Pending Telegram access requests
+appear above the draft workspace with display name, username, Telegram user ID,
+chat ID, request time, and approve/reject actions. It shows the original Telegram
 text or file reference, source type, submitter identifier, submission and row
 statuses, questions and staff answers, extracted hatchery values, calculated
 hatchability, extraction confidence, historical/BMK warning messages, and
@@ -1663,6 +1998,16 @@ eggs placed, hatch date, total production, and hatchability. It atomically
 creates one pending-sync `hatchery_daily_records` row, links the approved draft
 row to it, and records the approving admin in an audit event. Rejection creates
 no final record and retains its reason in the audit trail.
+
+The draft editor loads the locally mirrored customer/flock/hatchery catalog and
+uses customer-scoped selectors instead of editable raw UUID fields. Existing
+unresolved drafts preselect a customer and flock only when their extracted
+names have one normalized exact match; a sole hatchery is selected
+automatically. Changing the customer resets and scopes the flock and hatchery
+choices, while ambiguous names remain visible as extracted hints until an
+admin selects the intended records. Persisted links that are temporarily absent
+from the local mirror appear as unavailable local choices and remain unchanged
+when an admin saves an unrelated edit.
 
 After each row decision, a batch remains partially approved while unresolved
 rows coexist with approved rows, becomes approved when all rows are resolved
@@ -1686,7 +2031,10 @@ increase may be consistent with BMK; an unavailable BMK or missing/nonpositive
 flock age adds an informational missing-data warning instead. The rule engine
 retrieves the previous comparable record using the exact
 customer/flock/station/breed key, looks up BMK using a positive flock age in
-days, and records the selected BMK row's age in warning context. Serialized
+days, and records the selected BMK row's age in warning context. The Edge
+Function mirrors this deterministic contract at write time and serializes the
+same warning keys consumed by the local app. The local engine remains available
+for local/admin re-evaluation but is not a post-pull sync mutator. Serialized
 warnings reject unknown kind or severity values rather than silently
 reclassifying them.
 
@@ -1746,6 +2094,9 @@ Tables created by the current database helper include:
 - `hatchery_draft_rows`
 - `hatchery_agent_audit_events`
 - `hatchery_daily_records`
+- `agent_intake_sessions`
+- `agent_intake_turns`
+- `agent_intake_values`
 
 Fresh databases do not create `audits`, `sample_records`, sample detail tables,
 `egg_weights`, `{panel}_samples` child tables, legacy generic temperature
@@ -1784,6 +2135,14 @@ identity. The matching Supabase migration uses snake_case tables, validates
 flock and hatchery customer scope, enables RLS on every agent table, exposes
 authenticated reads/writes only to approved admins, and leaves backend
 service-role access available to the Telegram hatchery-agent Edge Function.
+Conversational intake turns and normalized values belong to one intake session.
+The intake context links to the customer, flock, and hatchery hierarchy, while
+approved intake rows link back to the resulting audit session and Chick Quality
+panel row. Remote RLS limits intake review reads and writes to approved admins;
+the Edge Function retains service-role access for Telegram ingestion.
+The backend-only `telegram_agent_update_receipts` table records processed
+Telegram answer updates for idempotency and is intentionally excluded from the
+offline app sync graph.
 The hierarchy repository saves active/inactive customer-sector membership,
 sector-filtered farms, farm houses, and flock placements with offline dirty
 metadata. Creating a new Broiler flock and all selected house placements is one
@@ -1968,6 +2327,10 @@ tombstones locally so another device reload removes stale rows. Customer deletes
 queue child tombstones for station panel rows, photos, audit sessions, Govee
 captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
 cloud rows even when local SQLite cascade removes the children immediately.
+The local tombstone repository can read and write both current camelCase
+columns (`syncedAt`, `deletedAt`) and legacy snake_case columns (`synced_at`,
+`deleted_at`), so an older browser SQLite/IndexedDB cache cannot break manual
+or startup sync and hide pulled agent drafts.
 Customer-role startup and background sync runs are explicitly pull-only: they
 skip local uploads and tombstone writes, then download only the tenant rows
 allowed by Supabase RLS. A missing user identity also defaults to pull-only
@@ -1995,7 +2358,11 @@ and whenever a mobile/desktop app resumes. Concurrent requests share one sync
 pass and a write that lands during that pass schedules one retry. Customer,
 hatchery, and flock pushes use strict response verification so a database
 trigger or policy cannot silently cancel a parent insert while the UI reports
-it as uploaded. Production no longer installs the obsolete
+it as uploaded. Before Supabase upserts, the client strips device-local sync
+bookkeeping fields (`syncStatus`, `dirtyAt`, `lastSyncedAt`, and `syncError`)
+and then converts business keys to the remote snake_case schema, preventing
+local retry metadata from forcing a rejected camelCase fallback payload.
+Production no longer installs the obsolete
 `customers_keep_only_ghareeb` trigger; multi-customer inserts are supported and
 existing device-local rows retry on the next automatic or manual sync.
 The generic operational sync adapter recognizes and synchronizes the eight
@@ -2079,11 +2446,155 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-28: Exposed scoped audit browsing to the unified Telegram agent.
+  Authorized users receive every matching recent audit as numbered choices, and
+  the selected audit is retrieved in a second opaque-ID summary call. Name text
+  remains forbidden in ID arguments, while list/detail denials stay
+  indistinguishable for unknown and out-of-scope records.
+- 2026-07-28: Added scoped customer/flock name resolution to the unified
+  Telegram agent. Duplicate customer names can now be disambiguated by an exact
+  flock-name match, internal IDs are no longer injected into the model prompt,
+  and the policy requires one clear question per reply, safe handling of
+  ambiguous yes/no answers, flock resolution before hatchery/machine context,
+  and consistent Arabic hatchery vocabulary.
+- 2026-07-28: Completed the registry-driven agent implementation for all 18
+  hatchery modules. Generic Dart/TypeScript adapters now validate nested and
+  scalar values, calculate derived fields, map allowlisted panel columns, and
+  drive the generic Agent Monitor review UI. Added SQLite v55 scope support and
+  an authenticated admin-only Edge/RPC approval boundary with exact summary
+  versions and atomic operational writes. The RPC verifies the active database
+  role directly and does not depend on deprecated JWT-role helpers.
+- 2026-07-28: Clarified the unified agent policy so questions about existing
+  flock information stay on scoped read tools instead of being mistaken for
+  data entry, and normalized final Telegram replies to plain text so Markdown
+  markers never appear to customers.
+- 2026-07-28: Removed the dormant fixed greeting/Pasgar conversation router.
+  Every authorized Telegram turn now reaches only the unified AI runtime;
+  registry catalogs include localized aliases and valid layers, adversarial
+  tests enforce scope/confirmation boundaries, and assistant delivery is
+  persisted as pending then marked delivered/failed so retries cannot rerun the
+  model.
+- 2026-07-28: Exposed old draft questions only through explicit scoped AI tools
+  and added scope plus optimistic-state metadata to protected tool evidence.
+  Legacy answers require both submission and question identity; ordinary chat
+  never auto-binds to an old draft.
+- 2026-07-28: Routed every authorized Telegram text and attachment through the
+  unified AI runtime. Update receipts are checked before mutable writes,
+  inbound turns receive a conversation-unique index, attachment bytes reach
+  provider-native image/file inputs, and the exact model reply is delivered
+  without a second phrase router or Pasgar controller. Provider failures use
+  only the bounded infrastructure retry at the webhook boundary.
+- 2026-07-28: Added the bounded unified AI provider/runtime loop. It supplies
+  behavior policy, trusted scope/state, recent chat, attachments, and typed
+  tools to one natural conversation turn, feeds tool results back to the model,
+  and enforces serial execution, five-call/20-second limits, malformed-call
+  rejection, and provider-safe failure statuses.
+- 2026-07-28: Added the generic durable station-intake state machine and tools.
+  Natural data-entry intent now creates an expiring proposal, explicit
+  confirmation opens a registry schema, multi-field messages validate in any
+  order, and one complete versioned summary is confirmed only at the end.
+  Corrections use optimistic concurrency and submissions stop at admin review;
+  legacy Pasgar row readers remain compatibility-only.
+- 2026-07-28: Added customer-scoped AI read tools for customer/flock context,
+  registry-allowlisted station records, deterministic metric aggregation, and
+  record provenance. Reads retain missing values as null, cap and sort results,
+  verify customer/flock ownership in depth, and share canonical calculation
+  parity vectors with Flutter.
+- 2026-07-28: Added the unified agent's server-side scope resolver and typed
+  tool gateway. Every configured AI path now fails closed unless the Telegram
+  staff link resolves to its enforced customer/admin scope; unknown and
+  out-of-scope entities share the same denial shape. Tool calls use bounded
+  JSON contracts, server-injected scope, five-call/100-row/366-day limits, and
+  sanitized evidence without database credentials or raw table access.
+- 2026-07-28: Replaced direct Telegram-user approval with an admin-only scope
+  assignment sheet. Customer access now requires one selected customer;
+  agent-admin access is an explicit all-customer grant. Agent Monitor lists
+  allowed users with their enforced scope and supports reassignment or
+  revocation, with bilingual labels and repository/provider validation.
+- 2026-07-28: Added the v54 unified-agent persistence boundary. Telegram staff
+  links now enforce customer/admin scope, conversations preserve turns and
+  immutable tool evidence, visits group sequential station intakes, and intake
+  sessions carry visit and optimistic-version references. Existing Pasgar
+  sessions are backfilled without deletion. The admin app pulls server-authored
+  evidence read-only, while RLS limits it to approved admins and service-role
+  Edge execution.
+- 2026-07-28: Added the canonical versioned AI station registry and deterministic
+  Dart/TypeScript generator. Registry contracts now cover 18 Breeder hatchery
+  modules across every active panel table, with localized vocabulary,
+  validation metadata, completion requirements, read measures, and persistence
+  mappings. Pasgar retains its seven explicit sample-bound inputs.
+- 2026-07-28: Kept Telegram greetings and ordinary mission chat conversational
+  when a legacy hatchery draft still has open questions. The bot no longer
+  responds to greetings such as "Hi", `صباح الفل`, or `الو` by dumping the
+  pending numbered form; the draft remains untouched and later data-bearing
+  answers still use the existing safe router.
+- 2026-07-28: Hardened OpenAI/OpenRouter Responses API parsing so Telegram
+  mission chat and Pasgar interpretation accept only assistant `message`
+  `output_text` content. Reasoning items are ignored and can no longer be sent
+  to staff as customer-facing bot replies.
+- 2026-07-28: Added schema-driven conversational Pasgar intake for approved
+  Telegram staff. The bot accepts natural Arabic, English, and mixed-language
+  measurements in any order, asks focused clarification when uncertain, saves
+  valid progress silently, and requests confirmation only once after presenting
+  the complete summary. Corrections create a new summary version. Added v53
+  local/remote persistence and sync, idempotent admin approval into Chick
+  Quality, and a full Agent Monitor review/edit/approve/reject/evidence
+  workspace.
+- 2026-07-28: Hardened local sync tombstones against older browser database
+  shapes by detecting camelCase versus snake_case tombstone columns at runtime.
+  Manual/background sync now keeps working when an IndexedDB cache still has
+  `synced_at`/`deleted_at`, allowing Telegram agent drafts pulled from Supabase
+  to appear in Agent Monitor.
+- 2026-07-28: Added bounded Arabic mission chat for approved Telegram staff
+  greetings/help messages without creating drafts, kept unapproved senders in
+  the access flow, made pending-question greetings return a friendly reminder,
+  and accepted relaxed numbered answers such as `1 30`.
+- 2026-07-27: Added Telegram staff self-registration for unknown bot senders.
+  Unknown senders now become pending staff links with Telegram ID, chat ID,
+  username, and display name metadata; Agent Monitor shows pending requests to
+  approved admins, and admin approve/reject decisions mark staff links allowed
+  or revoked for future Telegram messages.
+- 2026-07-27: Hardened Telegram staff-link defaults so newly inserted staff
+  links default to `pending`, and added deterministic labeled-text extraction
+  for routine Telegram messages so structured hatchery text can become a draft
+  without an AI provider call.
+- 2026-07-27: Switched testing-mode OpenRouter extraction to default to
+  `openrouter/free` and retry paid-model 402 credit failures once with the free
+  router.
+- 2026-07-27: Cleaned Telegram staff prompts to Arabic-only messages that hide
+  draft references and internal field keys for normal one-draft flows, add
+  numbered choice lists for resolvable flock/customer/hatchery questions, and
+  accept option-number replies.
+- 2026-07-27: Fixed Supabase upsert payload preparation so local sync metadata
+  is removed before snake_case conversion; manual/background sync no longer
+  falls back to rejected camelCase fields such as `customerId` on remote tables.
+- 2026-07-27: Fixed local debug-bypass sign-out so the development auditor is
+  cleared for the current session, later cached-token checks do not immediately
+  recreate it, and `/login` uses the real login route instead of the main shell.
+- 2026-07-27: Aligned Agent Monitor navigation, data loading, and Telegram
+  pause/resume controls with admin-only agent-table RLS. Auditors and customers
+  no longer receive the Agent destination, and provider guards prevent
+  unauthorized agent reads and local pending-sync writes.
+- 2026-07-27: Resolved Telegram hatchery draft customer/flock IDs through
+  unique normalized hierarchy matches, retained missing or ambiguous
+  identities as bilingual review warnings/questions, linked sole customer
+  hatcheries, and replaced raw Agent Monitor UUID entry with scoped hierarchy
+  selectors that also repair uniquely matched existing drafts.
+- 2026-07-27: Wired Telegram draft ingestion to count-derived historical
+  hatchability warnings, unique exact customer/flock resolution, the configured
+  3-point default threshold, nearest-age BMK context for rising results, and
+  bilingual missing-flock-age questions. Warning enrichment is server-owned;
+  pulled rows retain its evidence without local rewrite.
+- 2026-07-27: Routed authorized Telegram staff replies to same-chat open
+  hatchery-agent questions, added deterministic numbered/row answer matching
+  with bilingual clarification, persisted question answers, copied validated
+  values into related draft fields, kept completed replies in admin review,
+  and added backend-only update receipts for answer-replay idempotency.
 - 2026-07-27: Added admin-only hatchery draft row editing, rejection with an
   audited reason, atomic approval into final hatchery daily records,
   batch-status recalculation, and startup push/pull coverage for the
   hatchery-agent operational tables.
-- 2026-07-27: Added the admin/staff Agent Monitor tab with persisted Telegram
+- 2026-07-27: Added the admin-only Agent Monitor tab with persisted Telegram
   pause/resume control, responsive submission and draft evidence review,
   question/answer and audit-history display, separate confidence and warning
   presentation, bilingual copy, and role-gated navigation.
