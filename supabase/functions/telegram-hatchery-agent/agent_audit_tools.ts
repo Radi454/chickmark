@@ -26,6 +26,11 @@ export interface AgentAuditReadRow {
   notes: string | null
 }
 
+export interface AgentAuditListPage {
+  rows: readonly AgentAuditReadRow[]
+  truncated: boolean
+}
+
 export interface AgentAuditStore {
   findFlockCustomerId(flockId: string): Promise<string | null>
   findLatestAuditListResult(conversationId: string): Promise<unknown | null>
@@ -33,7 +38,7 @@ export interface AgentAuditStore {
     customerId: string
     flockId: string | null
     limit: number
-  }): Promise<readonly AgentAuditReadRow[]>
+  }): Promise<AgentAuditListPage>
   findAudit(
     auditId: string,
     allowedCustomerIds: readonly string[],
@@ -50,6 +55,13 @@ interface AuditDatabaseQuery {
   ): AuditDatabaseQuery
   limit(
     count: number,
+  ): Promise<{
+    data: Record<string, unknown>[] | null
+    error: { message: string } | null
+  }>
+  range(
+    from: number,
+    to: number,
   ): Promise<{
     data: Record<string, unknown>[] | null
     error: { message: string } | null
@@ -88,6 +100,8 @@ const AUDIT_COLUMNS = [
 const MAX_AUDIT_JSON_CHARS = 100_000
 const MAX_AUDIT_OPTIONS = 20
 const MAX_RECENT_CONVERSATION_TURNS = 40
+const AUDIT_SCAN_PAGE_SIZE = 50
+const MAX_SCANNED_AUDIT_ROWS = 500
 
 export function createSupabaseAgentAuditStore(
   client: AgentAuditClient,
@@ -129,20 +143,45 @@ export function createSupabaseAgentAuditStore(
       return eventsResult.data?.[0]?.result_json ?? null
     },
     async listAudits(input) {
-      let query = client
-        .from('audit_sessions')
-        .select(AUDIT_COLUMNS)
-        .eq('customer_id', input.customerId)
-      if (input.flockId) query = query.eq('flock_id', input.flockId)
-      const result = await query
-        .order('date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false, nullsFirst: false })
-        .order('id', { ascending: false, nullsFirst: false })
-        .limit(input.limit + 1)
-      throwIfDatabaseError(result)
-      return (result.data ?? [])
-        .map(auditFromRemote)
-        .filter((audit): audit is AgentAuditReadRow => audit !== null)
+      const rows: AgentAuditReadRow[] = []
+      let scanned = 0
+
+      while (
+        scanned < MAX_SCANNED_AUDIT_ROWS &&
+        rows.length <= input.limit
+      ) {
+        let query = client
+          .from('audit_sessions')
+          .select(AUDIT_COLUMNS)
+          .eq('customer_id', input.customerId)
+        if (input.flockId) query = query.eq('flock_id', input.flockId)
+        const result = await query
+          .order('date', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false, nullsFirst: false })
+          .order('id', { ascending: false, nullsFirst: false })
+          .range(scanned, scanned + AUDIT_SCAN_PAGE_SIZE - 1)
+        throwIfDatabaseError(result)
+
+        const page = result.data ?? []
+        rows.push(
+          ...page
+            .map(auditFromRemote)
+            .filter((audit): audit is AgentAuditReadRow => audit !== null),
+        )
+        scanned += page.length
+        if (page.length < AUDIT_SCAN_PAGE_SIZE) {
+          return {
+            rows: rows.slice(0, input.limit + 1),
+            truncated: rows.length > input.limit,
+          }
+        }
+      }
+
+      return {
+        rows: rows.slice(0, input.limit + 1),
+        truncated: rows.length > input.limit ||
+          scanned >= MAX_SCANNED_AUDIT_ROWS,
+      }
     },
     async findAudit(auditId, allowedCustomerIds) {
       if (allowedCustomerIds.length === 0) return null
@@ -181,7 +220,8 @@ async function listCustomerAudits(
   }
 
   const limit = (input.arguments.limit as number | undefined) ?? 10
-  const rows = (await store.listAudits({ customerId, flockId, limit }))
+  const page = await store.listAudits({ customerId, flockId, limit })
+  const rows = page.rows
     .filter((row) =>
       row.customerId === customerId &&
       (flockId === null || row.flockId === flockId)
@@ -191,7 +231,7 @@ async function listCustomerAudits(
     customerId,
     flockId,
     audits: rows.slice(0, limit).map(publicAuditOption),
-    truncated: rows.length > limit,
+    truncated: page.truncated || rows.length > limit,
   })
 }
 

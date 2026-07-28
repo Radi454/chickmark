@@ -164,7 +164,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
     ),
     definition(
       'list_customer_audits',
-      'List all recent audit options for an allowed customer and optional flock so the user can choose one.',
+      'List a bounded page of recent audit options for an allowed customer and optional flock so the user can choose one.',
       { customerId: idRule, flockId: idRule, limit: auditLimitRule },
       ['customerId'],
     ),
