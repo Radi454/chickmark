@@ -2,7 +2,11 @@
 -- TELEGRAM_BOT_TOKEN: regenerated bot token from BotFather.
 -- TELEGRAM_WEBHOOK_SECRET: random 32+ character value used with Telegram
 -- setWebhook secret_token.
--- OPENAI_API_KEY: OpenAI API key used only by the Edge Function.
+-- AI_PROVIDER: optional, either openai or openrouter.
+-- OPENROUTER_API_KEY / OPENROUTER_MODEL: OpenRouter extraction key/model used
+-- only by the Edge Function.
+-- OPENAI_API_KEY / OPENAI_MODEL: OpenAI extraction key/model used only by the
+-- Edge Function when OpenRouter is not configured.
 -- Deploy telegram-hatchery-agent without Supabase JWT verification; the
 -- function authenticates each webhook with Telegram's secret-token header.
 
@@ -14,8 +18,8 @@ create table public.telegram_staff_links (
   telegram_chat_id text,
   display_name text,
   username text,
-  status text not null default 'allowed'
-    check (status in ('allowed', 'revoked')),
+  status text not null default 'pending'
+    check (status in ('pending', 'allowed', 'revoked')),
   invited_by text,
   created_at text,
   updated_at text

@@ -1,12 +1,21 @@
-import { assertEquals, assertStringIncludes } from '@std/assert'
+import { assertEquals, assertMatch } from '@std/assert'
 
 import { handleTelegramUpdate } from './index.ts'
 
-const indexSource = await Deno.readTextFile(
-  new URL('./index.ts', import.meta.url),
-)
-assertStringIncludes(indexSource, 'createSupabaseAgentAuditStore')
-assertStringIncludes(indexSource, 'createAgentAuditToolHandlers')
+Deno.test('runtime constructs the audit store and registers its handlers', async () => {
+  const indexSource = await Deno.readTextFile(
+    new URL('./index.ts', import.meta.url),
+  )
+
+  assertMatch(
+    indexSource,
+    /const auditStore = createSupabaseAgentAuditStore\(\s*adminClient as unknown as AgentAuditClient,\s*\)/,
+  )
+  assertMatch(
+    indexSource,
+    /const handlers = \{[\s\S]*?\.\.\.createAgentAuditToolHandlers\(auditStore\),/,
+  )
+})
 
 Deno.test('webhook rejects a missing Telegram secret before invoking the agent', async () => {
   let agentCalls = 0
