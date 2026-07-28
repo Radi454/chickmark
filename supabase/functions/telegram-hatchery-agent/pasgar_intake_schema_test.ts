@@ -9,6 +9,7 @@ import {
   type PasgarWorkingValues,
   validatePasgarCandidate,
 } from './pasgar_intake_schema.ts'
+import { requireStationSchema } from '../_shared/station_registry.generated.ts'
 
 function completePasgarValues(): PasgarWorkingValues {
   return {
@@ -27,6 +28,22 @@ Deno.test('Pasgar completeness requires all six explicit defect counts', () => {
   delete values.pasgarFeatherDevCount
 
   assertEquals(missingPasgarFields(values), ['pasgarFeatherDevCount'])
+})
+
+Deno.test('legacy Pasgar compatibility order matches the canonical registry', () => {
+  const schema = requireStationSchema('chicks.pasgar', 1)
+  assertEquals(
+    schema.fields.map((field) => field.fieldKey),
+    [
+      'pasgarSampleSize',
+      'pasgarReflexesCount',
+      'pasgarBeakCount',
+      'pasgarNavelCount',
+      'pasgarBellyCount',
+      'pasgarLegCount',
+      'pasgarFeatherDevCount',
+    ],
+  )
 })
 
 Deno.test('all remaining zero fills missing defects without replacing supplied values', () => {

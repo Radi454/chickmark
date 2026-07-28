@@ -1,3 +1,8 @@
+// Legacy Pasgar formatting and row-compatibility helpers. Validation and
+// calculations for new AI intake sessions come from chicks.pasgar@1 in the
+// generated station registry.
+import { requireStationSchema } from '../_shared/station_registry.generated.ts'
+
 export const PASGAR_SCHEMA_KEY = 'chicks.pasgar'
 export const PASGAR_SCHEMA_VERSION = 1
 
@@ -10,6 +15,20 @@ export const pasgarFieldOrder = [
   'pasgarLegCount',
   'pasgarFeatherDevCount',
 ] as const
+
+const registryPasgar = requireStationSchema(
+  PASGAR_SCHEMA_KEY,
+  PASGAR_SCHEMA_VERSION,
+)
+const registryPasgarFields = registryPasgar.fields.map((field) =>
+  field.fieldKey
+)
+if (
+  registryPasgarFields.length !== pasgarFieldOrder.length ||
+  registryPasgarFields.some((key, index) => key !== pasgarFieldOrder[index])
+) {
+  throw new Error('Legacy Pasgar compatibility fields differ from registry')
+}
 
 export type PasgarFieldKey = typeof pasgarFieldOrder[number]
 export type PasgarDefectFieldKey = Exclude<

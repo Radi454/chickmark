@@ -4,6 +4,7 @@ export interface ExtractedHatcheryRow {
   flockName: string | null
   stationName: string | null
   breed: string | null
+  flockAgeWeeks: number | null
   eggsPlaced: number | null
   productionDate: string | null
   placementDate: string | null
@@ -48,6 +49,7 @@ export const hatcheryExtractionSchema = {
           'flockName',
           'stationName',
           'breed',
+          'flockAgeWeeks',
           'eggsPlaced',
           'productionDate',
           'placementDate',
@@ -69,6 +71,7 @@ export const hatcheryExtractionSchema = {
           flockName: { type: ['string', 'null'] },
           stationName: { type: ['string', 'null'] },
           breed: { type: ['string', 'null'] },
+          flockAgeWeeks: { type: ['integer', 'null'] },
           eggsPlaced: { type: ['integer', 'null'] },
           productionDate: { type: ['string', 'null'] },
           placementDate: { type: ['string', 'null'] },
