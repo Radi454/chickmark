@@ -14,6 +14,7 @@ export type AgentToolName =
   | 'list_customer_audits'
   | 'select_audit_option'
   | 'get_audit_summary'
+  | 'get_selected_audit_breakouts'
   | 'get_flock_context'
   | 'query_station_records'
   | 'compare_station_metrics'
