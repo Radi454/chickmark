@@ -37,10 +37,10 @@ void main() {
     }
   });
 
-  test('fresh v54 database exposes the unified agent evidence graph', () async {
+  test('fresh v55 database exposes the unified agent evidence graph', () async {
     final db = await DatabaseHelper().db;
 
-    expect(await _userVersion(db), 54);
+    expect(await _userVersion(db), 55);
     expect(
       await _tableNames(db),
       containsAll(const [
@@ -126,6 +126,78 @@ void main() {
       ]),
     );
   });
+
+  test(
+    'v55 scope rebuild preserves sessions and accepts every layer',
+    () async {
+      final db = await DatabaseHelper().db;
+      const now = '2026-07-28T10:00:00.000Z';
+      await db.insert('telegram_staff_links', {
+        'id': 'scope-admin',
+        'telegramUserId': 'telegram-scope',
+        'telegramChatId': 'chat-scope',
+        'status': 'allowed',
+        'accessRole': 'admin',
+      });
+      await db.insert('agent_intake_sessions', {
+        'id': 'scope-intake',
+        'staffLinkId': 'scope-admin',
+        'telegramChatId': 'chat-scope',
+        'schemaKey': 'chicks.weights',
+        'schemaVersion': 1,
+        'state': 'awaiting_admin_review',
+        'language': 'en',
+        'auditDate': '2026-07-28',
+        'scope': 'house',
+        'workingValuesJson': '{"weightsJson":[40,41]}',
+        'summaryVersion': 1,
+        'summarySnapshotJson': '{"version":1}',
+        'userConfirmedAt': now,
+        'createdAt': now,
+        'updatedAt': now,
+      });
+
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await DatabaseHelper().applyV55UpgradeForTest(db);
+      await db.execute('PRAGMA foreign_keys = ON');
+
+      expect(
+        await db.query(
+          'agent_intake_sessions',
+          columns: ['id', 'scope', 'summarySnapshotJson'],
+          where: 'id = ?',
+          whereArgs: ['scope-intake'],
+        ),
+        const [
+          {
+            'id': 'scope-intake',
+            'scope': 'house',
+            'summarySnapshotJson': '{"version":1}',
+          },
+        ],
+      );
+      for (final layer in const [
+        'pool',
+        'house',
+        'setter',
+        'hatcher',
+        'setter_hatcher',
+        'trolley',
+        'tray',
+      ]) {
+        expect(
+          await db.update(
+            'agent_intake_sessions',
+            {'scope': layer},
+            where: 'id = ?',
+            whereArgs: ['scope-intake'],
+          ),
+          1,
+          reason: layer,
+        );
+      }
+    },
+  );
 
   test(
     'allowed Telegram links enforce exactly one valid access scope',

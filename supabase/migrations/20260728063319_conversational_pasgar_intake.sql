@@ -226,7 +226,10 @@ begin
     raise exception 'Setter/Hatcher scope requires both identities';
   end if;
 
-  values_json := intake.summary_snapshot_json -> 'values';
+  -- Keep the customer's confirmed summary immutable as evidence. Admin review
+  -- corrections are written to working_values_json and are the values promoted
+  -- into the operational record.
+  values_json := intake.working_values_json;
   if values_json is null or jsonb_typeof(values_json) <> 'object' then
     raise exception 'Pasgar summary values are invalid';
   end if;

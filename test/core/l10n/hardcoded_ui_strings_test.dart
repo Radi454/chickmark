@@ -10,11 +10,20 @@ void main() {
 
     expect(arabic.translate('Agent'), 'الوكيل');
     expect(arabic.translate('Agent Monitor'), 'مراقبة الوكيل');
+    expect(
+      arabic.translate('Administrator access is required.'),
+      isNot('Administrator access is required.'),
+    );
     expect(arabic.translate('Draft ready'), 'المسودة جاهزة');
     expect(arabic.translate('Waiting for staff answer'), 'بانتظار رد الموظف');
     expect(arabic.translate('Needs admin review'), 'تحتاج مراجعة المدير');
     expect(arabic.translate('Telegram running'), 'تيليجرام يعمل');
     expect(arabic.translate('Telegram paused'), 'تم إيقاف تيليجرام مؤقتًا');
+    expect(arabic.translate('Assign Telegram access'), 'تعيين وصول تيليجرام');
+    expect(arabic.translate('Telegram users'), 'مستخدمو تيليجرام');
+    expect(arabic.translate('Customer access'), 'وصول عميل');
+    expect(arabic.translate('Agent admin access'), 'وصول مدير الوكيل');
+    expect(arabic.translate('Select customer'), 'اختر العميل');
     expect(arabic.translate('Confidence'), 'الثقة');
     expect(arabic.translate('Warnings'), 'تنبيهات');
     expect(arabic.translate('Hatchability'), 'نسبة الفقس');

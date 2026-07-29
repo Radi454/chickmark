@@ -4,7 +4,36 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/database_helper.dart';
+import '../models/customer_model.dart';
+import '../models/flock_model.dart';
 import '../models/hatchery_agent_models.dart';
+import '../models/hatchery_model.dart';
+
+class HatcheryAgentLinkCatalog {
+  const HatcheryAgentLinkCatalog({
+    this.customers = const [],
+    this.flocks = const [],
+    this.hatcheries = const [],
+  });
+
+  final List<CustomerModel> customers;
+  final List<FlockModel> flocks;
+  final List<HatcheryModel> hatcheries;
+
+  List<FlockModel> flocksForCustomer(String? customerId) {
+    if (customerId == null) return const [];
+    return flocks
+        .where((flock) => flock.customerId == customerId)
+        .toList(growable: false);
+  }
+
+  List<HatcheryModel> hatcheriesForCustomer(String? customerId) {
+    if (customerId == null) return const [];
+    return hatcheries
+        .where((hatchery) => hatchery.customerId == customerId)
+        .toList(growable: false);
+  }
+}
 
 class HatcheryAgentRepository {
   HatcheryAgentRepository({DatabaseHelper? databaseHelper})
@@ -84,6 +113,138 @@ class HatcheryAgentRepository {
     if (changed == 0) {
       await db.insert('agent_settings', values);
     }
+  }
+
+  Future<HatcheryAgentLinkCatalog> loadLinkCatalog() async {
+    final db = await _databaseHelper.db;
+    final customerRows = await db.query(
+      'customers',
+      orderBy: 'name COLLATE NOCASE ASC, id ASC',
+    );
+    final flockRows = await db.query(
+      'flocks',
+      orderBy: 'flockId COLLATE NOCASE ASC, id ASC',
+    );
+    final hatcheryRows = await db.query(
+      'hatcheries',
+      orderBy: 'name COLLATE NOCASE ASC, id ASC',
+    );
+    return HatcheryAgentLinkCatalog(
+      customers: List.unmodifiable(customerRows.map(CustomerModel.fromMap)),
+      flocks: List.unmodifiable(flockRows.map(FlockModel.fromMap)),
+      hatcheries: List.unmodifiable(hatcheryRows.map(HatcheryModel.fromMap)),
+    );
+  }
+
+  Future<List<TelegramStaffLink>> listPendingStaffLinks() async {
+    final db = await _databaseHelper.db;
+    final rows = await db.query(
+      'telegram_staff_links',
+      where: 'status = ?',
+      whereArgs: [TelegramStaffLinkStatus.pending.storageKey],
+      orderBy: 'updatedAt DESC, createdAt DESC, id ASC',
+    );
+    return rows.map(TelegramStaffLink.fromMap).toList(growable: false);
+  }
+
+  Future<List<TelegramStaffLink>> listStaffLinks() async {
+    final db = await _databaseHelper.db;
+    final rows = await db.query(
+      'telegram_staff_links',
+      where: 'status = ?',
+      whereArgs: [TelegramStaffLinkStatus.allowed.storageKey],
+      orderBy: 'displayName COLLATE NOCASE ASC, telegramUserId ASC, id ASC',
+    );
+    return rows.map(TelegramStaffLink.fromMap).toList(growable: false);
+  }
+
+  Future<void> approveStaffLink({
+    required String linkId,
+    required TelegramAgentAccessRole accessRole,
+    required String? customerId,
+    required String decidedBy,
+    required DateTime decidedAt,
+  }) async {
+    final normalizedCustomerId = customerId?.trim();
+    final hasCustomer =
+        normalizedCustomerId != null && normalizedCustomerId.isNotEmpty;
+    if (accessRole == TelegramAgentAccessRole.customer && !hasCustomer) {
+      throw ArgumentError.value(
+        customerId,
+        'customerId',
+        'Customer access requires one customer',
+      );
+    }
+    if (accessRole == TelegramAgentAccessRole.admin && hasCustomer) {
+      throw ArgumentError.value(
+        customerId,
+        'customerId',
+        'Admin access cannot be restricted to one customer',
+      );
+    }
+
+    final db = await _databaseHelper.db;
+    final now = decidedAt.toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      if (hasCustomer) {
+        final customers = await txn.query(
+          'customers',
+          columns: const ['id'],
+          where: 'id = ?',
+          whereArgs: [normalizedCustomerId],
+          limit: 1,
+        );
+        if (customers.isEmpty) {
+          throw StateError('Assigned customer does not exist');
+        }
+      }
+      final changed = await txn.update(
+        'telegram_staff_links',
+        {
+          'status': TelegramStaffLinkStatus.allowed.storageKey,
+          'accessRole': accessRole.storageKey,
+          'customerId': hasCustomer ? normalizedCustomerId : null,
+          'invitedBy': decidedBy,
+          'updatedAt': now,
+          'syncStatus': 'pending',
+          'dirtyAt': now,
+          'syncError': null,
+        },
+        where: 'id = ?',
+        whereArgs: [linkId],
+      );
+      if (changed != 1) {
+        throw StateError('Telegram staff link does not exist');
+      }
+    });
+  }
+
+  Future<void> setStaffLinkStatus({
+    required String linkId,
+    required TelegramStaffLinkStatus status,
+    required String decidedBy,
+    required DateTime decidedAt,
+  }) async {
+    if (status == TelegramStaffLinkStatus.allowed) {
+      throw ArgumentError(
+        'Allowed access must be assigned through approveStaffLink',
+      );
+    }
+    final db = await _databaseHelper.db;
+    final now = decidedAt.toUtc().toIso8601String();
+    await db.update(
+      'telegram_staff_links',
+      {
+        'status': status.storageKey,
+        'invitedBy': decidedBy,
+        'updatedAt': now,
+        'syncStatus': 'pending',
+        'dirtyAt': now,
+        'syncError': null,
+      },
+      where: 'id = ?',
+      whereArgs: [linkId],
+    );
   }
 
   Future<List<HatcheryDraftBatchSummary>> listBatchSummaries() async {

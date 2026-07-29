@@ -6,6 +6,7 @@ enum HatcheryRowWarningKind {
   bmkContext,
   missingBmk,
   missingFlockAge,
+  identityResolution,
 }
 
 enum HatcheryRowWarningSeverity { info, review, critical }

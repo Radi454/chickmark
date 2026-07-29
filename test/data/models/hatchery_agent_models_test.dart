@@ -23,6 +23,29 @@ void main() {
       AgentQuestionStatus.fromStorage('answered'),
       AgentQuestionStatus.answered,
     );
+    expect(
+      TelegramAgentAccessRole.fromStorage('admin'),
+      TelegramAgentAccessRole.admin,
+    );
+    expect(
+      TelegramAgentAccessRole.fromStorage('unknown'),
+      TelegramAgentAccessRole.customer,
+    );
+  });
+
+  test('Telegram staff link round-trips its enforced customer scope', () {
+    final link = TelegramStaffLink.fromMap(const {
+      'id': 'staff-1',
+      'telegramUserId': '999',
+      'status': 'allowed',
+      'accessRole': 'customer',
+      'customerId': 'customer-1',
+    });
+
+    expect(link.accessRole, TelegramAgentAccessRole.customer);
+    expect(link.customerId, 'customer-1');
+    expect(link.toMap()['accessRole'], 'customer');
+    expect(link.toMap()['customerId'], 'customer-1');
   });
 
   test('submission round-trips Telegram source metadata', () {

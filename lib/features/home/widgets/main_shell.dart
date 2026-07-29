@@ -43,7 +43,13 @@ List<String> mainShellTabKeysForUser(UserModel? user) {
         .where(_customerMainShellTabKeys.contains)
         .toList(growable: false);
   }
-  return List<String>.unmodifiable(_allMainShellTabKeys);
+  return _allMainShellTabKeys
+      .where(
+        (key) =>
+            key != 'agent' ||
+            (user?.isApproved == true && user?.isAdmin == true),
+      )
+      .toList(growable: false);
 }
 
 class MainShell extends StatefulWidget {
@@ -60,12 +66,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   final List<int> _tabHistory = [];
   bool _syncConfigured = false;
 
-  // Tabs a read-only customer is allowed to see. Everything else (Home,
-  // Customers, Audits, Govee, Lab Analysis and BMK) is auditor/admin only.
-  // Settings stays so customers can still reach account + sign-out. The real
-  // boundary is RLS on the server; this just hides what they cannot use.
-  static const Set<String> _customerTabKeys = {'dashboard', 'settings'};
-
+  // Tabs a read-only customer is allowed to see. Agent Monitor is narrower:
+  // its remote tables are admin-only, so auditors must not enter the local
+  // offline mirror or create writes that RLS will reject. Settings stays so
+  // customers can still reach account + sign-out.
   List<_ShellTab> _tabsFor(UserModel? user) {
     final all = <_ShellTab>[
       _ShellTab(
@@ -139,7 +143,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           selectedIcon: Icons.smart_toy,
         ),
         () => ChangeNotifierProvider(
-          create: (_) => AgentMonitorProvider(),
+          create: (_) => AgentMonitorProvider(currentUser: user),
           child: const AgentMonitorScreen(),
         ),
       ),
@@ -153,10 +157,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         () => const SettingsScreen(),
       ),
     ];
-    if (user?.isCustomer == true) {
-      return all.where((t) => _customerTabKeys.contains(t.key)).toList();
-    }
-    return all;
+    final visibleKeys = mainShellTabKeysForUser(user).toSet();
+    return all.where((tab) => visibleKeys.contains(tab.key)).toList();
   }
 
   late List<_ShellTab> _tabs = _tabsFor(null);

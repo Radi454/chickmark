@@ -2473,6 +2473,11 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-29: Hardened the SQLite v55 agent-intake rebuild by temporarily
+  removing unified-agent guards before replacing the session table, then
+  restoring them once the schema is stable. Added missing flock sync columns
+  required by the v51 poultry hierarchy repository and completed Arabic
+  coverage for the generic Agent Monitor review workflow.
 - 2026-07-28: Fixed selected-audit Hatch Analysis follow-ups in the Telegram
   agent. Infertile-egg and breakout questions now read the three breakout
   panel tables by the exact persisted audit session and authorized customer,

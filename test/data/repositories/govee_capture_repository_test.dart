@@ -111,6 +111,17 @@ void main() {
         conflictAlgorithm: any(named: 'conflictAlgorithm'),
       ),
     ).thenAnswer((_) async => 1);
+    when(() => txn.rawQuery('PRAGMA table_info(sync_tombstones)')).thenAnswer(
+      (_) async => const [
+        {'name': 'id'},
+        {'name': 'tableName'},
+        {'name': 'rowId'},
+        {'name': 'deletedAt'},
+        {'name': 'createdAt'},
+        {'name': 'syncedAt'},
+        {'name': 'lastError'},
+      ],
+    );
     when(() => db.transaction<void>(any())).thenAnswer((invocation) {
       final action =
           invocation.positionalArguments.single
@@ -160,11 +171,14 @@ void main() {
               as Map<String, dynamic>;
       expect(inserted['syncStatus'], 'pending');
       expect(inserted['dirtyAt'], isNotNull);
-      expect({...inserted, 'dirtyAt': null}, {
-        ...newCapture.toMap(),
-        'machineId': '',
-        'chartPointsJson': GoveePlaceReadingModel.listToJson(newReadings),
-      });
+      expect(
+        {...inserted, 'dirtyAt': null},
+        {
+          ...newCapture.toMap(),
+          'machineId': '',
+          'chartPointsJson': GoveePlaceReadingModel.listToJson(newReadings),
+        },
+      );
       verifyNever(
         () => txn.insert(
           'govee_spot_captures',

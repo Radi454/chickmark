@@ -218,6 +218,18 @@ void main() {
     expect(copy.flockAgeWeeks, 30);
   });
 
+  test('identity-resolution warnings from Telegram drafts are readable', () {
+    final warning = HatcheryRowWarning.fromJson({
+      'kind': 'identityResolution',
+      'severity': 'review',
+      'messageEn': 'More than one customer matches this name.',
+      'messageAr': 'يوجد أكثر من عميل يطابق هذا الاسم.',
+    });
+
+    expect(warning.kind, HatcheryRowWarningKind.identityResolution);
+    expect(warning.severity, HatcheryRowWarningSeverity.review);
+  });
+
   test('warning JSON rejects an unknown warning kind', () {
     expect(
       () => HatcheryRowWarning.fromJson({

@@ -53,4 +53,49 @@ void main() {
       isNull,
     );
   });
+
+  test('debug auth bypass keeps pre-app routes as real auth screens', () {
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: true,
+        routeName: '/login',
+      ),
+      isFalse,
+    );
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: true,
+        routeName: '/register',
+      ),
+      isFalse,
+    );
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: true,
+        routeName: '/pending-approval',
+      ),
+      isFalse,
+    );
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: true,
+        routeName: '/startup-sync',
+      ),
+      isFalse,
+    );
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: true,
+        routeName: '/main',
+      ),
+      isTrue,
+    );
+    expect(
+      shouldUseDebugBypassShellForRoute(
+        authBypassEnabled: false,
+        routeName: '/main',
+      ),
+      isFalse,
+    );
+  });
 }

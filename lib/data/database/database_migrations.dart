@@ -60,6 +60,10 @@ Future<void> _applyV51Upgrade(Database db) async {
       "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
       'targetProfileId TEXT',
       'productionPhase TEXT',
+      'updatedAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'syncError TEXT',
     ]);
   }
   await _createPerformanceMonitoringTables(db);
@@ -199,6 +203,75 @@ Future<void> _applyV54Upgrade(Database db) async {
   }
 
   await _createUnifiedAgentHarnessGuards(db);
+}
+
+Future<void> _applyV55Upgrade(Database db) async {
+  if (!await _tableExists(db, 'agent_intake_sessions')) {
+    await _createAgentIntakeTables(db);
+    return;
+  }
+
+  for (final trigger in const [
+    'trg_telegram_staff_links_scope_insert',
+    'trg_telegram_staff_links_scope_update',
+    'trg_agent_intake_visit_scope_insert',
+    'trg_agent_intake_visit_scope_update',
+    'trg_agent_intake_summary_immutable',
+    'trg_agent_tool_events_immutable',
+    'trg_agent_tool_events_delete_immutable',
+  ]) {
+    await db.execute('DROP TRIGGER IF EXISTS $trigger');
+  }
+  await db.execute('DROP TABLE IF EXISTS agent_intake_sessions_v55');
+  await _createAgentIntakeSessionsTable(db, 'agent_intake_sessions_v55');
+  const columns = '''
+    id,
+    staffLinkId,
+    telegramChatId,
+    schemaKey,
+    schemaVersion,
+    state,
+    language,
+    customerId,
+    customerName,
+    flockId,
+    flockName,
+    hatcheryId,
+    hatcheryName,
+    auditDate,
+    scope,
+    setterIdentity,
+    hatcherIdentity,
+    workingValuesJson,
+    pendingClarificationJson,
+    summaryVersion,
+    summarySnapshotJson,
+    userConfirmedAt,
+    visitId,
+    rowVersion,
+    lastToolEventId,
+    approvedSessionId,
+    approvedPanelRowId,
+    reviewedBy,
+    reviewedAt,
+    rejectionReason,
+    createdAt,
+    updatedAt,
+    syncStatus,
+    dirtyAt,
+    lastSyncedAt,
+    syncError
+  ''';
+  await db.execute('''
+    INSERT INTO agent_intake_sessions_v55 ($columns)
+    SELECT $columns FROM agent_intake_sessions
+  ''');
+  await db.execute('DROP TABLE agent_intake_sessions');
+  await db.execute(
+    'ALTER TABLE agent_intake_sessions_v55 RENAME TO agent_intake_sessions',
+  );
+  await _createAgentIntakeTables(db);
+  await _createUnifiedAgentHarnessTables(db);
 }
 
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {

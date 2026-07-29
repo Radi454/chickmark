@@ -204,6 +204,191 @@ void main() {
     },
   );
 
+  test('loadLinkCatalog exposes customer-scoped edit choices', () async {
+    final catalog = await HatcheryAgentRepository().loadLinkCatalog();
+
+    expect(
+      catalog.customers.map((customer) => customer.id),
+      contains('customer-1'),
+    );
+    final flock = catalog.flocks.singleWhere((item) => item.id == 'flock-1');
+    expect(flock.customerId, 'customer-1');
+    final hatchery = catalog.hatcheries.singleWhere(
+      (item) => item.id == 'hatchery-1',
+    );
+    expect(hatchery.customerId, 'customer-1');
+  });
+
+  test(
+    'listPendingStaffLinks returns only newest pending Telegram requests',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('telegram_staff_links', {
+        'id': 'pending-old',
+        'telegramUserId': '111',
+        'telegramChatId': 'chat-old',
+        'displayName': 'Old Staff',
+        'username': 'oldstaff',
+        'status': 'pending',
+        'createdAt': DateTime.utc(2026, 7, 26, 8).toIso8601String(),
+        'updatedAt': DateTime.utc(2026, 7, 26, 8).toIso8601String(),
+      });
+      await db.insert('telegram_staff_links', {
+        'id': 'pending-new',
+        'telegramUserId': '222',
+        'telegramChatId': 'chat-new',
+        'displayName': 'New Staff',
+        'username': 'newstaff',
+        'status': 'pending',
+        'createdAt': DateTime.utc(2026, 7, 27, 8).toIso8601String(),
+        'updatedAt': DateTime.utc(2026, 7, 27, 8).toIso8601String(),
+      });
+      await db.insert('telegram_staff_links', {
+        'id': 'allowed-1',
+        'telegramUserId': '333',
+        'telegramChatId': 'chat-allowed',
+        'displayName': 'Allowed Staff',
+        'status': 'allowed',
+        'accessRole': 'admin',
+        'createdAt': DateTime.utc(2026, 7, 27, 9).toIso8601String(),
+        'updatedAt': DateTime.utc(2026, 7, 27, 9).toIso8601String(),
+      });
+
+      final pending = await HatcheryAgentRepository().listPendingStaffLinks();
+
+      expect(pending.map((link) => link.id), ['pending-new', 'pending-old']);
+      expect(pending.first.telegramUserId, '222');
+      expect(pending.first.displayName, 'New Staff');
+      expect(pending.first.username, 'newstaff');
+      expect(pending.first.status, TelegramStaffLinkStatus.pending);
+
+      final all = await HatcheryAgentRepository().listStaffLinks();
+      expect(all.map((link) => link.id), contains('allowed-1'));
+      expect(
+        all.firstWhere((link) => link.id == 'allowed-1').accessRole,
+        TelegramAgentAccessRole.admin,
+      );
+    },
+  );
+
+  test(
+    'approveStaffLink atomically stores customer scope and dirty metadata',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('telegram_staff_links', {
+        'id': 'pending-1',
+        'telegramUserId': '111',
+        'telegramChatId': 'chat-1',
+        'displayName': 'Pending Staff',
+        'status': 'pending',
+        'createdAt': DateTime.utc(2026, 7, 27, 8).toIso8601String(),
+        'updatedAt': DateTime.utc(2026, 7, 27, 8).toIso8601String(),
+        'syncStatus': 'synced',
+      });
+
+      await HatcheryAgentRepository().approveStaffLink(
+        linkId: 'pending-1',
+        accessRole: TelegramAgentAccessRole.customer,
+        customerId: 'customer-1',
+        decidedBy: 'admin-1',
+        decidedAt: DateTime.utc(2026, 7, 27, 9),
+      );
+
+      final rows = await db.query(
+        'telegram_staff_links',
+        where: 'id = ?',
+        whereArgs: ['pending-1'],
+      );
+      expect(rows.single['status'], 'allowed');
+      expect(rows.single['accessRole'], 'customer');
+      expect(rows.single['customerId'], 'customer-1');
+      expect(rows.single['invitedBy'], 'admin-1');
+      expect(
+        rows.single['updatedAt'],
+        DateTime.utc(2026, 7, 27, 9).toIso8601String(),
+      );
+      expect(rows.single['syncStatus'], 'pending');
+      expect(rows.single['dirtyAt'], isNotNull);
+    },
+  );
+
+  test(
+    'approveStaffLink rejects inconsistent or unknown customer scope',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('telegram_staff_links', {
+        'id': 'pending-1',
+        'telegramUserId': '111',
+        'status': 'pending',
+      });
+      final repository = HatcheryAgentRepository();
+
+      await expectLater(
+        repository.approveStaffLink(
+          linkId: 'pending-1',
+          accessRole: TelegramAgentAccessRole.customer,
+          customerId: null,
+          decidedBy: 'admin-1',
+          decidedAt: DateTime.utc(2026, 7, 27, 9),
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        repository.approveStaffLink(
+          linkId: 'pending-1',
+          accessRole: TelegramAgentAccessRole.admin,
+          customerId: 'customer-1',
+          decidedBy: 'admin-1',
+          decidedAt: DateTime.utc(2026, 7, 27, 9),
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        repository.approveStaffLink(
+          linkId: 'pending-1',
+          accessRole: TelegramAgentAccessRole.customer,
+          customerId: 'missing-customer',
+          decidedBy: 'admin-1',
+          decidedAt: DateTime.utc(2026, 7, 27, 9),
+        ),
+        throwsStateError,
+      );
+
+      final row = (await db.query(
+        'telegram_staff_links',
+        where: 'id = ?',
+        whereArgs: ['pending-1'],
+      )).single;
+      expect(row['status'], 'pending');
+    },
+  );
+
+  test('approveStaffLink permits unrestricted admin access', () async {
+    final db = await DatabaseHelper().db;
+    await db.insert('telegram_staff_links', {
+      'id': 'pending-admin',
+      'telegramUserId': '222',
+      'status': 'pending',
+    });
+
+    await HatcheryAgentRepository().approveStaffLink(
+      linkId: 'pending-admin',
+      accessRole: TelegramAgentAccessRole.admin,
+      customerId: null,
+      decidedBy: 'admin-1',
+      decidedAt: DateTime.utc(2026, 7, 27, 9),
+    );
+
+    final row = (await db.query(
+      'telegram_staff_links',
+      where: 'id = ?',
+      whereArgs: ['pending-admin'],
+    )).single;
+    expect(row['status'], 'allowed');
+    expect(row['accessRole'], 'admin');
+    expect(row['customerId'], isNull);
+  });
+
   test('previousApprovedComparable uses exact key before hatch date', () async {
     final db = await DatabaseHelper().db;
     await _insertDailyRecord(

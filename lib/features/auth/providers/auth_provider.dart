@@ -25,6 +25,7 @@ class AuthProvider extends ChangeNotifier {
   final SupabaseService _supabaseService;
   final Uuid _uuid = const Uuid();
   final bool _bypassAuth;
+  bool _debugBypassSignedOut = false;
 
   AuthProvider({
     UserRepository? userRepository,
@@ -57,6 +58,11 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> checkCachedToken() async {
     if (_bypassAuth) {
+      if (_debugBypassSignedOut) {
+        _user = null;
+        _setState(AuthState.unauthenticated);
+        return;
+      }
       _activateDevelopmentUser(notify: true);
       return;
     }
@@ -375,7 +381,9 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> logout() async {
     if (_bypassAuth) {
-      _activateDevelopmentUser(notify: true);
+      _debugBypassSignedOut = true;
+      _user = null;
+      _setState(AuthState.unauthenticated);
       return;
     }
 
