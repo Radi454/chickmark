@@ -137,6 +137,135 @@ void main() {
       expect(rows.first['id'], 's1');
     });
 
+    test('legacy farms gain sectorKey before monitoring indexes', () async {
+      var db = await DatabaseHelper().db;
+      await db.insert('customers', {
+        'id': 'legacy-farm-customer',
+        'name': 'Preserved Farm Customer',
+        'createdAt': '2026-07-30T00:00:00.000Z',
+      });
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('DROP TABLE farms');
+      await db.execute('''CREATE TABLE farms (
+        id TEXT PRIMARY KEY,
+        customerId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        location TEXT,
+        notes TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdBy TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
+        syncStatus TEXT NOT NULL DEFAULT 'pending',
+        dirtyAt TEXT,
+        lastSyncedAt TEXT,
+        syncError TEXT
+      )''');
+      await db.insert('farms', {
+        'id': 'legacy-farm',
+        'customerId': 'legacy-farm-customer',
+        'name': 'Must Survive',
+      });
+
+      await DatabaseHelper().close();
+      db = await DatabaseHelper().db;
+
+      final columns = await db.rawQuery('PRAGMA table_info(farms)');
+      expect(columns.map((row) => row['name']), contains('sectorKey'));
+      expect(
+        await db.query('farms', where: 'id = ?', whereArgs: ['legacy-farm']),
+        hasLength(1),
+      );
+      expect(
+        await db.rawQuery(
+          "SELECT name FROM sqlite_master "
+          "WHERE type = 'index' AND name = 'idx_farms_customer_sector'",
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('legacy flock placements gain current indexed columns', () async {
+      var db = await DatabaseHelper().db;
+      await db.insert('customers', {
+        'id': 'legacy-placement-customer',
+        'name': 'Placement Customer',
+        'createdAt': '2026-07-30T00:00:00.000Z',
+      });
+      await db.insert('flocks', {
+        'id': 'legacy-placement-flock',
+        'customerId': 'legacy-placement-customer',
+        'flockId': 'F-LEGACY',
+        'breed': 'Ross 308',
+        'entryDate': '2026-07-01',
+        'status': 'active',
+      });
+      await db.insert('farms', {
+        'id': 'legacy-placement-farm',
+        'customerId': 'legacy-placement-customer',
+        'sectorKey': 'breeder',
+        'name': 'Placement Farm',
+      });
+      await db.insert('houses', {
+        'id': 'legacy-placement-house',
+        'farmId': 'legacy-placement-farm',
+        'name': 'House 1',
+      });
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('DROP TABLE flock_placements');
+      await db.execute('''CREATE TABLE flock_placements (
+        id TEXT PRIMARY KEY,
+        flockId TEXT NOT NULL,
+        houseId TEXT NOT NULL,
+        receptionDate TEXT,
+        femalePlaced INTEGER,
+        malePlaced INTEGER,
+        placementCountsKnown INTEGER,
+        cycleStatus TEXT,
+        notes TEXT,
+        createdBy TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
+        syncStatus TEXT NOT NULL DEFAULT 'pending',
+        dirtyAt TEXT,
+        lastSyncedAt TEXT,
+        syncError TEXT
+      )''');
+      await db.insert('flock_placements', {
+        'id': 'legacy-placement',
+        'flockId': 'legacy-placement-flock',
+        'houseId': 'legacy-placement-house',
+        'receptionDate': '2026-07-01',
+        'femalePlaced': 1000,
+        'malePlaced': 100,
+        'cycleStatus': 'active',
+      });
+
+      await DatabaseHelper().close();
+      db = await DatabaseHelper().db;
+
+      final columns = await db.rawQuery('PRAGMA table_info(flock_placements)');
+      expect(
+        columns.map((row) => row['name']),
+        containsAll(const ['placedBirds', 'placedAt', 'endedAt', 'status']),
+      );
+      expect(
+        await db.query(
+          'flock_placements',
+          where: 'id = ?',
+          whereArgs: ['legacy-placement'],
+        ),
+        hasLength(1),
+      );
+      expect(
+        await db.rawQuery(
+          "SELECT name FROM sqlite_master "
+          "WHERE type = 'index' AND name = 'idx_flock_placements_flock'",
+        ),
+        isNotEmpty,
+      );
+    });
+
     test('missing index is restored after drop', () async {
       var db = await DatabaseHelper().db;
       await db.execute('DROP INDEX idx_audit_sessions_customer_date');

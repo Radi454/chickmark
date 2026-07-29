@@ -1576,7 +1576,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 54. The database file
+The app uses SQLite through `sqflite` at database version 55. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1637,7 +1637,13 @@ agent. Every Telegram staff link now carries an explicit `customer` or `admin`
 access role; an allowed customer link must reference exactly one customer,
 while an allowed admin link cannot carry a customer restriction. Existing
 allowed links are preserved as explicit admin links during the additive
-upgrade. The new `agent_conversations`, `agent_conversation_turns`,
+upgrade. The upgrade idempotently restores the v52 Telegram-agent and v53
+conversational-intake prerequisites before creating unified-agent indexes and
+guards. This also safely handles local databases whose version 53 originated
+from the former flock-monitoring development line without deleting or
+rewriting unrelated rows. Startup's additive surgical repair also restores the
+current indexed farm and flock-placement columns when that former v53 schema is
+encountered. The new `agent_conversations`, `agent_conversation_turns`,
 `agent_tool_events`, and `agent_intake_visits` tables preserve free-form chat,
 model/tool evidence, and a multi-station visit context. Intake sessions now
 reference their visit, carry an optimistic row version, and may reference the
@@ -2462,10 +2468,10 @@ behavior and emit debug logs in development builds.
 - `DiagnosticEngine.evaluate` is a placeholder that returns no findings.
 - Visit-session scorecards use persisted JSON only when present; otherwise they
   use fallback threshold heuristics in `VisitSessionSummary`.
-- Debug database seeding keeps `الغريب` plus one dashboard test customer and
-  removes known older demo customers. The dashboard test customer seed also
-  creates five-reading Govee captures for egg storage, chick holding, setter
-  room, inside setter, hatcher room, and inside hatcher.
+- Normal app startup does not seed or rewrite dashboard demo data. Tests that
+  exercise the legacy dashboard fixture may opt in explicitly; that fixture
+  keeps `الغريب` plus one dashboard test customer and creates five-reading
+  Govee captures for its temperature scopes.
 - Supabase sync is best effort and failures are logged/debugged rather than
   surfaced as blocking workflow errors.
 - Govee place names still share the `TemperaturePlace` enum while the active
@@ -2473,6 +2479,13 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-30: Made the SQLite v54 unified-agent migration re-establish its
+  additive v52/v53 table prerequisites before creating intake-session indexes.
+  This preserves existing local data while repairing databases whose schema
+  version 53 came from the former flock-monitoring development line. Surgical
+  repair now adds that line's missing indexed farm and flock-placement columns
+  before rebuilding current indexes. Normal app startup no longer injects the
+  rejected dashboard demo fixture into the user's local database.
 - 2026-07-29: Hardened the SQLite v55 agent-intake rebuild by temporarily
   removing unified-agent guards before replacing the session table, then
   restoring them once the schema is stable. Added missing flock sync columns
