@@ -95,6 +95,14 @@ Future<void> _applyV53Upgrade(Database db) async {
 }
 
 Future<void> _applyV54Upgrade(Database db) async {
+  // A released development line also used schema version 53 for unrelated
+  // flock changes. Re-establish the additive v52/v53 agent prerequisites
+  // before v54 creates indexes and guards that reference them. Both builders
+  // are idempotent, so databases that already followed the agent migration
+  // path keep their existing rows unchanged.
+  await _createHatcheryAgentTables(db);
+  await _createAgentIntakeTables(db);
+
   if (await _tableExists(db, 'telegram_staff_links')) {
     await _ensureColumns(db, 'telegram_staff_links', const [
       "accessRole TEXT NOT NULL DEFAULT 'customer'",

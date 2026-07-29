@@ -344,6 +344,42 @@ void main() {
     );
   });
 
+  test(
+    'v54 upgrade creates missing agent prerequisites before unified indexes',
+    () async {
+      final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('''
+        CREATE TABLE legacy_local_rows (
+          id TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      ''');
+      await db.insert('legacy_local_rows', {
+        'id': 'preserved-1',
+        'value': 'must survive',
+      });
+
+      await DatabaseHelper().applyV54UpgradeForTest(db);
+
+      expect(
+        await _tableNames(db),
+        containsAll(const [
+          'telegram_staff_links',
+          'agent_intake_sessions',
+          'agent_conversations',
+        ]),
+      );
+      expect(
+        await _indexNames(db),
+        contains('idx_agent_intake_sessions_active_conversation'),
+      );
+      expect(await db.query('legacy_local_rows'), const [
+        {'id': 'preserved-1', 'value': 'must survive'},
+      ]);
+    },
+  );
+
   test('v54 upgrade preserves and groups each legacy intake session', () async {
     final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
     addTearDown(db.close);

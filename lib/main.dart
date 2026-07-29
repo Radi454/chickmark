@@ -26,9 +26,6 @@ void main() async {
   // Database initialization is required before runApp
   // Auth check and other operations depend on local DB
   await initializeDatabaseFactory();
-  // Seed the Dashboard demo customer on app launch (the seeder itself no-ops in
-  // release). Kept out of DatabaseHelper.onOpen so tests open a clean DB.
-  DatabaseHelper.seedDemoData = true;
   await DatabaseHelper().db;
   StartupTimer.lap('db_init_complete');
 

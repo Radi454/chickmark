@@ -19,9 +19,9 @@ class DatabaseHelper {
 
   static Database? _db;
 
-  /// When true, a database open seeds the Dashboard demo customer (debug aid).
-  /// Off by default so unit/widget tests open a clean DB; the app turns it on
-  /// at startup (see `main`) and end-to-end seed tests opt in explicitly.
+  /// When true, a database open seeds the Dashboard demo customer for an
+  /// explicitly opted-in test. Normal app startup and ordinary tests keep it
+  /// disabled so local user data is never supplemented with demo rows.
   static bool seedDemoData = false;
 
   Future<Database> get db async {
@@ -232,6 +232,7 @@ class DatabaseHelper {
   /// during surgical repair. Existing rows keep their values (NULL for new
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
+    'farms': ['sectorKey TEXT'],
     'flocks': [
       'farmId TEXT',
       'sectorKey TEXT',
@@ -242,6 +243,12 @@ class DatabaseHelper {
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
       'syncError TEXT',
+    ],
+    'flock_placements': [
+      'placedBirds INTEGER',
+      'placedAt TEXT',
+      'endedAt TEXT',
+      "status TEXT NOT NULL DEFAULT 'active'",
     ],
     'audit_sessions': [
       'customerId TEXT NOT NULL',
