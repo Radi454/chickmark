@@ -31,9 +31,51 @@ export interface AgentAuditListPage {
   truncated: boolean
 }
 
+export interface AgentAuditBreakoutRow {
+  breakoutType: 'fresh' | 'candled' | 'residue'
+  id: string
+  sessionId: string
+  customerId: string
+  flockId: string | null
+  hatcheryId: string | null
+  date: string | null
+  house: string | null
+  setter: string | null
+  hatcher: string | null
+  trolley: string | null
+  tray: string | null
+  position: string | null
+  traySize: number | null
+  infertileCount: number | null
+  infertilePct: number | null
+  early24hPct: number | null
+  early48hPct: number | null
+  bloodRingPct: number | null
+  blackEyePct: number | null
+  earlyDeadPct: number | null
+  midDeadPct: number | null
+  lateDeadPct: number | null
+  externalPipPct: number | null
+  crackedPct: number | null
+  contaminatedPct: number | null
+  hatchabilityPct: number | null
+  fertilityPct: number | null
+  hofPct: number | null
+  culledPct: number | null
+  deadPct: number | null
+}
+
+export interface AgentAuditBreakoutPage {
+  rows: readonly AgentAuditBreakoutRow[]
+  truncated: boolean
+}
+
 export interface AgentAuditStore {
   findFlockCustomerId(flockId: string): Promise<string | null>
   findLatestAuditListResult(conversationId: string): Promise<unknown | null>
+  findLatestSelectedAuditResult(
+    conversationId: string,
+  ): Promise<unknown | null>
   listAudits(input: {
     customerId: string
     flockId: string | null
@@ -43,6 +85,10 @@ export interface AgentAuditStore {
     auditId: string,
     allowedCustomerIds: readonly string[],
   ): Promise<AgentAuditReadRow | null>
+  listAuditBreakouts(input: {
+    auditId: string
+    customerId: string
+  }): Promise<AgentAuditBreakoutPage>
 }
 
 interface AuditDatabaseQuery {
@@ -102,6 +148,101 @@ const MAX_AUDIT_OPTIONS = 20
 const MAX_RECENT_CONVERSATION_TURNS = 40
 const AUDIT_SCAN_PAGE_SIZE = 50
 const MAX_SCANNED_AUDIT_ROWS = 500
+const MAX_AUDIT_BREAKOUT_ROWS = 20
+
+const BREAKOUT_COMMON_COLUMNS = [
+  'id',
+  'session_id',
+  'customer_id',
+  'flock_id',
+  'hatchery_id',
+  'date',
+  'house',
+  'setter',
+  'hatcher',
+  'trolley',
+  'tray',
+  'position',
+  'tray_size',
+  'infertile_count',
+  'infertile_pct',
+]
+
+const BREAKOUT_TABLES = [
+  {
+    breakoutType: 'fresh' as const,
+    table: 'fresh_egg_breakout',
+    columns: [
+      ...BREAKOUT_COMMON_COLUMNS,
+      'early24h_pct',
+      'early48h_pct',
+      'blood_ring_pct',
+    ],
+  },
+  {
+    breakoutType: 'candled' as const,
+    table: 'candled_egg_breakout',
+    columns: [
+      ...BREAKOUT_COMMON_COLUMNS,
+      'early24h_pct',
+      'early48h_pct',
+      'blood_ring_pct',
+      'black_eye_pct',
+    ],
+  },
+  {
+    breakoutType: 'residue' as const,
+    table: 'residue_breakout',
+    columns: [
+      ...BREAKOUT_COMMON_COLUMNS,
+      'early_dead_pct',
+      'mid_dead_pct',
+      'late_dead_pct',
+      'external_pip_pct',
+      'cracked_pct',
+      'contaminated_pct',
+      'hatchability_pct',
+      'fertility_pct',
+      'hof_pct',
+      'culled_pct',
+      'dead_pct',
+    ],
+  },
+] as const
+
+async function findLatestSuccessfulToolResult(
+  client: AgentAuditClient,
+  conversationId: string,
+  toolNames: readonly AgentToolName[],
+): Promise<unknown | null> {
+  const turnsResult = await client
+    .from('agent_conversation_turns')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(MAX_RECENT_CONVERSATION_TURNS)
+  throwIfDatabaseError(turnsResult)
+  const turnIds = (turnsResult.data ?? [])
+    .map((row) => boundedIdentifier(row.id))
+    .filter((id): id is string => id !== null)
+  if (turnIds.length === 0) return null
+
+  let eventsQuery = client
+    .from('agent_tool_events')
+    .select('result_json')
+    .in('conversation_turn_id', turnIds)
+  eventsQuery = toolNames.length === 1
+    ? eventsQuery.eq('tool_name', toolNames[0])
+    : eventsQuery.in('tool_name', toolNames)
+  const eventsResult = await eventsQuery
+    .eq('status', 'succeeded')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1)
+  throwIfDatabaseError(eventsResult)
+  return eventsResult.data?.[0]?.result_json ?? null
+}
 
 export function createSupabaseAgentAuditStore(
   client: AgentAuditClient,
@@ -116,32 +257,18 @@ export function createSupabaseAgentAuditStore(
       throwIfDatabaseError(result)
       return optionalText(result.data?.customer_id)
     },
-    async findLatestAuditListResult(conversationId) {
-      const turnsResult = await client
-        .from('agent_conversation_turns')
-        .select('id')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(MAX_RECENT_CONVERSATION_TURNS)
-      throwIfDatabaseError(turnsResult)
-      const turnIds = (turnsResult.data ?? [])
-        .map((row) => boundedIdentifier(row.id))
-        .filter((id): id is string => id !== null)
-      if (turnIds.length === 0) return null
-
-      const eventsResult = await client
-        .from('agent_tool_events')
-        .select('result_json')
-        .in('conversation_turn_id', turnIds)
-        .eq('tool_name', 'list_customer_audits')
-        .eq('status', 'succeeded')
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(1)
-      throwIfDatabaseError(eventsResult)
-      return eventsResult.data?.[0]?.result_json ?? null
-    },
+    findLatestAuditListResult: (conversationId) =>
+      findLatestSuccessfulToolResult(
+        client,
+        conversationId,
+        ['list_customer_audits'],
+      ),
+    findLatestSelectedAuditResult: (conversationId) =>
+      findLatestSuccessfulToolResult(
+        client,
+        conversationId,
+        ['select_audit_option', 'get_audit_summary'],
+      ),
     async listAudits(input) {
       const rows: AgentAuditReadRow[] = []
       let scanned = 0
@@ -194,6 +321,33 @@ export function createSupabaseAgentAuditStore(
       throwIfDatabaseError(result)
       return result.data ? auditFromRemote(result.data) : null
     },
+    async listAuditBreakouts(input) {
+      const pages = await Promise.all(
+        BREAKOUT_TABLES.map(async (source) => {
+          const result = await client
+            .from(source.table)
+            .select(source.columns.join(', '))
+            .eq('session_id', input.auditId)
+            .eq('customer_id', input.customerId)
+            .order('id', { ascending: true })
+            .limit(MAX_AUDIT_BREAKOUT_ROWS + 1)
+          throwIfDatabaseError(result)
+          return {
+            rawCount: result.data?.length ?? 0,
+            rows: (result.data ?? [])
+              .map((row) => breakoutFromRemote(source.breakoutType, row))
+              .filter((row): row is AgentAuditBreakoutRow => row !== null),
+          }
+        }),
+      )
+      const rows = pages.flatMap((page) => page.rows)
+        .sort(compareBreakoutRows)
+      return {
+        rows: rows.slice(0, MAX_AUDIT_BREAKOUT_ROWS),
+        truncated: rows.length > MAX_AUDIT_BREAKOUT_ROWS ||
+          pages.some((page) => page.rawCount > MAX_AUDIT_BREAKOUT_ROWS),
+      }
+    },
   }
 }
 
@@ -204,6 +358,8 @@ export function createAgentAuditToolHandlers(
     list_customer_audits: (input) => listCustomerAudits(store, input),
     select_audit_option: (input) => selectAuditOption(store, input),
     get_audit_summary: (input) => getAuditSummary(store, input),
+    get_selected_audit_breakouts: (input) =>
+      getSelectedAuditBreakouts(store, input),
   }
 }
 
@@ -275,6 +431,48 @@ async function selectAuditOption(
   return auditSummary(audit)
 }
 
+async function getSelectedAuditBreakouts(
+  store: AgentAuditStore,
+  input: AgentToolExecutionInput,
+): Promise<AgentToolResult> {
+  const snapshot = await store.findLatestSelectedAuditResult(
+    input.conversationId,
+  )
+  const selected = selectedAuditReference(
+    snapshot,
+    input.scope.allowedCustomerIds,
+  )
+  if (!selected) return scopeDenied()
+
+  const audit = await store.findAudit(
+    selected.auditId,
+    input.scope.allowedCustomerIds,
+  )
+  if (
+    !audit ||
+    audit.customerId !== selected.customerId ||
+    !input.scope.allowedCustomerIds.includes(audit.customerId)
+  ) {
+    return scopeDenied()
+  }
+
+  const page = await store.listAuditBreakouts({
+    auditId: audit.id,
+    customerId: audit.customerId,
+  })
+  const rows = page.rows
+    .filter((row) =>
+      row.sessionId === audit.id &&
+      row.customerId === audit.customerId
+    )
+    .sort(compareBreakoutRows)
+  return ok({
+    audit: publicAuditOption(audit),
+    breakouts: rows.slice(0, MAX_AUDIT_BREAKOUT_ROWS).map(publicBreakoutRow),
+    truncated: page.truncated || rows.length > MAX_AUDIT_BREAKOUT_ROWS,
+  })
+}
+
 function auditSummary(audit: AgentAuditReadRow): AgentToolResult {
   return ok({
     ...publicAuditOption(audit),
@@ -287,6 +485,22 @@ function auditSummary(audit: AgentAuditReadRow): AgentToolResult {
     scorecard: audit.scorecard,
     notes: audit.notes,
   })
+}
+
+function selectedAuditReference(
+  snapshot: unknown,
+  allowedCustomerIds: readonly string[],
+): { customerId: string; auditId: string } | null {
+  if (!isRecord(snapshot) || snapshot.ok !== true || snapshot.code !== 'ok') {
+    return null
+  }
+  const data = snapshot.data
+  if (!isRecord(data)) return null
+  const customerId = boundedIdentifier(data.customerId)
+  const auditId = boundedIdentifier(data.id)
+  return customerId && auditId && allowedCustomerIds.includes(customerId)
+    ? { customerId, auditId }
+    : null
 }
 
 function selectedAuditFromSnapshot(
@@ -338,6 +552,105 @@ function compareAuditRows(
   return (right.date ?? '').localeCompare(left.date ?? '') ||
     (right.createdAt ?? '').localeCompare(left.createdAt ?? '') ||
     right.id.localeCompare(left.id)
+}
+
+function compareBreakoutRows(
+  left: AgentAuditBreakoutRow,
+  right: AgentAuditBreakoutRow,
+): number {
+  const typeOrder = { fresh: 0, candled: 1, residue: 2 }
+  return typeOrder[left.breakoutType] - typeOrder[right.breakoutType] ||
+    (left.date ?? '').localeCompare(right.date ?? '') ||
+    left.id.localeCompare(right.id)
+}
+
+function publicBreakoutRow(
+  row: AgentAuditBreakoutRow,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries({
+      breakoutType: row.breakoutType,
+      date: row.date,
+      house: row.house,
+      setter: row.setter,
+      hatcher: row.hatcher,
+      trolley: row.trolley,
+      tray: row.tray,
+      position: row.position,
+      traySize: row.traySize,
+      infertileCount: row.infertileCount,
+      infertilePct: row.infertilePct,
+      early24hPct: row.early24hPct,
+      early48hPct: row.early48hPct,
+      bloodRingPct: row.bloodRingPct,
+      blackEyePct: row.blackEyePct,
+      earlyDeadPct: row.earlyDeadPct,
+      midDeadPct: row.midDeadPct,
+      lateDeadPct: row.lateDeadPct,
+      externalPipPct: row.externalPipPct,
+      crackedPct: row.crackedPct,
+      contaminatedPct: row.contaminatedPct,
+      hatchabilityPct: row.hatchabilityPct,
+      fertilityPct: row.fertilityPct,
+      hofPct: row.hofPct,
+      culledPct: row.culledPct,
+      deadPct: row.deadPct,
+    }).filter((entry) => entry[1] !== null),
+  )
+}
+
+function breakoutFromRemote(
+  breakoutType: AgentAuditBreakoutRow['breakoutType'],
+  row: Record<string, unknown>,
+): AgentAuditBreakoutRow | null {
+  const id = boundedIdentifier(row.id)
+  const sessionId = boundedIdentifier(row.session_id)
+  const customerId = boundedIdentifier(row.customer_id)
+  const flockId = row.flock_id === null ? null : boundedIdentifier(row.flock_id)
+  const hatcheryId = row.hatchery_id === null
+    ? null
+    : boundedIdentifier(row.hatchery_id)
+  if (
+    !id ||
+    !sessionId ||
+    !customerId ||
+    (row.flock_id !== null && !flockId) ||
+    (row.hatchery_id !== null && !hatcheryId)
+  ) return null
+
+  return {
+    breakoutType,
+    id,
+    sessionId,
+    customerId,
+    flockId,
+    hatcheryId,
+    date: optionalText(row.date),
+    house: optionalText(row.house),
+    setter: optionalText(row.setter),
+    hatcher: optionalText(row.hatcher),
+    trolley: optionalText(row.trolley),
+    tray: optionalText(row.tray),
+    position: optionalText(row.position),
+    traySize: optionalNumber(row.tray_size),
+    infertileCount: optionalNumber(row.infertile_count),
+    infertilePct: optionalNumber(row.infertile_pct),
+    early24hPct: optionalNumber(row.early24h_pct),
+    early48hPct: optionalNumber(row.early48h_pct),
+    bloodRingPct: optionalNumber(row.blood_ring_pct),
+    blackEyePct: optionalNumber(row.black_eye_pct),
+    earlyDeadPct: optionalNumber(row.early_dead_pct),
+    midDeadPct: optionalNumber(row.mid_dead_pct),
+    lateDeadPct: optionalNumber(row.late_dead_pct),
+    externalPipPct: optionalNumber(row.external_pip_pct),
+    crackedPct: optionalNumber(row.cracked_pct),
+    contaminatedPct: optionalNumber(row.contaminated_pct),
+    hatchabilityPct: optionalNumber(row.hatchability_pct),
+    fertilityPct: optionalNumber(row.fertility_pct),
+    hofPct: optionalNumber(row.hof_pct),
+    culledPct: optionalNumber(row.culled_pct),
+    deadPct: optionalNumber(row.dead_pct),
+  }
 }
 
 function auditFromRemote(

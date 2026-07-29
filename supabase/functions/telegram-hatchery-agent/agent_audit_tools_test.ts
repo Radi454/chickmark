@@ -31,6 +31,9 @@ interface AuditRow {
 interface AuditStore {
   findFlockCustomerId(flockId: string): Promise<string | null>
   findLatestAuditListResult(conversationId: string): Promise<unknown | null>
+  findLatestSelectedAuditResult(
+    conversationId: string,
+  ): Promise<unknown | null>
   listAudits(input: {
     customerId: string
     flockId: string | null
@@ -40,12 +43,65 @@ interface AuditStore {
     auditId: string,
     allowedCustomerIds: readonly string[],
   ): Promise<AuditRow | null>
+  listAuditBreakouts(input: {
+    auditId: string
+    customerId: string
+  }): Promise<AuditBreakoutPage>
+}
+
+interface AuditBreakoutRow {
+  breakoutType: 'fresh' | 'candled' | 'residue'
+  id: string
+  sessionId: string
+  customerId: string
+  flockId: string | null
+  hatcheryId: string | null
+  date: string | null
+  house: string | null
+  setter: string | null
+  hatcher: string | null
+  trolley: string | null
+  tray: string | null
+  position: string | null
+  traySize: number | null
+  infertileCount: number | null
+  infertilePct: number | null
+  early24hPct: number | null
+  early48hPct: number | null
+  bloodRingPct: number | null
+  blackEyePct: number | null
+  earlyDeadPct: number | null
+  midDeadPct: number | null
+  lateDeadPct: number | null
+  externalPipPct: number | null
+  crackedPct: number | null
+  contaminatedPct: number | null
+  hatchabilityPct: number | null
+  fertilityPct: number | null
+  hofPct: number | null
+  culledPct: number | null
+  deadPct: number | null
+}
+
+interface AuditBreakoutPage {
+  rows: readonly AuditBreakoutRow[]
+  truncated: boolean
 }
 
 interface FixtureAuditStore extends AuditStore {
   latestAuditListResult: unknown | null
+  latestSelectedAuditResult: unknown | null
+  findLatestSelectedAuditResult(
+    conversationId: string,
+  ): Promise<unknown | null>
+  listAuditBreakouts(input: {
+    auditId: string
+    customerId: string
+  }): Promise<AuditBreakoutPage>
   listInputs: { customerId: string; flockId: string | null; limit: number }[]
+  breakoutInputs: { auditId: string; customerId: string }[]
   rows: AuditRow[]
+  breakoutRows: AuditBreakoutRow[]
   selectedAuditIds: string[]
 }
 
@@ -114,10 +170,14 @@ function fixtureStore(): FixtureAuditStore {
     },
   ]
   const selectedAuditIds: string[] = []
+  const breakoutInputs: { auditId: string; customerId: string }[] = []
   const store: FixtureAuditStore = {
     latestAuditListResult: null,
+    latestSelectedAuditResult: null,
     listInputs,
+    breakoutInputs,
     rows,
+    breakoutRows: [],
     selectedAuditIds,
     findFlockCustomerId: (flockId) =>
       Promise.resolve(
@@ -129,6 +189,8 @@ function fixtureStore(): FixtureAuditStore {
       ),
     findLatestAuditListResult: () =>
       Promise.resolve(store.latestAuditListResult),
+    findLatestSelectedAuditResult: () =>
+      Promise.resolve(store.latestSelectedAuditResult),
     listAudits(input) {
       listInputs.push(input)
       return Promise.resolve({ rows: store.rows, truncated: false })
@@ -141,8 +203,92 @@ function fixtureStore(): FixtureAuditStore {
         ) ?? null,
       )
     },
+    listAuditBreakouts(input) {
+      breakoutInputs.push(input)
+      return Promise.resolve({
+        rows: store.breakoutRows,
+        truncated: false,
+      })
+    },
   }
   return store
+}
+
+function breakoutRow(
+  overrides: Partial<AuditBreakoutRow> & Pick<AuditBreakoutRow, 'breakoutType'>,
+): AuditBreakoutRow {
+  const { breakoutType, ...rest } = overrides
+  return {
+    breakoutType,
+    id: 'breakout-a',
+    sessionId: 'audit-completed',
+    customerId: 'customer-a',
+    flockId: 'flock-a',
+    hatcheryId: 'hatchery-a',
+    date: '2026-07-28',
+    house: 'H1',
+    setter: 'S1',
+    hatcher: 'H1',
+    trolley: 'T1',
+    tray: 'T1',
+    position: 'top',
+    traySize: 150,
+    infertileCount: null,
+    infertilePct: null,
+    early24hPct: null,
+    early48hPct: null,
+    bloodRingPct: null,
+    blackEyePct: null,
+    earlyDeadPct: null,
+    midDeadPct: null,
+    lateDeadPct: null,
+    externalPipPct: null,
+    crackedPct: null,
+    contaminatedPct: null,
+    hatchabilityPct: null,
+    fertilityPct: null,
+    hofPct: null,
+    culledPct: null,
+    deadPct: null,
+    ...rest,
+  }
+}
+
+function publicBreakout(
+  overrides: Record<string, unknown> & { breakoutType: string },
+): Record<string, unknown> {
+  const { breakoutType, ...rest } = overrides
+  return Object.fromEntries(
+    Object.entries({
+      breakoutType,
+      date: '2026-07-28',
+      house: 'H1',
+      setter: 'S1',
+      hatcher: 'H1',
+      trolley: 'T1',
+      tray: 'T1',
+      position: 'top',
+      traySize: 150,
+      infertileCount: null,
+      infertilePct: null,
+      early24hPct: null,
+      early48hPct: null,
+      bloodRingPct: null,
+      blackEyePct: null,
+      earlyDeadPct: null,
+      midDeadPct: null,
+      lateDeadPct: null,
+      externalPipPct: null,
+      crackedPct: null,
+      contaminatedPct: null,
+      hatchabilityPct: null,
+      fertilityPct: null,
+      hofPct: null,
+      culledPct: null,
+      deadPct: null,
+      ...rest,
+    }).filter((entry) => entry[1] !== null),
+  )
 }
 
 async function call(
@@ -301,6 +447,141 @@ Deno.test('audit summary returns verified identity and decoded detail', async ()
       },
     },
   )
+})
+
+Deno.test('selected audit breakouts return infertile rates from the exact audit session', async () => {
+  const store = fixtureStore()
+  store.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'audit-completed',
+      customerId: 'customer-a',
+    },
+  }
+  store.breakoutRows = [
+    breakoutRow({
+      breakoutType: 'fresh',
+      id: 'fresh-a',
+      infertileCount: 6,
+      infertilePct: 4,
+    }),
+    breakoutRow({
+      breakoutType: 'candled',
+      id: 'candled-a',
+      tray: 'T2',
+      infertileCount: 12,
+      infertilePct: 8,
+    }),
+    breakoutRow({
+      breakoutType: 'residue',
+      id: 'residue-a',
+      tray: 'T3',
+      infertileCount: 15,
+      infertilePct: 10,
+      hatchabilityPct: 88,
+      fertilityPct: 90,
+      hofPct: 97.8,
+    }),
+    breakoutRow({
+      breakoutType: 'residue',
+      id: 'foreign-session',
+      sessionId: 'audit-new',
+      infertileCount: 99,
+      infertilePct: 66,
+    }),
+    breakoutRow({
+      breakoutType: 'residue',
+      id: 'foreign-customer',
+      customerId: 'customer-b',
+      infertileCount: 98,
+      infertilePct: 65.3,
+    }),
+  ]
+
+  assertEquals(
+    await call(store, 'get_selected_audit_breakouts', {}),
+    {
+      ok: true,
+      code: 'ok',
+      data: {
+        audit: {
+          id: 'audit-completed',
+          date: '2026-06-23',
+          status: 'completed',
+          customerName: 'الغريب',
+          flockName: 'السلام',
+          hatcheryName: 'الغريب',
+          selectedStationKeys: [
+            'egg',
+            'chicks',
+            'hatch_analysis_egg_breakouts',
+          ],
+          stationsCompleted: [
+            'egg',
+            'chicks',
+            'hatch_analysis_egg_breakouts',
+          ],
+          createdAt: '2026-06-23T13:04:26Z',
+          completedAt: '2026-06-23T18:07:00Z',
+        },
+        breakouts: [
+          publicBreakout({
+            breakoutType: 'fresh',
+            tray: 'T1',
+            infertileCount: 6,
+            infertilePct: 4,
+          }),
+          publicBreakout({
+            breakoutType: 'candled',
+            tray: 'T2',
+            infertileCount: 12,
+            infertilePct: 8,
+          }),
+          publicBreakout({
+            breakoutType: 'residue',
+            tray: 'T3',
+            infertileCount: 15,
+            infertilePct: 10,
+            hatchabilityPct: 88,
+            fertilityPct: 90,
+            hofPct: 97.8,
+          }),
+        ],
+        truncated: false,
+      },
+    },
+  )
+  assertEquals(store.selectedAuditIds.at(-1), 'audit-completed')
+  assertEquals(store.breakoutInputs, [{
+    auditId: 'audit-completed',
+    customerId: 'customer-a',
+  }])
+})
+
+Deno.test('selected audit breakout lookup fails closed without a scoped persisted selection', async () => {
+  for (
+    const snapshot of [
+      null,
+      {
+        ok: true,
+        code: 'ok',
+        data: { id: 'audit-completed', customerId: 'customer-b' },
+      },
+      {
+        ok: true,
+        code: 'ok',
+        data: { id: 'missing-audit', customerId: 'customer-a' },
+      },
+    ]
+  ) {
+    const store = fixtureStore()
+    store.latestSelectedAuditResult = snapshot
+    assertEquals(
+      await call(store, 'get_selected_audit_breakouts', {}),
+      { ok: false, code: 'scope_denied', data: null },
+    )
+  }
 })
 
 Deno.test('persisted audit options keep their ordinal after a newer audit is inserted', async () => {
@@ -654,6 +935,129 @@ Deno.test('selection uses the latest successful list event from only its convers
     tool_name: 'list_customer_audits',
     status: 'succeeded',
   })
+})
+
+Deno.test('Supabase audit breakout reader uses the persisted selection and exact session rows', async () => {
+  const client = new FakeAuditClient({
+    agent_conversation_turns: [{
+      id: 'turn-selected',
+      conversation_id: 'conversation-a',
+      created_at: '2026-07-28T11:00:00Z',
+    }],
+    agent_tool_events: [{
+      id: 'event-selected',
+      conversation_turn_id: 'turn-selected',
+      tool_name: 'select_audit_option',
+      status: 'succeeded',
+      result_json: {
+        ok: true,
+        code: 'ok',
+        data: {
+          id: 'audit-latest',
+          customerId: 'customer-a',
+        },
+      },
+      created_at: '2026-07-28T11:01:00Z',
+    }],
+    audit_sessions: [remoteAudit('audit-latest')],
+    fresh_egg_breakout: [{
+      id: 'fresh-a',
+      session_id: 'audit-latest',
+      customer_id: 'customer-a',
+      flock_id: 'flock-a',
+      hatchery_id: 'hatchery-a',
+      date: '2026-07-28',
+      house: 'H1',
+      setter: 'S1',
+      hatcher: 'H1',
+      trolley: 'T1',
+      tray: 'T1',
+      position: 'top',
+      tray_size: 30,
+      infertile_count: 3,
+      infertile_pct: 10,
+      early24h_pct: 2,
+      early48h_pct: 1,
+      blood_ring_pct: 0,
+    }],
+    candled_egg_breakout: [],
+    residue_breakout: [{
+      id: 'residue-a',
+      session_id: 'audit-latest',
+      customer_id: 'customer-a',
+      flock_id: 'flock-a',
+      hatchery_id: 'hatchery-a',
+      date: '2026-07-28',
+      house: 'H1',
+      setter: 'S1',
+      hatcher: 'H1',
+      trolley: 'T1',
+      tray: 'T2',
+      position: 'bottom',
+      tray_size: 150,
+      infertile_count: 15,
+      infertile_pct: 10,
+      early_dead_pct: 4,
+      mid_dead_pct: 2,
+      late_dead_pct: 1,
+      external_pip_pct: 0.5,
+      cracked_pct: 0,
+      contaminated_pct: 0,
+      hatchability_pct: 88,
+      fertility_pct: 90,
+      hof_pct: 97.8,
+      culled_pct: 1,
+      dead_pct: 0.5,
+    }],
+  })
+  const store = createSupabaseAgentAuditStore(client)
+
+  const result = await call(store, 'get_selected_audit_breakouts', {})
+
+  assertEquals(result.ok, true)
+  assertEquals(result.data?.breakouts, [
+    publicBreakout({
+      breakoutType: 'fresh',
+      tray: 'T1',
+      traySize: 30,
+      infertileCount: 3,
+      infertilePct: 10,
+      early24hPct: 2,
+      early48hPct: 1,
+      bloodRingPct: 0,
+    }),
+    publicBreakout({
+      breakoutType: 'residue',
+      tray: 'T2',
+      position: 'bottom',
+      infertileCount: 15,
+      infertilePct: 10,
+      earlyDeadPct: 4,
+      midDeadPct: 2,
+      lateDeadPct: 1,
+      externalPipPct: 0.5,
+      crackedPct: 0,
+      contaminatedPct: 0,
+      hatchabilityPct: 88,
+      fertilityPct: 90,
+      hofPct: 97.8,
+      culledPct: 1,
+      deadPct: 0.5,
+    }),
+  ])
+  for (
+    const table of [
+      'fresh_egg_breakout',
+      'candled_egg_breakout',
+      'residue_breakout',
+    ]
+  ) {
+    const query = client.queries.find((candidate) => candidate.table === table)
+    assertEquals(query?.equals.session_id, 'audit-latest')
+    assertEquals(query?.equals.customer_id, 'customer-a')
+    assertEquals(query?.selectedColumns?.includes('*'), false)
+    assertEquals(query?.limit, 21)
+  }
 })
 
 Deno.test('audit adapter decodes only bounded JSON arrays or objects', async () => {

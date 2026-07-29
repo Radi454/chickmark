@@ -1720,6 +1720,18 @@ audit ID is then revalidated through the current customer scope before its
 summary is returned. The model never reconstructs or re-lists an ordinal
 mapping.
 
+Follow-up Hatch Analysis questions use the latest successful audit selection
+or verified audit-summary event from the same conversation.
+`get_selected_audit_breakouts` revalidates that audit against the current
+customer scope, then reads only rows whose `session_id` and `customer_id`
+match the selected audit from `fresh_egg_breakout`, `candled_egg_breakout`,
+and `residue_breakout`. The bounded result exposes sample hierarchy, tray
+size, infertile count/percentage, the breakout-stage percentages available for
+that row, and residue hatchability/fertility/HOF/culled/dead percentages. It
+returns at most 20 stable rows, omits absent measurements, and reports
+truncation instead of substituting
+a same-date or same-flock row from another audit.
+
 Name text is never accepted in audit ID arguments; the model must resolve names
 through the scoped customer/flock resolver before listing audits. Audit rows
 are discarded unless embedded customer, flock, and hatchery relation IDs match
@@ -2461,6 +2473,10 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-28: Fixed selected-audit Hatch Analysis follow-ups in the Telegram
+  agent. Infertile-egg and breakout questions now read the three breakout
+  panel tables by the exact persisted audit session and authorized customer,
+  instead of falling back to the audit header or an unsafe date-range search.
 - 2026-07-28: Exposed scoped audit browsing to the unified Telegram agent.
   Authorized users receive numbered choices from a bounded page of recent
   audits (default 10, maximum 20); `truncated` signals either a larger valid
