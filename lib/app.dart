@@ -172,22 +172,35 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   }
 
   Map<String, WidgetBuilder> _buildRoutes(bool authBypassEnabled) {
-    if (authBypassEnabled) {
-      return {
-        '/login': (context) => const MainShell(),
-        '/register': (context) => const MainShell(),
-        '/pending-approval': (context) => const MainShell(),
-        '/startup-sync': (context) => const MainShell(),
-        '/main': (context) => const MainShell(),
-        '/performance': (context) => const PerformanceScreen(),
-      };
-    }
-
     return {
-      '/login': (context) => const LoginScreen(),
-      '/register': (context) => const RegisterScreen(),
-      '/pending-approval': (context) => const PendingApprovalScreen(),
-      '/startup-sync': (context) => const StartupSyncScreen(),
+      '/login': (context) =>
+          shouldUseDebugBypassShellForRoute(
+            authBypassEnabled: authBypassEnabled,
+            routeName: '/login',
+          )
+          ? const MainShell()
+          : const LoginScreen(),
+      '/register': (context) =>
+          shouldUseDebugBypassShellForRoute(
+            authBypassEnabled: authBypassEnabled,
+            routeName: '/register',
+          )
+          ? const MainShell()
+          : const RegisterScreen(),
+      '/pending-approval': (context) =>
+          shouldUseDebugBypassShellForRoute(
+            authBypassEnabled: authBypassEnabled,
+            routeName: '/pending-approval',
+          )
+          ? const MainShell()
+          : const PendingApprovalScreen(),
+      '/startup-sync': (context) =>
+          shouldUseDebugBypassShellForRoute(
+            authBypassEnabled: authBypassEnabled,
+            routeName: '/startup-sync',
+          )
+          ? const MainShell()
+          : const StartupSyncScreen(),
       '/main': (context) => const MainShell(),
       '/performance': (context) => const PerformanceScreen(),
     };
@@ -244,6 +257,14 @@ bool _nextHasEnteredMainShell({
   if (routeName == '/main') return true;
   if (_preAppRouteNames.contains(routeName)) return false;
   return currentValue;
+}
+
+@visibleForTesting
+bool shouldUseDebugBypassShellForRoute({
+  required bool authBypassEnabled,
+  required String routeName,
+}) {
+  return authBypassEnabled && routeName == '/main';
 }
 
 @visibleForTesting

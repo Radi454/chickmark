@@ -59,6 +59,74 @@ void main() {
     final rows = await db.query('customers');
     expect(rows, isEmpty);
   });
+
+  test(
+    'pending tombstones remain compatible with legacy snake_case tables',
+    () async {
+      await _replaceWithLegacySyncTombstoneTable(db);
+      await db.insert('sync_tombstones', {
+        'id': 'customers:customer-1',
+        'table_name': 'customers',
+        'row_id': 'customer-1',
+        'deleted_at': DateTime(2026, 5, 2).toIso8601String(),
+        'created_at': DateTime(2026, 5, 2).toIso8601String(),
+        'synced_at': null,
+        'last_error': null,
+      });
+
+      final pending = await repository.getPendingDeletes();
+      expect(pending, hasLength(1));
+      expect(pending.single.tableName, 'customers');
+      expect(pending.single.rowId, 'customer-1');
+
+      await repository.markSynced(pending.single.id);
+
+      expect(await repository.getPendingDeletes(), isEmpty);
+    },
+  );
+
+  test(
+    'remote deletes remain compatible with legacy snake_case tables',
+    () async {
+      await _replaceWithLegacySyncTombstoneTable(db);
+      await db.insert('customers', {'id': 'customer-1', 'name': 'Acme'});
+      await db.insert('sync_tombstones', {
+        'id': 'customers:customer-1',
+        'table_name': 'customers',
+        'row_id': 'customer-1',
+        'deleted_at': DateTime(2026, 5, 2).toIso8601String(),
+        'created_at': DateTime(2026, 5, 2).toIso8601String(),
+        'synced_at': DateTime(2026, 5, 2).toIso8601String(),
+        'last_error': null,
+      });
+
+      await repository.applyRemoteDeletes();
+
+      final rows = await db.query('customers');
+      expect(rows, isEmpty);
+    },
+  );
+
+  test(
+    'remote tombstones can be inserted into legacy snake_case tables',
+    () async {
+      await _replaceWithLegacySyncTombstoneTable(db);
+
+      await repository.upsertRemoteTombstone({
+        'id': 'customers:customer-1',
+        'table_name': 'customers',
+        'row_id': 'customer-1',
+        'deleted_at': DateTime(2026, 5, 2).toIso8601String(),
+        'created_at': DateTime(2026, 5, 2).toIso8601String(),
+      });
+
+      final rows = await db.query('sync_tombstones');
+      expect(rows, hasLength(1));
+      expect(rows.single['table_name'], 'customers');
+      expect(rows.single['row_id'], 'customer-1');
+      expect(rows.single['synced_at'], isNotNull);
+    },
+  );
 }
 
 Future<void> _createSyncTombstoneTable(Database db) async {
@@ -70,5 +138,18 @@ Future<void> _createSyncTombstoneTable(Database db) async {
     createdAt TEXT NOT NULL,
     syncedAt TEXT,
     lastError TEXT
+  )''');
+}
+
+Future<void> _replaceWithLegacySyncTombstoneTable(Database db) async {
+  await db.execute('DROP TABLE sync_tombstones');
+  await db.execute('''CREATE TABLE sync_tombstones (
+    id TEXT PRIMARY KEY,
+    table_name TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    deleted_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    synced_at TEXT,
+    last_error TEXT
   )''');
 }

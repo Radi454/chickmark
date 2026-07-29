@@ -39,19 +39,21 @@ class SyncTombstoneRepository {
 
   Future<List<SyncTombstone>> getPendingDeletes() async {
     final db = await _dbHelper.db;
+    final columns = await _SyncTombstoneColumns.forExecutor(db);
     final rows = await db.query(
       tableName,
-      where: 'syncedAt IS NULL',
-      orderBy: 'createdAt ASC',
+      where: '${columns.syncedAtReadExpression} IS NULL',
+      orderBy: '${columns.createdAtReadExpression} ASC',
     );
     return rows.map((row) => SyncTombstone.fromMap(Map.from(row))).toList();
   }
 
   Future<void> markSynced(String id) async {
     final db = await _dbHelper.db;
+    final columns = await _SyncTombstoneColumns.forExecutor(db);
     await db.update(
       tableName,
-      {'syncedAt': DateTime.now().toIso8601String(), 'lastError': null},
+      columns.toSyncSuccessUpdateMap(DateTime.now()),
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -59,9 +61,10 @@ class SyncTombstoneRepository {
 
   Future<void> markFailed(String id, Object error) async {
     final db = await _dbHelper.db;
+    final columns = await _SyncTombstoneColumns.forExecutor(db);
     await db.update(
       tableName,
-      {'lastError': error.toString()},
+      columns.toSyncFailureUpdateMap(error),
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -69,29 +72,31 @@ class SyncTombstoneRepository {
 
   Future<void> upsertRemoteTombstone(Map<String, dynamic> row) async {
     final db = await _dbHelper.db;
+    final columns = await _SyncTombstoneColumns.forExecutor(db);
     final tombstone = SyncTombstone.fromMap(row);
     final existing = await db.query(
       tableName,
-      where: 'id = ? AND syncedAt IS NULL',
+      where: 'id = ? AND ${columns.syncedAtReadExpression} IS NULL',
       whereArgs: [tombstone.id],
       limit: 1,
     );
     if (existing.isNotEmpty) return;
     await db.insert(
       tableName,
-      tombstone
-          .copyWith(syncedAt: tombstone.syncedAt ?? DateTime.now())
-          .toMap(),
+      columns.toInsertMap(
+        tombstone.copyWith(syncedAt: tombstone.syncedAt ?? DateTime.now()),
+      ),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   Future<void> applyRemoteDeletes() async {
     final db = await _dbHelper.db;
+    final columns = await _SyncTombstoneColumns.forExecutor(db);
     final rows = await db.query(
       tableName,
-      where: 'syncedAt IS NOT NULL',
-      orderBy: 'deletedAt ASC',
+      where: '${columns.syncedAtReadExpression} IS NOT NULL',
+      orderBy: '${columns.deletedAtReadExpression} ASC',
     );
     final tombstones = rows
         .map((row) => SyncTombstone.fromMap(Map.from(row)))
@@ -131,9 +136,10 @@ class SyncTombstoneRepository {
       deletedAt: now,
       createdAt: now,
     );
+    final columns = await _SyncTombstoneColumns.forExecutor(executor);
     await executor.insert(
       tableName,
-      tombstone.toMap(),
+      columns.toInsertMap(tombstone),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -173,5 +179,98 @@ class SyncTombstoneRepository {
       [table],
     );
     return rows.isNotEmpty;
+  }
+}
+
+class _SyncTombstoneColumns {
+  const _SyncTombstoneColumns(this._names);
+
+  final Set<String> _names;
+
+  static Future<_SyncTombstoneColumns> forExecutor(
+    DatabaseExecutor executor,
+  ) async {
+    final rows = await executor.rawQuery(
+      'PRAGMA table_info(${SyncTombstoneRepository.tableName})',
+    );
+    return _SyncTombstoneColumns(
+      rows.map((row) => row['name']?.toString()).whereType<String>().toSet(),
+    );
+  }
+
+  String get syncedAtReadExpression => _readExpression('syncedAt', 'synced_at');
+
+  String get createdAtReadExpression =>
+      _readExpression('createdAt', 'created_at');
+
+  String get deletedAtReadExpression =>
+      _readExpression('deletedAt', 'deleted_at');
+
+  Map<String, dynamic> toInsertMap(SyncTombstone tombstone) {
+    final map = <String, dynamic>{'id': tombstone.id};
+    _addVariant(map, 'tableName', 'table_name', tombstone.tableName);
+    _addVariant(map, 'rowId', 'row_id', tombstone.rowId);
+    _addVariant(
+      map,
+      'deletedAt',
+      'deleted_at',
+      tombstone.deletedAt.toIso8601String(),
+    );
+    _addVariant(
+      map,
+      'createdAt',
+      'created_at',
+      tombstone.createdAt.toIso8601String(),
+    );
+    _addVariant(
+      map,
+      'syncedAt',
+      'synced_at',
+      tombstone.syncedAt?.toIso8601String(),
+    );
+    _addVariant(map, 'lastError', 'last_error', tombstone.lastError);
+    return map;
+  }
+
+  Map<String, dynamic> toSyncSuccessUpdateMap(DateTime syncedAt) {
+    final map = <String, dynamic>{};
+    _addVariant(map, 'syncedAt', 'synced_at', syncedAt.toIso8601String());
+    _addVariant(map, 'lastError', 'last_error', null);
+    return map;
+  }
+
+  Map<String, dynamic> toSyncFailureUpdateMap(Object error) {
+    final map = <String, dynamic>{};
+    _addVariant(map, 'lastError', 'last_error', error.toString());
+    return map;
+  }
+
+  String _readExpression(String camelCaseColumn, String snakeCaseColumn) {
+    final hasCamelCase = _names.contains(camelCaseColumn);
+    final hasSnakeCase = _names.contains(snakeCaseColumn);
+    if (hasCamelCase && hasSnakeCase) {
+      return 'COALESCE($camelCaseColumn, $snakeCaseColumn)';
+    }
+    if (hasCamelCase) return camelCaseColumn;
+    if (hasSnakeCase) return snakeCaseColumn;
+    return camelCaseColumn;
+  }
+
+  void _addVariant(
+    Map<String, dynamic> map,
+    String camelCaseColumn,
+    String snakeCaseColumn,
+    Object? value,
+  ) {
+    var wrote = false;
+    if (_names.contains(camelCaseColumn)) {
+      map[camelCaseColumn] = value;
+      wrote = true;
+    }
+    if (_names.contains(snakeCaseColumn)) {
+      map[snakeCaseColumn] = value;
+      wrote = true;
+    }
+    if (!wrote) map[camelCaseColumn] = value;
   }
 }

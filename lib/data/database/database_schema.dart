@@ -40,6 +40,10 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     status TEXT NOT NULL DEFAULT 'active',
     depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
     soldAt TEXT,
+    updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    syncError TEXT,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
   )''');
   await db.execute('''CREATE TABLE IF NOT EXISTS bmk_breeds (
@@ -1429,65 +1433,7 @@ Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
 }
 
 Future<void> _createAgentIntakeTables(DatabaseExecutor db) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_sessions (
-    id TEXT PRIMARY KEY,
-    staffLinkId TEXT NOT NULL,
-    telegramChatId TEXT NOT NULL,
-    schemaKey TEXT NOT NULL,
-    schemaVersion INTEGER NOT NULL,
-    state TEXT NOT NULL CHECK (state IN (
-      'collecting',
-      'awaiting_clarification',
-      'paused',
-      'ready_for_summary',
-      'awaiting_user_confirmation',
-      'awaiting_admin_review',
-      'approved',
-      'rejected',
-      'cancelled'
-    )),
-    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
-    customerId TEXT,
-    customerName TEXT,
-    flockId TEXT,
-    flockName TEXT,
-    hatcheryId TEXT,
-    hatcheryName TEXT,
-    auditDate TEXT NOT NULL,
-    scope TEXT CHECK (scope IS NULL OR scope IN ('pool', 'setter_hatcher')),
-    setterIdentity TEXT,
-    hatcherIdentity TEXT,
-    workingValuesJson TEXT NOT NULL DEFAULT '{}',
-    pendingClarificationJson TEXT,
-    summaryVersion INTEGER NOT NULL DEFAULT 0,
-    summarySnapshotJson TEXT,
-    userConfirmedAt TEXT,
-    visitId TEXT,
-    rowVersion INTEGER NOT NULL DEFAULT 1 CHECK (rowVersion >= 1),
-    lastToolEventId TEXT,
-    approvedSessionId TEXT,
-    approvedPanelRowId TEXT,
-    reviewedBy TEXT,
-    reviewedAt TEXT,
-    rejectionReason TEXT,
-    createdAt TEXT NOT NULL,
-    updatedAt TEXT NOT NULL,
-    syncStatus TEXT NOT NULL DEFAULT 'pending',
-    dirtyAt TEXT,
-    lastSyncedAt TEXT,
-    syncError TEXT,
-    FOREIGN KEY (staffLinkId)
-      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
-    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE SET NULL,
-    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE SET NULL,
-    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE SET NULL,
-    FOREIGN KEY (visitId)
-      REFERENCES agent_intake_visits(id) ON DELETE SET NULL,
-    FOREIGN KEY (lastToolEventId)
-      REFERENCES agent_tool_events(id) ON DELETE SET NULL,
-    FOREIGN KEY (approvedSessionId)
-      REFERENCES audit_sessions(id) ON DELETE SET NULL
-  )''');
+  await _createAgentIntakeSessionsTable(db, 'agent_intake_sessions');
 
   await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_turns (
     id TEXT PRIMARY KEY,
@@ -1549,6 +1495,79 @@ Future<void> _createAgentIntakeTables(DatabaseExecutor db) async {
     'CREATE INDEX IF NOT EXISTS idx_agent_intake_values_session '
     'ON agent_intake_values (intakeSessionId, fieldKey)',
   );
+}
+
+Future<void> _createAgentIntakeSessionsTable(
+  DatabaseExecutor db,
+  String tableName,
+) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
+    id TEXT PRIMARY KEY,
+    staffLinkId TEXT NOT NULL,
+    telegramChatId TEXT NOT NULL,
+    schemaKey TEXT NOT NULL,
+    schemaVersion INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN (
+      'collecting',
+      'awaiting_clarification',
+      'paused',
+      'ready_for_summary',
+      'awaiting_user_confirmation',
+      'awaiting_admin_review',
+      'approved',
+      'rejected',
+      'cancelled'
+    )),
+    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
+    customerId TEXT,
+    customerName TEXT,
+    flockId TEXT,
+    flockName TEXT,
+    hatcheryId TEXT,
+    hatcheryName TEXT,
+    auditDate TEXT NOT NULL,
+    scope TEXT CHECK (scope IS NULL OR scope IN (
+      'pool',
+      'house',
+      'setter',
+      'hatcher',
+      'setter_hatcher',
+      'trolley',
+      'tray'
+    )),
+    setterIdentity TEXT,
+    hatcherIdentity TEXT,
+    workingValuesJson TEXT NOT NULL DEFAULT '{}',
+    pendingClarificationJson TEXT,
+    summaryVersion INTEGER NOT NULL DEFAULT 0,
+    summarySnapshotJson TEXT,
+    userConfirmedAt TEXT,
+    visitId TEXT,
+    rowVersion INTEGER NOT NULL DEFAULT 1 CHECK (rowVersion >= 1),
+    lastToolEventId TEXT,
+    approvedSessionId TEXT,
+    approvedPanelRowId TEXT,
+    reviewedBy TEXT,
+    reviewedAt TEXT,
+    rejectionReason TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (staffLinkId)
+      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
+    FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE SET NULL,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE SET NULL,
+    FOREIGN KEY (visitId)
+      REFERENCES agent_intake_visits(id) ON DELETE SET NULL,
+    FOREIGN KEY (lastToolEventId)
+      REFERENCES agent_tool_events(id) ON DELETE SET NULL,
+    FOREIGN KEY (approvedSessionId)
+      REFERENCES audit_sessions(id) ON DELETE SET NULL
+  )''');
 }
 
 Future<void> _createUnifiedAgentHarnessTables(

@@ -63,6 +63,21 @@ extension AppLocalizationsX on BuildContext {
 
 final List<_PatternTranslator> _patterns = [
   (value) {
+    final match = RegExp(r'^Schema v(\d+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'إصدار المخطط ${match.group(1)}';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) messages$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} رسائل';
+  },
+  (value) {
+    final match = RegExp(r'^Edit (.+)$').firstMatch(value);
+    if (match == null) return null;
+    return 'تعديل ${_ar[match.group(1)] ?? match.group(1)}';
+  },
+  (value) {
     final match = RegExp(r'^Last synced: (.+)$').firstMatch(value);
     if (match == null) return null;
     return 'آخر مزامنة: ${match.group(1)}';
@@ -314,6 +329,11 @@ final List<_PatternTranslator> _patterns = [
     final match = RegExp(r'^(\d+) rows$').firstMatch(value);
     if (match == null) return null;
     return '${match.group(1)} صفوف';
+  },
+  (value) {
+    final match = RegExp(r'^(\d+) requests?$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)} طلب';
   },
   (value) {
     final match = RegExp(r'^(\d+) (weeks|wks)$').firstMatch(value);
@@ -677,6 +697,7 @@ const Map<String, String> _ar = {
   'Dashboard': 'لوحة المتابعة',
   'Agent': 'الوكيل',
   'Agent Monitor': 'مراقبة الوكيل',
+  'Administrator access is required.': 'يتطلب الوصول صلاحية المدير.',
   'Refresh': 'تحديث',
   'Pause Telegram agent': 'إيقاف وكيل تيليجرام مؤقتًا',
   'Resume Telegram agent': 'استئناف وكيل تيليجرام',
@@ -684,10 +705,35 @@ const Map<String, String> _ar = {
   'Telegram paused': 'تم إيقاف تيليجرام مؤقتًا',
   'New submissions are accepted': 'يتم استقبال الإرسالات الجديدة',
   'New submissions paused': 'تم إيقاف الإرسالات الجديدة مؤقتًا',
+  'Pending Telegram access': 'طلبات وصول تيليجرام المعلقة',
+  'Approve new Telegram staff before they can send hatchery data.':
+      'اعتمد موظفي تيليجرام الجدد قبل أن يتمكنوا من إرسال بيانات التفريخ.',
+  'Assign Telegram access': 'تعيين وصول تيليجرام',
+  'Telegram users': 'مستخدمو تيليجرام',
+  'Customer access': 'وصول عميل',
+  'Agent admin access': 'وصول مدير الوكيل',
+  'Agent admin access · All customers': 'وصول مدير الوكيل · كل العملاء',
+  'The agent can read and collect data for one customer.':
+      'يمكن للوكيل قراءة البيانات وجمعها لعميل واحد.',
+  'The agent can read and collect data for all customers.':
+      'يمكن للوكيل قراءة البيانات وجمعها لكل العملاء.',
+  'Allow access': 'السماح بالوصول',
+  'Change scope': 'تغيير نطاق الوصول',
+  'Revoke access': 'إلغاء الوصول',
+  'Unknown customer': 'عميل غير معروف',
+  'Select a customer before allowing access.':
+      'اختر عميلًا قبل السماح بالوصول.',
+  'Admin access cannot be limited to one customer.':
+      'لا يمكن تقييد وصول المدير بعميل واحد.',
+  'Telegram ID': 'معرّف تيليجرام',
+  'Chat ID': 'معرّف المحادثة',
+  'Requested': 'وقت الطلب',
   'Unable to load agent data. Please try again.':
       'تعذر تحميل بيانات الوكيل. حاول مرة أخرى.',
   'Unable to update Telegram agent. Please try again.':
       'تعذر تحديث وكيل تيليجرام. حاول مرة أخرى.',
+  'Unable to update Telegram staff access. Please try again.':
+      'تعذر تحديث وصول موظف تيليجرام. حاول مرة أخرى.',
   'Unable to load this draft. Please try again.':
       'تعذر تحميل هذه المسودة. حاول مرة أخرى.',
   'Unable to approve this row. Please try again.':
@@ -696,6 +742,44 @@ const Map<String, String> _ar = {
       'تعذر رفض هذا الصف. حاول مرة أخرى.',
   'Unable to save this row. Please try again.':
       'تعذر حفظ هذا الصف. حاول مرة أخرى.',
+  'Unable to load conversational Pasgar data. Please try again.':
+      'تعذر تحميل بيانات باسجار بالمحادثة. حاول مرة أخرى.',
+  'Unable to load this Pasgar intake. Please try again.':
+      'تعذر تحميل إدخال باسجار هذا. حاول مرة أخرى.',
+  'Unable to save this Pasgar value. Please try again.':
+      'تعذر حفظ قيمة باسجار. حاول مرة أخرى.',
+  'Unable to approve this Pasgar intake. Please try again.':
+      'تعذر اعتماد إدخال باسجار. حاول مرة أخرى.',
+  'Unable to reject this Pasgar intake. Please try again.':
+      'تعذر رفض إدخال باسجار. حاول مرة أخرى.',
+  'Enter a rejection reason.': 'أدخل سبب الرفض.',
+  'Conversational Pasgar': 'باسجار بالمحادثة',
+  'Confirmed Pasgar review': 'مراجعة باسجار المؤكدة',
+  'Select a Pasgar intake to review': 'اختر إدخال باسجار لمراجعته',
+  'Conversational station intakes': 'إدخالات المحطات بالمحادثة',
+  'Select an intake to review': 'اختر إدخالًا لمراجعته',
+  'Conversation language': 'لغة المحادثة',
+  'Date': 'التاريخ',
+  'Scope': 'النطاق',
+  'Confirmed final summary': 'الملخص النهائي المؤكد',
+  'The confirmed summary is unavailable.': 'الملخص المؤكد غير متاح.',
+  'The customer-confirmed summary is unavailable.':
+      'الملخص المؤكد من العميل غير متاح.',
+  'Conversation evidence': 'سجل المحادثة',
+  'No messages': 'لا توجد رسائل',
+  'Calculated results': 'النتائج المحسوبة',
+  'Approve as new visit': 'اعتماد كزيارة جديدة',
+  'Attach to visit': 'إرفاق بزيارة',
+  'Attach to matching visit': 'إرفاق بزيارة مطابقة',
+  'Reject Pasgar intake': 'رفض إدخال باسجار',
+  'Reject intake': 'رفض الإدخال',
+  'Rejection reason': 'سبب الرفض',
+  'Value': 'القيمة',
+  'Reflex': 'الاستجابة',
+  'Feather development': 'تطور الريش',
+  'Pool sample': 'عينة المجمع',
+  'Arabic and English': 'العربية والإنجليزية',
+  'Not available': 'غير متاح',
   'Select a submission to review': 'اختر إرسالًا لمراجعته',
   'Extracted rows': 'الصفوف المستخرجة',
   'Staff submitter': 'الموظف المرسل',
@@ -729,6 +813,12 @@ const Map<String, String> _ar = {
   'Confidence': 'الثقة',
   'Warnings': 'تنبيهات',
   'No warnings': 'لا توجد تنبيهات',
+  'Extracted': 'المستخرج',
+  'No hatchery selected': 'لم يتم اختيار مفرخ',
+  'Unavailable locally': 'غير متاح محليًا',
+  'Existing customer': 'العميل الحالي',
+  'Existing flock': 'القطيع الحالي',
+  'Existing hatchery': 'المفرخ الحالي',
   'Info': 'معلومة',
   'Approve': 'اعتماد',
   'Reject': 'رفض',

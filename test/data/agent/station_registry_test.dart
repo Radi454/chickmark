@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/utils/calculation_utils.dart';
 import 'package:hatchaudit/data/agent/station_registry.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 
@@ -67,5 +68,87 @@ void main() {
       isTrue,
     );
     expect(schema.persistence.single.localTable, 'chick_quality');
+  });
+
+  test(
+    'non-Pasgar schemas expose calculations and editable field metadata',
+    () {
+      final schema = AgentStationRegistry.require('chicks.weights', 1);
+
+      expect(schema.allowedLayers, contains('house'));
+      expect(schema.fields.single.type, 'number_list');
+      expect(schema.fields.single.validation['itemMax'], 200);
+      expect(schema.calculations.map((calculation) => calculation.fieldKey), [
+        'sampleSize',
+        'avgWeight',
+        'uniformityPct',
+        'cvPct',
+      ]);
+      expect(schema.calculations.last.persistence['remoteColumn'], 'cv_pct');
+    },
+  );
+
+  test('canonical calculation parity vectors match Flutter formulas', () {
+    final vectors = AgentStationRegistry.calculationParityVectors;
+    final percent = (vectors['percentOf']! as List).single as Map;
+    expect(
+      CalculationUtils.percentOf(percent['count'], percent['total']),
+      percent['expected'],
+    );
+    final cv = (vectors['cvPercent']! as List).single as Map;
+    expect(
+      CalculationUtils.cvPercent(
+        (cv['values']! as List)
+            .cast<num>()
+            .map((value) => value.toDouble())
+            .toList(growable: false),
+        sample: cv['sample']! as bool,
+      ),
+      cv['expected'],
+    );
+    final uniformity = (vectors['uniformityPercent']! as List).single as Map;
+    expect(
+      CalculationUtils.uniformityPercent(
+        (uniformity['values']! as List)
+            .cast<num>()
+            .map((value) => value.toDouble())
+            .toList(growable: false),
+        (uniformity['minimum']! as num).toDouble(),
+        (uniformity['maximum']! as num).toDouble(),
+      ),
+      uniformity['expected'],
+    );
+    final pasgar = (vectors['pasgarScore']! as List).single as Map;
+    expect(
+      CalculationUtils.pasgarScore(
+        pasgar['sampleSize']! as int,
+        (pasgar['defectCounts']! as List).cast<int>(),
+      ),
+      pasgar['expected'],
+    );
+    final fertility = (vectors['fertility']! as List).single as Map;
+    expect(
+      CalculationUtils.fertility(
+        fertility['fertile']! as int,
+        fertility['clear']! as int,
+      ),
+      fertility['expected'],
+    );
+    final hatchability = (vectors['hatchability']! as List).single as Map;
+    expect(
+      CalculationUtils.hatchability(
+        hatchability['hatched']! as int,
+        hatchability['total']! as int,
+      ),
+      hatchability['expected'],
+    );
+    final hof = (vectors['hof']! as List).single as Map;
+    expect(
+      CalculationUtils.hof(
+        (hof['hatchability']! as num).toDouble(),
+        (hof['fertility']! as num).toDouble(),
+      ),
+      hof['expected'],
+    );
   });
 }

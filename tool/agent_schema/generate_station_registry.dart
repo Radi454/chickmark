@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+
 const _sourcePath = 'tool/agent_schema/station_registry.json';
 const _dartOutputPath = 'lib/data/agent/station_registry.g.dart';
 const _typeScriptOutputPath =
@@ -46,6 +48,23 @@ void _validateRegistry(Map<String, Object?> registry) {
   if (version is! int || version < 1) {
     throw const FormatException('registryVersion must be a positive integer');
   }
+  final parity = _object(
+    registry['calculationParityVectors'],
+    'calculationParityVectors',
+  );
+  for (final key in const [
+    'percentOf',
+    'cvPercent',
+    'uniformityPercent',
+    'pasgarScore',
+    'fertility',
+    'hatchability',
+    'hof',
+  ]) {
+    if (_list(parity[key], 'calculationParityVectors.$key').isEmpty) {
+      throw FormatException('calculationParityVectors.$key must not be empty');
+    }
+  }
   final stations = _list(registry['stations'], 'stations');
   if (stations.isEmpty) {
     throw const FormatException('stations must not be empty');
@@ -86,17 +105,40 @@ void _validateRegistry(Map<String, Object?> registry) {
       }
       _localized(field['names'], '$schemaKey.$fieldKey names');
       _aliases(field['aliases'], '$schemaKey.$fieldKey aliases');
-      _text(field['type'], '$schemaKey.$fieldKey type');
+      final type = _text(field['type'], '$schemaKey.$fieldKey type');
+      if (!_inputTypes.contains(type)) {
+        throw FormatException(
+          '$schemaKey.$fieldKey has unsupported type $type',
+        );
+      }
+      _text(field['unit'], '$schemaKey.$fieldKey unit');
       if (field['required'] is! bool || field['explicitZero'] is! bool) {
         throw FormatException(
           '$schemaKey.$fieldKey requires boolean required/explicitZero',
         );
       }
-      _object(field['validation'], '$schemaKey.$fieldKey validation');
+      final validation = _object(
+        field['validation'],
+        '$schemaKey.$fieldKey validation',
+      );
+      for (final dependencyKey in const [
+        'maxFieldKey',
+        'requiredWhenPositiveFieldKey',
+      ]) {
+        final dependency = validation[dependencyKey];
+        if (dependency != null &&
+            (dependency is! String || !fieldKeys.contains(dependency))) {
+          throw FormatException(
+            '$schemaKey.$fieldKey references unknown $dependencyKey '
+            '$dependency',
+          );
+        }
+      }
       _persistence(field['persistence'], '$schemaKey.$fieldKey persistence');
     }
 
     final completion = _object(station['completion'], '$schemaKey completion');
+    final requiredKeys = <String>{};
     for (final requiredKey in _list(
       completion['requiredFieldKeys'],
       '$schemaKey requiredFieldKeys',
@@ -106,16 +148,178 @@ void _validateRegistry(Map<String, Object?> registry) {
           '$schemaKey completion references unknown field $requiredKey',
         );
       }
+      requiredKeys.add(requiredKey);
     }
+    for (final rawField in fields) {
+      final field = _object(rawField, '$schemaKey field');
+      final fieldKey = field['fieldKey'] as String;
+      if ((field['required'] as bool) != requiredKeys.contains(fieldKey)) {
+        throw FormatException(
+          '$schemaKey.$fieldKey required flag and completion disagree',
+        );
+      }
+    }
+    final tableMappings = <Map<String, Object?>>[];
     for (final rawMapping in _list(
       station['persistence'],
       '$schemaKey persistence',
     )) {
       final mapping = _object(rawMapping, '$schemaKey table mapping');
-      _text(mapping['localTable'], '$schemaKey localTable');
-      _text(mapping['remoteTable'], '$schemaKey remoteTable');
+      final localTable = _text(mapping['localTable'], '$schemaKey localTable');
+      final remoteTable = _text(
+        mapping['remoteTable'],
+        '$schemaKey remoteTable',
+      );
+      PanelSampleSchema.byTable(localTable);
+      if (remoteTable != localTable) {
+        throw FormatException(
+          '$schemaKey maps mismatched panel tables '
+          '$localTable/$remoteTable',
+        );
+      }
+      tableMappings.add(mapping);
+    }
+    final availableKeys = <String>{...fieldKeys};
+    final calculationKeys = <String>{};
+    for (final rawCalculation in _list(
+      station['calculations'],
+      '$schemaKey calculations',
+    )) {
+      final calculation = _object(rawCalculation, '$schemaKey calculation');
+      final fieldKey = _text(
+        calculation['fieldKey'],
+        '$schemaKey calculated fieldKey',
+      );
+      if (fieldKeys.contains(fieldKey) || !calculationKeys.add(fieldKey)) {
+        throw FormatException(
+          '$schemaKey repeats or directly inputs calculated field $fieldKey',
+        );
+      }
+      final kind = _text(
+        calculation['kind'],
+        '$schemaKey.$fieldKey calculation kind',
+      );
+      if (!_calculationKinds.contains(kind)) {
+        throw FormatException(
+          '$schemaKey.$fieldKey has unsupported calculation $kind',
+        );
+      }
+      final inputKeys = _list(
+        calculation['inputFieldKeys'],
+        '$schemaKey.$fieldKey inputFieldKeys',
+      );
+      if (inputKeys.isEmpty ||
+          inputKeys.any(
+            (key) => key is! String || !availableKeys.contains(key),
+          )) {
+        throw FormatException(
+          '$schemaKey.$fieldKey calculation has unknown input',
+        );
+      }
+      _text(calculation['unit'], '$schemaKey.$fieldKey calculation unit');
+      _persistence(
+        calculation['persistence'],
+        '$schemaKey.$fieldKey persistence',
+      );
+      availableKeys.add(fieldKey);
+    }
+    final mappedTables = tableMappings
+        .map((mapping) => mapping['localTable']! as String)
+        .toSet();
+    for (final rawField in [
+      ...fields,
+      ..._list(station['calculations'], '$schemaKey calculations'),
+    ]) {
+      final field = _object(rawField, '$schemaKey persisted field');
+      final persistence = _object(
+        field['persistence'],
+        '$schemaKey persisted field mapping',
+      );
+      final localColumn = persistence['localColumn']! as String;
+      final remoteColumn = persistence['remoteColumn']! as String;
+      if (!_columnExists(mappedTables, localColumn)) {
+        throw FormatException(
+          '$schemaKey maps unknown panel column $localColumn',
+        );
+      }
+      if (_snakeCase(localColumn) != remoteColumn) {
+        throw FormatException(
+          '$schemaKey.$localColumn remote column must be '
+          '${_snakeCase(localColumn)}',
+        );
+      }
     }
   }
+}
+
+const _inputTypes = {
+  'integer',
+  'number',
+  'string',
+  'boolean',
+  'number_list',
+  'object_list',
+};
+
+const _calculationKinds = {
+  'pasgar_score',
+  'percent_of',
+  'sum',
+  'series_sample_size',
+  'series_average',
+  'series_cv',
+  'series_uniformity_10pct',
+  'yfbm_entry_count',
+  'yfbm_average_pct',
+  'yfbm_cv_pct',
+  'culled_affected_pct',
+  'culled_top_category',
+  'culled_top_subtype',
+  'fertility_from_infertile',
+  'hof',
+};
+
+const _commonPanelColumns = {
+  'id',
+  'sessionId',
+  'customerId',
+  'flockId',
+  'hatcheryId',
+  'date',
+  'breed',
+  'flockAgeWeeks',
+  'house',
+  'setter',
+  'hatcher',
+  'trolley',
+  'tray',
+  'position',
+  'storagePeriodDays',
+  'bmkAgeWeeks',
+  'notes',
+  'createdAt',
+  'updatedAt',
+  'syncStatus',
+  'lastSyncedAt',
+  'syncError',
+};
+
+bool _columnExists(Set<String> tableNames, String column) {
+  if (_commonPanelColumns.contains(column)) return true;
+  return tableNames.any(
+    (tableName) => PanelSampleSchema.byTable(tableName).measurementColumns.any(
+      (definition) => definition.split(RegExp(r'\s+')).first == column,
+    ),
+  );
+}
+
+String _snakeCase(String value) {
+  return value
+      .replaceAllMapped(
+        RegExp(r'([a-z0-9])([A-Z])'),
+        (match) => '${match[1]}_${match[2]}',
+      )
+      .toLowerCase();
 }
 
 void _localized(Object? value, String path) {

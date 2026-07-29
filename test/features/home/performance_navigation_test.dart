@@ -3,7 +3,15 @@ import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/home/widgets/main_shell.dart';
 
 void main() {
-  test('staff tools are added without changing customer role destinations', () {
+  test('Agent Monitor is available only to approved admins', () {
+    final admin = UserModel(
+      id: 'admin-1',
+      fullName: 'Admin',
+      email: 'admin@example.test',
+      role: 'admin',
+      status: 'approved',
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
     final auditor = UserModel(
       id: 'auditor-1',
       fullName: 'Auditor',
@@ -22,7 +30,7 @@ void main() {
       createdAt: DateTime.utc(2026, 1, 1),
     );
 
-    expect(mainShellTabKeysForUser(auditor), [
+    expect(mainShellTabKeysForUser(admin), [
       'home',
       'dashboard',
       'customers',
@@ -32,6 +40,17 @@ void main() {
       'bmk',
       'performance',
       'agent',
+      'settings',
+    ]);
+    expect(mainShellTabKeysForUser(auditor), [
+      'home',
+      'dashboard',
+      'customers',
+      'audits',
+      'govee',
+      'lab_analysis',
+      'bmk',
+      'performance',
       'settings',
     ]);
     expect(mainShellTabKeysForUser(customer), ['dashboard', 'settings']);

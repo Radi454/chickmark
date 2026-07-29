@@ -75,6 +75,97 @@ enum AgentQuestionStatus {
   }
 }
 
+enum TelegramStaffLinkStatus {
+  pending('pending'),
+  allowed('allowed'),
+  revoked('revoked');
+
+  const TelegramStaffLinkStatus(this.storageKey);
+
+  final String storageKey;
+
+  static TelegramStaffLinkStatus fromStorage(Object? value) {
+    return values.firstWhere(
+      (status) => status.storageKey == value?.toString(),
+      orElse: () => pending,
+    );
+  }
+}
+
+enum TelegramAgentAccessRole {
+  customer('customer'),
+  admin('admin');
+
+  const TelegramAgentAccessRole(this.storageKey);
+
+  final String storageKey;
+
+  static TelegramAgentAccessRole fromStorage(Object? value) {
+    return values.firstWhere(
+      (role) => role.storageKey == value?.toString(),
+      orElse: () => customer,
+    );
+  }
+}
+
+class TelegramStaffLink {
+  const TelegramStaffLink({
+    required this.id,
+    required this.telegramUserId,
+    required this.status,
+    this.accessRole = TelegramAgentAccessRole.customer,
+    this.customerId,
+    this.telegramChatId,
+    this.displayName,
+    this.username,
+    this.invitedBy,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String telegramUserId;
+  final String? telegramChatId;
+  final String? displayName;
+  final String? username;
+  final TelegramStaffLinkStatus status;
+  final TelegramAgentAccessRole accessRole;
+  final String? customerId;
+  final String? invitedBy;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory TelegramStaffLink.fromMap(Map<String, Object?> map) {
+    return TelegramStaffLink(
+      id: map['id']!.toString(),
+      telegramUserId: map['telegramUserId']!.toString(),
+      telegramChatId: _text(map['telegramChatId']),
+      displayName: _text(map['displayName']),
+      username: _text(map['username']),
+      status: TelegramStaffLinkStatus.fromStorage(map['status']),
+      accessRole: TelegramAgentAccessRole.fromStorage(map['accessRole']),
+      customerId: _text(map['customerId']),
+      invitedBy: _text(map['invitedBy']),
+      createdAt: _date(map['createdAt']),
+      updatedAt: _date(map['updatedAt']),
+    );
+  }
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'telegramUserId': telegramUserId,
+    'telegramChatId': telegramChatId,
+    'displayName': displayName,
+    'username': username,
+    'status': status.storageKey,
+    'accessRole': accessRole.storageKey,
+    'customerId': customerId,
+    'invitedBy': invitedBy,
+    'createdAt': _dateText(createdAt),
+    'updatedAt': _dateText(updatedAt),
+  };
+}
+
 class HatcheryAgentSubmission {
   const HatcheryAgentSubmission({
     required this.id,

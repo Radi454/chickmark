@@ -1,7 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/data/models/agent_intake_models.dart';
+import 'package:hatchaudit/data/models/audit_session_model.dart';
+import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/hatchery_agent_models.dart';
+import 'package:hatchaudit/data/models/user_model.dart';
+import 'package:hatchaudit/data/repositories/agent_intake_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_agent_repository.dart';
 import 'package:hatchaudit/features/agents/providers/agent_monitor_provider.dart';
+import 'package:hatchaudit/services/supabase/agent_intake_approval_service.dart';
 
 void main() {
   test('load exposes newest batch summaries', () async {
@@ -11,7 +17,7 @@ void main() {
         _summary(id: 'batch-old', submittedAt: DateTime.utc(2026, 7, 26)),
       ],
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.load();
 
@@ -27,11 +33,81 @@ void main() {
       summaries: const [],
       settings: const AgentSettings(telegramEnabled: false),
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.load();
 
     expect(provider.settings.telegramEnabled, isFalse);
+  });
+
+  test('load exposes customer choices for draft editing', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      linkCatalog: HatcheryAgentLinkCatalog(
+        customers: [
+          CustomerModel(
+            id: 'customer-1',
+            name: 'Customer One',
+            createdAt: DateTime.utc(2026, 1, 1),
+            createdBy: 'test',
+          ),
+        ],
+      ),
+    );
+    final provider = _providerFor(_adminUser(), repository);
+
+    await provider.load();
+
+    expect(provider.linkCatalog.customers.single.id, 'customer-1');
+  });
+
+  test('load exposes pending Telegram staff requests', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      pendingStaffLinks: [
+        TelegramStaffLink(
+          id: 'pending-1',
+          telegramUserId: '999',
+          telegramChatId: '123',
+          displayName: 'New Staff',
+          username: 'newstaff',
+          status: TelegramStaffLinkStatus.pending,
+          createdAt: DateTime.utc(2026, 7, 27, 8),
+          updatedAt: DateTime.utc(2026, 7, 27, 8),
+        ),
+      ],
+    );
+    final provider = _providerFor(_adminUser(), repository);
+
+    await provider.load();
+
+    expect(provider.pendingStaffLinks.single.telegramUserId, '999');
+    expect(provider.pendingStaffLinks.single.displayName, 'New Staff');
+  });
+
+  test('load exposes allowed Telegram users with enforced scope', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      staffLinks: const [
+        TelegramStaffLink(
+          id: 'allowed-1',
+          telegramUserId: '999',
+          status: TelegramStaffLinkStatus.allowed,
+          accessRole: TelegramAgentAccessRole.customer,
+          customerId: 'customer-1',
+        ),
+      ],
+    );
+    final provider = _providerFor(_adminUser(), repository);
+
+    await provider.load();
+
+    expect(provider.staffLinks.single.id, 'allowed-1');
+    expect(
+      provider.staffLinks.single.accessRole,
+      TelegramAgentAccessRole.customer,
+    );
+    expect(provider.staffLinks.single.customerId, 'customer-1');
   });
 
   test('selectBatch exposes the requested batch details', () async {
@@ -39,7 +115,7 @@ void main() {
       summaries: const [],
       detailsById: {'batch-1': _details('batch-1')},
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.selectBatch('batch-1');
 
@@ -53,7 +129,7 @@ void main() {
       ],
       detailsById: {'batch-new': _details('batch-new')},
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.load();
 
@@ -62,13 +138,167 @@ void main() {
 
   test('setTelegramEnabled persists and exposes the new setting', () async {
     final repository = _FakeHatcheryAgentRepository(summaries: const []);
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
     await provider.load();
 
     await provider.setTelegramEnabled(false);
 
+    expect(provider.canAccessMonitor, isTrue);
     expect(provider.settings.telegramEnabled, isFalse);
     expect(repository.settings.telegramEnabled, isFalse);
+    expect(repository.settingsSaveCount, 1);
+  });
+
+  test(
+    'approveStaffLink assigns one customer and reloads Telegram users',
+    () async {
+      final repository = _FakeHatcheryAgentRepository(
+        summaries: const [],
+        pendingStaffLinks: [
+          TelegramStaffLink(
+            id: 'pending-1',
+            telegramUserId: '999',
+            status: TelegramStaffLinkStatus.pending,
+          ),
+        ],
+      );
+      final provider = _providerFor(_adminUser(), repository);
+      await provider.load();
+
+      await provider.approveStaffLink(
+        linkId: 'pending-1',
+        accessRole: TelegramAgentAccessRole.customer,
+        customerId: 'customer-1',
+      );
+
+      expect(repository.scopeDecisions.single.linkId, 'pending-1');
+      expect(
+        repository.scopeDecisions.single.accessRole,
+        TelegramAgentAccessRole.customer,
+      );
+      expect(repository.scopeDecisions.single.customerId, 'customer-1');
+      expect(repository.scopeDecisions.single.decidedBy, 'admin-1');
+      expect(provider.pendingStaffLinks, isEmpty);
+      expect(
+        provider.staffLinks.single.status,
+        TelegramStaffLinkStatus.allowed,
+      );
+    },
+  );
+
+  test('approveStaffLink blocks customer access without a customer', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      pendingStaffLinks: const [
+        TelegramStaffLink(
+          id: 'pending-1',
+          telegramUserId: '999',
+          status: TelegramStaffLinkStatus.pending,
+        ),
+      ],
+    );
+    final provider = _providerFor(_adminUser(), repository);
+    await provider.load();
+
+    await provider.approveStaffLink(
+      linkId: 'pending-1',
+      accessRole: TelegramAgentAccessRole.customer,
+      customerId: null,
+    );
+
+    expect(repository.scopeDecisions, isEmpty);
+    expect(provider.error, 'Select a customer before allowing access.');
+    expect(provider.pendingStaffLinks, hasLength(1));
+  });
+
+  test('approveStaffLink permits explicit all-customer admin access', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      pendingStaffLinks: const [
+        TelegramStaffLink(
+          id: 'pending-1',
+          telegramUserId: '999',
+          status: TelegramStaffLinkStatus.pending,
+        ),
+      ],
+    );
+    final provider = _providerFor(_adminUser(), repository);
+    await provider.load();
+
+    await provider.approveStaffLink(
+      linkId: 'pending-1',
+      accessRole: TelegramAgentAccessRole.admin,
+      customerId: null,
+    );
+
+    expect(
+      repository.scopeDecisions.single.accessRole,
+      TelegramAgentAccessRole.admin,
+    );
+    expect(repository.scopeDecisions.single.customerId, isNull);
+  });
+
+  test('revokeStaffLink marks the request revoked', () async {
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      pendingStaffLinks: [
+        TelegramStaffLink(
+          id: 'pending-1',
+          telegramUserId: '999',
+          status: TelegramStaffLinkStatus.pending,
+        ),
+      ],
+    );
+    final provider = _providerFor(_adminUser(), repository);
+    await provider.load();
+
+    await provider.revokeStaffLink('pending-1');
+
+    expect(
+      repository.statusDecisions.single.status,
+      TelegramStaffLinkStatus.revoked,
+    );
+    expect(provider.pendingStaffLinks, isEmpty);
+  });
+
+  test(
+    'auditor and customer cannot load or change Telegram settings',
+    () async {
+      for (final user in [_auditorUser(), _customerUser()]) {
+        final repository = _FakeHatcheryAgentRepository(summaries: const []);
+        final provider = _providerFor(user, repository);
+
+        await provider.load();
+        await provider.setTelegramEnabled(false);
+
+        expect(provider.canAccessMonitor, isFalse, reason: user.role);
+        expect(repository.settingsLoadCount, 0, reason: user.role);
+        expect(repository.summaryLoadCount, 0, reason: user.role);
+        expect(repository.settingsSaveCount, 0, reason: user.role);
+        expect(provider.settings.telegramEnabled, isTrue, reason: user.role);
+      }
+    },
+  );
+
+  test('unapproved admin cannot access Agent Monitor', () async {
+    final user = _adminUser(status: 'pending');
+    final repository = _FakeHatcheryAgentRepository(summaries: const []);
+    final provider = _providerFor(user, repository);
+
+    await provider.load();
+    await provider.setTelegramEnabled(false);
+    await provider.approveStaffLink(
+      linkId: 'pending-1',
+      accessRole: TelegramAgentAccessRole.admin,
+      customerId: null,
+    );
+    await provider.revokeStaffLink('pending-1');
+
+    expect(provider.canAccessMonitor, isFalse);
+    expect(repository.settingsLoadCount, 0);
+    expect(repository.settingsSaveCount, 0);
+    expect(repository.scopeDecisions, isEmpty);
+    expect(repository.statusDecisions, isEmpty);
   });
 
   test('load exposes a readable error when the repository fails', () async {
@@ -76,7 +306,7 @@ void main() {
       summaries: const [],
       listError: StateError('database unavailable'),
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.load();
 
@@ -89,7 +319,7 @@ void main() {
       summaries: const [],
       saveError: StateError('write failed'),
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
     await provider.load();
 
     await provider.setTelegramEnabled(false);
@@ -111,7 +341,7 @@ void main() {
         summaries: const [],
         detailsById: detailsById,
       );
-      final provider = AgentMonitorProvider(repository: repository);
+      final provider = _providerFor(_adminUser(), repository);
       await provider.selectBatch('batch-1');
       detailsById['batch-1'] = _details(
         'batch-1',
@@ -132,7 +362,7 @@ void main() {
       summaries: const [],
       detailError: StateError('read failed'),
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
 
     await provider.selectBatch('batch-1');
 
@@ -149,7 +379,7 @@ void main() {
         ],
         detailsById: {'batch-1': _details('batch-1')},
       );
-      final provider = AgentMonitorProvider(repository: repository);
+      final provider = _providerFor(_adminUser(), repository);
       await provider.load();
       final initialDetailLoads = repository.detailLoadCount;
       final initialSummaryLoads = repository.summaryLoadCount;
@@ -170,7 +400,7 @@ void main() {
       ],
       detailsById: {'batch-1': _details('batch-1')},
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
     await provider.load();
 
     await provider.rejectRow('row-1', 'admin-1', reason: 'Wrong flock');
@@ -192,7 +422,7 @@ void main() {
         'batch-1': _details('batch-1', rows: [row]),
       },
     );
-    final provider = AgentMonitorProvider(repository: repository);
+    final provider = _providerFor(_adminUser(), repository);
     await provider.load();
     final edited = row.copyWith(stationName: 'Station B');
 
@@ -202,12 +432,104 @@ void main() {
     expect(repository.detailLoadCount, 2);
     expect(repository.summaryLoadCount, 2);
   });
+
+  test('loads confirmed Pasgar intakes alongside hatchery batches', () async {
+    final intakeRepository = _FakeAgentIntakeRepository(
+      sessions: [_intakeSession()],
+      detailsById: {'intake-1': _intakeDetails()},
+    );
+    final provider = _providerFor(
+      _adminUser(),
+      _FakeHatcheryAgentRepository(summaries: const []),
+      intakeRepository: intakeRepository,
+    );
+
+    await provider.load();
+
+    expect(provider.intakes.map((intake) => intake.id), ['intake-1']);
+    expect(provider.selectedIntake?.session.id, 'intake-1');
+  });
+
+  test('Pasgar edits refresh the final review summary', () async {
+    final intakeRepository = _FakeAgentIntakeRepository(
+      sessions: [_intakeSession()],
+      detailsById: {'intake-1': _intakeDetails()},
+    );
+    final provider = _providerFor(
+      _adminUser(),
+      _FakeHatcheryAgentRepository(summaries: const []),
+      intakeRepository: intakeRepository,
+    );
+    await provider.load();
+
+    await provider.saveIntakeValue('pasgarNavelCount', 3);
+
+    expect(intakeRepository.updatedFieldKey, 'pasgarNavelCount');
+    expect(intakeRepository.updatedValue, 3);
+    expect(
+      provider.selectedIntake?.session.summary?.values['pasgarNavelCount'],
+      3,
+    );
+  });
+
+  test(
+    'Pasgar approval calls the authenticated port then mirrors IDs',
+    () async {
+      final intakeRepository = _FakeAgentIntakeRepository(
+        sessions: [_intakeSession()],
+        detailsById: {'intake-1': _intakeDetails()},
+      );
+      final approval = _FakeApprovalPort();
+      final provider = _providerFor(
+        _adminUser(),
+        _FakeHatcheryAgentRepository(summaries: const []),
+        intakeRepository: intakeRepository,
+        approvalPort: approval,
+      );
+      await provider.load();
+
+      await provider.approveIntake(targetSessionId: 'audit-target');
+
+      expect(approval.intakeId, 'intake-1');
+      expect(approval.targetSessionId, 'audit-target');
+      expect(intakeRepository.approvedAuditSessionId, 'audit-1');
+      expect(intakeRepository.approvedPanelRowId, 'panel-1');
+      expect(provider.intakes, isEmpty);
+    },
+  );
+
+  test(
+    'Pasgar rejection requires a reason and preserves failed selection',
+    () async {
+      final intakeRepository = _FakeAgentIntakeRepository(
+        sessions: [_intakeSession()],
+        detailsById: {'intake-1': _intakeDetails()},
+        rejectError: StateError('offline'),
+      );
+      final provider = _providerFor(
+        _adminUser(),
+        _FakeHatcheryAgentRepository(summaries: const []),
+        intakeRepository: intakeRepository,
+      );
+      await provider.load();
+
+      await provider.rejectIntake(' ');
+      expect(provider.error, 'Enter a rejection reason.');
+      await provider.rejectIntake('Wrong flock');
+
+      expect(provider.selectedIntake?.session.id, 'intake-1');
+      expect(provider.error, 'Unable to reject this intake. Please try again.');
+    },
+  );
 }
 
 class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   _FakeHatcheryAgentRepository({
     required this.summaries,
     this.settings = const AgentSettings(),
+    this.linkCatalog = const HatcheryAgentLinkCatalog(),
+    this.pendingStaffLinks = const [],
+    this.staffLinks = const [],
     this.detailsById = const {},
     this.listError,
     this.saveError,
@@ -216,10 +538,15 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
 
   final List<HatcheryDraftBatchSummary> summaries;
   AgentSettings settings;
+  final HatcheryAgentLinkCatalog linkCatalog;
+  List<TelegramStaffLink> pendingStaffLinks;
+  List<TelegramStaffLink> staffLinks;
   final Map<String, HatcheryDraftBatchDetails> detailsById;
   final Object? listError;
   final Object? saveError;
   final Object? detailError;
+  int settingsLoadCount = 0;
+  int settingsSaveCount = 0;
   int summaryLoadCount = 0;
   int detailLoadCount = 0;
   String? approvedRowId;
@@ -228,9 +555,25 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   String? rejectedBy;
   String? rejectionReason;
   HatcheryDraftRow? updatedRow;
+  final List<_StaffStatusDecision> statusDecisions = [];
+  final List<_StaffScopeDecision> scopeDecisions = [];
 
   @override
-  Future<AgentSettings> loadSettings() async => settings;
+  Future<AgentSettings> loadSettings() async {
+    settingsLoadCount++;
+    return settings;
+  }
+
+  @override
+  Future<HatcheryAgentLinkCatalog> loadLinkCatalog() async => linkCatalog;
+
+  @override
+  Future<List<TelegramStaffLink>> listPendingStaffLinks() async {
+    return pendingStaffLinks;
+  }
+
+  @override
+  Future<List<TelegramStaffLink>> listStaffLinks() async => staffLinks;
 
   @override
   Future<List<HatcheryDraftBatchSummary>> listBatchSummaries() async {
@@ -249,6 +592,7 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   @override
   Future<void> saveSettings(AgentSettings settings) async {
     if (saveError case final error?) throw error;
+    settingsSaveCount++;
     this.settings = settings;
   }
 
@@ -292,6 +636,153 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   Future<void> updateDraftRow(HatcheryDraftRow row) async {
     updatedRow = row;
   }
+
+  @override
+  Future<void> setStaffLinkStatus({
+    required String linkId,
+    required TelegramStaffLinkStatus status,
+    required String decidedBy,
+    required DateTime decidedAt,
+  }) async {
+    statusDecisions.add(
+      _StaffStatusDecision(
+        linkId: linkId,
+        status: status,
+        decidedBy: decidedBy,
+      ),
+    );
+    pendingStaffLinks = pendingStaffLinks
+        .where((link) => link.id != linkId)
+        .toList(growable: false);
+    staffLinks = staffLinks
+        .map(
+          (link) => link.id == linkId
+              ? TelegramStaffLink(
+                  id: link.id,
+                  telegramUserId: link.telegramUserId,
+                  status: status,
+                  accessRole: link.accessRole,
+                  customerId: link.customerId,
+                )
+              : link,
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> approveStaffLink({
+    required String linkId,
+    required TelegramAgentAccessRole accessRole,
+    required String? customerId,
+    required String decidedBy,
+    required DateTime decidedAt,
+  }) async {
+    scopeDecisions.add(
+      _StaffScopeDecision(
+        linkId: linkId,
+        accessRole: accessRole,
+        customerId: customerId,
+        decidedBy: decidedBy,
+      ),
+    );
+    final pending = pendingStaffLinks.firstWhere(
+      (link) => link.id == linkId,
+      orElse: () => TelegramStaffLink(
+        id: linkId,
+        telegramUserId: linkId,
+        status: TelegramStaffLinkStatus.allowed,
+      ),
+    );
+    final allowed = TelegramStaffLink(
+      id: pending.id,
+      telegramUserId: pending.telegramUserId,
+      telegramChatId: pending.telegramChatId,
+      displayName: pending.displayName,
+      username: pending.username,
+      status: TelegramStaffLinkStatus.allowed,
+      accessRole: accessRole,
+      customerId: customerId,
+      invitedBy: decidedBy,
+    );
+    pendingStaffLinks = pendingStaffLinks
+        .where((link) => link.id != linkId)
+        .toList(growable: false);
+    staffLinks = [...staffLinks.where((link) => link.id != linkId), allowed];
+  }
+}
+
+class _StaffStatusDecision {
+  const _StaffStatusDecision({
+    required this.linkId,
+    required this.status,
+    required this.decidedBy,
+  });
+
+  final String linkId;
+  final TelegramStaffLinkStatus status;
+  final String decidedBy;
+}
+
+class _StaffScopeDecision {
+  const _StaffScopeDecision({
+    required this.linkId,
+    required this.accessRole,
+    required this.customerId,
+    required this.decidedBy,
+  });
+
+  final String linkId;
+  final TelegramAgentAccessRole accessRole;
+  final String? customerId;
+  final String decidedBy;
+}
+
+AgentMonitorProvider _providerFor(
+  UserModel user,
+  HatcheryAgentRepository repository, {
+  AgentIntakeRepository? intakeRepository,
+  AgentIntakeApprovalPort? approvalPort,
+}) {
+  return AgentMonitorProvider(
+    repository: repository,
+    intakeRepository: intakeRepository ?? _FakeAgentIntakeRepository(),
+    approvalPort: approvalPort ?? _FakeApprovalPort(),
+    currentUser: user,
+  );
+}
+
+UserModel _adminUser({String status = 'approved'}) {
+  return UserModel(
+    id: 'admin-1',
+    fullName: 'Admin',
+    email: 'admin@example.test',
+    role: 'admin',
+    status: status,
+    createdAt: DateTime.utc(2026, 1, 1),
+  );
+}
+
+UserModel _auditorUser() {
+  return UserModel(
+    id: 'auditor-1',
+    fullName: 'Auditor',
+    email: 'auditor@example.test',
+    role: 'auditor',
+    status: 'approved',
+    createdAt: DateTime.utc(2026, 1, 1),
+  );
+}
+
+UserModel _customerUser() {
+  return UserModel(
+    id: 'customer-user-1',
+    fullName: 'Customer',
+    email: 'customer@example.test',
+    role: 'customer',
+    status: 'approved',
+    customerId: 'customer-1',
+    createdAt: DateTime.utc(2026, 1, 1),
+  );
 }
 
 HatcheryDraftBatchSummary _summary({
@@ -350,3 +841,160 @@ HatcheryDraftRow _row(String id) {
     hatchabilityPct: 85,
   );
 }
+
+class _FakeAgentIntakeRepository extends AgentIntakeRepository {
+  _FakeAgentIntakeRepository({
+    this.sessions = const [],
+    this.detailsById = const {},
+    this.rejectError,
+  });
+
+  List<AgentIntakeSession> sessions;
+  final Map<String, AgentIntakeDetails> detailsById;
+  final Object? rejectError;
+  String? updatedFieldKey;
+  Object? updatedValue;
+  String? approvedAuditSessionId;
+  String? approvedPanelRowId;
+
+  @override
+  Future<List<AgentIntakeSession>> listAwaitingReview() async => sessions;
+
+  @override
+  Future<AgentIntakeDetails?> loadDetails(String intakeId) async {
+    return detailsById[intakeId];
+  }
+
+  @override
+  Future<List<AuditSessionModel>> listMatchingAuditSessions(
+    AgentIntakeSession intake,
+  ) async {
+    return const [];
+  }
+
+  @override
+  Future<void> updateValue({
+    required String intakeId,
+    required String fieldKey,
+    required Object? value,
+    DateTime? updatedAt,
+  }) async {
+    updatedFieldKey = fieldKey;
+    updatedValue = value;
+    final current = detailsById[intakeId]!;
+    final map = current.session.toMap();
+    final values = Map<String, Object?>.from(current.session.workingValues)
+      ..[fieldKey] = value;
+    final version = current.session.summaryVersion + 1;
+    map['workingValuesJson'] = values;
+    map['summaryVersion'] = version;
+    map['summarySnapshotJson'] = {
+      'version': version,
+      'values': values,
+      'generatedAt': '2026-07-28T13:00:00.000Z',
+    };
+    detailsById[intakeId] = AgentIntakeDetails(
+      session: AgentIntakeSession.fromMap(map),
+      values: current.values,
+      turns: current.turns,
+    );
+    sessions = [detailsById[intakeId]!.session];
+  }
+
+  @override
+  Future<void> markApproved({
+    required String intakeId,
+    required String auditSessionId,
+    required String panelRowId,
+    required String reviewedBy,
+    DateTime? reviewedAt,
+  }) async {
+    approvedAuditSessionId = auditSessionId;
+    approvedPanelRowId = panelRowId;
+    sessions = [];
+  }
+
+  @override
+  Future<void> reject({
+    required String intakeId,
+    required String reason,
+    required String reviewedBy,
+    DateTime? reviewedAt,
+  }) async {
+    if (rejectError case final error?) throw error;
+    sessions = [];
+  }
+}
+
+class _FakeApprovalPort implements AgentIntakeApprovalPort {
+  String? intakeId;
+  String? targetSessionId;
+
+  @override
+  Future<AgentIntakeApprovalResult> approve({
+    required String intakeId,
+    required int expectedSummaryVersion,
+    String? targetSessionId,
+  }) async {
+    this.intakeId = intakeId;
+    this.targetSessionId = targetSessionId;
+    return const AgentIntakeApprovalResult(
+      intakeId: 'intake-1',
+      auditSessionId: 'audit-1',
+      panelRowId: 'panel-1',
+      alreadyApproved: false,
+    );
+  }
+}
+
+AgentIntakeSession _intakeSession({
+  Map<String, int>? values,
+  int summaryVersion = 1,
+}) {
+  final workingValues = values ?? _pasgarValues;
+  return AgentIntakeSession.fromMap({
+    'id': 'intake-1',
+    'staffLinkId': 'staff-1',
+    'telegramChatId': 'chat-1',
+    'schemaKey': 'chicks.pasgar',
+    'schemaVersion': 1,
+    'state': 'awaiting_admin_review',
+    'language': 'en',
+    'customerId': 'customer-1',
+    'customerName': 'Customer One',
+    'flockId': 'flock-1',
+    'flockName': 'Flock One',
+    'hatcheryId': 'hatchery-1',
+    'hatcheryName': 'Main Hatchery',
+    'auditDate': '2026-07-28',
+    'scope': 'pool',
+    'workingValuesJson': workingValues,
+    'summaryVersion': summaryVersion,
+    'summarySnapshotJson': {
+      'version': summaryVersion,
+      'values': workingValues,
+      'generatedAt': '2026-07-28T12:00:00.000Z',
+    },
+    'userConfirmedAt': '2026-07-28T12:01:00.000Z',
+    'createdAt': '2026-07-28T11:00:00.000Z',
+    'updatedAt': '2026-07-28T12:01:00.000Z',
+  });
+}
+
+AgentIntakeDetails _intakeDetails() {
+  return AgentIntakeDetails(
+    session: _intakeSession(),
+    values: const [],
+    turns: const [],
+  );
+}
+
+const _pasgarValues = <String, int>{
+  'pasgarSampleSize': 40,
+  'pasgarReflexesCount': 2,
+  'pasgarBeakCount': 1,
+  'pasgarNavelCount': 1,
+  'pasgarBellyCount': 1,
+  'pasgarLegCount': 2,
+  'pasgarFeatherDevCount': 3,
+};

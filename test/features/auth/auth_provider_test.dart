@@ -298,5 +298,30 @@ void main() {
       expect(provider.state, AuthState.unauthenticated);
       expect(provider.user, isNull);
     });
+
+    test('debug auth bypass logout clears the development user', () async {
+      provider = AuthProvider(
+        userRepository: mockRepo,
+        activityLogRepository: mockActivityLog,
+        supabaseService: mockSupabase,
+        bypassAuth: true,
+      );
+
+      expect(provider.state, AuthState.authenticated);
+      expect(provider.user?.email, 'dev-auditor@chickmark.local');
+
+      await provider.logout();
+
+      expect(provider.state, AuthState.unauthenticated);
+      expect(provider.user, isNull);
+      verifyNever(() => mockSupabase.signOut());
+      verifyNever(() => mockRepo.clearCachedTokens());
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.unauthenticated);
+      expect(provider.user, isNull);
+      verifyNever(() => mockRepo.getCachedUser());
+    });
   });
 }

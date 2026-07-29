@@ -79,6 +79,33 @@ class AgentStationField {
   }
 }
 
+class AgentStationCalculation {
+  AgentStationCalculation({
+    required this.fieldKey,
+    required this.kind,
+    required List<String> inputFieldKeys,
+    required this.unit,
+    required Map<String, Object?> persistence,
+  }) : inputFieldKeys = List.unmodifiable(inputFieldKeys),
+       persistence = UnmodifiableMapView(persistence);
+
+  final String fieldKey;
+  final String kind;
+  final List<String> inputFieldKeys;
+  final String unit;
+  final Map<String, Object?> persistence;
+
+  factory AgentStationCalculation.fromJson(Map<String, Object?> json) {
+    return AgentStationCalculation(
+      fieldKey: json['fieldKey']! as String,
+      kind: json['kind']! as String,
+      inputFieldKeys: _strings(json['inputFieldKeys']),
+      unit: json['unit']! as String,
+      persistence: _object(json['persistence']),
+    );
+  }
+}
+
 class AgentStationSchema {
   AgentStationSchema({
     required this.schemaKey,
@@ -90,6 +117,7 @@ class AgentStationSchema {
     required Map<String, List<String>> aliases,
     required List<String> allowedLayers,
     required List<AgentStationField> fields,
+    required List<AgentStationCalculation> calculations,
     required List<String> requiredFieldKeys,
     required List<AgentPersistenceMapping> persistence,
   }) : sectorKeys = List.unmodifiable(sectorKeys),
@@ -101,6 +129,7 @@ class AgentStationSchema {
        ),
        allowedLayers = List.unmodifiable(allowedLayers),
        fields = List.unmodifiable(fields),
+       calculations = List.unmodifiable(calculations),
        requiredFieldKeys = List.unmodifiable(requiredFieldKeys),
        persistence = List.unmodifiable(persistence);
 
@@ -113,6 +142,7 @@ class AgentStationSchema {
   final Map<String, List<String>> aliases;
   final List<String> allowedLayers;
   final List<AgentStationField> fields;
+  final List<AgentStationCalculation> calculations;
   final List<String> requiredFieldKeys;
   final List<AgentPersistenceMapping> persistence;
 
@@ -132,6 +162,9 @@ class AgentStationSchema {
       fields: _objects(
         json['fields'],
       ).map(AgentStationField.fromJson).toList(growable: false),
+      calculations: _objects(
+        json['calculations'],
+      ).map(AgentStationCalculation.fromJson).toList(growable: false),
       requiredFieldKeys: _strings(completion['requiredFieldKeys']),
       persistence: _objects(
         json['persistence'],
@@ -141,6 +174,15 @@ class AgentStationSchema {
 }
 
 abstract final class AgentStationRegistry {
+  static final Map<String, Object?> calculationParityVectors =
+      UnmodifiableMapView(
+        _object(
+          _object(
+            jsonDecode(generatedAgentStationRegistryJson),
+          )['calculationParityVectors'],
+        ),
+      );
+
   static final List<AgentStationSchema> schemas = _loadSchemas();
 
   static AgentStationSchema require(String schemaKey, int version) {

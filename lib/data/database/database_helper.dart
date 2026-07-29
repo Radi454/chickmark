@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 54,
+      version: 55,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -165,6 +165,9 @@ class DatabaseHelper {
     if (oldVersion < 54) {
       await _applyV54Upgrade(db);
     }
+    if (oldVersion < 55) {
+      await _applyV55Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -235,6 +238,10 @@ class DatabaseHelper {
       "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
       'targetProfileId TEXT',
       'productionPhase TEXT',
+      'updatedAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'syncError TEXT',
     ],
     'audit_sessions': [
       'customerId TEXT NOT NULL',
@@ -831,6 +838,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV54UpgradeForTest(Database db) => _applyV54Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV55UpgradeForTest(Database db) => _applyV55Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;
