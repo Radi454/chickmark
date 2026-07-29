@@ -181,6 +181,10 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
       ['auditId'],
     ),
     definition(
+      'get_selected_audit_breakouts',
+      'Load allowlisted fresh, candled, and residue egg-breakout measurements for the latest persisted selected audit in this conversation.',
+    ),
+    definition(
       'get_flock_context',
       'Load one authorized flock and its operational context.',
       { flockId: idRule },

@@ -25,6 +25,7 @@ Deno.test('tool definitions expose typed capabilities without database internals
   assertStringIncludes(json, 'list_customer_audits')
   assertStringIncludes(json, 'select_audit_option')
   assertStringIncludes(json, 'get_audit_summary')
+  assertStringIncludes(json, 'get_selected_audit_breakouts')
   const auditCatalog = AGENT_TOOL_DEFINITIONS.find(
     (tool) => tool.name === 'list_customer_audits',
   )
@@ -38,6 +39,11 @@ Deno.test('tool definitions expose typed capabilities without database internals
     minimum: 1,
     maximum: 20,
   })
+  const selectedBreakoutsCatalog = AGENT_TOOL_DEFINITIONS.find(
+    (tool) => (tool.name as string) === 'get_selected_audit_breakouts',
+  )
+  assertEquals(selectedBreakoutsCatalog?.parameters.properties, {})
+  assertEquals(selectedBreakoutsCatalog?.parameters.required, [])
   for (
     const forbidden of [
       'service_role',
