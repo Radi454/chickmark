@@ -59,6 +59,7 @@ void main() {
         conversationTurnId TEXT NOT NULL,
         toolCallId TEXT NOT NULL,
         toolName TEXT NOT NULL,
+        toolSequence INTEGER,
         argumentsJson TEXT NOT NULL,
         resultJson TEXT,
         status TEXT NOT NULL,
@@ -153,6 +154,7 @@ void main() {
         'conversation_turn_id': 'turn-1',
         'tool_call_id': 'call-1',
         'tool_name': 'record_station_values',
+        'tool_sequence': 1,
         'arguments_json': {'pasgarSampleSize': 40},
         'result_json': {'accepted': true},
         'status': 'succeeded',
@@ -163,6 +165,7 @@ void main() {
       expect(row, isNotNull);
       expect(row!['conversationTurnId'], 'turn-1');
       expect(row['toolCallId'], 'call-1');
+      expect(row['toolSequence'], 1);
       expect(row['argumentsJson'], '{"pasgarSampleSize":40}');
       expect(row['resultJson'], '{"accepted":true}');
       expect(row['syncStatus'], 'synced');
@@ -172,6 +175,7 @@ void main() {
         'conversation_turn_id': 'turn-1',
         'tool_call_id': 'call-1',
         'tool_name': 'record_station_values',
+        'tool_sequence': 1,
         'arguments_json': {'pasgarSampleSize': 40},
         'result_json': {'accepted': false},
         'status': 'failed',

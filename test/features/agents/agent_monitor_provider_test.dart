@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/agent_intake_models.dart';
+import 'package:hatchaudit/data/models/agent_diagnostic_models.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/hatchery_agent_models.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/agent_intake_repository.dart';
+import 'package:hatchaudit/data/repositories/agent_diagnostic_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_agent_repository.dart';
 import 'package:hatchaudit/features/agents/providers/agent_monitor_provider.dart';
 import 'package:hatchaudit/services/supabase/agent_intake_approval_service.dart';
@@ -38,6 +40,39 @@ void main() {
     await provider.load();
 
     expect(provider.settings.telegramEnabled, isFalse);
+  });
+
+  test('load exposes bounded agent health and conversation context', () async {
+    final diagnostics = _FakeAgentDiagnosticRepository(
+      health: const AgentHealthSnapshot(
+        conversationCount: 2,
+        failedDeliveryCount: 1,
+      ),
+      conversations: [
+        AgentConversationDiagnostic(
+          id: 'conversation-1',
+          contextEpoch: 2,
+          updatedAt: DateTime.utc(2026, 7, 30),
+          customerName: 'Customer One',
+          flockName: 'Flock One',
+          latestTurnIndex: 4,
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+        ),
+      ],
+    );
+    final provider = _providerFor(
+      _adminUser(),
+      _FakeHatcheryAgentRepository(summaries: const []),
+      diagnosticRepository: diagnostics,
+    );
+
+    await provider.load();
+
+    expect(provider.health.conversationCount, 2);
+    expect(provider.health.failedDeliveryCount, 1);
+    expect(provider.conversationDiagnostics.single.contextEpoch, 2);
+    expect(diagnostics.loadCount, 1);
   });
 
   test('load exposes customer choices for draft editing', () async {
@@ -742,13 +777,40 @@ AgentMonitorProvider _providerFor(
   HatcheryAgentRepository repository, {
   AgentIntakeRepository? intakeRepository,
   AgentIntakeApprovalPort? approvalPort,
+  AgentDiagnosticRepository? diagnosticRepository,
 }) {
   return AgentMonitorProvider(
     repository: repository,
     intakeRepository: intakeRepository ?? _FakeAgentIntakeRepository(),
     approvalPort: approvalPort ?? _FakeApprovalPort(),
+    diagnosticRepository:
+        diagnosticRepository ?? _FakeAgentDiagnosticRepository(),
     currentUser: user,
   );
+}
+
+class _FakeAgentDiagnosticRepository extends AgentDiagnosticRepository {
+  _FakeAgentDiagnosticRepository({
+    this.health = const AgentHealthSnapshot(),
+    this.conversations = const [],
+  });
+
+  final AgentHealthSnapshot health;
+  final List<AgentConversationDiagnostic> conversations;
+  int loadCount = 0;
+
+  @override
+  Future<AgentHealthSnapshot> loadHealth() async {
+    loadCount++;
+    return health;
+  }
+
+  @override
+  Future<List<AgentConversationDiagnostic>> listConversationDiagnostics({
+    int limit = 25,
+  }) async {
+    return conversations;
+  }
 }
 
 UserModel _adminUser({String status = 'approved'}) {

@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 55,
+      version: 56,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -167,6 +167,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 55) {
       await _applyV55Upgrade(db);
+    }
+    if (oldVersion < 56) {
+      await _applyV56Upgrade(db);
     }
   }
 
@@ -494,6 +497,11 @@ class DatabaseHelper {
       'staffLinkId TEXT NOT NULL',
       'telegramChatId TEXT NOT NULL',
       'stateVersion INTEGER NOT NULL DEFAULT 1',
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+      'selectedCustomerId TEXT',
+      'selectedFlockId TEXT',
+      'selectedAuditId TEXT',
+      'contextUpdatedAt TEXT',
       'pendingActionJson TEXT',
       'activeVisitId TEXT',
       'createdAt TEXT NOT NULL',
@@ -506,8 +514,14 @@ class DatabaseHelper {
     'agent_conversation_turns': [
       'conversationId TEXT NOT NULL',
       'direction TEXT NOT NULL',
+      'turnIndex INTEGER',
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
       'text TEXT NOT NULL',
       'language TEXT NOT NULL',
+      'provider TEXT',
+      'model TEXT',
+      'providerResponseId TEXT',
+      'replyToTurnId TEXT',
       'createdAt TEXT NOT NULL',
       "syncStatus TEXT NOT NULL DEFAULT 'synced'",
       'dirtyAt TEXT',
@@ -518,6 +532,7 @@ class DatabaseHelper {
       'conversationTurnId TEXT NOT NULL',
       'toolCallId TEXT NOT NULL',
       'toolName TEXT NOT NULL',
+      'toolSequence INTEGER',
       "argumentsJson TEXT NOT NULL DEFAULT '{}'",
       'status TEXT NOT NULL',
       'createdAt TEXT NOT NULL',
@@ -848,6 +863,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV55UpgradeForTest(Database db) => _applyV55Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV56UpgradeForTest(Database db) => _applyV56Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

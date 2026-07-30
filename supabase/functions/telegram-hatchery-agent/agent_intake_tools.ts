@@ -42,11 +42,20 @@ export interface AgentIntakeContextResolver {
     scope: AgentScope,
     requested: { customerId: string; flockId: string },
   ): Promise<string | null>
+  resolveFlockSectorResolution?(
+    scope: AgentScope,
+    requested: { customerId: string; flockId: string },
+  ): Promise<AgentFlockSectorResolution>
   resolve(
     scope: AgentScope,
     requested: AgentIntakeContextRequest,
   ): Promise<AgentIntakeContext | null>
 }
+
+export type AgentFlockSectorResolution =
+  | { status: 'resolved'; sectorKey: string }
+  | { status: 'missing_sector' }
+  | { status: 'scope_denied' }
 
 export function createSupabaseAgentIntakeContextResolver(
   client: AgentIntakeClient,
@@ -63,6 +72,26 @@ export function createSupabaseAgentIntakeContextResolver(
       return optionalText(result.data.customer_id) === requested.customerId
         ? optionalText(result.data.sector_key)
         : null
+    },
+    async resolveFlockSectorResolution(scope, requested) {
+      if (!scope.allowedCustomerIds.includes(requested.customerId)) {
+        return { status: 'scope_denied' }
+      }
+      const result = await client
+        .from('flocks')
+        .select('id, customer_id, sector_key')
+        .eq('id', requested.flockId)
+        .maybeSingle()
+      if (
+        result.error || !result.data ||
+        optionalText(result.data.customer_id) !== requested.customerId
+      ) {
+        return { status: 'scope_denied' }
+      }
+      const sectorKey = optionalText(result.data.sector_key)
+      return sectorKey
+        ? { status: 'resolved', sectorKey }
+        : { status: 'missing_sector' }
     },
     async resolve(scope, requested) {
       if (!scope.allowedCustomerIds.includes(requested.customerId)) return null
@@ -248,6 +277,18 @@ async function startIntake(
     action.customerId !== requested.customerId ||
     !input.scope.allowedCustomerIds.includes(requested.customerId)
   ) return scopeDenied()
+  const sectorResolution = await resolveFlockSector(
+    dependencies.contextResolver,
+    input.scope,
+    {
+      customerId: requested.customerId,
+      flockId: requested.flockId,
+    },
+  )
+  if (sectorResolution.status === 'missing_sector') {
+    return missingFlockSector(requested.customerId, requested.flockId)
+  }
+  if (sectorResolution.status === 'scope_denied') return scopeDenied()
   const context = await dependencies.contextResolver.resolve(
     input.scope,
     requested,
@@ -728,11 +769,15 @@ async function listApplicableStations(
   const customerId = input.arguments.customerId as string
   const flockId = input.arguments.flockId as string
   if (!input.scope.allowedCustomerIds.includes(customerId)) return scopeDenied()
-  const sectorKey = await resolver.resolveFlockSector(input.scope, {
+  const resolution = await resolveFlockSector(resolver, input.scope, {
     customerId,
     flockId,
   })
-  if (!sectorKey) return scopeDenied()
+  if (resolution.status === 'scope_denied') return scopeDenied()
+  if (resolution.status === 'missing_sector') {
+    return missingFlockSector(customerId, flockId)
+  }
+  const sectorKey = resolution.sectorKey
   return ok({
     customerId,
     flockId,
@@ -747,6 +792,21 @@ async function listApplicableStations(
       allowedLayers: schema.allowedLayers,
     })),
   })
+}
+
+function resolveFlockSector(
+  resolver: AgentIntakeContextResolver,
+  scope: AgentScope,
+  requested: { customerId: string; flockId: string },
+): Promise<AgentFlockSectorResolution> {
+  if (resolver.resolveFlockSectorResolution) {
+    return resolver.resolveFlockSectorResolution(scope, requested)
+  }
+  return resolver.resolveFlockSector(scope, requested).then((sectorKey) =>
+    sectorKey
+      ? { status: 'resolved' as const, sectorKey }
+      : { status: 'scope_denied' as const }
+  )
 }
 
 function requestedContext(
@@ -889,6 +949,26 @@ function ok(data: Record<string, unknown>): AgentToolResult {
 
 function scopeDenied(): AgentToolResult {
   return { ok: false, code: 'scope_denied', data: null }
+}
+
+function missingFlockSector(
+  customerId: string,
+  flockId: string,
+): AgentToolResult {
+  return {
+    ok: false,
+    code: 'missing_flock_sector',
+    data: {
+      customerId,
+      flockId,
+      message: {
+        en:
+          'This flock has no assigned poultry sector. Assign its sector in ChickMark before choosing a station.',
+        ar:
+          'هذا القطيع غير مرتبط بقطاع دواجن. عيّن القطاع في ChickMark قبل اختيار المحطة.',
+      },
+    },
+  }
 }
 
 function stateConflict(): AgentToolResult {

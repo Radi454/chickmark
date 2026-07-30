@@ -76,6 +76,15 @@ export interface AgentAuditStore {
   findLatestSelectedAuditResult(
     conversationId: string,
   ): Promise<unknown | null>
+  loadConversationContext?(
+    conversationId: string,
+  ): Promise<
+    {
+      customerId: string | null
+      flockId: string | null
+      auditId: string | null
+    } | null
+  >
   listAudits(input: {
     customerId: string
     flockId: string | null
@@ -269,6 +278,23 @@ export function createSupabaseAgentAuditStore(
         conversationId,
         ['select_audit_option', 'get_audit_summary'],
       ),
+    async loadConversationContext(conversationId) {
+      const result = await client
+        .from('agent_conversations')
+        .select(
+          'selected_customer_id, selected_flock_id, selected_audit_id',
+        )
+        .eq('id', conversationId)
+        .maybeSingle()
+      throwIfDatabaseError(result)
+      return result.data
+        ? {
+          customerId: optionalText(result.data.selected_customer_id),
+          flockId: optionalText(result.data.selected_flock_id),
+          auditId: optionalText(result.data.selected_audit_id),
+        }
+        : null
+    },
     async listAudits(input) {
       const rows: AgentAuditReadRow[] = []
       let scanned = 0
@@ -396,11 +422,26 @@ async function getAuditSummary(
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
   const auditId = input.arguments.auditId as string
+  const context = store.loadConversationContext
+    ? await store.loadConversationContext(input.conversationId)
+    : null
+  if (store.loadConversationContext) {
+    if (!context?.auditId || context.auditId !== auditId) {
+      return freshAuditSelectionRequired(context)
+    }
+  }
   const audit = await store.findAudit(auditId, input.scope.allowedCustomerIds)
   if (
     !audit || !input.scope.allowedCustomerIds.includes(audit.customerId)
   ) {
     return scopeDenied()
+  }
+  if (
+    store.loadConversationContext &&
+    (audit.customerId !== context?.customerId ||
+      audit.flockId !== context.flockId)
+  ) {
+    return freshAuditSelectionRequired(context)
   }
   return auditSummary(audit)
 }
@@ -424,6 +465,7 @@ async function selectAuditOption(
   if (
     !audit ||
     audit.customerId !== selected.customerId ||
+    (selected.flockId !== null && audit.flockId !== selected.flockId) ||
     !input.scope.allowedCustomerIds.includes(audit.customerId)
   ) {
     return scopeDenied()
@@ -435,14 +477,34 @@ async function getSelectedAuditBreakouts(
   store: AgentAuditStore,
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
-  const snapshot = await store.findLatestSelectedAuditResult(
-    input.conversationId,
-  )
-  const selected = selectedAuditReference(
-    snapshot,
-    input.scope.allowedCustomerIds,
-  )
-  if (!selected) return scopeDenied()
+  const context = store.loadConversationContext
+    ? await store.loadConversationContext(input.conversationId)
+    : null
+  let selected: {
+    customerId: string
+    flockId: string | null
+    auditId: string
+  } | null
+  if (store.loadConversationContext) {
+    selected = context?.customerId && context.auditId &&
+        input.scope.allowedCustomerIds.includes(context.customerId)
+      ? {
+        customerId: context.customerId,
+        flockId: context.flockId,
+        auditId: context.auditId,
+      }
+      : null
+    if (!selected) return freshAuditSelectionRequired(context)
+  } else {
+    const snapshot = await store.findLatestSelectedAuditResult(
+      input.conversationId,
+    )
+    selected = selectedAuditReference(
+      snapshot,
+      input.scope.allowedCustomerIds,
+    )
+    if (!selected) return scopeDenied()
+  }
 
   const audit = await store.findAudit(
     selected.auditId,
@@ -451,6 +513,7 @@ async function getSelectedAuditBreakouts(
   if (
     !audit ||
     audit.customerId !== selected.customerId ||
+    (selected.flockId !== null && audit.flockId !== selected.flockId) ||
     !input.scope.allowedCustomerIds.includes(audit.customerId)
   ) {
     return scopeDenied()
@@ -490,16 +553,25 @@ function auditSummary(audit: AgentAuditReadRow): AgentToolResult {
 function selectedAuditReference(
   snapshot: unknown,
   allowedCustomerIds: readonly string[],
-): { customerId: string; auditId: string } | null {
+): {
+  customerId: string
+  flockId: string | null
+  auditId: string
+} | null {
   if (!isRecord(snapshot) || snapshot.ok !== true || snapshot.code !== 'ok') {
     return null
   }
   const data = snapshot.data
   if (!isRecord(data)) return null
   const customerId = boundedIdentifier(data.customerId)
+  const flockId = data.flockId === null || data.flockId === undefined
+    ? null
+    : boundedIdentifier(data.flockId)
   const auditId = boundedIdentifier(data.id)
-  return customerId && auditId && allowedCustomerIds.includes(customerId)
-    ? { customerId, auditId }
+  return customerId && auditId &&
+      (data.flockId === null || data.flockId === undefined || flockId) &&
+      allowedCustomerIds.includes(customerId)
+    ? { customerId, flockId, auditId }
     : null
 }
 
@@ -507,7 +579,11 @@ function selectedAuditFromSnapshot(
   snapshot: unknown,
   position: number,
   allowedCustomerIds: readonly string[],
-): { customerId: string; auditId: string } | null {
+): {
+  customerId: string
+  flockId: string | null
+  auditId: string
+} | null {
   if (!isRecord(snapshot) || snapshot.ok !== true || snapshot.code !== 'ok') {
     return null
   }
@@ -515,6 +591,12 @@ function selectedAuditFromSnapshot(
   if (!isRecord(data)) return null
   const customerId = boundedIdentifier(data.customerId)
   if (!customerId || !allowedCustomerIds.includes(customerId)) return null
+  const flockId = data.flockId === null || data.flockId === undefined
+    ? null
+    : boundedIdentifier(data.flockId)
+  if (data.flockId !== null && data.flockId !== undefined && !flockId) {
+    return null
+  }
   const audits = data.audits
   if (
     !Array.isArray(audits) ||
@@ -527,7 +609,24 @@ function selectedAuditFromSnapshot(
   )
   if (auditIds.some((auditId) => auditId === null)) return null
   const auditId = auditIds[position - 1]
-  return auditId ? { customerId, auditId } : null
+  return auditId ? { customerId, flockId, auditId } : null
+}
+
+function freshAuditSelectionRequired(
+  context: {
+    customerId: string | null
+    flockId: string | null
+    auditId: string | null
+  } | null,
+): AgentToolResult {
+  return {
+    ok: false,
+    code: 'fresh_audit_selection_required',
+    data: {
+      selectedCustomerId: context?.customerId ?? null,
+      selectedFlockId: context?.flockId ?? null,
+    },
+  }
 }
 
 function publicAuditOption(row: AgentAuditReadRow): Record<string, unknown> {

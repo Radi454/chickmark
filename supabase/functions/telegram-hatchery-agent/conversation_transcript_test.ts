@@ -342,6 +342,7 @@ async function turn(params: {
       activeVisitId: conversation.activeVisitId,
       conversationTurnId: `turn-${params.index}`,
       conversationTurnIndex: params.index,
+      conversationContextEpoch: 1,
       text: params.text,
       recentTurns: [],
       pendingAction: conversation.pendingAction,

@@ -47,6 +47,15 @@ interface AuditStore {
     auditId: string
     customerId: string
   }): Promise<AuditBreakoutPage>
+  loadConversationContext?(
+    conversationId: string,
+  ): Promise<ConversationContext | null>
+}
+
+interface ConversationContext {
+  customerId: string | null
+  flockId: string | null
+  auditId: string | null
 }
 
 interface AuditBreakoutRow {
@@ -103,6 +112,7 @@ interface FixtureAuditStore extends AuditStore {
   rows: AuditRow[]
   breakoutRows: AuditBreakoutRow[]
   selectedAuditIds: string[]
+  conversationContext: ConversationContext | null
 }
 
 const scope: AgentScope = {
@@ -179,6 +189,7 @@ function fixtureStore(): FixtureAuditStore {
     rows,
     breakoutRows: [],
     selectedAuditIds,
+    conversationContext: null,
     findFlockCustomerId: (flockId) =>
       Promise.resolve(
         flockId === 'flock-a'
@@ -584,6 +595,64 @@ Deno.test('selected audit breakout lookup fails closed without a scoped persiste
   }
 })
 
+Deno.test('changing customer or flock context requires a fresh audit selection', async () => {
+  const store = fixtureStore()
+  store.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'audit-completed',
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+    },
+  }
+  store.conversationContext = {
+    customerId: 'customer-a',
+    flockId: 'flock-new',
+    auditId: null,
+  }
+  store.loadConversationContext = () =>
+    Promise.resolve(store.conversationContext)
+
+  assertEquals(
+    await call(store, 'get_selected_audit_breakouts', {}),
+    {
+      ok: false,
+      code: 'fresh_audit_selection_required',
+      data: {
+        selectedCustomerId: 'customer-a',
+        selectedFlockId: 'flock-new',
+      },
+    },
+  )
+  assertEquals(store.breakoutInputs, [])
+})
+
+Deno.test('audit summary requires matching customer flock and audit context', async () => {
+  const store = fixtureStore()
+  store.conversationContext = {
+    customerId: 'customer-a',
+    flockId: 'flock-new',
+    auditId: 'audit-completed',
+  }
+  store.loadConversationContext = () =>
+    Promise.resolve(store.conversationContext)
+
+  assertEquals(
+    await call(store, 'get_audit_summary', {
+      auditId: 'audit-completed',
+    }),
+    {
+      ok: false,
+      code: 'fresh_audit_selection_required',
+      data: {
+        selectedCustomerId: 'customer-a',
+        selectedFlockId: 'flock-new',
+      },
+    },
+  )
+})
+
 Deno.test('persisted audit options keep their ordinal after a newer audit is inserted', async () => {
   const store = fixtureStore()
   const persistedList = await call(store, 'list_customer_audits', {
@@ -939,6 +1008,12 @@ Deno.test('selection uses the latest successful list event from only its convers
 
 Deno.test('Supabase audit breakout reader uses the persisted selection and exact session rows', async () => {
   const client = new FakeAuditClient({
+    agent_conversations: [{
+      id: 'conversation-a',
+      selected_customer_id: 'customer-a',
+      selected_flock_id: 'flock-a',
+      selected_audit_id: 'audit-latest',
+    }],
     agent_conversation_turns: [{
       id: 'turn-selected',
       conversation_id: 'conversation-a',

@@ -50,6 +50,29 @@ Deno.test('Responses provider sends bounded function tools and parses output', a
   )
 })
 
+Deno.test('provider diagnostics use bounded IDs and returned model metadata', async () => {
+  const provider = createResponsesAgentProvider({
+    provider: 'openrouter',
+    apiKey: 'test-key',
+    model: 'openrouter/free',
+    fetchImpl: () =>
+      Promise.resolve(Response.json({
+        id: `response-${'x'.repeat(300)}`,
+        model: 'vendor/concrete-model',
+        output: [],
+      })),
+  })
+
+  const result = await provider.respond({
+    instructions: 'policy',
+    input: [],
+    tools: [],
+  })
+
+  assertEquals(result.id.length, 160)
+  assertEquals(result.model, 'vendor/concrete-model')
+})
+
 Deno.test('OpenRouter 402 retries once with its free model', async () => {
   const models: string[] = []
   const provider = createResponsesAgentProvider({

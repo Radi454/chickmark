@@ -38,6 +38,7 @@ function turnInput(historyCount = 0) {
     activeVisitId: null,
     conversationTurnId: 'turn-current',
     conversationTurnIndex: 21,
+    conversationContextEpoch: 1,
     text: 'عايز أسجل بيانات الجودة',
     recentTurns: Array.from({ length: historyCount }, (_, index) => ({
       role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
@@ -51,6 +52,8 @@ function turnInput(historyCount = 0) {
 function message(text: string, id = 'response-text'): AgentModelResponse {
   return {
     id,
+    provider: 'openai',
+    model: 'gpt-4.1-mini',
     output: [{
       type: 'message',
       role: 'assistant',
@@ -66,6 +69,8 @@ function functionCall(
 ): AgentModelResponse {
   return {
     id: `response-${sequence}`,
+    provider: 'openai',
+    model: 'gpt-4.1-mini',
     output: [{
       type: 'function_call',
       id: `function-${sequence}`,
@@ -104,10 +109,12 @@ function harness(
 Deno.test('plain model text is the one normal reply', async () => {
   const test = harness([message('أهلاً يا محمد، تحب نراجع أي قطيع؟')])
 
-  assertEquals(await test.run(), {
+  assertEquals(await test.run() as unknown, {
     status: 'replied',
     reply: 'أهلاً يا محمد، تحب نراجع أي قطيع؟',
     providerResponseId: 'response-text',
+    provider: 'openai',
+    model: 'gpt-4.1-mini',
     toolCallCount: 0,
   })
 })
@@ -121,6 +128,8 @@ Deno.test('Telegram reply removes visible Markdown decoration', async () => {
     status: 'replied',
     reply: 'يبدو أنك أرسلت الرقم ٤٠١. هل هو عمر القطيع؟',
     providerResponseId: 'response-text',
+    provider: 'openai',
+    model: 'gpt-4.1-mini',
     toolCallCount: 0,
   })
 })

@@ -1576,7 +1576,7 @@ breakdown.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 55. The database file
+The app uses SQLite through `sqflite` at database version 56. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1668,6 +1668,29 @@ tray. The additive upgrade rebuilds only `agent_intake_sessions`, preserves its
 rows and references, and recreates the active/review indexes and database
 guards.
 
+Version 56 adds explicit conversation context and ordered diagnostic metadata
+to the read-only local agent mirror. Conversations store a context generation
+and selected customer/flock/audit. Inbound and outbound turns store generation,
+turn order, reply linkage, provider, model, and provider response identity;
+tool evidence stores its serial call order. Existing turn and tool rows receive
+deterministic chronological order without deleting evidence. The upgrade then
+copies the three agent evidence tables through constrained shadow tables,
+verifies the row counts and foreign-key graph, and atomically replaces the
+legacy tables. Upgraded databases therefore receive the same context/order
+checks and selected-context/reply foreign keys as a fresh v56 database. The
+immutable tool-event guards are restored immediately after the upgrade-only
+backfill and row-preserving rebuild.
+
+The v56 local upgrade and the checked-in Supabase migration also apply the same
+conservative legacy-flock sector repair. When the deployed schema includes the
+optional farm and customer-sector catalogs, an unassigned flock first inherits
+the sector of its customer-owned linked farm and a remaining flock inherits a
+customer sector only when that customer has exactly one active sector. A
+still-unassigned flock with hatchery-audit evidence is classified as Breeder
+on every supported schema generation. Explicit sectors are never overwritten,
+optional catalogs are detected before they are queried, and ambiguous rows
+remain null for human assignment.
+
 The unified-agent station registry foundation is generated from
 `tool/agent_schema/station_registry.json`. The generator validates localized
 names and aliases, unique schema identities, field/completion references,
@@ -1726,8 +1749,16 @@ audit ID is then revalidated through the current customer scope before its
 summary is returned. The model never reconstructs or re-lists an ordinal
 mapping.
 
-Follow-up Hatch Analysis questions use the latest successful audit selection
-or verified audit-summary event from the same conversation.
+Follow-up Hatch Analysis questions use an explicit selected customer, flock,
+and audit context on the conversation. Resolving a different customer or flock
+clears the selected audit, and audit-specific tools return
+`fresh_audit_selection_required` until the user selects an audit again. This
+prevents an older successful audit event from silently surviving a context
+change. Audit summary and breakout reads also compare the loaded audit's
+customer and flock with the complete persisted selection. Every successful
+tool-context write is conditional on both the state version and the context
+generation in which that tool began, so an in-flight tool from before `/new`
+cannot repopulate cleared context.
 `get_selected_audit_breakouts` revalidates that audit against the current
 customer scope, then reads only rows whose `session_id` and `customer_id`
 match the selected audit from `fresh_egg_breakout`, `candled_egg_breakout`,
@@ -1771,6 +1802,12 @@ persisted sector. It returns only matching registry schemas together with their
 localized names, aliases, and valid sampling layers. The AI can therefore
 interpret a selection by number, module name, Arabic/English alias, or natural
 description without a phrase router or fixed scenario list.
+Legacy flocks whose sector is still unassigned return
+`missing_flock_sector` with an understandable Arabic/English instruction
+instead of being reported as unauthorized. Station schema arguments are
+validated against the generated registry's exact schema key/version pairs;
+unknown pairs return `unsupported_station_schema` before any station handler or
+database query executes.
 
 The state machine does not interrupt after each accepted field. It creates one
 backend-calculated, versioned summary only when every required field for the
@@ -1800,6 +1837,9 @@ by the provider protocol. Malformed and unknown calls never reach a handler,
 tool data cannot add instructions or capabilities, and provider
 unavailability returns an infrastructure status for the webhook boundary.
 OpenRouter HTTP 402 fallback remains contained inside the provider adapter.
+Diagnostic provider-response identities are bounded to 160 characters, and
+the stored model prefers the concrete model returned by the provider over a
+routing alias when that metadata is available.
 The policy distinguishes an informational flock question from a request to
 record operational data: asking to review, explain, or compare existing flock
 data uses scoped read tools and cannot by itself propose an intake. Intake is
@@ -1818,12 +1858,20 @@ bilingual infrastructure retry is fixed at that boundary.
 
 Each accepted Telegram update is deduplicated before mutable staff metadata or
 conversation state is changed. Its inbound turn receives a monotonically
-allocated index that is unique inside the conversation, and the exact inbound
+allocated index within the current context generation, and the exact inbound
 evidence is persisted before the runtime starts. The corresponding assistant
-turn is stored with pending delivery before Telegram is called, then marked
-delivered or failed. A Telegram retry sees the original inbound update and
-cannot rerun the model or duplicate a delivered reply. Provider or tool failures
-never fall through into a second conversational implementation.
+turn carries the same turn index, the context generation, an explicit
+`reply_to_turn_id`, provider/model/response metadata when a model was used, and
+pending delivery before Telegram is called; it is then marked delivered or
+failed. Tool calls carry their serial order within the inbound turn. A Telegram
+retry sees the original inbound update and cannot rerun the model or duplicate
+a delivered reply. Provider or tool failures never fall through into a second
+conversational implementation.
+
+The exact `/new` or `/reset` Telegram command starts a new context generation
+without calling the model. It clears the selected customer, flock, audit,
+pending action, and active visit, stores an ordered bilingual reset reply, and
+keeps every earlier turn and tool event available as immutable review evidence.
 
 The `chicks.pasgar@1` schema requires sample size,
 reflexes, beak, navel, belly, leg, and feather-development counts, while
@@ -2014,6 +2062,20 @@ provider, SQLite checks, and Supabase constraints all repeat the role/customer
 consistency rule. Rejection or revocation changes the link to `revoked`. The
 original unauthorized message remains unprocessed, so staff must resend the
 hatchery data after approval.
+
+The monitor also loads a bounded health summary and latest conversation
+diagnostics from the server-authored mirror: conversation count, pending and
+failed deliveries, rejected/failed tools, flocks still missing sectors,
+selected customer/flock/audit labels, latest reply order, delivery state, and
+provider/model metadata. Pending replies mark health as needing attention;
+conversation ordering uses the newest stored turn rather than only the
+conversation row timestamp, and the newest rejected/failed tool exposes its
+bounded code and occurrence time. Missing selections, missing mirrored records,
+legacy replies without model metadata, and unassigned flock sectors have
+distinct plain-language messages. The monitor explains that `/new` clears
+current Telegram context while retaining prior evidence. Its preloaded-provider
+guard avoids duplicate refreshes, and narrow draft workspaces reduce their list
+height instead of overflowing.
 
 The responsive monitor presents submission cards beside draft detail on wide
 screens and above detail on narrower screens. Pending Telegram access requests
@@ -2479,6 +2541,23 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-30: Hardened the unified Telegram agent with explicit
+  customer/flock/audit context invalidation, registry-only station schemas,
+  safe missing-sector errors and a conservative additive sector backfill,
+  `/new` context generations, ordered assistant/tool diagnostics, and an
+  admin health/context view. Added a real `AuthProvider` approved-admin harness,
+  Telegram-evidence-to-monitor integration coverage, and a scrollable compact
+  macOS drawer. The SQLite v55-to-v56 path now performs a checked,
+  row-preserving shadow-table rebuild so upgraded installations receive the
+  same context/order checks and selected-context/reply foreign keys as fresh
+  installations. The production-compatible migration is recorded on the
+  ChickMark Supabase project as `20260730111832_agent_hardening`; it preserved
+  all affected row counts, classified nine evidence-backed legacy flocks as
+  Breeder, and left two ambiguous flocks unassigned.
+  `telegram-hatchery-agent` v18 is active with its existing custom webhook
+  authentication and the current dependency bundle; this version also prevents
+  pre-reset in-flight context writes, enforces full audit identity on summary
+  reads, and bounds provider diagnostic metadata.
 - 2026-07-30: Made the SQLite v54 unified-agent migration re-establish its
   additive v52/v53 table prerequisites before creating intake-session indexes.
   This preserves existing local data while repairing databases whose schema

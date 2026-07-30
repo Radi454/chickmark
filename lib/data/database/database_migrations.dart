@@ -282,6 +282,317 @@ Future<void> _applyV55Upgrade(Database db) async {
   await _createUnifiedAgentHarnessTables(db);
 }
 
+Future<void> _applyV56Upgrade(Database db) async {
+  if (await _tableExists(db, 'agent_conversations')) {
+    await _ensureColumns(db, 'agent_conversations', const [
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+      'selectedCustomerId TEXT',
+      'selectedFlockId TEXT',
+      'selectedAuditId TEXT',
+      'contextUpdatedAt TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'agent_conversation_turns')) {
+    await _ensureColumns(db, 'agent_conversation_turns', const [
+      'turnIndex INTEGER',
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+      'provider TEXT',
+      'providerResponseId TEXT',
+      'replyToTurnId TEXT',
+    ]);
+    await db.execute('''
+      WITH ranked AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            PARTITION BY conversationId, direction
+            ORDER BY createdAt, id
+          ) AS sequence
+        FROM agent_conversation_turns
+      )
+      UPDATE agent_conversation_turns
+      SET turnIndex = (
+        SELECT ranked.sequence
+        FROM ranked
+        WHERE ranked.id = agent_conversation_turns.id
+      )
+      WHERE turnIndex IS NULL
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_conversation_turns_order '
+      'ON agent_conversation_turns '
+      '(conversationId, contextEpoch, direction, turnIndex) '
+      'WHERE turnIndex IS NOT NULL',
+    );
+  }
+  if (await _tableExists(db, 'agent_tool_events')) {
+    await _ensureColumns(db, 'agent_tool_events', const [
+      'toolSequence INTEGER',
+    ]);
+    // Tool evidence is immutable during ordinary app use. The schema upgrade
+    // temporarily lifts only those guards while it adds deterministic ordering
+    // metadata, then restores them in the same database transaction.
+    await db.execute('DROP TRIGGER IF EXISTS trg_agent_tool_events_immutable');
+    await db.execute(
+      'DROP TRIGGER IF EXISTS trg_agent_tool_events_delete_immutable',
+    );
+    await db.execute('''
+      WITH ranked AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            PARTITION BY conversationTurnId
+            ORDER BY createdAt, id
+          ) AS sequence
+        FROM agent_tool_events
+      )
+      UPDATE agent_tool_events
+      SET toolSequence = (
+        SELECT ranked.sequence
+        FROM ranked
+        WHERE ranked.id = agent_tool_events.id
+      )
+      WHERE toolSequence IS NULL
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tool_events_sequence '
+      'ON agent_tool_events (conversationTurnId, toolSequence) '
+      'WHERE toolSequence IS NOT NULL',
+    );
+  }
+
+  await _rebuildV56AgentIntegrityTables(db);
+  await _createUnifiedAgentHarnessGuards(db);
+
+  if (!await _tableExists(db, 'flocks')) return;
+  if (await _tableExists(db, 'farms')) {
+    await db.execute('''
+      UPDATE flocks
+      SET sectorKey = (
+        SELECT farms.sectorKey
+        FROM farms
+        WHERE farms.id = flocks.farmId
+          AND farms.customerId = flocks.customerId
+      )
+      WHERE sectorKey IS NULL
+        AND farmId IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM farms
+          WHERE farms.id = flocks.farmId
+            AND farms.customerId = flocks.customerId
+            AND farms.sectorKey IS NOT NULL
+        )
+    ''');
+  }
+  if (await _tableExists(db, 'audit_sessions')) {
+    await db.execute('''
+      UPDATE flocks
+      SET sectorKey = 'breeder'
+      WHERE sectorKey IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM audit_sessions
+          WHERE audit_sessions.flockId = flocks.id
+            AND audit_sessions.customerId = flocks.customerId
+            AND audit_sessions.hatcheryId IS NOT NULL
+        )
+    ''');
+  }
+  if (await _tableExists(db, 'customer_sectors')) {
+    await db.execute('''
+      UPDATE flocks
+      SET sectorKey = (
+        SELECT MIN(customer_sectors.sectorKey)
+        FROM customer_sectors
+        WHERE customer_sectors.customerId = flocks.customerId
+          AND customer_sectors.isActive = 1
+      )
+      WHERE sectorKey IS NULL
+        AND (
+          SELECT COUNT(DISTINCT customer_sectors.sectorKey)
+          FROM customer_sectors
+          WHERE customer_sectors.customerId = flocks.customerId
+            AND customer_sectors.isActive = 1
+        ) = 1
+    ''');
+  }
+}
+
+Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
+  for (final table in const [
+    'agent_conversations',
+    'agent_conversation_turns',
+    'agent_tool_events',
+  ]) {
+    if (!await _tableExists(db, table)) return;
+  }
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    // The application upgrade path already has foreign keys disabled by
+    // onConfigure. This also keeps the test hook safe when called directly.
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+
+  try {
+    const conversationsShadow = 'agent_conversations_v56';
+    const turnsShadow = 'agent_conversation_turns_v56';
+    const toolsShadow = 'agent_tool_events_v56';
+    // SQLite reparses every trigger during ALTER TABLE. Sparse but supported
+    // legacy databases may not have their referenced scope tables until the
+    // surgical repair pass runs onOpen, so remove all unified-agent guards
+    // before the shadow rename and recreate them after the graph is stable.
+    for (final trigger in const [
+      'trg_telegram_staff_links_scope_insert',
+      'trg_telegram_staff_links_scope_update',
+      'trg_agent_intake_visit_scope_insert',
+      'trg_agent_intake_visit_scope_update',
+      'trg_agent_intake_summary_immutable',
+      'trg_agent_tool_events_immutable',
+      'trg_agent_tool_events_delete_immutable',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+    for (final table in const [toolsShadow, turnsShadow, conversationsShadow]) {
+      await db.execute('DROP TABLE IF EXISTS $table');
+    }
+
+    await _createAgentConversationsTable(db, tableName: conversationsShadow);
+    await _createAgentConversationTurnsTable(
+      db,
+      tableName: turnsShadow,
+      conversationsTable: conversationsShadow,
+    );
+    await _createAgentToolEventsTable(
+      db,
+      tableName: toolsShadow,
+      turnsTable: turnsShadow,
+    );
+
+    const conversationColumns = '''
+      id,
+      staffLinkId,
+      telegramChatId,
+      stateVersion,
+      contextEpoch,
+      selectedCustomerId,
+      selectedFlockId,
+      selectedAuditId,
+      contextUpdatedAt,
+      pendingActionJson,
+      activeVisitId,
+      createdAt,
+      updatedAt,
+      syncStatus,
+      dirtyAt,
+      lastSyncedAt,
+      syncError
+    ''';
+    const turnColumns = '''
+      id,
+      conversationId,
+      direction,
+      telegramUpdateId,
+      telegramMessageId,
+      turnIndex,
+      contextEpoch,
+      text,
+      language,
+      provider,
+      model,
+      providerResponseId,
+      replyToTurnId,
+      attachmentJson,
+      deliveryStatus,
+      createdAt,
+      syncStatus,
+      dirtyAt,
+      lastSyncedAt,
+      syncError
+    ''';
+    const toolColumns = '''
+      id,
+      conversationTurnId,
+      toolCallId,
+      toolName,
+      toolSequence,
+      argumentsJson,
+      resultJson,
+      status,
+      durationMs,
+      stateVersionBefore,
+      stateVersionAfter,
+      createdAt,
+      syncStatus,
+      dirtyAt,
+      lastSyncedAt,
+      syncError
+    ''';
+
+    await db.execute('''
+      INSERT INTO $conversationsShadow ($conversationColumns)
+      SELECT $conversationColumns FROM agent_conversations
+    ''');
+    await db.execute('''
+      INSERT INTO $turnsShadow ($turnColumns)
+      SELECT $turnColumns FROM agent_conversation_turns
+    ''');
+    await db.execute('''
+      INSERT INTO $toolsShadow ($toolColumns)
+      SELECT $toolColumns FROM agent_tool_events
+    ''');
+
+    for (final pair in const [
+      ('agent_conversations', conversationsShadow),
+      ('agent_conversation_turns', turnsShadow),
+      ('agent_tool_events', toolsShadow),
+    ]) {
+      final sourceCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM ${pair.$1}'),
+      );
+      final shadowCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM ${pair.$2}'),
+      );
+      if (sourceCount != shadowCount) {
+        throw StateError(
+          'v56 agent table rebuild row-count mismatch for ${pair.$1}',
+        );
+      }
+    }
+
+    await db.execute('DROP TABLE agent_tool_events');
+    await db.execute('DROP TABLE agent_conversation_turns');
+    await db.execute('DROP TABLE agent_conversations');
+    await db.execute(
+      'ALTER TABLE $conversationsShadow RENAME TO agent_conversations',
+    );
+    await db.execute(
+      'ALTER TABLE $turnsShadow RENAME TO agent_conversation_turns',
+    );
+    await db.execute('ALTER TABLE $toolsShadow RENAME TO agent_tool_events');
+
+    await _createUnifiedAgentHarnessTables(db, createGuards: false);
+    for (final table in const [
+      'agent_conversations',
+      'agent_conversation_turns',
+      'agent_tool_events',
+    ]) {
+      final violations = await db.rawQuery('PRAGMA foreign_key_check($table)');
+      if (violations.isNotEmpty) {
+        throw StateError(
+          'v56 agent table rebuild found foreign-key violations in $table',
+        );
+      }
+    }
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
 Future<bool> _tableExists(DatabaseExecutor db, String table) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

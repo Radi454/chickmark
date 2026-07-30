@@ -9,7 +9,7 @@ import {
   type AgentIntakeContextResolver,
   createAgentIntakeToolHandlers,
 } from './agent_intake_tools.ts'
-import type { AgentToolResult } from './agent_protocol.ts'
+import type { AgentScope, AgentToolResult } from './agent_protocol.ts'
 import { executeAgentTool } from './agent_tools.ts'
 
 const scope = {
@@ -31,13 +31,23 @@ function harness() {
     createdAt: baseTime.toISOString(),
     updatedAt: baseTime.toISOString(),
   }
-  const resolver: AgentIntakeContextResolver = {
+  const resolver = {
     resolveFlockSector: (_scope, requested) =>
       Promise.resolve(
         requested.customerId === 'customer-a' &&
           requested.flockId === 'flock-a'
           ? 'breeder'
           : null,
+      ),
+    resolveFlockSectorResolution: (_scope, requested) =>
+      Promise.resolve(
+        requested.customerId !== 'customer-a'
+          ? { status: 'scope_denied' as const }
+          : requested.flockId === 'flock-a'
+          ? { status: 'resolved' as const, sectorKey: 'breeder' }
+          : requested.flockId === 'flock-unassigned'
+          ? { status: 'missing_sector' as const }
+          : { status: 'scope_denied' as const },
       ),
     resolve: (_scope, requested) =>
       Promise.resolve(
@@ -47,6 +57,15 @@ function harness() {
           ? context()
           : null,
       ),
+  } satisfies AgentIntakeContextResolver & {
+    resolveFlockSectorResolution(
+      scope: AgentScope,
+      requested: { customerId: string; flockId: string },
+    ): Promise<
+      | { status: 'resolved'; sectorKey: string }
+      | { status: 'missing_sector' }
+      | { status: 'scope_denied' }
+    >
   }
   let currentTime = baseTime
   let id = 0
@@ -119,10 +138,23 @@ Deno.test('station catalog is resolved from the authorized flock sector', async 
   assertEquals(
     await test.call(
       'list_applicable_stations',
-      { customerId: 'customer-a', flockId: 'other-flock' },
+      { customerId: 'customer-a', flockId: 'flock-unassigned' },
       1,
     ),
-    { ok: false, code: 'scope_denied', data: null },
+    {
+      ok: false,
+      code: 'missing_flock_sector',
+      data: {
+        customerId: 'customer-a',
+        flockId: 'flock-unassigned',
+        message: {
+          en:
+            'This flock has no assigned poultry sector. Assign its sector in ChickMark before choosing a station.',
+          ar:
+            'هذا القطيع غير مرتبط بقطاع دواجن. عيّن القطاع في ChickMark قبل اختيار المحطة.',
+        },
+      },
+    },
   )
 })
 

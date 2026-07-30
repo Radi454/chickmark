@@ -5,6 +5,10 @@ import {
   type AgentToolResult,
 } from './agent_protocol.ts'
 import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
+import {
+  agentStationRegistry,
+  requireStationSchema,
+} from '../_shared/station_registry.generated.ts'
 
 export const MAX_AGENT_TOOL_CALLS_PER_TURN = 5
 export const MAX_AGENT_READ_ROWS = 100
@@ -50,10 +54,20 @@ export interface AgentToolEvidence {
   durationMs: number
   stateVersionBefore: number | null
   stateVersionAfter: number | null
+  toolSequence?: number
 }
 
 export interface AgentToolEvidencePort {
   record(event: AgentToolEvidence): void | Promise<void>
+}
+
+export interface AgentConversationContextPort {
+  recordSuccessfulTool(
+    call: AgentToolCall,
+    result: AgentToolResult,
+    conversationId: string,
+    expectedContextEpoch: number,
+  ): void | Promise<void>
 }
 
 export type AgentToolHandler = (
@@ -66,7 +80,9 @@ export interface AgentToolContext {
   activeVisitId: string | null
   conversationTurnId?: string
   conversationTurnIndex?: number
+  conversationContextEpoch?: number
   evidence: AgentToolEvidencePort
+  conversationContext?: AgentConversationContextPort
   handlers: Partial<Record<AgentToolName, AgentToolHandler>>
   now?: () => number
 }
@@ -77,6 +93,12 @@ const idRule: ArgumentRule = {
   maxLength: 160,
 }
 const schemaKeyRule: ArgumentRule = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 120,
+  enum: agentStationRegistry.stations.map((schema) => schema.schemaKey),
+}
+const measureKeyRule: ArgumentRule = {
   type: 'string',
   minLength: 1,
   maxLength: 120,
@@ -212,7 +234,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
         flockId: idRule,
         schemaKey: schemaKeyRule,
         schemaVersion: versionRule,
-        measureKey: schemaKeyRule,
+        measureKey: measureKeyRule,
         fromDate: dateRule,
         toDate: dateRule,
       },
@@ -392,6 +414,16 @@ export async function executeAgentTool(
     )
   }
 
+  if (unsupportedStationReference(call.arguments)) {
+    return finish(
+      call,
+      context,
+      startedAt,
+      unsupportedStationSchema(),
+      'rejected',
+    )
+  }
+
   if (!validArguments(call.arguments, definition.parameters)) {
     return finish(
       call,
@@ -441,6 +473,9 @@ export async function executeAgentTool(
           ...(context.conversationTurnIndex === undefined
             ? {}
             : { conversationTurnIndex: context.conversationTurnIndex }),
+          ...(call.sequence === undefined
+            ? {}
+            : { toolCallSequence: call.sequence }),
           toolCallId: call.id,
           arguments: Object.freeze({ ...call.arguments }),
         })
@@ -555,8 +590,47 @@ async function finish(
     durationMs: Math.max(0, (context.now ?? Date.now)() - startedAt),
     stateVersionBefore,
     stateVersionAfter,
+    toolSequence: call.sequence,
   })
+  if (safeResult.ok) {
+    await context.conversationContext?.recordSuccessfulTool(
+      call,
+      safeResult,
+      context.conversationId,
+      context.conversationContextEpoch ?? 0,
+    )
+  }
   return safeResult
+}
+
+function unsupportedStationReference(
+  args: Readonly<Record<string, unknown>>,
+): boolean {
+  if (
+    typeof args.schemaKey !== 'string' ||
+    typeof args.schemaVersion !== 'number'
+  ) return false
+  try {
+    requireStationSchema(args.schemaKey, args.schemaVersion)
+    return false
+  } catch (_) {
+    return true
+  }
+}
+
+function unsupportedStationSchema(): AgentToolResult {
+  return {
+    ok: false,
+    code: 'unsupported_station_schema',
+    data: {
+      message: {
+        en:
+          'This station schema is not supported. Choose a station from the available ChickMark station list.',
+        ar:
+          'مخطط هذه المحطة غير مدعوم. اختر محطة من قائمة محطات ChickMark المتاحة.',
+      },
+    },
+  }
 }
 
 function sanitize(value: unknown): Record<string, unknown> {
