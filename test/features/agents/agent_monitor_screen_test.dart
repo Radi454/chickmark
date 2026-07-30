@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/agent_intake_models.dart';
+import 'package:hatchaudit/data/models/agent_diagnostic_models.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
@@ -11,6 +12,7 @@ import 'package:hatchaudit/data/models/hatchery_agent_models.dart';
 import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/agent_intake_repository.dart';
+import 'package:hatchaudit/data/repositories/agent_diagnostic_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_agent_repository.dart';
 import 'package:hatchaudit/features/agents/providers/agent_monitor_provider.dart';
 import 'package:hatchaudit/features/agents/screens/agent_monitor_screen.dart';
@@ -51,6 +53,73 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Agent Monitor'), findsOneWidget);
+  });
+
+  testWidgets('Agent Monitor explains context, model, errors, and /new', (
+    tester,
+  ) async {
+    final diagnostics = _FakeAgentDiagnosticRepository(
+      health: const AgentHealthSnapshot(
+        conversationCount: 1,
+        failedToolCount: 1,
+        unassignedFlockCount: 1,
+      ),
+      conversations: [
+        AgentConversationDiagnostic(
+          id: 'conversation-1',
+          contextEpoch: 2,
+          updatedAt: DateTime.utc(2026, 7, 30),
+          staffName: 'Authorized Admin',
+          selectedCustomerId: 'customer-1',
+          selectedFlockId: 'flock-1',
+          customerName: 'Customer One',
+          flockName: 'Flock One',
+          latestTurnIndex: 3,
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          deliveryStatus: 'delivered',
+          latestToolErrorCode: 'missing_flock_sector',
+          latestToolErrorAt: DateTime.utc(2026, 7, 30, 9, 45),
+        ),
+      ],
+    );
+
+    await _pumpMonitor(
+      tester,
+      repository: _repositoryWithOneWarning(),
+      user: _adminUser(),
+      diagnosticRepository: diagnostics,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent health'), findsOneWidget);
+    expect(find.text('Selected customer: Customer One'), findsOneWidget);
+    expect(find.text('Selected flock: Flock One'), findsOneWidget);
+    expect(find.text('Selected audit: Not selected'), findsOneWidget);
+    expect(find.textContaining('no sector assignment'), findsOneWidget);
+    expect(find.textContaining('openai / gpt-4.1-mini'), findsOneWidget);
+    expect(
+      find.textContaining('Latest agent error: missing_flock_sector'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('2026-07-30 09:45 UTC'), findsOneWidget);
+    expect(find.textContaining('Send /new in Telegram'), findsOneWidget);
+  });
+
+  testWidgets('pending replies mark Agent Monitor as needing attention', (
+    tester,
+  ) async {
+    await _pumpMonitor(
+      tester,
+      repository: _repositoryWithOneWarning(),
+      user: _adminUser(),
+      diagnosticRepository: _FakeAgentDiagnosticRepository(
+        health: const AgentHealthSnapshot(pendingDeliveryCount: 1),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Needs attention'), findsOneWidget);
   });
 
   testWidgets('approved admin can pause Telegram ingestion', (tester) async {
@@ -524,6 +593,7 @@ Future<void> _pumpMonitor(
   required UserModel user,
   AgentIntakeRepository? intakeRepository,
   AgentIntakeApprovalPort? approvalPort,
+  AgentDiagnosticRepository? diagnosticRepository,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -540,6 +610,8 @@ Future<void> _pumpMonitor(
               repository: repository,
               intakeRepository:
                   intakeRepository ?? _FakeEmptyAgentIntakeRepository(),
+              diagnosticRepository:
+                  diagnosticRepository ?? _FakeAgentDiagnosticRepository(),
               approvalPort: approvalPort ?? _FakeApprovalPort(),
               currentUser: user,
             ),
@@ -552,6 +624,24 @@ Future<void> _pumpMonitor(
       ),
     ),
   );
+}
+
+class _FakeAgentDiagnosticRepository extends AgentDiagnosticRepository {
+  _FakeAgentDiagnosticRepository({
+    this.health = const AgentHealthSnapshot(),
+    this.conversations = const [],
+  });
+
+  final AgentHealthSnapshot health;
+  final List<AgentConversationDiagnostic> conversations;
+
+  @override
+  Future<AgentHealthSnapshot> loadHealth() async => health;
+
+  @override
+  Future<List<AgentConversationDiagnostic>> listConversationDiagnostics({
+    int limit = 25,
+  }) async => conversations;
 }
 
 class _FakeEmptyAgentIntakeRepository extends AgentIntakeRepository {

@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/agent_intake_models.dart';
+import '../../../data/models/agent_diagnostic_models.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/hatchery_agent_models.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/agent_intake_repository.dart';
+import '../../../data/repositories/agent_diagnostic_repository.dart';
 import '../../../data/repositories/hatchery_agent_repository.dart';
 import '../../../services/supabase/agent_intake_approval_service.dart';
 
@@ -13,18 +15,23 @@ class AgentMonitorProvider extends ChangeNotifier {
     required UserModel? currentUser,
     HatcheryAgentRepository? repository,
     AgentIntakeRepository? intakeRepository,
+    AgentDiagnosticRepository? diagnosticRepository,
     AgentIntakeApprovalPort? approvalPort,
   }) : _currentUser = currentUser,
        _repository = repository ?? HatcheryAgentRepository(),
        _intakeRepository = intakeRepository ?? AgentIntakeRepository(),
+       _diagnosticRepository =
+           diagnosticRepository ?? AgentDiagnosticRepository(),
        _approvalPort = approvalPort ?? AgentIntakeApprovalService();
 
   final UserModel? _currentUser;
   final HatcheryAgentRepository _repository;
   final AgentIntakeRepository _intakeRepository;
+  final AgentDiagnosticRepository _diagnosticRepository;
   final AgentIntakeApprovalPort _approvalPort;
 
   bool _isLoading = false;
+  bool _hasLoaded = false;
   String? _error;
   AgentSettings _settings = const AgentSettings();
   HatcheryAgentLinkCatalog _linkCatalog = const HatcheryAgentLinkCatalog();
@@ -35,8 +42,11 @@ class AgentMonitorProvider extends ChangeNotifier {
   List<AgentIntakeSession> _intakes = const [];
   AgentIntakeDetails? _selectedIntake;
   List<AuditSessionModel> _matchingAuditSessions = const [];
+  AgentHealthSnapshot _health = const AgentHealthSnapshot();
+  List<AgentConversationDiagnostic> _conversationDiagnostics = const [];
 
   bool get isLoading => _isLoading;
+  bool get hasLoaded => _hasLoaded;
   String? get error => _error;
   AgentSettings get settings => _settings;
   HatcheryAgentLinkCatalog get linkCatalog => _linkCatalog;
@@ -47,6 +57,9 @@ class AgentMonitorProvider extends ChangeNotifier {
   List<AgentIntakeSession> get intakes => _intakes;
   AgentIntakeDetails? get selectedIntake => _selectedIntake;
   List<AuditSessionModel> get matchingAuditSessions => _matchingAuditSessions;
+  AgentHealthSnapshot get health => _health;
+  List<AgentConversationDiagnostic> get conversationDiagnostics =>
+      _conversationDiagnostics;
   bool get canAccessMonitor =>
       _currentUser?.isApproved == true && _currentUser?.isAdmin == true;
 
@@ -79,10 +92,18 @@ class AgentMonitorProvider extends ChangeNotifier {
       await _loadIntakes();
     } catch (_) {
       _error ??= 'Unable to load conversational intake data. Please try again.';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
+    try {
+      _health = await _diagnosticRepository.loadHealth();
+      _conversationDiagnostics = List.unmodifiable(
+        await _diagnosticRepository.listConversationDiagnostics(),
+      );
+    } catch (_) {
+      _error ??= 'Unable to load agent health data. Please try again.';
+    }
+    _isLoading = false;
+    _hasLoaded = true;
+    notifyListeners();
   }
 
   Future<void> selectBatch(String batchId) async {

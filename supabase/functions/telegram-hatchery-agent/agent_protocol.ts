@@ -44,6 +44,7 @@ export interface AgentToolCall {
   id: string
   name: string
   arguments: Record<string, unknown>
+  sequence?: number
 }
 
 export interface AgentToolExecutionInput {
@@ -52,6 +53,7 @@ export interface AgentToolExecutionInput {
   activeVisitId: string | null
   conversationTurnId?: string
   conversationTurnIndex?: number
+  toolCallSequence?: number
   toolCallId?: string
   arguments: Readonly<Record<string, unknown>>
 }

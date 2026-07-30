@@ -1574,70 +1574,9 @@ Future<void> _createUnifiedAgentHarnessTables(
   DatabaseExecutor db, {
   bool createGuards = true,
 }) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS agent_conversations (
-    id TEXT PRIMARY KEY,
-    staffLinkId TEXT NOT NULL,
-    telegramChatId TEXT NOT NULL,
-    stateVersion INTEGER NOT NULL DEFAULT 1 CHECK (stateVersion >= 1),
-    pendingActionJson TEXT,
-    activeVisitId TEXT,
-    createdAt TEXT NOT NULL,
-    updatedAt TEXT NOT NULL,
-    syncStatus TEXT NOT NULL DEFAULT 'synced',
-    dirtyAt TEXT,
-    lastSyncedAt TEXT,
-    syncError TEXT,
-    UNIQUE (staffLinkId, telegramChatId),
-    FOREIGN KEY (staffLinkId)
-      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
-    FOREIGN KEY (activeVisitId)
-      REFERENCES agent_intake_visits(id) ON DELETE SET NULL
-  )''');
-
-  await db.execute('''CREATE TABLE IF NOT EXISTS agent_conversation_turns (
-    id TEXT PRIMARY KEY,
-    conversationId TEXT NOT NULL,
-    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-    telegramUpdateId TEXT UNIQUE,
-    telegramMessageId TEXT,
-    text TEXT NOT NULL,
-    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
-    model TEXT,
-    attachmentJson TEXT,
-    deliveryStatus TEXT,
-    createdAt TEXT NOT NULL,
-    syncStatus TEXT NOT NULL DEFAULT 'synced',
-    dirtyAt TEXT,
-    lastSyncedAt TEXT,
-    syncError TEXT,
-    FOREIGN KEY (conversationId)
-      REFERENCES agent_conversations(id) ON DELETE CASCADE
-  )''');
-
-  await db.execute('''CREATE TABLE IF NOT EXISTS agent_tool_events (
-    id TEXT PRIMARY KEY,
-    conversationTurnId TEXT NOT NULL,
-    toolCallId TEXT NOT NULL,
-    toolName TEXT NOT NULL,
-    argumentsJson TEXT NOT NULL DEFAULT '{}',
-    resultJson TEXT,
-    status TEXT NOT NULL CHECK (status IN (
-      'requested', 'succeeded', 'rejected', 'failed'
-    )),
-    durationMs INTEGER CHECK (durationMs IS NULL OR durationMs >= 0),
-    stateVersionBefore INTEGER
-      CHECK (stateVersionBefore IS NULL OR stateVersionBefore >= 1),
-    stateVersionAfter INTEGER
-      CHECK (stateVersionAfter IS NULL OR stateVersionAfter >= 1),
-    createdAt TEXT NOT NULL,
-    syncStatus TEXT NOT NULL DEFAULT 'synced',
-    dirtyAt TEXT,
-    lastSyncedAt TEXT,
-    syncError TEXT,
-    UNIQUE (conversationTurnId, toolCallId),
-    FOREIGN KEY (conversationTurnId)
-      REFERENCES agent_conversation_turns(id) ON DELETE CASCADE
-  )''');
+  await _createAgentConversationsTable(db);
+  await _createAgentConversationTurnsTable(db);
+  await _createAgentToolEventsTable(db);
 
   await db.execute('''CREATE TABLE IF NOT EXISTS agent_intake_visits (
     id TEXT PRIMARY KEY,
@@ -1678,8 +1617,19 @@ Future<void> _createUnifiedAgentHarnessTables(
     'ON agent_conversation_turns (conversationId, createdAt, id)',
   );
   await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_conversation_turns_order '
+    'ON agent_conversation_turns '
+    '(conversationId, contextEpoch, direction, turnIndex) '
+    'WHERE turnIndex IS NOT NULL',
+  );
+  await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_agent_tool_events_turn '
     'ON agent_tool_events (conversationTurnId, createdAt, id)',
+  );
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tool_events_sequence '
+    'ON agent_tool_events (conversationTurnId, toolSequence) '
+    'WHERE toolSequence IS NOT NULL',
   );
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_agent_intake_visits_conversation '
@@ -1710,6 +1660,107 @@ Future<void> _createUnifiedAgentHarnessTables(
   );
 
   if (createGuards) await _createUnifiedAgentHarnessGuards(db);
+}
+
+Future<void> _createAgentConversationsTable(
+  DatabaseExecutor db, {
+  String tableName = 'agent_conversations',
+}) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
+    id TEXT PRIMARY KEY,
+    staffLinkId TEXT NOT NULL,
+    telegramChatId TEXT NOT NULL,
+    stateVersion INTEGER NOT NULL DEFAULT 1 CHECK (stateVersion >= 1),
+    contextEpoch INTEGER NOT NULL DEFAULT 1 CHECK (contextEpoch >= 1),
+    selectedCustomerId TEXT,
+    selectedFlockId TEXT,
+    selectedAuditId TEXT,
+    contextUpdatedAt TEXT,
+    pendingActionJson TEXT,
+    activeVisitId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (staffLinkId, telegramChatId),
+    FOREIGN KEY (staffLinkId)
+      REFERENCES telegram_staff_links(id) ON DELETE CASCADE,
+    FOREIGN KEY (selectedCustomerId)
+      REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (selectedFlockId)
+      REFERENCES flocks(id) ON DELETE SET NULL,
+    FOREIGN KEY (selectedAuditId)
+      REFERENCES audit_sessions(id) ON DELETE SET NULL,
+    FOREIGN KEY (activeVisitId)
+      REFERENCES agent_intake_visits(id) ON DELETE SET NULL
+  )''');
+}
+
+Future<void> _createAgentConversationTurnsTable(
+  DatabaseExecutor db, {
+  String tableName = 'agent_conversation_turns',
+  String conversationsTable = 'agent_conversations',
+}) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
+    id TEXT PRIMARY KEY,
+    conversationId TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    telegramUpdateId TEXT UNIQUE,
+    telegramMessageId TEXT,
+    turnIndex INTEGER CHECK (turnIndex IS NULL OR turnIndex >= 1),
+    contextEpoch INTEGER NOT NULL DEFAULT 1 CHECK (contextEpoch >= 1),
+    text TEXT NOT NULL,
+    language TEXT NOT NULL CHECK (language IN ('en', 'ar', 'mixed')),
+    provider TEXT,
+    model TEXT,
+    providerResponseId TEXT,
+    replyToTurnId TEXT,
+    attachmentJson TEXT,
+    deliveryStatus TEXT,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (conversationId)
+      REFERENCES $conversationsTable(id) ON DELETE CASCADE,
+    FOREIGN KEY (replyToTurnId)
+      REFERENCES $tableName(id) ON DELETE SET NULL
+  )''');
+}
+
+Future<void> _createAgentToolEventsTable(
+  DatabaseExecutor db, {
+  String tableName = 'agent_tool_events',
+  String turnsTable = 'agent_conversation_turns',
+}) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
+    id TEXT PRIMARY KEY,
+    conversationTurnId TEXT NOT NULL,
+    toolCallId TEXT NOT NULL,
+    toolName TEXT NOT NULL,
+    toolSequence INTEGER CHECK (toolSequence IS NULL OR toolSequence >= 1),
+    argumentsJson TEXT NOT NULL DEFAULT '{}',
+    resultJson TEXT,
+    status TEXT NOT NULL CHECK (status IN (
+      'requested', 'succeeded', 'rejected', 'failed'
+    )),
+    durationMs INTEGER CHECK (durationMs IS NULL OR durationMs >= 0),
+    stateVersionBefore INTEGER
+      CHECK (stateVersionBefore IS NULL OR stateVersionBefore >= 1),
+    stateVersionAfter INTEGER
+      CHECK (stateVersionAfter IS NULL OR stateVersionAfter >= 1),
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'synced',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (conversationTurnId, toolCallId),
+    FOREIGN KEY (conversationTurnId)
+      REFERENCES $turnsTable(id) ON DELETE CASCADE
+  )''');
 }
 
 Future<void> _createUnifiedAgentHarnessGuards(DatabaseExecutor db) async {

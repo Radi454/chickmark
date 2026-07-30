@@ -222,22 +222,82 @@ Deno.test('authorized text persists one unified conversation evidence chain', as
       direction: turn.direction,
       text: turn.text,
       deliveryStatus: turn.delivery_status,
+      turnIndex: turn.turn_index,
+      replyToTurnId: turn.reply_to_turn_id ?? null,
     })),
     [
       {
         direction: 'inbound',
         text: 'سجل لي ملاحظة',
         deliveryStatus: 'received',
+        turnIndex: 1,
+        replyToTurnId: null,
       },
       {
         direction: 'outbound',
         text: 'تم حفظ ملاحظتك في المحادثة.',
         deliveryStatus: 'pending',
+        turnIndex: 1,
+        replyToTurnId: 'generated-2',
       },
     ],
   )
   assertEquals(client.inserts.telegram_agent_update_receipts?.length, 1)
   assertEquals(client.inserts.agent_submissions, undefined)
+})
+
+Deno.test('explicit new conversation control clears context without model access', async () => {
+  let modelCalls = 0
+  const messages: string[] = []
+  const client = new FakeAdmin(undefined, {
+    agent_conversations: [{
+      id: 'conversation-a',
+      staff_link_id: 'staff-a',
+      telegram_chat_id: '123',
+      state_version: 5,
+      context_epoch: 3,
+      selected_customer_id: 'customer-a',
+      selected_flock_id: 'flock-a',
+      selected_audit_id: 'audit-a',
+      pending_action_json: { kind: 'station_intake' },
+      active_visit_id: 'visit-a',
+      created_at: '2026-07-28T10:00:00.000Z',
+      updated_at: '2026-07-28T11:00:00.000Z',
+    }],
+  })
+
+  const response = await handleTelegramUpdate(
+    request('/new', 275),
+    dependencies({
+      client,
+      messages,
+      run: () => {
+        modelCalls += 1
+        return Promise.resolve({
+          status: 'invalid_model_output',
+          toolCallCount: 0,
+        })
+      },
+    }),
+  )
+
+  assertEquals((await response.json()).status, 'conversation_reset')
+  assertEquals(modelCalls, 0)
+  assertEquals(messages, [
+    'بدأت محادثة جديدة وحُفظ السجل السابق للمراجعة.\n' +
+    'A new conversation has started. Previous evidence was preserved.',
+  ])
+  assertEquals(client.updates.agent_conversations, [{
+    context_epoch: 4,
+    state_version: 6,
+    pending_action_json: null,
+    active_visit_id: null,
+    selected_customer_id: null,
+    selected_flock_id: null,
+    selected_audit_id: null,
+    context_updated_at: '2026-07-28T12:00:00.000Z',
+    updated_at: '2026-07-28T12:00:00.000Z',
+  }])
 })
 
 Deno.test('active intake and legacy open questions still reach the unified runtime', async () => {

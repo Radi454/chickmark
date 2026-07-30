@@ -52,6 +52,10 @@ import {
   createSupabaseAgentAuditStore,
 } from './agent_audit_tools.ts'
 import { type AgentToolEvidence, executeAgentTool } from './agent_tools.ts'
+import {
+  type AgentConversationContextClient,
+  createSupabaseAgentConversationContextStore,
+} from './agent_conversation_context.ts'
 
 type SourceKind = 'text' | 'image' | 'pdf' | 'spreadsheet' | 'file'
 
@@ -419,6 +423,9 @@ async function handleUnifiedAgentTurn(params: {
   newId: () => string
 }): Promise<Response> {
   const source = describeSource(params.message)
+  const text = source?.text ??
+    nullableString(params.message.text ?? params.message.caption) ?? ''
+  const resetRequested = isNewConversationCommand(text)
   let fileData: string | null = null
   let mimeType = source?.mimeType ?? null
   if (source?.fileId) {
@@ -465,8 +472,13 @@ async function handleUnifiedAgentTurn(params: {
       staff_link_id: params.staffLinkId,
       telegram_chat_id: params.chatId,
       state_version: 1,
+      context_epoch: 1,
       pending_action_json: null,
       active_visit_id: null,
+      selected_customer_id: null,
+      selected_flock_id: null,
+      selected_audit_id: null,
+      context_updated_at: params.timestamp,
       created_at: params.timestamp,
       updated_at: params.timestamp,
     }
@@ -490,6 +502,10 @@ async function handleUnifiedAgentTurn(params: {
   if (!conversationId) {
     return json(500, { error: 'Agent conversation is invalid.' })
   }
+  const previousContextEpoch = positiveInteger(conversation.context_epoch) ?? 1
+  const contextEpoch = resetRequested
+    ? previousContextEpoch + 1
+    : previousContextEpoch
 
   const historyResult = await params.deps.adminClient
     .from('agent_conversation_turns')
@@ -497,6 +513,7 @@ async function handleUnifiedAgentTurn(params: {
       'id, direction, text, turn_index, created_at',
     )
     .eq('conversation_id', conversationId)
+    .eq('context_epoch', contextEpoch)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(40)
@@ -511,8 +528,6 @@ async function handleUnifiedAgentTurn(params: {
   }, 0)
   const turnIndex = latestInboundIndex + 1
   const inboundTurnId = params.newId()
-  const text = source?.text ??
-    nullableString(params.message.text ?? params.message.caption) ?? ''
   const inboundInsert = await params.deps.adminClient
     .from('agent_conversation_turns')
     .insert({
@@ -520,6 +535,7 @@ async function handleUnifiedAgentTurn(params: {
       conversation_id: conversationId,
       direction: 'inbound',
       turn_index: turnIndex,
+      context_epoch: contextEpoch,
       telegram_update_id: params.updateId,
       telegram_message_id: params.messageId,
       text,
@@ -567,6 +583,78 @@ async function handleUnifiedAgentTurn(params: {
     }
   }
 
+  if (resetRequested) {
+    const nextStateVersion =
+      (positiveInteger(conversation.state_version) ?? 1) + 1
+    const resetUpdate = await params.deps.adminClient
+      .from('agent_conversations')
+      .update({
+        context_epoch: contextEpoch,
+        state_version: nextStateVersion,
+        pending_action_json: null,
+        active_visit_id: null,
+        selected_customer_id: null,
+        selected_flock_id: null,
+        selected_audit_id: null,
+        context_updated_at: params.timestamp,
+        updated_at: params.timestamp,
+      })
+      .eq('id', conversationId)
+    if (resetUpdate.error) {
+      return json(500, { error: 'Could not reset agent conversation.' })
+    }
+    const reply = 'بدأت محادثة جديدة وحُفظ السجل السابق للمراجعة.\n' +
+      'A new conversation has started. Previous evidence was preserved.'
+    const outboundTurnId = params.newId()
+    const outboundInsert = await params.deps.adminClient
+      .from('agent_conversation_turns')
+      .insert({
+        id: outboundTurnId,
+        conversation_id: conversationId,
+        direction: 'outbound',
+        turn_index: turnIndex,
+        context_epoch: contextEpoch,
+        reply_to_turn_id: inboundTurnId,
+        telegram_update_id: null,
+        telegram_message_id: null,
+        text: reply,
+        language: 'mixed',
+        provider: null,
+        model: null,
+        provider_response_id: null,
+        attachment_json: null,
+        delivery_status: 'pending',
+        created_at: params.timestamp,
+      })
+    if (outboundInsert.error) {
+      return json(500, { error: 'Could not store agent reset reply.' })
+    }
+    try {
+      await params.deps.sendTelegramMessage(params.chatId, reply)
+    } catch (_) {
+      await params.deps.adminClient
+        .from('agent_conversation_turns')
+        .update({ delivery_status: 'failed' })
+        .eq('id', outboundTurnId)
+      return json(200, {
+        accepted: true,
+        conversational: true,
+        agent: true,
+        status: 'delivery_failed',
+      })
+    }
+    await params.deps.adminClient
+      .from('agent_conversation_turns')
+      .update({ delivery_status: 'delivered' })
+      .eq('id', outboundTurnId)
+    return json(200, {
+      accepted: true,
+      conversational: true,
+      agent: true,
+      status: 'conversation_reset',
+    })
+  }
+
   const activeVisitId = nullableString(conversation.active_visit_id)
   let activeIntake: Record<string, unknown> | null = null
   if (activeVisitId) {
@@ -590,6 +678,7 @@ async function handleUnifiedAgentTurn(params: {
     activeVisitId,
     conversationTurnId: inboundTurnId,
     conversationTurnIndex: turnIndex,
+    conversationContextEpoch: contextEpoch,
     text,
     attachment: source?.fileId
       ? {
@@ -633,12 +722,16 @@ async function handleUnifiedAgentTurn(params: {
       id: outboundTurnId,
       conversation_id: conversationId,
       direction: 'outbound',
-      turn_index: null,
+      turn_index: turnIndex,
+      context_epoch: contextEpoch,
+      reply_to_turn_id: inboundTurnId,
       telegram_update_id: null,
       telegram_message_id: null,
       text: result.reply,
       language: detectAgentLanguage(result.reply),
-      model: null,
+      provider: result.provider ?? null,
+      model: result.model ?? null,
+      provider_response_id: result.providerResponseId,
       attachment_json: null,
       delivery_status: 'pending',
       created_at: params.timestamp,
@@ -702,6 +795,7 @@ async function recordAgentToolEvidence(
     duration_ms: event.durationMs,
     state_version_before: event.stateVersionBefore,
     state_version_after: event.stateVersionAfter,
+    tool_sequence: event.toolSequence ?? null,
     created_at: new Date().toISOString(),
   })
   if (result.error) throw new Error('Could not store agent tool evidence')
@@ -711,6 +805,10 @@ function detectAgentLanguage(value: string): 'en' | 'ar' | 'mixed' {
   const arabic = /[\u0600-\u06ff]/u.test(value)
   const latin = /[A-Za-z]/u.test(value)
   return arabic && latin ? 'mixed' : arabic ? 'ar' : 'en'
+}
+
+function isNewConversationCommand(value: string): boolean {
+  return /^\/(?:new|reset)(?:@[A-Za-z0-9_]{5,32})?$/i.test(value.trim())
 }
 
 function jsonObjectOrNull(value: unknown): Record<string, unknown> | null {
@@ -1091,6 +1189,9 @@ export function serveTelegramWebhook(
   )
   const handlers = createUnifiedAgentToolHandlers(adminClient)
   const provider = createResponsesAgentProvider(aiConfig)
+  const conversationContext = createSupabaseAgentConversationContextStore(
+    adminClient as unknown as AgentConversationContextClient,
+  )
   return handleTelegramUpdate(request, {
     expectedTelegramSecret,
     adminClient,
@@ -1106,7 +1207,9 @@ export function serveTelegramWebhook(
             activeVisitId: input.activeVisitId,
             conversationTurnId: input.conversationTurnId,
             conversationTurnIndex: input.conversationTurnIndex,
+            conversationContextEpoch: input.conversationContextEpoch,
             handlers,
+            conversationContext,
             evidence: {
               record: (event) =>
                 recordAgentToolEvidence(

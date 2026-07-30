@@ -24,10 +24,10 @@ void main() {
     }
   });
 
-  test('fresh v55 database preserves Telegram hatchery agent tables', () async {
+  test('fresh v56 database preserves Telegram hatchery agent tables', () async {
     final db = await DatabaseHelper().db;
 
-    expect(await _userVersion(db), 55);
+    expect(await _userVersion(db), 56);
     expect(
       await _tableNames(db),
       containsAll(const <String>[

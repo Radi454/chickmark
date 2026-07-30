@@ -32,6 +32,7 @@ export interface AgentTurnInput {
   activeVisitId: string | null
   conversationTurnId: string
   conversationTurnIndex: number
+  conversationContextEpoch: number
   text: string
   attachment?: AgentTurnAttachment | null
   recentTurns: readonly AgentHistoryTurn[]
@@ -44,6 +45,8 @@ export type AgentTurnResult =
     status: 'replied'
     reply: string
     providerResponseId: string
+    provider?: string
+    model?: string
     toolCallCount: number
   }
   | {
@@ -127,6 +130,8 @@ export async function runAgentTurn(
         status: 'replied',
         reply: normalizeTelegramReply(reply).slice(0, MAX_REPLY_CHARS),
         providerResponseId: response.id,
+        provider: response.provider,
+        model: response.model,
         toolCallCount,
       }
     }
@@ -154,7 +159,10 @@ export async function runAgentTurn(
       } else {
         try {
           toolResult = await withTimeout(
-            dependencies.executeTool(parsed.call),
+            dependencies.executeTool({
+              ...parsed.call,
+              sequence: toolCallCount,
+            }),
             Math.max(1, deadline - Date.now()),
             abortController,
           )

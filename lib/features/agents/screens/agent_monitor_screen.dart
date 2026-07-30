@@ -6,6 +6,7 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../data/models/customer_model.dart';
+import '../../../data/models/agent_diagnostic_models.dart';
 import '../../../data/models/flock_model.dart';
 import '../../../data/models/hatchery_agent_models.dart';
 import '../../../data/repositories/hatchery_agent_repository.dart';
@@ -35,6 +36,10 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
     if (user?.isApproved != true ||
         user?.isAdmin != true ||
         !provider.canAccessMonitor) {
+      return;
+    }
+    if (provider.hasLoaded) {
+      _loadRequested = true;
       return;
     }
     _loadRequested = true;
@@ -95,6 +100,10 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
                   message: provider.error!,
                   onRetry: provider.isLoading ? null : provider.load,
                 ),
+              _AgentHealthPanel(
+                health: provider.health,
+                conversations: provider.conversationDiagnostics,
+              ),
               if (provider.pendingStaffLinks.isNotEmpty)
                 _PendingStaffAccessPanel(
                   links: provider.pendingStaffLinks,
@@ -140,6 +149,214 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
         provider: provider,
       ),
     );
+  }
+}
+
+class _AgentHealthPanel extends StatelessWidget {
+  const _AgentHealthPanel({required this.health, required this.conversations});
+
+  final AgentHealthSnapshot health;
+  final List<AgentConversationDiagnostic> conversations;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = conversations.firstOrNull;
+    return AppCard(
+      key: const ValueKey('agent-health-panel'),
+      margin: const EdgeInsets.fromLTRB(
+        AppSizes.spaceMd,
+        AppSizes.spaceMd,
+        AppSizes.spaceMd,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                health.hasErrors
+                    ? Icons.health_and_safety_outlined
+                    : Icons.health_and_safety,
+                color: health.hasErrors
+                    ? AppColors.statusWarning
+                    : AppColors.statusGood,
+              ),
+              const SizedBox(width: AppSizes.spaceSm),
+              const Expanded(
+                child: Text('Agent health', style: AppTextStyles.sectionTitle),
+              ),
+              Text(
+                health.hasErrors ? 'Needs attention' : 'Healthy',
+                style: AppTextStyles.caption.copyWith(
+                  color: health.hasErrors
+                      ? AppColors.statusWarning
+                      : AppColors.statusGood,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          Wrap(
+            spacing: AppSizes.spaceSm,
+            runSpacing: AppSizes.spaceXs,
+            children: [
+              _HealthMetric(
+                label: 'Conversations',
+                value: health.conversationCount,
+              ),
+              _HealthMetric(
+                label: 'Delivery errors',
+                value: health.failedDeliveryCount,
+                isError: health.failedDeliveryCount > 0,
+              ),
+              _HealthMetric(
+                label: 'Pending replies',
+                value: health.pendingDeliveryCount,
+              ),
+              _HealthMetric(
+                label: 'Tool errors',
+                value: health.failedToolCount,
+                isError: health.failedToolCount > 0,
+              ),
+              _HealthMetric(
+                label: 'Flocks missing sector',
+                value: health.unassignedFlockCount,
+                isError: health.unassignedFlockCount > 0,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          if (latest == null)
+            Text(
+              'No synchronized conversations yet.',
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            )
+          else
+            _LatestConversationContext(diagnostic: latest),
+          const SizedBox(height: AppSizes.spaceXs),
+          Text(
+            'Send /new in Telegram to clear the selected context and start '
+            'a new conversation. Earlier evidence is retained.',
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthMetric extends StatelessWidget {
+  const _HealthMetric({
+    required this.label,
+    required this.value,
+    this.isError = false,
+  });
+
+  final String label;
+  final int value;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isError ? AppColors.statusError : AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceSm,
+        vertical: AppSizes.spaceXs,
+      ),
+      decoration: BoxDecoration(
+        color: isError ? AppColors.statusErrorBg : AppColors.background,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+      ),
+      child: Text(
+        '$label: $value',
+        style: AppTextStyles.caption.copyWith(color: color),
+      ),
+    );
+  }
+}
+
+class _LatestConversationContext extends StatelessWidget {
+  const _LatestConversationContext({required this.diagnostic});
+
+  final AgentConversationDiagnostic diagnostic;
+
+  @override
+  Widget build(BuildContext context) {
+    final model = [
+      diagnostic.provider,
+      diagnostic.model,
+    ].whereType<String>().join(' / ');
+    return Container(
+      key: const ValueKey('agent-latest-context'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSizes.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            diagnostic.staffName ?? 'Unknown Telegram user',
+            style: AppTextStyles.subtitle,
+          ),
+          Text(
+            'Selected customer: ${_contextValue(diagnostic.selectedCustomerId, diagnostic.customerName, 'customer')}',
+            style: AppTextStyles.caption,
+          ),
+          Text(
+            'Selected flock: ${_contextValue(diagnostic.selectedFlockId, diagnostic.flockName, 'flock')}',
+            style: AppTextStyles.caption,
+          ),
+          Text(
+            'Selected audit: ${_contextValue(diagnostic.selectedAuditId, diagnostic.auditLabel, 'audit')}',
+            style: AppTextStyles.caption,
+          ),
+          if (diagnostic.hasUnassignedSector)
+            Text(
+              'This flock has no sector assignment. Assign a sector before '
+              'starting station intake.',
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.statusError,
+              ),
+            ),
+          Text(
+            diagnostic.latestTurnIndex == null
+                ? 'No assistant reply recorded.'
+                : 'Latest reply #${diagnostic.latestTurnIndex}: '
+                      '${model.isEmpty ? 'model metadata unavailable' : model}'
+                      ' · ${diagnostic.deliveryStatus ?? 'delivery unknown'}',
+            style: AppTextStyles.caption,
+          ),
+          if (diagnostic.latestToolErrorCode case final code?)
+            Text(
+              'Latest agent error: $code'
+              '${diagnostic.latestToolErrorAt == null ? '' : ' · ${_utcMinute(diagnostic.latestToolErrorAt!)}'}',
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.statusError,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _contextValue(String? selectedId, String? label, String kind) {
+    if (selectedId == null) return 'Not selected';
+    return label ?? 'Missing $kind record';
+  }
+
+  String _utcMinute(DateTime value) {
+    final iso = value.toUtc().toIso8601String();
+    return '${iso.substring(0, 10)} ${iso.substring(11, 16)} UTC';
   }
 }
 
@@ -803,10 +1020,11 @@ class _HatcheryWorkspace extends StatelessWidget {
           );
         }
 
+        final listHeight = (constraints.maxHeight * 0.4).clamp(72.0, 230.0);
         return Column(
           children: [
             SizedBox(
-              height: 230,
+              height: listHeight,
               child: _BatchList(
                 provider: provider,
                 padding: const EdgeInsets.fromLTRB(

@@ -165,6 +165,78 @@ Deno.test('gateway injects enforced scope and validates bounded read arguments',
   )
 })
 
+Deno.test('gateway rejects station schemas outside the generated registry', async () => {
+  let handlerCalls = 0
+  const context = {
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    evidence: { record: () => undefined },
+    handlers: {
+      load_station_schema: () => {
+        handlerCalls += 1
+        return Promise.resolve({
+          ok: true,
+          code: 'ok',
+          data: { schemaKey: 'not.a.real.station' },
+        })
+      },
+    },
+  }
+
+  assertEquals(
+    await executeAgentTool(
+      {
+        id: 'call-unsupported-key',
+        name: 'load_station_schema',
+        arguments: {
+          schemaKey: 'not.a.real.station',
+          schemaVersion: 1,
+        },
+      },
+      context,
+    ),
+    {
+      ok: false,
+      code: 'unsupported_station_schema',
+      data: {
+        message: {
+          en:
+            'This station schema is not supported. Choose a station from the available ChickMark station list.',
+          ar:
+            'مخطط هذه المحطة غير مدعوم. اختر محطة من قائمة محطات ChickMark المتاحة.',
+        },
+      },
+    },
+  )
+  assertEquals(
+    await executeAgentTool(
+      {
+        id: 'call-unsupported-version',
+        name: 'load_station_schema',
+        arguments: {
+          schemaKey: 'chicks.pasgar',
+          schemaVersion: 99,
+        },
+      },
+      context,
+    ),
+    {
+      ok: false,
+      code: 'unsupported_station_schema',
+      data: {
+        message: {
+          en:
+            'This station schema is not supported. Choose a station from the available ChickMark station list.',
+          ar:
+            'مخطط هذه المحطة غير مدعوم. اختر محطة من قائمة محطات ChickMark المتاحة.',
+        },
+      },
+    },
+  )
+  assertEquals(handlerCalls, 0)
+})
+
 Deno.test('audit option selection accepts only integer positions one through twenty', async () => {
   const positions: unknown[] = []
   const selectionHandler = (

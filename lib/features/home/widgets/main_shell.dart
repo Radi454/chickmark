@@ -54,6 +54,26 @@ List<String> mainShellTabKeysForUser(UserModel? user) {
       .toList(growable: false);
 }
 
+@visibleForTesting
+Widget buildMainShellNavigationDrawerForTest({
+  required List<String> labels,
+  ValueChanged<int>? onDestinationSelected,
+}) {
+  return _ShellNavigationDrawer(
+    destinations: labels
+        .map(
+          (label) => _ShellDestination(
+            label: label,
+            icon: Icons.circle_outlined,
+            selectedIcon: Icons.circle,
+          ),
+        )
+        .toList(growable: false),
+    currentIndex: 0,
+    onDestinationSelected: onDestinationSelected ?? (_) {},
+  );
+}
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -373,14 +393,21 @@ class _ShellNavigationDrawer extends StatelessWidget {
             children: [
               const _NavigationHeader(),
               const SizedBox(height: 18),
-              ...List.generate(destinations.length, (index) {
-                final destination = destinations[index];
-                return _NavigationItem(
-                  destination: destination,
-                  isSelected: index == currentIndex,
-                  onTap: () => onDestinationSelected(index),
-                );
-              }),
+              Expanded(
+                child: ListView.builder(
+                  key: const ValueKey('main-shell-drawer-list'),
+                  padding: EdgeInsets.zero,
+                  itemCount: destinations.length,
+                  itemBuilder: (context, index) {
+                    final destination = destinations[index];
+                    return _NavigationItem(
+                      destination: destination,
+                      isSelected: index == currentIndex,
+                      onTap: () => onDestinationSelected(index),
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),

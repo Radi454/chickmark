@@ -12,6 +12,8 @@ export interface AgentModelRequest {
 export interface AgentModelResponse {
   id: string
   output: AgentModelOutputItem[]
+  provider?: AgentProviderName
+  model?: string
 }
 
 export interface AgentProvider {
@@ -44,6 +46,7 @@ const OPENAI_ENDPOINT = 'https://api.openai.com/v1/responses'
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/responses'
 const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini'
 const FREE_OPENROUTER_MODEL = 'openrouter/free'
+const MAX_DIAGNOSTIC_METADATA_CHARS = 160
 
 export function createResponsesAgentProvider(
   config: ResponsesAgentProviderConfig,
@@ -83,6 +86,7 @@ export function createResponsesAgentProvider(
         })
 
       let response: Response
+      let actualModel = requestedModel
       try {
         response = await send(requestedModel)
         if (
@@ -90,7 +94,8 @@ export function createResponsesAgentProvider(
           response.status === 402 &&
           requestedModel !== FREE_OPENROUTER_MODEL
         ) {
-          response = await send(FREE_OPENROUTER_MODEL)
+          actualModel = FREE_OPENROUTER_MODEL
+          response = await send(actualModel)
         }
       } catch (error) {
         if (options?.signal?.aborted) throw error
@@ -109,12 +114,16 @@ export function createResponsesAgentProvider(
       } catch (_) {
         throw new AgentProviderError('Agent provider returned invalid JSON')
       }
-      return parseResponse(payload)
+      return parseResponse(payload, config.provider, actualModel)
     },
   }
 }
 
-function parseResponse(payload: unknown): AgentModelResponse {
+function parseResponse(
+  payload: unknown,
+  provider: AgentProviderName,
+  model: string,
+): AgentModelResponse {
   if (!isRecord(payload) || typeof payload.id !== 'string') {
     throw new AgentProviderError('Agent provider response is malformed')
   }
@@ -122,9 +131,17 @@ function parseResponse(payload: unknown): AgentModelResponse {
     throw new AgentProviderError('Agent provider output is malformed')
   }
   return {
-    id: payload.id,
+    id: boundedMetadata(payload.id),
     output: payload.output.map((item) => structuredClone(item)),
+    provider,
+    model: typeof payload.model === 'string' && payload.model.trim().length > 0
+      ? boundedMetadata(payload.model.trim())
+      : boundedMetadata(model),
   }
+}
+
+function boundedMetadata(value: string): string {
+  return value.slice(0, MAX_DIAGNOSTIC_METADATA_CHARS)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
