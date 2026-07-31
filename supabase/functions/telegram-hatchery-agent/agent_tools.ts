@@ -192,15 +192,13 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
     ),
     definition(
       'select_audit_option',
-      'Select one numbered audit from the latest persisted audit options in this conversation.',
+      'Select one numbered audit from the latest persisted audit options in this conversation. Use position 1 for an affirmative confirmation after offering the only displayed option.',
       { position: auditPositionRule },
       ['position'],
     ),
     definition(
       'get_audit_summary',
-      'Load the verified summary of one selected authorized audit.',
-      { auditId: idRule },
-      ['auditId'],
+      'Reload the verified summary of the audit already selected in the server conversation context. Never supply or reconstruct an audit ID.',
     ),
     definition(
       'get_selected_audit_breakouts',

@@ -418,21 +418,46 @@ Deno.test('audit list denies a flock outside the requested customer', async () =
   )
 })
 
-Deno.test('unknown and out-of-scope audit IDs have indistinguishable denials', async () => {
-  const store = fixtureStore()
-  const unknown = await call(store, 'get_audit_summary', { auditId: 'unknown' })
-  const customerB = await call(store, 'get_audit_summary', {
-    auditId: 'audit-customer-b',
-  })
+Deno.test('unknown and out-of-scope selected audits have indistinguishable denials', async () => {
+  const unknownStore = fixtureStore()
+  unknownStore.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'unknown',
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+    },
+  }
+  const customerBStore = fixtureStore()
+  customerBStore.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'audit-customer-b',
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+    },
+  }
+  const unknown = await call(unknownStore, 'get_audit_summary', {})
+  const customerB = await call(customerBStore, 'get_audit_summary', {})
   assertEquals(unknown, { ok: false, code: 'scope_denied', data: null })
   assertEquals(customerB, unknown)
 })
 
-Deno.test('audit summary returns verified identity and decoded detail', async () => {
+Deno.test('audit summary loads the persisted selection without a model-supplied ID', async () => {
+  const store = fixtureStore()
+  store.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'audit-completed',
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+    },
+  }
   assertEquals(
-    await call(fixtureStore(), 'get_audit_summary', {
-      auditId: 'audit-completed',
-    }),
+    await call(store, 'get_audit_summary', {}),
     {
       ok: true,
       code: 'ok',
@@ -639,9 +664,7 @@ Deno.test('audit summary requires matching customer flock and audit context', as
     Promise.resolve(store.conversationContext)
 
   assertEquals(
-    await call(store, 'get_audit_summary', {
-      auditId: 'audit-completed',
-    }),
+    await call(store, 'get_audit_summary', {}),
     {
       ok: false,
       code: 'fresh_audit_selection_required',

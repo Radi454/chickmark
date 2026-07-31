@@ -421,27 +421,49 @@ async function getAuditSummary(
   store: AgentAuditStore,
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
-  const auditId = input.arguments.auditId as string
   const context = store.loadConversationContext
     ? await store.loadConversationContext(input.conversationId)
     : null
+  let selected: {
+    customerId: string
+    flockId: string | null
+    auditId: string
+  } | null
   if (store.loadConversationContext) {
-    if (!context?.auditId || context.auditId !== auditId) {
-      return freshAuditSelectionRequired(context)
-    }
+    selected = context?.customerId && context.auditId &&
+        input.scope.allowedCustomerIds.includes(context.customerId)
+      ? {
+        customerId: context.customerId,
+        flockId: context.flockId,
+        auditId: context.auditId,
+      }
+      : null
+    if (!selected) return freshAuditSelectionRequired(context)
+  } else {
+    const snapshot = await store.findLatestSelectedAuditResult(
+      input.conversationId,
+    )
+    selected = selectedAuditReference(
+      snapshot,
+      input.scope.allowedCustomerIds,
+    )
+    if (!selected) return scopeDenied()
   }
-  const audit = await store.findAudit(auditId, input.scope.allowedCustomerIds)
-  if (
-    !audit || !input.scope.allowedCustomerIds.includes(audit.customerId)
-  ) {
+
+  const audit = await store.findAudit(
+    selected.auditId,
+    input.scope.allowedCustomerIds,
+  )
+  if (!audit || !input.scope.allowedCustomerIds.includes(audit.customerId)) {
     return scopeDenied()
   }
   if (
-    store.loadConversationContext &&
-    (audit.customerId !== context?.customerId ||
-      audit.flockId !== context.flockId)
+    audit.customerId !== selected.customerId ||
+    audit.flockId !== selected.flockId
   ) {
-    return freshAuditSelectionRequired(context)
+    return store.loadConversationContext
+      ? freshAuditSelectionRequired(context)
+      : scopeDenied()
   }
   return auditSummary(audit)
 }

@@ -33,12 +33,21 @@ Deno.test('tool definitions expose typed capabilities without database internals
   const selectionCatalog = AGENT_TOOL_DEFINITIONS.find(
     (tool) => tool.name === 'select_audit_option',
   )
+  assertStringIncludes(
+    selectionCatalog?.description ?? '',
+    'affirmative confirmation after offering the only displayed option',
+  )
   assertEquals(selectionCatalog?.parameters.required, ['position'])
   assertEquals(selectionCatalog?.parameters.properties.position, {
     type: 'integer',
     minimum: 1,
     maximum: 20,
   })
+  const selectedSummaryCatalog = AGENT_TOOL_DEFINITIONS.find(
+    (tool) => tool.name === 'get_audit_summary',
+  )
+  assertEquals(selectedSummaryCatalog?.parameters.properties, {})
+  assertEquals(selectedSummaryCatalog?.parameters.required, [])
   const selectedBreakoutsCatalog = AGENT_TOOL_DEFINITIONS.find(
     (tool) => (tool.name as string) === 'get_selected_audit_breakouts',
   )

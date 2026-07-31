@@ -1740,14 +1740,18 @@ Audit discovery is a scoped, stable selection flow. `list_customer_audits`
 defaults to 10 authorized recent audits for an allowed customer and optional
 owned flock, accepts a limit of at most 20, and returns `truncated` when a
 larger result exists or the bounded scan cannot prove source exhaustion. Its
-numbered options are persisted in immutable tool evidence.
-A later numbered reply calls `select_audit_option` with only a one-based
-position from 1 through 20; the server uses the injected conversation ID to
-load that conversation's latest successful audit-list snapshot, so a newly
-inserted audit cannot remap an already displayed number. The selected opaque
-audit ID is then revalidated through the current customer scope before its
-summary is returned. The model never reconstructs or re-lists an ordinal
-mapping.
+numbered options are persisted in immutable tool evidence. Even a single
+result is presented as option 1 instead of a yes/no confirmation. A later
+numbered reply calls `select_audit_option` with only a one-based position from
+1 through 20; for compatibility with an already-sent single-option
+confirmation question, an affirmative reply selects position 1. The server
+uses the injected conversation ID to load that conversation's latest
+successful audit-list snapshot, so a newly inserted audit cannot remap an
+already displayed number. The selected opaque audit ID is then revalidated
+through the current customer scope before its summary is returned.
+`get_audit_summary` accepts no model-supplied audit ID and can only reload the
+audit already selected in the server conversation context. The model never
+reconstructs IDs or re-lists an ordinal mapping.
 
 Follow-up Hatch Analysis questions use an explicit selected customer, flock,
 and audit context on the conversation. Resolving a different customer or flock
@@ -2541,6 +2545,14 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-07-31: Fixed Telegram audit-summary confirmation after a single audit
+  result. Single results remain numbered, a legacy affirmative confirmation
+  selects persisted option 1 without re-resolving stale customer/flock IDs,
+  and `get_audit_summary` now reads only the server-selected audit context
+  instead of accepting a model-supplied audit ID. Scope guards remain
+  fail-closed for missing, changed, or unauthorized selections.
+  `telegram-hatchery-agent` v19 is active with the existing custom Telegram
+  webhook authentication.
 - 2026-07-30: Hardened the unified Telegram agent with explicit
   customer/flock/audit context invalidation, registry-only station schemas,
   safe missing-sector errors and a conservative additive sector backfill,
@@ -2554,10 +2566,10 @@ behavior and emit debug logs in development builds.
   ChickMark Supabase project as `20260730111832_agent_hardening`; it preserved
   all affected row counts, classified nine evidence-backed legacy flocks as
   Breeder, and left two ambiguous flocks unassigned.
-  `telegram-hatchery-agent` v18 is active with its existing custom webhook
-  authentication and the current dependency bundle; this version also prevents
-  pre-reset in-flight context writes, enforces full audit identity on summary
-  reads, and bounds provider diagnostic metadata.
+  `telegram-hatchery-agent` v18 introduced these hardening changes with its
+  existing custom webhook authentication and the current dependency bundle;
+  that version also prevents pre-reset in-flight context writes, enforces full
+  audit identity on summary reads, and bounds provider diagnostic metadata.
 - 2026-07-30: Made the SQLite v54 unified-agent migration re-establish its
   additive v52/v53 table prerequisites before creating intake-session indexes.
   This preserves existing local data while repairing databases whose schema
