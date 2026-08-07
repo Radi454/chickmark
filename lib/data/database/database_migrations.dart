@@ -462,6 +462,12 @@ Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
     // onConfigure. This also keeps the test hook safe when called directly.
     await db.execute('PRAGMA foreign_keys = OFF');
   }
+  // Apple's system SQLite (iOS/macOS) enables legacy ALTER TABLE semantics
+  // by default, so RENAME would leave the shadow tables' foreign-key clauses
+  // pointing at the dropped shadow names and the post-rebuild
+  // foreign_key_check would flag every row. Force modern semantics so RENAME
+  // rewrites references in the other shadow tables.
+  await db.execute('PRAGMA legacy_alter_table = OFF');
 
   try {
     const conversationsShadow = 'agent_conversations_v56';
