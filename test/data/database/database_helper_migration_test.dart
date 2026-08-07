@@ -242,6 +242,72 @@ void main() {
       {'id': 'keep', 'value': 'still here'},
     ]);
   });
+
+  test('v54 repairs divergent harness tables missing indexed columns', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+    // Divergent development lines shipped these tables without turnIndex,
+    // contextEpoch, or toolSequence; v54's partial unique indexes reference
+    // them, so the upgrade used to fail with "no such column: turnIndex".
+    await db.execute('''CREATE TABLE agent_conversations (
+      id TEXT PRIMARY KEY,
+      staffLinkId TEXT NOT NULL,
+      telegramChatId TEXT NOT NULL,
+      stateVersion INTEGER NOT NULL DEFAULT 1,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.execute('''CREATE TABLE agent_conversation_turns (
+      id TEXT PRIMARY KEY,
+      conversationId TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      text TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.execute('''CREATE TABLE agent_tool_events (
+      id TEXT PRIMARY KEY,
+      conversationTurnId TEXT NOT NULL,
+      toolCallId TEXT NOT NULL,
+      toolName TEXT NOT NULL,
+      status TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.insert('agent_conversation_turns', {
+      'id': 'turn-1',
+      'conversationId': 'conv-1',
+      'direction': 'inbound',
+      'text': 'legacy row',
+      'createdAt': '2026-07-01T00:00:00Z',
+    });
+
+    await DatabaseHelper().applyV54UpgradeForTest(db);
+
+    final turnColumns = (await db.rawQuery(
+      'PRAGMA table_info(agent_conversation_turns)',
+    )).map((row) => row['name']).toSet();
+    expect(turnColumns, containsAll(const ['turnIndex', 'contextEpoch']));
+    final toolColumns = (await db.rawQuery(
+      'PRAGMA table_info(agent_tool_events)',
+    )).map((row) => row['name']).toSet();
+    expect(toolColumns, contains('toolSequence'));
+    expect(await db.query('agent_conversation_turns'), hasLength(1));
+  });
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {

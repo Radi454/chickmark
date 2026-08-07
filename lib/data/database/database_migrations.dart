@@ -125,6 +125,33 @@ Future<void> _applyV54Upgrade(Database db) async {
     ]);
   }
 
+  // Divergent development lines shipped older shapes of the harness tables
+  // without columns this upgrade's indexes and backfills reference. CREATE
+  // TABLE IF NOT EXISTS keeps the old shape, so add the referenced columns
+  // first; the v56 shadow rebuild later normalizes the full definitions.
+  if (await _tableExists(db, 'agent_conversations')) {
+    await _ensureColumns(db, 'agent_conversations', const [
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+      'selectedCustomerId TEXT',
+      'selectedFlockId TEXT',
+      'selectedAuditId TEXT',
+      'contextUpdatedAt TEXT',
+      'pendingActionJson TEXT',
+      'activeVisitId TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'agent_conversation_turns')) {
+    await _ensureColumns(db, 'agent_conversation_turns', const [
+      'turnIndex INTEGER',
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+    ]);
+  }
+  if (await _tableExists(db, 'agent_tool_events')) {
+    await _ensureColumns(db, 'agent_tool_events', const [
+      'toolSequence INTEGER',
+    ]);
+  }
+
   // Create the graph before its guards so incomplete legacy rows can be
   // preserved and grouped. Every new write is guarded after the backfill.
   await _createUnifiedAgentHarnessTables(db, createGuards: false);
