@@ -1,0 +1,321 @@
+import 'dart:convert';
+
+import '../../../data/models/audit_model.dart';
+import '../../../data/models/station_sample_model.dart';
+import '../models/culled_chicks_analysis.dart';
+import '../models/egg_breakout_sample.dart';
+import '../models/temperature_entry_unit.dart';
+import '../models/temperature_readings_payload.dart';
+import 'audit_value_parsing.dart';
+
+/// The panel tables a draft's audit type saves rows into.
+List<String> panelTablesForDraft(AuditModel draft) {
+  return switch (draft.auditType) {
+    'Egg' => const ['egg_storage', 'egg_quality'],
+    'Chicks' => const ['chick_quality'],
+    'Hatch Analysis & Egg Breakouts' => [
+      switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
+        EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+        EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+        EggBreakoutType.residueHatchDay => 'residue_breakout',
+      },
+    ],
+    'Setters' => const ['setter_optimizing'],
+    'Hatchers' => const ['hatcher_optimizing'],
+    _ => const [],
+  };
+}
+
+/// The measurement-column values for a single panel table.
+///
+/// The egg-breakout branches are not yet extracted (planned for a later
+/// "breakout value builders" task), so they are injected as callbacks
+/// resolved by the caller from the provider's still-resident
+/// `_freshBreakoutValues` / `_candledBreakoutValues` / `_residueBreakoutValues`.
+Map<String, Object?> panelValuesForDraft(
+  String tableName,
+  AuditModel draft, {
+  required Map<String, Object?> Function(AuditModel draft) freshBreakoutValues,
+  required Map<String, Object?> Function(AuditModel draft)
+  candledBreakoutValues,
+  required Map<String, Object?> Function(AuditModel draft)
+  residueBreakoutValues,
+}) {
+  return switch (tableName) {
+    'egg_storage' => eggStorageValues(draft),
+    'egg_quality' => eggQualityValues(draft),
+    'chick_quality' => chickQualityValues(draft),
+    'chick_weights' => chickWeightValues(draft),
+    'fresh_egg_breakout' => freshBreakoutValues(draft),
+    'candled_egg_breakout' => candledBreakoutValues(draft),
+    'residue_breakout' => residueBreakoutValues(draft),
+    'setter_optimizing' => {
+      'machineType': draft.soMachineType,
+      'setpointF': draft.soSetpointF,
+      'actualF': draft.soActualF,
+      'setpointRh': draft.soSetpointRh,
+      'actualRh': draft.soActualRh,
+      'batchSize': draft.soBatchSize,
+      'batchCount': draft.soBatchCount,
+      'totalEggsSet': draft.soTotalEggsSet,
+      'turningAngle': draft.soTurningAngle,
+      'co2Ppm': draft.soCo2,
+      'co2Photo': draft.soCo2Photo,
+      'estBreed': draft.soBreed,
+      'incubationAgeDays': draft.soIncubationAge,
+      'incubationHours': draft.soIncubationHours,
+      'estReadingsJson': draft.soEstReadings,
+      'estPhotosJson': draft.soEstPhotos,
+      'estSamplesJson': draft.soEstSamplesJson,
+      'estSampleSize': _decodedReadingCount(draft.soEstReadings),
+      'estAvg': draft.soEstAvg,
+      'estCvPct': draft.soEstCv,
+      'machineScreenPhoto': draft.soMachineScreenPhoto,
+    },
+    'hatcher_optimizing' => {
+      'setpointF': draft.hoSetpointF,
+      'setpointRh': draft.hoSetpointRh,
+      'incubationAgeDays': draft.hoIncubationAge,
+      'incubationHours': draft.hoIncubationHours,
+      'co2Ppm': draft.hoCo2,
+      'co2Photo': draft.hoCo2Photo,
+      'cvtReadingsJson': draft.hoCvtReadings,
+      'cvtPhotosJson': draft.hoCvtPhotos,
+      'cvtSampleSize': _decodedReadingCount(draft.hoCvtReadings),
+      'cvtAvg': draft.hoCvtAvg,
+      'cvtCvPct': draft.hoCvtCv,
+      'chickPanting': _boolToInt(draft.hoChickPanting),
+      'chickPantingPhoto': draft.hoChickPantingPhoto,
+      'meconium': draft.hoMeconium,
+      'transferDay': draft.hoTransferDay,
+    },
+    _ => const <String, Object?>{},
+  };
+}
+
+Map<String, Object?> eggStorageValues(AuditModel draft) {
+  final trays = decodedMaps(draft.esUvTrays);
+  var trayEggCount = 0;
+  var upsideDown = 0;
+  for (final tray in trays) {
+    trayEggCount += asInt(tray['totalEggs']) ?? 0;
+    upsideDown += asInt(tray['upsideDown']) ?? 0;
+  }
+  return {
+    'storagePeriodDays': draft.esEggStorageDays ?? 0,
+    'estReadingsJson': draft.esEstReadingsJson,
+    'estAvg': draft.esEstAvg,
+    'estCvPct': draft.esEstCv,
+    'turningTimes': draft.esTurningTimes,
+    'traySpacing': draft.esTraySpacing,
+    'coolerProximity': draft.esCoolerProximity,
+    'condensationPresent': _boolToInt(draft.esCondensation),
+    'upsideDownCount': upsideDown,
+    'upsideDownPct': pct(upsideDown, trayEggCount),
+  };
+}
+
+Map<String, Object?> eggQualityValues(AuditModel draft) {
+  final trays = decodedMaps(draft.esUvTrays);
+  var trayEggCount = 0;
+  var cuticleDamage = 0;
+  var washed = 0;
+  var dirty = 0;
+  for (final tray in trays) {
+    trayEggCount += asInt(tray['totalEggs']) ?? 0;
+    cuticleDamage += asInt(tray['cuticleDamage']) ?? 0;
+    washed += asInt(tray['washed']) ?? 0;
+    dirty += asInt(tray['dirty']) ?? 0;
+  }
+  final affected = cuticleDamage + washed + dirty;
+  final uvDenominator = trayEggCount == 0 ? draft.esUvSampleSize : trayEggCount;
+  return {
+    'storagePeriodDays':
+        draft.esEggQualityStorageDays ?? draft.esEggStorageDays ?? 0,
+    'uvTrayEggCount': uvDenominator,
+    'uvCuticleDamageCount': cuticleDamage,
+    'uvCuticleDamagePct': pct(cuticleDamage, uvDenominator),
+    'uvWashedCount': washed,
+    'uvWashedPct': pct(washed, uvDenominator),
+    'uvDirtyCount': dirty,
+    'uvDirtyPct': pct(dirty, uvDenominator),
+    'uvAffectedCount': affected,
+    'uvAffectedPct': pct(affected, uvDenominator),
+    'eggWeightsJson': draft.esEggWeights,
+    'eggSampleSize': draft.esEggSampleSize,
+    'eggAvgWeight': draft.esEggAvgWeight,
+    'eggUniformityPct': draft.esEggUniformityPct,
+    'eggCvPct': draft.esEggCvPct,
+    'eggBmkAgeWeeks': draft.esEggBmkAge,
+    'eggBmkWeight': draft.esEggBmkWeight,
+  };
+}
+
+Map<String, Object?> chickQualityValues(AuditModel draft) {
+  final size = draft.pasgarSampleSize;
+  final culledChicksTotalEggSet =
+      draft.culledChicksTotalEggSet ??
+      (draft.culledChicksAnalysisJson == null
+          ? null
+          : kDefaultCulledChicksTotalEggSet);
+  final culledChicksSummary = CulledChicksAnalysisSummary.fromJson(
+    draft.culledChicksAnalysisJson,
+    totalEggSet: culledChicksTotalEggSet,
+  );
+  return {
+    'pasgarSampleSize': size,
+    'pasgarReflexesCount': draft.pasgarReflexes,
+    'pasgarBeakCount': draft.pasgarBeak,
+    'pasgarNavelCount': draft.pasgarNavel,
+    'pasgarBellyCount': draft.pasgarBelly,
+    'pasgarLegCount': draft.pasgarLeg,
+    'pasgarFeatherDevCount': draft.pasgarFeatherDev,
+    'pasgarReflexesPct': pct(draft.pasgarReflexes, size),
+    'pasgarBeakPct': pct(draft.pasgarBeak, size),
+    'pasgarNavelPct': pct(draft.pasgarNavel, size),
+    'pasgarBellyPct': pct(draft.pasgarBelly, size),
+    'pasgarLegPct': pct(draft.pasgarLeg, size),
+    'pasgarFeatherDevPct': pct(draft.pasgarFeatherDev, size),
+    'pasgarFinalScore': draft.pasgarFinalScore,
+    'yfbmPhoto': draft.yfbmPhoto,
+    'yfbmEntriesJson': draft.yfbmEntries,
+    'yfbmEntryCount': decodedListLength(draft.yfbmEntries),
+    'yfbmAvgPct': draft.yfbmAvgPct,
+    'yfbmCvPct': draft.yfbmCvPct,
+    'cvtReadingsJson': draft.cvtReadingsJson,
+    'cvtPhotosJson': draft.cvtPhotosJson,
+    'cvtSampleSize': draft.cvtSampleSize,
+    'cvtTopBasket': draft.cvtTopBasket,
+    'cvtTopTemp': draft.cvtTopTemp,
+    'cvtTopPhoto': draft.cvtTopPhoto,
+    'cvtMiddleBasket': draft.cvtMiddleBasket,
+    'cvtMiddleTemp': draft.cvtMiddleTemp,
+    'cvtMiddlePhoto': draft.cvtMiddlePhoto,
+    'cvtBottomBasket': draft.cvtBottomBasket,
+    'cvtBottomTemp': draft.cvtBottomTemp,
+    'cvtBottomPhoto': draft.cvtBottomPhoto,
+    'cvtAvgTemp': draft.cvtAvg,
+    'cvtCvPct': draft.cvtCvPct,
+    ...chickPmValues(draft),
+    'culledChicksTotalEggSet': culledChicksTotalEggSet,
+    'culledChicksAnalysisJson': culledChicksSummary.encodedJson,
+    'culledChicksAffectedPct': culledChicksSummary.affectedPct,
+    'culledChicksTopCategory': culledChicksSummary.topCategory,
+    'culledChicksTopSubtype': culledChicksSummary.topSubtype,
+  };
+}
+
+Map<String, Object?> chickWeightValues(AuditModel draft) {
+  return {
+    'weightsJson': draft.chickWeights,
+    'sampleSize': draft.chickSampleSize,
+    'avgWeight': draft.chickAvgWeight,
+    'uniformityPct': draft.chickUniformityPct,
+    'cvPct': draft.chickCvPct,
+    'bmkAgeWeeks': draft.chickBmkAge,
+    'bmkWeight': draft.chickBmkWeight,
+  };
+}
+
+/// The provider's original body called `_weightSampleSizeFromDecoded`, a
+/// helper that also backs `_weightSampleSizeFromWeightsJson` elsewhere in the
+/// provider (out of this extraction's scope, since other still-provider-
+/// resident code depends on it too); the equivalent count-positive-weights
+/// logic is duplicated verbatim below as `_weightSampleSizeFromDecoded`.
+Map<String, Object?> chickWeightValuesForSample(
+  StationSampleModel sample, {
+  required AuditModel fallback,
+}) {
+  final summary = decodedMap(sample.resultSummaryJson);
+  if (summary == null) {
+    if (sample.sampleMode == StationSampleModel.sampleModeComparison) {
+      return emptyChickWeightValues(fallback);
+    }
+    return chickWeightValues(fallback);
+  }
+
+  final weights = summary['chickWeights'];
+  return {
+    'weightsJson': weights is List ? jsonEncode(weights) : null,
+    'sampleSize': weights is List
+        ? _weightSampleSizeFromDecoded(weights)
+        : null,
+    'avgWeight': asDouble(summary['chickAvgWeight']),
+    'uniformityPct': asDouble(summary['chickUniformityPct']),
+    'cvPct': asDouble(summary['chickCvPct']),
+    'bmkAgeWeeks': fallback.chickBmkAge,
+    'bmkWeight': fallback.chickBmkWeight,
+  };
+}
+
+Map<String, Object?> emptyChickWeightValues(AuditModel fallback) {
+  return {
+    'weightsJson': null,
+    'sampleSize': null,
+    'avgWeight': null,
+    'uniformityPct': null,
+    'cvPct': null,
+    'bmkAgeWeeks': fallback.chickBmkAge,
+    'bmkWeight': fallback.chickBmkWeight,
+  };
+}
+
+Map<String, Object?> chickPmValues(AuditModel draft) {
+  return {
+    'pmSampleSize': draft.pmSampleSize,
+    'pmCollectionPoint': draft.pmCollectionPoint,
+    'pmOmphalitisCount': draft.pmOmphalitisCount,
+    'pmOmphalitisSeverity': draft.pmOmphalitisSeverity,
+    'pmGaseousCecaCount': draft.pmGaseousCecaCount,
+    'pmGaseousCecaSeverity': draft.pmGaseousCecaSeverity,
+    'pmGizzardErosionsCount': draft.pmGizzardErosionsCount,
+    'pmGizzardErosionsSeverity': draft.pmGizzardErosionsSeverity,
+    'pmAirSacCaseationsCount': draft.pmAirSacCaseationsCount,
+    'pmAirSacCaseationsSeverity': draft.pmAirSacCaseationsSeverity,
+    'pmUrolithiasisCount': draft.pmUrolithiasisCount,
+    'pmUrolithiasisSeverity': draft.pmUrolithiasisSeverity,
+    'pmNephritisCount': draft.pmNephritisCount,
+    'pmNephritisSeverity': draft.pmNephritisSeverity,
+    'pmGeneralSepticemiaCount': draft.pmGeneralSepticemiaCount,
+    'pmGeneralSepticemiaSeverity': draft.pmGeneralSepticemiaSeverity,
+    'pmOtherLesionsJson': draft.pmOtherLesionsJson,
+    'pmSuspectedCauseAuto': draft.pmSuspectedCauseAuto,
+    'pmSuspectedCauseManual': draft.pmSuspectedCauseManual,
+    'pmPhotosJson': draft.pmPhotosJson,
+  };
+}
+
+/// Moved verbatim from the provider's `_decodedReadingCount`. Not itself
+/// named in this extraction's move list, but it was only ever called from
+/// the `setter_optimizing`/`hatcher_optimizing` branches of
+/// [panelValuesForDraft], so it has no remaining callers left in the
+/// provider and is moved here (not duplicated) to avoid leaving dead code
+/// behind.
+int? _decodedReadingCount(String? source) {
+  if (source == null || source.trim().isEmpty) return null;
+  return TemperatureReadingsPayload.decode(
+    source,
+    legacyUnit: TemperatureEntryUnit.fahrenheit,
+  ).count;
+}
+
+/// Moved verbatim from the provider's `_boolToInt`; see
+/// [_decodedReadingCount] above for why it is moved rather than duplicated
+/// (its only callers were `esCondensation` in [eggStorageValues] and
+/// `hoChickPanting` in [panelValuesForDraft], both moved here).
+int? _boolToInt(bool? value) {
+  if (value == null) return null;
+  return value ? 1 : 0;
+}
+
+/// Duplicated verbatim from the provider's `_weightSampleSizeFromDecoded`,
+/// which stays provider-resident because `_weightSampleSizeFromWeightsJson`
+/// (out of this extraction's scope) also depends on it.
+int? _weightSampleSizeFromDecoded(Object? decoded) {
+  if (decoded is! List) return null;
+  final count = decoded
+      .map(asDouble)
+      .where((weight) => weight != null && weight > 0)
+      .length;
+  return count == 0 ? null : count;
+}

@@ -19,15 +19,13 @@ import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
-import '../models/culled_chicks_analysis.dart';
 import '../models/egg_breakout_tray_rollup.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
-import '../models/temperature_entry_unit.dart';
-import '../models/temperature_readings_payload.dart';
 import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
+import '../logic/panel_value_builders.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -186,7 +184,7 @@ class AuditProvider extends ChangeNotifier {
   bool chickWeightScopeHasEnteredResults(int index) {
     if (index < 0 || index >= _chickWeightSamples.length) return false;
     return hasMeaningfulChickWeightSample(
-      _chickWeightValuesForSample(
+      chickWeightValuesForSample(
         _chickWeightSamples[index],
         fallback: activeDraft,
       ),
@@ -855,7 +853,7 @@ class AuditProvider extends ChangeNotifier {
         final meaningfulChickWeightSamples = [
           for (final sample in chickWeightSamplesToSave)
             if (hasMeaningfulChickWeightSample(
-              _chickWeightValuesForSample(sample, fallback: chickWeightDraft),
+              chickWeightValuesForSample(sample, fallback: chickWeightDraft),
             ))
               sample,
         ];
@@ -987,7 +985,7 @@ class AuditProvider extends ChangeNotifier {
         draft,
         hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
           (sample) => hasMeaningfulChickWeightSample(
-            _chickWeightValuesForSample(sample, fallback: draft),
+            chickWeightValuesForSample(sample, fallback: draft),
           ),
         ),
         contextSetterId: _context?.setterId,
@@ -1001,7 +999,7 @@ class AuditProvider extends ChangeNotifier {
             draft,
             hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
               (sample) => hasMeaningfulChickWeightSample(
-                _chickWeightValuesForSample(sample, fallback: draft),
+                chickWeightValuesForSample(sample, fallback: draft),
               ),
             ),
             contextSetterId: _context?.setterId,
@@ -2533,7 +2531,7 @@ class AuditProvider extends ChangeNotifier {
     StationSampleModel sample, {
     Set<String> skipTables = const <String>{},
   }) async {
-    for (final tableName in _panelTablesForDraft(draft)) {
+    for (final tableName in panelTablesForDraft(draft)) {
       if (skipTables.contains(tableName)) continue;
       if (_isEggBreakoutPanelTable(tableName)) {
         await _saveEggBreakoutPanelTable(tableName, draft, sample);
@@ -2662,7 +2660,7 @@ class AuditProvider extends ChangeNotifier {
       if (pair.draft.auditType != 'Hatch Analysis & Egg Breakouts') {
         continue;
       }
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
+      for (final tableName in panelTablesForDraft(pair.draft)) {
         if (!_isEggBreakoutPanelTable(tableName)) continue;
         paths.addAll(_breakoutHierarchyPathsForPair(i, tableName, pair));
       }
@@ -2775,7 +2773,7 @@ class AuditProvider extends ChangeNotifier {
   }
 
   bool _hasMeaningfulPanelData(_PanelSavePair pair) {
-    return _panelTablesForDraft(
+    return panelTablesForDraft(
       pair.draft,
     ).any((tableName) => _hasMeaningfulPanelTableData(tableName, pair.draft));
   }
@@ -2788,7 +2786,7 @@ class AuditProvider extends ChangeNotifier {
         draft,
         hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
           (sample) => hasMeaningfulChickWeightSample(
-            _chickWeightValuesForSample(sample, fallback: draft),
+            chickWeightValuesForSample(sample, fallback: draft),
           ),
         ),
       ),
@@ -2813,7 +2811,7 @@ class AuditProvider extends ChangeNotifier {
       if (pair.draft.auditType == 'Egg') continue;
       final sessionId = pair.sample.auditSessionId;
       if (sessionId.isEmpty) continue;
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
+      for (final tableName in panelTablesForDraft(pair.draft)) {
         if (_hasMeaningfulPanelTableData(tableName, pair.draft)) continue;
         final key = '$sessionId::$tableName';
         if (!deleted.add(key)) continue;
@@ -2862,7 +2860,7 @@ class AuditProvider extends ChangeNotifier {
     if (sessionId == null || sessionId.isEmpty) return;
 
     final tableNames = <String>{
-      for (final draft in draftsToSave) ..._panelTablesForDraft(draft),
+      for (final draft in draftsToSave) ...panelTablesForDraft(draft),
       if (_isChicksContext) 'chick_weights',
     };
     for (final tableName in tableNames) {
@@ -2901,7 +2899,7 @@ class AuditProvider extends ChangeNotifier {
   }
 
   Iterable<String> _panelTablesForScopedPrune(_PanelSavePair pair) sync* {
-    for (final tableName in _panelTablesForDraft(pair.draft)) {
+    for (final tableName in panelTablesForDraft(pair.draft)) {
       if (tableName == 'egg_storage') continue;
       if (_isEggBreakoutPanelTable(tableName)) continue;
       if (pair.draft.auditType == 'Egg' &&
@@ -2945,7 +2943,7 @@ class AuditProvider extends ChangeNotifier {
     for (final pair in pairs) {
       final sessionId = pair.sample.auditSessionId;
       if (sessionId.isEmpty) continue;
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
+      for (final tableName in panelTablesForDraft(pair.draft)) {
         if (!_isEggBreakoutPanelTable(tableName)) continue;
         final key = '$sessionId::$tableName';
         tableByKey[key] = tableName;
@@ -3217,23 +3215,6 @@ class AuditProvider extends ChangeNotifier {
     );
   }
 
-  List<String> _panelTablesForDraft(AuditModel draft) {
-    return switch (draft.auditType) {
-      'Egg' => const ['egg_storage', 'egg_quality'],
-      'Chicks' => const ['chick_quality'],
-      'Hatch Analysis & Egg Breakouts' => [
-        switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
-          EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
-          EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
-          EggBreakoutType.residueHatchDay => 'residue_breakout',
-        },
-      ],
-      'Setters' => const ['setter_optimizing'],
-      'Hatchers' => const ['hatcher_optimizing'],
-      _ => const [],
-    };
-  }
-
   PanelRecord _panelRecordForSamples(
     String tableName,
     AuditModel draft,
@@ -3258,199 +3239,23 @@ class AuditProvider extends ChangeNotifier {
       mode: mode,
       scopeType: compareLayer ?? SamplingLayer.pool,
       notes: draft.notes,
-      values: _panelValuesForDraft(tableName, draft),
+      values: panelValuesForDraft(
+        tableName,
+        draft,
+        freshBreakoutValues: _freshBreakoutValues,
+        candledBreakoutValues: _candledBreakoutValues,
+        residueBreakoutValues: _residueBreakoutValues,
+      ),
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
     );
-  }
-
-  Map<String, Object?> _panelValuesForDraft(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return switch (tableName) {
-      'egg_storage' => _eggStorageValues(draft),
-      'egg_quality' => _eggQualityValues(draft),
-      'chick_quality' => _chickQualityValues(draft),
-      'chick_weights' => _chickWeightValues(draft),
-      'fresh_egg_breakout' => _freshBreakoutValues(draft),
-      'candled_egg_breakout' => _candledBreakoutValues(draft),
-      'residue_breakout' => _residueBreakoutValues(draft),
-      'setter_optimizing' => {
-        'machineType': draft.soMachineType,
-        'setpointF': draft.soSetpointF,
-        'actualF': draft.soActualF,
-        'setpointRh': draft.soSetpointRh,
-        'actualRh': draft.soActualRh,
-        'batchSize': draft.soBatchSize,
-        'batchCount': draft.soBatchCount,
-        'totalEggsSet': draft.soTotalEggsSet,
-        'turningAngle': draft.soTurningAngle,
-        'co2Ppm': draft.soCo2,
-        'co2Photo': draft.soCo2Photo,
-        'estBreed': draft.soBreed,
-        'incubationAgeDays': draft.soIncubationAge,
-        'incubationHours': draft.soIncubationHours,
-        'estReadingsJson': draft.soEstReadings,
-        'estPhotosJson': draft.soEstPhotos,
-        'estSamplesJson': draft.soEstSamplesJson,
-        'estSampleSize': _decodedReadingCount(draft.soEstReadings),
-        'estAvg': draft.soEstAvg,
-        'estCvPct': draft.soEstCv,
-        'machineScreenPhoto': draft.soMachineScreenPhoto,
-      },
-      'hatcher_optimizing' => {
-        'setpointF': draft.hoSetpointF,
-        'setpointRh': draft.hoSetpointRh,
-        'incubationAgeDays': draft.hoIncubationAge,
-        'incubationHours': draft.hoIncubationHours,
-        'co2Ppm': draft.hoCo2,
-        'co2Photo': draft.hoCo2Photo,
-        'cvtReadingsJson': draft.hoCvtReadings,
-        'cvtPhotosJson': draft.hoCvtPhotos,
-        'cvtSampleSize': _decodedReadingCount(draft.hoCvtReadings),
-        'cvtAvg': draft.hoCvtAvg,
-        'cvtCvPct': draft.hoCvtCv,
-        'chickPanting': _boolToInt(draft.hoChickPanting),
-        'chickPantingPhoto': draft.hoChickPantingPhoto,
-        'meconium': draft.hoMeconium,
-        'transferDay': draft.hoTransferDay,
-      },
-      _ => const <String, Object?>{},
-    };
-  }
-
-  Map<String, Object?> _eggStorageValues(AuditModel draft) {
-    final trays = decodedMaps(draft.esUvTrays);
-    var trayEggCount = 0;
-    var upsideDown = 0;
-    for (final tray in trays) {
-      trayEggCount += asInt(tray['totalEggs']) ?? 0;
-      upsideDown += asInt(tray['upsideDown']) ?? 0;
-    }
-    return {
-      'storagePeriodDays': draft.esEggStorageDays ?? 0,
-      'estReadingsJson': draft.esEstReadingsJson,
-      'estAvg': draft.esEstAvg,
-      'estCvPct': draft.esEstCv,
-      'turningTimes': draft.esTurningTimes,
-      'traySpacing': draft.esTraySpacing,
-      'coolerProximity': draft.esCoolerProximity,
-      'condensationPresent': _boolToInt(draft.esCondensation),
-      'upsideDownCount': upsideDown,
-      'upsideDownPct': pct(upsideDown, trayEggCount),
-    };
-  }
-
-  Map<String, Object?> _eggQualityValues(AuditModel draft) {
-    final trays = decodedMaps(draft.esUvTrays);
-    var trayEggCount = 0;
-    var cuticleDamage = 0;
-    var washed = 0;
-    var dirty = 0;
-    for (final tray in trays) {
-      trayEggCount += asInt(tray['totalEggs']) ?? 0;
-      cuticleDamage += asInt(tray['cuticleDamage']) ?? 0;
-      washed += asInt(tray['washed']) ?? 0;
-      dirty += asInt(tray['dirty']) ?? 0;
-    }
-    final affected = cuticleDamage + washed + dirty;
-    final uvDenominator = trayEggCount == 0
-        ? draft.esUvSampleSize
-        : trayEggCount;
-    return {
-      'storagePeriodDays':
-          draft.esEggQualityStorageDays ?? draft.esEggStorageDays ?? 0,
-      'uvTrayEggCount': uvDenominator,
-      'uvCuticleDamageCount': cuticleDamage,
-      'uvCuticleDamagePct': pct(cuticleDamage, uvDenominator),
-      'uvWashedCount': washed,
-      'uvWashedPct': pct(washed, uvDenominator),
-      'uvDirtyCount': dirty,
-      'uvDirtyPct': pct(dirty, uvDenominator),
-      'uvAffectedCount': affected,
-      'uvAffectedPct': pct(affected, uvDenominator),
-      'eggWeightsJson': draft.esEggWeights,
-      'eggSampleSize': draft.esEggSampleSize,
-      'eggAvgWeight': draft.esEggAvgWeight,
-      'eggUniformityPct': draft.esEggUniformityPct,
-      'eggCvPct': draft.esEggCvPct,
-      'eggBmkAgeWeeks': draft.esEggBmkAge,
-      'eggBmkWeight': draft.esEggBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _chickQualityValues(AuditModel draft) {
-    final size = draft.pasgarSampleSize;
-    final culledChicksTotalEggSet =
-        draft.culledChicksTotalEggSet ??
-        (draft.culledChicksAnalysisJson == null
-            ? null
-            : kDefaultCulledChicksTotalEggSet);
-    final culledChicksSummary = CulledChicksAnalysisSummary.fromJson(
-      draft.culledChicksAnalysisJson,
-      totalEggSet: culledChicksTotalEggSet,
-    );
-    return {
-      'pasgarSampleSize': size,
-      'pasgarReflexesCount': draft.pasgarReflexes,
-      'pasgarBeakCount': draft.pasgarBeak,
-      'pasgarNavelCount': draft.pasgarNavel,
-      'pasgarBellyCount': draft.pasgarBelly,
-      'pasgarLegCount': draft.pasgarLeg,
-      'pasgarFeatherDevCount': draft.pasgarFeatherDev,
-      'pasgarReflexesPct': pct(draft.pasgarReflexes, size),
-      'pasgarBeakPct': pct(draft.pasgarBeak, size),
-      'pasgarNavelPct': pct(draft.pasgarNavel, size),
-      'pasgarBellyPct': pct(draft.pasgarBelly, size),
-      'pasgarLegPct': pct(draft.pasgarLeg, size),
-      'pasgarFeatherDevPct': pct(draft.pasgarFeatherDev, size),
-      'pasgarFinalScore': draft.pasgarFinalScore,
-      'yfbmPhoto': draft.yfbmPhoto,
-      'yfbmEntriesJson': draft.yfbmEntries,
-      'yfbmEntryCount': decodedListLength(draft.yfbmEntries),
-      'yfbmAvgPct': draft.yfbmAvgPct,
-      'yfbmCvPct': draft.yfbmCvPct,
-      'cvtReadingsJson': draft.cvtReadingsJson,
-      'cvtPhotosJson': draft.cvtPhotosJson,
-      'cvtSampleSize': draft.cvtSampleSize,
-      'cvtTopBasket': draft.cvtTopBasket,
-      'cvtTopTemp': draft.cvtTopTemp,
-      'cvtTopPhoto': draft.cvtTopPhoto,
-      'cvtMiddleBasket': draft.cvtMiddleBasket,
-      'cvtMiddleTemp': draft.cvtMiddleTemp,
-      'cvtMiddlePhoto': draft.cvtMiddlePhoto,
-      'cvtBottomBasket': draft.cvtBottomBasket,
-      'cvtBottomTemp': draft.cvtBottomTemp,
-      'cvtBottomPhoto': draft.cvtBottomPhoto,
-      'cvtAvgTemp': draft.cvtAvg,
-      'cvtCvPct': draft.cvtCvPct,
-      ..._chickPmValues(draft),
-      'culledChicksTotalEggSet': culledChicksTotalEggSet,
-      'culledChicksAnalysisJson': culledChicksSummary.encodedJson,
-      'culledChicksAffectedPct': culledChicksSummary.affectedPct,
-      'culledChicksTopCategory': culledChicksSummary.topCategory,
-      'culledChicksTopSubtype': culledChicksSummary.topSubtype,
-    };
-  }
-
-  Map<String, Object?> _chickWeightValues(AuditModel draft) {
-    return {
-      'weightsJson': draft.chickWeights,
-      'sampleSize': draft.chickSampleSize,
-      'avgWeight': draft.chickAvgWeight,
-      'uniformityPct': draft.chickUniformityPct,
-      'cvPct': draft.chickCvPct,
-      'bmkAgeWeeks': draft.chickBmkAge,
-      'bmkWeight': draft.chickBmkWeight,
-    };
   }
 
   AuditModel _draftWithChickWeightSampleValues(
     AuditModel draft,
     StationSampleModel sample,
   ) {
-    final values = _chickWeightValuesForSample(sample, fallback: draft);
+    final values = chickWeightValuesForSample(sample, fallback: draft);
     final map = draft.toMap()
       ..['chickWeights'] = values['weightsJson']
       ..['chickSampleSize'] = values['sampleSize']
@@ -3460,69 +3265,6 @@ class AuditProvider extends ChangeNotifier {
       ..['chickBmkAge'] = values['bmkAgeWeeks']
       ..['chickBmkWeight'] = values['bmkWeight'];
     return AuditModel.fromMap(map);
-  }
-
-  Map<String, Object?> _chickWeightValuesForSample(
-    StationSampleModel sample, {
-    required AuditModel fallback,
-  }) {
-    final summary = decodedMap(sample.resultSummaryJson);
-    if (summary == null) {
-      if (sample.sampleMode == StationSampleModel.sampleModeComparison) {
-        return _emptyChickWeightValues(fallback);
-      }
-      return _chickWeightValues(fallback);
-    }
-
-    final weights = summary['chickWeights'];
-    return {
-      'weightsJson': weights is List ? jsonEncode(weights) : null,
-      'sampleSize': weights is List
-          ? _weightSampleSizeFromDecoded(weights)
-          : null,
-      'avgWeight': asDouble(summary['chickAvgWeight']),
-      'uniformityPct': asDouble(summary['chickUniformityPct']),
-      'cvPct': asDouble(summary['chickCvPct']),
-      'bmkAgeWeeks': fallback.chickBmkAge,
-      'bmkWeight': fallback.chickBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _emptyChickWeightValues(AuditModel fallback) {
-    return {
-      'weightsJson': null,
-      'sampleSize': null,
-      'avgWeight': null,
-      'uniformityPct': null,
-      'cvPct': null,
-      'bmkAgeWeeks': fallback.chickBmkAge,
-      'bmkWeight': fallback.chickBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _chickPmValues(AuditModel draft) {
-    return {
-      'pmSampleSize': draft.pmSampleSize,
-      'pmCollectionPoint': draft.pmCollectionPoint,
-      'pmOmphalitisCount': draft.pmOmphalitisCount,
-      'pmOmphalitisSeverity': draft.pmOmphalitisSeverity,
-      'pmGaseousCecaCount': draft.pmGaseousCecaCount,
-      'pmGaseousCecaSeverity': draft.pmGaseousCecaSeverity,
-      'pmGizzardErosionsCount': draft.pmGizzardErosionsCount,
-      'pmGizzardErosionsSeverity': draft.pmGizzardErosionsSeverity,
-      'pmAirSacCaseationsCount': draft.pmAirSacCaseationsCount,
-      'pmAirSacCaseationsSeverity': draft.pmAirSacCaseationsSeverity,
-      'pmUrolithiasisCount': draft.pmUrolithiasisCount,
-      'pmUrolithiasisSeverity': draft.pmUrolithiasisSeverity,
-      'pmNephritisCount': draft.pmNephritisCount,
-      'pmNephritisSeverity': draft.pmNephritisSeverity,
-      'pmGeneralSepticemiaCount': draft.pmGeneralSepticemiaCount,
-      'pmGeneralSepticemiaSeverity': draft.pmGeneralSepticemiaSeverity,
-      'pmOtherLesionsJson': draft.pmOtherLesionsJson,
-      'pmSuspectedCauseAuto': draft.pmSuspectedCauseAuto,
-      'pmSuspectedCauseManual': draft.pmSuspectedCauseManual,
-      'pmPhotosJson': draft.pmPhotosJson,
-    };
   }
 
   bool _isEggBreakoutPanelTable(String tableName) {
@@ -4054,15 +3796,6 @@ class AuditProvider extends ChangeNotifier {
   }
 
 
-  int? _decodedReadingCount(String? source) {
-    if (source == null || source.trim().isEmpty) return null;
-    return TemperatureReadingsPayload.decode(
-      source,
-      legacyUnit: TemperatureEntryUnit.fahrenheit,
-    ).count;
-  }
-
-
   int? _weightSampleSizeFromWeightsJson(String weightsJson) {
     final decoded = _decodedWeights(weightsJson);
     return _weightSampleSizeFromDecoded(decoded);
@@ -4075,12 +3808,6 @@ class AuditProvider extends ChangeNotifier {
         .where((weight) => weight != null && weight > 0)
         .length;
     return count == 0 ? null : count;
-  }
-
-
-  int? _boolToInt(bool? value) {
-    if (value == null) return null;
-    return value ? 1 : 0;
   }
 
   PanelSampleRecord _panelSampleRecordForStationSample({
