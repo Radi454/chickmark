@@ -25,6 +25,19 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// actions (v46), lab analysis tables (v47), the performance-monitoring
 /// tables (v51), the hatchery-agent tables (v52), the agent-intake tables
 /// (v53), and the unified-agent-harness tables (v54-v56).
+///
+/// Soundness limitation: because the parity test mutates one fresh v56
+/// database in place (drops non-baseline tables, then replays the upgrade
+/// chain on the same connection) instead of building two independent
+/// databases, the tables in [kV41BaselineTables] are never dropped or
+/// recreated — their schema is identical on both sides of the comparison
+/// by construction. This net only proves parity for whole tables the v46+
+/// chain adds or removes; it cannot detect a future migration that needs
+/// to ALTER an existing baseline table (add/drop/retype a column, add an
+/// index) and forgets to. No migration does that today (v46-v56 only add
+/// new tables and RENAME non-baseline agent-harness tables), so this is
+/// not a live false-negative, but it should be kept in mind if a future
+/// migration ever needs to alter a table in this set.
 const kV41BaselineTables = <String>{
   // _createCoreTablesIfMissing
   'users',
