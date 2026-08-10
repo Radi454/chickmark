@@ -26,6 +26,7 @@ import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
 import '../models/temperature_entry_unit.dart';
 import '../models/temperature_readings_payload.dart';
+import '../logic/audit_value_parsing.dart';
 import 'package:uuid/uuid.dart';
 
 class AuditContext {
@@ -4489,21 +4490,9 @@ class AuditProvider extends ChangeNotifier {
     return null;
   }
 
-  List<Map<String, dynamic>> _decodedMaps(String? source) {
-    if (source == null || source.trim().isEmpty) return const [];
-    try {
-      final decoded = jsonDecode(source);
-      if (decoded is! List) return const [];
-      return decoded
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
+  List<Map<String, dynamic>> _decodedMaps(String? source) => decodedMaps(source);
 
-  int _decodedListLength(String? source) => _decodedMaps(source).length;
+  int _decodedListLength(String? source) => decodedListLength(source);
 
   int? _decodedReadingCount(String? source) {
     if (source == null || source.trim().isEmpty) return null;
@@ -4513,29 +4502,11 @@ class AuditProvider extends ChangeNotifier {
     ).count;
   }
 
-  int? _asInt(Object? value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is num) return value.round();
-    return int.tryParse(value.toString());
-  }
+  int? _asInt(Object? value) => asInt(value);
 
-  double? _asDouble(Object? value) {
-    if (value == null) return null;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString());
-  }
+  double? _asDouble(Object? value) => asDouble(value);
 
-  Map<String, Object?>? _decodedMap(String? source) {
-    if (source == null || source.trim().isEmpty) return null;
-    try {
-      final decoded = jsonDecode(source);
-      if (decoded is! Map) return null;
-      return Map<String, Object?>.from(decoded);
-    } catch (_) {
-      return null;
-    }
-  }
+  Map<String, Object?>? _decodedMap(String? source) => decodedMap(source);
 
   int? _weightSampleSizeFromWeightsJson(String weightsJson) {
     final decoded = _decodedWeights(weightsJson);
@@ -4551,14 +4522,7 @@ class AuditProvider extends ChangeNotifier {
     return count == 0 ? null : count;
   }
 
-  double? _pct(Object? count, Object? total) {
-    final numerator = _asInt(count);
-    final denominator = _asInt(total);
-    if (numerator == null || denominator == null || denominator <= 0) {
-      return null;
-    }
-    return numerator * 100 / denominator;
-  }
+  double? _pct(Object? count, Object? total) => pct(count, total);
 
   int? _boolToInt(bool? value) {
     if (value == null) return null;
@@ -4711,18 +4675,11 @@ class AuditProvider extends ChangeNotifier {
     };
   }
 
-  String _compactJson(Map<String, Object?> value) {
-    final compact = Map<String, Object?>.from(value)
-      ..removeWhere((_, entry) => entry == null);
-    return jsonEncode(compact);
-  }
+  String _compactJson(Map<String, Object?> value) => compactJson(value);
 
-  bool _hasText(String? value) => _blankToNull(value) != null;
+  bool _hasText(String? value) => hasText(value);
 
-  String? _blankToNull(String? value) {
-    final trimmed = value?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
-  }
+  String? _blankToNull(String? value) => blankToNull(value);
 
   // Set temperature unit
   void setTempUnit(TempUnit unit) {
