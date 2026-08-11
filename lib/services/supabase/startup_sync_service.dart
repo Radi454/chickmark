@@ -182,7 +182,7 @@ class StartupSyncService {
       pushed = await _pushLocalData(progress);
       await _pushPendingDeletes(progress);
     }
-    final pulled = await _pullRemoteData(progress);
+    final pulled = await _pullRemoteData(progress, canPush: canPush);
     progress(0.96, 'Syncing photos');
     await _photoSyncService.syncDownloaded();
     await _photoSyncService.syncPending();
@@ -251,7 +251,17 @@ class StartupSyncService {
     progress(0.32, 'Uploading flocks');
     pushed += await _pushDirtyReferenceRows(
       'flocks',
-      getDirtyRows: _flockRepository.getDirtyRows,
+      getDirtyRows: () async {
+        final rows = await _flockRepository.getDirtyRows();
+        // Cloud `flocks` has no updatedAt column — the local SQLite table
+        // does. Sending it makes PostgREST reject the whole batch (unknown
+        // column), so every dirty flock would fail and then get stuck
+        // forever behind the pull's dirty-status guard. Strip it here only;
+        // the local column and cloud schema are both untouched.
+        return rows
+            .map((row) => Map<String, dynamic>.from(row)..remove('updatedAt'))
+            .toList(growable: false);
+      },
       markSynced: _flockRepository.markRowsSynced,
       markFailed: _flockRepository.markRowsFailed,
     );
@@ -520,8 +530,9 @@ class StartupSyncService {
   }
 
   Future<int> _pullRemoteData(
-    void Function(double value, String message) progress,
-  ) async {
+    void Function(double value, String message) progress, {
+    required bool canPush,
+  }) async {
     progress(0.72, 'Downloading shared data');
     // Baseline guard: on the first sync / after a DB reset there are no local
     // sessions yet, so the whole pull would look "new". Suppress incoming
@@ -541,18 +552,21 @@ class StartupSyncService {
       upsertCustomer: (row) => _upsertReferenceRow(
         'customers',
         row,
+        canPush: canPush,
         getSyncStatus: _customerRepository.getRowSyncStatus,
         upsert: (value) => _customerRepository.upsertCustomer(value),
       ),
       upsertFlock: (row) => _upsertReferenceRow(
         'flocks',
         row,
+        canPush: canPush,
         getSyncStatus: _flockRepository.getRowSyncStatus,
         upsert: (value) => _flockRepository.upsertFlock(value),
       ),
       upsertHatchery: (row) => _upsertReferenceRow(
         'hatcheries',
         row,
+        canPush: canPush,
         getSyncStatus: _hatcheryRepository.getRowSyncStatus,
         upsert: (value) => _hatcheryRepository.upsertHatchery(value),
       ),
@@ -736,17 +750,28 @@ class StartupSyncService {
   /// Reference tables have no updatedAt conflict check (customers/hatcheries
   /// don't carry updatedAt). Guard instead: while a local edit is pending or
   /// failed, the local row wins; it will be pushed on this or the next run.
+  ///
+  /// That guard only protects an edit this device can actually push. A
+  /// device that can never push (canPush: false, e.g. the customer role)
+  /// would otherwise sit behind a 'pending'/'failed' status forever — v57
+  /// defaults every pre-existing row to 'pending', so a read-only device
+  /// would never receive another reference update. When canPush is false,
+  /// bypass the dirty-status guard and always apply the remote row; the
+  /// repo upsert stamps it synced, so the local status self-heals.
   Future<void> _upsertReferenceRow(
     String table,
     Map<String, dynamic> remoteRow, {
+    required bool canPush,
     required Future<String?> Function(String id) getSyncStatus,
     required Future<void> Function(Map<String, dynamic> row) upsert,
   }) async {
     if (_hasPendingLocalDelete(table, remoteRow)) return;
-    final id = _rowId(remoteRow);
-    if (id != null) {
-      final status = await getSyncStatus(id);
-      if (status == 'pending' || status == 'failed') return;
+    if (canPush) {
+      final id = _rowId(remoteRow);
+      if (id != null) {
+        final status = await getSyncStatus(id);
+        if (status == 'pending' || status == 'failed') return;
+      }
     }
     await upsert(remoteRow);
   }

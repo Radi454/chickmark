@@ -506,6 +506,125 @@ void main() {
     },
   );
 
+  test(
+    'flock push payload drops local-only updatedAt (no cloud column)',
+    () async {
+      when(() => flocks.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'flock-1',
+            'flockId': 'Flock 1',
+            'customerId': 'customer-1',
+            'updatedAt': '2026-05-01T00:00:00.000Z',
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-05-01T00:00:00.000Z',
+            'lastSyncedAt': null,
+            'syncError': null,
+          },
+        ],
+      );
+
+      await service().run();
+
+      final payload =
+          verify(
+                () => supabase.upsertRowsStrict('flocks', captureAny()),
+              ).captured.single
+              as List<Map<String, dynamic>>;
+      expect(payload, isNotEmpty);
+      for (final key in [
+        'updatedAt',
+        'syncStatus',
+        'dirtyAt',
+        'lastSyncedAt',
+        'syncError',
+      ]) {
+        expect(payload.single.keys, isNot(contains(key)));
+      }
+      expect(payload.single['id'], 'flock-1');
+    },
+  );
+
+  test(
+    'canPush:false applies a remote customer row even when local status is pending',
+    () async {
+      when(
+        () => customers.getRowSyncStatus('customer-1'),
+      ).thenAnswer((_) async => 'pending');
+      when(() => customers.upsertCustomer(any())).thenAnswer((_) async {});
+      when(
+        () => supabase.pullFromSupabase(
+          upsertCustomer: any(named: 'upsertCustomer'),
+          upsertFlock: any(named: 'upsertFlock'),
+          upsertHatchery: any(named: 'upsertHatchery'),
+          upsertPhoto: any(named: 'upsertPhoto'),
+          upsertBmkBreed: any(named: 'upsertBmkBreed'),
+          upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertAuditSession: any(named: 'upsertAuditSession'),
+          upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+          upsertDashboardAction: any(named: 'upsertDashboardAction'),
+          upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+          upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertCustomer]
+                as Future<void> Function(Map<String, dynamic>);
+        await callback({'id': 'customer-1', 'name': 'Remote Customer 1'});
+        return const SupabasePullSummary(panelRows: 1);
+      });
+
+      await service().run(canPush: false);
+
+      verify(
+        () => customers.upsertCustomer(
+          any(that: containsPair('id', 'customer-1')),
+        ),
+      ).called(1);
+    },
+  );
+
+  test(
+    'canPush:true applies a remote customer row when local status is synced',
+    () async {
+      when(
+        () => customers.getRowSyncStatus('customer-1'),
+      ).thenAnswer((_) async => 'synced');
+      when(() => customers.upsertCustomer(any())).thenAnswer((_) async {});
+      when(
+        () => supabase.pullFromSupabase(
+          upsertCustomer: any(named: 'upsertCustomer'),
+          upsertFlock: any(named: 'upsertFlock'),
+          upsertHatchery: any(named: 'upsertHatchery'),
+          upsertPhoto: any(named: 'upsertPhoto'),
+          upsertBmkBreed: any(named: 'upsertBmkBreed'),
+          upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertAuditSession: any(named: 'upsertAuditSession'),
+          upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+          upsertDashboardAction: any(named: 'upsertDashboardAction'),
+          upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+          upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertCustomer]
+                as Future<void> Function(Map<String, dynamic>);
+        await callback({'id': 'customer-1', 'name': 'Remote Customer 1'});
+        return const SupabasePullSummary(panelRows: 1);
+      });
+
+      await service().run(canPush: true);
+
+      verify(
+        () => customers.upsertCustomer(
+          any(that: containsPair('id', 'customer-1')),
+        ),
+      ).called(1);
+    },
+  );
+
   test('pushes dirty Govee captures and marks them synced', () async {
     when(() => govee.getDirtyCaptureRows()).thenAnswer(
       (_) async => [
