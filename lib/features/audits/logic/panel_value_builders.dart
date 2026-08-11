@@ -103,6 +103,37 @@ Map<String, Object?> panelValuesForDraft(
   };
 }
 
+/// The storage-period days a draft reports, whatever station it came from.
+///
+/// Moved verbatim from the provider's `_storageDaysForDraft`. It lives here
+/// rather than in `services/audit_panel_save_coordinator.dart` because it has
+/// callers on both sides of that split (the coordinator's panel-record builder
+/// and the provider's station-sample builder), and duplicating it would let
+/// the two copies drift.
+int? storageDaysForDraft(AuditModel draft) {
+  final storageDays =
+      draft.esEggStorageDays ??
+      draft.chickStorageDays ??
+      draft.haStorageDays ??
+      draft.ebStorageDays;
+  if (storageDays != null) return storageDays;
+  return switch (draft.auditType) {
+    'Egg' || 'Chicks' || 'Hatch Analysis & Egg Breakouts' => 0,
+    _ => null,
+  };
+}
+
+/// The legacy per-station benchmark age in weeks, if the draft carries one.
+///
+/// Moved verbatim from the provider's `_legacyBmkWeeksForDraft`; see
+/// [storageDaysForDraft] for why it lives here rather than in the coordinator.
+int? legacyBmkWeeksForDraft(AuditModel draft) {
+  return draft.esEggBmkAge ??
+      draft.chickBmkAge ??
+      draft.haBmkAge ??
+      draft.ebBmkAge;
+}
+
 Map<String, Object?> eggStorageValues(AuditModel draft) {
   final trays = decodedMaps(draft.esUvTrays);
   var trayEggCount = 0;
