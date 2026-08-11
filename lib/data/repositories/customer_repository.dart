@@ -4,11 +4,80 @@ import 'package:sqflite/sqflite.dart';
 import 'sync_tombstone_repository.dart';
 
 class CustomerRepository {
-  final dbHelper = DatabaseHelper();
+  CustomerRepository({DatabaseHelper? dbHelper})
+    : dbHelper = dbHelper ?? DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  static const _table = 'customers';
+
+  String _nowStamp() => DateTime.now().toIso8601String();
+
+  /// dirtyAt value captured at the last getDirtyRows() call. markRowsSynced
+  /// only clears rows whose dirtyAt is at or before this cutoff, so an edit
+  /// landing while a push is in flight stays pending.
+  String? _dirtyReadCutoff;
+
+  Future<List<Map<String, dynamic>>> getDirtyRows() async {
+    final db = await dbHelper.db;
+    _dirtyReadCutoff = _nowStamp();
+    final rows = await db.query(
+      _table,
+      where: "syncStatus IN ('pending', 'failed')",
+      orderBy: 'dirtyAt ASC, id ASC',
+    );
+    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  Future<void> markRowsSynced(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final cutoff = _dirtyReadCutoff ?? _nowStamp();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _table,
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': _nowStamp(),
+        'syncError': null,
+      },
+      where: 'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...ids, cutoff],
+    );
+  }
+
+  Future<void> markRowsFailed(List<String> ids, Object error) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _table,
+      {'syncStatus': 'failed', 'syncError': error.toString()},
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
+  Future<String?> getRowSyncStatus(String id) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      _table,
+      columns: ['syncStatus'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['syncStatus']?.toString();
+  }
 
   Future<void> insertCustomer(CustomerModel customer) async {
     final db = await dbHelper.db;
-    await _upsertById(db, 'customers', customer.toMap());
+    await _upsertById(db, 'customers', {
+      ...customer.toMap(),
+      'syncStatus': 'pending',
+      'dirtyAt': _nowStamp(),
+    });
   }
 
   Future<List<CustomerModel>> getAllCustomers() async {
@@ -34,7 +103,11 @@ class CustomerRepository {
     final db = await dbHelper.db;
     await db.update(
       'customers',
-      customer.toMap(),
+      {
+        ...customer.toMap(),
+        'syncStatus': 'pending',
+        'dirtyAt': _nowStamp(),
+      },
       where: 'id = ?',
       whereArgs: [customer.id],
     );
@@ -55,7 +128,13 @@ class CustomerRepository {
   Future<void> upsertCustomer(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'customers');
-    final normalized = _filterColumns(_normalizeCustomerRow(row), columns);
+    final normalized = _filterColumns(_normalizeCustomerRow(row), columns)
+      ..addAll({
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': _nowStamp(),
+        'syncError': null,
+      });
     await _upsertById(db, 'customers', normalized);
   }
 
