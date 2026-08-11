@@ -4,7 +4,7 @@ import 'package:hatchaudit/data/models/customer_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/features/dashboard/models/egg_storage_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
-import 'package:hatchaudit/features/dashboard/widgets/sections/stub_sections.dart';
+import 'package:hatchaudit/features/dashboard/widgets/sections/egg_storage_section.dart';
 import 'package:provider/provider.dart';
 
 class _StaticDashboardProvider extends DashboardProvider {
