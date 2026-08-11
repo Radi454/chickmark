@@ -15,6 +15,10 @@ class LabAnalysisRepository {
   static const rowsTable = 'lab_analysis_rows';
   static const syncTables = [reportsTable, groupsTable, rowsTable];
 
+  /// dirtyAt cutoff per table, captured at the last getDirtyRows() call for
+  /// that table; see markRowsSynced.
+  final Map<String, String> _dirtyReadCutoffByTable = {};
+
   Future<void> saveBatch({
     required LabAnalysisReportModel report,
     required LabAnalysisGroupModel group,
@@ -219,6 +223,7 @@ class LabAnalysisRepository {
   Future<List<Map<String, dynamic>>> getDirtyRows(String table) async {
     _assertSyncTable(table);
     final db = await _dbHelper.db;
+    _dirtyReadCutoffByTable[table] = DateTime.now().toIso8601String();
     final rows = await db.query(
       table,
       where: "syncStatus IN ('pending', 'failed')",
@@ -255,14 +260,26 @@ class LabAnalysisRepository {
     await _upsertById(db, table, _filterColumns(synced, columns));
   }
 
-  Future<void> markRowsSynced(String table, Iterable<String> ids) {
+  Future<void> markRowsSynced(String table, Iterable<String> ids) async {
     _assertSyncTable(table);
-    return _markRows(table, ids, {
-      'syncStatus': 'synced',
-      'dirtyAt': null,
-      'lastSyncedAt': DateTime.now().toIso8601String(),
-      'syncError': null,
-    });
+    final idList = ids.toList(growable: false);
+    if (idList.isEmpty) return;
+    final db = await _dbHelper.db;
+    final cutoff =
+        _dirtyReadCutoffByTable[table] ?? DateTime.now().toIso8601String();
+    await db.update(
+      table,
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+        'syncError': null,
+      },
+      where:
+          'id IN (${List.filled(idList.length, '?').join(', ')}) '
+          'AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...idList, cutoff],
+    );
   }
 
   Future<void> markRowsFailed(

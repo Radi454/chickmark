@@ -13,6 +13,10 @@ class PanelSampleRepository {
 
   final DatabaseHelper _databaseHelper;
 
+  /// dirtyAt cutoff per table, captured at the last getDirtyRows() call for
+  /// that table; see markRowsSynced.
+  final Map<String, String> _dirtyReadCutoffByTable = {};
+
   Future<void> savePanelWithSamples({
     required PanelRecord panel,
     required List<PanelSampleRecord> samples,
@@ -420,6 +424,8 @@ class PanelSampleRepository {
   Future<List<Map<String, dynamic>>> getDirtyRows(String tableName) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
+    _dirtyReadCutoffByTable[definition.tableName] =
+        DateTime.now().toIso8601String();
     final rows = await database.query(
       definition.tableName,
       where: "syncStatus IN ('pending', 'failed')",
@@ -433,6 +439,9 @@ class PanelSampleRepository {
     if (idList.isEmpty) return;
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
+    final cutoff =
+        _dirtyReadCutoffByTable[definition.tableName] ??
+        DateTime.now().toIso8601String();
     final placeholders = List.filled(idList.length, '?').join(', ');
     await database.update(
       definition.tableName,
@@ -442,8 +451,9 @@ class PanelSampleRepository {
         'dirtyAt': null,
         'syncError': null,
       },
-      where: 'id IN ($placeholders)',
-      whereArgs: idList,
+      where:
+          'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...idList, cutoff],
     );
   }
 

@@ -112,4 +112,73 @@ void main() {
     expect(saved.syncStatus, 'synced');
     expect(saved.dirtyAt, isNull);
   });
+
+  group('mark-synced race protection', () {
+    test('an action edited mid-push stays pending after markSynced', () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('customers', {'id': 'c3', 'name': 'Customer'});
+      await db.insert('hatcheries', {
+        'id': 'h3',
+        'customerId': 'c3',
+        'name': 'Hatchery',
+      });
+      final repository = DashboardActionRepository();
+      final now = DateTime.utc(2026, 7, 12, 10);
+      final action = DashboardActionModel(
+        id: 'a-race',
+        findingKey: 'c3|h3|cvt',
+        customerId: 'c3',
+        hatcheryId: 'h3',
+        metricKey: 'cvtAvg',
+        title: 'Race test',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await repository.save(action);
+      await repository.getDirtyRows(); // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repository.save(action); // mid-push edit
+      await repository.markSynced(['a-race']);
+
+      final saved = (await repository.getForScope(
+        customerId: 'c3',
+        hatcheryId: 'h3',
+      )).single;
+      expect(saved.syncStatus, 'pending');
+      expect(saved.dirtyAt, isNotNull);
+    });
+
+    test('an unedited action is cleared by markSynced', () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('customers', {'id': 'c4', 'name': 'Customer'});
+      await db.insert('hatcheries', {
+        'id': 'h4',
+        'customerId': 'c4',
+        'name': 'Hatchery',
+      });
+      final repository = DashboardActionRepository();
+      final now = DateTime.utc(2026, 7, 12, 10);
+      final action = DashboardActionModel(
+        id: 'a-race-2',
+        findingKey: 'c4|h4|cvt',
+        customerId: 'c4',
+        hatcheryId: 'h4',
+        metricKey: 'cvtAvg',
+        title: 'Race test',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await repository.save(action);
+      await repository.getDirtyRows();
+      await repository.markSynced(['a-race-2']);
+
+      final saved = (await repository.getForScope(
+        customerId: 'c4',
+        hatcheryId: 'h4',
+      )).single;
+      expect(saved.syncStatus, 'synced');
+    });
+  });
 }

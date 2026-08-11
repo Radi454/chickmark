@@ -11,6 +11,10 @@ class GoveeCaptureRepository {
   GoveeCaptureRepository({DatabaseHelper? dbHelper})
     : _dbHelper = dbHelper ?? DatabaseHelper();
 
+  /// dirtyAt cutoff captured when the dirty rows were last read; see
+  /// markCapturesSynced.
+  String? _dirtyReadCutoff;
+
   Future<GoveeDailyCaptureModel?> getCaptureForScope({
     required String customerId,
     required String hatcheryId,
@@ -189,6 +193,7 @@ class GoveeCaptureRepository {
   /// Govee captures awaiting a push (locally edited or last push failed).
   Future<List<GoveeDailyCaptureModel>> getDirtyCaptureRows() async {
     final db = await _dbHelper.db;
+    _dirtyReadCutoff = DateTime.now().toIso8601String();
     final rows = await db.query(
       'govee_daily_captures',
       where: "syncStatus IN ('pending', 'failed')",
@@ -201,6 +206,7 @@ class GoveeCaptureRepository {
     final idList = ids.toList(growable: false);
     if (idList.isEmpty) return;
     final db = await _dbHelper.db;
+    final cutoff = _dirtyReadCutoff ?? DateTime.now().toIso8601String();
     final placeholders = List.filled(idList.length, '?').join(', ');
     await db.update(
       'govee_daily_captures',
@@ -210,8 +216,9 @@ class GoveeCaptureRepository {
         'dirtyAt': null,
         'syncError': null,
       },
-      where: 'id IN ($placeholders)',
-      whereArgs: idList,
+      where:
+          'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...idList, cutoff],
     );
   }
 

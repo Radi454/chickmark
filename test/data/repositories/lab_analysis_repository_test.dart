@@ -189,4 +189,77 @@ void main() {
       expect(savedRow.interpretation, contains('not isolated'));
     },
   );
+
+  group('mark-synced race protection', () {
+    LabAnalysisReportModel report(String id, DateTime now) =>
+        LabAnalysisReportModel(
+          id: id,
+          customerId: 'customer-1',
+          flockId: 'flock-1',
+          reportDate: now,
+          labName: 'IDvet',
+          sampleType: 'Serum / Plasma',
+          createdAt: now,
+          updatedAt: now,
+        );
+
+    LabAnalysisGroupModel group(String id, LabAnalysisReportModel report) =>
+        LabAnalysisGroupModel(
+          id: id,
+          reportId: report.id,
+          customerId: report.customerId,
+          flockId: report.flockId,
+          reportDate: report.reportDate,
+          testType: LabTestType.elisa,
+          groupLabel: 'Race group',
+          createdAt: report.createdAt,
+          updatedAt: report.updatedAt,
+        );
+
+    test('a report edited mid-push stays pending after markRowsSynced',
+        () async {
+      final now = DateTime.utc(2026, 6, 4);
+      final r = report('race-report', now);
+      final g = group('race-group', r);
+
+      await repository.saveBatch(report: r, group: g, rows: const []);
+      await repository.getDirtyRows(
+        LabAnalysisRepository.reportsTable,
+      ); // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repository.saveBatch(
+        report: r,
+        group: g,
+        rows: const [],
+      ); // mid-push edit
+      await repository.markRowsSynced(LabAnalysisRepository.reportsTable, [
+        'race-report',
+      ]);
+
+      final row = await repository.getRowById(
+        LabAnalysisRepository.reportsTable,
+        'race-report',
+      );
+      expect(row!['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+    });
+
+    test('an unedited report is cleared by markRowsSynced', () async {
+      final now = DateTime.utc(2026, 6, 4);
+      final r = report('race-report-2', now);
+      final g = group('race-group-2', r);
+
+      await repository.saveBatch(report: r, group: g, rows: const []);
+      await repository.getDirtyRows(LabAnalysisRepository.reportsTable);
+      await repository.markRowsSynced(LabAnalysisRepository.reportsTable, [
+        'race-report-2',
+      ]);
+
+      final row = await repository.getRowById(
+        LabAnalysisRepository.reportsTable,
+        'race-report-2',
+      );
+      expect(row!['syncStatus'], 'synced');
+    });
+  });
 }

@@ -10,6 +10,10 @@ class DashboardActionRepository {
 
   final DatabaseHelper _dbHelper;
 
+  /// dirtyAt cutoff captured when the dirty rows were last read (UTC); see
+  /// markSynced.
+  String? _dirtyReadCutoff;
+
   Future<List<DashboardActionModel>> getForScope({
     required String customerId,
     required String hatcheryId,
@@ -64,6 +68,7 @@ class DashboardActionRepository {
 
   Future<List<DashboardActionModel>> getDirtyRows() async {
     final db = await _dbHelper.db;
+    _dirtyReadCutoff = DateTime.now().toUtc().toIso8601String();
     final rows = await db.query(
       'dashboard_actions',
       where: "syncStatus IN ('pending', 'failed')",
@@ -99,12 +104,25 @@ class DashboardActionRepository {
     );
   }
 
-  Future<void> markSynced(Iterable<String> ids) => _mark(ids, {
-    'syncStatus': 'synced',
-    'dirtyAt': null,
-    'lastSyncedAt': DateTime.now().toUtc().toIso8601String(),
-    'syncError': null,
-  });
+  Future<void> markSynced(Iterable<String> ids) async {
+    final list = ids.toList(growable: false);
+    if (list.isEmpty) return;
+    final db = await _dbHelper.db;
+    final cutoff = _dirtyReadCutoff ?? DateTime.now().toUtc().toIso8601String();
+    await db.update(
+      'dashboard_actions',
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': DateTime.now().toUtc().toIso8601String(),
+        'syncError': null,
+      },
+      where:
+          'id IN (${List.filled(list.length, '?').join(', ')}) '
+          'AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...list, cutoff],
+    );
+  }
 
   Future<void> markFailed(Iterable<String> ids, Object error) =>
       _mark(ids, {'syncStatus': 'failed', 'syncError': error.toString()});
