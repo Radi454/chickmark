@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/features/audits/logic/breakout_value_builders.dart';
 import 'package:hatchaudit/features/audits/logic/panel_value_builders.dart';
 
 /// Minimal `AuditModel` builder for these tests: only the fields required by
@@ -132,13 +133,6 @@ AuditModel _audit(
   );
 }
 
-/// [panelValuesForDraft] requires breakout-value callbacks (the breakout
-/// builders are extracted in a later task); these tests never exercise the
-/// breakout table names, so failing loudly on a call confirms that.
-Map<String, Object?> _unexpectedBreakoutCall(AuditModel draft) {
-  fail('breakout value builder should not be called for this table');
-}
-
 /// Column names declared for [tableName] in the real panel schema
 /// (`database/panel_sample_schema.dart`), stripped of their SQL type suffix.
 List<String> _schemaColumns(String tableName) {
@@ -209,9 +203,8 @@ void main() {
       final values = panelValuesForDraft(
         'egg_storage',
         draft,
-        freshBreakoutValues: _unexpectedBreakoutCall,
-        candledBreakoutValues: _unexpectedBreakoutCall,
-        residueBreakoutValues: _unexpectedBreakoutCall,
+        flockAgeWeeks: null,
+        flockEntryDate: null,
       );
 
       for (final column in _schemaColumns('egg_storage')) {
@@ -244,9 +237,8 @@ void main() {
       final values = panelValuesForDraft(
         'chick_quality',
         draft,
-        freshBreakoutValues: _unexpectedBreakoutCall,
-        candledBreakoutValues: _unexpectedBreakoutCall,
-        residueBreakoutValues: _unexpectedBreakoutCall,
+        flockAgeWeeks: null,
+        flockEntryDate: null,
       );
 
       for (final column in _schemaColumns('chick_quality')) {
@@ -266,25 +258,76 @@ void main() {
       expect(values['culledChicksAffectedPct'], 0.0);
     });
 
-    test('fresh_egg_breakout delegates to the injected callback', () {
-      final draft = _audit('Hatch Analysis & Egg Breakouts');
-      final values = panelValuesForDraft(
-        'fresh_egg_breakout',
-        draft,
-        freshBreakoutValues: (d) => {'traySize': 42},
-        candledBreakoutValues: _unexpectedBreakoutCall,
-        residueBreakoutValues: _unexpectedBreakoutCall,
-      );
-      expect(values, {'traySize': 42});
-    });
+    test(
+      'fresh/candled/residue breakout tables delegate to the matching '
+      'breakout_value_builders function with flockAgeWeeks/flockEntryDate '
+      'threaded through',
+      () {
+        const flockAgeWeeks = 5;
+        final flockEntryDate = DateTime(2025, 12, 1);
+
+        final freshDraft = _audit(
+          'Hatch Analysis & Egg Breakouts',
+          ebBreakoutType: 'fresh',
+        );
+        expect(
+          panelValuesForDraft(
+            'fresh_egg_breakout',
+            freshDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+          freshBreakoutValues(
+            freshDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+        );
+
+        final candledDraft = _audit(
+          'Hatch Analysis & Egg Breakouts',
+          ebBreakoutType: 'candled',
+        );
+        expect(
+          panelValuesForDraft(
+            'candled_egg_breakout',
+            candledDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+          candledBreakoutValues(
+            candledDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+        );
+
+        final residueDraft = _audit(
+          'Hatch Analysis & Egg Breakouts',
+          ebBreakoutType: 'residue',
+        );
+        expect(
+          panelValuesForDraft(
+            'residue_breakout',
+            residueDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+          residueBreakoutValues(
+            residueDraft,
+            flockAgeWeeks: flockAgeWeeks,
+            flockEntryDate: flockEntryDate,
+          ),
+        );
+      },
+    );
 
     test('an unknown table resolves to an empty map', () {
       final values = panelValuesForDraft(
         'not_a_real_table',
         _audit('Egg'),
-        freshBreakoutValues: _unexpectedBreakoutCall,
-        candledBreakoutValues: _unexpectedBreakoutCall,
-        residueBreakoutValues: _unexpectedBreakoutCall,
+        flockAgeWeeks: null,
+        flockEntryDate: null,
       );
       expect(values, isEmpty);
     });

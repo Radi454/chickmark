@@ -7,6 +7,7 @@ import '../models/egg_breakout_sample.dart';
 import '../models/temperature_entry_unit.dart';
 import '../models/temperature_readings_payload.dart';
 import 'audit_value_parsing.dart';
+import 'breakout_value_builders.dart';
 
 /// The panel tables a draft's audit type saves rows into.
 List<String> panelTablesForDraft(AuditModel draft) {
@@ -28,27 +29,36 @@ List<String> panelTablesForDraft(AuditModel draft) {
 
 /// The measurement-column values for a single panel table.
 ///
-/// The egg-breakout branches are not yet extracted (planned for a later
-/// "breakout value builders" task), so they are injected as callbacks
-/// resolved by the caller from the provider's still-resident
-/// `_freshBreakoutValues` / `_candledBreakoutValues` / `_residueBreakoutValues`.
+/// The egg-breakout branches call straight into `breakout_value_builders.dart`;
+/// `flockAgeWeeks`/`flockEntryDate` are threaded through as explicit
+/// parameters because those builders need them but this function has no
+/// provider instance to read them from.
 Map<String, Object?> panelValuesForDraft(
   String tableName,
   AuditModel draft, {
-  required Map<String, Object?> Function(AuditModel draft) freshBreakoutValues,
-  required Map<String, Object?> Function(AuditModel draft)
-  candledBreakoutValues,
-  required Map<String, Object?> Function(AuditModel draft)
-  residueBreakoutValues,
+  required int? flockAgeWeeks,
+  required DateTime? flockEntryDate,
 }) {
   return switch (tableName) {
     'egg_storage' => eggStorageValues(draft),
     'egg_quality' => eggQualityValues(draft),
     'chick_quality' => chickQualityValues(draft),
     'chick_weights' => chickWeightValues(draft),
-    'fresh_egg_breakout' => freshBreakoutValues(draft),
-    'candled_egg_breakout' => candledBreakoutValues(draft),
-    'residue_breakout' => residueBreakoutValues(draft),
+    'fresh_egg_breakout' => freshBreakoutValues(
+      draft,
+      flockAgeWeeks: flockAgeWeeks,
+      flockEntryDate: flockEntryDate,
+    ),
+    'candled_egg_breakout' => candledBreakoutValues(
+      draft,
+      flockAgeWeeks: flockAgeWeeks,
+      flockEntryDate: flockEntryDate,
+    ),
+    'residue_breakout' => residueBreakoutValues(
+      draft,
+      flockAgeWeeks: flockAgeWeeks,
+      flockEntryDate: flockEntryDate,
+    ),
     'setter_optimizing' => {
       'machineType': draft.soMachineType,
       'setpointF': draft.soSetpointF,

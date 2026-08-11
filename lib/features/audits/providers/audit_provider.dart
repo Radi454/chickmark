@@ -25,6 +25,7 @@ import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
 import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
+import '../logic/breakout_value_builders.dart';
 import '../logic/panel_value_builders.dart';
 import 'package:uuid/uuid.dart';
 
@@ -2533,7 +2534,7 @@ class AuditProvider extends ChangeNotifier {
   }) async {
     for (final tableName in panelTablesForDraft(draft)) {
       if (skipTables.contains(tableName)) continue;
-      if (_isEggBreakoutPanelTable(tableName)) {
+      if (isEggBreakoutPanelTable(tableName)) {
         await _saveEggBreakoutPanelTable(tableName, draft, sample);
       } else {
         await _savePanelTableWithSamples(tableName, draft, [sample]);
@@ -2661,7 +2662,7 @@ class AuditProvider extends ChangeNotifier {
         continue;
       }
       for (final tableName in panelTablesForDraft(pair.draft)) {
-        if (!_isEggBreakoutPanelTable(tableName)) continue;
+        if (!isEggBreakoutPanelTable(tableName)) continue;
         paths.addAll(_breakoutHierarchyPathsForPair(i, tableName, pair));
       }
     }
@@ -2689,7 +2690,7 @@ class AuditProvider extends ChangeNotifier {
     String tableName,
     _PanelSavePair pair,
   ) {
-    final entries = _breakoutLeafEntriesForTable(tableName, pair.draft);
+    final entries = breakoutLeafEntriesForTable(tableName, pair.draft);
     if (entries.isEmpty) {
       final panel = _panelRecordForSamples(tableName, pair.draft, [
         pair.sample,
@@ -2716,7 +2717,7 @@ class AuditProvider extends ChangeNotifier {
       ];
     }
 
-    final breakoutType = _breakoutTypeForTable(tableName);
+    final breakoutType = breakoutTypeForTable(tableName);
     final useDraftBatchHierarchy =
         breakoutType != EggBreakoutType.freshEggBreakout &&
         SampleMode.isCompare(pair.draft.sampleMode);
@@ -2901,7 +2902,7 @@ class AuditProvider extends ChangeNotifier {
   Iterable<String> _panelTablesForScopedPrune(_PanelSavePair pair) sync* {
     for (final tableName in panelTablesForDraft(pair.draft)) {
       if (tableName == 'egg_storage') continue;
-      if (_isEggBreakoutPanelTable(tableName)) continue;
+      if (isEggBreakoutPanelTable(tableName)) continue;
       if (pair.draft.auditType == 'Egg' &&
           tableName == 'egg_quality' &&
           !hasMeaningfulEggQualityData(pair.draft)) {
@@ -2944,7 +2945,7 @@ class AuditProvider extends ChangeNotifier {
       final sessionId = pair.sample.auditSessionId;
       if (sessionId.isEmpty) continue;
       for (final tableName in panelTablesForDraft(pair.draft)) {
-        if (!_isEggBreakoutPanelTable(tableName)) continue;
+        if (!isEggBreakoutPanelTable(tableName)) continue;
         final key = '$sessionId::$tableName';
         tableByKey[key] = tableName;
         pairsByKey.putIfAbsent(key, () => <_PanelSavePair>[]).add(pair);
@@ -3048,7 +3049,7 @@ class AuditProvider extends ChangeNotifier {
     AuditModel draft,
     StationSampleModel sample,
   ) async {
-    final entries = _breakoutLeafEntriesForTable(tableName, draft);
+    final entries = breakoutLeafEntriesForTable(tableName, draft);
     if (entries.isEmpty) {
       final panel = _panelRecordForSamples(tableName, draft, [sample]);
       return [
@@ -3064,14 +3065,14 @@ class AuditProvider extends ChangeNotifier {
       ];
     }
 
-    final breakoutType = _breakoutTypeForTable(tableName);
+    final breakoutType = breakoutTypeForTable(tableName);
     final benchmark = await _breakoutBenchmarkForDraft(draft, breakoutType);
     final basePanel = _panelRecordForSamples(tableName, draft, [sample]);
     final baseRowId = '${basePanel.id}:${sample.id}';
     final rows = <({PanelRecord panel, PanelSampleRecord sample})>[];
     for (var i = 0; i < entries.length; i++) {
       final entry = entries[i];
-      final label = _breakoutTrayLabel(entry, i);
+      final label = breakoutTrayLabel(entry, i);
       final isFresh = breakoutType == EggBreakoutType.freshEggBreakout;
       final useDraftBatchHierarchy =
           !isFresh && SampleMode.isCompare(draft.sampleMode);
@@ -3090,11 +3091,13 @@ class AuditProvider extends ChangeNotifier {
           ? null
           : entryHatcher ??
                 (useDraftBatchHierarchy ? blankToNull(draft.hatcherId) : null);
-      final values = _breakoutValuesForEntry(
+      final values = breakoutValuesForEntry(
         tableName,
         draft,
         entry,
         benchmark,
+        flockAgeWeeks: _context?.flockAgeWeeks,
+        flockEntryDate: _context?.flockEntryDate,
       );
       final scopeType = _breakoutScopeTypeForEntry(
         tableName: tableName,
@@ -3117,11 +3120,11 @@ class AuditProvider extends ChangeNotifier {
             ? PanelRecord.modePool
             : PanelRecord.modeCompare,
         scopeType: scopeType,
-        scopeLabel: _breakoutScopeLabelForEntry(scopeType, entry, label),
+        scopeLabel: breakoutScopeLabelForEntry(scopeType, entry, label),
         sampleIndex: i + 1,
         groupKey: basePanel.groupKey,
         groupLabel:
-            basePanel.groupLabel ?? _breakoutGroupLabelForScope(scopeType),
+            basePanel.groupLabel ?? breakoutGroupLabelForScope(scopeType),
         notes: basePanel.notes,
         syncStatus: basePanel.syncStatus,
         lastSyncedAt: basePanel.lastSyncedAt,
@@ -3131,19 +3134,19 @@ class AuditProvider extends ChangeNotifier {
         updatedAt: basePanel.updatedAt,
       );
       final panelSample = PanelSampleRecord(
-        id: _breakoutEntryRowId(baseRowId, i, entry, scopeType),
+        id: breakoutEntryRowId(baseRowId, i, entry, scopeType),
         panelId: basePanel.id,
         scopeType: scopeType,
-        scopeLabel: _breakoutScopeLabelForEntry(scopeType, entry, label),
+        scopeLabel: breakoutScopeLabelForEntry(scopeType, entry, label),
         sampleIndex: i + 1,
         houseId: houseValue,
         houseName: houseValue,
         setterId: setterValue,
         hatcherId: hatcherValue,
-        trolleyId: isFresh || _scopeBeforeTrolley(scopeType)
+        trolleyId: isFresh || scopeBeforeTrolley(scopeType)
             ? null
             : blankToNull(entry.trolley),
-        trolleyLabel: isFresh || _scopeBeforeTrolley(scopeType)
+        trolleyLabel: isFresh || scopeBeforeTrolley(scopeType)
             ? null
             : blankToNull(entry.trolley),
         trayId: scopeType == SamplingLayer.tray
@@ -3242,9 +3245,8 @@ class AuditProvider extends ChangeNotifier {
       values: panelValuesForDraft(
         tableName,
         draft,
-        freshBreakoutValues: _freshBreakoutValues,
-        candledBreakoutValues: _candledBreakoutValues,
-        residueBreakoutValues: _residueBreakoutValues,
+        flockAgeWeeks: _context?.flockAgeWeeks,
+        flockEntryDate: _context?.flockEntryDate,
       ),
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
@@ -3265,63 +3267,6 @@ class AuditProvider extends ChangeNotifier {
       ..['chickBmkAge'] = values['bmkAgeWeeks']
       ..['chickBmkWeight'] = values['bmkWeight'];
     return AuditModel.fromMap(map);
-  }
-
-  bool _isEggBreakoutPanelTable(String tableName) {
-    return tableName == 'fresh_egg_breakout' ||
-        tableName == 'candled_egg_breakout' ||
-        tableName == 'residue_breakout';
-  }
-
-  EggBreakoutType _breakoutTypeForTable(String tableName) {
-    return switch (tableName) {
-      'fresh_egg_breakout' => EggBreakoutType.freshEggBreakout,
-      'candled_egg_breakout' => EggBreakoutType.candledEggBreakout,
-      'residue_breakout' => EggBreakoutType.residueHatchDay,
-      _ => EggBreakoutType.fromStorageValue(null),
-    };
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutTrayEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return _breakoutEntriesForTable(
-      tableName,
-      draft,
-    ).where((entry) => entry.sampleMode == EggBreakoutSampleMode.tray).toList();
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutPoolEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return _breakoutEntriesForTable(
-      tableName,
-      draft,
-    ).where((entry) => entry.sampleMode == EggBreakoutSampleMode.pool).toList();
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutLeafEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    final trayEntries = _breakoutTrayEntriesForTable(tableName, draft);
-    if (trayEntries.isNotEmpty) return trayEntries;
-    return _breakoutPoolEntriesForTable(tableName, draft);
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    final type = _breakoutTypeForTable(tableName);
-    return EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    ).where((entry) => entry.breakoutType == type).toList();
   }
 
   Future<Map<String, Object?>?> _breakoutBenchmarkForDraft(
@@ -3346,45 +3291,6 @@ class AuditProvider extends ChangeNotifier {
       safeDebugLog('Error loading breakout benchmark for save', error: error);
       return null;
     }
-  }
-
-  Map<String, Object?> _breakoutBmkContextValues(
-    AuditModel draft,
-    EggBreakoutType breakoutType,
-  ) {
-    final storageDays = draft.ebStorageDays ?? draft.haStorageDays ?? 0;
-    final bmkAgeDays = breakoutType.calculateBmkAgeDays(
-      currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDays(
-        flockAgeWeeks: _context?.flockAgeWeeks,
-        flockEntryDate: _context?.flockEntryDate,
-        auditDate: draft.date,
-      ),
-      storageDays: storageDays,
-      candlingDay: draft.ebBreakoutAgeDays ?? 10,
-    );
-    return {
-      'storagePeriodDays': storageDays,
-      'bmkAgeWeeks':
-          BmkAgeCalculator.displayWeekForDays(bmkAgeDays) ??
-          draft.ebBmkAge ??
-          draft.haBmkAge,
-    };
-  }
-
-  String _breakoutTrayLabel(EggBreakoutSampleEntry entry, int index) {
-    final label = entry.label.trim();
-    return label.isEmpty ? 'Tray ${index + 1}' : label;
-  }
-
-  String _breakoutEntryRowId(
-    String baseRowId,
-    int index,
-    EggBreakoutSampleEntry entry,
-    SamplingLayer scopeType,
-  ) {
-    if (index == 0) return baseRowId;
-    final entryId = blankToNull(entry.id) ?? 'tray-${index + 1}';
-    return '$baseRowId:${scopeType.dbValue}:${index + 1}:$entryId';
   }
 
   SamplingLayer _breakoutScopeTypeForEntry({
@@ -3426,376 +3332,6 @@ class AuditProvider extends ChangeNotifier {
     return SamplingLayer.pool;
   }
 
-  String _breakoutScopeLabelForEntry(
-    SamplingLayer scopeType,
-    EggBreakoutSampleEntry entry,
-    String fallbackLabel,
-  ) {
-    return switch (scopeType) {
-      SamplingLayer.house => blankToNull(entry.house) ?? fallbackLabel,
-      SamplingLayer.setterHatcher =>
-        '${blankToNull(entry.setter) ?? ''}/${blankToNull(entry.hatcher) ?? ''}',
-      SamplingLayer.setter => blankToNull(entry.setter) ?? fallbackLabel,
-      SamplingLayer.hatcher => blankToNull(entry.hatcher) ?? fallbackLabel,
-      SamplingLayer.trolley => blankToNull(entry.trolley) ?? fallbackLabel,
-      SamplingLayer.tray => blankToNull(entry.tray) ?? fallbackLabel,
-      SamplingLayer.pool => 'Random',
-    };
-  }
-
-  String? _breakoutGroupLabelForScope(SamplingLayer scopeType) {
-    return switch (scopeType) {
-      SamplingLayer.house => 'House comparison',
-      SamplingLayer.setter ||
-      SamplingLayer.hatcher ||
-      SamplingLayer.setterHatcher => 'Machine comparison',
-      SamplingLayer.trolley => 'Trolley comparison',
-      SamplingLayer.tray => 'Tray comparison',
-      SamplingLayer.pool => null,
-    };
-  }
-
-  bool _scopeBeforeTrolley(SamplingLayer scopeType) {
-    return scopeType == SamplingLayer.pool ||
-        scopeType == SamplingLayer.house ||
-        scopeType == SamplingLayer.setter ||
-        scopeType == SamplingLayer.hatcher ||
-        scopeType == SamplingLayer.setterHatcher;
-  }
-
-  Map<String, Object?> _breakoutValuesForEntry(
-    String tableName,
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    return switch (tableName) {
-      'fresh_egg_breakout' => _freshBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      'candled_egg_breakout' => _candledBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      'residue_breakout' => _residueBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      _ => const <String, Object?>{},
-    };
-  }
-
-  Map<String, Object?> _freshBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark, {
-    EggBreakoutType breakoutType = EggBreakoutType.freshEggBreakout,
-  }) {
-    final total = entry.totalSample;
-    final infertilePct = pct(entry.counts['infertile'], total);
-    final early24hPct = pct(entry.counts['early24h'], total);
-    final early48hPct = pct(entry.counts['early48h'], total);
-    final bloodRingPct = pct(entry.counts['early72hBloodRing'], total);
-    return {
-      ..._breakoutBmkContextValues(draft, breakoutType),
-      'traySize': total ?? entry.traySize,
-      'infertileCount': entry.counts['infertile'],
-      'early24hCount': entry.counts['early24h'],
-      'early48hCount': entry.counts['early48h'],
-      'bloodRingCount': entry.counts['early72hBloodRing'],
-      'infertilePct': infertilePct,
-      'early24hPct': early24hPct,
-      'early48hPct': early48hPct,
-      'bloodRingPct': bloodRingPct,
-      'infertileDiffPct': _breakoutDiffPct(
-        benchmark,
-        'infertile',
-        infertilePct,
-      ),
-      'early24hDiffPct': _breakoutDiffPct(benchmark, 'early24h', early24hPct),
-      'early48hDiffPct': _breakoutDiffPct(benchmark, 'early48h', early48hPct),
-      'bloodRingDiffPct': _breakoutDiffPct(
-        benchmark,
-        'early72hBloodRing',
-        bloodRingPct,
-      ),
-    };
-  }
-
-  Map<String, Object?> _candledBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    final blackEyePct = pct(entry.counts['blackEye'], entry.totalSample);
-    return {
-      ..._freshBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-        breakoutType: EggBreakoutType.candledEggBreakout,
-      ),
-      'candlingDay': draft.ebBreakoutAgeDays,
-      'position': blankToNull(entry.position),
-      'blackEyeCount': entry.counts['blackEye'],
-      'blackEyePct': blackEyePct,
-      'blackEyeDiffPct': _breakoutDiffPct(benchmark, 'blackEye', blackEyePct),
-    };
-  }
-
-  Map<String, Object?> _residueBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    final total = entry.totalSample;
-    final infertilePct = pct(entry.counts['infertile'], total);
-    final earlyDeadPct = pct(entry.counts['earlyDead'], total);
-    final midDeadPct = pct(entry.counts['midDead'], total);
-    final lateDeadPct = pct(entry.counts['lateDead'], total);
-    final externalPipPct = pct(entry.counts['externalPip'], total);
-    final crackedPct = pct(entry.counts['cracked'], total);
-    final contaminatedPct = pct(entry.counts['contaminated'], total);
-    return {
-      ..._breakoutBmkContextValues(draft, EggBreakoutType.residueHatchDay),
-      'position': blankToNull(entry.position),
-      'traySize': total ?? entry.traySize,
-      'infertileCount': entry.counts['infertile'],
-      'earlyDeadCount': entry.counts['earlyDead'],
-      'midDeadCount': entry.counts['midDead'],
-      'lateDeadCount': entry.counts['lateDead'],
-      'externalPipCount': entry.counts['externalPip'],
-      'crackedCount': entry.counts['cracked'],
-      'contaminatedCount': entry.counts['contaminated'],
-      'infertilePct': infertilePct,
-      'earlyDeadPct': earlyDeadPct,
-      'midDeadPct': midDeadPct,
-      'lateDeadPct': lateDeadPct,
-      'externalPipPct': externalPipPct,
-      'crackedPct': crackedPct,
-      'contaminatedPct': contaminatedPct,
-      'infertileDiffPct': _breakoutDiffPct(
-        benchmark,
-        'infertile',
-        infertilePct,
-      ),
-      'earlyDeadDiffPct': _breakoutDiffPct(
-        benchmark,
-        'earlyDead',
-        earlyDeadPct,
-      ),
-      'midDeadDiffPct': _breakoutDiffPct(benchmark, 'midDead', midDeadPct),
-      'lateDeadDiffPct': _breakoutDiffPct(benchmark, 'lateDead', lateDeadPct),
-      'externalPipDiffPct': _breakoutDiffPct(
-        benchmark,
-        'externalPip',
-        externalPipPct,
-      ),
-      'crackedDiffPct': _breakoutDiffPct(benchmark, 'cracked', crackedPct),
-      'contaminatedDiffPct': _breakoutDiffPct(
-        benchmark,
-        'contaminated',
-        contaminatedPct,
-      ),
-      'totalEggsSet': draft.haTotalEggsSet,
-      'hatchedCount': draft.haHatched,
-      'culledCount': draft.haCulled,
-      'deadCount': draft.haDead,
-      'hatchabilityPct': draft.haHatchability,
-      'fertilityPct': draft.haFertility,
-      'hofPct': draft.haHof,
-      'culledPct': pct(draft.haCulled, draft.haTotalEggsSet),
-      'deadPct': pct(draft.haDead, draft.haTotalEggsSet),
-    };
-  }
-
-  double? _breakoutDiffPct(
-    Map<String, Object?>? benchmark,
-    String countKey,
-    double? currentPct,
-  ) {
-    if (benchmark == null || currentPct == null) return null;
-    final column = _breakoutBmkColumnForCountKey(countKey);
-    if (column == null) return null;
-    final bmkPct = asDouble(benchmark[column]);
-    if (bmkPct == null) return null;
-    return currentPct - bmkPct;
-  }
-
-  String? _breakoutBmkColumnForCountKey(String countKey) {
-    return switch (countKey) {
-      'early72hBloodRing' => 'bloodRingPct',
-      'externalPip' => 'externalPipPct',
-      'contaminated' => 'contamPct',
-      'infertile' ||
-      'early24h' ||
-      'early48h' ||
-      'blackEye' ||
-      'earlyDead' ||
-      'midDead' ||
-      'lateDead' ||
-      'cracked' => '${countKey}Pct',
-      _ => null,
-    };
-  }
-
-  Map<String, Object?> _freshBreakoutValues(
-    AuditModel draft, {
-    EggBreakoutType breakoutType = EggBreakoutType.freshEggBreakout,
-  }) {
-    final rollup = _breakoutRollup(draft, breakoutType: breakoutType);
-    return {
-      ..._breakoutBmkContextValues(draft, breakoutType),
-      'traySize': rollup.totalSample ?? draft.ebTraySize,
-      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
-      'early24hCount': rollup.counts['early24h'],
-      'early48hCount': rollup.counts['early48h'],
-      'bloodRingCount': rollup.counts['early72hBloodRing'],
-      'infertilePct': pct(rollup.counts['infertile'], rollup.totalSample),
-      'early24hPct': pct(rollup.counts['early24h'], rollup.totalSample),
-      'early48hPct': pct(rollup.counts['early48h'], rollup.totalSample),
-      'bloodRingPct': pct(
-        rollup.counts['early72hBloodRing'],
-        rollup.totalSample,
-      ),
-    };
-  }
-
-  Map<String, Object?> _candledBreakoutValues(AuditModel draft) {
-    final values = _freshBreakoutValues(
-      draft,
-      breakoutType: EggBreakoutType.candledEggBreakout,
-    );
-    final rollup = _breakoutRollup(
-      draft,
-      breakoutType: EggBreakoutType.candledEggBreakout,
-    );
-    return {
-      ...values,
-      'candlingDay': draft.ebBreakoutAgeDays,
-      'position': _firstBreakoutPosition(
-        draft,
-        breakoutType: EggBreakoutType.candledEggBreakout,
-      ),
-      'blackEyeCount': rollup.counts['blackEye'],
-      'blackEyePct': pct(rollup.counts['blackEye'], rollup.totalSample),
-    };
-  }
-
-  Map<String, Object?> _residueBreakoutValues(AuditModel draft) {
-    final rollup = _breakoutRollup(
-      draft,
-      breakoutType: EggBreakoutType.residueHatchDay,
-    );
-    return {
-      ..._breakoutBmkContextValues(draft, EggBreakoutType.residueHatchDay),
-      'position': _firstBreakoutPosition(
-        draft,
-        breakoutType: EggBreakoutType.residueHatchDay,
-      ),
-      'traySize': rollup.totalSample ?? draft.ebTraySize,
-      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
-      'earlyDeadCount': rollup.counts['earlyDead'] ?? draft.ebEarlyDeadCount,
-      'midDeadCount': rollup.counts['midDead'] ?? draft.ebMidDeadCount,
-      'lateDeadCount': rollup.counts['lateDead'] ?? draft.ebLateDeadCount,
-      'externalPipCount':
-          rollup.counts['externalPip'] ?? draft.ebExternalPipCount,
-      'crackedCount': rollup.counts['cracked'] ?? draft.ebCrackedCount,
-      'contaminatedCount':
-          rollup.counts['contaminated'] ?? draft.ebContaminatedCount,
-      'infertilePct': pct(rollup.counts['infertile'], rollup.totalSample),
-      'earlyDeadPct': pct(rollup.counts['earlyDead'], rollup.totalSample),
-      'midDeadPct': pct(rollup.counts['midDead'], rollup.totalSample),
-      'lateDeadPct': pct(rollup.counts['lateDead'], rollup.totalSample),
-      'externalPipPct': pct(rollup.counts['externalPip'], rollup.totalSample),
-      'crackedPct': pct(rollup.counts['cracked'], rollup.totalSample),
-      'contaminatedPct': pct(
-        rollup.counts['contaminated'],
-        rollup.totalSample,
-      ),
-      'totalEggsSet': draft.haTotalEggsSet,
-      'hatchedCount': draft.haHatched,
-      'culledCount': draft.haCulled,
-      'deadCount': draft.haDead,
-      'hatchabilityPct': draft.haHatchability,
-      'fertilityPct': draft.haFertility,
-      'hofPct': draft.haHof,
-      'culledPct': pct(draft.haCulled, draft.haTotalEggsSet),
-      'deadPct': pct(draft.haDead, draft.haTotalEggsSet),
-    };
-  }
-
-  ({Map<String, int> counts, int? totalSample}) _breakoutRollup(
-    AuditModel draft, {
-    EggBreakoutType? breakoutType,
-  }) {
-    final allEntries = EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    );
-    final entries = breakoutType == null
-        ? allEntries
-        : allEntries
-              .where((entry) => entry.breakoutType == breakoutType)
-              .toList();
-    final counts = <String, int>{};
-    var total = 0;
-    for (final entry in entries) {
-      total += entry.totalSample ?? 0;
-      for (final item in entry.counts.entries) {
-        counts[item.key] = (counts[item.key] ?? 0) + item.value;
-      }
-    }
-    if (counts.isEmpty && allEntries.isEmpty) {
-      counts.addAll({
-        if (draft.ebInfertileCount != null)
-          'infertile': draft.ebInfertileCount!,
-        if (draft.ebEarlyDeadCount != null)
-          'earlyDead': draft.ebEarlyDeadCount!,
-        if (draft.ebMidDeadCount != null) 'midDead': draft.ebMidDeadCount!,
-        if (draft.ebLateDeadCount != null) 'lateDead': draft.ebLateDeadCount!,
-        if (draft.ebExternalPipCount != null)
-          'externalPip': draft.ebExternalPipCount!,
-        if (draft.ebCrackedCount != null) 'cracked': draft.ebCrackedCount!,
-        if (draft.ebContaminatedCount != null)
-          'contaminated': draft.ebContaminatedCount!,
-      });
-    }
-    return (
-      counts: counts,
-      totalSample: total == 0
-          ? (allEntries.isEmpty ? draft.ebTraySize : null)
-          : total,
-    );
-  }
-
-  String? _firstBreakoutPosition(
-    AuditModel draft, {
-    EggBreakoutType? breakoutType,
-  }) {
-    final allEntries = EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    );
-    final entries = breakoutType == null
-        ? allEntries
-        : allEntries.where((entry) => entry.breakoutType == breakoutType);
-    for (final entry in entries) {
-      final position = entry.position?.trim();
-      if (position != null && position.isNotEmpty) return position;
-    }
-    return null;
-  }
-
-
   int? _weightSampleSizeFromWeightsJson(String weightsJson) {
     final decoded = _decodedWeights(weightsJson);
     return _weightSampleSizeFromDecoded(decoded);
@@ -3831,7 +3367,7 @@ class AuditProvider extends ChangeNotifier {
         ? blankToNull(draft.hatcherId)
         : blankToNull(sample.hatcherNo);
     final usesHouse =
-        _scopeIncludesHouse(scopeType) &&
+        scopeIncludesHouse(scopeType) &&
         (sampleHouseNo != null || sampleHouseLabel != null);
     final usesSetter =
         tableName == 'setter_optimizing' ||
@@ -3845,7 +3381,7 @@ class AuditProvider extends ChangeNotifier {
       id: '$panelId:${sample.id}',
       panelId: panelId,
       scopeType: scopeType,
-      scopeLabel: _scopeLabelForSample(scopeType, sample),
+      scopeLabel: scopeLabelForSample(scopeType, sample),
       sampleIndex: sample.sampleIndex,
       houseId: usesHouse ? sampleHouseNo : null,
       houseName: usesHouse ? sampleHouseLabel : null,
@@ -3909,35 +3445,6 @@ class AuditProvider extends ChangeNotifier {
       return SamplingLayer.house;
     }
     return SamplingLayer.pool;
-  }
-
-  bool _scopeIncludesHouse(SamplingLayer scopeType) {
-    return scopeType == SamplingLayer.house ||
-        scopeType == SamplingLayer.setter ||
-        scopeType == SamplingLayer.hatcher ||
-        scopeType == SamplingLayer.setterHatcher ||
-        scopeType == SamplingLayer.trolley ||
-        scopeType == SamplingLayer.tray;
-  }
-
-  String _scopeLabelForSample(
-    SamplingLayer scopeType,
-    StationSampleModel sample,
-  ) {
-    return switch (scopeType) {
-      SamplingLayer.house =>
-        blankToNull(sample.houseLabel) ??
-            blankToNull(sample.houseNo) ??
-            sample.sampleLabel,
-      SamplingLayer.setterHatcher =>
-        '${sample.setterNo ?? ''}/${sample.hatcherNo ?? ''}',
-      SamplingLayer.setter =>
-        blankToNull(sample.setterNo) ?? sample.sampleLabel,
-      SamplingLayer.hatcher =>
-        blankToNull(sample.hatcherNo) ?? sample.sampleLabel,
-      SamplingLayer.tray || SamplingLayer.trolley => sample.sampleLabel,
-      SamplingLayer.pool => 'Random',
-    };
   }
 
   int? _sampleSizeForPanel(String tableName, AuditModel draft) {
