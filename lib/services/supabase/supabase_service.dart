@@ -460,7 +460,9 @@ class SupabaseService {
   }
 
   Future<void> uploadPhoto(PhotoModel photo) async {
-    if (!await _prepareRemoteAccess()) return;
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
 
     final file = File(photo.filePath);
     final bytes = await file.readAsBytes();
