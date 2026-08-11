@@ -138,6 +138,28 @@ void main() {
         ),
       ],
     );
+    // Per-row dirty-tracking push for reference tables: default to nothing
+    // dirty (clean rows are never pushed) unless a test overrides it.
+    when(() => customers.getDirtyRows()).thenAnswer((_) async => const []);
+    when(() => customers.markRowsSynced(any())).thenAnswer((_) async {});
+    when(() => customers.markRowsFailed(any(), any())).thenAnswer((_) async {});
+    when(
+      () => customers.getRowSyncStatus(any()),
+    ).thenAnswer((_) async => 'synced');
+    when(() => hatcheries.getDirtyRows()).thenAnswer((_) async => const []);
+    when(() => hatcheries.markRowsSynced(any())).thenAnswer((_) async {});
+    when(
+      () => hatcheries.markRowsFailed(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => hatcheries.getRowSyncStatus(any()),
+    ).thenAnswer((_) async => 'synced');
+    when(() => flocks.getDirtyRows()).thenAnswer((_) async => const []);
+    when(() => flocks.markRowsSynced(any())).thenAnswer((_) async {});
+    when(() => flocks.markRowsFailed(any(), any())).thenAnswer((_) async {});
+    when(
+      () => flocks.getRowSyncStatus(any()),
+    ).thenAnswer((_) async => 'synced');
     when(() => sessions.getAllSessions(limit: any(named: 'limit'))).thenAnswer(
       (_) async => [
         AuditSessionModel(
@@ -302,13 +324,32 @@ void main() {
   test(
     'pushes only dirty sessions/panels and never legacy audit or sample tables',
     () async {
+      when(() => customers.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {'id': 'customer-1', 'name': 'Customer 1', 'syncStatus': 'pending'},
+        ],
+      );
+      when(() => hatcheries.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {'id': 'hatchery-1', 'name': 'Hatchery 1', 'syncStatus': 'pending'},
+        ],
+      );
+      when(() => flocks.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {'id': 'flock-1', 'flockId': 'Flock 1', 'syncStatus': 'pending'},
+        ],
+      );
+
       await service().run();
 
-      // Parent rows use strict, confirmed uploads so a silently cancelled
+      // Reference rows use strict, confirmed uploads so a silently cancelled
       // customer insert cannot be reported as pushed.
       verify(() => supabase.upsertRowsStrict('customers', any())).called(1);
+      verify(() => customers.markRowsSynced(['customer-1'])).called(1);
       verify(() => supabase.upsertRowsStrict('hatcheries', any())).called(1);
+      verify(() => hatcheries.markRowsSynced(['hatchery-1'])).called(1);
       verify(() => supabase.upsertRowsStrict('flocks', any())).called(1);
+      verify(() => flocks.markRowsSynced(['flock-1'])).called(1);
 
       // Audit data uses the strict (confirmable) dirty-row push, then is marked
       // synced.
@@ -337,6 +378,11 @@ void main() {
   test('applies remote tombstones before uploading reference rows', () async {
     final events = <String>[];
 
+    when(() => customers.getDirtyRows()).thenAnswer(
+      (_) async => [
+        {'id': 'customer-1', 'name': 'Customer 1', 'syncStatus': 'pending'},
+      ],
+    );
     when(
       () => supabase.pullSyncTombstones(
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
@@ -381,18 +427,84 @@ void main() {
     );
   });
 
-  test('surfaces a blocked customer upload before dependent rows', () async {
-    when(
-      () => supabase.upsertRowsStrict('customers', any()),
-    ).thenThrow(StateError('customer insert was not persisted'));
+  test(
+    'a failed customer push marks rows failed and the sync continues',
+    () async {
+      when(() => customers.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {'id': 'customer-1', 'name': 'Customer 1', 'syncStatus': 'pending'},
+        ],
+      );
+      when(
+        () => supabase.upsertRowsStrict('customers', any()),
+      ).thenThrow(StateError('customer insert was not persisted'));
 
-    await expectLater(service().run(), throwsStateError);
+      final outcome = await service().run();
 
+      expect(outcome.online, isTrue);
+      verify(() => customers.markRowsFailed(['customer-1'], any())).called(1);
+      // The pull still ran:
+      verify(
+        () => supabase.pullFromSupabase(
+          upsertCustomer: any(named: 'upsertCustomer'),
+          upsertFlock: any(named: 'upsertFlock'),
+          upsertHatchery: any(named: 'upsertHatchery'),
+          upsertPhoto: any(named: 'upsertPhoto'),
+          upsertBmkBreed: any(named: 'upsertBmkBreed'),
+          upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertAuditSession: any(named: 'upsertAuditSession'),
+          upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+          upsertDashboardAction: any(named: 'upsertDashboardAction'),
+          upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+          upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+        ),
+      ).called(1);
+    },
+  );
+
+  test('clean reference rows are not pushed', () async {
+    // all three getDirtyRows return [] (default stubs)
+    await service().run();
+    verifyNever(() => supabase.upsertRowsStrict('customers', any()));
     verifyNever(() => supabase.upsertRowsStrict('hatcheries', any()));
     verifyNever(() => supabase.upsertRowsStrict('flocks', any()));
-    verifyNever(() => supabase.upsertRowsStrict('audit_sessions', any()));
-    verifyNever(() => sessions.markSessionsSynced(any()));
   });
+
+  test(
+    'locally dirty reference rows are not overwritten by the pull',
+    () async {
+      when(
+        () => customers.getRowSyncStatus('customer-1'),
+      ).thenAnswer((_) async => 'pending');
+      when(
+        () => supabase.pullFromSupabase(
+          upsertCustomer: any(named: 'upsertCustomer'),
+          upsertFlock: any(named: 'upsertFlock'),
+          upsertHatchery: any(named: 'upsertHatchery'),
+          upsertPhoto: any(named: 'upsertPhoto'),
+          upsertBmkBreed: any(named: 'upsertBmkBreed'),
+          upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertAuditSession: any(named: 'upsertAuditSession'),
+          upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+          upsertDashboardAction: any(named: 'upsertDashboardAction'),
+          upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+          upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertCustomer]
+                as Future<void> Function(Map<String, dynamic>);
+        await callback({'id': 'customer-1', 'name': 'Remote Customer 1'});
+        return const SupabasePullSummary(panelRows: 1);
+      });
+
+      await service().run();
+
+      verifyNever(() => customers.upsertCustomer(any()));
+    },
+  );
 
   test('pushes dirty Govee captures and marks them synced', () async {
     when(() => govee.getDirtyCaptureRows()).thenAnswer(

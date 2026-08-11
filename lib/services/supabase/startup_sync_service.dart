@@ -223,12 +223,12 @@ class StartupSyncService {
   ) async {
     var pushed = 0;
     progress(0.12, 'Uploading customers');
-    final customers = await _customerRepository.getAllCustomers();
-    await _supabaseService.upsertRowsStrict(
+    pushed += await _pushDirtyReferenceRows(
       'customers',
-      customers.map((customer) => customer.toMap()).toList(),
+      getDirtyRows: _customerRepository.getDirtyRows,
+      markSynced: _customerRepository.markRowsSynced,
+      markFailed: _customerRepository.markRowsFailed,
     );
-    pushed += customers.length;
 
     progress(0.18, 'Uploading operational setup');
     pushed += await _pushDirtyOperationalRows(
@@ -236,20 +236,25 @@ class StartupSyncService {
     );
 
     progress(0.22, 'Uploading hatcheries');
-    final hatcheries = await _hatcheryRepository.getAllHatcheries();
-    await _supabaseService.upsertRowsStrict(
+    pushed += await _pushDirtyReferenceRows(
       'hatcheries',
-      hatcheries.map((hatchery) => hatchery.toMap()).toList(),
+      getDirtyRows: _hatcheryRepository.getDirtyRows,
+      markSynced: _hatcheryRepository.markRowsSynced,
+      markFailed: _hatcheryRepository.markRowsFailed,
     );
-    pushed += hatcheries.length;
 
+    // FK-ordering note: if the customers push above failed, this and later
+    // dependent pushes (flocks/sessions/panels) may fail remotely on FK
+    // violations against the still-missing remote customer row. Each push
+    // marks only its own rows failed, and everything retries next sync once
+    // customers goes through. That is intended degradation, not a bug.
     progress(0.32, 'Uploading flocks');
-    final flocks = await _flockRepository.getAllFlocks();
-    await _supabaseService.upsertRowsStrict(
+    pushed += await _pushDirtyReferenceRows(
       'flocks',
-      flocks.map((flock) => flock.toMap()).toList(),
+      getDirtyRows: _flockRepository.getDirtyRows,
+      markSynced: _flockRepository.markRowsSynced,
+      markFailed: _flockRepository.markRowsFailed,
     );
-    pushed += flocks.length;
 
     progress(0.38, 'Uploading operational records');
     pushed += await _pushDirtyOperationalRows(
@@ -272,9 +277,37 @@ class StartupSyncService {
     pushed += await _pushDirtyLabAnalysis();
 
     progress(0.69, 'Preparing photo sync queue');
-    final photos = await _photoRepository.getAllPhotos();
-    pushed += photos.length;
     return pushed;
+  }
+
+  /// Push only dirty reference rows (customers/hatcheries/flocks), marking
+  /// synced/failed per batch. A failed push here never aborts the sync — it
+  /// marks its rows failed and the caller continues on to the next table and
+  /// eventually the pull. Device-local sync columns are stripped before
+  /// upload.
+  Future<int> _pushDirtyReferenceRows(
+    String table, {
+    required Future<List<Map<String, dynamic>>> Function() getDirtyRows,
+    required Future<void> Function(List<String> ids) markSynced,
+    required Future<void> Function(List<String> ids, Object error) markFailed,
+  }) async {
+    final dirty = await getDirtyRows();
+    if (dirty.isEmpty) return 0;
+    final ids = dirty
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList(growable: false);
+    try {
+      await _supabaseService.upsertRowsStrict(
+        table,
+        dirty.map(stripSyncMeta).toList(growable: false),
+      );
+      await markSynced(ids);
+      return dirty.length;
+    } catch (error) {
+      await markFailed(ids, error);
+      return 0;
+    }
   }
 
   Future<int> _pushDirtyOperationalRows(Iterable<String> tables) async {
@@ -505,20 +538,23 @@ class StartupSyncService {
         ),
       );
     final summary = await _supabaseService.pullFromSupabase(
-      upsertCustomer: (row) => _upsertRemoteRow(
+      upsertCustomer: (row) => _upsertReferenceRow(
         'customers',
         row,
-        (value) => _customerRepository.upsertCustomer(value),
+        getSyncStatus: _customerRepository.getRowSyncStatus,
+        upsert: (value) => _customerRepository.upsertCustomer(value),
       ),
-      upsertFlock: (row) => _upsertRemoteRow(
+      upsertFlock: (row) => _upsertReferenceRow(
         'flocks',
         row,
-        (value) => _flockRepository.upsertFlock(value),
+        getSyncStatus: _flockRepository.getRowSyncStatus,
+        upsert: (value) => _flockRepository.upsertFlock(value),
       ),
-      upsertHatchery: (row) => _upsertRemoteRow(
+      upsertHatchery: (row) => _upsertReferenceRow(
         'hatcheries',
         row,
-        (value) => _hatcheryRepository.upsertHatchery(value),
+        getSyncStatus: _hatcheryRepository.getRowSyncStatus,
+        upsert: (value) => _hatcheryRepository.upsertHatchery(value),
       ),
       upsertPhoto: (row) => _upsertRemoteRow(
         'photos',
@@ -694,6 +730,24 @@ class StartupSyncService {
     Future<void> Function(Map<String, dynamic> row) upsert,
   ) async {
     if (_hasPendingLocalDelete(table, remoteRow)) return;
+    await upsert(remoteRow);
+  }
+
+  /// Reference tables have no updatedAt conflict check (customers/hatcheries
+  /// don't carry updatedAt). Guard instead: while a local edit is pending or
+  /// failed, the local row wins; it will be pushed on this or the next run.
+  Future<void> _upsertReferenceRow(
+    String table,
+    Map<String, dynamic> remoteRow, {
+    required Future<String?> Function(String id) getSyncStatus,
+    required Future<void> Function(Map<String, dynamic> row) upsert,
+  }) async {
+    if (_hasPendingLocalDelete(table, remoteRow)) return;
+    final id = _rowId(remoteRow);
+    if (id != null) {
+      final status = await getSyncStatus(id);
+      if (status == 'pending' || status == 'failed') return;
+    }
     await upsert(remoteRow);
   }
 
