@@ -384,6 +384,29 @@ void main() {
     expect(await db.query('agent_conversation_turns'), hasLength(1));
     expect(await db.query('agent_tool_events'), hasLength(1));
   });
+
+  test('v57 adds sync tracking columns to reference tables', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('''CREATE TABLE flocks (
+      id TEXT PRIMARY KEY,
+      dirtyAt TEXT
+    )''');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+
+    await DatabaseHelper().applyV57UpgradeForTest(db);
+
+    for (final table in ['customers', 'hatcheries']) {
+      final names = await _columnNames(db, table);
+      expect(
+        names,
+        containsAll(['syncStatus', 'dirtyAt', 'lastSyncedAt', 'syncError']),
+        reason: '$table should carry sync tracking columns after v57',
+      );
+    }
+    expect(await _columnNames(db, 'flocks'), contains('lastSyncedAt'));
+  });
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {

@@ -23,7 +23,11 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     phone TEXT,
     email TEXT,
     createdAt TEXT,
-    createdBy TEXT
+    createdBy TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
   )''');
   await db.execute('''CREATE TABLE IF NOT EXISTS flocks (
     id TEXT PRIMARY KEY,
@@ -43,6 +47,7 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     updatedAt TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     dirtyAt TEXT,
+    lastSyncedAt TEXT,
     syncError TEXT,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
   )''');
@@ -161,6 +166,10 @@ Future<void> _createHatcheryTables(Database db) async {
     notes TEXT,
     createdAt TEXT,
     createdBy TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
   )''');
   await db.execute(

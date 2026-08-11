@@ -446,6 +446,28 @@ Future<void> _applyV56Upgrade(Database db) async {
   }
 }
 
+Future<void> _applyV57Upgrade(Database db) async {
+  if (await _tableExists(db, 'customers')) {
+    await _ensureColumns(db, 'customers', const [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'hatcheries')) {
+    await _ensureColumns(db, 'hatcheries', const [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'flocks')) {
+    await _ensureColumns(db, 'flocks', const ['lastSyncedAt TEXT']);
+  }
+}
+
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
   for (final table in const [
     'agent_conversations',

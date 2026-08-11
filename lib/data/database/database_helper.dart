@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 56,
+      version: 57,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -171,6 +171,9 @@ class DatabaseHelper {
     if (oldVersion < 56) {
       await _applyV56Upgrade(db);
     }
+    if (oldVersion < 57) {
+      await _applyV57Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -236,6 +239,12 @@ class DatabaseHelper {
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
     'farms': ['sectorKey TEXT'],
+    'customers': [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
     'flocks': [
       'farmId TEXT',
       'sectorKey TEXT',
@@ -245,6 +254,13 @@ class DatabaseHelper {
       'updatedAt TEXT',
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'hatcheries': [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
     'flock_placements': [
@@ -866,6 +882,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV56UpgradeForTest(Database db) => _applyV56Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV57UpgradeForTest(Database db) => _applyV57Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;
