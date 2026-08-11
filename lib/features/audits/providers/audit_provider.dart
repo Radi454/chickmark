@@ -2435,16 +2435,7 @@ class AuditProvider extends ChangeNotifier {
 
   int? _weightSampleSizeFromWeightsJson(String weightsJson) {
     final decoded = _decodedWeights(weightsJson);
-    return _weightSampleSizeFromDecoded(decoded);
-  }
-
-  int? _weightSampleSizeFromDecoded(Object? decoded) {
-    if (decoded is! List) return null;
-    final count = decoded
-        .map(asDouble)
-        .where((weight) => weight != null && weight > 0)
-        .length;
-    return count == 0 ? null : count;
+    return weightSampleSizeFromDecoded(decoded);
   }
 
   // Set temperature unit

@@ -302,8 +302,12 @@ void main() {
         hasMeaningfulSetterData(draft, contextSetterId: 'setter-2'),
         isTrue,
       );
-      // Omitting contextSetterId entirely also makes it meaningful.
-      expect(hasMeaningfulSetterCoreData(draft), isTrue);
+      // A null contextSetterId (no setter id in context) also makes it
+      // meaningful.
+      expect(
+        hasMeaningfulSetterCoreData(draft, contextSetterId: null),
+        isTrue,
+      );
     });
   });
 
@@ -405,6 +409,8 @@ void main() {
           hasAnyMeaningfulStationData(
             blank,
             hasAnyMeaningfulChickWeightSample: false,
+            contextSetterId: null,
+            contextHatcherId: null,
           ),
           isFalse,
           reason: '$auditType should have no meaningful station data',
@@ -413,6 +419,8 @@ void main() {
           hasCoreStationData(
             blank,
             hasAnyMeaningfulChickWeightSample: false,
+            contextSetterId: null,
+            contextHatcherId: null,
           ),
           isFalse,
           reason: '$auditType should have no core station data',
@@ -426,6 +434,8 @@ void main() {
         hasAnyMeaningfulStationData(
           draft,
           hasAnyMeaningfulChickWeightSample: false,
+          contextSetterId: null,
+          contextHatcherId: null,
         ),
         isFalse,
       );
@@ -437,11 +447,18 @@ void main() {
         hasAnyMeaningfulStationData(
           draft,
           hasAnyMeaningfulChickWeightSample: false,
+          contextSetterId: null,
+          contextHatcherId: null,
         ),
         isTrue,
       );
       expect(
-        hasCoreStationData(draft, hasAnyMeaningfulChickWeightSample: false),
+        hasCoreStationData(
+          draft,
+          hasAnyMeaningfulChickWeightSample: false,
+          contextSetterId: null,
+          contextHatcherId: null,
+        ),
         isFalse,
       );
     });

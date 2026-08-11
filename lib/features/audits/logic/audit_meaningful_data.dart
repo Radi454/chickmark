@@ -51,8 +51,8 @@ bool hasSavableEggStorageData(AuditModel draft) {
 bool hasAnyMeaningfulStationData(
   AuditModel draft, {
   required bool hasAnyMeaningfulChickWeightSample,
-  String? contextSetterId,
-  String? contextHatcherId,
+  required String? contextSetterId,
+  required String? contextHatcherId,
 }) {
   return switch (draft.auditType) {
     'Egg' =>
@@ -79,8 +79,8 @@ bool hasAnyMeaningfulStationData(
 bool hasCoreStationData(
   AuditModel draft, {
   required bool hasAnyMeaningfulChickWeightSample,
-  String? contextSetterId,
-  String? contextHatcherId,
+  required String? contextSetterId,
+  required String? contextHatcherId,
 }) {
   return switch (draft.auditType) {
     'Egg' =>
@@ -331,7 +331,10 @@ bool hasMeaningfulBreakoutSamples(AuditModel draft) {
 
 /// `contextSetterId` mirrors the provider's original `_context?.setterId`
 /// read, which is provider state; the caller passes it explicitly.
-bool hasMeaningfulSetterData(AuditModel draft, {String? contextSetterId}) {
+bool hasMeaningfulSetterData(
+  AuditModel draft, {
+  required String? contextSetterId,
+}) {
   return hasMeaningfulSetterCoreData(
         draft,
         contextSetterId: contextSetterId,
@@ -377,7 +380,7 @@ bool hasSetterEstSampleResults(AuditModel draft) {
 /// read, which is provider state; the caller passes it explicitly.
 bool hasMeaningfulSetterCoreData(
   AuditModel draft, {
-  String? contextSetterId,
+  required String? contextSetterId,
 }) {
   return hasMeaningfulMachineId(
         draft.soSetterId,
@@ -414,7 +417,10 @@ bool hasMeaningfulSetterEstSamples(AuditModel draft) {
 
 /// `contextHatcherId` mirrors the provider's original `_context?.hatcherId`
 /// read, which is provider state; the caller passes it explicitly.
-bool hasMeaningfulHatcherData(AuditModel draft, {String? contextHatcherId}) {
+bool hasMeaningfulHatcherData(
+  AuditModel draft, {
+  required String? contextHatcherId,
+}) {
   return hasMeaningfulHatcherCoreData(
         draft,
         contextHatcherId: contextHatcherId,
@@ -446,7 +452,7 @@ bool hasHatcherScopeResults(AuditModel draft) {
 /// read, which is provider state; the caller passes it explicitly.
 bool hasMeaningfulHatcherCoreData(
   AuditModel draft, {
-  String? contextHatcherId,
+  required String? contextHatcherId,
 }) {
   return hasMeaningfulMachineId(
         draft.hoHatcherId,
@@ -533,7 +539,9 @@ bool hasMeaningfulEggQualityTrayData(String? source) {
 /// The provider's original `_hasMeaningfulWeightList` decoded `source` via
 /// two provider-private helpers (`_decodedWeights` +
 /// `_weightSampleSizeFromDecoded`) that are not part of this extraction; the
-/// equivalent decode-and-count logic is inlined here verbatim.
+/// equivalent decode-and-count logic now goes through the shared
+/// [weightSampleSizeFromDecoded] helper (a null sample size corresponds
+/// exactly to a zero count of positive weights).
 bool hasMeaningfulWeightList(String? source) {
   if (source == null || source.trim().isEmpty) return false;
   Object? decoded;
@@ -542,12 +550,7 @@ bool hasMeaningfulWeightList(String? source) {
   } catch (_) {
     decoded = null;
   }
-  if (decoded is! List) return false;
-  final count = decoded
-      .map(asDouble)
-      .where((weight) => weight != null && weight > 0)
-      .length;
-  return count > 0;
+  return weightSampleSizeFromDecoded(decoded) != null;
 }
 
 /// Takes the already-resolved chick-weight `values` map (as produced by the

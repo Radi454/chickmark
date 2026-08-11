@@ -258,11 +258,6 @@ Map<String, Object?> chickWeightValues(AuditModel draft) {
   };
 }
 
-/// The provider's original body called `_weightSampleSizeFromDecoded`, a
-/// helper that also backs `_weightSampleSizeFromWeightsJson` elsewhere in the
-/// provider (out of this extraction's scope, since other still-provider-
-/// resident code depends on it too); the equivalent count-positive-weights
-/// logic is duplicated verbatim below as `_weightSampleSizeFromDecoded`.
 Map<String, Object?> chickWeightValuesForSample(
   StationSampleModel sample, {
   required AuditModel fallback,
@@ -279,7 +274,7 @@ Map<String, Object?> chickWeightValuesForSample(
   return {
     'weightsJson': weights is List ? jsonEncode(weights) : null,
     'sampleSize': weights is List
-        ? _weightSampleSizeFromDecoded(weights)
+        ? weightSampleSizeFromDecoded(weights)
         : null,
     'avgWeight': asDouble(summary['chickAvgWeight']),
     'uniformityPct': asDouble(summary['chickUniformityPct']),
@@ -347,16 +342,4 @@ int? _decodedReadingCount(String? source) {
 int? _boolToInt(bool? value) {
   if (value == null) return null;
   return value ? 1 : 0;
-}
-
-/// Duplicated verbatim from the provider's `_weightSampleSizeFromDecoded`,
-/// which stays provider-resident because `_weightSampleSizeFromWeightsJson`
-/// (out of this extraction's scope) also depends on it.
-int? _weightSampleSizeFromDecoded(Object? decoded) {
-  if (decoded is! List) return null;
-  final count = decoded
-      .map(asDouble)
-      .where((weight) => weight != null && weight > 0)
-      .length;
-  return count == 0 ? null : count;
 }

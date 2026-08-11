@@ -65,6 +65,17 @@ String compactJson(Map<String, Object?> value) {
 /// Checks if a string has non-blank text.
 bool hasText(String? value) => blankToNull(value) != null;
 
+/// Counts positive numeric weights in a decoded JSON list, returning null
+/// if the decoded value isn't a list or contains no positive weights.
+int? weightSampleSizeFromDecoded(Object? decoded) {
+  if (decoded is! List) return null;
+  final count = decoded
+      .map(asDouble)
+      .where((weight) => weight != null && weight > 0)
+      .length;
+  return count == 0 ? null : count;
+}
+
 /// Trims a string and returns null if empty; otherwise returns the trimmed value.
 String? blankToNull(String? value) {
   final trimmed = value?.trim();
