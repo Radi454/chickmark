@@ -102,6 +102,28 @@ void main() {
     });
   });
 
+  group('mark-synced race protection', () {
+    test('a session edited mid-push stays pending after markSessionsSynced',
+        () async {
+      await sessionRepo.insertSession(_session('s1'));
+      await sessionRepo.getDirtySessionRows();           // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await sessionRepo.updateSession(_session('s1'));   // mid-push edit
+      await sessionRepo.markSessionsSynced(['s1']);
+      final row = await sessionRow('s1');
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+    });
+
+    test('an unedited session is cleared by markSessionsSynced', () async {
+      await sessionRepo.insertSession(_session('s1'));
+      await sessionRepo.getDirtySessionRows();
+      await sessionRepo.markSessionsSynced(['s1']);
+      final row = await sessionRow('s1');
+      expect(row['syncStatus'], 'synced');
+    });
+  });
+
   group('panel row dirty tracking', () {
     Future<Map<String, Object?>> panelRow(String id) async =>
         (await db.query('egg_storage', where: 'id = ?', whereArgs: [id])).single;
@@ -157,6 +179,44 @@ void main() {
       final bRow = await panelRow('b');
       expect(bRow['syncStatus'], 'failed');
       expect(bRow['syncError'], 'net');
+    });
+
+    test(
+        'a panel row edited mid-push stays pending after markRowsSynced',
+        () async {
+      final panel = PanelRecord(
+        id: 'p1',
+        tableName: 'egg_storage',
+        sessionId: 's1',
+        customerId: 'c1',
+        date: DateTime(2026, 5, 1),
+      );
+      await panelRepo.savePanelWithSamples(panel: panel, samples: const []);
+      await panelRepo.getDirtyRows('egg_storage'); // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await panelRepo.savePanelWithSamples(
+        panel: panel,
+        samples: const [],
+      ); // mid-push edit
+      await panelRepo.markRowsSynced('egg_storage', ['p1']);
+      final row = await panelRow('p1');
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+    });
+
+    test('an unedited panel row is cleared by markRowsSynced', () async {
+      final panel = PanelRecord(
+        id: 'p1',
+        tableName: 'egg_storage',
+        sessionId: 's1',
+        customerId: 'c1',
+        date: DateTime(2026, 5, 1),
+      );
+      await panelRepo.savePanelWithSamples(panel: panel, samples: const []);
+      await panelRepo.getDirtyRows('egg_storage');
+      await panelRepo.markRowsSynced('egg_storage', ['p1']);
+      final row = await panelRow('p1');
+      expect(row['syncStatus'], 'synced');
     });
   });
 
@@ -248,6 +308,36 @@ void main() {
       final byStation = rollup['c1|h1|2026-05-01']!;
       expect(byStation['setters'], {'pending': 1});
       expect(byStation['hatchers'], {'synced': 1});
+    });
+
+    test(
+        'a capture edited mid-push stays pending after markCapturesSynced',
+        () async {
+      await goveeRepo.saveReplacement(
+        capture: capture('gc1'),
+        readings: const [],
+      );
+      await goveeRepo.getDirtyCaptureRows(); // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await goveeRepo.saveReplacement(
+        capture: capture('gc1'),
+        readings: const [],
+      ); // mid-push edit (re-recording keeps the same id)
+      await goveeRepo.markCapturesSynced(['gc1']);
+      final row = await goveeRow('gc1');
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+    });
+
+    test('an unedited capture is cleared by markCapturesSynced', () async {
+      await goveeRepo.saveReplacement(
+        capture: capture('gc1'),
+        readings: const [],
+      );
+      await goveeRepo.getDirtyCaptureRows();
+      await goveeRepo.markCapturesSynced(['gc1']);
+      final row = await goveeRow('gc1');
+      expect(row['syncStatus'], 'synced');
     });
   });
 }

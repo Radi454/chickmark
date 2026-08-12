@@ -406,7 +406,10 @@ class SupabaseService {
 
   Future<void> deleteRows(String table, List<String> ids) async {
     final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
-    if (rowIds.isEmpty || !await _prepareRemoteAccess()) return;
+    if (rowIds.isEmpty) return;
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
     if (table == 'photos') {
       await _deletePhotoStorageObjects(rowIds);
     }
@@ -460,7 +463,9 @@ class SupabaseService {
   }
 
   Future<void> uploadPhoto(PhotoModel photo) async {
-    if (!await _prepareRemoteAccess()) return;
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
 
     final file = File(photo.filePath);
     final bytes = await file.readAsBytes();

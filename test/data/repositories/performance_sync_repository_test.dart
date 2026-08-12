@@ -322,4 +322,60 @@ void main() {
       expect(row['syncStatus'], 'synced');
     },
   );
+
+  group('mark-synced race protection', () {
+    test('a row edited mid-push stays pending after markRowsSynced', () async {
+      await db.insert('farms', {
+        'id': 'farm-race',
+        'customerId': 'customer-1',
+        'sectorKey': 'broiler',
+        'name': 'Farm',
+        'updatedAt': '2026-07-23T00:00:00.000Z',
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-07-23T00:00:00.000Z',
+      });
+      await repository.getDirtyRows('farms'); // capture cutoff
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      // mid-push edit: whatever domain repo owns 'farms' would stamp dirtyAt
+      // the same way performance_sync_repository does (UTC ISO8601).
+      await db.update(
+        'farms',
+        {
+          'name': 'Farm edited',
+          'syncStatus': 'pending',
+          'dirtyAt': DateTime.now().toUtc().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: ['farm-race'],
+      );
+      await repository.markRowsSynced('farms', ['farm-race']);
+      final row = (await db.query(
+        'farms',
+        where: 'id = ?',
+        whereArgs: ['farm-race'],
+      )).single;
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+    });
+
+    test('an unedited row is cleared by markRowsSynced', () async {
+      await db.insert('farms', {
+        'id': 'farm-race-2',
+        'customerId': 'customer-1',
+        'sectorKey': 'broiler',
+        'name': 'Farm',
+        'updatedAt': '2026-07-23T00:00:00.000Z',
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-07-23T00:00:00.000Z',
+      });
+      await repository.getDirtyRows('farms');
+      await repository.markRowsSynced('farms', ['farm-race-2']);
+      final row = (await db.query(
+        'farms',
+        where: 'id = ?',
+        whereArgs: ['farm-race-2'],
+      )).single;
+      expect(row['syncStatus'], 'synced');
+    });
+  });
 }

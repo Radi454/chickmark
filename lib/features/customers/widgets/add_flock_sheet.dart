@@ -25,6 +25,8 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   late DateTime _entryDate;
   late bool _useCurrentAge;
   late bool _isSold;
+  String? _saveError;
+  bool _isSaving = false;
 
   bool get _isEditing => widget.initialFlock != null;
 
@@ -83,46 +85,67 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   }
 
   Future<void> _saveFlock() async {
-    if (_formKey.currentState!.validate()) {
-      final customersProvider = context.read<CustomersProvider>();
-      final selectedCustomer = customersProvider.selectedCustomer;
+    if (_isSaving) return;
+    setState(() => _saveError = null);
+    if (!_formKey.currentState!.validate()) return;
 
-      if (selectedCustomer == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error: No customer selected')),
-        );
-        return;
-      }
+    final customersProvider = context.read<CustomersProvider>();
+    final selectedCustomer = customersProvider.selectedCustomer;
 
-      final enteredAge = int.tryParse(_ageWeeksController.text.trim());
-      final depletionAge =
-          int.tryParse(_depletionAgeController.text.trim()) ??
-          FlockModel.defaultDepletionAgeWeeks;
-      final resolvedEntryDate = _useCurrentAge && enteredAge != null
-          ? DateTime.now().subtract(Duration(days: enteredAge * 7))
-          : _entryDate;
-      final existingSoldAt = widget.initialFlock?.soldAt;
-
-      final flock = FlockModel(
-        id: _isEditing ? widget.initialFlock!.id : const Uuid().v4(),
-        customerId: selectedCustomer.id,
-        flockId: _flockIdController.text.trim(),
-        breed: _selectedBreed,
-        entryDate: resolvedEntryDate,
-        isAgeEstimated: _useCurrentAge,
-        status: _isSold ? FlockModel.soldStatus : FlockModel.activeStatus,
-        depletionAgeWeeks: depletionAge,
-        soldAt: _isSold ? existingSoldAt ?? DateTime.now() : null,
+    if (selectedCustomer == null) {
+      setState(
+        () => _saveError =
+            'No customer selected. Reopen this sheet from a customer.',
       );
+      return;
+    }
 
+    final enteredAge = int.tryParse(_ageWeeksController.text.trim());
+    final depletionAge =
+        int.tryParse(_depletionAgeController.text.trim()) ??
+        FlockModel.defaultDepletionAgeWeeks;
+    final resolvedEntryDate = _useCurrentAge && enteredAge != null
+        ? DateTime.now().subtract(Duration(days: enteredAge * 7))
+        : _entryDate;
+    final existingSoldAt = widget.initialFlock?.soldAt;
+
+    final flock = FlockModel(
+      id: _isEditing ? widget.initialFlock!.id : const Uuid().v4(),
+      customerId: selectedCustomer.id,
+      flockId: _flockIdController.text.trim(),
+      breed: _selectedBreed,
+      entryDate: resolvedEntryDate,
+      isAgeEstimated: _useCurrentAge,
+      status: _isSold ? FlockModel.soldStatus : FlockModel.activeStatus,
+      depletionAgeWeeks: depletionAge,
+      soldAt: _isSold ? existingSoldAt ?? DateTime.now() : null,
+    );
+
+    setState(() => _isSaving = true);
+    try {
       if (_isEditing) {
         await customersProvider.updateFlock(flock);
       } else {
         await customersProvider.addFlock(flock);
       }
+    } catch (error) {
+      // Without this the sheet just sat there on any repository/permission
+      // failure, which reads as "Save does nothing".
+      debugPrint('Error saving flock: $error');
       if (!mounted) return;
-      Navigator.of(context).pop(flock);
+      setState(() {
+        _isSaving = false;
+        _saveError = _messageFor(error);
+      });
+      return;
     }
+    if (!mounted) return;
+    Navigator.of(context).pop(flock);
+  }
+
+  String _messageFor(Object error) {
+    final raw = error is StateError ? error.message : error.toString();
+    return raw.replaceFirst(RegExp(r'^Exception:\s*'), '');
   }
 
   @override
@@ -300,11 +323,42 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   style: AppTextStyles.caption,
                 ),
               ],
+              if (_saveError != null) ...[
+                const SizedBox(height: AppSizes.spaceLg),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSizes.spaceMd),
+                  decoration: BoxDecoration(
+                    color: AppColors.statusErrorBg,
+                    borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+                    border: Border.all(color: AppColors.statusError),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: AppSizes.iconSm,
+                        color: AppColors.statusError,
+                      ),
+                      const SizedBox(width: AppSizes.spaceSm),
+                      Expanded(
+                        child: Text(
+                          'Could not save: $_saveError',
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppColors.statusError,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSizes.spaceXl),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _saveFlock,
+                  onPressed: _isSaving ? null : _saveFlock,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       vertical: AppSizes.spaceLg,

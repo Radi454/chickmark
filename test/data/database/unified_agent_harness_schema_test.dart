@@ -38,11 +38,11 @@ void main() {
   });
 
   test(
-    'fresh v56 database exposes ordered agent diagnostics and context',
+    'fresh v57 database exposes ordered agent diagnostics and context',
     () async {
       final db = await DatabaseHelper().db;
 
-      expect(await _userVersion(db), 56);
+      expect(await _userVersion(db), 57);
       expect(
         await _tableNames(db),
         containsAll(const [

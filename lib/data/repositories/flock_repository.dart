@@ -4,12 +4,81 @@ import 'package:sqflite/sqflite.dart';
 import 'sync_tombstone_repository.dart';
 
 class FlockRepository {
-  final dbHelper = DatabaseHelper();
+  FlockRepository({DatabaseHelper? dbHelper})
+    : dbHelper = dbHelper ?? DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  static const _table = 'flocks';
+
+  String _nowStamp() => DateTime.now().toIso8601String();
+
+  /// dirtyAt value captured at the last getDirtyRows() call. markRowsSynced
+  /// only clears rows whose dirtyAt is at or before this cutoff, so an edit
+  /// landing while a push is in flight stays pending.
+  String? _dirtyReadCutoff;
+
+  Future<List<Map<String, dynamic>>> getDirtyRows() async {
+    final db = await dbHelper.db;
+    _dirtyReadCutoff = _nowStamp();
+    final rows = await db.query(
+      _table,
+      where: "syncStatus IN ('pending', 'failed')",
+      orderBy: 'dirtyAt ASC, id ASC',
+    );
+    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  Future<void> markRowsSynced(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final cutoff = _dirtyReadCutoff ?? _nowStamp();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _table,
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': _nowStamp(),
+        'syncError': null,
+      },
+      where: 'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...ids, cutoff],
+    );
+  }
+
+  Future<void> markRowsFailed(List<String> ids, Object error) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _table,
+      {'syncStatus': 'failed', 'syncError': error.toString()},
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
+  Future<String?> getRowSyncStatus(String id) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      _table,
+      columns: ['syncStatus'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['syncStatus']?.toString();
+  }
 
   Future<void> insertFlock(FlockModel flock) async {
     await dbHelper.assertForeignKeys(customerId: flock.customerId);
     final db = await dbHelper.db;
-    await _upsertById(db, 'flocks', flock.toMap());
+    await _upsertById(db, 'flocks', {
+      ...flock.toMap(),
+      'syncStatus': 'pending',
+      'dirtyAt': _nowStamp(),
+    });
   }
 
   Future<List<FlockModel>> getFlocksByCustomer(String customerId) async {
@@ -41,7 +110,11 @@ class FlockRepository {
     final db = await dbHelper.db;
     await db.update(
       'flocks',
-      flock.toMap(),
+      {
+        ...flock.toMap(),
+        'syncStatus': 'pending',
+        'dirtyAt': _nowStamp(),
+      },
       where: 'id = ?',
       whereArgs: [flock.id],
     );
@@ -80,7 +153,13 @@ class FlockRepository {
   Future<void> upsertFlock(Map<String, dynamic> row) async {
     final db = await dbHelper.db;
     final columns = await _tableColumns(db, 'flocks');
-    final normalized = _filterColumns(_normalizeFlockRow(row), columns);
+    final normalized = _filterColumns(_normalizeFlockRow(row), columns)
+      ..addAll({
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': _nowStamp(),
+        'syncError': null,
+      });
     await _upsertById(db, 'flocks', normalized);
   }
 

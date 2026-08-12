@@ -125,6 +125,33 @@ Future<void> _applyV54Upgrade(Database db) async {
     ]);
   }
 
+  // Divergent development lines shipped older shapes of the harness tables
+  // without columns this upgrade's indexes and backfills reference. CREATE
+  // TABLE IF NOT EXISTS keeps the old shape, so add the referenced columns
+  // first; the v56 shadow rebuild later normalizes the full definitions.
+  if (await _tableExists(db, 'agent_conversations')) {
+    await _ensureColumns(db, 'agent_conversations', const [
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+      'selectedCustomerId TEXT',
+      'selectedFlockId TEXT',
+      'selectedAuditId TEXT',
+      'contextUpdatedAt TEXT',
+      'pendingActionJson TEXT',
+      'activeVisitId TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'agent_conversation_turns')) {
+    await _ensureColumns(db, 'agent_conversation_turns', const [
+      'turnIndex INTEGER',
+      'contextEpoch INTEGER NOT NULL DEFAULT 1',
+    ]);
+  }
+  if (await _tableExists(db, 'agent_tool_events')) {
+    await _ensureColumns(db, 'agent_tool_events', const [
+      'toolSequence INTEGER',
+    ]);
+  }
+
   // Create the graph before its guards so incomplete legacy rows can be
   // preserved and grouped. Every new write is guarded after the backfill.
   await _createUnifiedAgentHarnessTables(db, createGuards: false);
@@ -419,6 +446,28 @@ Future<void> _applyV56Upgrade(Database db) async {
   }
 }
 
+Future<void> _applyV57Upgrade(Database db) async {
+  if (await _tableExists(db, 'customers')) {
+    await _ensureColumns(db, 'customers', const [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'hatcheries')) {
+    await _ensureColumns(db, 'hatcheries', const [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'flocks')) {
+    await _ensureColumns(db, 'flocks', const ['lastSyncedAt TEXT']);
+  }
+}
+
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
   for (final table in const [
     'agent_conversations',
@@ -435,6 +484,12 @@ Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
     // onConfigure. This also keeps the test hook safe when called directly.
     await db.execute('PRAGMA foreign_keys = OFF');
   }
+  // Apple's system SQLite (iOS/macOS) enables legacy ALTER TABLE semantics
+  // by default, so RENAME would leave the shadow tables' foreign-key clauses
+  // pointing at the dropped shadow names and the post-rebuild
+  // foreign_key_check would flag every row. Force modern semantics so RENAME
+  // rewrites references in the other shadow tables.
+  await db.execute('PRAGMA legacy_alter_table = OFF');
 
   try {
     const conversationsShadow = 'agent_conversations_v56';

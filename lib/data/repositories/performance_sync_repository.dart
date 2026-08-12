@@ -19,6 +19,10 @@ class PerformanceSyncRepository {
 
   final DatabaseHelper _databaseHelper;
 
+  /// dirtyAt cutoff per table, captured at the last getDirtyRows() call for
+  /// that table (UTC); see markRowsSynced.
+  final Map<String, String> _dirtyReadCutoffByTable = {};
+
   static const preFlockPushOrder = <String>[
     'customer_sectors',
     'farms',
@@ -115,6 +119,7 @@ class PerformanceSyncRepository {
   Future<List<Map<String, dynamic>>> getDirtyRows(String table) async {
     _assertPushTable(table);
     final db = await _databaseHelper.db;
+    _dirtyReadCutoffByTable[table] = DateTime.now().toUtc().toIso8601String();
     final rows = await db.query(
       table,
       where: "syncStatus IN ('pending', 'failed')",
@@ -168,13 +173,27 @@ class PerformanceSyncRepository {
     await _upsertById(db, table, filtered);
   }
 
-  Future<void> markRowsSynced(String table, Iterable<String> ids) {
-    return _markRows(table, ids, {
-      'syncStatus': 'synced',
-      'dirtyAt': null,
-      'lastSyncedAt': DateTime.now().toUtc().toIso8601String(),
-      'syncError': null,
-    });
+  Future<void> markRowsSynced(String table, Iterable<String> ids) async {
+    _assertPushTable(table);
+    final uniqueIds = ids.where((id) => id.isNotEmpty).toSet().toList();
+    if (uniqueIds.isEmpty) return;
+    final db = await _databaseHelper.db;
+    final cutoff =
+        _dirtyReadCutoffByTable[table] ??
+        DateTime.now().toUtc().toIso8601String();
+    final placeholders = List.filled(uniqueIds.length, '?').join(', ');
+    await db.update(
+      table,
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': DateTime.now().toUtc().toIso8601String(),
+        'syncError': null,
+      },
+      where:
+          'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...uniqueIds, cutoff],
+    );
   }
 
   Future<void> markRowsFailed(

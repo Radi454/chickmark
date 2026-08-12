@@ -242,6 +242,171 @@ void main() {
       {'id': 'keep', 'value': 'still here'},
     ]);
   });
+
+  test('v54 repairs divergent harness tables missing indexed columns', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+    // Divergent development lines shipped these tables without turnIndex,
+    // contextEpoch, or toolSequence; v54's partial unique indexes reference
+    // them, so the upgrade used to fail with "no such column: turnIndex".
+    await db.execute('''CREATE TABLE agent_conversations (
+      id TEXT PRIMARY KEY,
+      staffLinkId TEXT NOT NULL,
+      telegramChatId TEXT NOT NULL,
+      stateVersion INTEGER NOT NULL DEFAULT 1,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.execute('''CREATE TABLE agent_conversation_turns (
+      id TEXT PRIMARY KEY,
+      conversationId TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      text TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.execute('''CREATE TABLE agent_tool_events (
+      id TEXT PRIMARY KEY,
+      conversationTurnId TEXT NOT NULL,
+      toolCallId TEXT NOT NULL,
+      toolName TEXT NOT NULL,
+      status TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'synced',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.insert('agent_conversation_turns', {
+      'id': 'turn-1',
+      'conversationId': 'conv-1',
+      'direction': 'inbound',
+      'text': 'legacy row',
+      'createdAt': '2026-07-01T00:00:00Z',
+    });
+
+    await DatabaseHelper().applyV54UpgradeForTest(db);
+
+    final turnColumns = (await db.rawQuery(
+      'PRAGMA table_info(agent_conversation_turns)',
+    )).map((row) => row['name']).toSet();
+    expect(turnColumns, containsAll(const ['turnIndex', 'contextEpoch']));
+    final toolColumns = (await db.rawQuery(
+      'PRAGMA table_info(agent_tool_events)',
+    )).map((row) => row['name']).toSet();
+    expect(toolColumns, contains('toolSequence'));
+    expect(await db.query('agent_conversation_turns'), hasLength(1));
+  });
+
+  test('v56 rebuild survives legacy ALTER TABLE semantics', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    // Apple's system SQLite (iOS/macOS) defaults to legacy ALTER TABLE
+    // semantics, where RENAME does not rewrite foreign-key clauses in other
+    // tables. The v56 shadow rebuild used to leave the renamed tables
+    // referencing the dropped shadow names, so foreign_key_check flagged
+    // every row.
+    await db.execute('PRAGMA legacy_alter_table = ON');
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('''CREATE TABLE flocks (
+      id TEXT PRIMARY KEY,
+      customerId TEXT,
+      farmId TEXT,
+      sectorKey TEXT
+    )''');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+    await db.execute('''CREATE TABLE audit_sessions (
+      id TEXT PRIMARY KEY,
+      customerId TEXT,
+      flockId TEXT,
+      hatcheryId TEXT
+    )''');
+
+    final helper = DatabaseHelper();
+    await helper.applyV52UpgradeForTest(db);
+    await helper.applyV53UpgradeForTest(db);
+    await helper.applyV54UpgradeForTest(db);
+    await db.insert('telegram_staff_links', {
+      'id': 'staff-1',
+      'telegramUserId': 'tg-1',
+      'status': 'allowed',
+      'accessRole': 'admin',
+    });
+    await db.insert('agent_conversations', {
+      'id': 'conv-1',
+      'staffLinkId': 'staff-1',
+      'telegramChatId': 'chat-1',
+      'createdAt': '2026-07-01T00:00:00Z',
+      'updatedAt': '2026-07-01T00:00:00Z',
+    });
+    await db.insert('agent_conversation_turns', {
+      'id': 'turn-1',
+      'conversationId': 'conv-1',
+      'direction': 'inbound',
+      'text': 'hello',
+      'language': 'en',
+      'createdAt': '2026-07-01T00:00:01Z',
+    });
+    await db.insert('agent_tool_events', {
+      'id': 'tool-1',
+      'conversationTurnId': 'turn-1',
+      'toolCallId': 'call-1',
+      'toolName': 'list_audits',
+      'status': 'succeeded',
+      'createdAt': '2026-07-01T00:00:02Z',
+    });
+
+    await helper.applyV55UpgradeForTest(db);
+    await helper.applyV56UpgradeForTest(db);
+
+    for (final table in const [
+      'agent_conversations',
+      'agent_conversation_turns',
+      'agent_tool_events',
+    ]) {
+      expect(
+        await db.rawQuery('PRAGMA foreign_key_check($table)'),
+        isEmpty,
+        reason: '$table should have no foreign-key violations',
+      );
+    }
+    expect(await db.query('agent_conversation_turns'), hasLength(1));
+    expect(await db.query('agent_tool_events'), hasLength(1));
+  });
+
+  test('v57 adds sync tracking columns to reference tables', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+    await db.execute('''CREATE TABLE flocks (
+      id TEXT PRIMARY KEY,
+      dirtyAt TEXT
+    )''');
+    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+
+    await DatabaseHelper().applyV57UpgradeForTest(db);
+
+    for (final table in ['customers', 'hatcheries']) {
+      final names = await _columnNames(db, table);
+      expect(
+        names,
+        containsAll(['syncStatus', 'dirtyAt', 'lastSyncedAt', 'syncError']),
+        reason: '$table should carry sync tracking columns after v57',
+      );
+    }
+    expect(await _columnNames(db, 'flocks'), contains('lastSyncedAt'));
+  });
 }
 
 Future<void> _createLegacyDatabase({required int version}) async {
