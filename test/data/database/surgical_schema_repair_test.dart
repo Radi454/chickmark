@@ -279,6 +279,97 @@ void main() {
       expect(indexes, isNotEmpty);
     });
 
+    test(
+      'breeder-cycle branch drift is healed: flocks columns restored, '
+      'orphan triggers dropped',
+      () async {
+        // Arrange — reproduce the drift a chickmark-dashboard-redesign build
+        // leaves in the shared DB file: flocks rebuilt WITHOUT
+        // depletionAgeWeeks/soldAt, plus breeder_cycle_* triggers that abort
+        // flock updates once status != 'planned'.
+        var db = await DatabaseHelper().db;
+        await db.execute('PRAGMA foreign_keys = OFF');
+        await db.execute('DROP TABLE flocks');
+        await db.execute('''CREATE TABLE flocks (
+          id TEXT PRIMARY KEY,
+          customerId TEXT,
+          flockId TEXT,
+          breed TEXT,
+          entryDate TEXT,
+          farmId TEXT,
+          targetProfileId TEXT,
+          isAgeEstimated INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          createdAt TEXT,
+          updatedAt TEXT,
+          syncStatus TEXT NOT NULL DEFAULT 'pending',
+          dirtyAt TEXT,
+          lastSyncedAt TEXT,
+          syncError TEXT,
+          sectorKey TEXT,
+          sexProfile TEXT NOT NULL DEFAULT 'as_hatched',
+          productionPhase TEXT
+        )''');
+        await db.insert('flocks', {
+          'id': 'f-drift',
+          'customerId': 'c1',
+          'flockId': 'Drift Farm',
+          'breed': 'Ross308',
+          'entryDate': '2026-06-17T00:00:00.000',
+          'status': 'active',
+        });
+        await db.execute('''CREATE TRIGGER breeder_cycle_immutability_guard
+          BEFORE UPDATE OF
+            customerId, farmId, flockId, breed, entryDate, targetProfileId
+          ON flocks
+          WHEN OLD.status <> 'planned' AND (
+            NEW.breed IS NOT OLD.breed
+          )
+          BEGIN
+            SELECT RAISE(ABORT, 'active or terminal Breeder cycles are immutable');
+          END''');
+        await db.execute('''CREATE TRIGGER breeder_cycle_status_mirror
+          AFTER UPDATE OF status ON flocks
+          BEGIN
+            SELECT 1;
+          END''');
+
+        // Act — reopen; surgical repair should heal columns and drop the
+        // foreign triggers.
+        await DatabaseHelper().close();
+        db = await DatabaseHelper().db;
+
+        // Assert — restored columns.
+        final cols = (await db.rawQuery('PRAGMA table_info(flocks)'))
+            .map((row) => row['name'])
+            .toSet();
+        expect(cols, contains('depletionAgeWeeks'));
+        expect(cols, contains('soldAt'));
+
+        // Assert — orphan triggers gone.
+        final triggers = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='trigger' "
+          "AND name LIKE 'breeder_cycle_%'",
+        );
+        expect(triggers, isEmpty,
+            reason: 'breeder_cycle_* triggers belong to another branch and '
+                'must be dropped by repair');
+
+        // Assert — the exact writes that were refused now succeed: a flock
+        // edit that changes a previously-guarded column, on an active row.
+        await db.update(
+          'flocks',
+          {'breed': 'Cobb500', 'depletionAgeWeeks': 70, 'soldAt': null},
+          where: 'id = ?',
+          whereArgs: ['f-drift'],
+        );
+        final row =
+            (await db.query('flocks', where: "id = 'f-drift'")).single;
+        expect(row['breed'], 'Cobb500');
+        expect(row['depletionAgeWeeks'], 70);
+      },
+    );
+
     test('repair is a no-op (no DROP) when schema is intact', () async {
       // Arrange — populate then capture exact row state.
       var db = await DatabaseHelper().db;

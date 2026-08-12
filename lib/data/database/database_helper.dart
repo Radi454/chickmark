@@ -251,6 +251,8 @@ class DatabaseHelper {
       "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
       'targetProfileId TEXT',
       'productionPhase TEXT',
+      'depletionAgeWeeks INTEGER NOT NULL DEFAULT 65',
+      'soldAt TEXT',
       'updatedAt TEXT',
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
@@ -626,6 +628,16 @@ class DatabaseHelper {
       report.add('columns added: ${addedColumns.join(", ")}');
     }
 
+    // Step 1b: drop triggers this schema does not own. Builds from other
+    // branches (the breeder-cycle worktree) store triggers inside the shared
+    // DB file; they survive a branch switch and abort writes this build
+    // legitimately performs (flock edits, sync pull upserts). If that branch
+    // merges, remove its prefix here — its own schema code recreates them.
+    final droppedTriggers = await _dropForeignTriggers(db);
+    if (droppedTriggers.isNotEmpty) {
+      report.add('foreign triggers dropped: ${droppedTriggers.join(", ")}');
+    }
+
     // Step 2: idempotent CREATE TABLE / INDEX IF NOT EXISTS for every critical
     // table. Tables that already exist are untouched; their indexes now find
     // the columns repaired in Step 1. Missing tables are created whole.
@@ -672,6 +684,28 @@ class DatabaseHelper {
     if (report.isNotEmpty) {
       debugPrint('[DB REPAIR] ${report.join(" | ")}');
     }
+  }
+
+  /// Trigger name prefixes owned by OTHER branches' schemas. Triggers are
+  /// stored in the DB file itself, so a build from another branch leaves its
+  /// triggers behind after a switch; this build must not run under them.
+  static const _foreignTriggerPrefixes = ['breeder_cycle_'];
+
+  Future<List<String>> _dropForeignTriggers(Database db) async {
+    final dropped = <String>[];
+    for (final prefix in _foreignTriggerPrefixes) {
+      final rows = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE ?",
+        ['$prefix%'],
+      );
+      for (final row in rows) {
+        final name = row['name']?.toString();
+        if (name == null || name.isEmpty) continue;
+        await db.execute('DROP TRIGGER IF EXISTS "$name"');
+        dropped.add(name);
+      }
+    }
+    return dropped;
   }
 
   /// For every entry in [_criticalColumns], ALTER TABLE ADD COLUMN any missing
