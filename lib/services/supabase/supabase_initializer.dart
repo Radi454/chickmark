@@ -25,6 +25,9 @@ class SupabaseInitializer {
         Supabase.initialize(
               url: SupabaseConfig.url,
               anonKey: SupabaseConfig.anonKey,
+              authOptions: const FlutterAuthClientOptions(
+                autoRefreshToken: true,
+              ),
             )
             .then((_) {
               _initialized = true;

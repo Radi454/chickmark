@@ -122,6 +122,54 @@ String _supabaseSnakeCase(String key) {
   return buffer.toString();
 }
 
+/// Outcome of asking Supabase whether this device's session is still good.
+///
+/// The distinction that matters: [offline] means "we could not ask", and must
+/// never be treated as a logout. Only [rejected] — a definitive answer from
+/// the server while online — is a logout.
+enum SessionRestoreStatus { valid, refreshed, offline, rejected }
+
+class SessionRestoreResult {
+  final SessionRestoreStatus status;
+  final String? userId;
+  final String? accessToken;
+  final DateTime? expiresAt;
+
+  const SessionRestoreResult({
+    required this.status,
+    this.userId,
+    this.accessToken,
+    this.expiresAt,
+  });
+}
+
+const List<String> _networkErrorMarkers = [
+  'socket',
+  'failed host',
+  'network',
+  'connection',
+  'timed out',
+  'timeout',
+  'unreachable',
+  'handshake',
+];
+
+/// Errors are classified conservatively: anything that is not unmistakably a
+/// server-side rejection counts as [SessionRestoreStatus.offline], so an
+/// ambiguous failure keeps the user signed in rather than locking them out of
+/// data that lives on their own phone.
+@visibleForTesting
+SessionRestoreStatus classifyRestoreFailure(Object error) {
+  final message = error.toString().toLowerCase();
+  if (_networkErrorMarkers.any(message.contains)) {
+    return SessionRestoreStatus.offline;
+  }
+  if (error is AuthException) {
+    return SessionRestoreStatus.rejected;
+  }
+  return SessionRestoreStatus.offline;
+}
+
 class SupabaseService {
   final UserRepository _userRepo;
   final bool Function() _isConfigured;
@@ -263,6 +311,61 @@ class SupabaseService {
         return AuthResult(success: false, error: 'offline');
       }
       return AuthResult(success: false, error: _cleanError(e));
+    }
+  }
+
+  /// Ask Supabase whether this device's stored session is still usable,
+  /// refreshing it if needed.
+  ///
+  /// Callers must treat [SessionRestoreStatus.offline] as "try again later",
+  /// never as a sign-out.
+  Future<SessionRestoreResult> restoreSession() async {
+    if (!_isConfigured()) {
+      await _reloadConfig();
+    }
+    await _checkNetworkAvailability();
+    if (!_isConfigured() || !_isNetworkAvailable) {
+      return const SessionRestoreResult(status: SessionRestoreStatus.offline);
+    }
+    if (!await _ensureSupabaseReady()) {
+      return const SessionRestoreResult(status: SessionRestoreStatus.offline);
+    }
+
+    try {
+      final current = _client.auth.currentSession;
+      if (current == null) {
+        // Online, and Supabase holds no session for this device: there is
+        // nothing to refresh, so real credentials are required.
+        return const SessionRestoreResult(
+          status: SessionRestoreStatus.rejected,
+        );
+      }
+      if (!current.isExpired) {
+        return SessionRestoreResult(
+          status: SessionRestoreStatus.valid,
+          userId: current.user.id,
+          accessToken: current.accessToken,
+          expiresAt: _sessionExpiry(current),
+        );
+      }
+
+      final response = await _client.auth.refreshSession();
+      final refreshed = response.session;
+      if (refreshed == null) {
+        return const SessionRestoreResult(
+          status: SessionRestoreStatus.rejected,
+        );
+      }
+      return SessionRestoreResult(
+        status: SessionRestoreStatus.refreshed,
+        userId: refreshed.user.id,
+        accessToken: refreshed.accessToken,
+        expiresAt: _sessionExpiry(refreshed),
+      );
+    } catch (e) {
+      final status = classifyRestoreFailure(e);
+      safeDebugLog('Supabase session restore failed ($status)', error: e);
+      return SessionRestoreResult(status: status);
     }
   }
 
