@@ -4,7 +4,10 @@ import 'package:sqflite/sqflite.dart';
 import '../../services/auth/secure_token_store.dart';
 
 class UserRepository {
-  final dbHelper = DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  UserRepository({DatabaseHelper? dbHelper})
+    : dbHelper = dbHelper ?? DatabaseHelper();
 
   Future<void> upsertUser(UserModel user) async {
     final db = await dbHelper.db;
@@ -66,7 +69,15 @@ class UserRepository {
     );
   }
 
-  Future<UserModel?> getCachedUser() async {
+  /// The user this install should come back as, if any.
+  ///
+  /// "Remembered" means the user ticked Remember me (non-null `tokenExpiry`)
+  /// and a token is still in secure storage. It deliberately does **not**
+  /// require `tokenExpiry` to be in the future: the access token expires
+  /// hourly, and letting that decide the usage gate is what used to lock
+  /// field users out. Freshness is decided later, by the session restore
+  /// path plus the offline grace window.
+  Future<UserModel?> getRememberedUser() async {
     final db = await dbHelper.db;
     final result = await db.query(
       'users',
@@ -75,7 +86,7 @@ class UserRepository {
     );
     for (final row in result) {
       final user = await _attachStoredToken(UserModel.fromMap(row));
-      if (user != null && user.isTokenValid) {
+      if (user != null) {
         return user;
       }
     }

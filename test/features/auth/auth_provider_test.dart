@@ -92,19 +92,19 @@ void main() {
           supabaseService: mockSupabase,
           bypassAuth: true,
         );
-        when(() => mockRepo.getCachedUser()).thenAnswer((_) async => null);
+        when(() => mockRepo.getRememberedUser()).thenAnswer((_) async => null);
 
         await provider.checkCachedToken();
 
         expect(provider.state, AuthState.authenticated);
         expect(provider.user?.email, 'dev-auditor@chickmark.local');
-        verifyNever(() => mockRepo.getCachedUser());
+        verifyNever(() => mockRepo.getRememberedUser());
       },
     );
 
     test('authenticated when valid cached user exists', () async {
       when(
-        () => mockRepo.getCachedUser(),
+        () => mockRepo.getRememberedUser(),
       ).thenAnswer((_) async => approvedSupabaseUser());
 
       await provider.checkCachedToken();
@@ -114,7 +114,7 @@ void main() {
     });
 
     test('unauthenticated when no cached user', () async {
-      when(() => mockRepo.getCachedUser()).thenAnswer((_) async => null);
+      when(() => mockRepo.getRememberedUser()).thenAnswer((_) async => null);
 
       await provider.checkCachedToken();
 
@@ -321,7 +321,7 @@ void main() {
 
       expect(provider.state, AuthState.unauthenticated);
       expect(provider.user, isNull);
-      verifyNever(() => mockRepo.getCachedUser());
+      verifyNever(() => mockRepo.getRememberedUser());
     });
   });
 }

@@ -69,7 +69,7 @@ class AuthProvider extends ChangeNotifier {
 
     _setState(AuthState.loading);
     try {
-      final cachedUser = await _userRepository.getCachedUser();
+      final cachedUser = await _userRepository.getRememberedUser();
       if (cachedUser != null) {
         _user = cachedUser;
         _setState(AuthState.authenticated);
