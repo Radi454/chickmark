@@ -519,6 +519,22 @@ class SupabaseService {
     await _upsertRowsWithFallback(table, rows, verifyAffectedRows: true);
   }
 
+  Future<List<Map<String, dynamic>>> upsertRowsReturningStrict(
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (rows.isEmpty) return const [];
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
+    return _upsertRowsWithFallback(
+      table,
+      rows,
+      verifyAffectedRows: true,
+      selectColumns: '*',
+    );
+  }
+
   Future<void> deleteRows(String table, List<String> ids) async {
     final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
     if (rowIds.isEmpty) return;
@@ -930,10 +946,11 @@ class SupabaseService {
     }
   }
 
-  Future<void> _upsertRowsWithFallback(
+  Future<List<Map<String, dynamic>>> _upsertRowsWithFallback(
     String table,
     List<Map<String, dynamic>> rows, {
     bool verifyAffectedRows = false,
+    String selectColumns = 'id',
   }) async {
     final safeRows = rows
         .map((row) => _stripLocalOnlyColumns(table, row))
@@ -946,14 +963,14 @@ class SupabaseService {
             rows.map((row) => toSupabaseUpsertPayload(table, row)).toList(),
           );
       if (verifyAffectedRows) {
-        persistedRows = await request.select('id');
+        persistedRows = await request.select(selectColumns);
       } else {
         await request;
       }
     } catch (_) {
       final request = _client.from(table).upsert(safeRows);
       if (verifyAffectedRows) {
-        persistedRows = await request.select('id');
+        persistedRows = await request.select(selectColumns);
       } else {
         await request;
       }
@@ -964,6 +981,9 @@ class SupabaseService {
         '(${persistedRows?.length ?? 0}/${safeRows.length})',
       );
     }
+    return (persistedRows ?? const <dynamic>[])
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _stripLocalOnlyColumns(
