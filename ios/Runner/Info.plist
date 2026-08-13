@@ -30,6 +30,8 @@
 	<string>ChickMark uses the camera to capture photos of eggs, trays, and audit inspection results.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ChickMark saves audit inspection photos to your photo library.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ChickMark uses the microphone so you can ask the assistant questions by voice.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>ChickMark uses Bluetooth to read live temperature and relative humidity from nearby Govee sensors during hatchery audits.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
