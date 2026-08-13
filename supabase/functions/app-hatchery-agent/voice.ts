@@ -37,7 +37,7 @@ export async function transcribeAudio(
 ): Promise<string> {
   const bytes = decodeBase64(audioBase64)
   const form = new FormData()
-  form.append('file', new Blob([bytes]), 'audio.m4a')
+  form.append('file', new Blob([bytes.slice().buffer as ArrayBuffer]), 'audio.m4a')
   form.append('model', WHISPER_MODEL)
 
   const fetchImpl = config.fetchImpl ?? fetch
