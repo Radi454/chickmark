@@ -12,6 +12,7 @@ import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/pending_approval_screen.dart';
 import 'features/auth/screens/register_screen.dart';
+import 'features/auth/services/session_revalidation_trigger.dart';
 import 'features/bmk/providers/bmk_provider.dart';
 import 'features/dashboard/providers/dashboard_provider.dart';
 import 'features/dashboard/providers/scope_comparison_provider.dart';
@@ -37,6 +38,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   late final bool _authBypassEnabled;
   late final ModalRouteVisibilityObserver _modalRouteObserver;
   late final _AppRouteObserver _appRouteObserver;
+  late final SessionRevalidationTrigger _sessionRevalidationTrigger;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final ValueNotifier<bool> _hasModalRoute = ValueNotifier<bool>(false);
   bool _showGlobalLauncher = false;
@@ -48,6 +50,9 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
     super.initState();
     _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
     _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
+    _sessionRevalidationTrigger = SessionRevalidationTrigger(
+      onRevalidate: _authProvider.revalidateSession,
+    )..start();
     _modalRouteObserver = ModalRouteVisibilityObserver(_hasModalRoute);
     _appRouteObserver = _AppRouteObserver(_rememberTopRouteName);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -63,6 +68,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
 
   @override
   void dispose() {
+    _sessionRevalidationTrigger.stop();
     _hasModalRoute.dispose();
     super.dispose();
   }
