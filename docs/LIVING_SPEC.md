@@ -8,12 +8,15 @@ This file must be updated after every meaningful code change.
 
 ## 1. Last Updated
 
-2026-07-28
+2026-08-13
 
 Mapped from the current working tree under `lib/`, especially app bootstrap,
 navigation, audit screens, providers, models, repositories, services, and the
 SQLite database helper. This update intentionally does not use deleted or old
-feature specs as source material.
+feature specs as source material. This pass documents the offline-resilient
+auth rework that split the single auth-state-driven gate into an unchanged
+login gate and a new usage gate so an already-signed-in field device is never
+logged out purely for lacking connectivity (§2).
 
 ## 2. Navigation
 
@@ -156,6 +159,67 @@ After startup, the app also listens for auth-state changes at the root
 navigator. If logout or another auth failure leaves the user unauthenticated
 while an app route such as `/main` is visible, the navigator is reset to
 `/login` so protected screens are not left on screen.
+
+Authentication has two independent gates. The **login gate** requires a real
+Supabase sign-in and is unchanged. The **usage gate** decides whether an
+already-signed-in install may keep working, and no longer depends on the
+one-hour access-token expiry.
+
+On startup `AuthProvider.checkCachedToken()` resolves the remembered user
+(`UserRepository.getRememberedUser()` — approved, `tokenExpiry` non-null as the
+"Remember me" marker, a real token still present in secure storage,
+regardless of whether that `tokenExpiry` has passed), asks Supabase to
+restore or refresh the session (`SupabaseService.restoreSession()`, skipped
+for local-only accounts), reads the Keychain trust record
+(`SessionTrustStore`), and feeds all three into the pure
+`decideStartupAuth()` function, which returns one of three outcomes. Along
+the way, a restored session or trust record that belongs to a different
+account than the remembered user is treated as proof of nothing and sent to
+`/login` rather than silently granted to the remembered identity.
+
+- **Enter app** — the session is valid or was refreshed by Supabase. The
+  access token is re-cached in secure storage and the Keychain trust record
+  is stamped with the current time.
+- **Enter app pending re-validation** — the session could not be checked
+  because the device is offline (or the request otherwise failed in a way
+  that is not a definitive server rejection — including a 5xx
+  `AuthRetryableFetchException`), but this install recorded a successful
+  login within the offline grace window (`AuthSessionPolicy.offlineGrace`,
+  30 days). The app runs normally against local SQLite with
+  `AuthProvider.isPendingRevalidation` set.
+- **Go to login** — only when this install has never recorded a successful
+  online login, when the grace window has lapsed, or when the server
+  definitively rejected the session while online
+  (`SupabaseService.classifyRestoreFailure()` reserves rejection for an
+  unambiguous `AuthException`, not a connectivity failure). A connectivity
+  failure is never a logout.
+
+`SessionRevalidationTrigger` (app resume, via `WidgetsBindingObserver`, plus
+`connectivity_plus` reconnect events) calls
+`AuthProvider.revalidateSession()`, which is re-entrancy guarded, clears the
+pending flag silently on success, and signs the device out only on a
+definitive rejection or on discovering the live session belongs to a
+different account.
+
+Local-only accounts (`local-` ids) bypass the Supabase path entirely and keep
+their existing 30-day `tokenExpiry` rule, checked directly on the remembered
+user rather than through `restoreSession()`.
+
+Intended session lifetimes, configured as project-level Supabase Dashboard
+settings rather than in this repository (Authentication → Sessions / JWT
+settings; not verified from code): access-token (JWT) expiry 3600 seconds (1
+hour), refresh-token rotation enabled with a 10-second reuse interval,
+session time-boxing disabled (no forced expiry), inactivity timeout 90 days.
+The 30-day local offline grace is deliberately shorter than that intended
+90-day server window so a device returning from the longest permitted
+offline stretch can still refresh instead of meeting a dead refresh token.
+
+Tokens never move to SQLite: the access token stays in `SecureTokenStore` and
+the trust record in `SessionTrustStore`, both Keychain-backed (with an
+in-memory fallback on web). `users.accessToken` remains `NULL` for remote
+users; `UserRepository.upsertUser()` strips any in-memory access token before
+the SQL write for non-local accounts, and `cacheToken()` writes the real
+token only to `SecureTokenStore`.
 
 The main shell has ten destinations for approved admins:
 
@@ -1477,8 +1541,10 @@ migration and are upgraded to v3 after a successful local login.
 An explicit login attempt must verify the entered password through Supabase or
 through an enabled local fallback account. A cached Supabase profile is not
 accepted as proof of the newly entered password when the device is offline.
-Startup may still resume a previously remembered, unexpired remote session from
-secure local token storage without asking the user to sign in again.
+Startup may still resume a previously remembered remote session from secure
+local token storage without asking the user to sign in again, even once the
+cached access token itself has expired; see §2 for the two-gate model
+(login vs. usage) that this now goes through.
 The login identifier accepts either an internal user's email or an
 admin-issued customer username. Customer usernames are case-insensitive and are
 mapped internally to `<username>@customers.chickmark.app` for Supabase password
@@ -2057,7 +2123,13 @@ batches plus pending and allowed Telegram staff links, automatically selects
 the newest available batch, and preserves the selected batch across refreshes
 while it remains available. Admins can refresh the monitor, approve or reject
 pending Telegram staff access, and pause or resume Telegram ingestion through
-the persisted agent setting. Approval opens an assignment sheet instead of
+the persisted agent setting. Telegram running/paused state is
+cloud-authoritative: the monitor keeps showing the previous confirmed state
+and disables its refresh and pause/resume controls while it performs a targeted
+Supabase write. Only the verified row returned by Supabase is mirrored to
+SQLite and published to the UI. A cloud failure preserves the prior state and
+shows an error, so Telegram follows a successful toggle immediately without an
+app restart. Approval opens an assignment sheet instead of
 granting access immediately: the default customer role requires one customer
 selection, while the explicit agent-admin role grants all-customer access and
 cannot carry a customer restriction. Allowed Telegram users appear with their
@@ -2545,6 +2617,38 @@ behavior and emit debug logs in development builds.
 
 ## 9. Change Log
 
+- 2026-08-13: Split app-startup authentication into an unchanged login gate
+  and a new, connectivity-tolerant usage gate. `UserRepository
+  .getRememberedUser()` replaced `getCachedUser()` and no longer requires an
+  unexpired `tokenExpiry`. `SupabaseService.restoreSession()` asks Supabase to
+  validate or refresh the session and classifies transient/ambiguous failures
+  (including 5xx `AuthRetryableFetchException`) as `offline` rather than a
+  rejection, so a flaky or absent connection can never by itself cause a
+  logout. A new Keychain-backed `SessionTrustStore` records the last proven
+  online login per user; the pure `decideStartupAuth()` function combines the
+  remembered user, the restore outcome, and that trust record into one of
+  three outcomes — enter app, enter app pending re-validation (device offline
+  but within the 30-day `AuthSessionPolicy.offlineGrace` window), or go to
+  login (never verified, grace lapsed, or a definitive online rejection).
+  `AuthProvider.checkCachedToken()` now drives this decision and rejects a
+  restored session or trust record that belongs to a different account than
+  the one remembered on-device. A new `SessionRevalidationTrigger` calls
+  `AuthProvider.revalidateSession()` silently on app resume and on
+  `connectivity_plus` reconnect events, clearing the pending flag on success
+  and signing out only on a definitive rejection. Local-only (`local-` id)
+  accounts are unaffected and keep their existing 30-day `tokenExpiry` rule.
+  The intended companion Supabase Dashboard session settings (JWT expiry
+  3600s, refresh-token rotation with a 10-second reuse interval, session
+  time-boxing disabled, 90-day inactivity timeout) are project configuration,
+  not code, and are recorded in §2 as the target configuration rather than
+  something this change verifies.
+- 2026-08-13: Made Agent Monitor pause/resume cloud-authoritative. The control
+  keeps the prior confirmed state visible and remains disabled during a
+  targeted, verified Supabase write; only the returned cloud row is mirrored
+  to SQLite and published as running/paused. Cloud failures preserve the prior
+  state and surface an error, and repeated taps cannot create overlapping
+  transitions. Telegram now follows successful pause and resume actions
+  immediately without requiring an app restart.
 - 2026-07-31: Fixed Telegram audit-summary confirmation after a single audit
   result. Single results remain numbered, a legacy affirmative confirmation
   selects persisted option 1 without re-resolving stale customer/flock IDs,
