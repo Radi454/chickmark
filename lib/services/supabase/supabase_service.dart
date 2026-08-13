@@ -346,11 +346,22 @@ class SupabaseService {
     try {
       final current = _client.auth.currentSession;
       if (current == null) {
-        // Online, and Supabase holds no session for this device: there is
-        // nothing to refresh, so real credentials are required.
-        return const SessionRestoreResult(
-          status: SessionRestoreStatus.rejected,
-        );
+        // A missing *local* session is not a server rejection. Nothing here
+        // was answered by Supabase: gotrue may simply have dropped its
+        // persisted session (e.g. a 4xx during a background auto-refresh tick
+        // that nothing in the app observes), and "online" above is only
+        // `NetworkReachability.isOnline()`, which trusts any active interface
+        // without probing — captive or uplink-less hatchery Wi-Fi looks
+        // online here. Reporting `rejected` would wipe trust and tokens and
+        // strand the device on a login screen it cannot reach, so report
+        // `offline` and let the caller's offline-grace window decide.
+        //
+        // Revocation detection is unaffected: a genuinely revoked session is
+        // still caught below by refreshSession() → non-retryable
+        // AuthApiException → rejected. The accepted trade-off is that a
+        // device whose session gotrue already discarded keeps working
+        // offline until the grace window lapses or it signs in again.
+        return const SessionRestoreResult(status: SessionRestoreStatus.offline);
       }
       if (!current.isExpired) {
         return SessionRestoreResult(

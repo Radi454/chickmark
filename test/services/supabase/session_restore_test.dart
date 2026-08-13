@@ -1,9 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
+
+class _MockSupabaseClient extends Mock implements SupabaseClient {}
+
+class _MockGoTrueClient extends Mock implements GoTrueClient {}
 
 void main() {
   group('classifyRestoreFailure', () {
@@ -122,5 +127,33 @@ void main() {
 
       expect(result.status, SessionRestoreStatus.offline);
     });
+
+    test(
+      'a missing local session is offline, never a rejection',
+      () async {
+        // gotrue holding no session is a purely local condition — no server
+        // answered — and "online" here only means an active interface, which
+        // captive/uplink-less Wi-Fi also satisfies. Reporting `rejected` here
+        // would wipe trust and tokens with no server rejection behind it.
+        final auth = _MockGoTrueClient();
+        when(() => auth.currentSession).thenReturn(null);
+        final client = _MockSupabaseClient();
+        when(() => client.auth).thenReturn(auth);
+
+        final service = SupabaseService(
+          isConfiguredForTesting: () => true,
+          reloadConfigForTesting: () async {},
+          checkNetworkAvailableForTesting: () async => true,
+          initializeSupabaseForTesting: () async => true,
+          clientForTesting: () => client,
+        );
+
+        final result = await service.restoreSession();
+
+        expect(result.status, SessionRestoreStatus.offline);
+        expect(result.accessToken, isNull);
+        verifyNever(() => auth.refreshSession());
+      },
+    );
   });
 }

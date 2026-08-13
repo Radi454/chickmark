@@ -510,6 +510,11 @@ void main() {
 
       expect(provider.state, AuthState.unauthenticated);
       expect(provider.isPendingRevalidation, isFalse);
+      // Being offline is never a logout, not even when the grace window has
+      // lapsed: the device shows /login, but nothing is wiped, so signing in
+      // again — or simply coming back online — restores it intact.
+      verifyNever(() => mockRepo.clearCachedTokens());
+      expect(trustStore.trust, isNotNull);
     });
 
     test('a refreshed session enters the app and re-caches the token', () async {
@@ -870,6 +875,174 @@ void main() {
 
         expect(provider.state, AuthState.authenticated);
         expect(provider.isPendingRevalidation, isTrue);
+      },
+    );
+
+    /// Puts the provider into the offline, pending-revalidation state the
+    /// concurrency tests below start from.
+    Future<void> enterAppPendingRevalidation() async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+      await provider.checkCachedToken();
+      expect(provider.isPendingRevalidation, isTrue);
+    }
+
+    test(
+      'a token write that lands after a concurrent logout is undone, not left behind',
+      () async {
+        await enterAppPendingRevalidation();
+        when(() => mockSupabase.signOut()).thenAnswer((_) async {});
+
+        // The revalidation gets past its identity check and starts writing…
+        final cacheTokenParked = Completer<void>();
+        when(
+          () => mockRepo.cacheToken(any(), any(), any()),
+        ).thenAnswer((_) => cacheTokenParked.future);
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => SessionRestoreResult(
+            status: SessionRestoreStatus.refreshed,
+            userId: 'supabase-user-123',
+            accessToken: 'fresh-access-token',
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+        );
+        final revalidation = provider.revalidateSession();
+        await pumpEventQueue();
+
+        // …the user logs out, and the logout's own cleanup runs to completion
+        // while that write is still parked.
+        await provider.logout();
+
+        // Only now does the write land.
+        cacheTokenParked.complete();
+        await revalidation;
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+        expect(provider.isPendingRevalidation, isFalse);
+        // Nothing survives the logout: the trust record is gone and the
+        // late token write was cleared again (once by the logout, once by
+        // the persist noticing it had been overtaken).
+        expect(trustStore.trust, isNull);
+        verify(() => mockRepo.clearCachedTokens()).called(2);
+      },
+    );
+
+    test(
+      'a revalidation resolving after a completed logout writes nothing at all',
+      () async {
+        await enterAppPendingRevalidation();
+        when(() => mockSupabase.signOut()).thenAnswer((_) async {});
+
+        final restoreParked = Completer<SessionRestoreResult>();
+        when(
+          () => mockSupabase.restoreSession(),
+        ).thenAnswer((_) => restoreParked.future);
+        final revalidation = provider.revalidateSession();
+
+        await provider.logout();
+
+        restoreParked.complete(
+          SessionRestoreResult(
+            status: SessionRestoreStatus.refreshed,
+            userId: 'supabase-user-123',
+            accessToken: 'fresh-access-token',
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+        );
+        await revalidation;
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+        expect(provider.isPendingRevalidation, isFalse);
+        expect(trustStore.trust, isNull);
+        verifyNever(() => mockRepo.cacheToken(any(), any(), any()));
+      },
+    );
+
+    UserModel upgradingUser({required DateTime? lastLoginAt}) => UserModel(
+      id: 'supabase-user-123',
+      fullName: 'Field Auditor',
+      email: email,
+      role: 'auditor',
+      status: 'approved',
+      accessToken: 'stale-access-token',
+      tokenExpiry: DateTime.now().subtract(const Duration(days: 3)),
+      createdAt: DateTime(2026, 1, 1),
+      lastLoginAt: lastLoginAt,
+    );
+
+    test(
+      'an install upgraded while signed in stays inside the app on its last login',
+      () async {
+        // No trust record was ever written on this device — it was already
+        // signed in before trust records existed.
+        trustStore.trust = null;
+        when(() => mockRepo.getRememberedUser()).thenAnswer(
+          (_) async => upgradingUser(
+            lastLoginAt: DateTime.now().subtract(const Duration(days: 3)),
+          ),
+        );
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async =>
+              const SessionRestoreResult(status: SessionRestoreStatus.offline),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.isPendingRevalidation, isTrue);
+        verifyNever(() => mockRepo.clearCachedTokens());
+      },
+    );
+
+    test(
+      'an upgraded install whose last login is past the grace window goes to login',
+      () async {
+        trustStore.trust = null;
+        when(() => mockRepo.getRememberedUser()).thenAnswer(
+          (_) async => upgradingUser(
+            lastLoginAt: DateTime.now().subtract(const Duration(days: 45)),
+          ),
+        );
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async =>
+              const SessionRestoreResult(status: SessionRestoreStatus.offline),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.isPendingRevalidation, isFalse);
+        verifyNever(() => mockRepo.clearCachedTokens());
+      },
+    );
+
+    test(
+      'an upgraded install with no last login at all goes to login',
+      () async {
+        trustStore.trust = null;
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => upgradingUser(lastLoginAt: null));
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async =>
+              const SessionRestoreResult(status: SessionRestoreStatus.offline),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.isPendingRevalidation, isFalse);
       },
     );
   });

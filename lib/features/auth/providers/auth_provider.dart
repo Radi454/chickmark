@@ -54,6 +54,15 @@ class AuthProvider extends ChangeNotifier {
   bool _isPendingRevalidation = false;
   bool _revalidationInFlight = false;
 
+  /// Monotonic counter identifying the current sign-in "generation".
+  ///
+  /// Bumped by every event that invalidates in-flight session work — a login,
+  /// a logout, or any local sign-out commit. Long-running work captures the
+  /// epoch it started under and re-checks it around every await, so a write
+  /// belonging to a session that has since been signed out can never land
+  /// afterwards and silently resurrect it.
+  int _sessionEpoch = 0;
+
   AuthState get state => _state;
   String? get errorMessage => _errorMessage;
   UserModel? get user => _user;
@@ -79,6 +88,7 @@ class AuthProvider extends ChangeNotifier {
       return;
     }
 
+    final epoch = _sessionEpoch;
     _setState(AuthState.loading);
     try {
       final remembered = await _userRepository.getRememberedUser();
@@ -132,6 +142,22 @@ class AuthProvider extends ChangeNotifier {
               '(${remembered.id}); ignoring it.',
             );
           }
+        } else if (remembered.lastLoginAt != null) {
+          // Upgrade backfill — distinct from the read-fault path above: the
+          // store answered, and it genuinely holds nothing. On an install
+          // that was already signed in before trust records existed there is
+          // no record to find, and without this an offline first launch after
+          // the upgrade would sign the entire existing user base out once.
+          //
+          // This cannot let an install that never authenticated through:
+          // `getRememberedUser()` only returns a non-local user when a token
+          // for it is present in secure storage, which is itself evidence of
+          // a prior successful online login on this device. `lastLoginAt` is
+          // when that login happened, so it is the honest seed for the grace
+          // window — an install past the window still goes to /login.
+          sinceLastVerified = DateTime.now().difference(
+            remembered.lastLoginAt!,
+          );
         }
       }
 
@@ -143,7 +169,7 @@ class AuthProvider extends ChangeNotifier {
         sinceLastVerified: sinceLastVerified,
       );
 
-      await _applyStartupDecision(decision, remembered, restore);
+      await _applyStartupDecision(decision, remembered, restore, epoch);
     } catch (e) {
       // A failure to *ask* is never a logout. Every failure-prone step past
       // `remembered` (trust lookup, token persistence) is handled as
@@ -171,6 +197,7 @@ class AuthProvider extends ChangeNotifier {
     StartupAuthDecision decision,
     UserModel remembered,
     SessionRestoreResult? restore,
+    int epoch,
   ) async {
     switch (decision) {
       case StartupAuthDecision.goToLogin:
@@ -180,7 +207,10 @@ class AuthProvider extends ChangeNotifier {
           await _clearSessionArtifactsBestEffort();
         }
       case StartupAuthDecision.enterApp:
-        await _persistVerifiedSession(remembered, restore);
+        await _persistVerifiedSession(remembered, restore, epoch);
+        // A logout that landed while the startup check was in flight wins:
+        // never re-seat a user the app has since signed out.
+        if (_sessionEpoch != epoch) return;
         _user = remembered;
         _isPendingRevalidation = false;
         _setState(
@@ -189,6 +219,7 @@ class AuthProvider extends ChangeNotifier {
               : AuthState.pendingApproval,
         );
       case StartupAuthDecision.enterAppPendingRevalidation:
+        if (_sessionEpoch != epoch) return;
         _user = remembered;
         _isPendingRevalidation = true;
         _setState(
@@ -203,24 +234,46 @@ class AuthProvider extends ChangeNotifier {
   /// has already vouched for this session, so a local storage fault here
   /// (Keychain write failure, disk error) must never undo that and send an
   /// offline-capable, already-approved user back to the login screen.
+  ///
+  /// [epoch] is the sign-in generation this persist belongs to. Every write
+  /// is gated on it still being current, and if a sign-out overtook us
+  /// mid-write the artifacts are cleared again — no write may outlive the
+  /// session that authorised it, or the next cold start would come back as a
+  /// user who has already been signed out.
   Future<void> _persistVerifiedSession(
     UserModel user,
     SessionRestoreResult? restore,
+    int epoch,
   ) async {
     if (restore == null) return;
     final accessToken = restore.accessToken;
     final expiresAt = restore.expiresAt;
-    if (accessToken != null && expiresAt != null) {
+    if (accessToken != null && expiresAt != null && _sessionEpoch == epoch) {
       try {
         await _userRepository.cacheToken(user.id, accessToken, expiresAt);
       } catch (e) {
         safeDebugLog('Failed to cache refreshed access token', error: e);
       }
     }
-    await _recordTrustBestEffort(user.id);
+    if (_sessionEpoch == epoch) {
+      await _recordTrustBestEffort(user.id);
+      return;
+    }
+    // The epoch moved while we were writing. If that was a sign-out (nobody
+    // is signed in now), undo anything that may have landed after it. If a
+    // *different* sign-in took over instead, leave its own freshly written
+    // artifacts alone — clearing them would be the very logout this whole
+    // feature exists to prevent.
+    if (_user == null) {
+      safeDebugLog(
+        'Discarding session artifacts persisted after a concurrent sign-out.',
+      );
+      await _clearSessionArtifactsBestEffort();
+    }
   }
 
   void _commitSignedOut() {
+    _sessionEpoch++;
     _user = null;
     _isPendingRevalidation = false;
     _setState(AuthState.unauthenticated);
@@ -271,6 +324,7 @@ class AuthProvider extends ChangeNotifier {
     if (user == null || user.id.startsWith('local-')) return;
 
     _revalidationInFlight = true;
+    final epoch = _sessionEpoch;
     try {
       final restore = await _supabaseService.restoreSession();
 
@@ -278,7 +332,11 @@ class AuthProvider extends ChangeNotifier {
       // a login, a logout, or another revalidation may already have
       // resolved this session. Only act if it is still exactly the pending
       // session we set out to check.
-      if (!identical(_user, user) || !_isPendingRevalidation) return;
+      if (!identical(_user, user) ||
+          !_isPendingRevalidation ||
+          _sessionEpoch != epoch) {
+        return;
+      }
 
       switch (restore.status) {
         case SessionRestoreStatus.valid:
@@ -294,8 +352,10 @@ class AuthProvider extends ChangeNotifier {
             await _signOutLocally();
             return;
           }
-          await _persistVerifiedSession(user, restore);
-          if (identical(_user, user) && _isPendingRevalidation) {
+          await _persistVerifiedSession(user, restore, epoch);
+          if (identical(_user, user) &&
+              _isPendingRevalidation &&
+              _sessionEpoch == epoch) {
             _isPendingRevalidation = false;
             notifyListeners();
           }
@@ -317,6 +377,9 @@ class AuthProvider extends ChangeNotifier {
     String password, {
     bool rememberSession = true,
   }) async {
+    // A new sign-in supersedes anything the previous session still had in
+    // flight; bump before the first await so those writes can see it.
+    final epoch = ++_sessionEpoch;
     _setState(AuthState.loading);
     try {
       final loginEmail = CustomerAccountIdentifier.loginEmail(email);
@@ -325,16 +388,29 @@ class AuthProvider extends ChangeNotifier {
         password,
         rememberSession: rememberSession,
       );
+      // A logout (or another login) that landed while we were awaiting the
+      // server has already decided who this device is. Do not overwrite it.
+      if (_sessionEpoch != epoch) {
+        safeDebugLog('login: superseded while awaiting the server; discarding.');
+        return false;
+      }
       if (result.success && result.user != null) {
-        _user = result.user!;
-        await _userRepository.upsertUser(_user!);
-        if (rememberSession && !_user!.id.startsWith('local-')) {
+        // Held locally until every write is done: assigning `_user` early
+        // would let a sign-out landing mid-write be silently overwritten.
+        final signedIn = result.user!;
+        await _userRepository.upsertUser(signedIn);
+        if (rememberSession && !signedIn.id.startsWith('local-')) {
           // Best-effort: the sign-in already succeeded, so a Keychain fault
           // recording trust must not turn it into a failed login.
-          await _recordTrustBestEffort(_user!.id);
+          await _recordTrustBestEffort(signedIn.id);
         }
+        await _activityLogRepository.log(signedIn.id, 'login');
+        if (_sessionEpoch != epoch) {
+          safeDebugLog('login: superseded mid-write; discarding.');
+          return false;
+        }
+        _user = signedIn;
         _isPendingRevalidation = false;
-        await _activityLogRepository.log(_user!.id, 'login');
         if (!_user!.isApproved) {
           _setState(AuthState.pendingApproval);
         } else {
@@ -624,6 +700,10 @@ class AuthProvider extends ChangeNotifier {
       return;
     }
 
+    // Invalidate every in-flight session write *before* the first await:
+    // a revalidation already past its own identity check must not be able to
+    // re-persist a token or trust record behind this logout.
+    _sessionEpoch++;
     _setState(AuthState.loading);
     try {
       await _supabaseService.signOut();
