@@ -1,19 +1,17 @@
-import 'dart:async';
-
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../core/network/network_reachability.dart';
+import '../../../core/network/network_status_monitor.dart';
 import '../../../data/models/incoming_change.dart';
 
 /// Cloud connectivity / sync lifecycle. Drives the home-screen "Sync & Offline"
-/// card and the offline banner. `online` = last sync OK and network reachable;
-/// `offline` = no network or last sync returned offline; `syncing` = sync in
-/// flight; `error` = last sync threw.
-enum CloudStatus { online, offline, syncing, error }
+/// card. Network availability comes from [NetworkStatusMonitor]; sync state
+/// only adds the in-flight/error dimensions.
+enum CloudStatus { unknown, online, offline, syncing, error }
 
 class SettingsProvider extends ChangeNotifier {
+  final NetworkStatusMonitor _networkStatus;
+  final bool _ownsNetworkStatus;
   int _pasgarSampleSize = 40;
   int _weightsSampleSize = 100;
   int _traySize = 150;
@@ -27,8 +25,7 @@ class SettingsProvider extends ChangeNotifier {
   String? _lastSyncError;
   List<IncomingChange> _incomingChanges = const [];
   int _otherIncomingCount = 0;
-  CloudStatus _cloudStatus = CloudStatus.online;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  CloudStatus _cloudStatus = CloudStatus.unknown;
   bool _disposed = false;
 
   static const String _keyPasgarSampleSize = 'pref_pasgar_sample_size';
@@ -59,7 +56,7 @@ class SettingsProvider extends ChangeNotifier {
   String? get lastSyncError => _lastSyncError;
   bool get hasSyncedBefore => _lastSyncTimestamp != null;
   CloudStatus get cloudStatus => _cloudStatus;
-  bool get isOffline => _cloudStatus == CloudStatus.offline;
+  bool get isOffline => _networkStatus.isOffline;
 
   /// Sessions synced from another device, not yet acknowledged.
   List<IncomingChange> get incomingChanges => _incomingChanges;
@@ -70,15 +67,22 @@ class SettingsProvider extends ChangeNotifier {
   bool get hasIncomingChanges =>
       _incomingChanges.isNotEmpty || _otherIncomingCount > 0;
 
-  SettingsProvider() {
+  SettingsProvider({NetworkStatusMonitor? networkStatus})
+    : _networkStatus = networkStatus ?? NetworkStatusMonitor(),
+      _ownsNetworkStatus = networkStatus == null {
+    _networkStatus.addListener(_handleNetworkStatusChanged);
+    _networkStatus.start();
+    _handleNetworkStatusChanged();
     _load();
-    _initConnectivity();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _connectivitySub?.cancel();
+    _networkStatus.removeListener(_handleNetworkStatusChanged);
+    if (_ownsNetworkStatus) {
+      _networkStatus.dispose();
+    }
     super.dispose();
   }
 
@@ -87,25 +91,14 @@ class SettingsProvider extends ChangeNotifier {
     super.notifyListeners();
   }
 
-  Future<void> _initConnectivity() async {
-    await _refreshConnectivity();
-    try {
-      _connectivitySub = Connectivity().onConnectivityChanged.listen(
-        (_) => _refreshConnectivity(),
-      );
-    } catch (_) {
-      // connectivity_plus throws on unsupported platforms (tests). The initial
-      // refresh already left cloudStatus at its default; skip live updates.
-    }
-  }
-
-  Future<void> _refreshConnectivity() async {
-    // connectivity_plus alone reports a false `none` on macOS until its
-    // NWPathMonitor settles; NetworkReachability confirms with a real probe.
-    final online = await NetworkReachability.isOnline();
+  void _handleNetworkStatusChanged() {
     // Don't override an in-flight sync's status — let recordSync() finalize it.
     if (_cloudStatus == CloudStatus.syncing) return;
-    final next = online ? CloudStatus.online : CloudStatus.offline;
+    final next = switch (_networkStatus.status) {
+      NetworkStatus.unknown => CloudStatus.unknown,
+      NetworkStatus.online => CloudStatus.online,
+      NetworkStatus.offline => CloudStatus.offline,
+    };
     if (next == _cloudStatus) return;
     _cloudStatus = next;
     _safeNotifyListeners();
@@ -208,12 +201,14 @@ class SettingsProvider extends ChangeNotifier {
     // which used to NPE when we then passed `_lastSyncTimestamp!` to prefs.
     final timestamp = DateTime.now().toIso8601String();
     _lastSyncTimestamp = timestamp;
-    if (error != null) {
+    if (_networkStatus.isOffline) {
+      _cloudStatus = CloudStatus.offline;
+    } else if (error != null) {
       _cloudStatus = CloudStatus.error;
     } else if (online) {
       _cloudStatus = CloudStatus.online;
     } else {
-      _cloudStatus = CloudStatus.offline;
+      _cloudStatus = CloudStatus.unknown;
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyLastSyncOnline, online);

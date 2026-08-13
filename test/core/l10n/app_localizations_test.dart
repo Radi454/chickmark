@@ -91,8 +91,8 @@ void main() {
       'Local database ready': 'قاعدة البيانات المحلية جاهزة',
       'Syncing with cloud': 'جاري المزامنة مع السحابة',
       'Sync error — tap Retry': 'خطأ في المزامنة — اضغط إعادة المحاولة',
-      'Offline — sync paused. Local data still available.':
-          'بدون اتصال — المزامنة متوقفة. البيانات المحلية متاحة.',
+      'Checking cloud connection': 'جارٍ التحقق من الاتصال بالسحابة',
+      'Home data could not be loaded.': 'تعذر تحميل بيانات الصفحة الرئيسية.',
       'No open conflicts': 'لا توجد تعارضات مفتوحة',
       'Local edits won over cloud on these rows. Confirm or restore.':
           'التعديلات المحلية أحدث من السحابة في هذه الصفوف. راجعها أو استرجعها.',

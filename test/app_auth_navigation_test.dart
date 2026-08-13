@@ -54,6 +54,16 @@ void main() {
     );
   });
 
+  test('offline resume leaves the authenticated main route mounted', () {
+    expect(
+      authRedirectRouteForState(
+        state: AuthState.authenticated,
+        topRouteName: '/main',
+      ),
+      isNull,
+    );
+  });
+
   test('debug auth bypass keeps pre-app routes as real auth screens', () {
     expect(
       shouldUseDebugBypassShellForRoute(

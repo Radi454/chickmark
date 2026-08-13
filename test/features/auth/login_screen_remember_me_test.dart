@@ -39,6 +39,17 @@ void main() {
     ).thenAnswer((_) async {});
   });
 
+  test(
+    'offline-grace authentication enters the shell without startup sync',
+    () {
+      expect(authenticatedLandingRoute(isPendingRevalidation: true), '/main');
+      expect(
+        authenticatedLandingRoute(isPendingRevalidation: false),
+        '/startup-sync',
+      );
+    },
+  );
+
   Future<void> pumpLogin(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));

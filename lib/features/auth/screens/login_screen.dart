@@ -9,6 +9,11 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../services/supabase/supabase_service.dart';
 
+@visibleForTesting
+String authenticatedLandingRoute({required bool isPendingRevalidation}) {
+  return isPendingRevalidation ? '/main' : '/startup-sync';
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -179,7 +184,12 @@ class _LoginScreenState extends State<LoginScreen> {
         builder: (context, authProvider, child) {
           if (authProvider.state == AuthState.authenticated) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              Navigator.of(context).pushReplacementNamed('/startup-sync');
+              if (!mounted) return;
+              Navigator.of(context).pushReplacementNamed(
+                authenticatedLandingRoute(
+                  isPendingRevalidation: authProvider.isPendingRevalidation,
+                ),
+              );
             });
           } else if (authProvider.state == AuthState.pendingApproval) {
             WidgetsBinding.instance.addPostFrameCallback((_) {

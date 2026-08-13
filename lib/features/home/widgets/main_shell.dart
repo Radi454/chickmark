@@ -6,6 +6,7 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/debug/startup_timer.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/navigation/shell_navigation_scope.dart';
+import '../../../core/network/network_status_monitor.dart';
 import '../../../data/models/user_model.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../services/sync/app_sync_coordinator.dart';
@@ -14,6 +15,8 @@ import '../../../widgets/chick_mark_logo.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../agents/providers/agent_monitor_provider.dart';
 import '../../agents/screens/agent_monitor_screen.dart';
+import '../../chat/providers/assistant_provider.dart';
+import '../../chat/screens/assistant_chat_screen.dart';
 import '../../home/screens/home_screen.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
@@ -35,10 +38,18 @@ const _allMainShellTabKeys = <String>[
   'bmk',
   'performance',
   'agent',
+  'assistant',
   'settings',
 ];
 
-const _customerMainShellTabKeys = <String>{'dashboard', 'settings'};
+// The assistant is open to every approved role, customers included — the Edge
+// Function scopes what it will answer per caller — so it belongs in the
+// customer-visible set alongside Dashboard and Settings.
+const _customerMainShellTabKeys = <String>{
+  'dashboard',
+  'assistant',
+  'settings',
+};
 
 List<String> mainShellTabKeysForUser(UserModel? user) {
   if (user?.isCustomer == true) {
@@ -180,6 +191,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         ),
       ),
       _ShellTab(
+        'assistant',
+        const _ShellDestination(
+          label: AppStrings.assistantTab,
+          icon: Icons.chat_bubble_outline,
+          selectedIcon: Icons.chat_bubble,
+        ),
+        () => ChangeNotifierProvider(
+          create: (_) => AssistantProvider(),
+          child: const AssistantChatScreen(),
+        ),
+      ),
+      _ShellTab(
         'settings',
         const _ShellDestination(
           label: AppStrings.settingsTab,
@@ -226,12 +249,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final authProvider = context.read<AuthProvider>();
     final customersProvider = context.read<CustomersProvider>();
     final settingsProvider = context.read<SettingsProvider>();
+    final networkStatus = context.read<NetworkStatusMonitor>();
     AppSyncCoordinator.enable(
       sync: () => _bgSync.runBackgroundSync(
         authProvider: authProvider,
         customersProvider: customersProvider,
         settingsProvider: settingsProvider,
       ),
+      networkStatus: networkStatus,
     );
     AppSyncCoordinator.nudge(immediate: true);
   }
@@ -333,14 +358,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 }
 
-/// Passive, non-interactive indicator shown while the app is running on a
-/// previously-proven login it has not yet been able to re-check with the
-/// server (the device is offline). All local work — audits, customers,
+/// Passive, non-interactive indicator shown while the authoritative network
+/// monitor says the cloud endpoint is offline. All local work — audits, customers,
 /// flocks, stations, Govee, photos — is fully functional in this state; the
 /// user is not signed out and needs to do nothing.
 ///
-/// [AuthProvider.isPendingRevalidation] — and this chip — clear themselves
-/// silently the moment connectivity returns and revalidation succeeds. This
+/// This chip clears itself silently the moment connectivity returns. It
 /// must stay purely informational: no button, no tap target, nothing that
 /// can interrupt a field user mid-audit.
 ///
@@ -352,10 +375,10 @@ class PendingRevalidationChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPending = context.select<AuthProvider, bool>(
-      (provider) => provider.isPendingRevalidation,
+    final isOffline = context.select<NetworkStatusMonitor, bool>(
+      (monitor) => monitor.isOffline,
     );
-    if (!isPending) return const SizedBox.shrink();
+    if (!isOffline) return const SizedBox.shrink();
 
     return Align(
       alignment: AlignmentDirectional.topStart,
@@ -498,7 +521,10 @@ class _MainShellTabArea extends StatelessWidget {
       right: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [const PendingRevalidationChip(), Expanded(child: content)],
+        children: [
+          const PendingRevalidationChip(),
+          Expanded(child: content),
+        ],
       ),
     );
   }

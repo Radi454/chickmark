@@ -1,11 +1,13 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/network/network_status_monitor.dart';
 import '../../core/security/safe_debug_log.dart';
 
-typedef AppSyncCallback = Future<void> Function();
+enum AppSyncResult { success, offline, transientFailure }
+
+typedef AppSyncCallback = Future<AppSyncResult> Function();
 
 /// Coalesces local-write, reconnect, and app-resume sync requests into a single
 /// foreground-safe sync pass.
@@ -16,45 +18,49 @@ typedef AppSyncCallback = Future<void> Function();
 class AppSyncCoordinator {
   AppSyncCoordinator._({
     required AppSyncCallback sync,
+    required NetworkStatusMonitor networkStatus,
     required Duration debounce,
-    required bool listenForConnectivity,
+    required Duration initialBackoff,
+    required Duration maxBackoff,
   }) : _sync = sync,
-       _debounce = debounce {
-    if (listenForConnectivity) {
-      try {
-        _connectivitySubscription = Connectivity().onConnectivityChanged.listen(
-          (_) => _schedule(),
-        );
-      } catch (error) {
-        safeDebugLog(
-          'Automatic sync connectivity listener unavailable',
-          error: error,
-        );
-      }
-    }
+       _networkStatus = networkStatus,
+       _lastNetworkStatus = networkStatus.status,
+       _debounce = debounce,
+       _initialBackoff = initialBackoff,
+       _maxBackoff = maxBackoff {
+    _networkStatus.addListener(_handleNetworkStatusChanged);
   }
 
   final AppSyncCallback _sync;
+  final NetworkStatusMonitor _networkStatus;
   final Duration _debounce;
+  final Duration _initialBackoff;
+  final Duration _maxBackoff;
 
   static AppSyncCoordinator? _instance;
 
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _timer;
   bool _running = false;
   bool _pendingAgain = false;
   bool _disposed = false;
+  NetworkStatus _lastNetworkStatus;
+  int _retryAttempt = 0;
+  DateTime? _retryNotBefore;
 
   static void enable({
     required AppSyncCallback sync,
+    required NetworkStatusMonitor networkStatus,
     Duration debounce = const Duration(seconds: 2),
-    bool listenForConnectivity = true,
+    Duration initialBackoff = const Duration(seconds: 5),
+    Duration maxBackoff = const Duration(minutes: 5),
   }) {
     disable();
     _instance = AppSyncCoordinator._(
       sync: sync,
+      networkStatus: networkStatus,
       debounce: debounce,
-      listenForConnectivity: listenForConnectivity,
+      initialBackoff: initialBackoff,
+      maxBackoff: maxBackoff,
     );
   }
 
@@ -75,8 +81,22 @@ class AppSyncCoordinator {
 
   void _schedule([Duration? delay]) {
     if (_disposed) return;
+    if (!_networkStatus.isOnline) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+
+    var effectiveDelay = delay ?? _debounce;
+    final retryNotBefore = _retryNotBefore;
+    if (retryNotBefore != null) {
+      final remaining = retryNotBefore.difference(DateTime.now());
+      if (!remaining.isNegative && remaining > effectiveDelay) {
+        effectiveDelay = remaining;
+      }
+    }
     _timer?.cancel();
-    _timer = Timer(delay ?? _debounce, () {
+    _timer = Timer(effectiveDelay, () {
       unawaited(_run());
     });
   }
@@ -90,11 +110,22 @@ class AppSyncCoordinator {
 
     _running = true;
     try {
-      await _sync();
+      final result = await _sync();
+      switch (result) {
+        case AppSyncResult.success:
+          _resetBackoff();
+        case AppSyncResult.offline:
+          if (!_networkStatus.isOffline) {
+            _scheduleBackoff();
+          }
+        case AppSyncResult.transientFailure:
+          _scheduleBackoff();
+      }
     } catch (error) {
       // The sync service records the visible failure state. Keep this
       // coordinator best-effort so local writes are never rolled back.
       safeDebugLog('Automatic sync pass failed', error: error);
+      _scheduleBackoff();
     } finally {
       _running = false;
       if (!_disposed && _pendingAgain) {
@@ -104,11 +135,48 @@ class AppSyncCoordinator {
     }
   }
 
+  void _handleNetworkStatusChanged() {
+    if (_disposed) return;
+    final current = _networkStatus.status;
+    final previous = _lastNetworkStatus;
+    _lastNetworkStatus = current;
+
+    if (current != NetworkStatus.online) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    if (previous == NetworkStatus.online) return;
+
+    _resetBackoff();
+    _schedule(Duration.zero);
+  }
+
+  void _scheduleBackoff() {
+    if (_disposed) return;
+    if (!_networkStatus.isOnline) {
+      return;
+    }
+    final multiplier = 1 << _retryAttempt.clamp(0, 20);
+    final milliseconds = (_initialBackoff.inMilliseconds * multiplier).clamp(
+      _initialBackoff.inMilliseconds,
+      _maxBackoff.inMilliseconds,
+    );
+    final delay = Duration(milliseconds: milliseconds);
+    _retryAttempt++;
+    _retryNotBefore = DateTime.now().add(delay);
+    _schedule(delay);
+  }
+
+  void _resetBackoff() {
+    _retryAttempt = 0;
+    _retryNotBefore = null;
+  }
+
   void _dispose() {
     _disposed = true;
     _timer?.cancel();
     _timer = null;
-    unawaited(_connectivitySubscription?.cancel());
-    _connectivitySubscription = null;
+    _networkStatus.removeListener(_handleNetworkStatusChanged);
   }
 }

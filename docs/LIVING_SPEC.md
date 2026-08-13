@@ -146,7 +146,8 @@ a local-only fallback, and Release builds remove the copied file.
 `HatchAuditApp` registers these root providers: `AppProvider`, `AuthProvider`,
 `CustomersProvider`, `AuditProvider`, `AuditSessionProvider`,
 `GoveeCaptureProvider`, `BmkProvider`, `LabAnalysisProvider`,
-`SettingsProvider`, `DashboardProvider`, and `ScopeComparisonProvider`.
+`NetworkStatusMonitor`, `SettingsProvider`, `DashboardProvider`, and
+`ScopeComparisonProvider`.
 
 Initial route selection is auth-state driven:
 
@@ -186,7 +187,10 @@ account than the remembered user is treated as proof of nothing and sent to
   `AuthRetryableFetchException`), but this install recorded a successful
   login within the offline grace window (`AuthSessionPolicy.offlineGrace`,
   30 days). The app runs normally against local SQLite with
-  `AuthProvider.isPendingRevalidation` set.
+  `AuthProvider.isPendingRevalidation` set. This startup path replaces the
+  login route directly with `/main`; it does not visit `/startup-sync`, show
+  its animated logo, or start a second automatic cloud check while the shared
+  network monitor is definitively offline.
 - **Go to login** — only when this install has never recorded a successful
   online login, when the grace window has lapsed, or when the server
   definitively rejected the session while online
@@ -194,12 +198,17 @@ account than the remembered user is treated as proof of nothing and sent to
   unambiguous `AuthException`, not a connectivity failure). A connectivity
   failure is never a logout.
 
-`SessionRevalidationTrigger` (app resume, via `WidgetsBindingObserver`, plus
-`connectivity_plus` reconnect events) calls
-`AuthProvider.revalidateSession()`, which is re-entrancy guarded, clears the
-pending flag silently on success, and signs the device out only on a
-definitive rejection or on discovering the live session belongs to a
-different account.
+One app-lifetime `NetworkStatusMonitor` converts `connectivity_plus` events
+into explicit `unknown`, `online`, or `offline` state after probing the
+configured Supabase host. Auth revalidation, automatic sync, Settings cloud
+state, and the shell's offline indicator consume that same state. On resume,
+`SessionRevalidationTrigger` refreshes the monitor but calls
+`AuthProvider.revalidateSession()` only when connectivity is verified online;
+an offline resume does not change auth state or replace the mounted `/main`
+route. A real offline-to-online transition revalidates once. Revalidation is
+also re-entrancy guarded, clears the pending flag silently on success, and
+signs the device out only on a definitive rejection or on discovering the
+live session belongs to a different account.
 
 Local-only accounts (`local-` ids) bypass the Supabase path entirely and keep
 their existing 30-day `tokenExpiry` rule, checked directly on the remembered
@@ -247,7 +256,11 @@ rejected by provider guards for customer-role users.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
-back navigation, and triggers background sync after the first Home build.
+back navigation, and requests background sync after the first Home build.
+Automatic requests are held without remote work while network state is
+`unknown` or `offline`. The shell keeps one passive top indicator, `Offline —
+will reconnect automatically`, driven by the shared monitor; Home does not
+show a second offline SnackBar.
 
 The previous floating Measures launcher is no longer shown. Govee recording is
 entered from a station-level Govee readings button or from the floating Govee
@@ -476,7 +489,11 @@ monthly visit counts, active flocks, and last audit date before active local
 visit sessions, recent visit sessions, setup attention items, quick shortcuts,
 and sync status. The active flocks KPI uses a paired hen/rooster glyph rather
 than an egg-only icon. Counts and Recent Audits are based on `audit_sessions`
-rather than legacy audit rows. Today's Focus metric cards are actionable when
+rather than legacy audit rows. Home has an explicit uninitialized/loading
+state and shows progress until every first-load SQLite query completes; zero
+KPIs, a missing last-audit marker, and empty-list messages render only from a
+completed query result. Later refreshes keep the already-loaded values mounted.
+Today's Focus metric cards are actionable when
 they have a target: Continue opens the first active visit's station-selection
 continuation screen, Attention opens the first setup/action item, and Ready
 starts a new audit when a ready customer setup exists. Active and recent visit
@@ -1638,7 +1655,8 @@ upserts internal BMK admin edits back into the same `bmk_breeds` and
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
-breakdown.
+breakdown. Its load state distinguishes uninitialized, loading, loaded, and
+error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
@@ -2511,9 +2529,17 @@ row before remote deletion and snapshots the approved users authorized for that
 customer. RLS exposes the deletion event only to that audience (or an approved
 admin), preventing one tenant's tombstones from deleting another tenant's local
 cache. Historical tombstones that predate customer scope remain admin-only.
-`BgSyncService`
-runs this sync after the shell starts and reports failure as offline data
-available. Startup and background sync can surface a Home-screen cloud notice
+`BgSyncService` runs this sync after the shell starts and classifies the pass as
+successful, definitively offline, or a transient failure for the automatic
+coordinator. `AppSyncCoordinator` is the single scheduler for shell startup,
+local-write, resume, and reconnect requests. It performs no callback while the
+shared `NetworkStatusMonitor` is `unknown` or `offline`, coalesces repeated
+offline requests without timers, runs once on a verified offline-to-online
+transition, and applies bounded exponential backoff to failures while the
+network remains uncertain. The monitor verifies reachability to the Supabase
+host even when a Wi-Fi/mobile interface exists, so captive or uplink-less Wi-Fi
+is not automatically treated as usable cloud access. Startup and background
+sync can surface a Home-screen cloud notice
 for sessions and other records pulled from another device after the local
 database has previously synced. A successful foreground `Sync Now` action in
 Home or Settings acknowledges that notice so it disappears after the user
@@ -2523,9 +2549,9 @@ cache/upload pass, because browsers do not expose an application documents
 directory. This keeps Supabase row sync successful on web while preserving
 remote photo references; dashboard photo renderers turn those references into
 short-lived signed storage URLs. The authenticated shell also requests a
-debounced sync after local customer,
-hatchery, flock, audit-session, or panel writes, whenever connectivity changes,
-and whenever a mobile/desktop app resumes. Concurrent requests share one sync
+debounced sync after local customer, hatchery, flock, audit-session, or panel
+writes and on resume. Connectivity causes a run only on a verified reconnect
+transition, not on every interface event. Concurrent requests share one sync
 pass and a write that lands during that pass schedules one retry. Customer,
 hatchery, and flock pushes use strict response verification so a database
 trigger or policy cannot silently cancel a parent insert while the UI reports

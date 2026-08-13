@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
@@ -149,4 +151,40 @@ void main() {
     expect(loaded.activeSessions.map((item) => item.id), ['customer-session']);
     expect(loaded.activeFlocksCount, 1);
   });
+
+  test(
+    'does not report loaded data until every initial query completes',
+    () async {
+      final firstQuery = Completer<List<AuditSessionModel>>();
+      when(
+        () => sessions.getSessionsByDateRange(
+          any(),
+          any(),
+          customerId: any(named: 'customerId'),
+          limit: any(named: 'limit'),
+        ),
+      ).thenAnswer((_) => firstQuery.future);
+      when(
+        () => sessions.getAllSessions(limit: any(named: 'limit')),
+      ).thenAnswer((_) async => const []);
+      when(
+        () => sessions.getInProgressSessions(),
+      ).thenAnswer((_) async => const []);
+      when(() => flocks.getAllFlocks()).thenAnswer((_) async => const []);
+
+      final loaded = provider();
+      expect(loaded.loadState, HomeLoadState.uninitialized);
+      expect(loaded.hasLoadedData, isFalse);
+
+      final load = loaded.load(currentUser: null);
+      expect(loaded.loadState, HomeLoadState.loading);
+      expect(loaded.hasLoadedData, isFalse);
+
+      firstQuery.complete(const []);
+      await load;
+
+      expect(loaded.loadState, HomeLoadState.loaded);
+      expect(loaded.hasLoadedData, isTrue);
+    },
+  );
 }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/debug/startup_timer.dart';
 import 'core/navigation/modal_route_visibility_observer.dart';
+import 'core/network/network_status_monitor.dart';
 import 'core/security/security_policy.dart';
 import 'core/theme/app_theme.dart';
 import 'features/audits/providers/audit_provider.dart';
@@ -39,6 +40,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   late final ModalRouteVisibilityObserver _modalRouteObserver;
   late final _AppRouteObserver _appRouteObserver;
   late final SessionRevalidationTrigger _sessionRevalidationTrigger;
+  late final NetworkStatusMonitor _networkStatus;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final ValueNotifier<bool> _hasModalRoute = ValueNotifier<bool>(false);
   bool _showGlobalLauncher = false;
@@ -50,8 +52,10 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
     super.initState();
     _authBypassEnabled = AuthSecurityPolicy.isDebugAuthBypassEnabled;
     _authProvider = AuthProvider(bypassAuth: _authBypassEnabled);
+    _networkStatus = NetworkStatusMonitor();
     _sessionRevalidationTrigger = SessionRevalidationTrigger(
       onRevalidate: _authProvider.revalidateSession,
+      networkStatus: _networkStatus,
     )..start();
     _modalRouteObserver = ModalRouteVisibilityObserver(_hasModalRoute);
     _appRouteObserver = _AppRouteObserver(_rememberTopRouteName);
@@ -69,6 +73,7 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
   @override
   void dispose() {
     _sessionRevalidationTrigger.stop();
+    _networkStatus.dispose();
     _hasModalRoute.dispose();
     super.dispose();
   }
@@ -85,7 +90,10 @@ class _HatchAuditAppState extends State<HatchAuditApp> {
         ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ChangeNotifierProvider(create: (_) => BmkProvider()),
         ChangeNotifierProvider(create: (_) => LabAnalysisProvider()),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider.value(value: _networkStatus),
+        ChangeNotifierProvider(
+          create: (_) => SettingsProvider(networkStatus: _networkStatus),
+        ),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => ScopeComparisonProvider()),
       ],

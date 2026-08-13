@@ -19,9 +19,25 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 class _MockSupabaseService extends Mock implements SupabaseService {}
 
-class _LongArabicDateHomeProvider extends HomeProvider {
+class _LoadedEmptyHomeProvider extends HomeProvider {
+  @override
+  HomeLoadState get loadState => HomeLoadState.loaded;
+
+  @override
+  bool get hasLoadedData => true;
+}
+
+class _LongArabicDateHomeProvider extends _LoadedEmptyHomeProvider {
   @override
   String? get lastAuditDate => '٣ يوليو ٢٠٢٦';
+}
+
+class _UninitializedHomeProvider extends HomeProvider {
+  @override
+  HomeLoadState get loadState => HomeLoadState.uninitialized;
+
+  @override
+  bool get hasLoadedData => false;
 }
 
 void main() {
@@ -43,7 +59,12 @@ void main() {
           ChangeNotifierProvider(create: (_) => DashboardProvider()),
           ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
         ],
-        child: const MaterialApp(home: HomeScreen(loadInitialData: false)),
+        child: MaterialApp(
+          home: HomeScreen(
+            loadInitialData: false,
+            homeProvider: _LoadedEmptyHomeProvider(),
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -153,5 +174,38 @@ void main() {
     expect(dateText.maxLines, 2);
     expect(dateText.overflow, isNot(TextOverflow.ellipsis));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('initial Home load never renders false empty KPI state', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(
+              supabaseService: _MockSupabaseService(),
+              bypassAuth: true,
+            ),
+          ),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => DashboardProvider()),
+          ChangeNotifierProvider(create: (_) => AuditSessionProvider()),
+        ],
+        child: MaterialApp(
+          home: HomeScreen(
+            loadInitialData: false,
+            homeProvider: _UninitializedHomeProvider(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('home-initial-loading')), findsOneWidget);
+    expect(find.text('No recent audits'), findsNothing);
+    expect(find.byKey(const ValueKey('home-last-audit-value')), findsNothing);
   });
 }

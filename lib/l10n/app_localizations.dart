@@ -1092,10 +1092,10 @@ const Map<String, String> _ar = {
   'Syncing': 'جار المزامنة',
   'Syncing with cloud': 'جاري المزامنة مع السحابة',
   'Sync error — tap Retry': 'خطأ في المزامنة — اضغط إعادة المحاولة',
-  'Offline — sync paused. Local data still available.':
-      'بدون اتصال — المزامنة متوقفة. البيانات المحلية متاحة.',
   'Offline — will reconnect automatically':
       'بدون اتصال — سيُعاد الاتصال تلقائيًا',
+  'Checking cloud connection': 'جارٍ التحقق من الاتصال بالسحابة',
+  'Home data could not be loaded.': 'تعذر تحميل بيانات الصفحة الرئيسية.',
   'That audit is no longer available.': 'هذه الزيارة لم تعد متاحة.',
   'Dismiss all': 'إخفاء الكل',
   'Mark all reviewed': 'تمييز الكل كمراجع',

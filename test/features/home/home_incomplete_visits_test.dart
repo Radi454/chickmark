@@ -55,6 +55,12 @@ class _StaticHomeProvider extends HomeProvider {
   bool clearSessionsOnLoad = false;
 
   @override
+  HomeLoadState get loadState => HomeLoadState.loaded;
+
+  @override
+  bool get hasLoadedData => true;
+
+  @override
   List<AuditSessionModel> get activeSessions => List.unmodifiable(_sessions);
 
   @override

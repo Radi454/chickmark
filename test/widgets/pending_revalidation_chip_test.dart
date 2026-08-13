@@ -1,66 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
+import 'package:hatchaudit/core/network/network_status_monitor.dart';
 import 'package:hatchaudit/features/home/widgets/main_shell.dart';
-import 'package:hatchaudit/services/supabase/supabase_service.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
-// A real AuthProvider() would hit sqflite via UserRepository the moment any
-// auth flow runs, which hangs testWidgets under FakeAsync (see
-// test/features/auth/auth_provider_test.dart's Fake* stores for the full
-// version of this workaround). This chip only ever reads
-// `isPendingRevalidation`, so a thin subclass that overrides just that
-// getter — and never calls checkCachedToken/login — sidesteps the DB
-// entirely while still being a real AuthProvider for `context.select`.
-class _MockSupabaseService extends Mock implements SupabaseService {}
+NetworkStatusMonitor _monitor(bool offline) => NetworkStatusMonitor(
+  checkReachability: () async => !offline,
+  connectivityStream: const Stream.empty(),
+  initialStatus: offline ? NetworkStatus.offline : NetworkStatus.online,
+  startImmediately: false,
+);
 
-class _FakeAuthProvider extends AuthProvider {
-  _FakeAuthProvider({required bool pending})
-    : _pending = pending,
-      super(supabaseService: _MockSupabaseService());
-
-  final bool _pending;
-
-  @override
-  bool get isPendingRevalidation => _pending;
-}
-
-Future<void> _pumpChip(WidgetTester tester, {required bool pending}) {
+Future<void> _pumpChip(WidgetTester tester, {required bool offline}) {
   return tester.pumpWidget(
-    ChangeNotifierProvider<AuthProvider>(
-      create: (_) => _FakeAuthProvider(pending: pending),
-      child: const MaterialApp(
-        home: Scaffold(body: PendingRevalidationChip()),
-      ),
+    ChangeNotifierProvider<NetworkStatusMonitor>(
+      create: (_) => _monitor(offline),
+      child: const MaterialApp(home: Scaffold(body: PendingRevalidationChip())),
     ),
   );
 }
 
 void main() {
-  testWidgets('renders the offline chip while revalidation is pending', (
+  testWidgets('renders the offline chip when the network is offline', (
     tester,
   ) async {
-    await _pumpChip(tester, pending: true);
+    await _pumpChip(tester, offline: true);
     await tester.pump();
 
-    expect(
-      find.text('Offline — will reconnect automatically'),
-      findsOneWidget,
-    );
+    expect(find.text('Offline — will reconnect automatically'), findsOneWidget);
     expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
   });
 
-  testWidgets('renders nothing once revalidation is no longer pending', (
-    tester,
-  ) async {
-    await _pumpChip(tester, pending: false);
+  testWidgets('renders nothing when the network is online', (tester) async {
+    await _pumpChip(tester, offline: false);
     await tester.pump();
 
-    expect(
-      find.text('Offline — will reconnect automatically'),
-      findsNothing,
-    );
+    expect(find.text('Offline — will reconnect automatically'), findsNothing);
     expect(find.byType(PendingRevalidationChip), findsOneWidget);
     expect(
       tester.widget<PendingRevalidationChip>(
@@ -73,7 +48,7 @@ void main() {
   testWidgets('the chip is purely informational — no tap target', (
     tester,
   ) async {
-    await _pumpChip(tester, pending: true);
+    await _pumpChip(tester, offline: true);
     await tester.pump();
 
     expect(find.byType(InkWell), findsNothing);
@@ -93,8 +68,8 @@ void main() {
     'the shell composes the chip above the active tab content, in order',
     (tester) async {
       await tester.pumpWidget(
-        ChangeNotifierProvider<AuthProvider>(
-          create: (_) => _FakeAuthProvider(pending: true),
+        ChangeNotifierProvider<NetworkStatusMonitor>(
+          create: (_) => _monitor(true),
           child: MaterialApp(
             home: Scaffold(
               body: buildMainShellTabAreaForTest(
@@ -142,8 +117,8 @@ void main() {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(padding: EdgeInsets.only(top: topInset)),
-          child: ChangeNotifierProvider<AuthProvider>(
-            create: (_) => _FakeAuthProvider(pending: true),
+          child: ChangeNotifierProvider<NetworkStatusMonitor>(
+            create: (_) => _monitor(true),
             child: MaterialApp(
               home: Scaffold(
                 body: buildMainShellTabAreaForTest(
@@ -210,8 +185,8 @@ void main() {
     (tester) async {
       for (final useNavigationRail in [false, true]) {
         await tester.pumpWidget(
-          ChangeNotifierProvider<AuthProvider>(
-            create: (_) => _FakeAuthProvider(pending: true),
+          ChangeNotifierProvider<NetworkStatusMonitor>(
+            create: (_) => _monitor(true),
             child: MaterialApp(
               home: Scaffold(
                 body: buildMainShellBodyForTest(

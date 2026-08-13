@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/network/network_status_monitor.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,9 +10,20 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  SettingsProvider makeProvider({NetworkStatus status = NetworkStatus.online}) {
+    final monitor = NetworkStatusMonitor(
+      checkReachability: () async => status == NetworkStatus.online,
+      connectivityStream: const Stream.empty(),
+      initialStatus: status,
+      startImmediately: false,
+    );
+    addTearDown(monitor.dispose);
+    return SettingsProvider(networkStatus: monitor);
+  }
+
   group('SettingsProvider.cloudStatus', () {
     test('persists the selected language code', () async {
-      final provider = SettingsProvider();
+      final provider = makeProvider();
       await Future<void>.delayed(Duration.zero);
 
       expect(provider.languageCode, 'en');
@@ -24,13 +36,13 @@ void main() {
     });
 
     test('starts in online state when nothing else has happened', () {
-      final provider = SettingsProvider();
+      final provider = makeProvider();
       expect(provider.cloudStatus, CloudStatus.online);
       provider.dispose();
     });
 
     test('markSyncing flips status to syncing', () {
-      final provider = SettingsProvider();
+      final provider = makeProvider();
       provider.markSyncing();
       expect(provider.cloudStatus, CloudStatus.syncing);
       expect(provider.isSyncing, isTrue);
@@ -38,7 +50,7 @@ void main() {
     });
 
     test('recordSync(online: true) lands as CloudStatus.online', () async {
-      final provider = SettingsProvider();
+      final provider = makeProvider();
       // Drain the constructor's async `_load()` so its `prefs.getInt(...)` (0
       // in the empty mock) doesn't race past our recordSync below and clobber
       // pushed/pulled.
@@ -54,7 +66,7 @@ void main() {
     });
 
     test('recordSync(online: false) lands as CloudStatus.offline', () async {
-      final provider = SettingsProvider();
+      final provider = makeProvider(status: NetworkStatus.offline);
       provider.markSyncing();
       await provider.recordSync(online: false, pushed: 0, pulled: 0);
       expect(provider.cloudStatus, CloudStatus.offline);
@@ -63,7 +75,7 @@ void main() {
     });
 
     test('recordSync with error lands as CloudStatus.error', () async {
-      final provider = SettingsProvider();
+      final provider = makeProvider();
       provider.markSyncing();
       await provider.recordSync(
         online: false,
@@ -79,7 +91,7 @@ void main() {
     test(
       'a second recordSync(online: true) after an error returns to online',
       () async {
-        final provider = SettingsProvider();
+        final provider = makeProvider();
         provider.markSyncing();
         await provider.recordSync(
           online: false,

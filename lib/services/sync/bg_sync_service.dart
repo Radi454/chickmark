@@ -5,6 +5,7 @@ import '../../features/settings/providers/settings_provider.dart';
 import '../../providers/customers_provider.dart';
 import '../supabase/startup_sync_service.dart';
 import '../../core/debug/startup_timer.dart';
+import 'app_sync_coordinator.dart';
 
 enum BgSyncState { idle, syncing, completed, failed }
 
@@ -21,12 +22,12 @@ class BgSyncService extends ChangeNotifier {
   bool get isComplete =>
       _state == BgSyncState.completed || _state == BgSyncState.failed;
 
-  Future<void> runBackgroundSync({
+  Future<AppSyncResult> runBackgroundSync({
     required AuthProvider authProvider,
     required CustomersProvider customersProvider,
     SettingsProvider? settingsProvider,
   }) async {
-    if (_state == BgSyncState.syncing) return;
+    if (_state == BgSyncState.syncing) return AppSyncResult.success;
 
     _state = BgSyncState.syncing;
     _message = 'Syncing...';
@@ -68,6 +69,9 @@ class BgSyncService extends ChangeNotifier {
         incoming: outcome.incomingSessions,
         otherIncoming: outcome.otherIncomingCount,
       );
+      notifyListeners();
+      StartupTimer.report();
+      return outcome.online ? AppSyncResult.success : AppSyncResult.offline;
     } catch (e) {
       debugPrint('[BG_SYNC] Background sync failed: $e');
       StartupTimer.lap('bg_sync_failed');
@@ -80,9 +84,9 @@ class BgSyncService extends ChangeNotifier {
         pulled: 0,
         error: e.toString(),
       );
+      notifyListeners();
+      StartupTimer.report();
+      return AppSyncResult.transientFailure;
     }
-
-    notifyListeners();
-    StartupTimer.report();
   }
 }

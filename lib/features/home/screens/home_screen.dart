@@ -43,12 +43,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final HomeProvider _homeProvider;
   bool _isOpeningIncompleteSession = false;
-  // Tracks the previously observed cloud status so we only fire the offline
-  // SnackBar on a transition INTO offline (online→offline, syncing→offline,
-  // error→offline). This avoids:
-  //  - spamming the bar on every rebuild while still offline,
-  //  - missing a re-offline event after the user briefly went online again.
-  CloudStatus? _lastSeenStatus;
 
   @override
   void initState() {
@@ -59,25 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final currentUser = context.read<AuthProvider>().user;
       context.read<CustomersProvider>().loadCustomers(currentUser: currentUser);
       _homeProvider.load(currentUser: currentUser);
-    });
-  }
-
-  void _maybeShowOfflineSnackBar(SettingsProvider settings) {
-    final current = settings.cloudStatus;
-    final previous = _lastSeenStatus;
-    // Update synchronously — multiple builds inside one frame must not each
-    // schedule a SnackBar callback.
-    _lastSeenStatus = current;
-    if (current != CloudStatus.offline) return;
-    if (previous == CloudStatus.offline) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Offline — sync paused. Local data still available.'),
-          duration: Duration(seconds: 4),
-        ),
-      );
     });
   }
 
@@ -112,11 +87,17 @@ class _HomeScreenState extends State<HomeScreen> {
         value: _homeProvider,
         child: Consumer3<CustomersProvider, SettingsProvider, HomeProvider>(
           builder: (context, provider, settings, home, child) {
-            _maybeShowOfflineSnackBar(settings);
-            if (provider.isLoading &&
-                provider.allCustomers.isEmpty &&
-                home.isLoading) {
-              return const Center(child: CircularProgressIndicator());
+            if (!home.hasLoadedData) {
+              if (home.loadState == HomeLoadState.error) {
+                return const Center(
+                  child: Text('Home data could not be loaded.'),
+                );
+              }
+              return const Center(
+                child: CircularProgressIndicator(
+                  key: ValueKey('home-initial-loading'),
+                ),
+              );
             }
 
             return RefreshIndicator(
@@ -765,6 +746,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   _CloudStatusVisuals _cloudStatusVisuals(CloudStatus status) {
     switch (status) {
+      case CloudStatus.unknown:
+        return const _CloudStatusVisuals(
+          icon: Icons.cloud_queue_outlined,
+          bg: AppColors.infoBg,
+          fg: AppColors.infoText,
+          title: 'Checking cloud connection',
+        );
       case CloudStatus.online:
         return const _CloudStatusVisuals(
           icon: Icons.cloud_done_outlined,

@@ -7,6 +7,8 @@ import '../../../data/repositories/flock_repository.dart';
 import '../../../data/repositories/sync_conflict_repository.dart';
 import '../../../core/utils/date_utils.dart';
 
+enum HomeLoadState { uninitialized, loading, loaded, error }
+
 class HomeProvider extends ChangeNotifier {
   final AuditSessionRepository _sessionRepository;
   final FlockRepository _flockRepository;
@@ -28,7 +30,8 @@ class HomeProvider extends ChangeNotifier {
   List<AuditSessionModel> _activeSessions = [];
   Map<String, int> _auditsByType = {};
   int _openConflictCount = 0;
-  bool _isLoading = false;
+  HomeLoadState _loadState = HomeLoadState.uninitialized;
+  bool _hasLoadedData = false;
 
   int get auditsThisMonth => _auditsThisMonth;
   int get activeFlocksCount => _activeFlocksCount;
@@ -39,10 +42,12 @@ class HomeProvider extends ChangeNotifier {
       List.unmodifiable(_activeSessions);
   Map<String, int> get auditsByType => Map.unmodifiable(_auditsByType);
   int get openConflictCount => _openConflictCount;
-  bool get isLoading => _isLoading;
+  HomeLoadState get loadState => _loadState;
+  bool get hasLoadedData => _hasLoadedData;
+  bool get isLoading => _loadState == HomeLoadState.loading;
 
   Future<void> load({required UserModel? currentUser}) async {
-    _isLoading = true;
+    _loadState = HomeLoadState.loading;
     notifyListeners();
 
     try {
@@ -100,8 +105,12 @@ class HomeProvider extends ChangeNotifier {
       } catch (_) {
         _openConflictCount = 0;
       }
+      _hasLoadedData = true;
+      _loadState = HomeLoadState.loaded;
+    } catch (_) {
+      _loadState = HomeLoadState.error;
+      rethrow;
     } finally {
-      _isLoading = false;
       notifyListeners();
     }
   }

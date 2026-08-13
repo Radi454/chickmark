@@ -1,37 +1,39 @@
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 
 import '../constants/supabase_config.dart';
 
 /// Cloud reachability check.
 ///
-/// `connectivity_plus` on macOS reads `NWPathMonitor.currentPath`
-/// synchronously, but that path is `unsatisfied` until the monitor settles
-/// asynchronously — so the first `checkConnectivity()` (app start, sync gate)
-/// wrongly reports `none` and the app shows "Offline" despite a working
-/// connection. We treat connectivity only as a fast positive hint; when it
-/// reports no interface we confirm with a real TCP probe to the Supabase host
-/// before declaring offline.
+/// `connectivity_plus` reports interfaces, not usable internet. ChickMark
+/// therefore confirms every supported-platform result with a TCP probe to the
+/// configured Supabase host. This also avoids treating captive or uplink-less
+/// Wi-Fi as cloud connectivity. A reported `none` is still probed because
+/// macOS can briefly expose an unsettled `NWPathMonitor` at startup.
 class NetworkReachability {
   static const Duration _probeTimeout = Duration(seconds: 4);
 
   /// True when the device can plausibly reach the cloud.
   ///
-  /// Fast path: any active network interface is treated as online. Slow path
-  /// (interface reports `none`): a TCP probe to the Supabase host decides,
-  /// rescuing the connectivity_plus first-read false negative.
+  /// Unsupported platforms (notably unit tests without the plugin) retain the
+  /// prior optimistic fallback; production platforms must reach the host.
   static Future<bool> isOnline() async {
-    List<ConnectivityResult> result;
+    List<ConnectivityResult> results;
     try {
-      result = await Connectivity().checkConnectivity();
+      results = await Connectivity().checkConnectivity();
     } catch (_) {
       // Unsupported platform (e.g. unit tests) — assume online, skip the probe.
       return true;
     }
-    final hasInterface =
-        result.isNotEmpty && !result.contains(ConnectivityResult.none);
-    if (hasInterface) return true;
+    // dart:io sockets are unavailable in a browser. Web intentionally falls
+    // back to interface state; failed Supabase work is still classified as
+    // transient and retried with coordinator backoff rather than looped.
+    if (kIsWeb) {
+      return results.isNotEmpty &&
+          !results.every((result) => result == ConnectivityResult.none);
+    }
     return _probeHost();
   }
 
