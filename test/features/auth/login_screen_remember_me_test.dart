@@ -5,6 +5,7 @@ import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/user_repository.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/auth/screens/login_screen.dart';
+import 'package:hatchaudit/services/auth/session_trust_store.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
@@ -45,6 +46,13 @@ void main() {
       userRepository: userRepository,
       activityLogRepository: activityLogRepository,
       supabaseService: supabase,
+      // Widget tests have no platform channel for secure storage; back the
+      // trust store with an in-memory no-op instead of touching the plugin.
+      sessionTrustStore: SessionTrustStore(
+        readValue: (_) async => null,
+        writeValue: (_, _) async {},
+        deleteValue: (_) async {},
+      ),
     );
     await tester.pumpWidget(
       ChangeNotifierProvider<AuthProvider>.value(

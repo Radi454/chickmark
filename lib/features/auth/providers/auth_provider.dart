@@ -9,6 +9,8 @@ import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../../services/supabase/supabase_service.dart';
+import '../../../services/auth/session_trust_store.dart';
+import '../services/startup_auth_decision.dart';
 import 'package:uuid/uuid.dart';
 
 enum AuthState {
@@ -23,6 +25,7 @@ class AuthProvider extends ChangeNotifier {
   final UserRepository _userRepository;
   final ActivityLogRepository _activityLogRepository;
   final SupabaseService _supabaseService;
+  final SessionTrustStore _sessionTrustStore;
   final Uuid _uuid = const Uuid();
   final bool _bypassAuth;
   bool _debugBypassSignedOut = false;
@@ -31,11 +34,13 @@ class AuthProvider extends ChangeNotifier {
     UserRepository? userRepository,
     ActivityLogRepository? activityLogRepository,
     SupabaseService? supabaseService,
+    SessionTrustStore? sessionTrustStore,
     bool bypassAuth = false,
   }) : _userRepository = userRepository ?? UserRepository(),
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _supabaseService = supabaseService ?? SupabaseService(),
+       _sessionTrustStore = sessionTrustStore ?? SessionTrustStore(),
        _bypassAuth = bypassAuth && AuthSecurityPolicy.isDebugAuthBypassEnabled {
     if (_bypassAuth) {
       _activateDevelopmentUser();
@@ -45,10 +50,15 @@ class AuthProvider extends ChangeNotifier {
   AuthState _state = AuthState.unauthenticated;
   String? _errorMessage;
   UserModel? _user;
+  bool _isPendingRevalidation = false;
 
   AuthState get state => _state;
   String? get errorMessage => _errorMessage;
   UserModel? get user => _user;
+
+  /// True when the app is running on a previously-proven login that has not
+  /// yet been re-checked against the server. Local work is unaffected.
+  bool get isPendingRevalidation => _isPendingRevalidation;
 
   void _setState(AuthState newState, {String? error}) {
     _state = newState;
@@ -69,15 +79,109 @@ class AuthProvider extends ChangeNotifier {
 
     _setState(AuthState.loading);
     try {
-      final cachedUser = await _userRepository.getRememberedUser();
-      if (cachedUser != null) {
-        _user = cachedUser;
-        _setState(AuthState.authenticated);
-      } else {
+      final remembered = await _userRepository.getRememberedUser();
+      if (remembered == null) {
+        _isPendingRevalidation = false;
         _setState(AuthState.unauthenticated);
+        return;
       }
+
+      final isLocalAccount = remembered.id.startsWith('local-');
+      final restore = isLocalAccount
+          ? null
+          : await _supabaseService.restoreSession();
+      final trust = await _sessionTrustStore.read();
+
+      final decision = decideStartupAuth(
+        hasRememberedUser: true,
+        isLocalAccount: isLocalAccount,
+        localTokenValid: remembered.isTokenValid,
+        sessionStatus: restore?.status,
+        sinceLastVerified: trust == null
+            ? null
+            : DateTime.now().difference(trust.lastVerifiedAt),
+      );
+
+      await _applyStartupDecision(decision, remembered, restore);
     } catch (e) {
+      // A failure to *ask* is never a logout. Fall back to login only because
+      // we have no proven user to fall back onto here.
+      _isPendingRevalidation = false;
       _setState(AuthState.unauthenticated, error: e.toString());
+    }
+  }
+
+  Future<void> _applyStartupDecision(
+    StartupAuthDecision decision,
+    UserModel remembered,
+    SessionRestoreResult? restore,
+  ) async {
+    switch (decision) {
+      case StartupAuthDecision.goToLogin:
+        if (restore?.status == SessionRestoreStatus.rejected) {
+          // A definitive server rejection while online is a real logout.
+          await _sessionTrustStore.clear();
+          await _userRepository.clearCachedTokens();
+        }
+        _user = null;
+        _isPendingRevalidation = false;
+        _setState(AuthState.unauthenticated);
+      case StartupAuthDecision.enterApp:
+        await _persistVerifiedSession(remembered, restore);
+        _user = remembered;
+        _isPendingRevalidation = false;
+        _setState(
+          remembered.isApproved
+              ? AuthState.authenticated
+              : AuthState.pendingApproval,
+        );
+      case StartupAuthDecision.enterAppPendingRevalidation:
+        _user = remembered;
+        _isPendingRevalidation = true;
+        _setState(
+          remembered.isApproved
+              ? AuthState.authenticated
+              : AuthState.pendingApproval,
+        );
+    }
+  }
+
+  Future<void> _persistVerifiedSession(
+    UserModel user,
+    SessionRestoreResult? restore,
+  ) async {
+    if (restore == null) return;
+    final accessToken = restore.accessToken;
+    final expiresAt = restore.expiresAt;
+    if (accessToken != null && expiresAt != null) {
+      await _userRepository.cacheToken(user.id, accessToken, expiresAt);
+    }
+    await _sessionTrustStore.record(user.id, DateTime.now());
+  }
+
+  /// Re-check a pending session once the network is back. Safe to call often;
+  /// it is a no-op unless the app is running on offline grace.
+  Future<void> revalidateSession() async {
+    if (_bypassAuth || !_isPendingRevalidation) return;
+    final user = _user;
+    if (user == null || user.id.startsWith('local-')) return;
+
+    final restore = await _supabaseService.restoreSession();
+    switch (restore.status) {
+      case SessionRestoreStatus.valid:
+      case SessionRestoreStatus.refreshed:
+        await _persistVerifiedSession(user, restore);
+        _isPendingRevalidation = false;
+        notifyListeners();
+      case SessionRestoreStatus.rejected:
+        await _sessionTrustStore.clear();
+        await _userRepository.clearCachedTokens();
+        _user = null;
+        _isPendingRevalidation = false;
+        _setState(AuthState.unauthenticated);
+      case SessionRestoreStatus.offline:
+        // Still no network. Stay signed in and try again later.
+        break;
     }
   }
 
@@ -97,6 +201,10 @@ class AuthProvider extends ChangeNotifier {
       if (result.success && result.user != null) {
         _user = result.user!;
         await _userRepository.upsertUser(_user!);
+        if (rememberSession && !_user!.id.startsWith('local-')) {
+          await _sessionTrustStore.record(_user!.id, DateTime.now());
+        }
+        _isPendingRevalidation = false;
         await _activityLogRepository.log(_user!.id, 'login');
         if (!_user!.isApproved) {
           _setState(AuthState.pendingApproval);
@@ -390,6 +498,8 @@ class AuthProvider extends ChangeNotifier {
     _setState(AuthState.loading);
     try {
       await _supabaseService.signOut();
+      await _sessionTrustStore.clear();
+      _isPendingRevalidation = false;
       await _userRepository.clearCachedTokens();
       _user = null;
       _setState(AuthState.unauthenticated);

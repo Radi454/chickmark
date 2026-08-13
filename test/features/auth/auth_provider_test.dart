@@ -5,8 +5,26 @@ import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/user_repository.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
+import 'package:hatchaudit/services/auth/session_trust_store.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
+
+class FakeSessionTrustStore implements SessionTrustStore {
+  SessionTrust? trust;
+
+  @override
+  Future<SessionTrust?> read() async => trust;
+
+  @override
+  Future<void> record(String userId, DateTime verifiedAt) async {
+    trust = SessionTrust(userId: userId, lastVerifiedAt: verifiedAt);
+  }
+
+  @override
+  Future<void> clear() async {
+    trust = null;
+  }
+}
 
 class MockUserRepository extends Mock implements UserRepository {}
 
@@ -29,6 +47,7 @@ void main() {
   late MockSupabaseService mockSupabase;
   late MockUserRepository mockRepo;
   late MockActivityLogRepository mockActivityLog;
+  late FakeSessionTrustStore sharedTrustStore;
   late AuthProvider provider;
 
   const email = 'test@example.com';
@@ -74,12 +93,17 @@ void main() {
     mockSupabase = MockSupabaseService();
     mockRepo = MockUserRepository();
     mockActivityLog = MockActivityLogRepository();
+    sharedTrustStore = FakeSessionTrustStore();
     provider = AuthProvider(
       userRepository: mockRepo,
       activityLogRepository: mockActivityLog,
       supabaseService: mockSupabase,
+      sessionTrustStore: sharedTrustStore,
     );
     when(() => mockActivityLog.log(any(), any())).thenAnswer((_) async {});
+    when(() => mockSupabase.restoreSession()).thenAnswer(
+      (_) async => const SessionRestoreResult(status: SessionRestoreStatus.valid),
+    );
   });
 
   group('checkCachedToken', () {
@@ -322,6 +346,236 @@ void main() {
       expect(provider.state, AuthState.unauthenticated);
       expect(provider.user, isNull);
       verifyNever(() => mockRepo.getRememberedUser());
+    });
+  });
+
+  group('startup auth gate', () {
+    late FakeSessionTrustStore trustStore;
+
+    UserModel rememberedRemoteUser({DateTime? tokenExpiry}) => UserModel(
+      id: 'supabase-user-123',
+      fullName: 'Field Auditor',
+      email: email,
+      role: 'auditor',
+      status: 'approved',
+      accessToken: 'stale-access-token',
+      tokenExpiry:
+          tokenExpiry ?? DateTime.now().subtract(const Duration(days: 3)),
+      createdAt: DateTime(2026, 1, 1),
+      lastLoginAt: DateTime.now().subtract(const Duration(days: 3)),
+    );
+
+    setUp(() {
+      trustStore = FakeSessionTrustStore();
+      provider = AuthProvider(
+        userRepository: mockRepo,
+        activityLogRepository: mockActivityLog,
+        supabaseService: mockSupabase,
+        sessionTrustStore: trustStore,
+      );
+      when(() => mockRepo.cacheToken(any(), any(), any())).thenAnswer(
+        (_) async {},
+      );
+      when(() => mockRepo.clearCachedTokens()).thenAnswer((_) async {});
+    });
+
+    test('offline with prior successful login stays inside the app', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.authenticated);
+      expect(provider.isPendingRevalidation, isTrue);
+      verifyNever(() => mockRepo.clearCachedTokens());
+    });
+
+    test('offline past the grace window goes to login', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 45)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.unauthenticated);
+      expect(provider.isPendingRevalidation, isFalse);
+    });
+
+    test('a refreshed session enters the app and re-caches the token', () async {
+      final expiresAt = DateTime.now().add(const Duration(hours: 1));
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async => SessionRestoreResult(
+          status: SessionRestoreStatus.refreshed,
+          userId: 'supabase-user-123',
+          accessToken: 'fresh-access-token',
+          expiresAt: expiresAt,
+        ),
+      );
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.authenticated);
+      expect(provider.isPendingRevalidation, isFalse);
+      verify(
+        () => mockRepo.cacheToken(
+          'supabase-user-123',
+          'fresh-access-token',
+          expiresAt,
+        ),
+      ).called(1);
+      expect(trustStore.trust, isNotNull);
+    });
+
+    test('a rejected session logs the device out and clears trust', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.rejected),
+      );
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.unauthenticated);
+      expect(trustStore.trust, isNull);
+      verify(() => mockRepo.clearCachedTokens()).called(1);
+    });
+
+    test('a brand-new install goes to login without asking Supabase', () async {
+      when(() => mockRepo.getRememberedUser()).thenAnswer((_) async => null);
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.unauthenticated);
+      verifyNever(() => mockSupabase.restoreSession());
+    });
+
+    test('revalidateSession clears the pending flag when back online', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+      await provider.checkCachedToken();
+      expect(provider.isPendingRevalidation, isTrue);
+
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async => SessionRestoreResult(
+          status: SessionRestoreStatus.refreshed,
+          userId: 'supabase-user-123',
+          accessToken: 'fresh-access-token',
+          expiresAt: DateTime.now().add(const Duration(hours: 1)),
+        ),
+      );
+
+      await provider.revalidateSession();
+
+      expect(provider.isPendingRevalidation, isFalse);
+      expect(provider.state, AuthState.authenticated);
+    });
+
+    test('revalidateSession while still offline changes nothing', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+      await provider.checkCachedToken();
+
+      await provider.revalidateSession();
+
+      expect(provider.isPendingRevalidation, isTrue);
+      expect(provider.state, AuthState.authenticated);
+      verifyNever(() => mockRepo.clearCachedTokens());
+    });
+
+    test('revalidateSession signs out on a rejection while online', () async {
+      trustStore.trust = SessionTrust(
+        userId: 'supabase-user-123',
+        lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+      );
+      when(
+        () => mockRepo.getRememberedUser(),
+      ).thenAnswer((_) async => rememberedRemoteUser());
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.offline),
+      );
+      await provider.checkCachedToken();
+
+      when(() => mockSupabase.restoreSession()).thenAnswer(
+        (_) async =>
+            const SessionRestoreResult(status: SessionRestoreStatus.rejected),
+      );
+
+      await provider.revalidateSession();
+
+      expect(provider.state, AuthState.unauthenticated);
+      expect(provider.isPendingRevalidation, isFalse);
+      expect(trustStore.trust, isNull);
+    });
+
+    test('a local account never consults Supabase', () async {
+      when(() => mockRepo.getRememberedUser()).thenAnswer(
+        (_) async => UserModel(
+          id: 'local-abc',
+          fullName: 'Local Auditor',
+          email: 'local@example.com',
+          role: 'auditor',
+          status: 'approved',
+          accessToken: 'v3:pbkdf2-sha256:210000:salt:key',
+          tokenExpiry: DateTime.now().add(const Duration(days: 10)),
+          createdAt: DateTime(2026, 1, 1),
+          lastLoginAt: DateTime.now(),
+        ),
+      );
+
+      await provider.checkCachedToken();
+
+      expect(provider.state, AuthState.authenticated);
+      expect(provider.isPendingRevalidation, isFalse);
+      verifyNever(() => mockSupabase.restoreSession());
     });
   });
 }
