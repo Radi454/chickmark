@@ -52,6 +52,40 @@ void main() {
         SessionRestoreStatus.offline,
       );
     });
+
+    test(
+      'a retryable 5xx fetch failure is offline, never a logout',
+      () {
+        // gotrue throws AuthRetryableFetchException for any 5xx response from
+        // the Auth server; its message is the raw response body and carries
+        // none of the network-error wording, so this must be caught by type,
+        // not by string matching. gotrue's own token-refresh handler
+        // (`GoTrueClient._callRefreshToken`) likewise refuses to sign the
+        // user out on this exact type.
+        expect(
+          classifyRestoreFailure(
+            AuthRetryableFetchException(
+              message: '{"error":"upstream connect error"}',
+              statusCode: '503',
+            ),
+          ),
+          SessionRestoreStatus.offline,
+        );
+      },
+    );
+
+    test(
+      'a genuine auth rejection still classifies as rejected after the '
+      'retryable-fetch narrowing',
+      () {
+        expect(
+          classifyRestoreFailure(
+            const AuthException('Invalid Refresh Token: Already Used'),
+          ),
+          SessionRestoreStatus.rejected,
+        );
+      },
+    );
   });
 
   group('SessionRestoreResult', () {

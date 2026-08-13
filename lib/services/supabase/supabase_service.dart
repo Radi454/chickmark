@@ -158,10 +158,22 @@ const List<String> _networkErrorMarkers = [
 /// server-side rejection counts as [SessionRestoreStatus.offline], so an
 /// ambiguous failure keeps the user signed in rather than locking them out of
 /// data that lives on their own phone.
+///
+/// [AuthRetryableFetchException] is checked before the generic
+/// [AuthException] fallback because gotrue itself treats it as transient: its
+/// own token-refresh handler (`GoTrueClient._callRefreshToken`) explicitly
+/// skips signing the user out when `error is AuthRetryableFetchException` —
+/// the SDK throws this type both for non-HTTP failures (e.g. a wrapped
+/// [SocketException]) and for any 5xx response from the Auth server, neither
+/// of which is a definitive rejection. Its message is the raw response body,
+/// so it will not necessarily match [_networkErrorMarkers].
 @visibleForTesting
 SessionRestoreStatus classifyRestoreFailure(Object error) {
   final message = error.toString().toLowerCase();
   if (_networkErrorMarkers.any(message.contains)) {
+    return SessionRestoreStatus.offline;
+  }
+  if (error is AuthRetryableFetchException) {
     return SessionRestoreStatus.offline;
   }
   if (error is AuthException) {
