@@ -6,8 +6,6 @@ import '../../../core/security/safe_debug_log.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/mappers/station_sample_mapper.dart';
 import '../../../data/models/audit_model.dart';
-import '../../../data/models/panel_sample_model.dart';
-import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/models/user_model.dart';
@@ -19,42 +17,18 @@ import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
-import '../models/culled_chicks_analysis.dart';
+import '../models/audit_context.dart';
 import '../models/egg_breakout_tray_rollup.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
-import '../models/temperature_entry_unit.dart';
-import '../models/temperature_readings_payload.dart';
+import '../logic/audit_meaningful_data.dart';
+import '../logic/audit_value_parsing.dart';
+import '../logic/panel_value_builders.dart';
+import '../services/audit_panel_save_coordinator.dart';
 import 'package:uuid/uuid.dart';
 
-class AuditContext {
-  final String auditType;
-  final String customerId;
-  final String flockId;
-  final String? hatcheryId;
-  final String? breed;
-  final String? setterId;
-  final String? hatcherId;
-  final DateTime? flockEntryDate;
-  final int? flockAgeWeeks;
-  final String date;
-
-  AuditContext({
-    required this.auditType,
-    required this.customerId,
-    required this.flockId,
-    this.hatcheryId,
-    this.breed,
-    this.setterId,
-    this.hatcherId,
-    this.flockEntryDate,
-    this.flockAgeWeeks,
-    required this.date,
-  });
-}
-
-typedef _PanelSavePair = ({AuditModel draft, StationSampleModel sample});
+export '../models/audit_context.dart' show AuditContext;
 
 class AuditProvider extends ChangeNotifier {
   AuditProvider({
@@ -72,7 +46,16 @@ class AuditProvider extends ChangeNotifier {
            activityLogRepository ?? ActivityLogRepository(),
        _benchmarkLookup = benchmarkLookup ?? BenchmarkLookup(),
        _autosaveDebounceDuration = autosaveDebounceDuration,
-       _autosaveEnabled = autosaveEnabled;
+       _autosaveEnabled = autosaveEnabled {
+    _panelSaveCoordinator = AuditPanelSaveCoordinator(
+      panelSampleRepository: _panelSampleRepository,
+      benchmarkLookup: _benchmarkLookup,
+      context: () => _context,
+      activeSessionId: () => _activeSessionId,
+      stationSamples: () => _stationSamples,
+      chickWeightSamples: () => _chickWeightSamples,
+    );
+  }
 
   static const Duration defaultAutosaveDebounceDuration = Duration(seconds: 1);
 
@@ -82,6 +65,9 @@ class AuditProvider extends ChangeNotifier {
   final Duration _autosaveDebounceDuration;
   final bool _autosaveEnabled;
   final Uuid _uuid = const Uuid();
+
+  /// Owns every panel-table write/delete/prune the save path performs.
+  late final AuditPanelSaveCoordinator _panelSaveCoordinator;
 
   // State
   AuditContext? _context;
@@ -172,20 +158,22 @@ class AuditProvider extends ChangeNotifier {
     if (index < 0 || index >= _drafts.length) return false;
     final draft = _drafts[index];
     return switch (draft.auditType) {
-      'Egg' => _hasMeaningfulEggQualityData(draft),
-      'Chicks' => _hasChickQualityScopeResults(draft),
-      'Hatch Analysis & Egg Breakouts' => _hasHatchScopeResults(draft),
-      'Setters' => _hasSetterScopeResults(draft),
-      'Hatchers' => _hasHatcherScopeResults(draft),
+      'Egg' => hasMeaningfulEggQualityData(draft),
+      'Chicks' => hasChickQualityScopeResults(draft),
+      'Hatch Analysis & Egg Breakouts' => hasHatchScopeResults(draft),
+      'Setters' => hasSetterScopeResults(draft),
+      'Hatchers' => hasHatcherScopeResults(draft),
       _ => false,
     };
   }
 
   bool chickWeightScopeHasEnteredResults(int index) {
     if (index < 0 || index >= _chickWeightSamples.length) return false;
-    return _hasMeaningfulChickWeightSample(
-      activeDraft,
-      _chickWeightSamples[index],
+    return hasMeaningfulChickWeightSample(
+      chickWeightValuesForSample(
+        _chickWeightSamples[index],
+        fallback: activeDraft,
+      ),
     );
   }
 
@@ -521,7 +509,7 @@ class AuditProvider extends ChangeNotifier {
           ),
           auditDate: draft.date,
           eggProductionDate: eggProductionDate,
-          legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+          legacyBmkAgeWeeks: legacyBmkWeeksForDraft(draft),
           storageDays: storageDays,
           flockEntryDate: _context?.flockEntryDate,
         );
@@ -782,7 +770,7 @@ class AuditProvider extends ChangeNotifier {
       final removedLegacyAuditIds = List<String>.from(_removedLegacyAuditIds);
       final finalSaveSideEffects = <({AuditModel audit, String action})>[];
       final savedDrafts = <AuditModel>[];
-      final panelSavePairs = <_PanelSavePair>[];
+      final panelSavePairs = <PanelSavePair>[];
       for (var i = 0; i < draftsToSave.length; i++) {
         final draft = runFinalSaveSideEffects
             ? _asStatus(draftsToSave[i], 'active')
@@ -805,41 +793,11 @@ class AuditProvider extends ChangeNotifier {
           }
         }
       }
-      final scopedPanelSavePairs = _scopedPanelSavePairs(panelSavePairs);
-      final meaningfulScopedPanelSavePairs = scopedPanelSavePairs
-          .where(_hasMeaningfulPanelData)
-          .toList();
-      final eggPanelSavePairs = panelSavePairs
-          .where((pair) => pair.draft.auditType == 'Egg')
-          .toList();
-      final eggQualityPanelSavePairs = meaningfulScopedPanelSavePairs
-          .where((pair) => pair.draft.auditType == 'Egg')
-          .toList();
-      await _deletePanelRowsForRemovedSamples(
+      await _panelSaveCoordinator.savePanelTables(
+        panelSavePairs: panelSavePairs,
         draftsToSave: draftsToSave,
         removedStationSampleIds: removedStationSampleIds,
       );
-      await _deleteDiscardedPanelRows(scopedPanelSavePairs);
-      if (eggPanelSavePairs.isNotEmpty) {
-        await _savePooledEggStoragePanelTable(eggPanelSavePairs);
-        if (!_hasAnyMeaningfulEggQualityData(eggQualityPanelSavePairs)) {
-          await _deleteEggQualityRowsBySessionId(eggPanelSavePairs);
-        }
-      }
-      for (final pair in meaningfulScopedPanelSavePairs) {
-        await _savePanelTablesForSample(
-          pair.draft,
-          pair.sample,
-          skipTables: pair.draft.auditType == 'Egg'
-              ? {
-                  'egg_storage',
-                  if (!_hasMeaningfulEggQualityData(pair.draft)) 'egg_quality',
-                }
-              : const <String>{},
-        );
-      }
-      await _pruneStalePanelHierarchyRows(meaningfulScopedPanelSavePairs);
-      await _pruneStaleBreakoutRows(meaningfulScopedPanelSavePairs);
       for (var i = 0; i < chickWeightSamplesToSave.length; i++) {
         final sample = chickWeightSamplesToSave[i];
         if (i < _chickWeightSamples.length) {
@@ -847,30 +805,10 @@ class AuditProvider extends ChangeNotifier {
         }
       }
       if (savedDrafts.isNotEmpty && chickWeightSamplesToSave.isNotEmpty) {
-        final chickWeightDraft = savedDrafts.first;
-        final meaningfulChickWeightSamples = [
-          for (final sample in chickWeightSamplesToSave)
-            if (_hasMeaningfulChickWeightSample(chickWeightDraft, sample))
-              sample,
-        ];
-        await _deleteDiscardedChickWeightRows(
-          chickWeightSamplesToSave,
-          meaningfulChickWeightSamples,
+        await _panelSaveCoordinator.saveChickWeightPanels(
+          draft: savedDrafts.first,
+          samplesToSave: chickWeightSamplesToSave,
         );
-        if (meaningfulChickWeightSamples.isEmpty) {
-          final sessionId = chickWeightSamplesToSave.first.auditSessionId;
-          if (sessionId.isNotEmpty) {
-            await _panelSampleRepository.deleteRowsBySessionId(
-              'chick_weights',
-              sessionId,
-            );
-          }
-        } else {
-          await _saveChickWeightPanelSamples(
-            chickWeightDraft,
-            meaningfulChickWeightSamples,
-          );
-        }
       }
       for (final sideEffect in finalSaveSideEffects) {
         await _runFinalSaveSideEffects(sideEffect.audit, sideEffect.action);
@@ -954,9 +892,9 @@ class AuditProvider extends ChangeNotifier {
       }
     }
 
-    for (final lesion in _decodedMaps(a.pmOtherLesionsJson)) {
+    for (final lesion in decodedMaps(a.pmOtherLesionsJson)) {
       final name = (lesion['name'] as String? ?? '').trim();
-      final count = _asInt(lesion['count']);
+      final count = asInt(lesion['count']);
       final severity = (lesion['severity'] as String? ?? '').trim();
       if ((count ?? 0) > 0) {
         if (name.isEmpty) {
@@ -976,18 +914,36 @@ class AuditProvider extends ChangeNotifier {
     if (_saveError != null || _autosaveError != null) {
       return StationCompletionValidation.failed(stationKey);
     }
-    if (_drafts.any(_hasCoreStationData)) {
+    if (_drafts.any(
+      (draft) => hasCoreStationData(
+        draft,
+        hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
+          (sample) => hasMeaningfulChickWeightSample(
+            chickWeightValuesForSample(sample, fallback: draft),
+          ),
+        ),
+        contextSetterId: _context?.setterId,
+        contextHatcherId: _context?.hatcherId,
+      ),
+    )) {
       return StationCompletionValidation.complete(stationKey);
     }
-    if (_drafts.any(_hasAnyMeaningfulStationData) ||
-        _drafts.any(_treatBlankDraftAsSavedIncomplete)) {
+    if (_drafts.any(
+          (draft) => hasAnyMeaningfulStationData(
+            draft,
+            hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
+              (sample) => hasMeaningfulChickWeightSample(
+                chickWeightValuesForSample(sample, fallback: draft),
+              ),
+            ),
+            contextSetterId: _context?.setterId,
+            contextHatcherId: _context?.hatcherId,
+          ),
+        ) ||
+        _drafts.any(treatBlankDraftAsSavedIncomplete)) {
       return StationCompletionValidation.savedButIncomplete(stationKey);
     }
     return StationCompletionValidation.emptyOrDiscarded(stationKey);
-  }
-
-  bool _treatBlankDraftAsSavedIncomplete(AuditModel draft) {
-    return draft.auditType == 'Hatchers';
   }
 
   // Add a new hatch to the session
@@ -1091,7 +1047,7 @@ class AuditProvider extends ChangeNotifier {
   void _removeSelectedEggQualityHouse() {
     if (!isCompareMode) return;
 
-    final activeHouseKey = _blankToNull(activeStationSample.houseNo);
+    final activeHouseKey = blankToNull(activeStationSample.houseNo);
     final houseIndex = _selectedEggQualityHouseIndex(activeHouseKey);
     if (houseIndex == -1) {
       removeActiveSample();
@@ -1110,7 +1066,7 @@ class AuditProvider extends ChangeNotifier {
     return _stationSamples.indexWhere(
       (sample) =>
           sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          (_blankToNull(sample.houseNo) ?? _blankToNull(sample.sampleLabel)) ==
+          (blankToNull(sample.houseNo) ?? blankToNull(sample.sampleLabel)) ==
               activeHouseKey,
     );
   }
@@ -1441,7 +1397,7 @@ class AuditProvider extends ChangeNotifier {
     final isComparison =
         sample.sampleMode == StationSampleModel.sampleModeComparison;
     final houseNo =
-        hasHouseNo && isComparison && _blankToNull(rawHouseNo) == null
+        hasHouseNo && isComparison && blankToNull(rawHouseNo) == null
         ? _defaultChickWeightHouseNo(_activeChickWeightSampleIndex)
         : rawHouseNo;
     final houseLabel =
@@ -1597,7 +1553,7 @@ class AuditProvider extends ChangeNotifier {
           _context?.flockAgeWeeks,
         ),
         auditDate: draft.date,
-        legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
+        legacyBmkAgeWeeks: legacyBmkWeeksForDraft(draft),
         storageDays: draft.chickStorageDays ?? 0,
         flockEntryDate: _context?.flockEntryDate,
       ),
@@ -1710,7 +1666,7 @@ class AuditProvider extends ChangeNotifier {
     required String? houseNo,
     required int index,
   }) {
-    final raw = _blankToNull(houseNo);
+    final raw = blankToNull(houseNo);
     if (raw == null) {
       return index == 0 ? 'Pool' : _defaultChickWeightHouseNo(index);
     }
@@ -1723,7 +1679,7 @@ class AuditProvider extends ChangeNotifier {
     required String? houseNo,
     required int index,
   }) {
-    final raw = _blankToNull(houseNo);
+    final raw = blankToNull(houseNo);
     if (raw == null) {
       return index == 0 ? null : _defaultChickWeightHouseLabel(index);
     }
@@ -1737,7 +1693,7 @@ class AuditProvider extends ChangeNotifier {
     required int index,
     required int sampleIndex,
   }) {
-    final trimmed = _blankToNull(value);
+    final trimmed = blankToNull(value);
     if (trimmed == null) return true;
     return trimmed == _defaultChickWeightHouseNo(index) ||
         trimmed == 'H$sampleIndex';
@@ -1748,7 +1704,7 @@ class AuditProvider extends ChangeNotifier {
     required int index,
     required int sampleIndex,
   }) {
-    final trimmed = _blankToNull(value);
+    final trimmed = blankToNull(value);
     if (trimmed == null) return true;
     return trimmed == _defaultChickWeightHouseLabel(index) ||
         trimmed == 'House $sampleIndex';
@@ -1877,10 +1833,10 @@ class AuditProvider extends ChangeNotifier {
   }
 
   bool _sampleHasHierarchy(StationSampleModel sample) {
-    return _hasText(sample.houseNo) ||
-        _hasText(sample.houseLabel) ||
-        _hasText(sample.setterNo) ||
-        _hasText(sample.hatcherNo);
+    return hasText(sample.houseNo) ||
+        hasText(sample.houseLabel) ||
+        hasText(sample.setterNo) ||
+        hasText(sample.hatcherNo);
   }
 
   StationSampleModel? _matchingExistingSample(
@@ -1952,7 +1908,7 @@ class AuditProvider extends ChangeNotifier {
         eggQualityScopeKind: eggScopeKind,
       ),
       hatchNo: draft.hatchNumber.toString(),
-      storageDays: _storageDaysForDraft(draft),
+      storageDays: storageDaysForDraft(draft),
       incubationDay: draft.soIncubationAge ?? draft.hoIncubationAge,
       setterNo: _setterNoForDraft(
         draft,
@@ -1972,8 +1928,8 @@ class AuditProvider extends ChangeNotifier {
                     _context?.flockAgeWeeks,
                   ),
               auditDate: draft.date,
-              legacyBmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
-              storageDays: _storageDaysForDraft(draft),
+              legacyBmkAgeWeeks: legacyBmkWeeksForDraft(draft),
+              storageDays: storageDaysForDraft(draft),
               flockEntryDate: _context?.flockEntryDate,
             ),
       benchmarkBreed: isMachineStation
@@ -2038,7 +1994,7 @@ class AuditProvider extends ChangeNotifier {
           sampleIndex: existing.sampleIndex,
         );
     final keepEnteredMachineHouseMetadata =
-        keepGeneratedMachineMetadata && _hasText(existing.houseNo);
+        keepGeneratedMachineMetadata && hasText(existing.houseNo);
     final sampleLabel = keepCustomEggHouseMetadata
         ? _houseScopeSampleLabel(
             houseNo: existing.houseNo,
@@ -2259,8 +2215,8 @@ class AuditProvider extends ChangeNotifier {
       return draft.setterId ?? draft.soSetterId ?? 'S${(index ?? 0) + 1}';
     }
     if (draft.auditType == 'Setters') {
-      return _blankToNull(draft.soSetterId) ??
-          _blankToNull(draft.setterId) ??
+      return blankToNull(draft.soSetterId) ??
+          blankToNull(draft.setterId) ??
           'S';
     }
     return draft.setterId ?? draft.soSetterId;
@@ -2278,8 +2234,8 @@ class AuditProvider extends ChangeNotifier {
       return draft.hatcherId ?? draft.hoHatcherId ?? 'H${(index ?? 0) + 1}';
     }
     if (draft.auditType == 'Hatchers') {
-      return _blankToNull(draft.hoHatcherId) ??
-          _blankToNull(draft.hatcherId) ??
+      return blankToNull(draft.hoHatcherId) ??
+          blankToNull(draft.hatcherId) ??
           'H';
     }
     return draft.hatcherId ?? draft.hoHatcherId;
@@ -2392,7 +2348,7 @@ class AuditProvider extends ChangeNotifier {
     required String? houseNo,
     required int fallbackIndex,
   }) {
-    final raw = _blankToNull(houseNo);
+    final raw = blankToNull(houseNo);
     if (raw == null) return 'H$fallbackIndex';
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
     if (digits.isNotEmpty) return 'H$digits';
@@ -2403,7 +2359,7 @@ class AuditProvider extends ChangeNotifier {
     required String? houseNo,
     required int fallbackIndex,
   }) {
-    final raw = _blankToNull(houseNo);
+    final raw = blankToNull(houseNo);
     if (raw == null) return 'House $fallbackIndex';
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
     if (digits.isNotEmpty) return 'House $digits';
@@ -2415,7 +2371,7 @@ class AuditProvider extends ChangeNotifier {
     required int index,
     required int sampleIndex,
   }) {
-    final trimmed = _blankToNull(value);
+    final trimmed = blankToNull(value);
     if (trimmed == null) return true;
     return trimmed == 'H${index + 1}' || trimmed == 'H$sampleIndex';
   }
@@ -2425,7 +2381,7 @@ class AuditProvider extends ChangeNotifier {
     required int index,
     required int sampleIndex,
   }) {
-    final trimmed = _blankToNull(value);
+    final trimmed = blankToNull(value);
     if (trimmed == null) return true;
     return trimmed == 'House ${index + 1}' || trimmed == 'House $sampleIndex';
   }
@@ -2477,2251 +2433,9 @@ class AuditProvider extends ChangeNotifier {
     return EggBreakoutType.fromStorageValue(breakoutType).storageValue;
   }
 
-  int? _storageDaysForDraft(AuditModel draft) {
-    final storageDays =
-        draft.esEggStorageDays ??
-        draft.chickStorageDays ??
-        draft.haStorageDays ??
-        draft.ebStorageDays;
-    if (storageDays != null) return storageDays;
-    return switch (draft.auditType) {
-      'Egg' || 'Chicks' || 'Hatch Analysis & Egg Breakouts' => 0,
-      _ => null,
-    };
-  }
-
-  int? _storageDaysForPanel(String tableName, AuditModel draft) {
-    if (tableName == 'egg_quality') {
-      return draft.esEggQualityStorageDays ?? draft.esEggStorageDays ?? 0;
-    }
-    return _storageDaysForDraft(draft);
-  }
-
-  int? _legacyBmkWeeksForDraft(AuditModel draft) {
-    return draft.esEggBmkAge ??
-        draft.chickBmkAge ??
-        draft.haBmkAge ??
-        draft.ebBmkAge;
-  }
-
-  Future<void> _savePanelTablesForSample(
-    AuditModel draft,
-    StationSampleModel sample, {
-    Set<String> skipTables = const <String>{},
-  }) async {
-    for (final tableName in _panelTablesForDraft(draft)) {
-      if (skipTables.contains(tableName)) continue;
-      if (_isEggBreakoutPanelTable(tableName)) {
-        await _saveEggBreakoutPanelTable(tableName, draft, sample);
-      } else {
-        await _savePanelTableWithSamples(tableName, draft, [sample]);
-      }
-    }
-  }
-
-  Future<void> _savePooledEggStoragePanelTable(
-    List<({AuditModel draft, StationSampleModel sample})> pairs,
-  ) async {
-    if (pairs.isEmpty) return;
-    final sessionId = pairs.first.sample.auditSessionId;
-    if (sessionId.isEmpty) return;
-
-    final draft = _pooledEggStorageDraft([
-      for (final pair in pairs) pair.draft,
-    ]);
-    if (!_hasSavableEggStorageData(draft)) {
-      await _panelSampleRepository.deleteRowsBySessionId(
-        'egg_storage',
-        sessionId,
-      );
-      return;
-    }
-
-    await _panelSampleRepository.deleteHierarchyRowsBySessionId(
-      'egg_storage',
-      sessionId,
-    );
-    await _savePanelTableWithSamples('egg_storage', draft, [
-      _pooledEggStorageSample(pairs.first.sample, draft),
-    ]);
-  }
-
-  AuditModel _pooledEggStorageDraft(List<AuditModel> drafts) {
-    final base = drafts.first;
-    final map = base.toMap();
-    for (final key in _pooledEggStorageFieldKeys) {
-      map[key] = _firstMeaningfulDraftValue(drafts, key, map[key]);
-    }
-    map['notes'] = _firstMeaningfulDraftValue(drafts, 'notes', map['notes']);
-    map['sampleMode'] = SampleMode.pool;
-    map['compareGroupKey'] = null;
-    map['hatchNumber'] = 1;
-    map['updatedAt'] = DateTime.now().toIso8601String();
-    return AuditModel.fromMap(map);
-  }
-
-  StationSampleModel _pooledEggStorageSample(
-    StationSampleModel sample,
-    AuditModel draft,
-  ) {
-    final now = DateTime.now();
-    return StationSampleModel(
-      id: sample.id,
-      auditSessionId: sample.auditSessionId,
-      legacyAuditId: draft.id,
-      stationType: sample.stationType,
-      sectorType: sample.sectorType,
-      sampleKind: StationSampleModel.sampleKindPooled,
-      sampleMode: StationSampleModel.sampleModePooled,
-      sampleIndex: 1,
-      sampleLabel: 'Sample 1',
-      sampleType: sample.sampleType,
-      breakoutType: sample.breakoutType,
-      batchNo: sample.batchNo,
-      hatchNo: sample.hatchNo,
-      storageDays: _storageDaysForDraft(draft),
-      incubationDay: sample.incubationDay,
-      calculatedBmkAgeDays: sample.calculatedBmkAgeDays,
-      benchmarkBreed: sample.benchmarkBreed,
-      benchmarkAgeDays: sample.benchmarkAgeDays,
-      benchmarkSource: sample.benchmarkSource,
-      benchmarkSnapshotJson: sample.benchmarkSnapshotJson,
-      resultSummaryJson: StationSampleMapper.resultSummaryJsonForAudit(draft),
-      notes: draft.notes ?? sample.notes,
-      createdAt: sample.createdAt,
-      updatedAt: now,
-    );
-  }
-
-  static const _pooledEggStorageFieldKeys = [
-    'esEggStorageDays',
-    'es_estReadingsJson',
-    'es_estPhotosJson',
-    'es_estAvg',
-    'es_estCv',
-    'esTurningTimes',
-    'esUvTrays',
-    'es_traySpacing',
-    'es_coolerProximity',
-    'es_condensation',
-  ];
-
-  Object? _firstMeaningfulDraftValue(
-    List<AuditModel> drafts,
-    String key,
-    Object? fallback,
-  ) {
-    for (final draft in drafts) {
-      final value = draft.toMap()[key];
-      if (_isMeaningfulPooledEggStorageValue(key, value)) return value;
-    }
-    return fallback;
-  }
-
-  bool _isMeaningfulPooledEggStorageValue(String key, Object? value) {
-    if (value == null) return false;
-    if (key == 'esEggStorageDays' && value is num) return value != 0;
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isNotEmpty && trimmed != '[]' && trimmed != '{}';
-    }
-    return true;
-  }
-
-  bool _hasMeaningfulEggStorageData(AuditModel draft) {
-    return _isMeaningfulPooledEggStorageValue(
-          'esEggStorageDays',
-          draft.esEggStorageDays,
-        ) ||
-        _hasSavableEggStorageData(draft) ||
-        draft.esTurningTimes != null ||
-        _hasText(draft.esTraySpacing) ||
-        _hasText(draft.esCoolerProximity) ||
-        draft.esCondensation != null ||
-        _hasMeaningfulEggStorageTrayData(draft.esUvTrays) ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasSavableEggStorageData(AuditModel draft) {
-    return _hasMeaningfulJsonObject(draft.esEstReadingsJson) ||
-        _hasMeaningfulJsonObject(draft.esEstPhotosJson) ||
-        draft.esEstAvg != null ||
-        draft.esEstCv != null;
-  }
-
-  bool _hasAnyMeaningfulStationData(AuditModel draft) {
-    return switch (draft.auditType) {
-      'Egg' =>
-        _hasMeaningfulEggStorageData(draft) ||
-            _hasMeaningfulEggQualityData(draft) ||
-            _hasMeaningfulEggQualityMetadata(draft),
-      'Chicks' => _hasMeaningfulChickData(draft),
-      'Hatch Analysis & Egg Breakouts' => _hasMeaningfulHatchData(draft),
-      'Setters' => _hasMeaningfulSetterData(draft),
-      'Hatchers' => _hasMeaningfulHatcherData(draft),
-      _ => false,
-    };
-  }
-
-  bool _hasCoreStationData(AuditModel draft) {
-    return switch (draft.auditType) {
-      'Egg' =>
-        _hasMeaningfulEggStorageCoreData(draft) ||
-            _hasMeaningfulEggQualityCoreData(draft),
-      'Chicks' => _hasMeaningfulChickCoreData(draft),
-      'Hatch Analysis & Egg Breakouts' => _hasMeaningfulHatchCompletionCoreData(
-        draft,
-      ),
-      'Setters' => _hasMeaningfulSetterCoreData(draft),
-      'Hatchers' => _hasMeaningfulHatcherCoreData(draft),
-      _ => false,
-    };
-  }
-
-  bool _hasMeaningfulChickCoreData(AuditModel draft) {
-    return _hasMeaningfulPasgarData(draft) ||
-        _hasMeaningfulChickWeightData(draft);
-  }
-
-  bool _hasMeaningfulEggStorageCoreData(AuditModel draft) {
-    return _hasSavableEggStorageData(draft);
-  }
-
-  bool _hasMeaningfulEggQualityCoreData(AuditModel draft) {
-    return _hasMeaningfulEggQualityData(draft);
-  }
-
-  bool _hasMeaningfulChickData(AuditModel draft) {
-    return _hasMeaningfulChickCoreData(draft) ||
-        _hasText(draft.yfbmPhoto) ||
-        _hasMeaningfulJsonData(draft.yfbmEntries) ||
-        draft.yfbmAvgPct != null ||
-        draft.yfbmCvPct != null ||
-        (draft.cvtSampleSize ?? 0) > 0 ||
-        _hasText(draft.cvtTopBasket) ||
-        draft.cvtTopTemp != null ||
-        _hasText(draft.cvtTopPhoto) ||
-        _hasText(draft.cvtMiddleBasket) ||
-        draft.cvtMiddleTemp != null ||
-        _hasText(draft.cvtMiddlePhoto) ||
-        _hasText(draft.cvtBottomBasket) ||
-        draft.cvtBottomTemp != null ||
-        _hasText(draft.cvtBottomPhoto) ||
-        draft.cvtAvg != null ||
-        draft.cvtCvPct != null ||
-        _hasMeaningfulJsonObject(draft.cvtReadingsJson) ||
-        _hasMeaningfulJsonObject(draft.cvtPhotosJson) ||
-        _hasMeaningfulPmData(draft) ||
-        (draft.culledChicksTotalEggSet ?? 0) > 0 ||
-        _hasMeaningfulJsonData(draft.culledChicksAnalysisJson) ||
-        draft.culledChicksAffectedPct != null ||
-        _hasText(draft.culledChicksTopCategory) ||
-        _hasText(draft.culledChicksTopSubtype) ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasChickQualityScopeResults(AuditModel draft) {
-    return _hasMeaningfulPasgarData(draft) ||
-        _hasText(draft.yfbmPhoto) ||
-        _hasMeaningfulJsonData(draft.yfbmEntries) ||
-        draft.yfbmAvgPct != null ||
-        draft.yfbmCvPct != null ||
-        draft.cvtSampleSize != null ||
-        _hasText(draft.cvtTopBasket) ||
-        draft.cvtTopTemp != null ||
-        _hasText(draft.cvtTopPhoto) ||
-        _hasText(draft.cvtMiddleBasket) ||
-        draft.cvtMiddleTemp != null ||
-        _hasText(draft.cvtMiddlePhoto) ||
-        _hasText(draft.cvtBottomBasket) ||
-        draft.cvtBottomTemp != null ||
-        _hasText(draft.cvtBottomPhoto) ||
-        draft.cvtAvg != null ||
-        draft.cvtCvPct != null ||
-        _hasMeaningfulJsonObject(draft.cvtReadingsJson) ||
-        _hasMeaningfulJsonObject(draft.cvtPhotosJson) ||
-        _hasMeaningfulPmData(draft) ||
-        draft.culledChicksTotalEggSet != null ||
-        _hasMeaningfulJsonData(draft.culledChicksAnalysisJson) ||
-        draft.culledChicksAffectedPct != null ||
-        _hasText(draft.culledChicksTopCategory) ||
-        _hasText(draft.culledChicksTopSubtype) ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasMeaningfulPasgarData(AuditModel draft) {
-    return (draft.pasgarSampleSize ?? 0) > 0 ||
-        (draft.pasgarReflexes ?? 0) > 0 ||
-        _hasText(draft.pasgarReflexesPhoto) ||
-        (draft.pasgarBeak ?? 0) > 0 ||
-        _hasText(draft.pasgarBeakPhoto) ||
-        (draft.pasgarNavel ?? 0) > 0 ||
-        _hasText(draft.pasgarNavelPhoto) ||
-        (draft.pasgarBelly ?? 0) > 0 ||
-        _hasText(draft.pasgarBellyPhoto) ||
-        (draft.pasgarLeg ?? 0) > 0 ||
-        _hasText(draft.pasgarLegPhoto) ||
-        (draft.pasgarFeatherDev ?? 0) > 0 ||
-        _hasText(draft.pasgarFeatherDevPhoto) ||
-        draft.pasgarFinalScore != null;
-  }
-
-  bool _hasMeaningfulChickWeightData(AuditModel draft) {
-    return _hasMeaningfulWeightList(draft.chickWeights) ||
-        (draft.chickSampleSize ?? 0) > 0 ||
-        draft.chickAvgWeight != null ||
-        draft.chickUniformityPct != null ||
-        draft.chickCvPct != null ||
-        _chickWeightSamples.any(
-          (sample) => _hasMeaningfulChickWeightSample(draft, sample),
-        );
-  }
-
-  bool _hasMeaningfulPmData(AuditModel draft) {
-    return (draft.pmSampleSize ?? 0) > 0 ||
-        _hasText(draft.pmCollectionPoint) ||
-        (draft.pmOmphalitisCount ?? 0) > 0 ||
-        _hasText(draft.pmOmphalitisSeverity) ||
-        (draft.pmGaseousCecaCount ?? 0) > 0 ||
-        _hasText(draft.pmGaseousCecaSeverity) ||
-        (draft.pmGizzardErosionsCount ?? 0) > 0 ||
-        _hasText(draft.pmGizzardErosionsSeverity) ||
-        (draft.pmAirSacCaseationsCount ?? 0) > 0 ||
-        _hasText(draft.pmAirSacCaseationsSeverity) ||
-        (draft.pmUrolithiasisCount ?? 0) > 0 ||
-        _hasText(draft.pmUrolithiasisSeverity) ||
-        (draft.pmNephritisCount ?? 0) > 0 ||
-        _hasText(draft.pmNephritisSeverity) ||
-        (draft.pmGeneralSepticemiaCount ?? 0) > 0 ||
-        _hasText(draft.pmGeneralSepticemiaSeverity) ||
-        _hasMeaningfulJsonObject(draft.pmOtherLesionsJson) ||
-        _hasText(draft.pmSuspectedCauseAuto) ||
-        _hasText(draft.pmSuspectedCauseManual) ||
-        _hasMeaningfulJsonData(draft.pmPhotosJson);
-  }
-
-  bool _hasMeaningfulHatchData(AuditModel draft) {
-    return _hasMeaningfulHatchCoreData(draft) || _hasText(draft.notes);
-  }
-
-  bool _hasHatchScopeResults(AuditModel draft) {
-    final breakoutSamples = EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    );
-    return ((draft.haTotalEggsSet ?? 19200) != 19200) ||
-        draft.haHatched != null ||
-        draft.haCulled != null ||
-        draft.haDead != null ||
-        draft.haHatchability != null ||
-        draft.haFertility != null ||
-        draft.haHof != null ||
-        _hasMeaningfulJsonData(draft.haTrays) ||
-        draft.haPipped != null ||
-        draft.haInfertileClear != null ||
-        draft.haEarlyDead != null ||
-        draft.haMidDead != null ||
-        draft.haMidLateDead != null ||
-        draft.haLateDead != null ||
-        draft.haContaminatedExploders != null ||
-        _hasMeaningfulJsonData(draft.haBenchmarkStatusesJson) ||
-        breakoutSamples.any((sample) => sample.hasEnteredResults) ||
-        draft.ebInfertileCount != null ||
-        draft.ebEarlyDeadCount != null ||
-        draft.ebMidDeadCount != null ||
-        draft.ebLateDeadCount != null ||
-        draft.ebInternalPipCount != null ||
-        draft.ebExternalPipCount != null ||
-        draft.ebCrackedCount != null ||
-        draft.ebContaminatedCount != null ||
-        draft.ebMalpositionCount != null ||
-        draft.ebExposedBrainCount != null ||
-        draft.ebCrossedBeakCount != null ||
-        draft.ebCulledDeadCount != null ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasMeaningfulHatchCompletionCoreData(AuditModel draft) {
-    return (draft.haHatched ?? 0) > 0 ||
-        (draft.haCulled ?? 0) > 0 ||
-        (draft.haDead ?? 0) > 0 ||
-        draft.haHatchability != null ||
-        draft.haFertility != null ||
-        draft.haHof != null ||
-        _hasMeaningfulJsonData(draft.haTrays) ||
-        (draft.haPipped ?? 0) > 0 ||
-        (draft.haInfertileClear ?? 0) > 0 ||
-        (draft.haEarlyDead ?? 0) > 0 ||
-        (draft.haMidDead ?? 0) > 0 ||
-        (draft.haMidLateDead ?? 0) > 0 ||
-        (draft.haLateDead ?? 0) > 0 ||
-        (draft.haContaminatedExploders ?? 0) > 0 ||
-        _hasMeaningfulJsonData(draft.haBenchmarkStatusesJson) ||
-        _hasMeaningfulBreakoutSamples(draft);
-  }
-
-  bool _hasMeaningfulHatchCoreData(AuditModel draft) {
-    return (draft.haTotalEggsSet ?? 0) > 0 ||
-        _hasMeaningfulHatchCompletionCoreData(draft);
-  }
-
-  bool _hasMeaningfulBreakoutSamples(AuditModel draft) {
-    if (_hasMeaningfulJsonData(draft.ebTrayBreakoutJson)) return true;
-    return (draft.ebTraySize ?? 0) > 0 ||
-        (draft.ebInfertileCount ?? 0) > 0 ||
-        (draft.ebEarlyDeadCount ?? 0) > 0 ||
-        (draft.ebMidDeadCount ?? 0) > 0 ||
-        (draft.ebLateDeadCount ?? 0) > 0 ||
-        (draft.ebInternalPipCount ?? 0) > 0 ||
-        (draft.ebExternalPipCount ?? 0) > 0 ||
-        (draft.ebCrackedCount ?? 0) > 0 ||
-        (draft.ebContaminatedCount ?? 0) > 0 ||
-        (draft.ebMalpositionCount ?? 0) > 0 ||
-        (draft.ebExposedBrainCount ?? 0) > 0 ||
-        (draft.ebCrossedBeakCount ?? 0) > 0 ||
-        (draft.ebCulledDeadCount ?? 0) > 0;
-  }
-
-  bool _hasMeaningfulSetterData(AuditModel draft) {
-    return _hasMeaningfulSetterCoreData(draft) ||
-        draft.soActualF != null ||
-        draft.soActualRh != null ||
-        _hasText(draft.soBreed) ||
-        _hasText(draft.soMachineScreenPhoto) ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasSetterScopeResults(AuditModel draft) {
-    return draft.soCo2 != null ||
-        _hasText(draft.soCo2Photo) ||
-        _hasMeaningfulJsonObject(draft.soEstReadings) ||
-        _hasMeaningfulJsonObject(draft.soEstPhotos) ||
-        draft.soEstAvg != null ||
-        draft.soEstCv != null ||
-        draft.soTurningAngle != null ||
-        draft.soSetpointF != null ||
-        draft.soActualF != null ||
-        draft.soSetpointRh != null ||
-        draft.soActualRh != null ||
-        _hasText(draft.soMachineScreenPhoto) ||
-        ((draft.soBatchSize ?? 19200) != 19200) ||
-        ((draft.soBatchCount ?? 1) != 1) ||
-        ((draft.soTotalEggsSet ?? 19200) != 19200) ||
-        _hasSetterEstSampleResults(draft) ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasSetterEstSampleResults(AuditModel draft) {
-    return _decodedMaps(draft.soEstSamplesJson).any(
-      (sample) =>
-          _isMeaningfulJsonValue(sample['estReadings']) ||
-          _isMeaningfulJsonValue(sample['estPhotos']) ||
-          sample['estAvg'] != null ||
-          sample['estCv'] != null,
-    );
-  }
-
-  bool _hasMeaningfulSetterCoreData(AuditModel draft) {
-    return _hasMeaningfulMachineId(
-          draft.soSetterId,
-          defaultValue: 'S',
-          contextValue: _context?.setterId,
-        ) ||
-        draft.soCo2 != null ||
-        _hasText(draft.soCo2Photo) ||
-        _hasMeaningfulJsonObject(draft.soEstReadings) ||
-        _hasMeaningfulJsonObject(draft.soEstPhotos) ||
-        draft.soEstAvg != null ||
-        draft.soEstCv != null ||
-        ((draft.soIncubationAge ?? 1) != 1) ||
-        ((draft.soIncubationHours ?? 0) != 0) ||
-        draft.soTurningAngle != null ||
-        draft.soSetpointF != null ||
-        draft.soSetpointRh != null ||
-        _hasMeaningfulSetterEstSamples(draft);
-  }
-
-  bool _hasMeaningfulSetterEstSamples(AuditModel draft) {
-    for (final sample in _decodedMaps(draft.soEstSamplesJson)) {
-      if (_hasText(sample['breed'] as String?) &&
-          sample['breed'] != 'Ross308') {
-        return true;
-      }
-      if ((_asInt(sample['incubationAge']) ?? 1) != 1) return true;
-      if ((_asInt(sample['incubationHours']) ?? 0) != 0) return true;
-      if (_isMeaningfulJsonValue(sample['estReadings'])) return true;
-      if (_isMeaningfulJsonValue(sample['estPhotos'])) return true;
-      if (sample['estAvg'] != null || sample['estCv'] != null) return true;
-    }
-    return false;
-  }
-
-  bool _hasMeaningfulHatcherData(AuditModel draft) {
-    return _hasMeaningfulHatcherCoreData(draft) ||
-        _hasText(draft.hoBreed) ||
-        draft.hoTransferDay != null ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasHatcherScopeResults(AuditModel draft) {
-    return ((draft.hoIncubationAge ?? 18) != 18) ||
-        ((draft.hoIncubationHours ?? 0) != 0) ||
-        draft.hoSetpointF != null ||
-        draft.hoSetpointRh != null ||
-        draft.hoCo2 != null ||
-        _hasText(draft.hoCo2Photo) ||
-        _hasMeaningfulJsonObject(draft.hoCvtReadings) ||
-        _hasMeaningfulJsonObject(draft.hoCvtPhotos) ||
-        draft.hoCvtAvg != null ||
-        draft.hoCvtCv != null ||
-        draft.hoChickPanting != null ||
-        _hasText(draft.hoChickPantingPhoto) ||
-        _hasText(draft.hoMeconium) ||
-        draft.hoTransferDay != null ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasMeaningfulHatcherCoreData(AuditModel draft) {
-    return _hasMeaningfulMachineId(
-          draft.hoHatcherId,
-          defaultValue: 'H',
-          contextValue: _context?.hatcherId,
-        ) ||
-        ((draft.hoIncubationAge ?? 18) != 18) ||
-        ((draft.hoIncubationHours ?? 0) != 0) ||
-        draft.hoSetpointF != null ||
-        draft.hoSetpointRh != null ||
-        draft.hoCo2 != null ||
-        _hasText(draft.hoCo2Photo) ||
-        _hasMeaningfulJsonObject(draft.hoCvtReadings) ||
-        _hasMeaningfulJsonObject(draft.hoCvtPhotos) ||
-        draft.hoCvtAvg != null ||
-        draft.hoCvtCv != null ||
-        draft.hoChickPanting != null ||
-        _hasText(draft.hoChickPantingPhoto) ||
-        _hasText(draft.hoMeconium);
-  }
-
-  bool _hasMeaningfulMachineId(
-    String? value, {
-    required String defaultValue,
-    String? contextValue,
-  }) {
-    final id = _blankToNull(value);
-    final contextId = _blankToNull(contextValue);
-    return id != null && id != defaultValue && id != contextId;
-  }
-
-  bool _hasMeaningfulJsonObject(String? source) {
-    final decoded = _decodedMap(source);
-    if (decoded == null || decoded.isEmpty) return false;
-    return decoded.values.any(_isMeaningfulJsonValue);
-  }
-
-  bool _hasMeaningfulJsonData(String? source) {
-    if (source == null || source.trim().isEmpty) return false;
-    try {
-      return _isMeaningfulJsonValue(jsonDecode(source));
-    } catch (_) {
-      return false;
-    }
-  }
-
-  bool _hasMeaningfulEggStorageTrayData(String? source) {
-    return _decodedMaps(source).any((tray) {
-      return (_asInt(tray['totalEggs']) ?? 0) > 0 ||
-          (_asInt(tray['upsideDown']) ?? 0) > 0 ||
-          _isMeaningfulJsonValue(tray['photoPath']);
-    });
-  }
-
-  bool _hasAnyMeaningfulEggQualityData(
-    List<({AuditModel draft, StationSampleModel sample})> pairs,
-  ) {
-    return pairs.any((pair) => _hasMeaningfulEggQualityData(pair.draft));
-  }
-
-  List<_PanelSavePair> _scopedPanelSavePairs(List<_PanelSavePair> pairs) {
-    if (pairs.isEmpty) return pairs;
-    return _pruneHatchBreakoutParentPairs(pairs);
-  }
-
-  List<_PanelSavePair> _pruneHatchBreakoutParentPairs(
-    List<_PanelSavePair> pairs,
-  ) {
-    final paths = <_BreakoutHierarchyPath>[];
-    for (var i = 0; i < pairs.length; i++) {
-      final pair = pairs[i];
-      if (pair.draft.auditType != 'Hatch Analysis & Egg Breakouts') {
-        continue;
-      }
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
-        if (!_isEggBreakoutPanelTable(tableName)) continue;
-        paths.addAll(_breakoutHierarchyPathsForPair(i, tableName, pair));
-      }
-    }
-    if (paths.length < 2) return pairs;
-
-    final parentPairIndexes = <int>{};
-    for (final path in paths) {
-      if (!path.canHaveChildren) continue;
-      final hasChild = paths.any(
-        (candidate) =>
-            candidate.pairIndex != path.pairIndex && path.isParentOf(candidate),
-      );
-      if (hasChild) parentPairIndexes.add(path.pairIndex);
-    }
-    if (parentPairIndexes.isEmpty) return pairs;
-
-    return [
-      for (var i = 0; i < pairs.length; i++)
-        if (!parentPairIndexes.contains(i)) pairs[i],
-    ];
-  }
-
-  List<_BreakoutHierarchyPath> _breakoutHierarchyPathsForPair(
-    int pairIndex,
-    String tableName,
-    _PanelSavePair pair,
-  ) {
-    final entries = _breakoutLeafEntriesForTable(tableName, pair.draft);
-    if (entries.isEmpty) {
-      final panel = _panelRecordForSamples(tableName, pair.draft, [
-        pair.sample,
-      ]);
-      final panelSample = _panelSampleRecordForStationSample(
-        tableName: tableName,
-        panelId: panel.id,
-        draft: pair.draft,
-        sample: pair.sample,
-      );
-      return [
-        _BreakoutHierarchyPath(
-          pairIndex: pairIndex,
-          sessionId: pair.sample.auditSessionId,
-          tableName: tableName,
-          scopeType: panelSample.scopeType,
-          house: _blankToNull(panelSample.houseId),
-          setter: _blankToNull(panelSample.setterId),
-          hatcher: _blankToNull(panelSample.hatcherId),
-          trolley: _blankToNull(panelSample.trolleyLabel),
-          tray: _blankToNull(panelSample.trayLabel),
-          position: _blankToNull(panelSample.position),
-        ),
-      ];
-    }
-
-    final breakoutType = _breakoutTypeForTable(tableName);
-    final useDraftBatchHierarchy =
-        breakoutType != EggBreakoutType.freshEggBreakout &&
-        SampleMode.isCompare(pair.draft.sampleMode);
-    return [
-      for (final entry in entries)
-        _BreakoutHierarchyPath(
-          pairIndex: pairIndex,
-          sessionId: pair.sample.auditSessionId,
-          tableName: tableName,
-          scopeType: _breakoutScopeTypeForEntry(
-            tableName: tableName,
-            entry: entry,
-            breakoutType: breakoutType,
-          ),
-          house: breakoutType == EggBreakoutType.freshEggBreakout
-              ? _blankToNull(entry.house)
-              : _blankToNull(entry.house) ??
-                    (useDraftBatchHierarchy
-                        ? _blankToNull(pair.draft.houseId)
-                        : null),
-          setter: breakoutType == EggBreakoutType.freshEggBreakout
-              ? null
-              : _blankToNull(entry.setter) ??
-                    (useDraftBatchHierarchy
-                        ? _blankToNull(pair.draft.setterId)
-                        : null),
-          hatcher: breakoutType == EggBreakoutType.freshEggBreakout
-              ? null
-              : _blankToNull(entry.hatcher) ??
-                    (useDraftBatchHierarchy
-                        ? _blankToNull(pair.draft.hatcherId)
-                        : null),
-          trolley: breakoutType == EggBreakoutType.freshEggBreakout
-              ? null
-              : _blankToNull(entry.trolley),
-          tray: _blankToNull(entry.tray),
-          position: breakoutType == EggBreakoutType.freshEggBreakout
-              ? null
-              : _blankToNull(entry.position),
-        ),
-    ];
-  }
-
-  Future<void> _deleteEggQualityRowsBySessionId(
-    List<_PanelSavePair> pairs,
-  ) async {
-    if (pairs.isEmpty) return;
-    final sessionId = pairs.first.sample.auditSessionId;
-    if (sessionId.isEmpty) return;
-    await _panelSampleRepository.deleteRowsBySessionId(
-      'egg_quality',
-      sessionId,
-    );
-  }
-
-  bool _hasMeaningfulPanelData(_PanelSavePair pair) {
-    return _panelTablesForDraft(
-      pair.draft,
-    ).any((tableName) => _hasMeaningfulPanelTableData(tableName, pair.draft));
-  }
-
-  bool _hasMeaningfulPanelTableData(String tableName, AuditModel draft) {
-    return switch (tableName) {
-      'egg_storage' => _hasSavableEggStorageData(draft),
-      'egg_quality' => _hasMeaningfulEggQualityData(draft),
-      'chick_quality' => _hasMeaningfulChickData(draft),
-      'fresh_egg_breakout' ||
-      'candled_egg_breakout' ||
-      'residue_breakout' => _hasMeaningfulHatchData(draft),
-      'setter_optimizing' => _hasMeaningfulSetterData(draft),
-      'hatcher_optimizing' => _hasMeaningfulHatcherData(draft),
-      _ => false,
-    };
-  }
-
-  Future<void> _deleteDiscardedPanelRows(List<_PanelSavePair> pairs) async {
-    final deleted = <String>{};
-    for (final pair in pairs) {
-      if (pair.draft.auditType == 'Egg') continue;
-      final sessionId = pair.sample.auditSessionId;
-      if (sessionId.isEmpty) continue;
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
-        if (_hasMeaningfulPanelTableData(tableName, pair.draft)) continue;
-        final key = '$sessionId::$tableName';
-        if (!deleted.add(key)) continue;
-        await _panelSampleRepository.deleteRowsBySessionId(
-          tableName,
-          sessionId,
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteDiscardedChickWeightRows(
-    List<StationSampleModel> allSamples,
-    List<StationSampleModel> meaningfulSamples,
-  ) async {
-    if (allSamples.isEmpty) return;
-    final meaningfulIds = meaningfulSamples.map((sample) => sample.id).toSet();
-    final discardedIds = {
-      for (final sample in allSamples)
-        if (!meaningfulIds.contains(sample.id)) sample.id,
-    };
-    if (discardedIds.isEmpty) return;
-    final sessionId = allSamples.first.auditSessionId;
-    if (sessionId.isEmpty) return;
-    await _panelSampleRepository.deleteRowsBySessionIdForSampleIds(
-      'chick_weights',
-      sessionId,
-      discardedIds,
-    );
-  }
-
-  Future<void> _deletePanelRowsForRemovedSamples({
-    required List<AuditModel> draftsToSave,
-    required List<String> removedStationSampleIds,
-  }) async {
-    final sampleIds = removedStationSampleIds
-        .map((id) => id.trim())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    if (sampleIds.isEmpty || draftsToSave.isEmpty) return;
-
-    final sessionId =
-        _activeSessionId ??
-        draftsToSave.first.sessionId ??
-        (_stationSamples.isEmpty ? null : _stationSamples.first.auditSessionId);
-    if (sessionId == null || sessionId.isEmpty) return;
-
-    final tableNames = <String>{
-      for (final draft in draftsToSave) ..._panelTablesForDraft(draft),
-      if (_isChicksContext) 'chick_weights',
-    };
-    for (final tableName in tableNames) {
-      await _panelSampleRepository.deleteRowsBySessionIdForSampleIds(
-        tableName,
-        sessionId,
-        sampleIds,
-      );
-    }
-  }
-
-  Future<void> _pruneStalePanelHierarchyRows(List<_PanelSavePair> pairs) async {
-    if (pairs.isEmpty) return;
-    final pairsByKey = <String, List<_PanelSavePair>>{};
-    final tableByKey = <String, String>{};
-    for (final pair in pairs) {
-      final sessionId = pair.sample.auditSessionId;
-      if (sessionId.isEmpty) continue;
-      for (final tableName in _panelTablesForScopedPrune(pair)) {
-        final key = '$sessionId::$tableName';
-        tableByKey[key] = tableName;
-        pairsByKey.putIfAbsent(key, () => <_PanelSavePair>[]).add(pair);
-      }
-    }
-    for (final entry in pairsByKey.entries) {
-      final separatorIndex = entry.key.indexOf('::');
-      final sessionId = entry.key.substring(0, separatorIndex);
-      final tableName = tableByKey[entry.key];
-      if (tableName == null) continue;
-      await _pruneStalePanelHierarchyRowsForTable(
-        tableName,
-        sessionId,
-        entry.value,
-      );
-    }
-  }
-
-  Iterable<String> _panelTablesForScopedPrune(_PanelSavePair pair) sync* {
-    for (final tableName in _panelTablesForDraft(pair.draft)) {
-      if (tableName == 'egg_storage') continue;
-      if (_isEggBreakoutPanelTable(tableName)) continue;
-      if (pair.draft.auditType == 'Egg' &&
-          tableName == 'egg_quality' &&
-          !_hasMeaningfulEggQualityData(pair.draft)) {
-        continue;
-      }
-      yield tableName;
-    }
-  }
-
-  Future<void> _pruneStalePanelHierarchyRowsForTable(
-    String tableName,
-    String sessionId,
-    List<_PanelSavePair> pairs,
-  ) async {
-    if (pairs.isEmpty) return;
-    final keepIds = <String>{};
-    final keepHierarchyRows = <Map<String, Object?>>[];
-    for (final pair in pairs) {
-      final row = _panelHierarchyRowForSample(
-        tableName,
-        pair.draft,
-        pair.sample,
-      );
-      keepIds.add(row['id']! as String);
-      keepHierarchyRows.add(row);
-    }
-    await _panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
-      tableName,
-      sessionId,
-      keepIds,
-      keepHierarchyRows: keepHierarchyRows,
-    );
-  }
-
-  Future<void> _pruneStaleBreakoutRows(List<_PanelSavePair> pairs) async {
-    if (pairs.isEmpty) return;
-    final pairsByKey = <String, List<_PanelSavePair>>{};
-    final tableByKey = <String, String>{};
-    for (final pair in pairs) {
-      final sessionId = pair.sample.auditSessionId;
-      if (sessionId.isEmpty) continue;
-      for (final tableName in _panelTablesForDraft(pair.draft)) {
-        if (!_isEggBreakoutPanelTable(tableName)) continue;
-        final key = '$sessionId::$tableName';
-        tableByKey[key] = tableName;
-        pairsByKey.putIfAbsent(key, () => <_PanelSavePair>[]).add(pair);
-      }
-    }
-
-    for (final entry in pairsByKey.entries) {
-      final separatorIndex = entry.key.indexOf('::');
-      final sessionId = entry.key.substring(0, separatorIndex);
-      final tableName = tableByKey[entry.key];
-      if (tableName == null) continue;
-      final keepIds = <String>{};
-      final keepHierarchyRows = <Map<String, Object?>>[];
-      for (final pair in entry.value) {
-        final rows = await _breakoutPanelRowsForTable(
-          tableName,
-          pair.draft,
-          pair.sample,
-        );
-        for (final row in rows) {
-          keepIds.add(row.sample.id);
-          keepHierarchyRows.add(_panelHierarchyRowForPanelSample(row.sample));
-        }
-      }
-      await _panelSampleRepository.deleteRowsBySessionIdExcept(
-        tableName,
-        sessionId,
-        keepIds,
-        keepHierarchyRows: keepHierarchyRows,
-      );
-    }
-  }
-
-  Map<String, Object?> _panelHierarchyRowForPanelSample(
-    PanelSampleRecord sample,
-  ) {
-    return {
-      'id': sample.id,
-      'house': _blankToNull(sample.houseId) ?? _blankToNull(sample.houseName),
-      'setter': _blankToNull(sample.setterId),
-      'hatcher': _blankToNull(sample.hatcherId),
-      'trolley':
-          _blankToNull(sample.trolleyLabel) ?? _blankToNull(sample.trolleyId),
-      'tray': _blankToNull(sample.trayLabel) ?? _blankToNull(sample.trayId),
-      'position': _blankToNull(sample.position),
-    };
-  }
-
-  Map<String, Object?> _panelHierarchyRowForSample(
-    String tableName,
-    AuditModel draft,
-    StationSampleModel sample,
-  ) {
-    final panel = _panelRecordForSamples(tableName, draft, [sample]);
-    final panelSample = _panelSampleRecordForStationSample(
-      tableName: tableName,
-      panelId: panel.id,
-      draft: draft,
-      sample: sample,
-    );
-    return {
-      'id': panelSample.id,
-      'house':
-          _blankToNull(panelSample.houseId) ??
-          _blankToNull(panelSample.houseName) ??
-          _blankToNull(panel.house),
-      'setter':
-          _blankToNull(panelSample.setterId) ?? _blankToNull(panel.setter),
-      'hatcher':
-          _blankToNull(panelSample.hatcherId) ?? _blankToNull(panel.hatcher),
-      'trolley':
-          _blankToNull(panelSample.trolleyLabel) ??
-          _blankToNull(panelSample.trolleyId) ??
-          _blankToNull(panel.trolley),
-      'tray':
-          _blankToNull(panelSample.trayLabel) ??
-          _blankToNull(panelSample.trayId) ??
-          _blankToNull(panel.tray),
-      'position':
-          _blankToNull(panelSample.position) ?? _blankToNull(panel.position),
-    };
-  }
-
-  bool _hasMeaningfulEggQualityData(AuditModel draft) {
-    return _hasMeaningfulEggQualityTrayData(draft.esUvTrays) ||
-        _hasMeaningfulWeightList(draft.esEggWeights) ||
-        (draft.esEggSampleSize ?? 0) > 0 ||
-        draft.esEggAvgWeight != null ||
-        draft.esEggUniformityPct != null ||
-        draft.esEggCvPct != null;
-  }
-
-  bool _hasMeaningfulEggQualityMetadata(AuditModel draft) {
-    return _isMeaningfulPooledEggStorageValue(
-          'esEggQualityStorageDays',
-          draft.esEggQualityStorageDays,
-        ) ||
-        draft.esEggBmkAge != null ||
-        draft.esEggBmkWeight != null ||
-        _hasText(draft.notes);
-  }
-
-  bool _hasMeaningfulEggQualityTrayData(String? source) {
-    return _decodedMaps(source).any((tray) {
-      return tray['qualityTouched'] == true ||
-          (_asInt(tray['cuticleDamage']) ?? 0) > 0 ||
-          (_asInt(tray['washed']) ?? 0) > 0 ||
-          (_asInt(tray['dirty']) ?? 0) > 0 ||
-          _isMeaningfulJsonValue(tray['photoPath']);
-    });
-  }
-
-  bool _hasMeaningfulWeightList(String? source) {
-    if (source == null || source.trim().isEmpty) return false;
-    return _weightSampleSizeFromDecoded(_decodedWeights(source)) != null;
-  }
-
-  bool _hasMeaningfulChickWeightSample(
-    AuditModel draft,
-    StationSampleModel sample,
-  ) {
-    final values = _chickWeightValuesForSample(sample, fallback: draft);
-    return _hasMeaningfulWeightList(values['weightsJson'] as String?) ||
-        (_asInt(values['sampleSize']) ?? 0) > 0 ||
-        values['avgWeight'] != null ||
-        values['uniformityPct'] != null ||
-        values['cvPct'] != null;
-  }
-
-  bool _isMeaningfulJsonValue(Object? value) {
-    if (value == null) return false;
-    if (value is String) return value.trim().isNotEmpty;
-    if (value is Iterable) return value.any(_isMeaningfulJsonValue);
-    if (value is Map) return value.values.any(_isMeaningfulJsonValue);
-    return true;
-  }
-
-  Future<void> _saveEggBreakoutPanelTable(
-    String tableName,
-    AuditModel draft,
-    StationSampleModel sample,
-  ) async {
-    final rows = await _breakoutPanelRowsForTable(tableName, draft, sample);
-    for (final row in rows) {
-      await _panelSampleRepository.savePanelWithSamples(
-        panel: row.panel,
-        samples: [row.sample],
-      );
-    }
-  }
-
-  Future<List<({PanelRecord panel, PanelSampleRecord sample})>>
-  _breakoutPanelRowsForTable(
-    String tableName,
-    AuditModel draft,
-    StationSampleModel sample,
-  ) async {
-    final entries = _breakoutLeafEntriesForTable(tableName, draft);
-    if (entries.isEmpty) {
-      final panel = _panelRecordForSamples(tableName, draft, [sample]);
-      return [
-        (
-          panel: panel,
-          sample: _panelSampleRecordForStationSample(
-            tableName: tableName,
-            panelId: panel.id,
-            draft: draft,
-            sample: sample,
-          ),
-        ),
-      ];
-    }
-
-    final breakoutType = _breakoutTypeForTable(tableName);
-    final benchmark = await _breakoutBenchmarkForDraft(draft, breakoutType);
-    final basePanel = _panelRecordForSamples(tableName, draft, [sample]);
-    final baseRowId = '${basePanel.id}:${sample.id}';
-    final rows = <({PanelRecord panel, PanelSampleRecord sample})>[];
-    for (var i = 0; i < entries.length; i++) {
-      final entry = entries[i];
-      final label = _breakoutTrayLabel(entry, i);
-      final isFresh = breakoutType == EggBreakoutType.freshEggBreakout;
-      final useDraftBatchHierarchy =
-          !isFresh && SampleMode.isCompare(draft.sampleMode);
-      final entryHouse = _blankToNull(entry.house);
-      final entrySetter = _blankToNull(entry.setter);
-      final entryHatcher = _blankToNull(entry.hatcher);
-      final houseValue = isFresh
-          ? entryHouse
-          : entryHouse ??
-                (useDraftBatchHierarchy ? _blankToNull(draft.houseId) : null);
-      final setterValue = isFresh
-          ? null
-          : entrySetter ??
-                (useDraftBatchHierarchy ? _blankToNull(draft.setterId) : null);
-      final hatcherValue = isFresh
-          ? null
-          : entryHatcher ??
-                (useDraftBatchHierarchy ? _blankToNull(draft.hatcherId) : null);
-      final values = _breakoutValuesForEntry(
-        tableName,
-        draft,
-        entry,
-        benchmark,
-      );
-      final scopeType = _breakoutScopeTypeForEntry(
-        tableName: tableName,
-        entry: entry,
-        breakoutType: breakoutType,
-      );
-      final panel = PanelRecord(
-        id: basePanel.id,
-        tableName: tableName,
-        sessionId: basePanel.sessionId,
-        customerId: basePanel.customerId,
-        flockId: basePanel.flockId,
-        hatcheryId: basePanel.hatcheryId,
-        date: basePanel.date,
-        breed: basePanel.breed,
-        flockAgeWeeks: basePanel.flockAgeWeeks,
-        storagePeriodDays: basePanel.storagePeriodDays,
-        bmkAgeWeeks: _asInt(values['bmkAgeWeeks']) ?? basePanel.bmkAgeWeeks,
-        mode: scopeType == SamplingLayer.pool
-            ? PanelRecord.modePool
-            : PanelRecord.modeCompare,
-        scopeType: scopeType,
-        scopeLabel: _breakoutScopeLabelForEntry(scopeType, entry, label),
-        sampleIndex: i + 1,
-        groupKey: basePanel.groupKey,
-        groupLabel:
-            basePanel.groupLabel ?? _breakoutGroupLabelForScope(scopeType),
-        notes: basePanel.notes,
-        syncStatus: basePanel.syncStatus,
-        lastSyncedAt: basePanel.lastSyncedAt,
-        syncError: basePanel.syncError,
-        values: values,
-        createdAt: basePanel.createdAt,
-        updatedAt: basePanel.updatedAt,
-      );
-      final panelSample = PanelSampleRecord(
-        id: _breakoutEntryRowId(baseRowId, i, entry, scopeType),
-        panelId: basePanel.id,
-        scopeType: scopeType,
-        scopeLabel: _breakoutScopeLabelForEntry(scopeType, entry, label),
-        sampleIndex: i + 1,
-        houseId: houseValue,
-        houseName: houseValue,
-        setterId: setterValue,
-        hatcherId: hatcherValue,
-        trolleyId: isFresh || _scopeBeforeTrolley(scopeType)
-            ? null
-            : _blankToNull(entry.trolley),
-        trolleyLabel: isFresh || _scopeBeforeTrolley(scopeType)
-            ? null
-            : _blankToNull(entry.trolley),
-        trayId: scopeType == SamplingLayer.tray
-            ? _blankToNull(entry.tray) ?? _blankToNull(entry.id)
-            : null,
-        trayLabel: scopeType == SamplingLayer.tray
-            ? _blankToNull(entry.tray) ?? label
-            : null,
-        position: isFresh || scopeType != SamplingLayer.tray
-            ? null
-            : _blankToNull(entry.position),
-        sampleSize: entry.totalSample,
-        summaryJson: jsonEncode(entry.toJson()),
-        rawJson: _compactJson({
-          ...sample.toMap(),
-          'breakoutTray': entry.toJson(),
-        }),
-        notes: sample.notes,
-        createdAt: sample.createdAt,
-        updatedAt: sample.updatedAt,
-      );
-      rows.add((panel: panel, sample: panelSample));
-    }
-    return rows;
-  }
-
-  Future<void> _savePanelTableWithSamples(
-    String tableName,
-    AuditModel draft,
-    List<StationSampleModel> samples,
-  ) async {
-    if (samples.isEmpty) return;
-    final panel = _panelRecordForSamples(tableName, draft, samples);
-    final panelSamples = [
-      for (final sample in samples)
-        _panelSampleRecordForStationSample(
-          tableName: tableName,
-          panelId: panel.id,
-          draft: draft,
-          sample: sample,
-        ),
-    ];
-    await _panelSampleRepository.savePanelWithSamples(
-      panel: panel,
-      samples: panelSamples,
-    );
-  }
-
-  Future<void> _saveChickWeightPanelSamples(
-    AuditModel draft,
-    List<StationSampleModel> samples,
-  ) async {
-    final pairs = [
-      for (final sample in samples)
-        (
-          draft: _draftWithChickWeightSampleValues(draft, sample),
-          sample: sample,
-        ),
-    ];
-    for (final pair in pairs) {
-      await _savePanelTableWithSamples('chick_weights', pair.draft, [
-        pair.sample,
-      ]);
-    }
-    await _pruneStalePanelHierarchyRowsForTable(
-      'chick_weights',
-      samples.first.auditSessionId,
-      pairs,
-    );
-  }
-
-  List<String> _panelTablesForDraft(AuditModel draft) {
-    return switch (draft.auditType) {
-      'Egg' => const ['egg_storage', 'egg_quality'],
-      'Chicks' => const ['chick_quality'],
-      'Hatch Analysis & Egg Breakouts' => [
-        switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
-          EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
-          EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
-          EggBreakoutType.residueHatchDay => 'residue_breakout',
-        },
-      ],
-      'Setters' => const ['setter_optimizing'],
-      'Hatchers' => const ['hatcher_optimizing'],
-      _ => const [],
-    };
-  }
-
-  PanelRecord _panelRecordForSamples(
-    String tableName,
-    AuditModel draft,
-    List<StationSampleModel> samples,
-  ) {
-    final compareLayer = _compareLayerForPanel(tableName, samples);
-    final mode = compareLayer == null
-        ? PanelRecord.modePool
-        : PanelRecord.modeCompare;
-    return PanelRecord(
-      id: '${samples.first.auditSessionId}:$tableName:${draft.id}',
-      tableName: tableName,
-      sessionId: samples.first.auditSessionId,
-      customerId: draft.customerId,
-      flockId: _blankToNull(draft.flockId),
-      date: draft.date,
-      hatcheryId: _blankToNull(_context?.hatcheryId),
-      breed: _context?.breed ?? draft.soBreed ?? draft.hoBreed,
-      flockAgeWeeks: _context?.flockAgeWeeks,
-      storagePeriodDays: _storageDaysForPanel(tableName, draft),
-      bmkAgeWeeks: _legacyBmkWeeksForDraft(draft),
-      mode: mode,
-      scopeType: compareLayer ?? SamplingLayer.pool,
-      notes: draft.notes,
-      values: _panelValuesForDraft(tableName, draft),
-      createdAt: draft.createdAt,
-      updatedAt: draft.updatedAt,
-    );
-  }
-
-  Map<String, Object?> _panelValuesForDraft(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return switch (tableName) {
-      'egg_storage' => _eggStorageValues(draft),
-      'egg_quality' => _eggQualityValues(draft),
-      'chick_quality' => _chickQualityValues(draft),
-      'chick_weights' => _chickWeightValues(draft),
-      'fresh_egg_breakout' => _freshBreakoutValues(draft),
-      'candled_egg_breakout' => _candledBreakoutValues(draft),
-      'residue_breakout' => _residueBreakoutValues(draft),
-      'setter_optimizing' => {
-        'machineType': draft.soMachineType,
-        'setpointF': draft.soSetpointF,
-        'actualF': draft.soActualF,
-        'setpointRh': draft.soSetpointRh,
-        'actualRh': draft.soActualRh,
-        'batchSize': draft.soBatchSize,
-        'batchCount': draft.soBatchCount,
-        'totalEggsSet': draft.soTotalEggsSet,
-        'turningAngle': draft.soTurningAngle,
-        'co2Ppm': draft.soCo2,
-        'co2Photo': draft.soCo2Photo,
-        'estBreed': draft.soBreed,
-        'incubationAgeDays': draft.soIncubationAge,
-        'incubationHours': draft.soIncubationHours,
-        'estReadingsJson': draft.soEstReadings,
-        'estPhotosJson': draft.soEstPhotos,
-        'estSamplesJson': draft.soEstSamplesJson,
-        'estSampleSize': _decodedReadingCount(draft.soEstReadings),
-        'estAvg': draft.soEstAvg,
-        'estCvPct': draft.soEstCv,
-        'machineScreenPhoto': draft.soMachineScreenPhoto,
-      },
-      'hatcher_optimizing' => {
-        'setpointF': draft.hoSetpointF,
-        'setpointRh': draft.hoSetpointRh,
-        'incubationAgeDays': draft.hoIncubationAge,
-        'incubationHours': draft.hoIncubationHours,
-        'co2Ppm': draft.hoCo2,
-        'co2Photo': draft.hoCo2Photo,
-        'cvtReadingsJson': draft.hoCvtReadings,
-        'cvtPhotosJson': draft.hoCvtPhotos,
-        'cvtSampleSize': _decodedReadingCount(draft.hoCvtReadings),
-        'cvtAvg': draft.hoCvtAvg,
-        'cvtCvPct': draft.hoCvtCv,
-        'chickPanting': _boolToInt(draft.hoChickPanting),
-        'chickPantingPhoto': draft.hoChickPantingPhoto,
-        'meconium': draft.hoMeconium,
-        'transferDay': draft.hoTransferDay,
-      },
-      _ => const <String, Object?>{},
-    };
-  }
-
-  Map<String, Object?> _eggStorageValues(AuditModel draft) {
-    final trays = _decodedMaps(draft.esUvTrays);
-    var trayEggCount = 0;
-    var upsideDown = 0;
-    for (final tray in trays) {
-      trayEggCount += _asInt(tray['totalEggs']) ?? 0;
-      upsideDown += _asInt(tray['upsideDown']) ?? 0;
-    }
-    return {
-      'storagePeriodDays': draft.esEggStorageDays ?? 0,
-      'estReadingsJson': draft.esEstReadingsJson,
-      'estAvg': draft.esEstAvg,
-      'estCvPct': draft.esEstCv,
-      'turningTimes': draft.esTurningTimes,
-      'traySpacing': draft.esTraySpacing,
-      'coolerProximity': draft.esCoolerProximity,
-      'condensationPresent': _boolToInt(draft.esCondensation),
-      'upsideDownCount': upsideDown,
-      'upsideDownPct': _pct(upsideDown, trayEggCount),
-    };
-  }
-
-  Map<String, Object?> _eggQualityValues(AuditModel draft) {
-    final trays = _decodedMaps(draft.esUvTrays);
-    var trayEggCount = 0;
-    var cuticleDamage = 0;
-    var washed = 0;
-    var dirty = 0;
-    for (final tray in trays) {
-      trayEggCount += _asInt(tray['totalEggs']) ?? 0;
-      cuticleDamage += _asInt(tray['cuticleDamage']) ?? 0;
-      washed += _asInt(tray['washed']) ?? 0;
-      dirty += _asInt(tray['dirty']) ?? 0;
-    }
-    final affected = cuticleDamage + washed + dirty;
-    final uvDenominator = trayEggCount == 0
-        ? draft.esUvSampleSize
-        : trayEggCount;
-    return {
-      'storagePeriodDays':
-          draft.esEggQualityStorageDays ?? draft.esEggStorageDays ?? 0,
-      'uvTrayEggCount': uvDenominator,
-      'uvCuticleDamageCount': cuticleDamage,
-      'uvCuticleDamagePct': _pct(cuticleDamage, uvDenominator),
-      'uvWashedCount': washed,
-      'uvWashedPct': _pct(washed, uvDenominator),
-      'uvDirtyCount': dirty,
-      'uvDirtyPct': _pct(dirty, uvDenominator),
-      'uvAffectedCount': affected,
-      'uvAffectedPct': _pct(affected, uvDenominator),
-      'eggWeightsJson': draft.esEggWeights,
-      'eggSampleSize': draft.esEggSampleSize,
-      'eggAvgWeight': draft.esEggAvgWeight,
-      'eggUniformityPct': draft.esEggUniformityPct,
-      'eggCvPct': draft.esEggCvPct,
-      'eggBmkAgeWeeks': draft.esEggBmkAge,
-      'eggBmkWeight': draft.esEggBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _chickQualityValues(AuditModel draft) {
-    final size = draft.pasgarSampleSize;
-    final culledChicksTotalEggSet =
-        draft.culledChicksTotalEggSet ??
-        (draft.culledChicksAnalysisJson == null
-            ? null
-            : kDefaultCulledChicksTotalEggSet);
-    final culledChicksSummary = CulledChicksAnalysisSummary.fromJson(
-      draft.culledChicksAnalysisJson,
-      totalEggSet: culledChicksTotalEggSet,
-    );
-    return {
-      'pasgarSampleSize': size,
-      'pasgarReflexesCount': draft.pasgarReflexes,
-      'pasgarBeakCount': draft.pasgarBeak,
-      'pasgarNavelCount': draft.pasgarNavel,
-      'pasgarBellyCount': draft.pasgarBelly,
-      'pasgarLegCount': draft.pasgarLeg,
-      'pasgarFeatherDevCount': draft.pasgarFeatherDev,
-      'pasgarReflexesPct': _pct(draft.pasgarReflexes, size),
-      'pasgarBeakPct': _pct(draft.pasgarBeak, size),
-      'pasgarNavelPct': _pct(draft.pasgarNavel, size),
-      'pasgarBellyPct': _pct(draft.pasgarBelly, size),
-      'pasgarLegPct': _pct(draft.pasgarLeg, size),
-      'pasgarFeatherDevPct': _pct(draft.pasgarFeatherDev, size),
-      'pasgarFinalScore': draft.pasgarFinalScore,
-      'yfbmPhoto': draft.yfbmPhoto,
-      'yfbmEntriesJson': draft.yfbmEntries,
-      'yfbmEntryCount': _decodedListLength(draft.yfbmEntries),
-      'yfbmAvgPct': draft.yfbmAvgPct,
-      'yfbmCvPct': draft.yfbmCvPct,
-      'cvtReadingsJson': draft.cvtReadingsJson,
-      'cvtPhotosJson': draft.cvtPhotosJson,
-      'cvtSampleSize': draft.cvtSampleSize,
-      'cvtTopBasket': draft.cvtTopBasket,
-      'cvtTopTemp': draft.cvtTopTemp,
-      'cvtTopPhoto': draft.cvtTopPhoto,
-      'cvtMiddleBasket': draft.cvtMiddleBasket,
-      'cvtMiddleTemp': draft.cvtMiddleTemp,
-      'cvtMiddlePhoto': draft.cvtMiddlePhoto,
-      'cvtBottomBasket': draft.cvtBottomBasket,
-      'cvtBottomTemp': draft.cvtBottomTemp,
-      'cvtBottomPhoto': draft.cvtBottomPhoto,
-      'cvtAvgTemp': draft.cvtAvg,
-      'cvtCvPct': draft.cvtCvPct,
-      ..._chickPmValues(draft),
-      'culledChicksTotalEggSet': culledChicksTotalEggSet,
-      'culledChicksAnalysisJson': culledChicksSummary.encodedJson,
-      'culledChicksAffectedPct': culledChicksSummary.affectedPct,
-      'culledChicksTopCategory': culledChicksSummary.topCategory,
-      'culledChicksTopSubtype': culledChicksSummary.topSubtype,
-    };
-  }
-
-  Map<String, Object?> _chickWeightValues(AuditModel draft) {
-    return {
-      'weightsJson': draft.chickWeights,
-      'sampleSize': draft.chickSampleSize,
-      'avgWeight': draft.chickAvgWeight,
-      'uniformityPct': draft.chickUniformityPct,
-      'cvPct': draft.chickCvPct,
-      'bmkAgeWeeks': draft.chickBmkAge,
-      'bmkWeight': draft.chickBmkWeight,
-    };
-  }
-
-  AuditModel _draftWithChickWeightSampleValues(
-    AuditModel draft,
-    StationSampleModel sample,
-  ) {
-    final values = _chickWeightValuesForSample(sample, fallback: draft);
-    final map = draft.toMap()
-      ..['chickWeights'] = values['weightsJson']
-      ..['chickSampleSize'] = values['sampleSize']
-      ..['chickAvgWeight'] = values['avgWeight']
-      ..['chickUniformityPct'] = values['uniformityPct']
-      ..['chickCvPct'] = values['cvPct']
-      ..['chickBmkAge'] = values['bmkAgeWeeks']
-      ..['chickBmkWeight'] = values['bmkWeight'];
-    return AuditModel.fromMap(map);
-  }
-
-  Map<String, Object?> _chickWeightValuesForSample(
-    StationSampleModel sample, {
-    required AuditModel fallback,
-  }) {
-    final summary = _decodedMap(sample.resultSummaryJson);
-    if (summary == null) {
-      if (sample.sampleMode == StationSampleModel.sampleModeComparison) {
-        return _emptyChickWeightValues(fallback);
-      }
-      return _chickWeightValues(fallback);
-    }
-
-    final weights = summary['chickWeights'];
-    return {
-      'weightsJson': weights is List ? jsonEncode(weights) : null,
-      'sampleSize': weights is List
-          ? _weightSampleSizeFromDecoded(weights)
-          : null,
-      'avgWeight': _asDouble(summary['chickAvgWeight']),
-      'uniformityPct': _asDouble(summary['chickUniformityPct']),
-      'cvPct': _asDouble(summary['chickCvPct']),
-      'bmkAgeWeeks': fallback.chickBmkAge,
-      'bmkWeight': fallback.chickBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _emptyChickWeightValues(AuditModel fallback) {
-    return {
-      'weightsJson': null,
-      'sampleSize': null,
-      'avgWeight': null,
-      'uniformityPct': null,
-      'cvPct': null,
-      'bmkAgeWeeks': fallback.chickBmkAge,
-      'bmkWeight': fallback.chickBmkWeight,
-    };
-  }
-
-  Map<String, Object?> _chickPmValues(AuditModel draft) {
-    return {
-      'pmSampleSize': draft.pmSampleSize,
-      'pmCollectionPoint': draft.pmCollectionPoint,
-      'pmOmphalitisCount': draft.pmOmphalitisCount,
-      'pmOmphalitisSeverity': draft.pmOmphalitisSeverity,
-      'pmGaseousCecaCount': draft.pmGaseousCecaCount,
-      'pmGaseousCecaSeverity': draft.pmGaseousCecaSeverity,
-      'pmGizzardErosionsCount': draft.pmGizzardErosionsCount,
-      'pmGizzardErosionsSeverity': draft.pmGizzardErosionsSeverity,
-      'pmAirSacCaseationsCount': draft.pmAirSacCaseationsCount,
-      'pmAirSacCaseationsSeverity': draft.pmAirSacCaseationsSeverity,
-      'pmUrolithiasisCount': draft.pmUrolithiasisCount,
-      'pmUrolithiasisSeverity': draft.pmUrolithiasisSeverity,
-      'pmNephritisCount': draft.pmNephritisCount,
-      'pmNephritisSeverity': draft.pmNephritisSeverity,
-      'pmGeneralSepticemiaCount': draft.pmGeneralSepticemiaCount,
-      'pmGeneralSepticemiaSeverity': draft.pmGeneralSepticemiaSeverity,
-      'pmOtherLesionsJson': draft.pmOtherLesionsJson,
-      'pmSuspectedCauseAuto': draft.pmSuspectedCauseAuto,
-      'pmSuspectedCauseManual': draft.pmSuspectedCauseManual,
-      'pmPhotosJson': draft.pmPhotosJson,
-    };
-  }
-
-  bool _isEggBreakoutPanelTable(String tableName) {
-    return tableName == 'fresh_egg_breakout' ||
-        tableName == 'candled_egg_breakout' ||
-        tableName == 'residue_breakout';
-  }
-
-  EggBreakoutType _breakoutTypeForTable(String tableName) {
-    return switch (tableName) {
-      'fresh_egg_breakout' => EggBreakoutType.freshEggBreakout,
-      'candled_egg_breakout' => EggBreakoutType.candledEggBreakout,
-      'residue_breakout' => EggBreakoutType.residueHatchDay,
-      _ => EggBreakoutType.fromStorageValue(null),
-    };
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutTrayEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return _breakoutEntriesForTable(
-      tableName,
-      draft,
-    ).where((entry) => entry.sampleMode == EggBreakoutSampleMode.tray).toList();
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutPoolEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    return _breakoutEntriesForTable(
-      tableName,
-      draft,
-    ).where((entry) => entry.sampleMode == EggBreakoutSampleMode.pool).toList();
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutLeafEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    final trayEntries = _breakoutTrayEntriesForTable(tableName, draft);
-    if (trayEntries.isNotEmpty) return trayEntries;
-    return _breakoutPoolEntriesForTable(tableName, draft);
-  }
-
-  List<EggBreakoutSampleEntry> _breakoutEntriesForTable(
-    String tableName,
-    AuditModel draft,
-  ) {
-    final type = _breakoutTypeForTable(tableName);
-    return EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    ).where((entry) => entry.breakoutType == type).toList();
-  }
-
-  Future<Map<String, Object?>?> _breakoutBenchmarkForDraft(
-    AuditModel draft,
-    EggBreakoutType breakoutType,
-  ) async {
-    final ageDays = breakoutType.calculateBmkAgeDays(
-      currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDays(
-        flockAgeWeeks: _context?.flockAgeWeeks,
-        flockEntryDate: _context?.flockEntryDate,
-        auditDate: draft.date,
-      ),
-      storageDays: draft.ebStorageDays ?? draft.haStorageDays ?? 0,
-      candlingDay: draft.ebBreakoutAgeDays ?? 10,
-    );
-    if (ageDays == null) return null;
-    try {
-      return await _benchmarkLookup.nearestBreakoutBenchmark(
-        calculatedBmkAgeDays: ageDays,
-      );
-    } catch (error) {
-      safeDebugLog('Error loading breakout benchmark for save', error: error);
-      return null;
-    }
-  }
-
-  Map<String, Object?> _breakoutBmkContextValues(
-    AuditModel draft,
-    EggBreakoutType breakoutType,
-  ) {
-    final storageDays = draft.ebStorageDays ?? draft.haStorageDays ?? 0;
-    final bmkAgeDays = breakoutType.calculateBmkAgeDays(
-      currentFlockAgeDays: BmkAgeCalculator.currentFlockAgeDays(
-        flockAgeWeeks: _context?.flockAgeWeeks,
-        flockEntryDate: _context?.flockEntryDate,
-        auditDate: draft.date,
-      ),
-      storageDays: storageDays,
-      candlingDay: draft.ebBreakoutAgeDays ?? 10,
-    );
-    return {
-      'storagePeriodDays': storageDays,
-      'bmkAgeWeeks':
-          BmkAgeCalculator.displayWeekForDays(bmkAgeDays) ??
-          draft.ebBmkAge ??
-          draft.haBmkAge,
-    };
-  }
-
-  String _breakoutTrayLabel(EggBreakoutSampleEntry entry, int index) {
-    final label = entry.label.trim();
-    return label.isEmpty ? 'Tray ${index + 1}' : label;
-  }
-
-  String _breakoutEntryRowId(
-    String baseRowId,
-    int index,
-    EggBreakoutSampleEntry entry,
-    SamplingLayer scopeType,
-  ) {
-    if (index == 0) return baseRowId;
-    final entryId = _blankToNull(entry.id) ?? 'tray-${index + 1}';
-    return '$baseRowId:${scopeType.dbValue}:${index + 1}:$entryId';
-  }
-
-  SamplingLayer _breakoutScopeTypeForEntry({
-    required String tableName,
-    required EggBreakoutSampleEntry entry,
-    required EggBreakoutType breakoutType,
-  }) {
-    final allowed = PanelSampleSchema.byTable(tableName).allowedLayers;
-    final isFresh = breakoutType == EggBreakoutType.freshEggBreakout;
-    if (entry.sampleMode == EggBreakoutSampleMode.tray &&
-        allowed.contains(SamplingLayer.tray)) {
-      return SamplingLayer.tray;
-    }
-    if (!isFresh &&
-        _blankToNull(entry.trolley) != null &&
-        allowed.contains(SamplingLayer.trolley)) {
-      return SamplingLayer.trolley;
-    }
-    if (!isFresh &&
-        _blankToNull(entry.setter) != null &&
-        _blankToNull(entry.hatcher) != null &&
-        allowed.contains(SamplingLayer.setterHatcher)) {
-      return SamplingLayer.setterHatcher;
-    }
-    if (!isFresh &&
-        _blankToNull(entry.setter) != null &&
-        allowed.contains(SamplingLayer.setter)) {
-      return SamplingLayer.setter;
-    }
-    if (!isFresh &&
-        _blankToNull(entry.hatcher) != null &&
-        allowed.contains(SamplingLayer.hatcher)) {
-      return SamplingLayer.hatcher;
-    }
-    if (_blankToNull(entry.house) != null &&
-        allowed.contains(SamplingLayer.house)) {
-      return SamplingLayer.house;
-    }
-    return SamplingLayer.pool;
-  }
-
-  String _breakoutScopeLabelForEntry(
-    SamplingLayer scopeType,
-    EggBreakoutSampleEntry entry,
-    String fallbackLabel,
-  ) {
-    return switch (scopeType) {
-      SamplingLayer.house => _blankToNull(entry.house) ?? fallbackLabel,
-      SamplingLayer.setterHatcher =>
-        '${_blankToNull(entry.setter) ?? ''}/${_blankToNull(entry.hatcher) ?? ''}',
-      SamplingLayer.setter => _blankToNull(entry.setter) ?? fallbackLabel,
-      SamplingLayer.hatcher => _blankToNull(entry.hatcher) ?? fallbackLabel,
-      SamplingLayer.trolley => _blankToNull(entry.trolley) ?? fallbackLabel,
-      SamplingLayer.tray => _blankToNull(entry.tray) ?? fallbackLabel,
-      SamplingLayer.pool => 'Random',
-    };
-  }
-
-  String? _breakoutGroupLabelForScope(SamplingLayer scopeType) {
-    return switch (scopeType) {
-      SamplingLayer.house => 'House comparison',
-      SamplingLayer.setter ||
-      SamplingLayer.hatcher ||
-      SamplingLayer.setterHatcher => 'Machine comparison',
-      SamplingLayer.trolley => 'Trolley comparison',
-      SamplingLayer.tray => 'Tray comparison',
-      SamplingLayer.pool => null,
-    };
-  }
-
-  bool _scopeBeforeTrolley(SamplingLayer scopeType) {
-    return scopeType == SamplingLayer.pool ||
-        scopeType == SamplingLayer.house ||
-        scopeType == SamplingLayer.setter ||
-        scopeType == SamplingLayer.hatcher ||
-        scopeType == SamplingLayer.setterHatcher;
-  }
-
-  Map<String, Object?> _breakoutValuesForEntry(
-    String tableName,
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    return switch (tableName) {
-      'fresh_egg_breakout' => _freshBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      'candled_egg_breakout' => _candledBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      'residue_breakout' => _residueBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-      ),
-      _ => const <String, Object?>{},
-    };
-  }
-
-  Map<String, Object?> _freshBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark, {
-    EggBreakoutType breakoutType = EggBreakoutType.freshEggBreakout,
-  }) {
-    final total = entry.totalSample;
-    final infertilePct = _pct(entry.counts['infertile'], total);
-    final early24hPct = _pct(entry.counts['early24h'], total);
-    final early48hPct = _pct(entry.counts['early48h'], total);
-    final bloodRingPct = _pct(entry.counts['early72hBloodRing'], total);
-    return {
-      ..._breakoutBmkContextValues(draft, breakoutType),
-      'traySize': total ?? entry.traySize,
-      'infertileCount': entry.counts['infertile'],
-      'early24hCount': entry.counts['early24h'],
-      'early48hCount': entry.counts['early48h'],
-      'bloodRingCount': entry.counts['early72hBloodRing'],
-      'infertilePct': infertilePct,
-      'early24hPct': early24hPct,
-      'early48hPct': early48hPct,
-      'bloodRingPct': bloodRingPct,
-      'infertileDiffPct': _breakoutDiffPct(
-        benchmark,
-        'infertile',
-        infertilePct,
-      ),
-      'early24hDiffPct': _breakoutDiffPct(benchmark, 'early24h', early24hPct),
-      'early48hDiffPct': _breakoutDiffPct(benchmark, 'early48h', early48hPct),
-      'bloodRingDiffPct': _breakoutDiffPct(
-        benchmark,
-        'early72hBloodRing',
-        bloodRingPct,
-      ),
-    };
-  }
-
-  Map<String, Object?> _candledBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    final blackEyePct = _pct(entry.counts['blackEye'], entry.totalSample);
-    return {
-      ..._freshBreakoutValuesForEntry(
-        draft,
-        entry,
-        benchmark,
-        breakoutType: EggBreakoutType.candledEggBreakout,
-      ),
-      'candlingDay': draft.ebBreakoutAgeDays,
-      'position': _blankToNull(entry.position),
-      'blackEyeCount': entry.counts['blackEye'],
-      'blackEyePct': blackEyePct,
-      'blackEyeDiffPct': _breakoutDiffPct(benchmark, 'blackEye', blackEyePct),
-    };
-  }
-
-  Map<String, Object?> _residueBreakoutValuesForEntry(
-    AuditModel draft,
-    EggBreakoutSampleEntry entry,
-    Map<String, Object?>? benchmark,
-  ) {
-    final total = entry.totalSample;
-    final infertilePct = _pct(entry.counts['infertile'], total);
-    final earlyDeadPct = _pct(entry.counts['earlyDead'], total);
-    final midDeadPct = _pct(entry.counts['midDead'], total);
-    final lateDeadPct = _pct(entry.counts['lateDead'], total);
-    final externalPipPct = _pct(entry.counts['externalPip'], total);
-    final crackedPct = _pct(entry.counts['cracked'], total);
-    final contaminatedPct = _pct(entry.counts['contaminated'], total);
-    return {
-      ..._breakoutBmkContextValues(draft, EggBreakoutType.residueHatchDay),
-      'position': _blankToNull(entry.position),
-      'traySize': total ?? entry.traySize,
-      'infertileCount': entry.counts['infertile'],
-      'earlyDeadCount': entry.counts['earlyDead'],
-      'midDeadCount': entry.counts['midDead'],
-      'lateDeadCount': entry.counts['lateDead'],
-      'externalPipCount': entry.counts['externalPip'],
-      'crackedCount': entry.counts['cracked'],
-      'contaminatedCount': entry.counts['contaminated'],
-      'infertilePct': infertilePct,
-      'earlyDeadPct': earlyDeadPct,
-      'midDeadPct': midDeadPct,
-      'lateDeadPct': lateDeadPct,
-      'externalPipPct': externalPipPct,
-      'crackedPct': crackedPct,
-      'contaminatedPct': contaminatedPct,
-      'infertileDiffPct': _breakoutDiffPct(
-        benchmark,
-        'infertile',
-        infertilePct,
-      ),
-      'earlyDeadDiffPct': _breakoutDiffPct(
-        benchmark,
-        'earlyDead',
-        earlyDeadPct,
-      ),
-      'midDeadDiffPct': _breakoutDiffPct(benchmark, 'midDead', midDeadPct),
-      'lateDeadDiffPct': _breakoutDiffPct(benchmark, 'lateDead', lateDeadPct),
-      'externalPipDiffPct': _breakoutDiffPct(
-        benchmark,
-        'externalPip',
-        externalPipPct,
-      ),
-      'crackedDiffPct': _breakoutDiffPct(benchmark, 'cracked', crackedPct),
-      'contaminatedDiffPct': _breakoutDiffPct(
-        benchmark,
-        'contaminated',
-        contaminatedPct,
-      ),
-      'totalEggsSet': draft.haTotalEggsSet,
-      'hatchedCount': draft.haHatched,
-      'culledCount': draft.haCulled,
-      'deadCount': draft.haDead,
-      'hatchabilityPct': draft.haHatchability,
-      'fertilityPct': draft.haFertility,
-      'hofPct': draft.haHof,
-      'culledPct': _pct(draft.haCulled, draft.haTotalEggsSet),
-      'deadPct': _pct(draft.haDead, draft.haTotalEggsSet),
-    };
-  }
-
-  double? _breakoutDiffPct(
-    Map<String, Object?>? benchmark,
-    String countKey,
-    double? currentPct,
-  ) {
-    if (benchmark == null || currentPct == null) return null;
-    final column = _breakoutBmkColumnForCountKey(countKey);
-    if (column == null) return null;
-    final bmkPct = _asDouble(benchmark[column]);
-    if (bmkPct == null) return null;
-    return currentPct - bmkPct;
-  }
-
-  String? _breakoutBmkColumnForCountKey(String countKey) {
-    return switch (countKey) {
-      'early72hBloodRing' => 'bloodRingPct',
-      'externalPip' => 'externalPipPct',
-      'contaminated' => 'contamPct',
-      'infertile' ||
-      'early24h' ||
-      'early48h' ||
-      'blackEye' ||
-      'earlyDead' ||
-      'midDead' ||
-      'lateDead' ||
-      'cracked' => '${countKey}Pct',
-      _ => null,
-    };
-  }
-
-  Map<String, Object?> _freshBreakoutValues(
-    AuditModel draft, {
-    EggBreakoutType breakoutType = EggBreakoutType.freshEggBreakout,
-  }) {
-    final rollup = _breakoutRollup(draft, breakoutType: breakoutType);
-    return {
-      ..._breakoutBmkContextValues(draft, breakoutType),
-      'traySize': rollup.totalSample ?? draft.ebTraySize,
-      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
-      'early24hCount': rollup.counts['early24h'],
-      'early48hCount': rollup.counts['early48h'],
-      'bloodRingCount': rollup.counts['early72hBloodRing'],
-      'infertilePct': _pct(rollup.counts['infertile'], rollup.totalSample),
-      'early24hPct': _pct(rollup.counts['early24h'], rollup.totalSample),
-      'early48hPct': _pct(rollup.counts['early48h'], rollup.totalSample),
-      'bloodRingPct': _pct(
-        rollup.counts['early72hBloodRing'],
-        rollup.totalSample,
-      ),
-    };
-  }
-
-  Map<String, Object?> _candledBreakoutValues(AuditModel draft) {
-    final values = _freshBreakoutValues(
-      draft,
-      breakoutType: EggBreakoutType.candledEggBreakout,
-    );
-    final rollup = _breakoutRollup(
-      draft,
-      breakoutType: EggBreakoutType.candledEggBreakout,
-    );
-    return {
-      ...values,
-      'candlingDay': draft.ebBreakoutAgeDays,
-      'position': _firstBreakoutPosition(
-        draft,
-        breakoutType: EggBreakoutType.candledEggBreakout,
-      ),
-      'blackEyeCount': rollup.counts['blackEye'],
-      'blackEyePct': _pct(rollup.counts['blackEye'], rollup.totalSample),
-    };
-  }
-
-  Map<String, Object?> _residueBreakoutValues(AuditModel draft) {
-    final rollup = _breakoutRollup(
-      draft,
-      breakoutType: EggBreakoutType.residueHatchDay,
-    );
-    return {
-      ..._breakoutBmkContextValues(draft, EggBreakoutType.residueHatchDay),
-      'position': _firstBreakoutPosition(
-        draft,
-        breakoutType: EggBreakoutType.residueHatchDay,
-      ),
-      'traySize': rollup.totalSample ?? draft.ebTraySize,
-      'infertileCount': rollup.counts['infertile'] ?? draft.ebInfertileCount,
-      'earlyDeadCount': rollup.counts['earlyDead'] ?? draft.ebEarlyDeadCount,
-      'midDeadCount': rollup.counts['midDead'] ?? draft.ebMidDeadCount,
-      'lateDeadCount': rollup.counts['lateDead'] ?? draft.ebLateDeadCount,
-      'externalPipCount':
-          rollup.counts['externalPip'] ?? draft.ebExternalPipCount,
-      'crackedCount': rollup.counts['cracked'] ?? draft.ebCrackedCount,
-      'contaminatedCount':
-          rollup.counts['contaminated'] ?? draft.ebContaminatedCount,
-      'infertilePct': _pct(rollup.counts['infertile'], rollup.totalSample),
-      'earlyDeadPct': _pct(rollup.counts['earlyDead'], rollup.totalSample),
-      'midDeadPct': _pct(rollup.counts['midDead'], rollup.totalSample),
-      'lateDeadPct': _pct(rollup.counts['lateDead'], rollup.totalSample),
-      'externalPipPct': _pct(rollup.counts['externalPip'], rollup.totalSample),
-      'crackedPct': _pct(rollup.counts['cracked'], rollup.totalSample),
-      'contaminatedPct': _pct(
-        rollup.counts['contaminated'],
-        rollup.totalSample,
-      ),
-      'totalEggsSet': draft.haTotalEggsSet,
-      'hatchedCount': draft.haHatched,
-      'culledCount': draft.haCulled,
-      'deadCount': draft.haDead,
-      'hatchabilityPct': draft.haHatchability,
-      'fertilityPct': draft.haFertility,
-      'hofPct': draft.haHof,
-      'culledPct': _pct(draft.haCulled, draft.haTotalEggsSet),
-      'deadPct': _pct(draft.haDead, draft.haTotalEggsSet),
-    };
-  }
-
-  ({Map<String, int> counts, int? totalSample}) _breakoutRollup(
-    AuditModel draft, {
-    EggBreakoutType? breakoutType,
-  }) {
-    final allEntries = EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    );
-    final entries = breakoutType == null
-        ? allEntries
-        : allEntries
-              .where((entry) => entry.breakoutType == breakoutType)
-              .toList();
-    final counts = <String, int>{};
-    var total = 0;
-    for (final entry in entries) {
-      total += entry.totalSample ?? 0;
-      for (final item in entry.counts.entries) {
-        counts[item.key] = (counts[item.key] ?? 0) + item.value;
-      }
-    }
-    if (counts.isEmpty && allEntries.isEmpty) {
-      counts.addAll({
-        if (draft.ebInfertileCount != null)
-          'infertile': draft.ebInfertileCount!,
-        if (draft.ebEarlyDeadCount != null)
-          'earlyDead': draft.ebEarlyDeadCount!,
-        if (draft.ebMidDeadCount != null) 'midDead': draft.ebMidDeadCount!,
-        if (draft.ebLateDeadCount != null) 'lateDead': draft.ebLateDeadCount!,
-        if (draft.ebExternalPipCount != null)
-          'externalPip': draft.ebExternalPipCount!,
-        if (draft.ebCrackedCount != null) 'cracked': draft.ebCrackedCount!,
-        if (draft.ebContaminatedCount != null)
-          'contaminated': draft.ebContaminatedCount!,
-      });
-    }
-    return (
-      counts: counts,
-      totalSample: total == 0
-          ? (allEntries.isEmpty ? draft.ebTraySize : null)
-          : total,
-    );
-  }
-
-  String? _firstBreakoutPosition(
-    AuditModel draft, {
-    EggBreakoutType? breakoutType,
-  }) {
-    final allEntries = EggBreakoutSampleEntry.decodeList(
-      draft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.fromStorageValue(
-        draft.ebBreakoutType,
-      ),
-    );
-    final entries = breakoutType == null
-        ? allEntries
-        : allEntries.where((entry) => entry.breakoutType == breakoutType);
-    for (final entry in entries) {
-      final position = entry.position?.trim();
-      if (position != null && position.isNotEmpty) return position;
-    }
-    return null;
-  }
-
-  List<Map<String, dynamic>> _decodedMaps(String? source) {
-    if (source == null || source.trim().isEmpty) return const [];
-    try {
-      final decoded = jsonDecode(source);
-      if (decoded is! List) return const [];
-      return decoded
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  int _decodedListLength(String? source) => _decodedMaps(source).length;
-
-  int? _decodedReadingCount(String? source) {
-    if (source == null || source.trim().isEmpty) return null;
-    return TemperatureReadingsPayload.decode(
-      source,
-      legacyUnit: TemperatureEntryUnit.fahrenheit,
-    ).count;
-  }
-
-  int? _asInt(Object? value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is num) return value.round();
-    return int.tryParse(value.toString());
-  }
-
-  double? _asDouble(Object? value) {
-    if (value == null) return null;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString());
-  }
-
-  Map<String, Object?>? _decodedMap(String? source) {
-    if (source == null || source.trim().isEmpty) return null;
-    try {
-      final decoded = jsonDecode(source);
-      if (decoded is! Map) return null;
-      return Map<String, Object?>.from(decoded);
-    } catch (_) {
-      return null;
-    }
-  }
-
   int? _weightSampleSizeFromWeightsJson(String weightsJson) {
     final decoded = _decodedWeights(weightsJson);
-    return _weightSampleSizeFromDecoded(decoded);
-  }
-
-  int? _weightSampleSizeFromDecoded(Object? decoded) {
-    if (decoded is! List) return null;
-    final count = decoded
-        .map(_asDouble)
-        .where((weight) => weight != null && weight > 0)
-        .length;
-    return count == 0 ? null : count;
-  }
-
-  double? _pct(Object? count, Object? total) {
-    final numerator = _asInt(count);
-    final denominator = _asInt(total);
-    if (numerator == null || denominator == null || denominator <= 0) {
-      return null;
-    }
-    return numerator * 100 / denominator;
-  }
-
-  int? _boolToInt(bool? value) {
-    if (value == null) return null;
-    return value ? 1 : 0;
-  }
-
-  PanelSampleRecord _panelSampleRecordForStationSample({
-    required String tableName,
-    required String panelId,
-    required AuditModel draft,
-    required StationSampleModel sample,
-  }) {
-    final scopeType = _scopeTypeForPanel(tableName, sample, draft);
-    final isHatchBreakout = draft.auditType == 'Hatch Analysis & Egg Breakouts';
-    final sampleHouseNo = isHatchBreakout
-        ? _blankToNull(draft.houseId)
-        : _blankToNull(sample.houseNo);
-    final sampleHouseLabel = isHatchBreakout
-        ? _blankToNull(draft.houseId)
-        : _blankToNull(sample.houseLabel);
-    final sampleSetterNo = isHatchBreakout
-        ? _blankToNull(draft.setterId)
-        : _blankToNull(sample.setterNo);
-    final sampleHatcherNo = isHatchBreakout
-        ? _blankToNull(draft.hatcherId)
-        : _blankToNull(sample.hatcherNo);
-    final usesHouse =
-        _scopeIncludesHouse(scopeType) &&
-        (sampleHouseNo != null || sampleHouseLabel != null);
-    final usesSetter =
-        tableName == 'setter_optimizing' ||
-        scopeType == SamplingLayer.setter ||
-        scopeType == SamplingLayer.setterHatcher;
-    final usesHatcher =
-        tableName == 'hatcher_optimizing' ||
-        scopeType == SamplingLayer.hatcher ||
-        scopeType == SamplingLayer.setterHatcher;
-    return PanelSampleRecord(
-      id: '$panelId:${sample.id}',
-      panelId: panelId,
-      scopeType: scopeType,
-      scopeLabel: _scopeLabelForSample(scopeType, sample),
-      sampleIndex: sample.sampleIndex,
-      houseId: usesHouse ? sampleHouseNo : null,
-      houseName: usesHouse ? sampleHouseLabel : null,
-      setterId: usesSetter ? sampleSetterNo : null,
-      hatcherId: usesHatcher ? sampleHatcherNo : null,
-      sampleSize: _sampleSizeForPanel(tableName, draft),
-      summaryJson: sample.resultSummaryJson,
-      rawJson: _compactJson(sample.toMap()),
-      notes: sample.notes,
-      createdAt: sample.createdAt,
-      updatedAt: sample.updatedAt,
-    );
-  }
-
-  SamplingLayer? _compareLayerForPanel(
-    String tableName,
-    List<StationSampleModel> samples,
-  ) {
-    for (final sample in samples) {
-      if (sample.sampleMode != StationSampleModel.sampleModeComparison) {
-        continue;
-      }
-      final scope = _scopeTypeForPanel(tableName, sample);
-      if (scope != SamplingLayer.pool) return scope;
-    }
-    return null;
-  }
-
-  SamplingLayer _scopeTypeForPanel(
-    String tableName,
-    StationSampleModel sample, [
-    AuditModel? draft,
-  ]) {
-    final allowed = PanelSampleSchema.byTable(tableName).allowedLayers;
-    final isHatchBreakout =
-        draft?.auditType == 'Hatch Analysis & Egg Breakouts';
-    final sampleSetterNo = isHatchBreakout
-        ? _blankToNull(draft?.setterId)
-        : _blankToNull(sample.setterNo);
-    final sampleHatcherNo = isHatchBreakout
-        ? _blankToNull(draft?.hatcherId)
-        : _blankToNull(sample.hatcherNo);
-    final isComparison =
-        sample.sampleMode == StationSampleModel.sampleModeComparison ||
-        (draft != null && SampleMode.isCompare(draft.sampleMode));
-    if (!isComparison) {
-      return SamplingLayer.pool;
-    }
-    if (allowed.contains(SamplingLayer.setterHatcher) &&
-        sampleSetterNo != null &&
-        sampleHatcherNo != null) {
-      return SamplingLayer.setterHatcher;
-    }
-    if (allowed.contains(SamplingLayer.setter) && sampleSetterNo != null) {
-      return SamplingLayer.setter;
-    }
-    if (allowed.contains(SamplingLayer.hatcher) && sampleHatcherNo != null) {
-      return SamplingLayer.hatcher;
-    }
-    if (allowed.contains(SamplingLayer.house)) {
-      return SamplingLayer.house;
-    }
-    return SamplingLayer.pool;
-  }
-
-  bool _scopeIncludesHouse(SamplingLayer scopeType) {
-    return scopeType == SamplingLayer.house ||
-        scopeType == SamplingLayer.setter ||
-        scopeType == SamplingLayer.hatcher ||
-        scopeType == SamplingLayer.setterHatcher ||
-        scopeType == SamplingLayer.trolley ||
-        scopeType == SamplingLayer.tray;
-  }
-
-  String _scopeLabelForSample(
-    SamplingLayer scopeType,
-    StationSampleModel sample,
-  ) {
-    return switch (scopeType) {
-      SamplingLayer.house =>
-        _blankToNull(sample.houseLabel) ??
-            _blankToNull(sample.houseNo) ??
-            sample.sampleLabel,
-      SamplingLayer.setterHatcher =>
-        '${sample.setterNo ?? ''}/${sample.hatcherNo ?? ''}',
-      SamplingLayer.setter =>
-        _blankToNull(sample.setterNo) ?? sample.sampleLabel,
-      SamplingLayer.hatcher =>
-        _blankToNull(sample.hatcherNo) ?? sample.sampleLabel,
-      SamplingLayer.tray || SamplingLayer.trolley => sample.sampleLabel,
-      SamplingLayer.pool => 'Random',
-    };
-  }
-
-  int? _sampleSizeForPanel(String tableName, AuditModel draft) {
-    return switch (tableName) {
-      'egg_quality' => draft.esEggSampleSize,
-      'chick_quality' =>
-        draft.pasgarSampleSize ??
-            draft.cvtSampleSize ??
-            draft.pmSampleSize ??
-            draft.culledChicksTotalEggSet,
-      'chick_weights' => draft.chickSampleSize,
-      'fresh_egg_breakout' ||
-      'candled_egg_breakout' ||
-      'residue_breakout' => draft.ebTraySize ?? draft.haTotalEggsSet,
-      _ => null,
-    };
-  }
-
-  String _compactJson(Map<String, Object?> value) {
-    final compact = Map<String, Object?>.from(value)
-      ..removeWhere((_, entry) => entry == null);
-    return jsonEncode(compact);
-  }
-
-  bool _hasText(String? value) => _blankToNull(value) != null;
-
-  String? _blankToNull(String? value) {
-    final trimmed = value?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+    return weightSampleSizeFromDecoded(decoded);
   }
 
   // Set temperature unit
@@ -4788,76 +2502,4 @@ class AuditProvider extends ChangeNotifier {
       );
     }
   }
-}
-
-class _BreakoutHierarchyPath {
-  const _BreakoutHierarchyPath({
-    required this.pairIndex,
-    required this.sessionId,
-    required this.tableName,
-    required this.scopeType,
-    this.house,
-    this.setter,
-    this.hatcher,
-    this.trolley,
-    this.tray,
-    this.position,
-  });
-
-  final int pairIndex;
-  final String sessionId;
-  final String tableName;
-  final SamplingLayer scopeType;
-  final String? house;
-  final String? setter;
-  final String? hatcher;
-  final String? trolley;
-  final String? tray;
-  final String? position;
-
-  bool get canHaveChildren => _samplingLayerDepth(scopeType) < 4;
-
-  bool isParentOf(_BreakoutHierarchyPath child) {
-    if (sessionId != child.sessionId || tableName != child.tableName) {
-      return false;
-    }
-    if (_samplingLayerDepth(child.scopeType) <=
-        _samplingLayerDepth(scopeType)) {
-      return false;
-    }
-    return switch (scopeType) {
-      SamplingLayer.pool => true,
-      SamplingLayer.house => _matches(house, child.house),
-      SamplingLayer.setter =>
-        _matches(house, child.house) && _matches(setter, child.setter),
-      SamplingLayer.hatcher =>
-        _matches(house, child.house) && _matches(hatcher, child.hatcher),
-      SamplingLayer.setterHatcher =>
-        _matches(house, child.house) &&
-            _matches(setter, child.setter) &&
-            _matches(hatcher, child.hatcher),
-      SamplingLayer.trolley =>
-        _matches(house, child.house) &&
-            _matches(setter, child.setter) &&
-            _matches(hatcher, child.hatcher) &&
-            _matches(trolley, child.trolley),
-      SamplingLayer.tray => false,
-    };
-  }
-
-  static bool _matches(String? parentValue, String? childValue) {
-    return parentValue == null || parentValue == childValue;
-  }
-}
-
-int _samplingLayerDepth(SamplingLayer scopeType) {
-  return switch (scopeType) {
-    SamplingLayer.pool => 0,
-    SamplingLayer.house => 1,
-    SamplingLayer.setter ||
-    SamplingLayer.hatcher ||
-    SamplingLayer.setterHatcher => 2,
-    SamplingLayer.trolley => 3,
-    SamplingLayer.tray => 4,
-  };
 }

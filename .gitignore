@@ -49,3 +49,9 @@ app.*.map.json
 .env.local
 .env.local.json
 .env.*.local.json
+
+# Local recovery snapshots (127 MB of DB copies/bundles — never commit)
+/ChickMark-recovery/
+
+# Flutter tool logs
+flutter_*.log
