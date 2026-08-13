@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
@@ -22,6 +24,33 @@ class FakeSessionTrustStore implements SessionTrustStore {
 
   @override
   Future<void> clear() async {
+    trust = null;
+  }
+}
+
+/// A trust store whose calls can be made to fail, standing in for a
+/// Keychain/Keystore fault (locked device, keystore error, disk fault).
+class ThrowingSessionTrustStore implements SessionTrustStore {
+  SessionTrust? trust;
+  bool throwOnRead = false;
+  bool throwOnRecord = false;
+  bool throwOnClear = false;
+
+  @override
+  Future<SessionTrust?> read() async {
+    if (throwOnRead) throw Exception('trust store read fault');
+    return trust;
+  }
+
+  @override
+  Future<void> record(String userId, DateTime verifiedAt) async {
+    if (throwOnRecord) throw Exception('trust store write fault');
+    trust = SessionTrust(userId: userId, lastVerifiedAt: verifiedAt);
+  }
+
+  @override
+  Future<void> clear() async {
+    if (throwOnClear) throw Exception('trust store delete fault');
     trust = null;
   }
 }
@@ -185,6 +214,34 @@ void main() {
       expect(result, isTrue);
       expect(provider.state, AuthState.pendingApproval);
     });
+
+    test(
+      'a trust-store fault recording trust does not fail an otherwise-successful login',
+      () async {
+        provider = AuthProvider(
+          userRepository: mockRepo,
+          activityLogRepository: mockActivityLog,
+          supabaseService: mockSupabase,
+          sessionTrustStore: ThrowingSessionTrustStore()
+            ..throwOnRecord = true,
+        );
+        when(
+          () => mockSupabase.signIn(
+            email,
+            password,
+            rememberSession: any(named: 'rememberSession'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult(success: true, user: approvedSupabaseUser()),
+        );
+
+        final result = await provider.login(email, password);
+
+        expect(result, isTrue);
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.user, isNotNull);
+      },
+    );
   });
 
   group('login — offline', () {
@@ -322,6 +379,43 @@ void main() {
       expect(provider.state, AuthState.unauthenticated);
       expect(provider.user, isNull);
     });
+
+    test(
+      'a trust-store fault clearing trust does not strand the device signed in',
+      () async {
+        final throwing = ThrowingSessionTrustStore()..throwOnClear = true;
+        provider = AuthProvider(
+          userRepository: mockRepo,
+          activityLogRepository: mockActivityLog,
+          supabaseService: mockSupabase,
+          sessionTrustStore: throwing,
+        );
+        when(() => mockSupabase.signOut()).thenAnswer((_) async {});
+        when(() => mockRepo.clearCachedTokens()).thenAnswer((_) async {});
+
+        await provider.logout();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+        // The trust-store fault must not skip clearing the actual tokens.
+        verify(() => mockRepo.clearCachedTokens()).called(1);
+      },
+    );
+
+    test(
+      'a fault clearing cached tokens still signs the device out locally',
+      () async {
+        when(() => mockSupabase.signOut()).thenAnswer((_) async {});
+        when(
+          () => mockRepo.clearCachedTokens(),
+        ).thenThrow(Exception('secure storage fault'));
+
+        await provider.logout();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+      },
+    );
 
     test('debug auth bypass logout clears the development user', () async {
       provider = AuthProvider(
@@ -577,5 +671,206 @@ void main() {
       expect(provider.isPendingRevalidation, isFalse);
       verifyNever(() => mockSupabase.restoreSession());
     });
+
+    test(
+      'a trust-store read fault still lets a remembered user in, pending revalidation',
+      () async {
+        final throwing = ThrowingSessionTrustStore()..throwOnRead = true;
+        provider = AuthProvider(
+          userRepository: mockRepo,
+          activityLogRepository: mockActivityLog,
+          supabaseService: mockSupabase,
+          sessionTrustStore: throwing,
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.offline,
+          ),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.isPendingRevalidation, isTrue);
+        verifyNever(() => mockRepo.clearCachedTokens());
+      },
+    );
+
+    test(
+      'a cacheToken fault after a confirmed-valid restore still enters the app',
+      () async {
+        trustStore.trust = SessionTrust(
+          userId: 'supabase-user-123',
+          lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => SessionRestoreResult(
+            status: SessionRestoreStatus.refreshed,
+            userId: 'supabase-user-123',
+            accessToken: 'fresh-access-token',
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+        );
+        when(
+          () => mockRepo.cacheToken(any(), any(), any()),
+        ).thenThrow(Exception('keychain write fault'));
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.isPendingRevalidation, isFalse);
+      },
+    );
+
+    test(
+      'a restored session for a different account is never granted to the remembered user',
+      () async {
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.valid,
+            userId: 'someone-else',
+          ),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.user, isNull);
+        verifyNever(() => mockRepo.cacheToken(any(), any(), any()));
+      },
+    );
+
+    test(
+      'a trust record for a different account does not lend its grace window',
+      () async {
+        trustStore.trust = SessionTrust(
+          userId: 'someone-else',
+          lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.offline,
+          ),
+        );
+
+        await provider.checkCachedToken();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.isPendingRevalidation, isFalse);
+      },
+    );
+
+    test(
+      'overlapping revalidateSession calls make only one restoreSession call',
+      () async {
+        trustStore.trust = SessionTrust(
+          userId: 'supabase-user-123',
+          lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.offline,
+          ),
+        );
+        await provider.checkCachedToken();
+        expect(provider.isPendingRevalidation, isTrue);
+
+        final completer = Completer<SessionRestoreResult>();
+        var restoreCallCount = 0;
+        when(() => mockSupabase.restoreSession()).thenAnswer((_) {
+          restoreCallCount++;
+          return completer.future;
+        });
+
+        final first = provider.revalidateSession();
+        final second = provider.revalidateSession();
+
+        completer.complete(
+          const SessionRestoreResult(status: SessionRestoreStatus.rejected),
+        );
+        await first;
+        await second;
+
+        expect(restoreCallCount, 1);
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.isPendingRevalidation, isFalse);
+        expect(trustStore.trust, isNull);
+      },
+    );
+
+    test(
+      'revalidateSession signs out when the restored session belongs to a different account',
+      () async {
+        trustStore.trust = SessionTrust(
+          userId: 'supabase-user-123',
+          lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.offline,
+          ),
+        );
+        await provider.checkCachedToken();
+
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.valid,
+            userId: 'someone-else',
+          ),
+        );
+
+        await provider.revalidateSession();
+
+        expect(provider.state, AuthState.unauthenticated);
+        expect(provider.isPendingRevalidation, isFalse);
+        expect(trustStore.trust, isNull);
+      },
+    );
+
+    test(
+      'revalidateSession swallows an unexpected failure and stays pending',
+      () async {
+        trustStore.trust = SessionTrust(
+          userId: 'supabase-user-123',
+          lastVerifiedAt: DateTime.now().subtract(const Duration(days: 3)),
+        );
+        when(
+          () => mockRepo.getRememberedUser(),
+        ).thenAnswer((_) async => rememberedRemoteUser());
+        when(() => mockSupabase.restoreSession()).thenAnswer(
+          (_) async => const SessionRestoreResult(
+            status: SessionRestoreStatus.offline,
+          ),
+        );
+        await provider.checkCachedToken();
+
+        when(
+          () => mockSupabase.restoreSession(),
+        ).thenThrow(Exception('unexpected failure'));
+
+        await expectLater(provider.revalidateSession(), completes);
+
+        expect(provider.state, AuthState.authenticated);
+        expect(provider.isPendingRevalidation, isTrue);
+      },
+    );
   });
 }

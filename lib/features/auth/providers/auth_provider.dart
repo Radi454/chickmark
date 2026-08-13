@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import '../../../core/auth/customer_account_identifier.dart';
 import '../../../core/security/security_policy.dart';
 import '../../../data/models/user_model.dart';
+import '../../../core/security/safe_debug_log.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../../services/supabase/supabase_service.dart';
@@ -51,6 +52,7 @@ class AuthProvider extends ChangeNotifier {
   String? _errorMessage;
   UserModel? _user;
   bool _isPendingRevalidation = false;
+  bool _revalidationInFlight = false;
 
   AuthState get state => _state;
   String? get errorMessage => _errorMessage;
@@ -90,24 +92,78 @@ class AuthProvider extends ChangeNotifier {
       final restore = isLocalAccount
           ? null
           : await _supabaseService.restoreSession();
-      final trust = await _sessionTrustStore.read();
+
+      // A live Supabase session for a *different* account than the one this
+      // device most recently remembered is never proof for `remembered`.
+      // Grant nothing and cache nothing under a mismatched identity — this
+      // needs real credentials, not a trip through the grace logic below.
+      if (restore?.userId != null && restore!.userId != remembered.id) {
+        safeDebugLog(
+          'checkCachedToken: restored session user (${restore.userId}) does '
+          'not match the remembered user (${remembered.id}); requiring '
+          'fresh credentials.',
+        );
+        _user = null;
+        _isPendingRevalidation = false;
+        _setState(AuthState.unauthenticated);
+        return;
+      }
+
+      Duration? sinceLastVerified;
+      if (!isLocalAccount) {
+        final lookup = await _readTrustSafely();
+        if (lookup.readFailed) {
+          // A storage fault is not proof this device never verified — a
+          // Keychain hiccup at boot must not sign a proven user out. Grant
+          // the same benefit of the doubt as "verified moments ago"; the
+          // next successful revalidateSession() call confirms for real.
+          sinceLastVerified = Duration.zero;
+        } else if (lookup.trust != null) {
+          if (lookup.trust!.userId == remembered.id) {
+            sinceLastVerified = DateTime.now().difference(
+              lookup.trust!.lastVerifiedAt,
+            );
+          } else {
+            // The trust record proves a different account, not this one —
+            // never lend this user someone else's grace window.
+            safeDebugLog(
+              'checkCachedToken: trust record belongs to '
+              '${lookup.trust!.userId}, not the remembered user '
+              '(${remembered.id}); ignoring it.',
+            );
+          }
+        }
+      }
 
       final decision = decideStartupAuth(
         hasRememberedUser: true,
         isLocalAccount: isLocalAccount,
         localTokenValid: remembered.isTokenValid,
         sessionStatus: restore?.status,
-        sinceLastVerified: trust == null
-            ? null
-            : DateTime.now().difference(trust.lastVerifiedAt),
+        sinceLastVerified: sinceLastVerified,
       );
 
       await _applyStartupDecision(decision, remembered, restore);
     } catch (e) {
-      // A failure to *ask* is never a logout. Fall back to login only because
-      // we have no proven user to fall back onto here.
+      // A failure to *ask* is never a logout. Every failure-prone step past
+      // `remembered` (trust lookup, token persistence) is handled as
+      // best-effort above and can no longer throw, so anything still
+      // reaching this catch means we never even established whether a
+      // proven user exists — unauthenticated is the only safe fallback.
       _isPendingRevalidation = false;
       _setState(AuthState.unauthenticated, error: e.toString());
+    }
+  }
+
+  /// Reads the trust record without letting a platform-storage fault (e.g. a
+  /// locked-device Keychain error at boot) look identical to "no trust was
+  /// ever recorded" — the two must be handled differently by the caller.
+  Future<({SessionTrust? trust, bool readFailed})> _readTrustSafely() async {
+    try {
+      return (trust: await _sessionTrustStore.read(), readFailed: false);
+    } catch (e) {
+      safeDebugLog('Session trust read failed', error: e);
+      return (trust: null, readFailed: true);
     }
   }
 
@@ -118,14 +174,11 @@ class AuthProvider extends ChangeNotifier {
   ) async {
     switch (decision) {
       case StartupAuthDecision.goToLogin:
+        _commitSignedOut();
         if (restore?.status == SessionRestoreStatus.rejected) {
           // A definitive server rejection while online is a real logout.
-          await _sessionTrustStore.clear();
-          await _userRepository.clearCachedTokens();
+          await _clearSessionArtifactsBestEffort();
         }
-        _user = null;
-        _isPendingRevalidation = false;
-        _setState(AuthState.unauthenticated);
       case StartupAuthDecision.enterApp:
         await _persistVerifiedSession(remembered, restore);
         _user = remembered;
@@ -146,6 +199,10 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Persists a server-confirmed session locally. Best-effort: the server
+  /// has already vouched for this session, so a local storage fault here
+  /// (Keychain write failure, disk error) must never undo that and send an
+  /// offline-capable, already-approved user back to the login screen.
   Future<void> _persistVerifiedSession(
     UserModel user,
     SessionRestoreResult? restore,
@@ -154,34 +211,104 @@ class AuthProvider extends ChangeNotifier {
     final accessToken = restore.accessToken;
     final expiresAt = restore.expiresAt;
     if (accessToken != null && expiresAt != null) {
-      await _userRepository.cacheToken(user.id, accessToken, expiresAt);
+      try {
+        await _userRepository.cacheToken(user.id, accessToken, expiresAt);
+      } catch (e) {
+        safeDebugLog('Failed to cache refreshed access token', error: e);
+      }
     }
-    await _sessionTrustStore.record(user.id, DateTime.now());
+    await _recordTrustBestEffort(user.id);
   }
 
-  /// Re-check a pending session once the network is back. Safe to call often;
-  /// it is a no-op unless the app is running on offline grace.
+  void _commitSignedOut() {
+    _user = null;
+    _isPendingRevalidation = false;
+    _setState(AuthState.unauthenticated);
+  }
+
+  Future<void> _signOutLocally() async {
+    _commitSignedOut();
+    await _clearSessionArtifactsBestEffort();
+  }
+
+  Future<void> _clearSessionArtifactsBestEffort() async {
+    await _clearTrustBestEffort();
+    try {
+      await _userRepository.clearCachedTokens();
+    } catch (e) {
+      safeDebugLog('Failed to clear cached tokens', error: e);
+    }
+  }
+
+  Future<void> _clearTrustBestEffort() async {
+    try {
+      await _sessionTrustStore.clear();
+    } catch (e) {
+      safeDebugLog('Failed to clear session trust', error: e);
+    }
+  }
+
+  Future<void> _recordTrustBestEffort(String userId) async {
+    try {
+      await _sessionTrustStore.record(userId, DateTime.now());
+    } catch (e) {
+      safeDebugLog('Failed to record session trust', error: e);
+    }
+  }
+
+  /// Re-check a pending session once the network is back. Safe to call
+  /// often — including overlapping app-resume and connectivity events —
+  /// because it is re-entrancy guarded, re-checks that this is still the
+  /// pending session after every await, and is a no-op unless the app is
+  /// actually running on offline grace. Never throws: any failure is logged
+  /// and treated the same as "still offline, try again later," so it can
+  /// never escape as an uncaught error into an event handler.
   Future<void> revalidateSession() async {
-    if (_bypassAuth || !_isPendingRevalidation) return;
+    if (_bypassAuth || !_isPendingRevalidation || _revalidationInFlight) {
+      return;
+    }
     final user = _user;
     if (user == null || user.id.startsWith('local-')) return;
 
-    final restore = await _supabaseService.restoreSession();
-    switch (restore.status) {
-      case SessionRestoreStatus.valid:
-      case SessionRestoreStatus.refreshed:
-        await _persistVerifiedSession(user, restore);
-        _isPendingRevalidation = false;
-        notifyListeners();
-      case SessionRestoreStatus.rejected:
-        await _sessionTrustStore.clear();
-        await _userRepository.clearCachedTokens();
-        _user = null;
-        _isPendingRevalidation = false;
-        _setState(AuthState.unauthenticated);
-      case SessionRestoreStatus.offline:
-        // Still no network. Stay signed in and try again later.
-        break;
+    _revalidationInFlight = true;
+    try {
+      final restore = await _supabaseService.restoreSession();
+
+      // The world may have moved on while we awaited a server round trip —
+      // a login, a logout, or another revalidation may already have
+      // resolved this session. Only act if it is still exactly the pending
+      // session we set out to check.
+      if (!identical(_user, user) || !_isPendingRevalidation) return;
+
+      switch (restore.status) {
+        case SessionRestoreStatus.valid:
+        case SessionRestoreStatus.refreshed:
+          if (restore.userId != null && restore.userId != user.id) {
+            // The live Supabase session belongs to a different account than
+            // the one pending revalidation. Never grant it that account's
+            // access or cache a token under its id.
+            safeDebugLog(
+              'revalidateSession: restored session user (${restore.userId}) '
+              'does not match the pending user (${user.id}); signing out.',
+            );
+            await _signOutLocally();
+            return;
+          }
+          await _persistVerifiedSession(user, restore);
+          if (identical(_user, user) && _isPendingRevalidation) {
+            _isPendingRevalidation = false;
+            notifyListeners();
+          }
+        case SessionRestoreStatus.rejected:
+          await _signOutLocally();
+        case SessionRestoreStatus.offline:
+          // Still no network. Stay signed in and try again later.
+          break;
+      }
+    } catch (e) {
+      safeDebugLog('revalidateSession failed', error: e);
+    } finally {
+      _revalidationInFlight = false;
     }
   }
 
@@ -202,7 +329,9 @@ class AuthProvider extends ChangeNotifier {
         _user = result.user!;
         await _userRepository.upsertUser(_user!);
         if (rememberSession && !_user!.id.startsWith('local-')) {
-          await _sessionTrustStore.record(_user!.id, DateTime.now());
+          // Best-effort: the sign-in already succeeded, so a Keychain fault
+          // recording trust must not turn it into a failed login.
+          await _recordTrustBestEffort(_user!.id);
         }
         _isPendingRevalidation = false;
         await _activityLogRepository.log(_user!.id, 'login');
@@ -498,11 +627,9 @@ class AuthProvider extends ChangeNotifier {
     _setState(AuthState.loading);
     try {
       await _supabaseService.signOut();
-      await _sessionTrustStore.clear();
-      _isPendingRevalidation = false;
-      await _userRepository.clearCachedTokens();
-      _user = null;
-      _setState(AuthState.unauthenticated);
+      // Commit the local sign-out state first — a Keychain fault clearing
+      // trust or cached tokens must never strand this device signed in.
+      await _signOutLocally();
     } catch (e) {
       _setState(AuthState.error, error: _friendlyAuthError(e.toString()));
     }

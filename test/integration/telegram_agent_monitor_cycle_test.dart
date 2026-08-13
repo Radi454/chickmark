@@ -10,6 +10,7 @@ import 'package:hatchaudit/features/agents/providers/agent_monitor_provider.dart
 import 'package:hatchaudit/features/agents/screens/agent_monitor_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/l10n/app_localizations.dart';
+import 'package:hatchaudit/services/auth/session_trust_store.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
@@ -46,7 +47,16 @@ void main() {
       late AuthProvider auth;
       late AgentMonitorProvider monitor;
       await tester.runAsync(() async {
-        auth = AuthProvider(supabaseService: _AuthorizedAdminSupabaseService());
+        auth = AuthProvider(
+          supabaseService: _AuthorizedAdminSupabaseService(),
+          // No platform channel for secure storage in this test binding;
+          // back the trust store with an in-memory no-op.
+          sessionTrustStore: SessionTrustStore(
+            readValue: (_) async => null,
+            writeValue: (_, _) async {},
+            deleteValue: (_) async {},
+          ),
+        );
         expect(
           await auth.login('admin@example.test', 'local-test-password'),
           isTrue,
