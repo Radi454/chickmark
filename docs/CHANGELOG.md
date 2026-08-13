@@ -12,6 +12,22 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Broke up the two largest files and added a database migration
+  safety net. `AuditProvider` (~4,900 lines) was split into pure value-parsing
+  utilities, meaningfulness predicates, panel and egg-breakout value builders,
+  and an `AuditPanelSaveCoordinator` holding the save/delete/prune cluster;
+  the provider is now ~2,500 lines. `stub_sections.dart` (2,837 lines) became
+  one file per dashboard section plus a shared helpers file. Both splits are
+  move-only: no schema, JSON shape, written-column or repository-call-order
+  changes. A new schema-parity test proves a v41-baseline database upgraded
+  through the real v46–v56 chain is structurally identical to a freshly
+  created v56 database; it calls the upgrade hooks directly because the
+  on-open surgical schema repair otherwise masks exactly that class of
+  regression. The parity net can catch a migration that adds or drops a whole
+  table, but not one that alters an existing baseline table's columns. Also
+  removed a weight-sample-size rule that had been duplicated verbatim across
+  three files, and made the setter/hatcher context ids required arguments so
+  a forgotten id is a compile error rather than a silently wrong answer.
 - 2026-08-14: Stabilized offline cold starts and resumes. Remembered users
   entering through the 30-day offline grace now go directly from the login
   gate to the existing main shell instead of visiting the animated startup
