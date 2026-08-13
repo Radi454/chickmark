@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/agent_intake_models.dart';
 import 'package:hatchaudit/data/models/agent_diagnostic_models.dart';
@@ -10,6 +12,7 @@ import 'package:hatchaudit/data/repositories/agent_diagnostic_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_agent_repository.dart';
 import 'package:hatchaudit/features/agents/providers/agent_monitor_provider.dart';
 import 'package:hatchaudit/services/supabase/agent_intake_approval_service.dart';
+import 'package:hatchaudit/services/supabase/telegram_agent_settings_service.dart';
 
 void main() {
   test('load exposes newest batch summaries', () async {
@@ -171,18 +174,174 @@ void main() {
     expect(provider.selectedBatch?.batch.id, 'batch-new');
   });
 
-  test('setTelegramEnabled persists and exposes the new setting', () async {
-    final repository = _FakeHatcheryAgentRepository(summaries: const []);
-    final provider = _providerFor(_adminUser(), repository);
+  test('resume confirms cloud before local and visible state', () async {
+    final events = <String>[];
+    final cloud = _FakeTelegramAgentSettingsPort.controlled(events: events);
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      settings: const AgentSettings(telegramEnabled: false),
+      settingsEvents: events,
+    );
+    final provider = _providerFor(
+      _adminUser(),
+      repository,
+      telegramSettingsPort: cloud,
+    );
     await provider.load();
 
-    await provider.setTelegramEnabled(false);
+    final operation = provider.setTelegramEnabled(true);
+    await Future<void>.delayed(Duration.zero);
 
-    expect(provider.canAccessMonitor, isTrue);
+    expect(provider.settings.telegramEnabled, isFalse);
+    expect(provider.isUpdatingTelegram, isTrue);
+    expect(repository.settingsSaveCount, 0);
+    expect(events, ['cloud-start']);
+
+    cloud.complete(telegramEnabled: true);
+    await operation;
+
+    expect(events, ['cloud-start', 'cloud-confirmed', 'local-confirmed']);
+    expect(provider.isUpdatingTelegram, isFalse);
+    expect(provider.settings.telegramEnabled, isTrue);
+    expect(repository.settings.telegramEnabled, isTrue);
+    expect(repository.settingsSaveCount, 1);
+  });
+
+  test('pause confirms cloud before local and visible state', () async {
+    final events = <String>[];
+    final cloud = _FakeTelegramAgentSettingsPort.controlled(events: events);
+    final repository = _FakeHatcheryAgentRepository(
+      summaries: const [],
+      settingsEvents: events,
+    );
+    final provider = _providerFor(
+      _adminUser(),
+      repository,
+      telegramSettingsPort: cloud,
+    );
+    await provider.load();
+
+    final operation = provider.setTelegramEnabled(false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(provider.settings.telegramEnabled, isTrue);
+    expect(repository.settingsSaveCount, 0);
+    cloud.complete(telegramEnabled: false);
+    await operation;
+
+    expect(events, ['cloud-start', 'cloud-confirmed', 'local-confirmed']);
     expect(provider.settings.telegramEnabled, isFalse);
     expect(repository.settings.telegramEnabled, isFalse);
     expect(repository.settingsSaveCount, 1);
   });
+
+  test(
+    'resume cloud failure preserves paused local and provider state',
+    () async {
+      final cloud = _FakeTelegramAgentSettingsPort.controlled();
+      final repository = _FakeHatcheryAgentRepository(
+        summaries: const [],
+        settings: const AgentSettings(telegramEnabled: false),
+      );
+      final provider = _providerFor(
+        _adminUser(),
+        repository,
+        telegramSettingsPort: cloud,
+      );
+      await provider.load();
+
+      final operation = provider.setTelegramEnabled(true);
+      await Future<void>.delayed(Duration.zero);
+      cloud.fail();
+      await operation;
+
+      expect(repository.settingsSaveCount, 0);
+      expect(repository.settings.telegramEnabled, isFalse);
+      expect(provider.settings.telegramEnabled, isFalse);
+      expect(provider.isUpdatingTelegram, isFalse);
+      expect(
+        provider.error,
+        'Unable to update Telegram agent. Please try again.',
+      );
+    },
+  );
+
+  test(
+    'pause cloud failure preserves running local and provider state',
+    () async {
+      final cloud = _FakeTelegramAgentSettingsPort.controlled();
+      final repository = _FakeHatcheryAgentRepository(summaries: const []);
+      final provider = _providerFor(
+        _adminUser(),
+        repository,
+        telegramSettingsPort: cloud,
+      );
+      await provider.load();
+
+      final operation = provider.setTelegramEnabled(false);
+      await Future<void>.delayed(Duration.zero);
+      cloud.fail();
+      await operation;
+
+      expect(repository.settingsSaveCount, 0);
+      expect(repository.settings.telegramEnabled, isTrue);
+      expect(provider.settings.telegramEnabled, isTrue);
+      expect(provider.isUpdatingTelegram, isFalse);
+    },
+  );
+
+  test('provider publishes threshold values returned by cloud', () async {
+    final cloud = _FakeTelegramAgentSettingsPort(
+      confirmed: AgentSettings(
+        telegramEnabled: false,
+        hatchabilityWarningThresholdPoints: 4,
+        minimumReadyConfidencePct: 90,
+        updatedAt: DateTime.utc(2026, 8, 13, 18),
+      ),
+    );
+    final repository = _FakeHatcheryAgentRepository(summaries: const []);
+    final provider = _providerFor(
+      _adminUser(),
+      repository,
+      telegramSettingsPort: cloud,
+    );
+    await provider.load();
+
+    await provider.setTelegramEnabled(false);
+
+    expect(provider.settings.telegramEnabled, isFalse);
+    expect(provider.settings.hatchabilityWarningThresholdPoints, 4);
+    expect(provider.settings.minimumReadyConfidencePct, 90);
+    expect(repository.settings.minimumReadyConfidencePct, 90);
+  });
+
+  test(
+    'repeated requests while active create one cloud and local write',
+    () async {
+      final cloud = _FakeTelegramAgentSettingsPort.controlled();
+      final repository = _FakeHatcheryAgentRepository(summaries: const []);
+      final provider = _providerFor(
+        _adminUser(),
+        repository,
+        telegramSettingsPort: cloud,
+      );
+      await provider.load();
+
+      final first = provider.setTelegramEnabled(false);
+      await Future<void>.delayed(Duration.zero);
+      await provider.setTelegramEnabled(false);
+      await provider.setTelegramEnabled(true);
+
+      expect(cloud.callCount, 1);
+      expect(repository.settingsSaveCount, 0);
+      cloud.complete(telegramEnabled: false);
+      await first;
+
+      expect(repository.settingsSaveCount, 1);
+      expect(provider.settings.telegramEnabled, isFalse);
+      expect(repository.settings.telegramEnabled, isFalse);
+    },
+  );
 
   test(
     'approveStaffLink assigns one customer and reloads Telegram users',
@@ -349,22 +508,26 @@ void main() {
     expect(provider.error, 'Unable to load agent data. Please try again.');
   });
 
-  test('failed Telegram update keeps the persisted setting', () async {
-    final repository = _FakeHatcheryAgentRepository(
-      summaries: const [],
-      saveError: StateError('write failed'),
-    );
-    final provider = _providerFor(_adminUser(), repository);
-    await provider.load();
+  test(
+    'local cache failure keeps the cloud-confirmed setting visible',
+    () async {
+      final repository = _FakeHatcheryAgentRepository(
+        summaries: const [],
+        saveError: StateError('write failed'),
+      );
+      final provider = _providerFor(_adminUser(), repository);
+      await provider.load();
 
-    await provider.setTelegramEnabled(false);
+      await provider.setTelegramEnabled(false);
 
-    expect(provider.settings.telegramEnabled, isTrue);
-    expect(
-      provider.error,
-      'Unable to update Telegram agent. Please try again.',
-    );
-  });
+      expect(provider.settings.telegramEnabled, isFalse);
+      expect(repository.settings.telegramEnabled, isTrue);
+      expect(
+        provider.error,
+        'Telegram updated, but the local cache could not be refreshed.',
+      );
+    },
+  );
 
   test(
     'refreshSelected replaces the selected batch with fresh details',
@@ -569,6 +732,7 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
     this.listError,
     this.saveError,
     this.detailError,
+    this.settingsEvents,
   });
 
   final List<HatcheryDraftBatchSummary> summaries;
@@ -580,6 +744,7 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
   final Object? listError;
   final Object? saveError;
   final Object? detailError;
+  final List<String>? settingsEvents;
   int settingsLoadCount = 0;
   int settingsSaveCount = 0;
   int summaryLoadCount = 0;
@@ -629,6 +794,14 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
     if (saveError case final error?) throw error;
     settingsSaveCount++;
     this.settings = settings;
+  }
+
+  @override
+  Future<void> saveConfirmedSettings(AgentSettings settings) async {
+    if (saveError case final error?) throw error;
+    settingsSaveCount++;
+    this.settings = settings;
+    settingsEvents?.add('local-confirmed');
   }
 
   @override
@@ -778,6 +951,7 @@ AgentMonitorProvider _providerFor(
   AgentIntakeRepository? intakeRepository,
   AgentIntakeApprovalPort? approvalPort,
   AgentDiagnosticRepository? diagnosticRepository,
+  TelegramAgentSettingsPort? telegramSettingsPort,
 }) {
   return AgentMonitorProvider(
     repository: repository,
@@ -785,8 +959,60 @@ AgentMonitorProvider _providerFor(
     approvalPort: approvalPort ?? _FakeApprovalPort(),
     diagnosticRepository:
         diagnosticRepository ?? _FakeAgentDiagnosticRepository(),
+    telegramSettingsPort:
+        telegramSettingsPort ?? _FakeTelegramAgentSettingsPort(),
     currentUser: user,
   );
+}
+
+class _FakeTelegramAgentSettingsPort implements TelegramAgentSettingsPort {
+  _FakeTelegramAgentSettingsPort({this.events, this.confirmed, this.error})
+    : _completion = null;
+
+  _FakeTelegramAgentSettingsPort.controlled({this.events})
+    : confirmed = null,
+      error = null,
+      _completion = Completer<AgentSettings>();
+
+  final List<String>? events;
+  final AgentSettings? confirmed;
+  final Object? error;
+  final Completer<AgentSettings>? _completion;
+  int callCount = 0;
+  AgentSettings? requested;
+
+  @override
+  Future<AgentSettings> confirm(AgentSettings requested) async {
+    callCount++;
+    this.requested = requested;
+    events?.add('cloud-start');
+    if (error case final failure?) throw failure;
+    final result = _completion == null
+        ? (confirmed ?? requested)
+        : await _completion.future;
+    events?.add('cloud-confirmed');
+    return result;
+  }
+
+  void complete({
+    required bool telegramEnabled,
+    double hatchabilityWarningThresholdPoints = 3,
+    double minimumReadyConfidencePct = 85,
+  }) {
+    _completion!.complete(
+      AgentSettings(
+        id: requested?.id ?? 1,
+        telegramEnabled: telegramEnabled,
+        hatchabilityWarningThresholdPoints: hatchabilityWarningThresholdPoints,
+        minimumReadyConfidencePct: minimumReadyConfidencePct,
+        updatedAt: DateTime.utc(2026, 8, 13, 18),
+      ),
+    );
+  }
+
+  void fail() {
+    _completion!.completeError(StateError('cloud unavailable'));
+  }
 }
 
 class _FakeAgentDiagnosticRepository extends AgentDiagnosticRepository {

@@ -168,6 +168,33 @@ void main() {
     },
   );
 
+  test('saveConfirmedSettings stores a synced cloud mirror', () async {
+    final repo = HatcheryAgentRepository();
+    final confirmed = AgentSettings(
+      telegramEnabled: false,
+      hatchabilityWarningThresholdPoints: 4,
+      minimumReadyConfidencePct: 90,
+      updatedAt: DateTime.utc(2026, 8, 13, 18),
+    );
+
+    await repo.saveConfirmedSettings(confirmed);
+
+    final db = await DatabaseHelper().db;
+    final rows = await db.query(
+      'agent_settings',
+      where: 'id = ?',
+      whereArgs: const [1],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['telegramEnabled'], 0);
+    expect(rows.single['hatchabilityWarningThresholdPoints'], 4);
+    expect(rows.single['minimumReadyConfidencePct'], 90);
+    expect(rows.single['syncStatus'], 'synced');
+    expect(rows.single['dirtyAt'], isNull);
+    expect(rows.single['lastSyncedAt'], isNotNull);
+    expect(rows.single['syncError'], isNull);
+  });
+
   test(
     'listBatchSummaries returns newest submissions first with row counts',
     () async {

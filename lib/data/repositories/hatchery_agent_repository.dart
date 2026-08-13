@@ -115,6 +115,27 @@ class HatcheryAgentRepository {
     }
   }
 
+  Future<void> saveConfirmedSettings(AgentSettings settings) async {
+    final db = await _databaseHelper.db;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final values = <String, Object?>{
+      ...settings.toMap(),
+      'syncStatus': 'synced',
+      'dirtyAt': null,
+      'lastSyncedAt': now,
+      'syncError': null,
+    };
+    final changed = await db.update(
+      'agent_settings',
+      values,
+      where: 'id = ?',
+      whereArgs: [settings.id],
+    );
+    if (changed == 0) {
+      await db.insert('agent_settings', values);
+    }
+  }
+
   Future<HatcheryAgentLinkCatalog> loadLinkCatalog() async {
     final db = await _databaseHelper.db;
     final customerRows = await db.query(

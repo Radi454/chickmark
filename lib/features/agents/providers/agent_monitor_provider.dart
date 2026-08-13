@@ -9,6 +9,7 @@ import '../../../data/repositories/agent_intake_repository.dart';
 import '../../../data/repositories/agent_diagnostic_repository.dart';
 import '../../../data/repositories/hatchery_agent_repository.dart';
 import '../../../services/supabase/agent_intake_approval_service.dart';
+import '../../../services/supabase/telegram_agent_settings_service.dart';
 
 class AgentMonitorProvider extends ChangeNotifier {
   AgentMonitorProvider({
@@ -17,20 +18,26 @@ class AgentMonitorProvider extends ChangeNotifier {
     AgentIntakeRepository? intakeRepository,
     AgentDiagnosticRepository? diagnosticRepository,
     AgentIntakeApprovalPort? approvalPort,
+    TelegramAgentSettingsPort? telegramSettingsPort,
   }) : _currentUser = currentUser,
        _repository = repository ?? HatcheryAgentRepository(),
        _intakeRepository = intakeRepository ?? AgentIntakeRepository(),
        _diagnosticRepository =
            diagnosticRepository ?? AgentDiagnosticRepository(),
-       _approvalPort = approvalPort ?? AgentIntakeApprovalService();
+       _approvalPort = approvalPort ?? AgentIntakeApprovalService(),
+       _telegramSettingsPort =
+           telegramSettingsPort ?? TelegramAgentSettingsService();
 
   final UserModel? _currentUser;
   final HatcheryAgentRepository _repository;
   final AgentIntakeRepository _intakeRepository;
   final AgentDiagnosticRepository _diagnosticRepository;
   final AgentIntakeApprovalPort _approvalPort;
+  final TelegramAgentSettingsPort _telegramSettingsPort;
 
   bool _isLoading = false;
+  bool _isUpdatingTelegram = false;
+  int _telegramUpdateToken = 0;
   bool _hasLoaded = false;
   String? _error;
   AgentSettings _settings = const AgentSettings();
@@ -46,6 +53,7 @@ class AgentMonitorProvider extends ChangeNotifier {
   List<AgentConversationDiagnostic> _conversationDiagnostics = const [];
 
   bool get isLoading => _isLoading;
+  bool get isUpdatingTelegram => _isUpdatingTelegram;
   bool get hasLoaded => _hasLoaded;
   String? get error => _error;
   AgentSettings get settings => _settings;
@@ -202,9 +210,13 @@ class AgentMonitorProvider extends ChangeNotifier {
   }
 
   Future<void> setTelegramEnabled(bool enabled) async {
-    if (!canAccessMonitor) return;
+    if (!canAccessMonitor ||
+        _isUpdatingTelegram ||
+        enabled == _settings.telegramEnabled) {
+      return;
+    }
     _error = null;
-    final nextSettings = AgentSettings(
+    final requested = AgentSettings(
       id: _settings.id,
       telegramEnabled: enabled,
       hatchabilityWarningThresholdPoints:
@@ -212,13 +224,34 @@ class AgentMonitorProvider extends ChangeNotifier {
       minimumReadyConfidencePct: _settings.minimumReadyConfidencePct,
       updatedAt: DateTime.now().toUtc(),
     );
-    try {
-      await _repository.saveSettings(nextSettings);
-      _settings = nextSettings;
-    } catch (_) {
-      _error = 'Unable to update Telegram agent. Please try again.';
-    }
+    final token = ++_telegramUpdateToken;
+    _isUpdatingTelegram = true;
     notifyListeners();
+    try {
+      final confirmed = await _telegramSettingsPort.confirm(requested);
+      if (token != _telegramUpdateToken) return;
+      try {
+        await _repository.saveConfirmedSettings(confirmed);
+      } catch (_) {
+        if (token != _telegramUpdateToken) return;
+        _settings = confirmed;
+        _error =
+            'Telegram updated, but the local cache could not be refreshed.';
+        return;
+      }
+      if (token == _telegramUpdateToken) {
+        _settings = confirmed;
+      }
+    } catch (_) {
+      if (token == _telegramUpdateToken) {
+        _error = 'Unable to update Telegram agent. Please try again.';
+      }
+    } finally {
+      if (token == _telegramUpdateToken) {
+        _isUpdatingTelegram = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> approveStaffLink({
