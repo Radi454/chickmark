@@ -289,12 +289,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     onDestinationSelected: _selectDestination,
                   ),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const PendingRevalidationChip(),
-                      Expanded(child: _builtScreens[_currentIndex]!),
-                    ],
+                  child: _MainShellTabArea(
+                    content: _builtScreens[_currentIndex]!,
                   ),
                 ),
               ],
@@ -410,6 +406,37 @@ class PendingRevalidationChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Composes the offline indicator with the active tab's content: chip first,
+/// then the tab content filling the remaining space. Extracted out of
+/// `_MainShellState.build()` purely so it can be pumped in a widget test
+/// without dragging in `MainShell`'s sqflite-backed providers and screens —
+/// see [buildMainShellTabAreaForTest]. Not a public widget in its own right;
+/// its whole reason to exist is to keep this composition test-reachable.
+class _MainShellTabArea extends StatelessWidget {
+  final Widget content;
+
+  const _MainShellTabArea({required this.content});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [const PendingRevalidationChip(), Expanded(child: content)],
+    );
+  }
+}
+
+/// Test-only entry point for [_MainShellTabArea] — mirrors the
+/// [buildMainShellNavigationDrawerForTest] pattern above. Lets a test assert
+/// that the offline chip is actually wired into the shell's tab-content
+/// composition (present, and ordered before the tab content) without
+/// pumping the full `MainShell`, which hangs `testWidgets` under `FakeAsync`
+/// the moment its real `AuthProvider`/`CustomersProvider` touch sqflite.
+@visibleForTesting
+Widget buildMainShellTabAreaForTest({required Widget content}) {
+  return _MainShellTabArea(content: content);
 }
 
 class _ShellTab {

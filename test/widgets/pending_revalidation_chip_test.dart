@@ -82,4 +82,43 @@ void main() {
     expect(find.byType(ElevatedButton), findsNothing);
     expect(find.byType(IconButton), findsNothing);
   });
+
+  // Regression guard for the shell wiring itself, not just the chip in
+  // isolation: pumps buildMainShellTabAreaForTest(), the same composition
+  // MainShell.build() uses for chip + active tab content, so a future edit
+  // that drops the chip from that composition or reorders it after the tab
+  // content fails here — without pumping the real, sqflite-backed
+  // MainShell (which hangs testWidgets under FakeAsync).
+  testWidgets(
+    'the shell composes the chip above the active tab content, in order',
+    (tester) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthProvider>(
+          create: (_) => _FakeAuthProvider(pending: true),
+          child: MaterialApp(
+            home: Scaffold(
+              body: buildMainShellTabAreaForTest(
+                content: const Text('main-shell-tab-content'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final column = tester.widget<Column>(find.byType(Column));
+      expect(column.children.length, 2);
+      expect(column.children.first, isA<PendingRevalidationChip>());
+      expect(column.children.last, isA<Expanded>());
+
+      // And the chip actually renders above the content on screen.
+      final chipTop = tester
+          .getTopLeft(find.text('Offline — will reconnect automatically'))
+          .dy;
+      final contentTop = tester
+          .getTopLeft(find.text('main-shell-tab-content'))
+          .dy;
+      expect(chipTop, lessThan(contentTop));
+    },
+  );
 }
