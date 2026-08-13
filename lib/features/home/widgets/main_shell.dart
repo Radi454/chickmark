@@ -280,20 +280,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             canGoBack: _tabHistory.isNotEmpty,
             goBack: _goBack,
             switchTab: _selectDestination,
-            child: Row(
-              children: [
-                if (useNavigationRail)
-                  _ShellNavigationRail(
-                    destinations: _tabs.map((t) => t.destination).toList(),
-                    currentIndex: _currentIndex,
-                    onDestinationSelected: _selectDestination,
-                  ),
-                Expanded(
-                  child: _MainShellTabArea(
-                    content: _builtScreens[_currentIndex]!,
-                  ),
-                ),
-              ],
+            child: _buildMainShellBody(
+              useNavigationRail: useNavigationRail,
+              destinations: _tabs.map((t) => t.destination).toList(),
+              currentIndex: _currentIndex,
+              onDestinationSelected: _selectDestination,
+              content: _builtScreens[_currentIndex]!,
             ),
           ),
         );
@@ -408,12 +400,90 @@ class PendingRevalidationChip extends StatelessWidget {
   }
 }
 
+/// Builds the row `_MainShellState.build()` places directly in its
+/// `Scaffold`'s body: the navigation rail (wide layouts only) plus the
+/// active tab's content composed with [PendingRevalidationChip] via
+/// [_MainShellTabArea].
+///
+/// `_MainShellState.build()` has no other way to produce this row — it
+/// calls this function, full stop — so [buildMainShellBodyForTest] pumping
+/// it below exercises the exact same composition path the real shell uses,
+/// not a parallel copy of it. A future edit that drops or reorders the
+/// chip anywhere in this composition, or bypasses [_MainShellTabArea]
+/// entirely, changes what that test sees.
+Widget _buildMainShellBody({
+  required bool useNavigationRail,
+  required List<_ShellDestination> destinations,
+  required int currentIndex,
+  required ValueChanged<int> onDestinationSelected,
+  required Widget content,
+}) {
+  return Row(
+    children: [
+      if (useNavigationRail)
+        _ShellNavigationRail(
+          destinations: destinations,
+          currentIndex: currentIndex,
+          onDestinationSelected: onDestinationSelected,
+        ),
+      Expanded(child: _MainShellTabArea(content: content)),
+    ],
+  );
+}
+
+/// Test-only entry point for [_buildMainShellBody] — mirrors
+/// [buildMainShellNavigationDrawerForTest] above. Lets a test assert that
+/// the offline chip is actually wired into the *real shell's* body
+/// composition — the literal code path `_MainShellState.build()` runs —
+/// rather than only into [_MainShellTabArea] pumped in isolation, without
+/// dragging in `MainShell`'s sqflite-backed providers and screens.
+///
+/// [destinationLabels] defaults to a single placeholder tab: an empty list
+/// leaves `NavigationRail` with nothing to size itself against and it
+/// overflows regardless of the chip, which isn't the thing this helper is
+/// for guarding.
+@visibleForTesting
+Widget buildMainShellBodyForTest({
+  required bool useNavigationRail,
+  required Widget content,
+  List<String> destinationLabels = const ['Home'],
+}) {
+  return _buildMainShellBody(
+    useNavigationRail: useNavigationRail,
+    destinations: destinationLabels
+        .map(
+          (label) => _ShellDestination(
+            label: label,
+            icon: Icons.circle_outlined,
+            selectedIcon: Icons.circle,
+          ),
+        )
+        .toList(growable: false),
+    currentIndex: 0,
+    onDestinationSelected: (_) {},
+    content: content,
+  );
+}
+
 /// Composes the offline indicator with the active tab's content: chip first,
 /// then the tab content filling the remaining space. Extracted out of
 /// `_MainShellState.build()` purely so it can be pumped in a widget test
 /// without dragging in `MainShell`'s sqflite-backed providers and screens —
 /// see [buildMainShellTabAreaForTest]. Not a public widget in its own right;
 /// its whole reason to exist is to keep this composition test-reachable.
+///
+/// Wrapped in a top-only [SafeArea]: `MainShell`'s own `Scaffold` has no
+/// `appBar`, so its `body` — this widget — otherwise starts at the physical
+/// top of the screen, under the status bar / notch, with nothing to push it
+/// down. Each tab's `content` is itself a full `Scaffold` with its own
+/// [GradientAppBar]; that inner `AppBar` is `primary` by default and pads
+/// itself for `MediaQuery.padding.top` regardless of nesting, so without
+/// this `SafeArea` the notch inset got consumed twice — once by nothing
+/// (leaving the chip under the status bar) and once more by the inner app
+/// bar (pushing it an extra ~50pt down). Consuming the top inset here and
+/// zeroing it out of the `MediaQuery` handed to `content` fixes both: the
+/// chip renders below the status bar, and the inner app bar sits directly
+/// below the chip instead of double-padding.
 class _MainShellTabArea extends StatelessWidget {
   final Widget content;
 
@@ -421,9 +491,15 @@ class _MainShellTabArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [const PendingRevalidationChip(), Expanded(child: content)],
+    return SafeArea(
+      top: true,
+      bottom: false,
+      left: false,
+      right: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [const PendingRevalidationChip(), Expanded(child: content)],
+      ),
     );
   }
 }
