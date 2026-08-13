@@ -39,6 +39,12 @@ void main() {
       arabic.translate('Unable to save this row. Please try again.'),
       isNot('Unable to save this row. Please try again.'),
     );
+    expect(
+      arabic.translate(
+        'Telegram updated, but the local cache could not be refreshed.',
+      ),
+      isNot('Telegram updated, but the local cache could not be refreshed.'),
+    );
   });
 
   test('static user-facing strings have Arabic translations', () {

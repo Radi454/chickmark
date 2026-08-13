@@ -966,17 +966,16 @@ AgentMonitorProvider _providerFor(
 }
 
 class _FakeTelegramAgentSettingsPort implements TelegramAgentSettingsPort {
-  _FakeTelegramAgentSettingsPort({this.events, this.confirmed, this.error})
-    : _completion = null;
+  _FakeTelegramAgentSettingsPort({this.confirmed})
+    : events = null,
+      _completion = null;
 
   _FakeTelegramAgentSettingsPort.controlled({this.events})
     : confirmed = null,
-      error = null,
       _completion = Completer<AgentSettings>();
 
   final List<String>? events;
   final AgentSettings? confirmed;
-  final Object? error;
   final Completer<AgentSettings>? _completion;
   int callCount = 0;
   AgentSettings? requested;
@@ -986,7 +985,6 @@ class _FakeTelegramAgentSettingsPort implements TelegramAgentSettingsPort {
     callCount++;
     this.requested = requested;
     events?.add('cloud-start');
-    if (error case final failure?) throw failure;
     final result = _completion == null
         ? (confirmed ?? requested)
         : await _completion.future;

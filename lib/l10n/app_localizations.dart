@@ -742,6 +742,8 @@ const Map<String, String> _ar = {
       'تعذر تحميل بيانات الوكيل. حاول مرة أخرى.',
   'Unable to update Telegram agent. Please try again.':
       'تعذر تحديث وكيل تيليجرام. حاول مرة أخرى.',
+  'Telegram updated, but the local cache could not be refreshed.':
+      'تم تحديث تيليجرام، لكن تعذر تحديث النسخة المحلية.',
   'Unable to update Telegram staff access. Please try again.':
       'تعذر تحديث وصول موظف تيليجرام. حاول مرة أخرى.',
   'Unable to load this draft. Please try again.':

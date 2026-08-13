@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import 'package:hatchaudit/features/agents/screens/agent_monitor_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/l10n/app_localizations.dart';
 import 'package:hatchaudit/services/supabase/agent_intake_approval_service.dart';
+import 'package:hatchaudit/services/supabase/telegram_agent_settings_service.dart';
 import 'package:provider/provider.dart';
 
 void main() {
@@ -61,16 +63,18 @@ void main() {
 
     await _pumpMonitor(
       tester,
-      repository: _repositoryWithOneWarning(staffLinks: const [
-        TelegramStaffLink(
-          id: 'allowed-1',
-          telegramUserId: '777',
-          displayName: 'Customer Operator',
-          status: TelegramStaffLinkStatus.allowed,
-          accessRole: TelegramAgentAccessRole.customer,
-          customerId: 'customer-1',
-        ),
-      ]),
+      repository: _repositoryWithOneWarning(
+        staffLinks: const [
+          TelegramStaffLink(
+            id: 'allowed-1',
+            telegramUserId: '777',
+            displayName: 'Customer Operator',
+            status: TelegramStaffLinkStatus.allowed,
+            accessRole: TelegramAgentAccessRole.customer,
+            customerId: 'customer-1',
+          ),
+        ],
+      ),
       user: _adminUser(),
     );
     await tester.pumpAndSettle();
@@ -181,20 +185,76 @@ void main() {
     expect(find.text('Needs attention'), findsOneWidget);
   });
 
-  testWidgets('approved admin can pause Telegram ingestion', (tester) async {
-    final repository = _repositoryWithOneWarning();
+  testWidgets(
+    'pause keeps confirmed state and disables control until cloud confirms',
+    (tester) async {
+      final repository = _repositoryWithOneWarning();
+      final cloud = _FakeTelegramAgentSettingsPort.controlled();
 
-    await _pumpMonitor(tester, repository: repository, user: _adminUser());
+      await _pumpMonitor(
+        tester,
+        repository: repository,
+        user: _adminUser(),
+        telegramSettingsPort: cloud,
+      );
+      await tester.pumpAndSettle();
+
+      final toggle = find.byKey(const ValueKey('telegram-agent-toggle'));
+      expect(toggle, findsOneWidget);
+      expect(find.text('Telegram running'), findsOneWidget);
+
+      await tester.tap(toggle);
+      await tester.pump();
+
+      expect(find.text('Telegram running'), findsOneWidget);
+      expect(repository.settingsSaveCount, 0);
+      final activeButton = tester.widget<IconButton>(toggle);
+      expect(activeButton.onPressed, isNull);
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is LinearProgressIndicator && widget.value == null,
+        ),
+        findsOneWidget,
+      );
+
+      cloud.complete(telegramEnabled: false);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Telegram paused'), findsOneWidget);
+      expect(repository.settingsSaveCount, 1);
+      expect(repository.settings.telegramEnabled, isFalse);
+      final completedButton = tester.widget<IconButton>(toggle);
+      expect(completedButton.onPressed, isNotNull);
+    },
+  );
+
+  testWidgets('pause cloud failure preserves running state and shows error', (
+    tester,
+  ) async {
+    final repository = _repositoryWithOneWarning();
+    final cloud = _FakeTelegramAgentSettingsPort.controlled();
+
+    await _pumpMonitor(
+      tester,
+      repository: repository,
+      user: _adminUser(),
+      telegramSettingsPort: cloud,
+    );
     await tester.pumpAndSettle();
 
     final toggle = find.byKey(const ValueKey('telegram-agent-toggle'));
-    expect(toggle, findsOneWidget);
-
     await tester.tap(toggle);
     await tester.pump();
+    cloud.fail();
+    await tester.pumpAndSettle();
 
-    expect(repository.settingsSaveCount, 1);
-    expect(repository.settings.telegramEnabled, isFalse);
+    expect(find.text('Telegram running'), findsOneWidget);
+    expect(repository.settingsSaveCount, 0);
+    expect(
+      find.text('Unable to update Telegram agent. Please try again.'),
+      findsOneWidget,
+    );
+    expect(tester.widget<IconButton>(toggle).onPressed, isNotNull);
   });
 
   testWidgets('Agent Monitor shows pending Telegram staff access requests', (
@@ -653,6 +713,7 @@ Future<void> _pumpMonitor(
   AgentIntakeRepository? intakeRepository,
   AgentIntakeApprovalPort? approvalPort,
   AgentDiagnosticRepository? diagnosticRepository,
+  TelegramAgentSettingsPort? telegramSettingsPort,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -672,6 +733,8 @@ Future<void> _pumpMonitor(
               diagnosticRepository:
                   diagnosticRepository ?? _FakeAgentDiagnosticRepository(),
               approvalPort: approvalPort ?? _FakeApprovalPort(),
+              telegramSettingsPort:
+                  telegramSettingsPort ?? _FakeTelegramAgentSettingsPort(),
               currentUser: user,
             ),
           ),
@@ -683,6 +746,39 @@ Future<void> _pumpMonitor(
       ),
     ),
   );
+}
+
+class _FakeTelegramAgentSettingsPort implements TelegramAgentSettingsPort {
+  _FakeTelegramAgentSettingsPort() : _completion = null;
+
+  _FakeTelegramAgentSettingsPort.controlled()
+    : _completion = Completer<AgentSettings>();
+
+  final Completer<AgentSettings>? _completion;
+  AgentSettings? requested;
+
+  @override
+  Future<AgentSettings> confirm(AgentSettings requested) async {
+    this.requested = requested;
+    return _completion == null ? requested : _completion.future;
+  }
+
+  void complete({required bool telegramEnabled}) {
+    _completion!.complete(
+      AgentSettings(
+        id: requested?.id ?? 1,
+        telegramEnabled: telegramEnabled,
+        hatchabilityWarningThresholdPoints:
+            requested?.hatchabilityWarningThresholdPoints ?? 3,
+        minimumReadyConfidencePct: requested?.minimumReadyConfidencePct ?? 85,
+        updatedAt: DateTime.utc(2026, 8, 13, 18),
+      ),
+    );
+  }
+
+  void fail() {
+    _completion!.completeError(StateError('cloud unavailable'));
+  }
 }
 
 class _FakeAgentDiagnosticRepository extends AgentDiagnosticRepository {
@@ -1077,6 +1173,12 @@ class _FakeHatcheryAgentRepository extends HatcheryAgentRepository {
 
   @override
   Future<void> saveSettings(AgentSettings settings) async {
+    settingsSaveCount++;
+    this.settings = settings;
+  }
+
+  @override
+  Future<void> saveConfirmedSettings(AgentSettings settings) async {
     settingsSaveCount++;
     this.settings = settings;
   }

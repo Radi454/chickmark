@@ -69,6 +69,7 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
           );
         }
         final enabled = provider.settings.telegramEnabled;
+        final controlsBusy = provider.isLoading || provider.isUpdatingTelegram;
         final adminUserId = auth.user!.id;
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -77,7 +78,7 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
             actions: [
               IconButton(
                 tooltip: context.tr('Refresh'),
-                onPressed: provider.isLoading ? null : provider.load,
+                onPressed: controlsBusy ? null : provider.load,
                 icon: const Icon(Icons.refresh),
               ),
               IconButton(
@@ -85,7 +86,7 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
                 tooltip: context.tr(
                   enabled ? 'Pause Telegram agent' : 'Resume Telegram agent',
                 ),
-                onPressed: provider.isLoading
+                onPressed: controlsBusy
                     ? null
                     : () => provider.setTelegramEnabled(!enabled),
                 icon: Icon(
@@ -99,12 +100,11 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
               final isWide = constraints.maxWidth >= _wideBreakpoint;
               final header = <Widget>[
                 _AgentStateBar(enabled: enabled),
-                if (provider.isLoading)
-                  const LinearProgressIndicator(minHeight: 2),
+                if (controlsBusy) const LinearProgressIndicator(minHeight: 2),
                 if (provider.error != null)
                   _ErrorBanner(
                     message: provider.error!,
-                    onRetry: provider.isLoading ? null : provider.load,
+                    onRetry: controlsBusy ? null : provider.load,
                   ),
                 _AgentHealthPanel(
                   health: provider.health,
@@ -1098,9 +1098,7 @@ class _MonitorWorkspace extends StatelessWidget {
         provider.batches.isEmpty &&
         provider.intakes.isEmpty) {
       const spinner = Center(child: CircularProgressIndicator());
-      return embedded
-          ? const SizedBox(height: 180, child: spinner)
-          : spinner;
+      return embedded ? const SizedBox(height: 180, child: spinner) : spinner;
     }
     if (provider.batches.isEmpty && provider.intakes.isEmpty) {
       return const _EmptyMonitor();
@@ -1119,11 +1117,7 @@ class _MonitorWorkspace extends StatelessWidget {
       );
       return Column(
         children: embedded
-            ? [
-                intakeWorkspace,
-                const Divider(height: 1),
-                hatcheryWorkspace,
-              ]
+            ? [intakeWorkspace, const Divider(height: 1), hatcheryWorkspace]
             : [
                 Expanded(child: intakeWorkspace),
                 const Divider(height: 1),
