@@ -17,6 +17,10 @@ import '../widgets/agent_submission_card.dart';
 import '../widgets/hatchery_draft_row_card.dart';
 import '../widgets/agent_intake_review_card.dart';
 
+/// Width at which the monitor switches from a single scrolling page to the
+/// fixed-header, side-by-side desktop layout.
+const double _wideBreakpoint = 960;
+
 class AgentMonitorScreen extends StatefulWidget {
   const AgentMonitorScreen({super.key});
 
@@ -90,44 +94,77 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
               ),
             ],
           ),
-          body: Column(
-            children: [
-              _AgentStateBar(enabled: enabled),
-              if (provider.isLoading)
-                const LinearProgressIndicator(minHeight: 2),
-              if (provider.error != null)
-                _ErrorBanner(
-                  message: provider.error!,
-                  onRetry: provider.isLoading ? null : provider.load,
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= _wideBreakpoint;
+              final header = <Widget>[
+                _AgentStateBar(enabled: enabled),
+                if (provider.isLoading)
+                  const LinearProgressIndicator(minHeight: 2),
+                if (provider.error != null)
+                  _ErrorBanner(
+                    message: provider.error!,
+                    onRetry: provider.isLoading ? null : provider.load,
+                  ),
+                _AgentHealthPanel(
+                  health: provider.health,
+                  conversations: provider.conversationDiagnostics,
                 ),
-              _AgentHealthPanel(
-                health: provider.health,
-                conversations: provider.conversationDiagnostics,
-              ),
-              if (provider.pendingStaffLinks.isNotEmpty)
-                _PendingStaffAccessPanel(
-                  links: provider.pendingStaffLinks,
-                  isLoading: provider.isLoading,
-                  onApprove: (link) =>
-                      _showStaffAssignment(context, provider, link),
-                  onReject: (link) => provider.revokeStaffLink(link.id),
+                if (provider.pendingStaffLinks.isNotEmpty)
+                  _PendingStaffAccessPanel(
+                    links: provider.pendingStaffLinks,
+                    isLoading: provider.isLoading,
+                    onApprove: (link) =>
+                        _showStaffAssignment(context, provider, link),
+                    onReject: (link) => provider.revokeStaffLink(link.id),
+                  ),
+                if (provider.staffLinks.isNotEmpty)
+                  _StaffAccessPanel(
+                    links: provider.staffLinks,
+                    customers: provider.linkCatalog.customers,
+                    isLoading: provider.isLoading,
+                    onEdit: (link) =>
+                        _showStaffAssignment(context, provider, link),
+                    onRevoke: (link) => provider.revokeStaffLink(link.id),
+                  ),
+              ];
+
+              // Wide screens keep the fixed header + side-by-side panes.
+              if (isWide) {
+                return Column(
+                  children: [
+                    ...header,
+                    Expanded(
+                      child: _MonitorWorkspace(
+                        provider: provider,
+                        adminUserId: adminUserId,
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              // Narrow screens scroll as one page: pinning the header panels
+              // left the workspace squeezed into a few dead pixels.
+              return RefreshIndicator(
+                onRefresh: provider.load,
+                child: SingleChildScrollView(
+                  key: const ValueKey('agent-monitor-scroll'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ...header,
+                      _MonitorWorkspace(
+                        provider: provider,
+                        adminUserId: adminUserId,
+                        embedded: true,
+                      ),
+                    ],
+                  ),
                 ),
-              if (provider.staffLinks.isNotEmpty)
-                _StaffAccessPanel(
-                  links: provider.staffLinks,
-                  customers: provider.linkCatalog.customers,
-                  isLoading: provider.isLoading,
-                  onEdit: (link) =>
-                      _showStaffAssignment(context, provider, link),
-                  onRevoke: (link) => provider.revokeStaffLink(link.id),
-                ),
-              Expanded(
-                child: _MonitorWorkspace(
-                  provider: provider,
-                  adminUserId: adminUserId,
-                ),
-              ),
-            ],
+              );
+            },
           ),
         );
       },
@@ -152,15 +189,23 @@ class _AgentMonitorScreenState extends State<AgentMonitorScreen> {
   }
 }
 
-class _AgentHealthPanel extends StatelessWidget {
+class _AgentHealthPanel extends StatefulWidget {
   const _AgentHealthPanel({required this.health, required this.conversations});
 
   final AgentHealthSnapshot health;
   final List<AgentConversationDiagnostic> conversations;
 
   @override
+  State<_AgentHealthPanel> createState() => _AgentHealthPanelState();
+}
+
+class _AgentHealthPanelState extends State<_AgentHealthPanel> {
+  bool _expanded = true;
+
+  @override
   Widget build(BuildContext context) {
-    final latest = conversations.firstOrNull;
+    final health = widget.health;
+    final latest = widget.conversations.firstOrNull;
     return AppCard(
       key: const ValueKey('agent-health-panel'),
       margin: const EdgeInsets.fromLTRB(
@@ -186,65 +231,125 @@ class _AgentHealthPanel extends StatelessWidget {
               const Expanded(
                 child: Text('Agent health', style: AppTextStyles.sectionTitle),
               ),
-              Text(
-                health.hasErrors ? 'Needs attention' : 'Healthy',
-                style: AppTextStyles.caption.copyWith(
-                  color: health.hasErrors
-                      ? AppColors.statusWarning
-                      : AppColors.statusGood,
+              Flexible(
+                child: Text(
+                  health.hasErrors ? 'Needs attention' : 'Healthy',
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.caption.copyWith(
+                    color: health.hasErrors
+                        ? AppColors.statusWarning
+                        : AppColors.statusGood,
+                  ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: AppSizes.spaceSm),
-          Wrap(
-            spacing: AppSizes.spaceSm,
-            runSpacing: AppSizes.spaceXs,
-            children: [
-              _HealthMetric(
-                label: 'Conversations',
-                value: health.conversationCount,
-              ),
-              _HealthMetric(
-                label: 'Delivery errors',
-                value: health.failedDeliveryCount,
-                isError: health.failedDeliveryCount > 0,
-              ),
-              _HealthMetric(
-                label: 'Pending replies',
-                value: health.pendingDeliveryCount,
-              ),
-              _HealthMetric(
-                label: 'Tool errors',
-                value: health.failedToolCount,
-                isError: health.failedToolCount > 0,
-              ),
-              _HealthMetric(
-                label: 'Flocks missing sector',
-                value: health.unassignedFlockCount,
-                isError: health.unassignedFlockCount > 0,
+              _PanelToggle(
+                key: const ValueKey('agent-health-toggle'),
+                expanded: _expanded,
+                onPressed: () => setState(() => _expanded = !_expanded),
               ),
             ],
           ),
-          const SizedBox(height: AppSizes.spaceSm),
-          if (latest == null)
+          if (!_expanded) ...[
+            const SizedBox(height: AppSizes.spaceXs),
             Text(
-              'No synchronized conversations yet.',
+              _collapsedSummary(health),
               style: AppTextStyles.caption.copyWith(
                 color: AppColors.textSecondary,
               ),
-            )
-          else
-            _LatestConversationContext(diagnostic: latest),
-          const SizedBox(height: AppSizes.spaceXs),
-          Text(
-            'Send /new in Telegram to clear the selected context and start '
-            'a new conversation. Earlier evidence is retained.',
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
             ),
-          ),
+          ],
+          if (_expanded) ...[
+            const SizedBox(height: AppSizes.spaceSm),
+            Wrap(
+              spacing: AppSizes.spaceSm,
+              runSpacing: AppSizes.spaceXs,
+              children: [
+                _HealthMetric(
+                  label: 'Conversations',
+                  value: health.conversationCount,
+                ),
+                _HealthMetric(
+                  label: 'Delivery errors',
+                  value: health.failedDeliveryCount,
+                  isError: health.failedDeliveryCount > 0,
+                ),
+                _HealthMetric(
+                  label: 'Pending replies',
+                  value: health.pendingDeliveryCount,
+                ),
+                _HealthMetric(
+                  label: 'Tool errors',
+                  value: health.failedToolCount,
+                  isError: health.failedToolCount > 0,
+                ),
+                _HealthMetric(
+                  label: 'Flocks missing sector',
+                  value: health.unassignedFlockCount,
+                  isError: health.unassignedFlockCount > 0,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSizes.spaceSm),
+            if (latest == null)
+              Text(
+                'No synchronized conversations yet.',
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              )
+            else
+              _LatestConversationContext(diagnostic: latest),
+            const SizedBox(height: AppSizes.spaceXs),
+            Text(
+              'Send /new in Telegram to clear the selected context and start '
+              'a new conversation. Earlier evidence is retained.',
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  String _collapsedSummary(AgentHealthSnapshot health) {
+    final problems = <String>[
+      if (health.failedDeliveryCount > 0)
+        'delivery errors ${health.failedDeliveryCount}',
+      if (health.failedToolCount > 0) 'tool errors ${health.failedToolCount}',
+      if (health.unassignedFlockCount > 0)
+        'flocks missing sector ${health.unassignedFlockCount}',
+    ];
+    if (problems.isEmpty) {
+      return 'Conversations ${health.conversationCount} · no open issues';
+    }
+    return problems.join(' · ');
+  }
+}
+
+/// Expand/collapse affordance shared by the monitor header cards.
+class _PanelToggle extends StatelessWidget {
+  const _PanelToggle({
+    super.key,
+    required this.expanded,
+    required this.onPressed,
+  });
+
+  final bool expanded;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      tooltip: context.tr(expanded ? 'Collapse' : 'Expand'),
+      icon: Icon(
+        expanded ? Icons.expand_less : Icons.expand_more,
+        color: AppColors.textSecondary,
       ),
     );
   }
@@ -264,6 +369,7 @@ class _HealthMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isError ? AppColors.statusError : AppColors.textSecondary;
+    final base = AppTextStyles.caption.copyWith(color: color);
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSizes.spaceSm,
@@ -272,10 +378,25 @@ class _HealthMetric extends StatelessWidget {
       decoration: BoxDecoration(
         color: isError ? AppColors.statusErrorBg : AppColors.background,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(
+          color: isError ? AppColors.statusError : AppColors.borderDefault,
+          width: isError ? 1 : 0.5,
+        ),
       ),
-      child: Text(
-        '$label: $value',
-        style: AppTextStyles.caption.copyWith(color: color),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(text: '$label: '),
+            TextSpan(
+              text: '$value',
+              style: base.copyWith(
+                fontWeight: FontWeight.w700,
+                color: isError ? AppColors.statusError : AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        style: base,
       ),
     );
   }
@@ -529,6 +650,56 @@ class _PendingStaffAccessTile extends StatelessWidget {
     final displayName = _staffDisplayName(link);
     final username = link.username?.trim();
     final requestedAt = link.updatedAt ?? link.createdAt;
+    final identity = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+          foregroundColor: AppColors.primary,
+          child: const Icon(Icons.telegram, size: AppSizes.iconSm),
+        ),
+        const SizedBox(width: AppSizes.spaceMd),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                displayName,
+                style: AppTextStyles.subtitle,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (username != null && username.isNotEmpty)
+                Text('@$username', style: AppTextStyles.caption),
+              Text(
+                'Telegram ID: ${link.telegramUserId}',
+                style: AppTextStyles.caption,
+              ),
+              if (link.telegramChatId case final chatId?)
+                Text('Chat ID: $chatId', style: AppTextStyles.caption),
+              if (requestedAt != null)
+                Text(
+                  'Requested: ${_formatTimestamp(requestedAt)}',
+                  style: AppTextStyles.caption,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+    final approve = FilledButton.icon(
+      key: ValueKey('agent-staff-approve-${link.id}'),
+      onPressed: isLoading ? null : onApprove,
+      icon: const Icon(Icons.check, size: AppSizes.iconSm),
+      label: const Text('Approve'),
+    );
+    final reject = OutlinedButton.icon(
+      key: ValueKey('agent-staff-reject-${link.id}'),
+      onPressed: isLoading ? null : onReject,
+      icon: const Icon(Icons.block, size: AppSizes.iconSm),
+      label: const Text('Reject'),
+    );
+
     return Container(
       margin: const EdgeInsets.only(top: AppSizes.spaceXs),
       padding: const EdgeInsets.all(AppSizes.spaceSm),
@@ -537,56 +708,38 @@ class _PendingStaffAccessTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
         border: Border.all(color: AppColors.borderDefault),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-            foregroundColor: AppColors.primary,
-            child: const Icon(Icons.telegram),
-          ),
-          const SizedBox(width: AppSizes.spaceMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Side-by-side actions squeeze the identity block on phones.
+          if (constraints.maxWidth < 420) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(displayName, style: AppTextStyles.subtitle),
-                if (username != null && username.isNotEmpty)
-                  Text('@$username', style: AppTextStyles.caption),
-                Text(
-                  'Telegram ID: ${link.telegramUserId}',
-                  style: AppTextStyles.caption,
+                identity,
+                const SizedBox(height: AppSizes.spaceSm),
+                Row(
+                  children: [
+                    Expanded(child: approve),
+                    const SizedBox(width: AppSizes.spaceXs),
+                    Expanded(child: reject),
+                  ],
                 ),
-                if (link.telegramChatId case final chatId?)
-                  Text('Chat ID: $chatId', style: AppTextStyles.caption),
-                if (requestedAt != null)
-                  Text(
-                    'Requested: ${_formatTimestamp(requestedAt)}',
-                    style: AppTextStyles.caption,
-                  ),
               ],
-            ),
-          ),
-          const SizedBox(width: AppSizes.spaceSm),
-          Wrap(
-            spacing: AppSizes.spaceXs,
-            runSpacing: AppSizes.spaceXs,
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FilledButton.icon(
-                key: ValueKey('agent-staff-approve-${link.id}'),
-                onPressed: isLoading ? null : onApprove,
-                icon: const Icon(Icons.check),
-                label: const Text('Approve'),
-              ),
-              OutlinedButton.icon(
-                key: ValueKey('agent-staff-reject-${link.id}'),
-                onPressed: isLoading ? null : onReject,
-                icon: const Icon(Icons.block),
-                label: const Text('Reject'),
+              Expanded(child: identity),
+              const SizedBox(width: AppSizes.spaceSm),
+              Wrap(
+                spacing: AppSizes.spaceXs,
+                runSpacing: AppSizes.spaceXs,
+                children: [approve, reject],
               ),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -772,7 +925,7 @@ class _StaffAssignmentSheetState extends State<_StaffAssignmentSheet> {
   }
 }
 
-class _StaffAccessPanel extends StatelessWidget {
+class _StaffAccessPanel extends StatefulWidget {
   const _StaffAccessPanel({
     required this.links,
     required this.customers,
@@ -788,8 +941,17 @@ class _StaffAccessPanel extends StatelessWidget {
   final Future<void> Function(TelegramStaffLink link) onRevoke;
 
   @override
+  State<_StaffAccessPanel> createState() => _StaffAccessPanelState();
+}
+
+class _StaffAccessPanelState extends State<_StaffAccessPanel> {
+  bool _expanded = true;
+
+  @override
   Widget build(BuildContext context) {
+    final links = widget.links;
     return AppCard(
+      key: const ValueKey('agent-staff-access-panel'),
       margin: const EdgeInsets.fromLTRB(
         AppSizes.spaceMd,
         AppSizes.spaceMd,
@@ -799,28 +961,36 @@ class _StaffAccessPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.manage_accounts, color: AppColors.primary),
-              SizedBox(width: AppSizes.spaceSm),
-              Expanded(
+              const Icon(Icons.manage_accounts, color: AppColors.primary),
+              const SizedBox(width: AppSizes.spaceSm),
+              const Expanded(
                 child: Text(
                   'Telegram users',
                   style: AppTextStyles.sectionTitle,
                 ),
               ),
+              Text('${links.length}', style: AppTextStyles.caption),
+              _PanelToggle(
+                key: const ValueKey('agent-staff-access-toggle'),
+                expanded: _expanded,
+                onPressed: () => setState(() => _expanded = !_expanded),
+              ),
             ],
           ),
-          const SizedBox(height: AppSizes.spaceSm),
-          ...links.map(
-            (link) => _StaffAccessTile(
-              link: link,
-              scopeLabel: _scopeLabel(context, link),
-              isLoading: isLoading,
-              onEdit: () => onEdit(link),
-              onRevoke: () => onRevoke(link),
+          if (_expanded) ...[
+            const SizedBox(height: AppSizes.spaceXs),
+            ...links.map(
+              (link) => _StaffAccessTile(
+                link: link,
+                scopeLabel: _scopeLabel(context, link),
+                isLoading: widget.isLoading,
+                onEdit: () => widget.onEdit(link),
+                onRevoke: () => widget.onRevoke(link),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -830,7 +1000,7 @@ class _StaffAccessPanel extends StatelessWidget {
     if (link.accessRole == TelegramAgentAccessRole.admin) {
       return context.tr('Agent admin access · All customers');
     }
-    final customerName = customers
+    final customerName = widget.customers
         .where((customer) => customer.id == link.customerId)
         .map((customer) => customer.name)
         .firstOrNull;
@@ -858,24 +1028,47 @@ class _StaffAccessTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: const CircleAvatar(child: Icon(Icons.telegram)),
-      title: Text(_staffDisplayName(link)),
-      subtitle: Text(scopeLabel),
-      trailing: Wrap(
-        spacing: AppSizes.spaceXs,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      horizontalTitleGap: AppSizes.spaceSm,
+      minLeadingWidth: 32,
+      leading: const CircleAvatar(
+        radius: 16,
+        child: Icon(Icons.telegram, size: AppSizes.iconSm),
+      ),
+      title: Text(
+        _staffDisplayName(link),
+        style: AppTextStyles.subtitle,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        scopeLabel,
+        style: AppTextStyles.caption,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
             key: ValueKey('agent-staff-edit-${link.id}'),
             tooltip: context.tr('Change scope'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
             onPressed: isLoading ? null : onEdit,
-            icon: const Icon(Icons.edit_outlined),
+            icon: const Icon(Icons.edit_outlined, size: AppSizes.iconSm),
           ),
           IconButton(
             key: ValueKey('agent-staff-revoke-${link.id}'),
             tooltip: context.tr('Revoke access'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
             onPressed: isLoading ? null : onRevoke,
             icon: const Icon(
               Icons.person_remove_outlined,
+              size: AppSizes.iconSm,
               color: AppColors.statusError,
             ),
           ),
@@ -886,53 +1079,107 @@ class _StaffAccessTile extends StatelessWidget {
 }
 
 class _MonitorWorkspace extends StatelessWidget {
-  const _MonitorWorkspace({required this.provider, this.adminUserId});
+  const _MonitorWorkspace({
+    required this.provider,
+    this.adminUserId,
+    this.embedded = false,
+  });
 
   final AgentMonitorProvider provider;
   final String? adminUserId;
+
+  /// When embedded the workspace renders inside the page scroll view, so it
+  /// must shrink-wrap instead of expanding into unbounded height.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
     if (provider.isLoading &&
         provider.batches.isEmpty &&
         provider.intakes.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      const spinner = Center(child: CircularProgressIndicator());
+      return embedded
+          ? const SizedBox(height: 180, child: spinner)
+          : spinner;
     }
     if (provider.batches.isEmpty && provider.intakes.isEmpty) {
       return const _EmptyMonitor();
     }
 
     if (provider.intakes.isNotEmpty) {
-      final intakeWorkspace = _IntakeWorkspace(provider: provider);
+      final intakeWorkspace = _IntakeWorkspace(
+        provider: provider,
+        embedded: embedded,
+      );
       if (provider.batches.isEmpty) return intakeWorkspace;
+      final hatcheryWorkspace = _HatcheryWorkspace(
+        provider: provider,
+        adminUserId: adminUserId,
+        embedded: embedded,
+      );
       return Column(
-        children: [
-          Expanded(child: intakeWorkspace),
-          const Divider(height: 1),
-          Expanded(
-            child: _HatcheryWorkspace(
-              provider: provider,
-              adminUserId: adminUserId,
-            ),
-          ),
-        ],
+        children: embedded
+            ? [
+                intakeWorkspace,
+                const Divider(height: 1),
+                hatcheryWorkspace,
+              ]
+            : [
+                Expanded(child: intakeWorkspace),
+                const Divider(height: 1),
+                Expanded(child: hatcheryWorkspace),
+              ],
       );
     }
 
-    return _HatcheryWorkspace(provider: provider, adminUserId: adminUserId);
+    return _HatcheryWorkspace(
+      provider: provider,
+      adminUserId: adminUserId,
+      embedded: embedded,
+    );
+  }
+}
+
+/// Scrolls on its own when it owns the viewport, and shrink-wraps when the
+/// page already provides a scroll view (narrow layout).
+class _MaybeScroll extends StatelessWidget {
+  const _MaybeScroll({
+    required this.embedded,
+    required this.padding,
+    required this.child,
+    this.scrollKey,
+  });
+
+  final bool embedded;
+  final EdgeInsets padding;
+  final Widget child;
+  final Key? scrollKey;
+
+  @override
+  Widget build(BuildContext context) {
+    if (embedded) {
+      return Padding(key: scrollKey, padding: padding, child: child);
+    }
+    return SingleChildScrollView(
+      key: scrollKey,
+      padding: padding,
+      child: child,
+    );
   }
 }
 
 class _IntakeWorkspace extends StatelessWidget {
-  const _IntakeWorkspace({required this.provider});
+  const _IntakeWorkspace({required this.provider, this.embedded = false});
 
   final AgentMonitorProvider provider;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
     final details = provider.selectedIntake;
-    return SingleChildScrollView(
-      key: const ValueKey('agent-intake-review-workspace'),
+    return _MaybeScroll(
+      embedded: embedded,
+      scrollKey: const ValueKey('agent-intake-review-workspace'),
       padding: const EdgeInsets.all(AppSizes.spaceMd),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -988,16 +1235,46 @@ class _IntakeWorkspace extends StatelessWidget {
 }
 
 class _HatcheryWorkspace extends StatelessWidget {
-  const _HatcheryWorkspace({required this.provider, this.adminUserId});
+  const _HatcheryWorkspace({
+    required this.provider,
+    this.adminUserId,
+    this.embedded = false,
+  });
 
   final AgentMonitorProvider provider;
   final String? adminUserId;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
+    if (embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _BatchList(
+            provider: provider,
+            embedded: true,
+            padding: const EdgeInsets.fromLTRB(
+              AppSizes.spaceMd,
+              AppSizes.spaceMd,
+              AppSizes.spaceMd,
+              AppSizes.spaceSm,
+            ),
+          ),
+          const Divider(height: 1),
+          _BatchDetails(
+            details: provider.selectedBatch,
+            provider: provider,
+            adminUserId: adminUserId,
+            embedded: true,
+          ),
+        ],
+      );
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= 960) {
+        if (constraints.maxWidth >= _wideBreakpoint) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1051,10 +1328,15 @@ class _HatcheryWorkspace extends StatelessWidget {
 }
 
 class _BatchList extends StatelessWidget {
-  const _BatchList({required this.provider, required this.padding});
+  const _BatchList({
+    required this.provider,
+    required this.padding,
+    this.embedded = false,
+  });
 
   final AgentMonitorProvider provider;
   final EdgeInsets padding;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -1062,6 +1344,8 @@ class _BatchList extends StatelessWidget {
     return ListView.builder(
       key: const ValueKey('agent-batch-list'),
       padding: padding,
+      shrinkWrap: embedded,
+      physics: embedded ? const NeverScrollableScrollPhysics() : null,
       itemCount: provider.batches.length,
       itemBuilder: (context, index) {
         final summary = provider.batches[index];
@@ -1080,21 +1364,30 @@ class _BatchDetails extends StatelessWidget {
     required this.details,
     required this.provider,
     this.adminUserId,
+    this.embedded = false,
   });
 
   final HatcheryDraftBatchDetails? details;
   final AgentMonitorProvider provider;
   final String? adminUserId;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
     final value = details;
     if (value == null) {
-      return const Center(child: Text('Select a submission to review'));
+      const placeholder = Center(
+        child: Padding(
+          padding: EdgeInsets.all(AppSizes.spaceLg),
+          child: Text('Select a submission to review'),
+        ),
+      );
+      return placeholder;
     }
 
-    return SingleChildScrollView(
-      key: const ValueKey('agent-batch-details'),
+    return _MaybeScroll(
+      embedded: embedded,
+      scrollKey: const ValueKey('agent-batch-details'),
       padding: const EdgeInsets.all(AppSizes.spaceMd),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

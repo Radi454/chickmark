@@ -55,6 +55,65 @@ void main() {
     expect(find.text('Agent Monitor'), findsOneWidget);
   });
 
+  testWidgets('narrow layout scrolls the whole monitor page', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpMonitor(
+      tester,
+      repository: _repositoryWithOneWarning(staffLinks: const [
+        TelegramStaffLink(
+          id: 'allowed-1',
+          telegramUserId: '777',
+          displayName: 'Customer Operator',
+          status: TelegramStaffLinkStatus.allowed,
+          accessRole: TelegramAgentAccessRole.customer,
+          customerId: 'customer-1',
+        ),
+      ]),
+      user: _adminUser(),
+    );
+    await tester.pumpAndSettle();
+
+    final page = find.byKey(const ValueKey('agent-monitor-scroll'));
+    expect(page, findsOneWidget);
+
+    // Header panels used to be pinned, leaving the workspace unreachable.
+    await tester.drag(page, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.ensureVisible(find.text('Extracted rows'));
+    await tester.pumpAndSettle();
+    expect(find.text('Extracted rows'), findsOneWidget);
+    expect(find.text('Admin action history'), findsOneWidget);
+  });
+
+  testWidgets('header panels collapse to free up workspace room', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpMonitor(
+      tester,
+      repository: _repositoryWithOneWarning(),
+      user: _adminUser(),
+      diagnosticRepository: _FakeAgentDiagnosticRepository(
+        health: const AgentHealthSnapshot(conversationCount: 2),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Send /new in Telegram'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('agent-health-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Send /new in Telegram'), findsNothing);
+    expect(find.text('Conversations 2 · no open issues'), findsOneWidget);
+  });
+
   testWidgets('Agent Monitor explains context, model, errors, and /new', (
     tester,
   ) async {
