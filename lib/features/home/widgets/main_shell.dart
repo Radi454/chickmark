@@ -4,6 +4,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/debug/startup_timer.dart';
+import '../../../core/theme/app_text_styles.dart';
 import '../../../core/navigation/shell_navigation_scope.dart';
 import '../../../data/models/user_model.dart';
 import '../../../providers/customers_provider.dart';
@@ -287,7 +288,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     currentIndex: _currentIndex,
                     onDestinationSelected: _selectDestination,
                   ),
-                Expanded(child: _builtScreens[_currentIndex]!),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const PendingRevalidationChip(),
+                      Expanded(child: _builtScreens[_currentIndex]!),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -333,6 +342,73 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     setState(() {
       _currentIndex = _tabHistory.removeLast();
     });
+  }
+}
+
+/// Passive, non-interactive indicator shown while the app is running on a
+/// previously-proven login it has not yet been able to re-check with the
+/// server (the device is offline). All local work — audits, customers,
+/// flocks, stations, Govee, photos — is fully functional in this state; the
+/// user is not signed out and needs to do nothing.
+///
+/// [AuthProvider.isPendingRevalidation] — and this chip — clear themselves
+/// silently the moment connectivity returns and revalidation succeeds. This
+/// must stay purely informational: no button, no tap target, nothing that
+/// can interrupt a field user mid-audit.
+///
+/// Subscribes narrowly via [BuildContext.select] so only this leaf widget
+/// rebuilds when the flag flips — the rest of the shell is untouched.
+@visibleForTesting
+class PendingRevalidationChip extends StatelessWidget {
+  const PendingRevalidationChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPending = context.select<AuthProvider, bool>(
+      (provider) => provider.isPendingRevalidation,
+    );
+    if (!isPending) return const SizedBox.shrink();
+
+    return Align(
+      alignment: AlignmentDirectional.topStart,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSizes.spaceMd,
+          AppSizes.spaceSm,
+          AppSizes.spaceMd,
+          0,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.statusNeutralBg,
+            borderRadius: BorderRadius.circular(AppSizes.pillRadius),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSizes.spaceMd,
+              vertical: AppSizes.spaceXs,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 14,
+                  color: AppColors.statusNeutralText,
+                ),
+                const SizedBox(width: AppSizes.spaceXs),
+                Text(
+                  'Offline — will reconnect automatically',
+                  style: AppTextStyles.badgeLabel.copyWith(
+                    color: AppColors.statusNeutralText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
