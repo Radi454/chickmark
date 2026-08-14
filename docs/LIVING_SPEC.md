@@ -1536,7 +1536,11 @@ The implemented hierarchy is:
   hatchery-specific override rows for station setup targets. Each row stores a
   source label, optional external `sourceUrl`, optional local
   `sourcePhotoPath`, and optional cloud `sourcePhotoRemotePath` for per-item
-  citations.
+  citations. The cloud `public.bmk_operational_standards` table mirrors the
+  local schema; global rows (`hatchery_id` null) are reference data readable by
+  all authenticated users and writable by admins only. Hatchery-owned rows are
+  scoped through the owning customer using the same RLS helpers as other
+  customer-owned tables.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
