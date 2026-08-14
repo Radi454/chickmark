@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Plays short assistant audio clips: the bundled filler chime and the TTS
 /// reply returned by the server. Abstracted so tests never touch a real
@@ -35,10 +37,22 @@ class AudioplayersAssistantAudioPlayer implements AssistantAudioPlayer {
   }
 
   @override
-  Future<void> playBase64(String base64Audio) {
-    return _playAndAwaitCompletion(
-      () => _player.play(BytesSource(base64Decode(base64Audio))),
+  Future<void> playBase64(String base64Audio) async {
+    // BytesSource is not supported by audioplayers on iOS/macOS, so the clip
+    // is written to a temp file and played from disk — works everywhere.
+    final bytes = base64Decode(base64Audio);
+    final dir = await getTemporaryDirectory();
+    final file = File(
+      '${dir.path}/assistant-reply-${DateTime.now().microsecondsSinceEpoch}.mp3',
     );
+    await file.writeAsBytes(bytes, flush: true);
+    try {
+      await _playAndAwaitCompletion(
+        () => _player.play(DeviceFileSource(file.path)),
+      );
+    } finally {
+      unawaited(file.delete().then((_) => null).catchError((_) => null));
+    }
   }
 
   /// `AudioPlayer.play()`'s Future completes once playback *starts*, not

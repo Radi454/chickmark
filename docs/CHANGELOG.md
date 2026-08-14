@@ -12,6 +12,21 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Fixed silent voice replies on iOS. The TTS reply audio was
+  played via audioplayers' `BytesSource`, which iOS/macOS do not support; the
+  resulting throw was swallowed by the deliberate best-effort playback
+  handling, so voice questions came back as text only. The reply clip is now
+  written to a temp file and played with `DeviceFileSource` (supported on all
+  platforms), then deleted after playback.
+- 2026-08-14: Upgraded voice recording from `record` 5.2.1 to 7.1.1 so
+  Flutter 3.44 resolves a mutually compatible set of federated platform
+  plugins. The previous lockfile paired `record_linux` 0.7.2 with
+  `record_platform_interface` 1.6.0; that Linux implementation did not satisfy
+  the newer interface and caused iOS release compilation to fail before Xcode
+  could package the app. Since `record` 7 eagerly opens its platform channel
+  from `AudioRecorder()` construction, the production recorder is now created
+  lazily on the first voice action; opening text chat no longer initializes
+  microphone infrastructure, and provider unit tests remain binding-free.
 - 2026-08-14: Fixed two more findings from a re-review of the voice-chat
   final-cleanup pass. (1) Finding 3 (retry of a failed voice turn sending
   literal placeholder text) was only half-fixed: the message bubble's own
