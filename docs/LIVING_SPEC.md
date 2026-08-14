@@ -2077,6 +2077,18 @@ reason }` with `reason` one of `benchmark_unavailable` (no `bmkStore` wired),
 `missing_breed`, `missing_flock_age`, `breed_not_found`, or
 `week_out_of_range` -- never a substituted or interpolated benchmark.
 
+The agent's system prompt (`CHICKMARK_AGENT_POLICY` in
+`supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) carries a
+"Benchmark discipline" rules block: benchmark figures may only come from
+`get_breed_benchmark`, `get_egg_breakout_benchmark`, and
+`get_operational_standards` -- the agent must never state a benchmark from
+memory; any benchmark figure must be stated alongside its breed and age in
+weeks; a `breed_not_found`/`week_out_of_range` tool result must be relayed as
+what is covered plus a clarifying question, never interpolated,
+extrapolated, or answered with a nearby week; and judging how an audit
+performed must go through `compare_selected_audit_to_benchmark` rather than
+the agent subtracting numbers itself.
+
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
 HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from

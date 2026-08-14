@@ -12,6 +12,7 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: The agent prompt now requires benchmark figures to come from the BMK tools, with the breed and age week always stated.
 - 2026-08-14: Audit summary and selected-breakout reads now carry the matching breed and breakout benchmark, or an explicit reason it is unavailable.
 - 2026-08-14: Fixed `compare_selected_audit_to_benchmark` to match its stated sibling contract: it now returns `fresh_audit_selection_required` (not `audit_selection_required`) when no audit is selected, and now also treats a stale `flockId` in the conversation's remembered selection as requiring fresh selection, instead of silently comparing against the wrong audit's benchmark.
 - 2026-08-14: The agent can compare the selected audit against breed and egg-breakout standards, with deltas computed server-side and unmatched metrics reported rather than dropped.
