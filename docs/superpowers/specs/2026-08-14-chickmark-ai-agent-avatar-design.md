@@ -2,9 +2,11 @@
 
 **Date:** 2026-08-14
 
-**Status:** Approved visual direction; awaiting written-spec review
+**Status:** Approved visual direction and name; awaiting written-spec review
 
 **Selected concept:** Clean ChickMark Agent (refined from Spark Guide)
+
+**Selected name:** Pip
 
 ## Goal
 
@@ -12,6 +14,30 @@ Give the in-app hatchery assistant a recognizable ChickMark identity without
 introducing generic robot imagery or visual language associated with another AI
 brand. The avatar must remain legible in small message rows and work as a
 reusable identity for the in-app assistant and Telegram agent.
+
+## Name and Product Language
+
+The agent's conversational name is **Pip**. The formal identity used where
+brand attribution matters is **Pip by ChickMark**.
+
+The name comes from the hatchery term *pip* or *pipping*: the process in which
+an unhatched chick uses its egg tooth to break through the shell. This gives the
+name a real hatchery meaning while remaining short enough for message labels,
+voice prompts, and small profile surfaces.
+
+Use the name as follows:
+
+- app navigation and conversation header: `Pip`;
+- English empty-state heading: `Ask Pip`;
+- English composer hint: `Ask Pip`;
+- English thinking label: `Pip is thinking`;
+- introductory identity when needed: `Pip, your ChickMark hatchery assistant`;
+- Telegram display name: `Pip by ChickMark`;
+- Arabic display name: `بيب`;
+- Arabic branded introduction: `بيب، مساعد التفريخ من ChickMark`.
+
+Pip is a proper name, not an acronym. Do not style it as `PIP`, expand its
+letters, or translate its hatchery meaning inside ordinary UI copy.
 
 ## Approved Visual Direction
 
@@ -51,15 +77,16 @@ branding-asset convention.
 
 ### Assistant header
 
-Show the avatar at 36–40 logical pixels before the `Assistant` title in the
+Show the avatar at 36–40 logical pixels before the `Pip` title in the
 gradient app bar. Keep the existing clear-conversation action unchanged. The
 avatar is decorative because the title already names the destination.
 
 ### Empty conversation
 
 Replace the generic `forum_outlined` icon with the avatar at 80–96 logical
-pixels. Keep the existing localized heading and explanatory copy below it. This
-is the largest in-app treatment and can retain the full chick-and-check mark.
+pixels. Change the localized heading to `Ask Pip` while keeping the existing
+explanatory copy below it. This is the largest in-app treatment and can retain
+the full chick-and-check mark.
 
 ### Assistant messages
 
@@ -71,16 +98,23 @@ column.
 
 ### Thinking state
 
-Show the same 28–32 logical-pixel avatar beside the existing `Thinking` label
-and spinner. Do not animate the avatar itself. This avoids unnecessary motion
-and keeps the status indicator accessible under reduced-motion settings.
+Show the same 28–32 logical-pixel avatar beside the existing spinner and change
+the localized status label to `Pip is thinking`. Do not animate the avatar
+itself. This avoids unnecessary motion and keeps the status indicator accessible
+under reduced-motion settings.
+
+### Composer
+
+Change the connected-state composer hint from `Ask the assistant` to `Ask Pip`.
+Keep the offline and sending behavior unchanged.
 
 ## External Usage
 
-Use the 512 × 512 export as the Telegram bot profile image when the team is
-ready to update that external account. The Flutter implementation does not
-change Telegram automatically; the profile-image update is a separate manual or
-bot-management action.
+Use the 512 × 512 export as the Telegram bot profile image and `Pip by
+ChickMark` as its display name when the team is ready to update that external
+account. The Flutter implementation does not change Telegram automatically;
+the profile-image and display-name updates are separate manual or bot-management
+actions.
 
 ## Reusable Flutter Component
 
@@ -104,6 +138,8 @@ without coupling branding to conversation state.
 - The empty-state avatar uses the localized semantic label `ChickMark logo`.
 - No text is embedded in the image, so the asset works unchanged in English and
   Arabic.
+- User-facing Pip labels are added to the hand-written English-to-Arabic map in
+  the same implementation change so Arabic never falls back to English.
 - All message layout continues to use `AlignmentDirectional` and directional
   padding.
 - The static avatar introduces no flashing or required motion.
@@ -117,9 +153,11 @@ Add or update widget tests to verify:
 - assistant messages render one avatar while user messages do not;
 - the thinking state renders the avatar without changing the existing thinking
   key or spinner behavior;
+- the header, empty state, composer, and thinking label use Pip's localized
+  name;
 - Arabic message alignment still mirrors correctly;
-- the clear action, retry states, offline notice, composer, and current message
-  copy remain unchanged.
+- the clear action, retry states, offline notice, composer behavior, and all
+  non-naming message copy remain unchanged.
 
 Run the narrow chat suite:
 
@@ -143,7 +181,8 @@ placements and add a new `2026-08-14` entry at the top of
 
 ## Out of Scope
 
-- renaming the assistant;
+- renaming backend services, Edge Functions, database tables, or code-level
+  `Assistant*` types;
 - changing assistant personality, prompts, or response behavior;
 - changing the ChickMark company logo or launcher icons;
 - animated eyes, mouth, sparkle, glow, or status variants;
