@@ -149,7 +149,11 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
             key: const ValueKey('assistant-clear-action'),
             tooltip: 'Clear conversation',
             icon: const Icon(Icons.delete_sweep_outlined),
-            onPressed: provider.isSending || messages.isEmpty
+            onPressed:
+                provider.isSending ||
+                    provider.isRecording ||
+                    provider.isAwaitingVoiceReply ||
+                    messages.isEmpty
                 ? null
                 : _confirmClear,
           ),
@@ -214,7 +218,9 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
         final message = provider.messages[index];
         return _AssistantMessageBubble(
           message: message,
-          onRetry: message.isFailed ? () => provider.retry(message) : null,
+          onRetry: provider.canRetry(message)
+              ? () => provider.retry(message)
+              : null,
         );
       },
     );

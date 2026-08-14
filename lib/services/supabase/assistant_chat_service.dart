@@ -23,8 +23,9 @@ const String _assistantFunctionName = 'app-hatchery-agent';
 const int assistantMessageMaxLength = 4000;
 
 /// Client-side ceiling on a single base64-encoded voice clip, matching the
-/// server's MAX_AUDIO_BASE64_CHARS.
-const int assistantAudioMaxBase64Chars = 8000000;
+/// server's MAX_AUDIO_BASE64_CHARS. ~1.1MB of audio, generous for "a few
+/// seconds of speech" while keeping the Whisper/TTS spend bounded.
+const int assistantAudioMaxBase64Chars = 1500000;
 
 abstract interface class AssistantChatPort {
   /// Sends one user turn and returns the assistant's reply.

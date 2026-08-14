@@ -12,6 +12,56 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Fixed a batch of findings from the final whole-branch review of
+  the voice-chat feature (7 items, all in `lib/features/chat/`,
+  `lib/services/audio/assistant_audio_player.dart`,
+  `lib/services/supabase/assistant_chat_service.dart`, and
+  `supabase/functions/app-hatchery-agent/`). (1) Retrying a failed voice turn
+  used to resend the literal placeholder text "Voice message" to the agent,
+  since the recorded clip is discarded the moment it is sent and there is
+  nothing left to actually retry; `AssistantProvider.canRetry()` now hides the
+  Retry action for voice-originated failed turns instead. (2) `clear()` was
+  reachable mid-voice-send (it only checked `isSending`, not `isRecording`/
+  `isAwaitingVoiceReply`), so confirming clear while a voice reply was still in
+  flight could empty the conversation and then have the late reply land in the
+  now-cleared list; `clear()` and the app-bar clear button now guard on all
+  three flags, matching what `startRecording()` already checked. (3) Three
+  unguarded async gaps around the recorder/player: the filler chime's
+  `unawaited()` call did not swallow errors (only skipped the await), so a
+  chime failure could become an unhandled zone error — it is now wrapped in
+  its own try/catch; `_audioRecorder.stop()` in `stopRecordingAndSend()` sat
+  outside any try/catch, so a platform/file-read throw escaped uncaught — it
+  now surfaces through `error` ("Could not save that recording. Please try
+  again."); `startRecording()` only caught `AssistantAudioException` — it now
+  also has a generic catch-all fallback, mirroring the two-tier pattern
+  already used in `send()`/`_deliver()`. (4) `dispose()` only set a disposed
+  flag; if the user navigated away mid-recording the microphone stayed open
+  and the temp clip was never cleaned up — `dispose()` now best-effort stops
+  an in-progress recording and any in-flight playback. (5) `isSpeaking` was
+  reset almost immediately after `playBase64()` returned, because
+  `audioplayers`' `AudioPlayer.play()` Future resolves once playback *starts*,
+  not once it finishes — the mic was re-enabling while the reply was still
+  audibly playing. `AudioplayersAssistantAudioPlayer` now listens to the
+  underlying player's `onPlayerComplete` stream and only resolves its own
+  Future once playback genuinely finishes (or `stop()` cuts it short); the
+  `AssistantAudioPlayer` interface doc now states both `playAsset` and
+  `playBase64` resolve on completion, and `FakeAssistantAudioPlayer` gained an
+  opt-in `manualCompletion` mode so a test can hold a "playback" open to
+  observe `isSpeaking` mid-flight. (6) The audio ceiling (8,000,000 base64
+  chars, roughly tens of minutes of speech) was far more generous than "a few
+  seconds of speech," which combined with the 20-sends/5-minute rate limit
+  could burn through the OpenAI voice budget quickly; both
+  `MAX_AUDIO_BASE64_CHARS` (server) and `assistantAudioMaxBase64Chars`
+  (client) are lowered to 1,500,000, kept numerically equal, and
+  `AssistantProvider.startRecording()` now arms a 60-second
+  `maxRecordingDuration` timer that auto-stops and sends the clip, cancelled
+  on manual stop or `dispose()`. (7) Added
+  `supabase/functions/app-hatchery-agent/voice_contract_fixture.json`, a
+  single physical JSON fixture pinning the voice `send` request/response
+  field-name lists; one Deno test in `index_test.ts` and one Dart test in
+  `assistant_chat_service_test.dart` each read it and assert their side's
+  actual keys match, so a field rename on either side of the client/server
+  boundary without updating the fixture now fails a test in that language.
 - 2026-08-14: Landed voice input/output for the in-app assistant chat. On the
   server, `app-hatchery-agent`'s `send` action now accepts an `audioBase64`
   clip in place of `message`: it transcribes the clip via OpenAI Whisper

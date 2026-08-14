@@ -808,6 +808,38 @@ Deno.test('send with audioBase64 fails when transcription throws', async () => {
   assertEquals(body.code, 'agent_unavailable')
 })
 
+Deno.test('a voice send response matches the shared client/server contract fixture', async () => {
+  // Both this suite and assistant_chat_service_test.dart (Dart) read the same
+  // physical voice_contract_fixture.json, so a field rename on either side of
+  // the wire without updating the fixture fails a test in that language too —
+  // not a full drift guarantee, but it pins the field-name list to one source
+  // of truth instead of two independently-maintained fakes agreeing by luck.
+  const fixtureUrl = new URL('./voice_contract_fixture.json', import.meta.url)
+  const fixture = JSON.parse(await Deno.readTextFile(fixtureUrl)) as {
+    request: Record<string, unknown>
+    response: Record<string, unknown>
+  }
+
+  const harness = createHarness({
+    transcribeAudio: (_audio) => Promise.resolve('What is the hatch rate?'),
+    synthesizeSpeech: (_text) => Promise.resolve('c3ludGhlc2l6ZWQ='),
+  })
+  const response = await handleAppAgentRequest(
+    postRequest({
+      action: fixture.request.action as string,
+      audioBase64: fixture.request.audioBase64 as string,
+      clientMessageId: fixture.request.clientMessageId as string,
+    }),
+    harness.deps,
+  )
+  assertEquals(response.status, 200)
+  const body = await readJson(response)
+
+  const expectedKeys = Object.keys(fixture.response).sort()
+  const actualKeys = Object.keys(body).sort()
+  assertEquals(actualKeys, expectedKeys)
+})
+
 Deno.test('replaying a voice send returns stored transcript and fresh audio without re-transcribing', async () => {
   const harness = createHarness({
     transcribeAudio: (_audio) => Promise.resolve('What is the hatch rate?'),

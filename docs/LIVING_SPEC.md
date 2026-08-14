@@ -1687,34 +1687,60 @@ the send/retry/clear actions. A `ChatMessage` carries its role (`user` or
 status. Sending appends the user message optimistically before the request
 returns; a failed send keeps the message visible in `failed` state and `retry`
 resends it under the same `clientMessageId`, so a reply that was produced but
-not received is returned instead of asking the model twice. `clear()` resets
-the conversation. The provider talks only to `AssistantChatService` through the
-`AssistantChatPort` interface and raises `AssistantChatException` for transport
-and server errors. The service's only literal is the Edge Function name: no
-keys, model names, or provider details are compiled into the app.
+not received is returned instead of asking the model twice. `canRetry(message)`
+gates the retry action to failed, user-authored turns that did **not**
+originate as voice: the recorded clip is discarded the instant it is sent, so
+there is nothing left to resend, and retrying would otherwise fire the literal
+placeholder text ("Voice message") at the agent. `AssistantChatScreen` only
+shows the Retry button when `canRetry` is true; a failed voice turn still shows
+"Not sent" with no action. `clear()` resets the conversation, but is a no-op
+while a send, a recording, or a voice reply is in flight (`isSending`,
+`isRecording`, or `isAwaitingVoiceReply`), and the app-bar clear action is
+disabled under the same conditions — otherwise a clear mid-voice-send could
+empty the list before the pending reply lands, orphaning it. The provider
+talks only to `AssistantChatService` through the `AssistantChatPort` interface
+and raises `AssistantChatException` for transport and server errors. The
+service's only literal is the Edge Function name: no keys, model names, or
+provider details are compiled into the app.
 
 `AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
 and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
 a microphone or speaker. `startRecording()` starts capture and sets
 `isRecording`, surfacing an `AssistantAudioException` (e.g. denied microphone
-permission) as `error` without starting the recording. `stopRecordingAndSend()`
-stops capture, and if a clip was produced, appends an optimistic "Voice
-message" user turn, plays a bundled filler chime while `isAwaitingVoiceReply`
-is true, and sends the clip through `AssistantChatPort.sendVoice`. On success
-the user turn's text is replaced with the server-reported `transcript`, the
-reply is appended, and if the reply carries `audioBase64` the provider sets
-`isSpeaking` and plays it back before clearing the flag; on a failed send the
-pending turn is marked `failed` the same way a failed text send is. Playback of
-the reply audio is attempted only after the send has already succeeded and is
+permission), or any other platform throw (a generic catch-all fallback), as
+`error` without starting the recording. A successful start also arms a
+60-second `maxRecordingDuration` timer that auto-stops and sends the clip if
+the user never taps stop, so a forgotten open mic cannot record indefinitely.
+`stopRecordingAndSend()` cancels that timer, then stops capture; a throw from
+the recorder's `stop()` (not just a `null`/empty clip) surfaces as `error`
+("Could not save that recording. Please try again.") rather than escaping
+uncaught. If a clip was produced, the provider appends an optimistic "Voice
+message" user turn, best-effort plays a bundled filler chime while
+`isAwaitingVoiceReply` is true (a chime failure is swallowed, never surfaced as
+`error` or an unhandled error), and sends the clip through
+`AssistantChatPort.sendVoice`. On success the user turn's text is replaced with
+the server-reported `transcript`, the reply is appended, and if the reply
+carries `audioBase64` the provider sets `isSpeaking` and awaits full playback
+completion (not merely playback start) before clearing the flag, so the mic
+stays disabled for the whole reply; on a failed send the pending turn is
+marked `failed` the same way a failed text send is. Playback of the reply
+audio is attempted only after the send has already succeeded and is
 best-effort: if the player throws (bad codec, no output device, decode
 failure), the error is swallowed rather than surfacing on `error` or marking
 the just-delivered turn failed, since the text reply is already visible either
-way. A `null` or empty clip from the recorder is a no-op. `AssistantChatScreen`
-exposes a mic button next to the text input: tapping it calls `startRecording()`
-(the icon and color switch to a stop control), tapping again calls
-`stopRecordingAndSend()`. The mic and the text field disable each other while a
-send, recording, or voice reply is in flight (`isSending`, `isRecording`,
-`isAwaitingVoiceReply`, `isSpeaking`), so the two input modes cannot race.
+way. A `null` or empty clip from the recorder is a no-op. `dispose()` cancels
+any pending recording-timeout timer and, best-effort, stops an in-progress
+recording (releasing the microphone and cleaning up its temp file) and stops
+any in-flight playback, so navigating away from the Assistant tab mid-voice
+never leaves the mic hot. `AssistantChatScreen` exposes a mic button next to
+the text input: tapping it calls `startRecording()` (the icon and color switch
+to a stop control), tapping again calls `stopRecordingAndSend()`. The mic and
+the text field disable each other while a send, recording, or voice reply is
+in flight (`isSending`, `isRecording`, `isAwaitingVoiceReply`, `isSpeaking`),
+so the two input modes cannot race. A voice clip's base64 payload is capped
+client-side at `assistantAudioMaxBase64Chars` (1,500,000 chars, matching the
+server's `MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not
+minutes, to bound the Whisper/TTS spend.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
@@ -2232,8 +2258,11 @@ Each app user has exactly one conversation, stored in the existing
 `agent_conversations`, `agent_conversation_turns`, and `agent_tool_events`
 tables with `telegram_chat_id = 'app'`. The function accepts `send`, `history`,
 and `reset` actions on `POST /functions/v1/app-hatchery-agent`. `send` takes
-either a 1 to 4000 character `message` or an `audioBase64` clip, plus a
-client-supplied idempotency key, stored as `telegram_update_id = 'app:<id>'`,
+either a 1 to 4000 character `message` or an `audioBase64` clip up to
+`MAX_AUDIO_BASE64_CHARS` (1,500,000 characters — numerically equal to the
+client's `assistantAudioMaxBase64Chars`; an oversized clip is rejected with
+`invalid_request`), plus a client-supplied idempotency key, stored as
+`telegram_update_id = 'app:<id>'`,
 so a replayed send returns the stored reply instead of calling the model
 again (and, for voice, never re-transcribes). When `audioBase64` is present,
 the function transcribes it via OpenAI Whisper using a dedicated
@@ -2258,6 +2287,13 @@ return a code with the error: `invalid_request`, `unauthenticated`,
 `not_approved`, `rate_limited`, `agent_unavailable`, or `server_error`. Besides
 the `audioBase64` voice input, the door accepts no other attachment or image
 field; any such field is rejected as an invalid request.
+
+`supabase/functions/app-hatchery-agent/voice_contract_fixture.json` pins the
+exact field-name lists for a voice `send` request and response. Both
+`index_test.ts` (Deno) and `assistant_chat_service_test.dart` (Dart) read this
+one physical file and assert their own side's actual request/response keys
+against it, so a field rename on either side of the client/server boundary
+without updating the fixture fails a test in that language.
 
 Only approved admins have an `Agent` main-shell destination.
 Auditors and customer-role users do not receive that destination. The screen

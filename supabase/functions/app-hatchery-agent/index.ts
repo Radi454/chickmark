@@ -49,7 +49,10 @@ const HISTORY_FETCH_LIMIT = 40
 const MODEL_HISTORY_TURNS = 20
 const RATE_LIMIT_SENDS = 20
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
-const MAX_AUDIO_BASE64_CHARS = 8_000_000
+// Keep numerically equal to the client's assistantAudioMaxBase64Chars
+// (lib/services/supabase/assistant_chat_service.dart) — a few seconds of
+// speech, not tens of minutes, to bound the Whisper/TTS spend.
+const MAX_AUDIO_BASE64_CHARS = 1_500_000
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',

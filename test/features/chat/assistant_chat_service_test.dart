@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -100,6 +101,52 @@ void main() {
       expect(reply.transcript, 'What is the hatch rate?');
       expect(reply.audioBase64, 'c3ludGg=');
     });
+
+    test(
+      'a voice send matches the shared client/server contract fixture',
+      () async {
+        // Both this suite and index_test.ts (Deno) read the same physical
+        // voice_contract_fixture.json, so a field rename on either side of
+        // the wire without updating the fixture fails a test in that
+        // language too — not a full drift guarantee, but it pins the
+        // field-name list to one source of truth instead of two
+        // independently-maintained fakes agreeing by luck.
+        final fixtureFile = File(
+          'supabase/functions/app-hatchery-agent/voice_contract_fixture.json',
+        );
+        final fixture =
+            jsonDecode(fixtureFile.readAsStringSync()) as Map<String, dynamic>;
+        final requestFixture = (fixture['request'] as Map).cast<String, dynamic>();
+        final responseFixture =
+            (fixture['response'] as Map).cast<String, dynamic>();
+
+        Map<String, dynamic>? capturedBody;
+        final service = AssistantChatService(
+          rpc: (body) async {
+            capturedBody = body;
+            return responseFixture;
+          },
+        );
+
+        final reply = await service.sendVoice(
+          requestFixture['audioBase64'] as String,
+          clientMessageId: requestFixture['clientMessageId'] as String,
+        );
+
+        // Request shape: the service must send exactly the fixture's keys.
+        expect(capturedBody!.keys.toSet(), requestFixture.keys.toSet());
+
+        // Response shape: every fixture response field must be reachable
+        // through the parsed reply.
+        expect(reply.conversationId, responseFixture['conversationId']);
+        expect(reply.userTurnId, responseFixture['userTurnId']);
+        expect(reply.replyTurnId, responseFixture['replyTurnId']);
+        expect(reply.reply, responseFixture['reply']);
+        expect(reply.language, responseFixture['language']);
+        expect(reply.transcript, responseFixture['transcript']);
+        expect(reply.audioBase64, responseFixture['audioBase64']);
+      },
+    );
 
     test('sendVoice rejects an empty audio payload without a request', () async {
       var invoked = false;

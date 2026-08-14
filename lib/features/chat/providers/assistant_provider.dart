@@ -48,6 +48,11 @@ class AssistantProvider extends ChangeNotifier {
 
   static const String _fillerChimeAsset = 'audio/filler_chime.wav';
 
+  /// Ceiling on how long a single voice turn may record, so "ask a quick
+  /// question" can't turn into minutes of audio burning the TTS/Whisper
+  /// budget. Recording auto-stops (and sends) once this elapses.
+  static const Duration maxRecordingDuration = Duration(seconds: 60);
+
   final List<ChatMessage> _messages = <ChatMessage>[];
   AssistantLoadState _loadState = AssistantLoadState.uninitialized;
   bool _isSending = false;
@@ -56,6 +61,13 @@ class AssistantProvider extends ChangeNotifier {
   bool _isSpeaking = false;
   String? _error;
   bool _disposed = false;
+  Timer? _recordingTimeoutTimer;
+
+  /// Ids of user turns that originated as a voice recording. The audio clip
+  /// is discarded the moment it is sent, so a failed voice turn can never be
+  /// resent — only tracked so [canRetry] can hide the (otherwise misleading)
+  /// retry action for it.
+  final Set<String> _voiceMessageIds = <String>{};
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   AssistantLoadState get loadState => _loadState;
@@ -122,9 +134,17 @@ class AssistantProvider extends ChangeNotifier {
       _error = error.message;
       _notify();
       return;
+    } catch (_) {
+      _error = 'Could not start recording. Please try again.';
+      _notify();
+      return;
     }
     _isRecording = true;
     _error = null;
+    _recordingTimeoutTimer?.cancel();
+    _recordingTimeoutTimer = Timer(maxRecordingDuration, () {
+      unawaited(stopRecordingAndSend());
+    });
     _notify();
   }
 
@@ -133,7 +153,17 @@ class AssistantProvider extends ChangeNotifier {
   Future<void> stopRecordingAndSend() async {
     if (!_isRecording) return;
     _isRecording = false;
-    final audioBase64 = await _audioRecorder.stop();
+    _recordingTimeoutTimer?.cancel();
+    _recordingTimeoutTimer = null;
+
+    String? audioBase64;
+    try {
+      audioBase64 = await _audioRecorder.stop();
+    } catch (_) {
+      _error = 'Could not save that recording. Please try again.';
+      _notify();
+      return;
+    }
     if (audioBase64 == null || audioBase64.isEmpty) {
       _notify();
       return;
@@ -149,10 +179,11 @@ class AssistantProvider extends ChangeNotifier {
       clientMessageId: clientMessageId,
     );
     _messages.add(pending);
+    _voiceMessageIds.add(pending.id);
     _isAwaitingVoiceReply = true;
     _error = null;
     _notify();
-    unawaited(_audioPlayer.playAsset(_fillerChimeAsset));
+    unawaited(_playChimeBestEffort());
 
     String? replyAudio;
     try {
@@ -194,9 +225,16 @@ class AssistantProvider extends ChangeNotifier {
     }
   }
 
+  /// Whether [retry] can meaningfully re-send this turn. A voice-originated
+  /// turn's audio clip is discarded the moment it is sent, so there is
+  /// nothing left to resend — [retry] would just fire the placeholder text
+  /// ("Voice message") at the agent, which is never what the user meant.
+  bool canRetry(ChatMessage message) =>
+      message.isFailed && !_voiceMessageIds.contains(message.id);
+
   /// Re-sends a previously failed user turn, reusing its `clientMessageId`.
   Future<void> retry(ChatMessage message) async {
-    if (_isSending || !message.isUser) return;
+    if (_isSending || !message.isUser || !canRetry(message)) return;
     final index = _messages.indexWhere((entry) => entry.id == message.id);
     if (index < 0) return;
     _messages[index] = _messages[index].copyWith(
@@ -206,7 +244,7 @@ class AssistantProvider extends ChangeNotifier {
   }
 
   Future<void> clear() async {
-    if (_isSending) return;
+    if (_isSending || _isRecording || _isAwaitingVoiceReply) return;
     _error = null;
     _notify();
     try {
@@ -253,6 +291,19 @@ class AssistantProvider extends ChangeNotifier {
     }
   }
 
+  /// Best-effort filler chime: `unawaited()` only skips the await, it does
+  /// NOT swallow errors, so a chime failure (missing asset, no output
+  /// device) would otherwise become an unhandled zone error. It is purely
+  /// decorative while the reply is fetched, so any failure here is silently
+  /// dropped rather than surfaced through [_error].
+  Future<void> _playChimeBestEffort() async {
+    try {
+      await _audioPlayer.playAsset(_fillerChimeAsset);
+    } catch (_) {
+      // Swallow: the chime is decorative only.
+    }
+  }
+
   void _failMessage(String id, String message) {
     _replace(id, (current) => current.copyWith(
       status: ChatMessageStatus.failed,
@@ -274,6 +325,23 @@ class AssistantProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _recordingTimeoutTimer?.cancel();
+    _recordingTimeoutTimer = null;
+    // Best-effort release of platform resources: if the user navigates away
+    // mid-recording the mic must stop (and its temp file get cleaned up), and
+    // any in-flight reply playback must stop too. Fire-and-forget — dispose()
+    // cannot be async — and swallowed so a platform failure can never throw
+    // out of dispose().
+    if (_isRecording) {
+      unawaited(_audioRecorder.stop().catchError((_) => null));
+    }
+    // Only touch the audio player if one was ever created: the default
+    // player is lazy specifically so plain unit tests never construct a real
+    // platform AudioPlayer, and dispose() must not undo that.
+    final player = _providedAudioPlayer ?? _lazyDefaultAudioPlayer;
+    if (player != null) {
+      unawaited(player.stop().catchError((_) {}));
+    }
     super.dispose();
   }
 }

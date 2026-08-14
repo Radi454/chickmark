@@ -1,0 +1,18 @@
+{
+  "_comment": "Canonical shape of a voice `send` request/response on the app-hatchery-agent contract. Read by both index_test.ts (Deno) and assistant_chat_service_test.dart (Dart) so a field rename on one side without updating this file breaks a test on the other. Values are illustrative; only the KEY SETS are asserted.",
+  "request": {
+    "action": "send",
+    "audioBase64": "aGVsbG8=",
+    "clientMessageId": "voice-1"
+  },
+  "response": {
+    "conversationId": "conv-1",
+    "userTurnId": "turn-user",
+    "replyTurnId": "turn-reply",
+    "reply": "Hatch was 84%.",
+    "language": "en",
+    "createdAt": "2026-08-14T10:00:00.000Z",
+    "transcript": "What is the hatch rate?",
+    "audioBase64": "c3ludGhlc2l6ZWQ="
+  }
+}
