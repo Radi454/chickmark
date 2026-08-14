@@ -1909,7 +1909,7 @@ const Map<String, String> _ar = {
       'جار مزامنة السجل المحفوظ من جهاز Govee.',
   'Reconnect and retry this place recording.':
       'أعد الاتصال ثم أعد محاولة تسجيل هذا المكان.',
-  'Saving LTTB chart points and full summary stats.':
+  'Saving chart points and full summary stats.':
       'جار حفظ نقاط المخطط والإحصاءات الملخصة الكاملة.',
   'Retry save using the synced Govee history already captured.':
       'أعد محاولة الحفظ باستخدام سجل Govee الذي تمت مزامنته.',

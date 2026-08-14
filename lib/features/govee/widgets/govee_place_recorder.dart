@@ -311,8 +311,7 @@ class _RecordingState extends StatelessWidget {
         'Syncing saved history from the Govee device.',
       GoveeCapturePhase.syncFailed =>
         'Reconnect and retry this place recording.',
-      GoveeCapturePhase.saving =>
-        'Saving LTTB chart points and full summary stats.',
+      GoveeCapturePhase.saving => 'Saving chart points and full summary stats.',
       GoveeCapturePhase.saveFailed =>
         'Retry save using the synced Govee history already captured.',
       GoveeCapturePhase.saved => 'Saved. Choose another place when ready.',

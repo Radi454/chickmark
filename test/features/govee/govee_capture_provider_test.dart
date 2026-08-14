@@ -720,7 +720,7 @@ void main() {
     );
   });
 
-  test('invalid readings are excluded before stats and LTTB', () async {
+  test('invalid readings are excluded before stats and chart points', () async {
     when(
       () => mockGovee.syncHistory(
         startedAt: any(named: 'startedAt'),
