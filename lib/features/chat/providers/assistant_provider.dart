@@ -28,12 +28,23 @@ class AssistantProvider extends ChangeNotifier {
        _newClientMessageId =
            clientMessageIdFactory ?? (() => const Uuid().v4()),
        _audioRecorder = audioRecorder ?? RecordAssistantAudioRecorder(),
-       _audioPlayer = audioPlayer ?? AudioplayersAssistantAudioPlayer();
+       _providedAudioPlayer = audioPlayer;
 
   final AssistantChatPort _port;
   final AssistantClientMessageIdFactory _newClientMessageId;
   final AssistantAudioRecorder _audioRecorder;
-  final AssistantAudioPlayer _audioPlayer;
+
+  // The default AudioplayersAssistantAudioPlayer's constructor eagerly builds
+  // a real audioplayers `AudioPlayer`, which touches a platform channel. That
+  // must not happen just from constructing an AssistantProvider — otherwise
+  // every plain unit test that never touches voice (no Flutter binding) would
+  // throw. So the default is only ever created lazily, on first actual use;
+  // an injected player (e.g. a test fake) is used as-is.
+  final AssistantAudioPlayer? _providedAudioPlayer;
+  AssistantAudioPlayer? _lazyDefaultAudioPlayer;
+  AssistantAudioPlayer get _audioPlayer =>
+      _providedAudioPlayer ??
+      (_lazyDefaultAudioPlayer ??= AudioplayersAssistantAudioPlayer());
 
   static const String _fillerChimeAsset = 'audio/filler_chime.wav';
 
@@ -143,6 +154,7 @@ class AssistantProvider extends ChangeNotifier {
     _notify();
     unawaited(_audioPlayer.playAsset(_fillerChimeAsset));
 
+    String? replyAudio;
     try {
       final reply = await _port.sendVoice(
         audioBase64,
@@ -155,21 +167,30 @@ class AssistantProvider extends ChangeNotifier {
       ));
       _messages.add(reply.toAssistantMessage());
       _loadState = AssistantLoadState.loaded;
-      final audio = reply.audioBase64;
-      if (audio != null && audio.isNotEmpty) {
-        _isAwaitingVoiceReply = false;
-        _isSpeaking = true;
-        _notify();
-        await _audioPlayer.playBase64(audio);
-      }
+      replyAudio = reply.audioBase64;
     } on AssistantChatException catch (error) {
       _failMessage(pending.id, error.message);
     } catch (_) {
       _failMessage(pending.id, 'Could not send that recording. Please try again.');
     } finally {
       _isAwaitingVoiceReply = false;
-      _isSpeaking = false;
       _notify();
+    }
+
+    // Playback of an already-successful reply is best-effort: a codec, output
+    // device, or decode failure here must not overwrite the send outcome
+    // above (the text reply is already visible either way).
+    if (replyAudio != null && replyAudio.isNotEmpty) {
+      _isSpeaking = true;
+      _notify();
+      try {
+        await _audioPlayer.playBase64(replyAudio);
+      } catch (_) {
+        // Swallow: the reply text is already delivered and visible.
+      } finally {
+        _isSpeaking = false;
+        _notify();
+      }
     }
   }
 

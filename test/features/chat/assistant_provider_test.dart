@@ -34,6 +34,7 @@ class FakeAssistantAudioRecorder implements AssistantAudioRecorder {
 }
 
 class FakeAssistantAudioPlayer implements AssistantAudioPlayer {
+  Object? playBase64Error;
   final List<String> playedAssets = [];
   final List<String> playedBase64 = [];
 
@@ -45,6 +46,8 @@ class FakeAssistantAudioPlayer implements AssistantAudioPlayer {
   @override
   Future<void> playBase64(String base64Audio) async {
     playedBase64.add(base64Audio);
+    final error = playBase64Error;
+    if (error != null) throw error;
   }
 
   @override
@@ -323,6 +326,38 @@ void main() {
     expect(provider.messages.first.text, 'What is the hatch rate?');
     expect(provider.messages.first.role, ChatMessageRole.user);
     expect(provider.messages.last.text, 'Hatch was 84%.');
+    expect(provider.isAwaitingVoiceReply, isFalse);
+    expect(provider.isSpeaking, isFalse);
+  });
+
+  test('a playback failure after a successful send does not surface a send error', () async {
+    final recorder = FakeAssistantAudioRecorder();
+    final player = FakeAssistantAudioPlayer()
+      ..playBase64Error = Exception('no output device');
+    final port = FakeAssistantChatPort(
+      nextReply: AssistantChatReply(
+        conversationId: 'conv-1',
+        userTurnId: 'turn-user',
+        replyTurnId: 'turn-reply',
+        reply: 'Hatch was 84%.',
+        createdAt: DateTime.utc(2026, 8, 14, 10),
+        language: 'en',
+        transcript: 'What is the hatch rate?',
+        audioBase64: 'YXVkaW8tcmVwbHk=',
+      ),
+    );
+    final provider = voiceProviderWith(port, recorder: recorder, player: player);
+
+    await provider.startRecording();
+    await provider.stopRecordingAndSend();
+
+    // The send itself succeeded: both turns are delivered and marked sent.
+    expect(provider.messages, hasLength(2));
+    expect(provider.messages.first.status, ChatMessageStatus.sent);
+    expect(provider.messages.first.text, 'What is the hatch rate?');
+    expect(provider.messages.last.text, 'Hatch was 84%.');
+    // A local playback failure must not be reported as a send failure.
+    expect(provider.error, isNull);
     expect(provider.isAwaitingVoiceReply, isFalse);
     expect(provider.isSpeaking, isFalse);
   });

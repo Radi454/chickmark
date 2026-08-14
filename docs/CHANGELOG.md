@@ -12,6 +12,25 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Fixed two review findings on the voice-turn state added to
+  `AssistantProvider` earlier the same day. (1) A playback failure of the TTS
+  reply audio (bad codec, no output device, decode failure) was being caught
+  by the same try/catch as the network send and reported through
+  `_failMessage`, setting a misleading "could not send" `error` even though
+  the send had already succeeded and both turns were already delivered.
+  `stopRecordingAndSend()` now attempts reply-audio playback in its own
+  try/catch *after* the send's try/catch completes, so a playback failure is
+  swallowed instead of touching `error` or the message list. (2) The earlier
+  fix for eager `AudioPlayer()` construction breaking plain-constructor unit
+  tests had modified `lib/services/audio/assistant_audio_player.dart`
+  (`AudioplayersAssistantAudioPlayer`), a file outside this feature's scope,
+  changing that class's construction contract for every caller.
+  `assistant_audio_player.dart` is reverted to eager construction as originally
+  shipped; instead `AssistantProvider` itself now lazily constructs its
+  *default* `AudioplayersAssistantAudioPlayer` only on first actual use when no
+  player was injected, confining the fix to the provider. `RecordAssistantAudioRecorder`
+  needed no equivalent change — `record`'s `AudioRecorder()` constructor only
+  generates a uuid and does not touch a platform channel.
 - 2026-08-14: Added voice-turn state to `AssistantProvider`: `startRecording()`
   and `stopRecordingAndSend()` drive an injectable `AssistantAudioRecorder`/
   `AssistantAudioPlayer` pair, tracked via new `isRecording`,

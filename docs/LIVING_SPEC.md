@@ -1700,9 +1700,13 @@ message" user turn, plays a bundled filler chime while `isAwaitingVoiceReply`
 is true, and sends the clip through `AssistantChatPort.sendVoice`. On success
 the user turn's text is replaced with the server-reported `transcript`, the
 reply is appended, and if the reply carries `audioBase64` the provider sets
-`isSpeaking` and plays it back before clearing both flags; on failure the
-pending turn is marked `failed` the same way a failed text send is. A `null` or
-empty clip from the recorder is a no-op. This state exists at the provider
+`isSpeaking` and plays it back before clearing the flag; on a failed send the
+pending turn is marked `failed` the same way a failed text send is. Playback of
+the reply audio is attempted only after the send has already succeeded and is
+best-effort: if the player throws (bad codec, no output device, decode
+failure), the error is swallowed rather than surfacing on `error` or marking
+the just-delivered turn failed, since the text reply is already visible either
+way. A `null` or empty clip from the recorder is a no-op. This state exists at the provider
 layer only — `AssistantChatScreen` does not yet expose a mic control, so the
 screen remains text-only from the user's perspective.
 
