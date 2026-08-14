@@ -262,18 +262,21 @@ customer-role users. Assistant is open to every approved role because the Edge
 Function resolves each caller's own customer scope server-side rather than
 trusting the client.
 
-The Assistant destination opens `AssistantChatScreen`, an in-app text chat with
-the same hatchery agent that serves Telegram. It shows the current
-conversation oldest-first, a multiline input with a send button, a thinking
-indicator while a reply is outstanding, an empty state before the first
-message, and an error banner with a retry action. While the shared network
-monitor reports offline the input is disabled behind a short notice, because
-the conversation runs entirely against the Edge Function and has no local
-fallback. An app-bar action clears the conversation after a confirmation
-dialog. The screen is text only: it offers no voice, photo, or file
-attachment. Its labels, states, notices, and errors are available in English
-and Arabic. `AssistantProvider` is created at this tab rather than with the
-root providers, so it exists only while the Assistant tab is built.
+The Assistant destination opens `AssistantChatScreen`, an in-app chat with the
+same hatchery agent that serves Telegram, by text or by voice. It shows the
+current conversation oldest-first, a multiline input with a send button and a
+mic button, a thinking indicator while a reply is outstanding, an empty state
+before the first message, and an error banner with a retry action. While the
+shared network monitor reports offline the input is disabled behind a short
+notice, because the conversation runs entirely against the Edge Function and
+has no local fallback. An app-bar action clears the conversation after a
+confirmation dialog. The screen offers no photo or file attachment; see the
+`AssistantProvider` section below for how the mic button, recording, and
+spoken replies work. Its labels, states, notices, and errors are available in
+English and Arabic, except the mic button's own tooltips ("Ask by voice",
+"Stop recording"), which are hardcoded English literals. `AssistantProvider`
+is created at this tab rather than with the root providers, so it exists only
+while the Assistant tab is built.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
