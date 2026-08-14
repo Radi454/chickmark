@@ -1740,13 +1740,15 @@ recording (releasing the microphone and cleaning up its temp file) and stops
 any in-flight playback, so navigating away from the Assistant tab mid-voice
 never leaves the mic hot. `AssistantChatScreen` exposes a mic button next to
 the text input: tapping it calls `startRecording()` (the icon and color switch
-to a stop control), tapping again calls `stopRecordingAndSend()`. The mic and
-the text field disable each other while a send, recording, or voice reply is
-in flight (`isSending`, `isRecording`, `isAwaitingVoiceReply`, `isSpeaking`),
-so the two input modes cannot race. A voice clip's base64 payload is capped
-client-side at `assistantAudioMaxBase64Chars` (1,500,000 chars, matching the
-server's `MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not
-minutes, to bound the Whisper/TTS spend.
+to a stop control), tapping again calls `stopRecordingAndSend()`. While
+recording (`isRecording`), the text field is disabled but the mic remains
+enabled as the Stop control. Both controls are disabled while offline, during a
+text send (`isSending`), while awaiting a voice reply (`isAwaitingVoiceReply`),
+or while playing one (`isSpeaking`), so the two input modes cannot race. A
+voice clip's base64 payload is capped client-side at
+`assistantAudioMaxBase64Chars` (1,500,000 chars, matching the server's
+`MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not minutes, to
+bound the Whisper/TTS spend.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
