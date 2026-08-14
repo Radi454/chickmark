@@ -7,6 +7,90 @@ import {
 } from './agent_audit_tools.ts'
 import { executeAgentTool } from './agent_tools.ts'
 
+Deno.test('get_audit_summary attaches the matching benchmark', async () => {
+  const store = fixtureStore()
+  store.latestSelectedAuditResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      id: 'audit-completed',
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+    },
+  }
+  const handlers = createAgentAuditToolHandlers(store, {
+    bmkStore: {
+      listBreedCoverage: () =>
+        Promise.resolve([{ breed: 'Ross308', ageWeek: 35 }]),
+      findBreedBenchmark: () =>
+        Promise.resolve({
+          breed: 'Ross308',
+          ageWeek: 35,
+          hatchabilityPct: 90,
+          fertilityPct: 95,
+          hofPct: 86,
+          productionPct: 83,
+          eggWeightG: 67,
+          chickWeightG: 48,
+        }),
+      listEggBreakoutWeeks: () => Promise.resolve([35]),
+      findEggBreakoutBenchmark: () =>
+        Promise.resolve({
+          ageWeek: 35,
+          infertilePct: 4,
+          early24hPct: 1,
+          early48hPct: 1,
+          bloodRingPct: 0.5,
+          blackEyePct: 0.5,
+          earlyDeadPct: 2,
+          midDeadPct: 1,
+          lateDeadPct: 2,
+          externalPipPct: 0.5,
+          crackedPct: 1,
+          contamPct: 0.5,
+        }),
+      findHatcheryCustomerId: () => Promise.resolve(null),
+      listOperationalStandards: () => Promise.resolve([]),
+    },
+  })
+
+  const result = await handlers.get_audit_summary!({
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    arguments: {},
+  })
+
+  const benchmark = result.data?.benchmark as Record<string, unknown>
+  assertEquals(benchmark.status, 'ok')
+  assertEquals(benchmark.breed, 'Ross308')
+  assertEquals(benchmark.ageWeek, 35)
+})
+
+Deno.test('the benchmark block is present and explicit when unavailable',
+  async () => {
+    const store = fixtureStore()
+    store.latestSelectedAuditResult = {
+      ok: true,
+      code: 'ok',
+      data: {
+        id: 'audit-completed',
+        customerId: 'customer-a',
+        flockId: 'flock-a',
+      },
+    }
+    const handlers = createAgentAuditToolHandlers(store)
+    const result = await handlers.get_audit_summary!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+    const benchmark = result.data?.benchmark as Record<string, unknown>
+    assertEquals(benchmark.status, 'unavailable')
+    assertEquals(benchmark.reason, 'benchmark_unavailable')
+  })
+
 interface AuditRow {
   id: string
   customerId: string
@@ -157,7 +241,7 @@ const auditRows: readonly AuditRow[] = [
     createdAt: '2026-06-23T13:04:26Z',
     completedAt: '2026-06-23T18:07:00Z',
     breed: 'Ross308',
-    flockAgeWeeks: 33,
+    flockAgeWeeks: 35,
     findings: { total: 3 },
     scorecard: { score: 91 },
     notes: 'reviewed',
@@ -476,10 +560,11 @@ Deno.test('audit summary loads the persisted selection without a model-supplied 
         createdAt: '2026-06-23T13:04:26Z',
         completedAt: '2026-06-23T18:07:00Z',
         breed: 'Ross308',
-        flockAgeWeeks: 33,
+        flockAgeWeeks: 35,
         findings: { total: 3 },
         scorecard: { score: 91 },
         notes: 'reviewed',
+        benchmark: { status: 'unavailable', reason: 'benchmark_unavailable' },
       },
     },
   )
@@ -585,6 +670,7 @@ Deno.test('selected audit breakouts return infertile rates from the exact audit 
           }),
         ],
         truncated: false,
+        benchmark: { status: 'unavailable', reason: 'benchmark_unavailable' },
       },
     },
   )

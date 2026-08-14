@@ -2062,6 +2062,21 @@ the result. This tool is read-only; it never writes and the audit store
 argument to `createAgentBmkToolHandlers` is optional so the tool is only
 registered where an audit store is wired in.
 
+`get_audit_summary` and `get_selected_audit_breakouts` also attach a
+`benchmark` block to every result, so the agent sees the matching standard on
+a plain audit read without asking `compare_selected_audit_to_benchmark`
+separately. The block is always present, never silently omitted. When a BMK
+store is wired in (`createAgentAuditToolHandlers(store, { bmkStore })`,
+`bmkStore` optional for backward compatibility) it resolves the selected
+audit's breed and flock age through the same `resolveBreedBenchmark`/
+`resolveEggBreakoutBenchmark` functions `compare_selected_audit_to_benchmark`
+uses and returns `{ status: 'ok', breed, ageWeek, breedStandard,
+breakoutStandard }`, with `breakoutStandard` explicitly `null` when only the
+breed benchmark resolves. Otherwise it returns `{ status: 'unavailable',
+reason }` with `reason` one of `benchmark_unavailable` (no `bmkStore` wired),
+`missing_breed`, `missing_flock_age`, `breed_not_found`, or
+`week_out_of_range` -- never a substituted or interpolated benchmark.
+
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
 HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from

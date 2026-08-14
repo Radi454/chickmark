@@ -1160,7 +1160,7 @@ export function createUnifiedAgentToolHandlers(
   )
   return {
     ...createAgentReadToolHandlers(readStore),
-    ...createAgentAuditToolHandlers(auditStore),
+    ...createAgentAuditToolHandlers(auditStore, { bmkStore }),
     ...createAgentBmkToolHandlers(bmkStore, auditStore),
     ...createAgentIntakeToolHandlers({
       store: intakeStore,
