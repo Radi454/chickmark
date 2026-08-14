@@ -58,6 +58,11 @@ class FakeAssistantAudioPlayer implements AssistantAudioPlayer {
   }
 
   Future<void> _awaitCompletion() {
+    // A second play call while a prior manualCompletion playback is still
+    // pending must resolve that earlier completer, matching the real
+    // AudioplayersAssistantAudioPlayer's contract — otherwise it would stay
+    // permanently pending once overwritten below.
+    completePlayback();
     if (!manualCompletion) return Future<void>.value();
     final completer = Completer<void>();
     _pending = completer;

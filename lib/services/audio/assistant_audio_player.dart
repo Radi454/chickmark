@@ -52,6 +52,16 @@ class AudioplayersAssistantAudioPlayer implements AssistantAudioPlayer {
     await _player.stop();
     await _completeSub?.cancel();
 
+    // A second play call (e.g. the reply audio cutting off the filler chime)
+    // must resolve whatever the previous call's completer was waiting on —
+    // audioplayers does not emit onPlayerComplete for a programmatic stop(),
+    // so without this the earlier completer would never resolve and stay
+    // permanently pending.
+    final previous = _pendingCompletion;
+    if (previous != null && !previous.isCompleted) {
+      previous.complete();
+    }
+
     final completer = Completer<void>();
     _pendingCompletion = completer;
     _completeSub = _player.onPlayerComplete.listen((_) {

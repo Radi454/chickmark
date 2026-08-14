@@ -187,15 +187,20 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
     );
   }
 
-  /// The banner's retry re-sends the last failed turn when there is one;
-  /// otherwise it retries the history load that failed.
+  /// The banner's retry re-sends the last *retryable* failed turn when there
+  /// is one; otherwise it retries the history load that failed. A
+  /// voice-originated failed turn is never retryable (its clip is already
+  /// gone — see `AssistantProvider.canRetry`), so it is skipped here the
+  /// same way the message bubble's own retry button skips it: falling
+  /// through to `provider.load()` rather than leaving a dead button with no
+  /// feedback.
   void _retryLast(AssistantProvider provider) {
-    final failed = provider.messages.where((message) => message.isFailed);
-    if (failed.isEmpty) {
+    final retryable = provider.messages.where(provider.canRetry);
+    if (retryable.isEmpty) {
       provider.load();
       return;
     }
-    provider.retry(failed.last);
+    provider.retry(retryable.last);
   }
 
   Widget _buildBody(AssistantProvider provider) {

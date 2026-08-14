@@ -1693,7 +1693,15 @@ originate as voice: the recorded clip is discarded the instant it is sent, so
 there is nothing left to resend, and retrying would otherwise fire the literal
 placeholder text ("Voice message") at the agent. `AssistantChatScreen` only
 shows the Retry button when `canRetry` is true; a failed voice turn still shows
-"Not sent" with no action. `clear()` resets the conversation, but is a no-op
+"Not sent" with no action. The error banner's own Retry button (shown above
+the message list whenever `error` is set) applies the same `canRetry` filter
+to the failed turns before picking one — it retries the last *retryable*
+failed turn, not simply the last failed turn, so a failed voice turn never
+leaves the banner's Retry as a dead button, and a retryable typed turn is
+still reachable even if a later voice turn also failed. If no failed turn is
+retryable (including when the only failure was a voice send), the banner
+falls back to `provider.load()`, same as when there is no failed turn at all.
+`clear()` resets the conversation, but is a no-op
 while a send, a recording, or a voice reply is in flight (`isSending`,
 `isRecording`, or `isAwaitingVoiceReply`), and the app-bar clear action is
 disabled under the same conditions — otherwise a clear mid-voice-send could
@@ -1722,7 +1730,13 @@ message" user turn, best-effort plays a bundled filler chime while
 the server-reported `transcript`, the reply is appended, and if the reply
 carries `audioBase64` the provider sets `isSpeaking` and awaits full playback
 completion (not merely playback start) before clearing the flag, so the mic
-stays disabled for the whole reply; on a failed send the pending turn is
+stays disabled for the whole reply. Internally, `AudioplayersAssistantAudioPlayer`
+tracks one pending completion `Completer` at a time; if a second `playAsset`/
+`playBase64` call interrupts a still-pending first one (e.g. the reply audio
+cutting off the filler chime before it finished), the interrupted call's
+`Completer` is resolved before being replaced, since `audioplayers` does not
+emit an `onPlayerComplete` event for a programmatic `stop()` and the earlier
+call would otherwise stay pending forever; on a failed send the pending turn is
 marked `failed` the same way a failed text send is. Playback of the reply
 audio is attempted only after the send has already succeeded and is
 best-effort: if the player throws (bad codec, no output device, decode

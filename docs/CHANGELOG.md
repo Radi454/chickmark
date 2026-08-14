@@ -12,6 +12,45 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Fixed two more findings from a re-review of the voice-chat
+  final-cleanup pass. (1) Finding 3 (retry of a failed voice turn sending
+  literal placeholder text) was only half-fixed: the message bubble's own
+  Retry button was correctly gated on `AssistantProvider.canRetry`, but the
+  error banner above the message list has a second, independent Retry
+  affordance (`_retryLast` in `assistant_chat_screen.dart`) that still picked
+  "the last failed turn" unconditionally — since a failed voice send always
+  sets `error`, this banner was visible with a live-looking Retry button in
+  exactly Finding 3's scenario, and tapping it silently no-op'd (via
+  `canRetry`'s guard inside `retry()`) with no feedback; worse, if a
+  retryable failed typed turn preceded a non-retryable failed voice turn,
+  `failed.last` picked the voice one, making the typed turn unreachable via
+  the banner. `_retryLast` now filters to `provider.canRetry` before picking
+  the last one, falling back to `provider.load()` when none qualify, same as
+  the already-existing no-failed-turn case. (2)
+  `AudioplayersAssistantAudioPlayer._playAndAwaitCompletion`
+  (`lib/services/audio/assistant_audio_player.dart`) had an orphaned-completer
+  bug: when a second `play*` call interrupted a still-pending first one (e.g.
+  the reply audio cutting off the filler chime), it called `_player.stop()`
+  and overwrote `_pendingCompletion` with a fresh `Completer` without first
+  completing the one it replaced — `audioplayers` never emits
+  `onPlayerComplete` for a programmatic `stop()`, so the interrupted call's
+  `Future` stayed permanently pending (harmless today since the chime call
+  site is `unawaited()`, but a leak worth closing since the machinery was
+  already there). Fixed by completing any existing `_pendingCompletion`
+  before creating the new one; the identical overwrite pattern in
+  `test/features/chat/fake_assistant_audio.dart`'s
+  `FakeAssistantAudioPlayer._awaitCompletion` is fixed the same way, for
+  consistency with the real implementation's contract. Verified the
+  completer fix with a new fast, pure-`dart test` suite,
+  `test/services/audio/assistant_audio_player_completion_test.dart`, that
+  mirrors `_playAndAwaitCompletion`'s exact control flow against a minimal
+  fake player (confirmed to genuinely time out without the fix, and pass
+  with it) — a full integration test against the real `audioplayers`
+  `AudioPlayer` via `flutter test` was attempted but repeatedly hung in this
+  sandbox for reasons unrelated to the fix's correctness and was abandoned
+  in favor of the faster, reliable pure-Dart proof. `test:` was added as an
+  explicit dev dependency in `pubspec.yaml` (it was already resolved
+  transitively via `flutter_test`) since the new test imports it directly.
 - 2026-08-14: Fixed a batch of findings from the final whole-branch review of
   the voice-chat feature (7 items, all in `lib/features/chat/`,
   `lib/services/audio/assistant_audio_player.dart`,
