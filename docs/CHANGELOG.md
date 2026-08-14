@@ -12,6 +12,19 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Added voice-turn state to `AssistantProvider`: `startRecording()`
+  and `stopRecordingAndSend()` drive an injectable `AssistantAudioRecorder`/
+  `AssistantAudioPlayer` pair, tracked via new `isRecording`,
+  `isAwaitingVoiceReply`, and `isSpeaking` flags. A voice turn plays a filler
+  chime while waiting, sends the clip through `AssistantChatPort.sendVoice`,
+  swaps the optimistic "Voice message" placeholder for the server transcript,
+  and auto-plays a TTS reply when the server returns one; a failed send marks
+  the turn `failed` the same way a text send does. This is provider-only —
+  `AssistantChatScreen` has no mic control yet. Also made
+  `AudioplayersAssistantAudioPlayer`'s underlying `AudioPlayer` lazy (created
+  on first use instead of in the constructor init list): eager creation
+  touched a platform channel and broke every plain `AssistantProvider()`
+  construction in unit tests, which have no Flutter binding.
 - 2026-08-14: Broke up the two largest files and added a database migration
   safety net. `AuditProvider` (~4,900 lines) was split into pure value-parsing
   utilities, meaningfulness predicates, panel and egg-breakout value builders,
@@ -28,6 +41,24 @@ This file is the dated history of the app: what changed, and when.
   removed a weight-sample-size rule that had been duplicated verbatim across
   three files, and made the setter/hatcher context ids required arguments so
   a forgotten id is a compile error rather than a silently wrong answer.
+- 2026-08-14: Opened a second door into the existing hatchery agent so staff
+  and customers can talk to it inside the app instead of only through Telegram.
+  A new Assistant tab, available to every approved role including customers,
+  holds one text conversation per user backed by a new `app-hatchery-agent`
+  Edge Function. That function is deployed with JWT verification and reuses the
+  Telegram brain verbatim — same turn runner, prompt, and tool catalog, no new
+  agent tools — but resolves the caller's customer scope per request from
+  `profiles` and `auditor_customers` rather than trusting the client or a
+  stored allow-list, and refuses anyone not approved. App turns are stored as
+  ordinary agent conversation evidence, so admins review the same tables no
+  matter which door a message came in through. Sends carry a client idempotency
+  key so a retried or replayed request returns the stored reply instead of
+  paying for a second model call, clearing the conversation bumps the context
+  epoch and keeps the old turns as evidence, and a rolling per-user send limit
+  bounds cost. To make one link table serve both doors, staff links now record
+  their channel and may anchor to an Auth user instead of a Telegram user. This
+  bite is text only; voice, photo attachments, and conversational data entry
+  are not part of it.
 - 2026-08-14: Stabilized offline cold starts and resumes. Remembered users
   entering through the 30-day offline grace now go directly from the login
   gate to the existing main shell instead of visiting the animated startup

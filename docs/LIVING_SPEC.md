@@ -19,7 +19,8 @@ This file describes only how the app works today. It is not a history.
 
 Mapped from the working tree under `lib/`, covering app bootstrap, navigation,
 audit and station screens, providers, models, repositories, services, and the
-SQLite database helper.
+SQLite database helper, together with the Supabase Edge Functions and
+migrations under `supabase/` that the app calls.
 
 ## 2. Navigation
 
@@ -233,7 +234,7 @@ users; `UserRepository.upsertUser()` strips any in-memory access token before
 the SQL write for non-local accounts, and `cacheToken()` writes the real
 token only to `SecureTokenStore`.
 
-The main shell has ten destinations for approved admins:
+The main shell has eleven destinations for approved admins:
 
 - Home
 - Dashboard
@@ -244,18 +245,35 @@ The main shell has ten destinations for approved admins:
 - BMK
 - Performance
 - Agent
+- Assistant
 - Settings
 
-Approved auditors receive the same destination set except Agent, leaving nine
+Approved auditors receive the same destination set except Agent, leaving ten
 auditor destinations. Agent Monitor is restricted to approved admins because
 its remote tables use admin-only RLS.
 
-Approved customer-role accounts see only Dashboard and Settings. Settings is
-reduced to account details and sign-out, so the only product data surface they
-can open is Dashboard. Their Dashboard customer selector is locked to the
-profile's assigned `customerId`; hatchery and flock selectors are populated
-only from that customer. Dashboard action creation/editing is hidden and also
-rejected by provider guards for customer-role users.
+Approved customer-role accounts see only Dashboard, Assistant, and Settings.
+Settings is reduced to account details and sign-out, so the only product data
+surfaces they can open are Dashboard and the Assistant chat. Their Dashboard
+customer selector is locked to the profile's assigned `customerId`; hatchery
+and flock selectors are populated only from that customer. Dashboard action
+creation/editing is hidden and also rejected by provider guards for
+customer-role users. Assistant is open to every approved role because the Edge
+Function resolves each caller's own customer scope server-side rather than
+trusting the client.
+
+The Assistant destination opens `AssistantChatScreen`, an in-app text chat with
+the same hatchery agent that serves Telegram. It shows the current
+conversation oldest-first, a multiline input with a send button, a thinking
+indicator while a reply is outstanding, an empty state before the first
+message, and an error banner with a retry action. While the shared network
+monitor reports offline the input is disabled behind a short notice, because
+the conversation runs entirely against the Edge Function and has no local
+fallback. An app-bar action clears the conversation after a confirmation
+dialog. The screen is text only: it offers no voice, photo, or file
+attachment. Its labels, states, notices, and errors are available in English
+and Arabic. `AssistantProvider` is created at this tab rather than with the
+root providers, so it exists only while the Assistant tab is built.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
@@ -1659,6 +1677,35 @@ tracks selected breed, selected ages, and selected egg-breakout type, and
 upserts internal BMK admin edits back into the same `bmk_breeds` and
 `bmk_egg_breakout` rows used by audit and dashboard benchmark lookups.
 
+`AssistantProvider` owns the in-app assistant chat: an ordered `ChatMessage`
+list, an `AssistantLoadState` of uninitialized, loading, loaded, or error, and
+the send/retry/clear actions. A `ChatMessage` carries its role (`user` or
+`assistant`) and, for outgoing messages, a `sending`, `sent`, or `failed`
+status. Sending appends the user message optimistically before the request
+returns; a failed send keeps the message visible in `failed` state and `retry`
+resends it under the same `clientMessageId`, so a reply that was produced but
+not received is returned instead of asking the model twice. `clear()` resets
+the conversation. The provider talks only to `AssistantChatService` through the
+`AssistantChatPort` interface and raises `AssistantChatException` for transport
+and server errors. The service's only literal is the Edge Function name: no
+keys, model names, or provider details are compiled into the app.
+
+`AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
+and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
+a microphone or speaker. `startRecording()` starts capture and sets
+`isRecording`, surfacing an `AssistantAudioException` (e.g. denied microphone
+permission) as `error` without starting the recording. `stopRecordingAndSend()`
+stops capture, and if a clip was produced, appends an optimistic "Voice
+message" user turn, plays a bundled filler chime while `isAwaitingVoiceReply`
+is true, and sends the clip through `AssistantChatPort.sendVoice`. On success
+the user turn's text is replaced with the server-reported `transcript`, the
+reply is appended, and if the reply carries `audioBase64` the provider sets
+`isSpeaking` and plays it back before clearing both flags; on failure the
+pending turn is marked `failed` the same way a failed text send is. A `null` or
+empty clip from the recorder is a no-op. This state exists at the provider
+layer only — `AssistantChatScreen` does not yet expose a mic control, so the
+screen remains text-only from the user's perspective.
+
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
 breakdown. Its load state distinguishes uninitialized, loading, loaded, and
@@ -2158,7 +2205,37 @@ only from its server environment. Either `OPENROUTER_API_KEY` or
 Supabase JWT verification for this signed webhook; the function itself
 authenticates Telegram's secret-token header.
 
-Only approved admins have an `Agent` main-shell destination before Settings.
+The `app-hatchery-agent` Supabase Edge Function is the second door into that
+same agent. It is deployed with Supabase JWT verification enabled, so every
+call carries the signed-in user's access token, and it reuses the existing
+brain verbatim: the same turn runner, the same unified tool handlers, the same
+Responses provider, the same prompt, and the same tool catalog. It adds no
+agent tools of its own. Scope is recomputed from `profiles` on every request
+rather than stored: an approved admin receives the current customer catalog, an
+approved customer receives its own customer, and an approved auditor receives
+its `auditor_customers` list. Any profile that is not `status='approved'` is
+refused. The function then ensures one `app` staff-link row for the caller
+under a deterministic `app-<auth uid>` id, so app turns produce the same
+durable conversation evidence as Telegram turns.
+
+Each app user has exactly one conversation, stored in the existing
+`agent_conversations`, `agent_conversation_turns`, and `agent_tool_events`
+tables with `telegram_chat_id = 'app'`. The function accepts `send`, `history`,
+and `reset` actions on `POST /functions/v1/app-hatchery-agent`. `send` takes a
+1 to 4000 character message plus a client-supplied idempotency key, stored as
+`telegram_update_id = 'app:<id>'`, so a replayed send returns the stored reply
+instead of calling the model again; it answers with the conversation ID, the
+user and reply turn IDs, the reply text, its language, and a creation time.
+`history` returns the current context epoch's turns oldest-first. `reset` bumps
+the context epoch, which hides earlier turns from both the user and the model
+while retaining them as immutable evidence, matching what `/new` does on
+Telegram. Sends are limited to 20 per user per rolling five minutes. Failures
+return a code with the error: `invalid_request`, `unauthenticated`,
+`not_approved`, `rate_limited`, `agent_unavailable`, or `server_error`. The
+door is text only; any attachment, audio, or image field is rejected as an
+invalid request.
+
+Only approved admins have an `Agent` main-shell destination.
 Auditors and customer-role users do not receive that destination. The screen
 and `AgentMonitorProvider` repeat the approved-admin check before loading or
 mutating the offline agent mirror, so unauthorized users cannot create pending
@@ -2351,6 +2428,17 @@ identity. The matching Supabase migration uses snake_case tables, validates
 flock and hatchery customer scope, enables RLS on every agent table, exposes
 authenticated reads/writes only to approved admins, and leaves backend
 service-role access available to the Telegram hatchery-agent Edge Function.
+Remotely, a staff link records which door it belongs to. `telegram_staff_links`
+carries a `channel` of `telegram` or `app` and, for app rows, an `app_user_id`
+referencing the Auth user; `telegram_user_id` is nullable and unique only
+within the Telegram channel, and a check constraint requires each row to
+identify exactly one of the two. An app row with the `customer` access role may
+leave `customer_id` null, because an app row is only an identity anchor: the
+caller's real customer allow-list is recomputed per request from `profiles` and
+`auditor_customers` rather than read from the link. Telegram rows keep the
+existing rule that an allowed customer link names exactly one customer and an
+allowed admin link names none. The local SQLite mirror is unchanged and still
+holds Telegram staff links only.
 Conversational intake turns and normalized values belong to one intake session.
 The intake context links to the customer, flock, and hatchery hierarchy, while
 approved intake rows link back to the resulting audit session and Chick Quality
