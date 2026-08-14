@@ -1856,16 +1856,31 @@ an edit that lands while a push is in flight stays dirty and is picked up by the
 next sync rather than being marked synced.
 
 This `getDirtyRows`/`markRowsSynced`/`markRowsFailed`/`getRowSyncStatus` push
-path currently drives `customers`, `hatcheries`, and `flocks`.
-`bmk_operational_standards` carries the same per-row `syncStatus`, `dirtyAt`,
-`lastSyncedAt`, and `syncError` columns and the matching
-`BmkRepository.getDirtyOperationalRows` /
+path currently drives `customers`, `hatcheries`, `flocks`, and
+`bmk_operational_standards`. `bmk_operational_standards` carries the same
+per-row `syncStatus`, `dirtyAt`, `lastSyncedAt`, and `syncError` columns and
+the matching `BmkRepository.getDirtyOperationalRows` /
 `markOperationalRowsSynced` / `markOperationalRowsFailed` /
-`getOperationalRowSyncStatus` methods (see above), but nothing calls them yet
-— `StartupSyncService` does not push or pull this table. The remaining local
-reference tables — `bmk_breeds`, `bmk_egg_breakout`, and `troubleshooting` —
-carry no `syncStatus`, `dirtyAt`, `lastSyncedAt`, or `syncError` columns at all
-and are not part of this push path.
+`getOperationalRowSyncStatus` methods (see above). Inside
+`StartupSyncService._pushLocalData`, dirty operational-standard rows are
+pushed to `public.bmk_operational_standards` right after the `hatcheries`
+push and before `flocks`, so any dirty row's `hatchery_id` FK already
+resolves remotely (global rows carry a null `hatchery_id` and have no FK
+dependency). A private `_operationalStandardToRemote` mapper in
+`StartupSyncService` translates the local camelCase columns to the cloud's
+snake_case columns via an explicit name dictionary — `hatcheryId` →
+`hatchery_id`, `stationKey` → `station_key`, `sectorKey` → `sector_key`,
+`metricKey` → `metric_key`, `metricLabel` → `metric_label`, `minValue` →
+`min_value`, `maxValue` → `max_value`, `targetValue` → `target_value`,
+`sourceUrl` → `source_url`, `sourcePhotoPath` → `source_photo_path`,
+`sourcePhotoRemotePath` → `source_photo_remote_path`, `sortOrder` →
+`sort_order`, `updatedAt` → `updated_at` — before the shared
+`_pushDirtyReferenceRows` helper strips the device-local sync columns
+(`syncStatus`, `dirtyAt`, `lastSyncedAt`, `syncError`) and uploads. Nothing
+pulls this table from the cloud yet. The remaining local reference tables —
+`bmk_breeds`, `bmk_egg_breakout`, and `troubleshooting` — carry no
+`syncStatus`, `dirtyAt`, `lastSyncedAt`, or `syncError` columns at all and are
+not part of this push path.
 
 The v56 local upgrade and the checked-in Supabase migration also apply the same
 conservative legacy-flock sector repair. When the deployed schema includes the

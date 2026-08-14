@@ -12,6 +12,7 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Sync now pushes dirty BMK operational standards to the cloud, after hatcheries so the hatchery FK resolves.
 - 2026-08-14: BMK operational standards are now dirty-tracked on edit and can be applied from a cloud row.
 - 2026-08-14: Added the cloud `bmk_operational_standards` table with split RLS — global rows read-all/write-admin, hatchery rows scoped through the owning customer.
 - 2026-08-14: Fixed two review findings on the voice-turn state added to
