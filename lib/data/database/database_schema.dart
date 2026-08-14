@@ -131,6 +131,10 @@ Future<void> _createBmkOperationalStandardsTable(DatabaseExecutor db) async {
     notes TEXT,
     sortOrder INTEGER NOT NULL DEFAULT 0,
     updatedAt TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
     FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
   )''');
   await db.execute(

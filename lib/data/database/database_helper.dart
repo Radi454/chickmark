@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 57,
+      version: 58,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -126,7 +126,7 @@ class DatabaseHelper {
       for (final seed in kBmkOperationalStandardSeeds) {
         batch.insert(
           'bmk_operational_standards',
-          seed,
+          {...seed, 'syncStatus': 'synced'},
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -173,6 +173,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 57) {
       await _applyV57Upgrade(db);
+    }
+    if (oldVersion < 58) {
+      await _applyV58Upgrade(db);
     }
   }
 
@@ -323,6 +326,10 @@ class DatabaseHelper {
       'sourceUrl TEXT',
       'sourcePhotoPath TEXT',
       'sourcePhotoRemotePath TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
     ],
     'dashboard_actions': [
       'findingKey TEXT NOT NULL',
@@ -757,7 +764,7 @@ class DatabaseHelper {
       for (final seed in kBmkOperationalStandardSeeds) {
         batch.insert(
           'bmk_operational_standards',
-          seed,
+          {...seed, 'syncStatus': 'synced'},
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -919,6 +926,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV57UpgradeForTest(Database db) => _applyV57Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV58UpgradeForTest(Database db) => _applyV58Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

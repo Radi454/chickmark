@@ -1540,7 +1540,20 @@ The implemented hierarchy is:
   local schema; global rows (`hatchery_id` null) are reference data readable by
   all authenticated users and writable by admins only. Hatchery-owned rows are
   scoped through the owning customer using the same RLS helpers as other
-  customer-owned tables.
+  customer-owned tables. The local table carries per-row `syncStatus`,
+  `dirtyAt`, `lastSyncedAt`, and `syncError` columns (added in the v58
+  upgrade). `BmkRepository.upsertOperationalStandard` marks the written row
+  `pending`/`dirtyAt = now`; `getDirtyOperationalRows`,
+  `markOperationalRowsSynced`, `markOperationalRowsFailed`, and
+  `getOperationalRowSyncStatus` mirror the `getDirtyRows`/`markRowsSynced`
+  pattern used by `CustomerRepository` et al., including the same
+  `dirtyAt`-cutoff guard against clearing an edit that lands mid-push.
+  `upsertOperationalStandardRow` accepts a raw snake_case cloud row (as pulled
+  from Supabase), camelizes and filters it to known columns, and writes it as
+  `synced` with `dirtyAt` cleared since a pulled row is clean by definition.
+  Fresh-install and reseed paths mark seeded standards `synced` up front so
+  baseline reference data is never treated as a pending local edit. Push/pull
+  wiring that calls these methods is not implemented yet.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
@@ -1721,7 +1734,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 57. The database file
+The app uses SQLite through `sqflite` at database version 58. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1842,11 +1855,17 @@ is guarded by the `dirtyAt` cutoff captured at the last `getDirtyRows` call, so
 an edit that lands while a push is in flight stays dirty and is picked up by the
 next sync rather than being marked synced.
 
-This dirty tracking covers `customers`, `hatcheries`, and `flocks` only. The
-local reference tables — `bmk_breeds`, `bmk_egg_breakout`,
-`bmk_operational_standards`, and `troubleshooting` — carry no `syncStatus`,
-`dirtyAt`, `lastSyncedAt`, or `syncError` columns at all and are not part of
-this push path.
+This `getDirtyRows`/`markRowsSynced`/`markRowsFailed`/`getRowSyncStatus` push
+path currently drives `customers`, `hatcheries`, and `flocks`.
+`bmk_operational_standards` carries the same per-row `syncStatus`, `dirtyAt`,
+`lastSyncedAt`, and `syncError` columns and the matching
+`BmkRepository.getDirtyOperationalRows` /
+`markOperationalRowsSynced` / `markOperationalRowsFailed` /
+`getOperationalRowSyncStatus` methods (see above), but nothing calls them yet
+— `StartupSyncService` does not push or pull this table. The remaining local
+reference tables — `bmk_breeds`, `bmk_egg_breakout`, and `troubleshooting` —
+carry no `syncStatus`, `dirtyAt`, `lastSyncedAt`, or `syncError` columns at all
+and are not part of this push path.
 
 The v56 local upgrade and the checked-in Supabase migration also apply the same
 conservative legacy-flock sector repair. When the deployed schema includes the

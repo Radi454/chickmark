@@ -468,6 +468,18 @@ Future<void> _applyV57Upgrade(Database db) async {
   }
 }
 
+Future<void> _applyV58Upgrade(Database db) async {
+  if (await _tableExists(db, 'bmk_operational_standards')) {
+    await _ensureColumns(db, 'bmk_operational_standards', const [
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ]);
+    await db.update('bmk_operational_standards', {'syncStatus': 'synced'});
+  }
+}
+
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
   for (final table in const [
     'agent_conversations',
