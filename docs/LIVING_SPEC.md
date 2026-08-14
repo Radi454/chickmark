@@ -1754,7 +1754,12 @@ AI-brand symbol.
 
 `AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
 and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
-a microphone or speaker. `startRecording()` starts capture and sets
+a microphone or speaker. The production recorder uses the `record` 7 plugin
+family, whose platform implementations support the app's Flutter 3.44/Dart
+3.12 toolchain and compile together for release builds. Because that plugin
+opens its platform channel when an `AudioRecorder` is constructed, the default
+recorder is created lazily on the first voice action rather than when the text
+chat provider starts. `startRecording()` starts capture and sets
 `isRecording`, surfacing an `AssistantAudioException` (e.g. denied microphone
 permission), or any other platform throw (a generic catch-all fallback), as
 `error` without starting the recording. A successful start also arms a
@@ -1768,36 +1773,51 @@ message" user turn, best-effort plays a bundled filler chime while
 `isAwaitingVoiceReply` is true (a chime failure is swallowed, never surfaced as
 `error` or an unhandled error), and sends the clip through
 `AssistantChatPort.sendVoice`. On success the user turn's text is replaced with
-the server-reported `transcript`, the reply is appended, and if the reply
-carries `audioBase64` the provider sets `isSpeaking` and awaits full playback
-completion (not merely playback start) before clearing the flag, so the mic
-stays disabled for the whole reply. Internally, `AudioplayersAssistantAudioPlayer`
-tracks one pending completion `Completer` at a time; if a second `playAsset`/
-`playBase64` call interrupts a still-pending first one (e.g. the reply audio
-cutting off the filler chime before it finished), the interrupted call's
-`Completer` is resolved before being replaced, since `audioplayers` does not
-emit an `onPlayerComplete` event for a programmatic `stop()` and the earlier
-call would otherwise stay pending forever; on a failed send the pending turn is
-marked `failed` the same way a failed text send is. Playback of the reply
-audio is attempted only after the send has already succeeded and is
-best-effort: if the player throws (bad codec, no output device, decode
-failure), the error is swallowed rather than surfacing on `error` or marking
-the just-delivered turn failed, since the text reply is already visible either
-way. A `null` or empty clip from the recorder is a no-op. `dispose()` cancels
-any pending recording-timeout timer and, best-effort, stops an in-progress
-recording (releasing the microphone and cleaning up its temp file) and stops
-any in-flight playback, so navigating away from the Assistant tab mid-voice
-never leaves the mic hot. `AssistantChatScreen` exposes a mic button next to
-the text input: tapping it calls `startRecording()` (the icon and color switch
-to a stop control), tapping again calls `stopRecordingAndSend()`. While
+the server-reported `transcript`, the reply is appended carrying the server's
+`audioBase64` (mp3, memory-only — `ChatMessage.audioBase64` is never parsed
+from loaded history, so only replies received this session are replayable),
+and if present the provider auto-plays it through `playMessageAudio()`, the
+same path a tap on the reply's own playback controls uses; on a failed send
+the pending turn is marked `failed` the same way a failed text send is.
+`playMessageAudio(message)` sets `playingMessageId` to that message's id,
+`isPaused` false, `isSpeaking` true, and awaits full playback completion (not
+merely playback start) before clearing all three, so the mic stays disabled
+for the whole reply; playing a second message stops whichever one currently
+owns the player and takes over. `pausePlayback()`/`resumePlayback()` pause
+and resume the current player without losing `playingMessageId` (so the
+control row can tell "paused" from "nothing playing"). Playback is
+best-effort throughout: if the player throws (bad codec, no output device,
+decode failure), the error is swallowed rather than surfacing on `error` or
+marking the just-delivered turn failed, since the text reply is already
+visible either way. Internally, `AudioplayersAssistantAudioPlayer` tracks one
+pending completion `Completer` at a time; if a second `playAsset`/`playBase64`
+call interrupts a still-pending first one (e.g. the reply audio cutting off
+the filler chime, or a later reply's playback cutting off an earlier one),
+the interrupted call's `Completer` is resolved before being replaced, since
+`audioplayers` does not emit an `onPlayerComplete` event for a programmatic
+`stop()` and the earlier call would otherwise stay pending forever. Reply
+audio is played from a temp file via `DeviceFileSource` rather than
+`audioplayers`' `BytesSource`, which is unsupported on iOS/macOS and would
+otherwise throw silently into the same best-effort handling. A `null` or
+empty clip from the recorder is a no-op. `dispose()` cancels any pending
+recording-timeout timer and, best-effort, stops an in-progress recording
+(releasing the microphone and cleaning up its temp file) and stops any
+in-flight playback, so navigating away from the Assistant tab mid-voice never
+leaves the mic hot. `AssistantChatScreen` exposes a mic button next to the
+text input: tapping it calls `startRecording()` (the icon and color switch to
+a stop control), tapping again calls `stopRecordingAndSend()`. While
 recording (`isRecording`), the text field is disabled but the mic remains
 enabled as the Stop control. Both controls are disabled while offline, during a
 text send (`isSending`), while awaiting a voice reply (`isAwaitingVoiceReply`),
-or while playing one (`isSpeaking`), so the two input modes cannot race. A
-voice clip's base64 payload is capped client-side at
-`assistantAudioMaxBase64Chars` (1,500,000 chars, matching the server's
-`MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not minutes, to
-bound the Whisper/TTS spend.
+or while playing one (`isSpeaking`), so the two input modes cannot race. Any
+assistant bubble whose message carries audio renders a small play/pause
+toggle and a replay button beneath the text (`assistant-reply-play-pause`,
+`assistant-reply-replay`); the toggle plays, pauses, or resumes depending on
+whether that message currently owns the player, and replay always restarts
+from the top regardless of state. A voice clip's base64 payload is capped
+client-side at `assistantAudioMaxBase64Chars` (1,500,000 chars, matching the
+server's `MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not
+minutes, to bound the Whisper/TTS spend.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
@@ -2458,17 +2478,23 @@ client's `assistantAudioMaxBase64Chars`; an oversized clip is rejected with
 `telegram_update_id = 'app:<id>'`,
 so a replayed send returns the stored reply instead of calling the model
 again (and, for voice, never re-transcribes). When `audioBase64` is present,
-the function transcribes it via OpenAI Whisper using a dedicated
-`OPENAI_VOICE_KEY` secret — kept separate from the text brain's
-`OPENAI_API_KEY` — and runs the resulting transcript through the same
+the function transcribes it via OpenAI Whisper (`whisper-1`) using a
+dedicated `OPENAI_VOICE_KEY` secret when set, falling back to the text
+brain's `OPENAI_API_KEY` otherwise (so voice works immediately off whichever
+key is already configured; a separate key only isolates voice spend once one
+is explicitly added) — and runs the resulting transcript through the same
 unmodified agent brain used for typed messages; a transcription failure or an
 empty transcript returns `agent_unavailable` rather than `invalid_request`,
 since it is an audio-quality problem, not a malformed request. The stored
 turn's `text` is the transcript, indistinguishable from a typed turn once
-saved. The function then attempts to synthesize the reply via OpenAI TTS; on
-success the response carries `audioBase64` for the phone to play back, but a
-TTS failure is swallowed and the call still succeeds with the text-only
-reply, since speech is a presentation layer over an already-successful turn.
+saved. The function then attempts to synthesize the reply via OpenAI TTS
+(`gpt-4o-mini-tts`, voice `ash`), steering pronunciation with the model's
+`instructions` field when the reply's detected language is `ar` (asks for
+natural Egyptian Arabic) or `mixed` (asks for each part to be spoken in its
+own language); English replies pass no instructions. On success the response
+carries `audioBase64` for the phone to play back, but a TTS failure is
+swallowed and the call still succeeds with the text-only reply, since speech
+is a presentation layer over an already-successful turn.
 `send` always answers with the conversation ID, the user and reply turn IDs,
 the reply text, its language, and a creation time; a voice `send` additionally
 returns `transcript` and, when synthesis succeeded, `audioBase64`.

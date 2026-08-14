@@ -94,6 +94,30 @@ Deno.test('synthesizeSpeech returns base64 audio bytes round-trippably', async (
   assertEquals(Array.from(decoded), Array.from(audioBytes))
 })
 
+Deno.test('synthesizeSpeech sends the new model/voice and per-language instructions', async () => {
+  const bodies: Record<string, unknown>[] = []
+  const fetchImpl = fakeFetch((_url, init) => {
+    bodies.push(JSON.parse(init?.body as string))
+    return new Response(new Uint8Array([1]), { status: 200 })
+  })
+  const config = { apiKey: 'sk-test', fetchImpl }
+
+  await synthesizeSpeech('Hello.', config)
+  await synthesizeSpeech('Hello.', config, 'en')
+  await synthesizeSpeech('نسبة الفقس ٨٤٪', config, 'ar')
+  await synthesizeSpeech('Hatch كان 84%', config, 'mixed')
+
+  for (const body of bodies) {
+    assertEquals(body.model, 'gpt-4o-mini-tts')
+    assertEquals(body.voice, 'ash')
+  }
+  // No instructions unless the language needs steering.
+  assertEquals('instructions' in bodies[0], false)
+  assertEquals('instructions' in bodies[1], false)
+  assertEquals(typeof bodies[2].instructions, 'string')
+  assertEquals(typeof bodies[3].instructions, 'string')
+})
+
 Deno.test('synthesizeSpeech throws on non-2xx response', async () => {
   const fetchImpl = fakeFetch(() => new Response('', { status: 429 }))
   await assertRejects(

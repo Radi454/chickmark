@@ -11,8 +11,19 @@
 const TRANSCRIPTION_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions'
 const SPEECH_ENDPOINT = 'https://api.openai.com/v1/audio/speech'
 const WHISPER_MODEL = 'whisper-1'
-const TTS_MODEL = 'tts-1'
-const TTS_VOICE = 'alloy'
+const TTS_MODEL = 'gpt-4o-mini-tts'
+const TTS_VOICE = 'ash'
+
+export type ReplyLanguage = 'en' | 'ar' | 'mixed'
+
+/// Steers gpt-4o-mini-tts pronunciation per reply language. Arabic replies
+/// come from Egyptian hatchery staff, so Egyptian Arabic is the target.
+const TTS_INSTRUCTIONS: Partial<Record<ReplyLanguage, string>> = {
+  ar: 'Speak natural, clear Egyptian Arabic with correct pronunciation.',
+  mixed:
+    'The text mixes Arabic and English. Speak each part in its own language ' +
+    'naturally — Egyptian Arabic for the Arabic parts.',
+}
 
 export class VoiceProviderError extends Error {
   constructor(message: string) {
@@ -73,8 +84,10 @@ export async function transcribeAudio(
 export async function synthesizeSpeech(
   text: string,
   config: VoiceConfig,
+  language?: ReplyLanguage,
 ): Promise<string> {
   const fetchImpl = config.fetchImpl ?? fetch
+  const instructions = language ? TTS_INSTRUCTIONS[language] : undefined
   let response: Response
   try {
     response = await fetchImpl(SPEECH_ENDPOINT, {
@@ -83,7 +96,12 @@ export async function synthesizeSpeech(
         'Authorization': `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ model: TTS_MODEL, voice: TTS_VOICE, input: text }),
+      body: JSON.stringify({
+        model: TTS_MODEL,
+        voice: TTS_VOICE,
+        input: text,
+        ...(instructions ? { instructions } : {}),
+      }),
     })
   } catch (_) {
     throw new VoiceProviderError('Speech request failed')

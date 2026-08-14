@@ -27,12 +27,20 @@ class AssistantProvider extends ChangeNotifier {
   }) : _port = port ?? AssistantChatService(),
        _newClientMessageId =
            clientMessageIdFactory ?? (() => const Uuid().v4()),
-       _audioRecorder = audioRecorder ?? RecordAssistantAudioRecorder(),
+       _providedAudioRecorder = audioRecorder,
        _providedAudioPlayer = audioPlayer;
 
   final AssistantChatPort _port;
   final AssistantClientMessageIdFactory _newClientMessageId;
-  final AssistantAudioRecorder _audioRecorder;
+  // record 7 eagerly opens its platform channel from AudioRecorder's
+  // constructor. Keep the default recorder lazy so opening text chat does not
+  // initialize microphone infrastructure, and pure provider tests can run
+  // without a Flutter services binding. Injected recorders are used as-is.
+  final AssistantAudioRecorder? _providedAudioRecorder;
+  AssistantAudioRecorder? _lazyDefaultAudioRecorder;
+  AssistantAudioRecorder get _audioRecorder =>
+      _providedAudioRecorder ??
+      (_lazyDefaultAudioRecorder ??= RecordAssistantAudioRecorder());
 
   // The default AudioplayersAssistantAudioPlayer's constructor eagerly builds
   // a real audioplayers `AudioPlayer`, which touches a platform channel. That
@@ -59,6 +67,8 @@ class AssistantProvider extends ChangeNotifier {
   bool _isRecording = false;
   bool _isAwaitingVoiceReply = false;
   bool _isSpeaking = false;
+  String? _playingMessageId;
+  bool _isPaused = false;
   String? _error;
   bool _disposed = false;
   Timer? _recordingTimeoutTimer;
@@ -76,6 +86,11 @@ class AssistantProvider extends ChangeNotifier {
   bool get isRecording => _isRecording;
   bool get isAwaitingVoiceReply => _isAwaitingVoiceReply;
   bool get isSpeaking => _isSpeaking;
+
+  /// Id of the assistant message whose audio is loaded in the player (playing
+  /// or paused), or null when nothing is. Drives the per-bubble controls.
+  String? get playingMessageId => _playingMessageId;
+  bool get isPaused => _isPaused;
   String? get error => _error;
   bool get isEmpty => _messages.isEmpty;
 
@@ -185,7 +200,7 @@ class AssistantProvider extends ChangeNotifier {
     _notify();
     unawaited(_playChimeBestEffort());
 
-    String? replyAudio;
+    ChatMessage? assistantMessage;
     try {
       final reply = await _port.sendVoice(
         audioBase64,
@@ -196,9 +211,9 @@ class AssistantProvider extends ChangeNotifier {
         text: reply.transcript ?? current.text,
         status: ChatMessageStatus.sent,
       ));
-      _messages.add(reply.toAssistantMessage());
+      assistantMessage = reply.toAssistantMessage();
+      _messages.add(assistantMessage);
       _loadState = AssistantLoadState.loaded;
-      replyAudio = reply.audioBase64;
     } on AssistantChatException catch (error) {
       _failMessage(pending.id, error.message);
     } catch (_) {
@@ -208,20 +223,60 @@ class AssistantProvider extends ChangeNotifier {
       _notify();
     }
 
-    // Playback of an already-successful reply is best-effort: a codec, output
-    // device, or decode failure here must not overwrite the send outcome
-    // above (the text reply is already visible either way).
-    if (replyAudio != null && replyAudio.isNotEmpty) {
-      _isSpeaking = true;
-      _notify();
-      try {
-        await _audioPlayer.playBase64(replyAudio);
-      } catch (_) {
-        // Swallow: the reply text is already delivered and visible.
-      } finally {
+    // Auto-play routes through the same per-message path the bubble controls
+    // use, so the bubble shows pause/replay while the reply speaks.
+    if (assistantMessage != null && assistantMessage.hasAudio) {
+      await playMessageAudio(assistantMessage);
+    }
+  }
+
+  /// Plays (or restarts) a message's attached reply audio. Playing one
+  /// message stops any other. Best-effort: playback failure never surfaces
+  /// as an error — the reply text is already visible.
+  Future<void> playMessageAudio(ChatMessage message) async {
+    final audio = message.audioBase64;
+    if (audio == null || audio.isEmpty) return;
+    _playingMessageId = message.id;
+    _isPaused = false;
+    _isSpeaking = true;
+    _notify();
+    try {
+      await _audioPlayer.playBase64(audio);
+    } catch (_) {
+      // Swallow: the reply text is already delivered and visible.
+    } finally {
+      // A later playMessageAudio call may already own the player; only the
+      // still-current owner clears the state.
+      if (_playingMessageId == message.id) {
+        _playingMessageId = null;
+        _isPaused = false;
         _isSpeaking = false;
         _notify();
       }
+    }
+  }
+
+  Future<void> pausePlayback() async {
+    if (_playingMessageId == null || _isPaused) return;
+    _isPaused = true;
+    _isSpeaking = false;
+    _notify();
+    try {
+      await _audioPlayer.pause();
+    } catch (_) {
+      // Best-effort, like all playback control.
+    }
+  }
+
+  Future<void> resumePlayback() async {
+    if (_playingMessageId == null || !_isPaused) return;
+    _isPaused = false;
+    _isSpeaking = true;
+    _notify();
+    try {
+      await _audioPlayer.resume();
+    } catch (_) {
+      // Best-effort, like all playback control.
     }
   }
 
@@ -250,6 +305,13 @@ class AssistantProvider extends ChangeNotifier {
     try {
       await _port.resetConversation();
       _messages.clear();
+      // The bubble owning any in-flight playback just vanished; stop the
+      // audio with it. stop() also resolves playMessageAudio's pending
+      // future, which then resets the playing/paused/speaking state.
+      if (_playingMessageId != null) {
+        final player = _providedAudioPlayer ?? _lazyDefaultAudioPlayer;
+        if (player != null) unawaited(player.stop().catchError((_) {}));
+      }
       _loadState = AssistantLoadState.loaded;
     } on AssistantChatException catch (error) {
       _error = error.message;

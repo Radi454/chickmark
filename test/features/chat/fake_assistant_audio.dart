@@ -40,6 +40,8 @@ class FakeAssistantAudioPlayer implements AssistantAudioPlayer {
   bool manualCompletion = false;
   final List<String> playedAssets = [];
   final List<String> playedBase64 = [];
+  int pauseCount = 0;
+  int resumeCount = 0;
 
   Completer<void>? _pending;
 
@@ -74,6 +76,16 @@ class FakeAssistantAudioPlayer implements AssistantAudioPlayer {
     final pending = _pending;
     if (pending != null && !pending.isCompleted) pending.complete();
     _pending = null;
+  }
+
+  @override
+  Future<void> pause() async {
+    pauseCount++;
+  }
+
+  @override
+  Future<void> resume() async {
+    resumeCount++;
   }
 
   @override

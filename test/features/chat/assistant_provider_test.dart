@@ -283,6 +283,112 @@ void main() {
     expect(provider.isSpeaking, isFalse);
   });
 
+  ChatMessage assistantMessageWithAudio({String id = 'reply-1'}) => ChatMessage(
+    id: id,
+    role: ChatMessageRole.assistant,
+    text: 'Hatch was 84%.',
+    createdAt: DateTime.utc(2026, 8, 14, 10),
+    audioBase64: 'YXVkaW8=',
+  );
+
+  test('playMessageAudio plays the message and reports playing state', () async {
+    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
+    final message = assistantMessageWithAudio();
+
+    final playing = provider.playMessageAudio(message);
+    await Future<void>.value();
+
+    expect(provider.playingMessageId, message.id);
+    expect(provider.isPaused, isFalse);
+    expect(provider.isSpeaking, isTrue);
+    expect(player.playedBase64, ['YXVkaW8=']);
+
+    player.completePlayback();
+    await playing;
+
+    expect(provider.playingMessageId, isNull);
+    expect(provider.isSpeaking, isFalse);
+  });
+
+  test('pausePlayback pauses without clearing playingMessageId, resume continues', () async {
+    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
+    final message = assistantMessageWithAudio();
+
+    final playing = provider.playMessageAudio(message);
+    await Future<void>.value();
+
+    await provider.pausePlayback();
+    expect(provider.playingMessageId, message.id);
+    expect(provider.isPaused, isTrue);
+    expect(provider.isSpeaking, isFalse);
+    expect(player.pauseCount, 1);
+
+    await provider.resumePlayback();
+    expect(provider.isPaused, isFalse);
+    expect(provider.isSpeaking, isTrue);
+    expect(player.resumeCount, 1);
+
+    player.completePlayback();
+    await playing;
+  });
+
+  test('playing a second message stops the first and takes ownership', () async {
+    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
+    final first = assistantMessageWithAudio(id: 'reply-1');
+    final second = assistantMessageWithAudio(id: 'reply-2');
+
+    final firstPlaying = provider.playMessageAudio(first);
+    await Future<void>.value();
+    expect(provider.playingMessageId, 'reply-1');
+
+    // A second play call resolves the first's pending future too (matching
+    // the real player's completer-interruption contract).
+    final secondPlaying = provider.playMessageAudio(second);
+    await Future<void>.value();
+
+    expect(provider.playingMessageId, 'reply-2');
+    await firstPlaying;
+    // The first call's finally-block must not clobber the second's state —
+    // it is no longer the current owner.
+    expect(provider.playingMessageId, 'reply-2');
+
+    player.completePlayback();
+    await secondPlaying;
+    expect(provider.playingMessageId, isNull);
+  });
+
+  test('replay restarts an already-finished message', () async {
+    final player = FakeAssistantAudioPlayer();
+    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
+    final message = assistantMessageWithAudio();
+
+    await provider.playMessageAudio(message);
+    expect(player.playedBase64, ['YXVkaW8=']);
+
+    await provider.playMessageAudio(message);
+    expect(player.playedBase64, ['YXVkaW8=', 'YXVkaW8=']);
+  });
+
+  test('clear stops in-flight playback', () async {
+    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+    final port = FakeAssistantChatPort(history: twoTurnHistory());
+    final provider = voiceProviderWith(port, player: player);
+    await provider.load();
+
+    final playing = provider.playMessageAudio(assistantMessageWithAudio());
+    await Future<void>.value();
+    expect(provider.playingMessageId, isNotNull);
+
+    await provider.clear();
+    await playing;
+
+    expect(provider.playingMessageId, isNull);
+    expect(provider.messages, isEmpty);
+  });
+
   test('a playback failure after a successful send does not surface a send error', () async {
     final recorder = FakeAssistantAudioRecorder();
     final player = FakeAssistantAudioPlayer()

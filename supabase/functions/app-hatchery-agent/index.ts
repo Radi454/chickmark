@@ -101,7 +101,10 @@ export interface AppAgentDeps {
   /** Transcribes a base64 audio clip. Undefined when voice is not configured. */
   transcribeAudio?(audioBase64: string): Promise<string>
   /** Synthesizes speech for a reply. Undefined when voice is not configured. */
-  synthesizeSpeech?(text: string): Promise<string>
+  synthesizeSpeech?(
+    text: string,
+    language?: 'en' | 'ar' | 'mixed',
+  ): Promise<string>
   newId?: () => string
   now?: () => string
 }
@@ -350,7 +353,11 @@ async function handleSend(params: {
       if (audioProvided) {
         const transcript = nullableString(existingInbound.data?.text)
         if (transcript) payload.transcript = transcript
-        const audio = await synthesizeReplyAudio(params.deps, storedReply.reply.text)
+        const audio = await synthesizeReplyAudio(
+          params.deps,
+          storedReply.reply.text,
+          storedReply.reply.language,
+        )
         if (audio) payload.audioBase64 = audio
       }
       return success(payload)
@@ -560,7 +567,7 @@ async function handleSend(params: {
   }
   if (audioProvided) {
     replyPayload.transcript = message
-    const audio = await synthesizeReplyAudio(params.deps, result.reply)
+    const audio = await synthesizeReplyAudio(params.deps, result.reply, language)
     if (audio) replyPayload.audioBase64 = audio
   }
   return success(replyPayload)
@@ -569,10 +576,11 @@ async function handleSend(params: {
 async function synthesizeReplyAudio(
   deps: AppAgentDeps,
   text: string,
+  language: 'en' | 'ar' | 'mixed',
 ): Promise<string | null> {
   if (!deps.synthesizeSpeech) return null
   try {
-    return await deps.synthesizeSpeech(text)
+    return await deps.synthesizeSpeech(text, language)
   } catch (_) {
     console.error('app-hatchery-agent: speech synthesis failed')
     return null
@@ -885,7 +893,7 @@ export function serveAppAgent(request: Request): Response | Promise<Response> {
       ? (audioBase64) => transcribeAudio(audioBase64, voiceConfig)
       : undefined,
     synthesizeSpeech: voiceConfig
-      ? (text) => synthesizeSpeech(text, voiceConfig)
+      ? (text, language) => synthesizeSpeech(text, voiceConfig, language)
       : undefined,
     runAgentTurn: (input) =>
       runAgentTurn(input, {

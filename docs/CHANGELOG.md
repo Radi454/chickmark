@@ -12,6 +12,18 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Improved voice reply quality and added playback controls.
+  Server-side TTS moved from `tts-1`/voice `alloy` to `gpt-4o-mini-tts`/voice
+  `ash`, with Egyptian Arabic pronunciation instructions for `ar`/`mixed`
+  replies — `alloy` mispronounced Arabic badly. Voice-key resolution now
+  falls back to `OPENAI_API_KEY` when no separate `OPENAI_VOICE_KEY` secret
+  is set, so voice works immediately off the key already configured for the
+  text brain. On the client, `ChatMessage` carries the reply's audio in
+  memory (never persisted to history), and any assistant bubble with audio
+  gets a play/pause toggle and a replay button; `AssistantProvider` gained
+  `playMessageAudio`/`pausePlayback`/`resumePlayback` so only one message's
+  audio plays at a time, and the auto-play-on-voice-reply behavior now routes
+  through the same path as a manual tap.
 - 2026-08-14: Fixed silent voice replies on iOS. The TTS reply audio was
   played via audioplayers' `BytesSource`, which iOS/macOS do not support; the
   resulting throw was swallowed by the deliberate best-effort playback

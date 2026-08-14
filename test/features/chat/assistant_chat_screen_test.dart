@@ -407,4 +407,76 @@ void main() {
     final button = tester.widget<IconButton>(find.byKey(_micKey));
     expect(button.onPressed, isNull);
   });
+
+  const playPauseKey = ValueKey('assistant-reply-play-pause');
+  const replayKey = ValueKey('assistant-reply-replay');
+
+  testWidgets('a typed reply shows no playback controls', (tester) async {
+    final port = FakeAssistantChatPort();
+    await _pumpScreen(tester, port: port);
+
+    await tester.enterText(find.byKey(_inputKey), 'How did last hatch go?');
+    await tester.pump();
+    await tester.tap(find.byKey(_sendKey));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(playPauseKey), findsNothing);
+    expect(find.byKey(replayKey), findsNothing);
+  });
+
+  testWidgets(
+    'a voice reply shows play/pause and replay; tapping play/pause toggles',
+    (tester) async {
+      final recorder = FakeAssistantAudioRecorder();
+      final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+      final port = FakeAssistantChatPort(
+        nextReply: AssistantChatReply(
+          conversationId: 'conv-1',
+          userTurnId: 'turn-user',
+          replyTurnId: 'turn-reply',
+          reply: 'Hatch was 84%.',
+          createdAt: DateTime.utc(2026, 8, 14, 10),
+          language: 'en',
+          transcript: 'What is the hatch rate?',
+          audioBase64: 'YXVkaW8=',
+        ),
+      );
+      await _pumpScreen(
+        tester,
+        port: port,
+        audioRecorder: recorder,
+        audioPlayer: player,
+      );
+
+      await tester.tap(find.byKey(_micKey));
+      await tester.pump();
+      await tester.tap(find.byKey(_micKey));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(playPauseKey), findsOneWidget);
+      expect(find.byKey(replayKey), findsOneWidget);
+      // Auto-play already started (manualCompletion holds it open) — icon
+      // reflects the actively-speaking state.
+      expect(find.byIcon(Icons.pause_circle), findsOneWidget);
+
+      await tester.tap(find.byKey(playPauseKey));
+      await tester.pump();
+      expect(player.pauseCount, 1);
+      expect(find.byIcon(Icons.play_circle), findsOneWidget);
+
+      await tester.tap(find.byKey(playPauseKey));
+      await tester.pump();
+      expect(player.resumeCount, 1);
+      expect(find.byIcon(Icons.pause_circle), findsOneWidget);
+
+      player.completePlayback();
+      await tester.pump();
+
+      await tester.tap(find.byKey(replayKey));
+      await tester.pump();
+      expect(player.playedBase64, ['YXVkaW8=', 'YXVkaW8=']);
+    },
+  );
 }

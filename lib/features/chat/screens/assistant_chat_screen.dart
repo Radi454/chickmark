@@ -217,10 +217,27 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
       itemCount: provider.messages.length,
       itemBuilder: (context, index) {
         final message = provider.messages[index];
+        final isThisPlaying = provider.playingMessageId == message.id;
         return _AssistantMessageBubble(
           message: message,
           onRetry: provider.canRetry(message)
               ? () => provider.retry(message)
+              : null,
+          isPlaying: isThisPlaying && !provider.isPaused,
+          isPaused: isThisPlaying && provider.isPaused,
+          onPlayPause: message.hasAudio
+              ? () {
+                  if (isThisPlaying && !provider.isPaused) {
+                    provider.pausePlayback();
+                  } else if (isThisPlaying && provider.isPaused) {
+                    provider.resumePlayback();
+                  } else {
+                    provider.playMessageAudio(message);
+                  }
+                }
+              : null,
+          onReplay: message.hasAudio
+              ? () => provider.playMessageAudio(message)
               : null,
         );
       },
@@ -260,10 +277,29 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
 }
 
 class _AssistantMessageBubble extends StatelessWidget {
-  const _AssistantMessageBubble({required this.message, this.onRetry});
+  const _AssistantMessageBubble({
+    required this.message,
+    this.onRetry,
+    this.isPlaying = false,
+    this.isPaused = false,
+    this.onPlayPause,
+    this.onReplay,
+  });
 
   final ChatMessage message;
   final VoidCallback? onRetry;
+
+  /// True while this message's reply audio is actively sounding.
+  final bool isPlaying;
+
+  /// True while this message's reply audio is loaded but paused.
+  final bool isPaused;
+
+  /// Null when the message has no audio. Toggles play/pause/resume.
+  final VoidCallback? onPlayPause;
+
+  /// Null when the message has no audio. Restarts playback from the top.
+  final VoidCallback? onReplay;
 
   @override
   Widget build(BuildContext context) {
@@ -342,6 +378,39 @@ class _AssistantMessageBubble extends StatelessWidget {
                     onPressed: onRetry,
                     child: const Text(AppStrings.retry),
                   ),
+              ],
+            ),
+          ),
+        if (message.hasAudio)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSizes.spaceXs),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  key: const ValueKey('assistant-reply-play-pause'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: isPlaying ? 'Pause' : (isPaused ? 'Resume' : 'Play'),
+                  icon: Icon(
+                    isPlaying ? Icons.pause_circle : Icons.play_circle,
+                    size: 26,
+                    color: AppColors.primary,
+                  ),
+                  onPressed: onPlayPause,
+                ),
+                const SizedBox(width: AppSizes.spaceXs),
+                IconButton(
+                  key: const ValueKey('assistant-reply-replay'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Replay',
+                  icon: const Icon(Icons.replay, size: 20),
+                  color: AppColors.textTertiary,
+                  onPressed: onReplay,
+                ),
               ],
             ),
           ),

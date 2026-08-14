@@ -75,13 +75,15 @@ class AssistantChatReply {
   /// originated as a voice message and speech synthesis succeeded.
   final String? audioBase64;
 
-  /// The assistant turn as it should appear in the message list.
+  /// The assistant turn as it should appear in the message list. Carries the
+  /// TTS audio (when present) so the bubble's playback controls can replay it.
   ChatMessage toAssistantMessage() => ChatMessage(
     id: replyTurnId,
     role: ChatMessageRole.assistant,
     text: reply,
     createdAt: createdAt,
     language: language,
+    audioBase64: audioBase64,
   );
 }
 

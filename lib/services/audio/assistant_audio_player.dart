@@ -18,6 +18,14 @@ abstract interface class AssistantAudioPlayer {
   /// Resolves only once playback finishes (or is interrupted by [stop]),
   /// never merely once it has started.
   Future<void> playBase64(String base64Audio);
+
+  /// Pauses in-flight playback; the pending play future stays pending until
+  /// [resume] lets it finish (or [stop] cuts it short).
+  Future<void> pause();
+
+  /// Resumes playback paused by [pause]. No-op when nothing is paused.
+  Future<void> resume();
+
   Future<void> stop();
 }
 
@@ -91,6 +99,12 @@ class AudioplayersAssistantAudioPlayer implements AssistantAudioPlayer {
     }
     return completer.future;
   }
+
+  @override
+  Future<void> pause() => _player.pause();
+
+  @override
+  Future<void> resume() => _player.resume();
 
   @override
   Future<void> stop() async {
