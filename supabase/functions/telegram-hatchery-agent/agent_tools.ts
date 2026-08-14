@@ -290,6 +290,16 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
       ['ageWeek'],
     ),
     definition(
+      'get_operational_standards',
+      'Look up operational target ranges (temperature, humidity, airflow and similar) for a station. Global standards apply everywhere; a hatchery may override any of them. Pass hatcheryId to get that hatchery\'s effective standards.',
+      {
+        stationKey: measureKeyRule,
+        sectorKey: measureKeyRule,
+        hatcheryId: idRule,
+      },
+      [],
+    ),
+    definition(
       'propose_intake',
       'Record a proposed data-entry action for user confirmation.',
       {

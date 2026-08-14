@@ -11,6 +11,7 @@ import type {
 } from './agent_protocol.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
 import { coverageFor, resolveBreed } from './bmk_lookup.ts'
+import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
 
 export interface BmkBreedBenchmarkRow {
   breed: string
@@ -38,6 +39,22 @@ export interface BmkEggBreakoutBenchmarkRow {
   contamPct: number | null
 }
 
+export interface BmkOperationalStandardRow {
+  id: string
+  hatcheryId: string | null
+  stationKey: string
+  sectorKey: string
+  metricKey: string
+  metricLabel: string
+  unit: string
+  minValue: number | null
+  maxValue: number | null
+  targetValue: number | null
+  source: string | null
+  notes: string | null
+  sortOrder: number
+}
+
 export interface AgentBmkStore {
   listBreedCoverage(): Promise<readonly { breed: string; ageWeek: number }[]>
   findBreedBenchmark(
@@ -48,6 +65,10 @@ export interface AgentBmkStore {
   findEggBreakoutBenchmark(
     ageWeek: number,
   ): Promise<BmkEggBreakoutBenchmarkRow | null>
+  findHatcheryCustomerId(hatcheryId: string): Promise<string | null>
+  listOperationalStandards(
+    hatcheryId: string | null,
+  ): Promise<readonly BmkOperationalStandardRow[]>
 }
 
 export function createAgentBmkToolHandlers(
@@ -57,6 +78,8 @@ export function createAgentBmkToolHandlers(
     get_breed_benchmark: (input) => getBreedBenchmark(store, input),
     get_egg_breakout_benchmark: (input) =>
       getEggBreakoutBenchmark(store, input),
+    get_operational_standards: (input) =>
+      getOperationalStandards(store, input),
   }
 }
 
@@ -145,6 +168,60 @@ async function getEggBreakoutBenchmark(
   if (resolved.status === 'ok') return ok({ ...resolved.row })
   const { status, ...rest } = resolved
   return ok({ status, ...rest })
+}
+
+/**
+ * Global standards overlaid by that hatchery's rows, keyed on metricKey --
+ * the same precedence BmkRepository.getOperationalStandards implements in the
+ * app, so the agent and the BMK screen never disagree.
+ */
+async function getOperationalStandards(
+  store: AgentBmkStore,
+  input: AgentToolExecutionInput,
+): Promise<AgentToolResult> {
+  const hatcheryId = optionalIdentifier(input.arguments.hatcheryId)
+  if (hatcheryId) {
+    const customerId = await store.findHatcheryCustomerId(hatcheryId)
+    if (!customerId) return scopeDenied()
+    try {
+      assertCustomerAllowed(input.scope, customerId)
+    } catch (error) {
+      if (error instanceof AgentScopeError) return scopeDenied()
+      throw error
+    }
+  }
+
+  const merged = new Map<string, BmkOperationalStandardRow>()
+  for (const row of await store.listOperationalStandards(null)) {
+    merged.set(row.metricKey, row)
+  }
+  if (hatcheryId) {
+    for (const row of await store.listOperationalStandards(hatcheryId)) {
+      merged.set(row.metricKey, row)
+    }
+  }
+
+  const stationKey = optionalIdentifier(input.arguments.stationKey)
+  const sectorKey = optionalIdentifier(input.arguments.sectorKey)
+  const standards = [...merged.values()]
+    .filter((row) => !stationKey || row.stationKey === stationKey)
+    .filter((row) => !sectorKey || row.sectorKey === sectorKey)
+    .sort((left, right) =>
+      left.sortOrder - right.sortOrder ||
+      left.metricLabel.localeCompare(right.metricLabel)
+    )
+
+  return ok({ hatcheryId: hatcheryId ?? null, standards })
+}
+
+function optionalIdentifier(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text ? text : null
+}
+
+function scopeDenied(): AgentToolResult {
+  return { ok: false, code: 'scope_denied', data: null }
 }
 
 function ok(data: Record<string, unknown>): AgentToolResult {
@@ -249,6 +326,49 @@ export function createSupabaseAgentBmkStore(
         crackedPct: optionalNumber(row.cracked_pct),
         contamPct: optionalNumber(row.contam_pct),
       }
+    },
+    async findHatcheryCustomerId(hatcheryId) {
+      const result = await client
+        .from('hatcheries')
+        .select('id, customer_id')
+        .eq('id', hatcheryId)
+        .maybeSingle()
+      throwIfBmkError(result)
+      const customerId = result.data?.customer_id
+      return typeof customerId === 'string' && customerId ? customerId : null
+    },
+    async listOperationalStandards(hatcheryId) {
+      const base = client
+        .from('bmk_operational_standards')
+        .select(
+          'id, hatchery_id, station_key, sector_key, metric_key, ' +
+            'metric_label, unit, min_value, max_value, target_value, ' +
+            'source, notes, sort_order',
+        )
+      const filtered = hatcheryId === null
+        ? base.is('hatchery_id', null)
+        : base.eq('hatchery_id', hatcheryId)
+      const result = await filtered
+        .order('sort_order', { ascending: true })
+        .limit(MAX_BMK_ROWS)
+      throwIfBmkError(result)
+      return (result.data ?? []).map((row) => ({
+        id: String(row.id ?? ''),
+        hatcheryId: typeof row.hatchery_id === 'string'
+          ? row.hatchery_id
+          : null,
+        stationKey: String(row.station_key ?? ''),
+        sectorKey: String(row.sector_key ?? ''),
+        metricKey: String(row.metric_key ?? ''),
+        metricLabel: String(row.metric_label ?? ''),
+        unit: String(row.unit ?? ''),
+        minValue: optionalNumber(row.min_value),
+        maxValue: optionalNumber(row.max_value),
+        targetValue: optionalNumber(row.target_value),
+        source: typeof row.source === 'string' ? row.source : null,
+        notes: typeof row.notes === 'string' ? row.notes : null,
+        sortOrder: Number(row.sort_order ?? 0),
+      }))
     },
   }
 }

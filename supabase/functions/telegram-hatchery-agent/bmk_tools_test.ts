@@ -57,6 +57,67 @@ function fixtureStore(): AgentBmkStore {
           }
           : null,
       ),
+    findHatcheryCustomerId: (hatcheryId) =>
+      Promise.resolve(
+        hatcheryId === 'hatchery-a'
+          ? 'customer-a'
+          : hatcheryId === 'hatchery-b'
+          ? 'customer-b'
+          : null,
+      ),
+    listOperationalStandards: (hatcheryId) =>
+      Promise.resolve(
+        hatcheryId === null
+          ? [
+            {
+              id: 'g-1',
+              hatcheryId: null,
+              stationKey: 'setter',
+              sectorKey: 'incubation',
+              metricKey: 'setter_temp',
+              metricLabel: 'Setter temperature',
+              unit: 'F',
+              minValue: 99.0,
+              maxValue: 100.5,
+              targetValue: 99.8,
+              source: 'Aviagen',
+              notes: null,
+              sortOrder: 1,
+            },
+            {
+              id: 'g-2',
+              hatcheryId: null,
+              stationKey: 'hatcher',
+              sectorKey: 'incubation',
+              metricKey: 'hatcher_humidity',
+              metricLabel: 'Hatcher humidity',
+              unit: '%',
+              minValue: 50,
+              maxValue: 60,
+              targetValue: 55,
+              source: null,
+              notes: null,
+              sortOrder: 2,
+            },
+          ]
+          : [
+            {
+              id: 'h-1',
+              hatcheryId: 'hatchery-a',
+              stationKey: 'setter',
+              sectorKey: 'incubation',
+              metricKey: 'setter_temp',
+              metricLabel: 'Setter temperature',
+              unit: 'F',
+              minValue: 99.2,
+              maxValue: 100.0,
+              targetValue: 99.6,
+              source: 'Site SOP',
+              notes: 'House override',
+              sortOrder: 1,
+            },
+          ],
+      ),
   }
 }
 
@@ -133,3 +194,55 @@ Deno.test('get_egg_breakout_benchmark reports an out-of-range week',
     assertEquals(result.data?.status, 'week_out_of_range')
     assertEquals(result.data?.coveredWeeks, { min: 25, max: 65 })
   })
+
+Deno.test('get_operational_standards returns global rows when unscoped',
+  async () => {
+    const result = await call('get_operational_standards', {})
+    assertEquals(result.ok, true)
+    const standards = result.data?.standards as Record<string, unknown>[]
+    assertEquals(standards.length, 2)
+    assertEquals(standards[0].metricKey, 'setter_temp')
+    assertEquals(standards[0].targetValue, 99.8)
+  })
+
+Deno.test('hatchery rows override global rows on metricKey', async () => {
+  const result = await call('get_operational_standards', {
+    hatcheryId: 'hatchery-a',
+  })
+  const standards = result.data?.standards as Record<string, unknown>[]
+  assertEquals(standards.length, 2)
+  assertEquals(standards[0].metricKey, 'setter_temp')
+  // Overridden by the hatchery row.
+  assertEquals(standards[0].targetValue, 99.6)
+  assertEquals(standards[0].hatcheryId, 'hatchery-a')
+  // Untouched global row still present.
+  assertEquals(standards[1].metricKey, 'hatcher_humidity')
+  assertEquals(standards[1].targetValue, 55)
+})
+
+Deno.test('stationKey filters the merged result', async () => {
+  const result = await call('get_operational_standards', {
+    hatcheryId: 'hatchery-a',
+    stationKey: 'hatcher',
+  })
+  const standards = result.data?.standards as Record<string, unknown>[]
+  assertEquals(standards.length, 1)
+  assertEquals(standards[0].metricKey, 'hatcher_humidity')
+})
+
+Deno.test('a hatchery outside scope is rejected, not returned empty',
+  async () => {
+    const result = await call('get_operational_standards', {
+      hatcheryId: 'hatchery-b',
+    })
+    assertEquals(result.ok, false)
+    assertEquals(result.code, 'scope_denied')
+  })
+
+Deno.test('an unknown hatchery is rejected', async () => {
+  const result = await call('get_operational_standards', {
+    hatcheryId: 'hatchery-zzz',
+  })
+  assertEquals(result.ok, false)
+  assertEquals(result.code, 'scope_denied')
+})

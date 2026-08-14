@@ -2011,6 +2011,23 @@ and follows the same never-substitute contract against `bmk_egg_breakout`,
 reporting `week_out_of_range` with the table's covered week range when no row
 matches. Both tools are pure lookups with no write path.
 
+A third benchmark tool, `get_operational_standards`, reads
+`bmk_operational_standards` instead and, unlike the two global lookups above,
+is customer-scope-checked: a hatchery's operational-standard overrides belong
+to one customer. It takes optional `stationKey`, `sectorKey`, and
+`hatcheryId` filters. With no `hatcheryId` it returns only the global rows
+(`hatchery_id is null`). With a `hatcheryId`, it resolves that hatchery's
+owning customer via `findHatcheryCustomerId`, rejects with `scope_denied` if
+the hatchery is unknown or its customer is outside
+`scope.allowedCustomerIds` (never returning an empty result to hide the
+mismatch), and otherwise merges the global rows with that hatchery's rows,
+keyed on `metricKey` so a hatchery row overrides the matching global row —
+the same precedence `BmkRepository.getOperationalStandards` implements in the
+Flutter app, so the agent and the BMK screen never disagree. The merged rows
+are then filtered by `stationKey`/`sectorKey` when supplied and sorted by
+`sortOrder` then `metricLabel`. This tool is also a pure lookup with no write
+path.
+
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
 HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from

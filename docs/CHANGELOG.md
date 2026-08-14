@@ -12,6 +12,7 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: The agent can read operational standards, merging global rows with the requesting hatchery's overrides and rejecting hatcheries outside the caller's scope.
 - 2026-08-14: The agent can look up breed and egg-breakout benchmarks from bmk_breeds / bmk_egg_breakout, with structured misses instead of guessed values.
 - 2026-08-14: Sync now pulls BMK operational standards from the cloud, behind the same dirty-row guard as the other reference tables.
 - 2026-08-14: Sync now pushes dirty BMK operational standards to the cloud, after hatcheries so the hatchery FK resolves.
