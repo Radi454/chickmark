@@ -57,6 +57,7 @@ Future<AssistantProvider> _pumpScreen(
   await tester.pumpWidget(
     MaterialApp(
       locale: locale,
+      supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -92,7 +93,9 @@ void main() {
     expect(find.byKey(_emptyAvatarKey), findsOneWidget);
     expect(find.byIcon(Icons.forum_outlined), findsNothing);
     expect(
-      find.text('Ask about flock performance, hatch results, or a recent audit.'),
+      find.text(
+        'Ask about flock performance, hatch results, or a recent audit.',
+      ),
       findsOneWidget,
     );
     expect(find.byKey(_errorBannerKey), findsNothing);
@@ -114,7 +117,9 @@ void main() {
     // The user's own turn sits on the reading-end side, the assistant's on the
     // reading-start side — mirrored by direction, never hardcoded LTR.
     final userLeft = tester.getTopLeft(find.text('ما نسبة الفقس؟').first).dx;
-    final assistantLeft = tester.getTopLeft(find.text('Hatch was 84%.').first).dx;
+    final assistantLeft = tester
+        .getTopLeft(find.text('Hatch was 84%.').first)
+        .dx;
     expect(userLeft, greaterThan(assistantLeft));
   });
 
@@ -288,12 +293,6 @@ void main() {
     );
 
     expect(find.text('Pip'), findsOneWidget);
-    debugPrint(
-      tester.allWidgets
-          .whereType<Text>()
-          .map((widget) => widget.data)
-          .join(' | '),
-    );
     expect(find.byKey(_emptyTitleKey), findsOneWidget);
     expect(
       find.descendant(

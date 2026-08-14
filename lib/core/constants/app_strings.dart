@@ -9,6 +9,10 @@ class AppStrings {
   static const String bmkTab = 'BMK';
   static const String performanceTab = 'Performance';
   static const String agentTab = 'Agent';
+  static const String assistantTab = 'Pip';
+  static const String assistantEmptyTitle = 'Ask Pip';
+  static const String assistantComposerHint = 'Ask Pip';
+  static const String assistantThinking = 'Pip is thinking';
   static const String settingsTab = 'Settings';
   static const String signIn = 'Sign In';
   static const String createAccount = 'Create Account';

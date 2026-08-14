@@ -1703,6 +1703,12 @@ and raises `AssistantChatException` for transport and server errors. The
 service's only literal is the Edge Function name: no keys, model names, or
 provider details are compiled into the app.
 
+The in-app assistant is named Pip in both English and Arabic interfaces; Arabic
+copy keeps `Pip` in Latin script. A static, clean ChickMark avatar appears in
+the chat header, empty state, assistant messages, and thinking state, while
+user messages receive no avatar. The avatar has no sparkle, badge, or other
+AI-brand symbol.
+
 `AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
 and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
 a microphone or speaker. `startRecording()` starts capture and sets

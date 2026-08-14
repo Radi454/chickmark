@@ -2340,4 +2340,43 @@ const Map<String, String> _ar = {
   'Oct': 'أكتوبر',
   'Nov': 'نوفمبر',
   'Dec': 'ديسمبر',
+
+  // In-app assistant chat
+  'Pip': 'Pip',
+  'Clear conversation': 'مسح المحادثة',
+  'Clear this conversation?': 'هل تريد مسح هذه المحادثة؟',
+  'The messages here are removed. Your saved records are not affected.':
+      'ستُزال الرسائل الظاهرة هنا. لن تتأثر سجلاتك المحفوظة.',
+  'Ask Pip': 'اسأل Pip',
+  'Ask about flock performance, hatch results, or a recent audit.':
+      'اسأل عن أداء القطيع أو نتائج الفقس أو زيارة تدقيق حديثة.',
+  'Unavailable while offline': 'غير متاح دون اتصال',
+  'Send message': 'إرسال رسالة',
+  'Sending': 'جارٍ الإرسال',
+  'Not sent': 'لم تُرسل',
+  'Pip is thinking': 'Pip يفكر',
+  'The assistant needs a connection. Your other work still saves offline.':
+      'يحتاج المساعد إلى اتصال. يستمر حفظ باقي عملك دون اتصال.',
+  'Type a message before sending.': 'اكتب رسالة قبل الإرسال.',
+  'That message is too long. Shorten it and try again.':
+      'هذه الرسالة طويلة جدًا. اختصرها وحاول مرة أخرى.',
+  'That message could not be sent. Edit it and try again.':
+      'تعذّر إرسال هذه الرسالة. عدّلها وحاول مرة أخرى.',
+  'Your sign-in expired. Sign in again to keep chatting.':
+      'انتهت صلاحية تسجيل دخولك. سجّل الدخول مجددًا لمتابعة المحادثة.',
+  'Your account is not approved for the assistant yet.':
+      'لم تتم الموافقة على حسابك لاستخدام المساعد بعد.',
+  'Too many messages just now. Wait a moment and try again.':
+      'رسائل كثيرة في وقت قصير. انتظر قليلًا وحاول مرة أخرى.',
+  'The assistant is unavailable right now. Try again shortly.':
+      'المساعد غير متاح حاليًا. حاول مرة أخرى بعد قليل.',
+  'Something went wrong. Please try again.': 'حدث خطأ ما. حاول مرة أخرى.',
+  'The assistant could not be reached. Check your connection and try again.':
+      'تعذّر الوصول إلى المساعد. تحقق من اتصالك وحاول مرة أخرى.',
+  'Could not load the conversation. Please try again.':
+      'تعذّر تحميل المحادثة. حاول مرة أخرى.',
+  'Could not clear the conversation. Please try again.':
+      'تعذّر مسح المحادثة. حاول مرة أخرى.',
+  'Could not send that message. Please try again.':
+      'تعذّر إرسال تلك الرسالة. حاول مرة أخرى.',
 };

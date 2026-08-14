@@ -18,11 +18,7 @@ import '../widgets/assistant_avatar.dart';
 /// conversation from a fake port. [loadOnInit] lets a test pump the screen
 /// without firing the history request.
 class AssistantChatScreen extends StatelessWidget {
-  const AssistantChatScreen({
-    super.key,
-    this.provider,
-    this.loadOnInit = true,
-  });
+  const AssistantChatScreen({super.key, this.provider, this.loadOnInit = true});
 
   final AssistantProvider? provider;
   final bool loadOnInit;
