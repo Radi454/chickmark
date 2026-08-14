@@ -380,17 +380,54 @@ Deno.test('compare reports a missing benchmark rather than dropping metrics',
     assertEquals(result.data?.breed, 'Ross308')
   })
 
-Deno.test('compare requires a selected audit', async () => {
-  const auditStore = {
-    ...fixtureAuditStore(),
-    loadConversationContext: () => Promise.resolve(null),
-  } as unknown as AgentAuditStore
-  const handlers = createAgentBmkToolHandlers(fixtureStore(), auditStore)
-  const result = await handlers.compare_selected_audit_to_benchmark!({
-    scope,
-    conversationId: 'conversation-a',
-    activeVisitId: null,
-    arguments: {},
+Deno.test('compare requires a selected audit, same contract as the sibling tools',
+  async () => {
+    const auditStore = {
+      ...fixtureAuditStore(),
+      loadConversationContext: () => Promise.resolve(null),
+    } as unknown as AgentAuditStore
+    const handlers = createAgentBmkToolHandlers(fixtureStore(), auditStore)
+    const result = await handlers.compare_selected_audit_to_benchmark!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+    assertEquals(result.ok, false)
+    assertEquals(result.code, 'fresh_audit_selection_required')
+    assertEquals(result.data, {
+      selectedCustomerId: null,
+      selectedFlockId: null,
+    })
   })
-  assertEquals(result.ok, false)
-})
+
+Deno.test(
+  'compare treats a stale flockId in context as a fresh selection required',
+  async () => {
+    const auditStore = {
+      ...fixtureAuditStore(),
+      loadConversationContext: () =>
+        Promise.resolve({
+          customerId: 'customer-a',
+          // The conversation still points at a flock that no longer
+          // matches the fetched audit's flock -- e.g. the customer
+          // selected a different flock after this audit was chosen.
+          flockId: 'flock-b',
+          auditId: 'audit-1',
+        }),
+    } as unknown as AgentAuditStore
+    const handlers = createAgentBmkToolHandlers(fixtureStore(), auditStore)
+    const result = await handlers.compare_selected_audit_to_benchmark!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+    assertEquals(result.ok, false)
+    assertEquals(result.code, 'fresh_audit_selection_required')
+    assertEquals(result.data, {
+      selectedCustomerId: 'customer-a',
+      selectedFlockId: 'flock-b',
+    })
+  },
+)

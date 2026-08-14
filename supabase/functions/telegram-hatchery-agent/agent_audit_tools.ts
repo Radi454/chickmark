@@ -634,7 +634,7 @@ function selectedAuditFromSnapshot(
   return auditId ? { customerId, flockId, auditId } : null
 }
 
-function freshAuditSelectionRequired(
+export function freshAuditSelectionRequired(
   context: {
     customerId: string | null
     flockId: string | null

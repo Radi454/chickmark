@@ -11,6 +11,7 @@ import type {
 } from './agent_protocol.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
 import type { AgentAuditStore } from './agent_audit_tools.ts'
+import { freshAuditSelectionRequired } from './agent_audit_tools.ts'
 import { coverageFor, resolveBreed } from './bmk_lookup.ts'
 import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
 import { roundTo, sampleWeightedMean } from './agent_metrics.ts'
@@ -272,14 +273,22 @@ async function compareSelectedAuditToBenchmark(
     !context?.customerId || !context.auditId ||
     !input.scope.allowedCustomerIds.includes(context.customerId)
   ) {
-    return { ok: false, code: 'audit_selection_required', data: null }
+    return freshAuditSelectionRequired(context)
   }
 
   const audit = await auditStore.findAudit(
     context.auditId,
     input.scope.allowedCustomerIds,
   )
-  if (!audit || audit.customerId !== context.customerId) return scopeDenied()
+  if (!audit || !input.scope.allowedCustomerIds.includes(audit.customerId)) {
+    return scopeDenied()
+  }
+  if (
+    audit.customerId !== context.customerId ||
+    audit.flockId !== context.flockId
+  ) {
+    return freshAuditSelectionRequired(context)
+  }
 
   const ageWeek = audit.flockAgeWeeks
   if (!audit.breed || ageWeek === null) {

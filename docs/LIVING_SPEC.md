@@ -2031,7 +2031,14 @@ path.
 A fourth tool, `compare_selected_audit_to_benchmark`, takes no arguments and
 never accepts or reconstructs an audit ID -- it operates only on the audit
 already selected in the conversation, the same contract as
-`get_selected_audit_breakouts`. It resolves the selected audit's breed and
+`get_selected_audit_breakouts` and `get_audit_summary`: if no audit is
+selected, or the conversation's remembered `customerId`/`flockId` no longer
+matches the fetched audit's own `customerId`/`flockId` (a stale selection --
+e.g. the customer picked a different flock after the audit was selected), it
+returns `fresh_audit_selection_required` with
+`{ selectedCustomerId, selectedFlockId }` via the same
+`freshAuditSelectionRequired` helper the sibling tools use, rather than
+comparing against the wrong audit's benchmark. It resolves the selected audit's breed and
 flock age against `bmk_breeds`/`bmk_egg_breakout` via the same
 `resolveBreedBenchmark`/`resolveEggBreakoutBenchmark` functions the read tools
 use, then reads that audit's breakout rows and aggregates each metric's actual
