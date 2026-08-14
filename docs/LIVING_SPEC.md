@@ -1997,6 +1997,20 @@ selection, and detail lookup fail closed for missing, malformed, unknown,
 inaccessible, changed-scope, or mismatched evidence without revealing whether
 an out-of-scope audit exists.
 
+Two read-only benchmark tools answer breed-standard questions from the global
+reference tables `bmk_breeds` and `bmk_egg_breakout` (read-all-authenticated
+RLS, no customer scope filter). `get_breed_benchmark` takes a breed name and
+an age in weeks; the breed is resolved against the live vocabulary in
+`bmk_breeds` (never a hardcoded list) using an exact normalized match or a
+unique prefix match, and an ambiguous or unmatched prefix returns
+`breed_not_found` with the current `availableBreeds` list. A resolved breed
+with no row at the requested week returns `week_out_of_range` with that
+breed's own `coveredWeeks` min/max instead of substituting or interpolating a
+nearby week's value. `get_egg_breakout_benchmark` takes only an age in weeks
+and follows the same never-substitute contract against `bmk_egg_breakout`,
+reporting `week_out_of_range` with the table's covered week range when no row
+matches. Both tools are pure lookups with no write path.
+
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
 HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from

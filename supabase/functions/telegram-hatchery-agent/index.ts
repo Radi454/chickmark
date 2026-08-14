@@ -51,6 +51,11 @@ import {
   createAgentAuditToolHandlers,
   createSupabaseAgentAuditStore,
 } from './agent_audit_tools.ts'
+import {
+  type AgentBmkClient,
+  createAgentBmkToolHandlers,
+  createSupabaseAgentBmkStore,
+} from './bmk_tools.ts'
 import { type AgentToolEvidence, executeAgentTool } from './agent_tools.ts'
 import {
   type AgentConversationContextClient,
@@ -1150,9 +1155,13 @@ export function createUnifiedAgentToolHandlers(
   const auditStore = createSupabaseAgentAuditStore(
     adminClient as unknown as AgentAuditClient,
   )
+  const bmkStore = createSupabaseAgentBmkStore(
+    adminClient as unknown as AgentBmkClient,
+  )
   return {
     ...createAgentReadToolHandlers(readStore),
     ...createAgentAuditToolHandlers(auditStore),
+    ...createAgentBmkToolHandlers(bmkStore),
     ...createAgentIntakeToolHandlers({
       store: intakeStore,
       contextResolver: createSupabaseAgentIntakeContextResolver(intakeClient),

@@ -15,6 +15,8 @@ export type AgentToolName =
   | 'select_audit_option'
   | 'get_audit_summary'
   | 'get_selected_audit_breakouts'
+  | 'get_breed_benchmark'
+  | 'get_egg_breakout_benchmark'
   | 'get_flock_context'
   | 'query_station_records'
   | 'compare_station_metrics'
