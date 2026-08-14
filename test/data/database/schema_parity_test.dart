@@ -45,9 +45,9 @@ void main() {
   tearDown(resetAppDatabase);
 
   test(
-    'v41-baseline database upgraded through v56 matches a fresh v56 create',
+    'v41-baseline database upgraded through v58 matches a fresh v58 create',
     () async {
-      // Fresh v56: DatabaseHelper's real _onCreate path, on a database file
+      // Fresh v58: DatabaseHelper's real _onCreate path, on a database file
       // that has never existed before.
       final freshDb = await DatabaseHelper().db;
       final freshSchema = await normalizedSchema(freshDb);
@@ -62,10 +62,10 @@ void main() {
         isNotEmpty,
         reason:
             'sanity check: the v41 baseline must actually differ from a '
-            'fresh v56 database, otherwise this test would vacuously pass',
+            'fresh v58 database, otherwise this test would vacuously pass',
       );
 
-      // Replay the real v46..v56 handler chain directly via the
+      // Replay the real v46..v58 handler chain directly via the
       // @visibleForTesting hooks, in the exact order
       // DatabaseHelper._onUpgrade invokes them for any oldVersion in
       // [41, 45] (every "oldVersion < X" guard is true for oldVersion=41).
@@ -83,6 +83,8 @@ void main() {
       await helper.applyV54UpgradeForTest(freshDb);
       await helper.applyV55UpgradeForTest(freshDb);
       await helper.applyV56UpgradeForTest(freshDb);
+      await helper.applyV57UpgradeForTest(freshDb);
+      await helper.applyV58UpgradeForTest(freshDb);
 
       final upgradedSchema = await normalizedSchema(freshDb);
 

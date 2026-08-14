@@ -476,7 +476,28 @@ Future<void> _applyV58Upgrade(Database db) async {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ]);
+    // Seeded reference rows must not look dirty (they already exist in the
+    // cloud), so start from a clean slate...
     await db.update('bmk_operational_standards', {'syncStatus': 'synced'});
+    // ...then re-dirty anything a user actually touched before this table
+    // joined the sync path. `kBmkOperationalStandardSeeds` carries no
+    // `updatedAt` and `_backfillOperationalBmkSeedSources` never writes one,
+    // so a non-null `updatedAt` means the row went through
+    // `BmkRepository.upsertOperationalStandard` — i.e. a user edit. Any
+    // hatchery-scoped row is user-created by definition (every seed is
+    // global). Without this, pre-existing edits would sit permanently
+    // `synced` and never push.
+    final columns = _columnNames(
+      await db.rawQuery("PRAGMA table_info('bmk_operational_standards')"),
+    );
+    final userEditedWhere = columns.contains('updatedAt')
+        ? 'updatedAt IS NOT NULL OR hatcheryId IS NOT NULL'
+        : 'hatcheryId IS NOT NULL';
+    await db.update(
+      'bmk_operational_standards',
+      {'syncStatus': 'pending', 'dirtyAt': DateTime.now().toIso8601String()},
+      where: userEditedWhere,
+    );
   }
 }
 

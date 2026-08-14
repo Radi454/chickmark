@@ -12,6 +12,10 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: The v58 upgrade no longer stamps pre-existing user edits to operational BMK standards as `synced`. It now re-marks any row with a non-null `updatedAt` or `hatcheryId` as pending, so edits made before this table joined the sync path still push instead of being silently dropped from sync forever.
+- 2026-08-14: Writing a global operational BMK standard now requires an approved admin, matching the cloud admin-only policy. Previously any auditor could create a global row that RLS rejected on every push, and because the operational push marks the whole dirty batch failed on any error, that one row blocked every legitimate hatchery override indefinitely.
+- 2026-08-14: Added direct column-level coverage for the v58 migration (`bmk_operational_sync_migration_test.dart`) and corrected the schema-parity net's docs, which wrongly claimed no migration alters a v41-baseline table; v57 and v58 both do, so that net cannot see them.
+- 2026-08-14: The benchmark block auto-attached to audit reads now carries the coverage payload on a miss (`availableBreeds`, or `breed` plus `coveredWeeks`) instead of only the reason code, so the agent can say what is covered without a second tool call.
 - 2026-08-14: The agent prompt now requires benchmark figures to come from the BMK tools, with the breed and age week always stated.
 - 2026-08-14: Audit summary and selected-breakout reads now carry the matching breed and breakout benchmark, or an explicit reason it is unavailable.
 - 2026-08-14: Fixed `compare_selected_audit_to_benchmark` to match its stated sibling contract: it now returns `fresh_audit_selection_required` (not `audit_selection_required`) when no audit is selected, and now also treats a stale `flockId` in the conversation's remembered selection as requiring fresh selection, instead of silently comparing against the wrong audit's benchmark.

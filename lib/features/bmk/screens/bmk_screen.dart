@@ -117,6 +117,12 @@ class _BmkScreenState extends State<BmkScreen> {
           if (!canEditStandards && _mode == _BmkMode.admin) {
             _mode = _BmkMode.reference;
           }
+          // Global standards are cloud-writable by admins only
+          // (bmk_operational_global_write). Auditors keep hatchery-scoped
+          // override edits.
+          bmk.setCanEditGlobalStandards(
+            (user?.isApproved ?? false) && (user?.isAdmin ?? false),
+          );
           _syncAdminControllers(bmk);
 
           return SingleChildScrollView(
@@ -393,6 +399,20 @@ class _BmkScreenState extends State<BmkScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(dialogContext);
 
+    if (!provider.canEditGlobalStandards &&
+        (provider.selectedHatcheryId == null ||
+            provider.selectedHatcheryId!.isEmpty)) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Global BMK defaults are admin-only. Pick a hatchery to save an '
+            'override instead.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final photoPath = await _photoService.pickPhoto(
       fromCamera: false,
       imageQuality: 100,
@@ -437,6 +457,19 @@ class _BmkScreenState extends State<BmkScreen> {
     final provider = context.read<BmkProvider>();
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(dialogContext);
+    if (!provider.canEditGlobalStandards &&
+        (provider.selectedHatcheryId == null ||
+            provider.selectedHatcheryId!.isEmpty)) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Global BMK defaults are admin-only. Pick a hatchery to save an '
+            'override instead.',
+          ),
+        ),
+      );
+      return;
+    }
     await _supabaseService.deleteBmkOperationalSourcePhoto(
       metric.sourcePhotoRemotePath,
     );

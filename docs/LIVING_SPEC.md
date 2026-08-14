@@ -124,7 +124,15 @@ edit the selected operational BMK row's minimum, maximum, target, and notes. The
 Operational BMK Admin sector includes a `Global defaults`
 scope plus every saved hatchery; saving while a hatchery is selected writes a
 hatchery-specific row that overrides the matching global metric for that
-hatchery. Existing station and dashboard warning logic still uses the current
+hatchery. Writing a `Global defaults` row requires an approved admin, matching
+the cloud `bmk_operational_global_write` policy: `BmkProvider` refuses the write
+with `BmkGlobalStandardPermissionException` unless the screen has granted
+global-write rights via `setCanEditGlobalStandards`. Auditors keep
+hatchery-scoped override edits. Allowing a non-admin global edit would create a
+locally dirty row that RLS rejects on every push, and because the operational
+push sends the whole dirty batch in one call and marks every id failed on any
+error, that one row would block every legitimate hatchery override
+indefinitely. Existing station and dashboard warning logic still uses the current
 hard-coded `AppThresholds` values until those consumers are explicitly wired to
 the operational BMK lookup.
 
@@ -1552,7 +1560,17 @@ The implemented hierarchy is:
   from Supabase), camelizes and filters it to known columns, and writes it as
   `synced` with `dirtyAt` cleared since a pulled row is clean by definition.
   Fresh-install and reseed paths mark seeded standards `synced` up front so
-  baseline reference data is never treated as a pending local edit. Both push
+  baseline reference data is never treated as a pending local edit. The v58
+  upgrade does the same for an existing database, then re-marks
+  `pending`/`dirtyAt = now` any row with a non-null `updatedAt` or a non-null
+  `hatcheryId`: seeds carry no `updatedAt` and the seed-source backfill never
+  writes one, so those two conditions identify exactly the rows a user edited
+  before this table joined the sync path. Without that second pass, pre-branch
+  local edits would sit permanently `synced` and never push. Column-level
+  coverage for the upgrade lives in
+  `test/data/database/bmk_operational_sync_migration_test.dart`, because the
+  whole-table schema-parity net cannot see a migration that only ALTERs a
+  baseline table. Both push
   and pull wiring that call these methods are implemented — see the sync
   section below.
 - `troubleshooting`: seeded troubleshooting/reference content.
@@ -2048,7 +2066,14 @@ on breakout rows) plus `productionPct`, `eggWeightG`, and `chickWeightG` (no
 breakout-row actual, always reported with `reason: 'no_actual'`) against the
 breed benchmark, and all eleven `bmk_egg_breakout` defect percentages against
 the breakout benchmark -- the audit's `contaminatedPct` column maps explicitly
-onto the benchmark's `contamPct` column. Each comparison reports `actual`,
+onto the benchmark's `contamPct` column. For the four metrics that exist on
+both `fresh_egg_breakout` and `candled_egg_breakout` (`infertilePct`,
+`early24hPct`, `early48hPct`, `bloodRingPct`), the actual is deliberately a
+single sample-weighted blend across every breakout-type sample rather than one
+figure per breakout stage: the published `bmk_egg_breakout` benchmark carries
+exactly one target per age week regardless of which breakout stage measured it,
+so blending the actuals before comparing against that single target is the
+intended design, not an oversight. Each comparison reports `actual`,
 `standard`, `observedRows`, and `delta = actual - standard` rounded to one
 decimal via `roundTo`; a metric missing its benchmark value reports `reason:
 'no_benchmark'` and a metric missing its actual reports `reason: 'no_actual'`,
@@ -2075,7 +2100,12 @@ breakoutStandard }`, with `breakoutStandard` explicitly `null` when only the
 breed benchmark resolves. Otherwise it returns `{ status: 'unavailable',
 reason }` with `reason` one of `benchmark_unavailable` (no `bmkStore` wired),
 `missing_breed`, `missing_flock_age`, `breed_not_found`, or
-`week_out_of_range` -- never a substituted or interpolated benchmark.
+`week_out_of_range` -- never a substituted or interpolated benchmark. On the
+two resolver misses the block also carries the resolver's coverage payload
+through: `availableBreeds` on `breed_not_found`, and `breed` plus
+`coveredWeeks` on `week_out_of_range`. That is what lets the agent obey its
+own "say what is covered and ask" prompt rule straight from an auto-attached
+block, with no second tool call.
 
 The agent's system prompt (`CHICKMARK_AGENT_POLICY` in
 `supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) carries a

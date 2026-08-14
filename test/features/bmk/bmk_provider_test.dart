@@ -65,6 +65,7 @@ void main() {
       final provider = BmkProvider(repository: repository);
 
       await provider.ensureInitialized();
+      provider.setCanEditGlobalStandards(true);
       await provider.saveSelectedOperationalStandard(
         minValue: 18.5,
         maxValue: 20.5,
@@ -98,6 +99,7 @@ void main() {
     final provider = BmkProvider(repository: repository);
 
     await provider.ensureInitialized();
+    provider.setCanEditGlobalStandards(true);
     await provider.saveOperationalSourcePhoto(
       metricKey: 'egg_storage_est_short',
       photoPath: '/tmp/source-photo.jpg',
@@ -132,6 +134,7 @@ void main() {
         );
 
     await provider.ensureInitialized();
+    provider.setCanEditGlobalStandards(true);
     await provider.deleteOperationalSourcePhoto(
       metricKey: 'egg_storage_est_short',
     );
@@ -142,6 +145,61 @@ void main() {
     expect(provider.selectedOperationalStandard!.sourcePhotoPath, isNull);
     expect(provider.selectedOperationalStandard!.sourcePhotoRemotePath, isNull);
   });
+
+  test(
+    'a non-admin session cannot write a global operational standard',
+    () async {
+      final repository = _FakeBmkRepository();
+      final provider = BmkProvider(repository: repository);
+
+      await provider.ensureInitialized();
+      // Default: no global-write rights. Cloud policy
+      // bmk_operational_global_write is admin-only, and a rejected row would
+      // wedge the whole dirty push batch, so the edit must be refused here.
+      expect(provider.canEditGlobalStandards, isFalse);
+      final before = repository.operationalRows['global-egg_storage_est_short'];
+
+      await expectLater(
+        provider.saveSelectedOperationalStandard(minValue: 1),
+        throwsA(isA<BmkGlobalStandardPermissionException>()),
+      );
+      await expectLater(
+        provider.saveOperationalSourcePhoto(
+          metricKey: 'egg_storage_est_short',
+          photoPath: '/tmp/x.jpg',
+        ),
+        throwsA(isA<BmkGlobalStandardPermissionException>()),
+      );
+      await expectLater(
+        provider.deleteOperationalSourcePhoto(
+          metricKey: 'egg_storage_est_short',
+        ),
+        throwsA(isA<BmkGlobalStandardPermissionException>()),
+      );
+
+      expect(
+        repository.operationalRows['global-egg_storage_est_short'],
+        same(before),
+      );
+    },
+  );
+
+  test(
+    'a non-admin session can still write a hatchery-scoped override',
+    () async {
+      final repository = _FakeBmkRepository();
+      final provider = BmkProvider(repository: repository);
+
+      await provider.ensureInitialized();
+      provider.setOperationalHatchery('hatchery-1');
+      await Future<void>.delayed(Duration.zero);
+      await provider.saveSelectedOperationalStandard(minValue: 17.25);
+
+      final saved = provider.selectedOperationalStandard!;
+      expect(saved.hatcheryId, 'hatchery-1');
+      expect(saved.minValue, 17.25);
+    },
+  );
 }
 
 class _FakeBmkRepository extends BmkRepository {

@@ -38,7 +38,12 @@ async function auditBenchmark(
     audit.flockAgeWeeks,
   )
   if (breed.status !== 'ok') {
-    return { status: 'unavailable', reason: breed.status }
+    // Keep the coverage payload the miss variants carry (`availableBreeds` on
+    // breed_not_found, `breed`/`coveredWeeks` on week_out_of_range) so the
+    // agent can follow the prompt rule -- "say what is covered and ask" --
+    // straight from the auto-attached block, with no second tool call.
+    const { status: _status, ...coverage } = breed
+    return { status: 'unavailable', reason: breed.status, ...coverage }
   }
   const breakout = await resolveEggBreakoutBenchmark(
     bmkStore,

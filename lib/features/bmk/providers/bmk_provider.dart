@@ -6,6 +6,25 @@ import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 
 enum EbType { fresh, candled, residue }
 
+/// Thrown when a session without admin rights tries to write a GLOBAL
+/// operational standard (`hatcheryId == null`).
+///
+/// The cloud policy `bmk_operational_global_write` allows global rows to be
+/// written by admins only. A non-admin edit would still land locally, go
+/// dirty, and then be rejected by RLS on every push — and because
+/// `_pushDirtyReferenceRows` pushes the whole dirty batch in one call and
+/// marks every id failed on any error, that single row would wedge every
+/// legitimately-writable hatchery override forever. So the edit is refused
+/// at the source instead.
+class BmkGlobalStandardPermissionException implements Exception {
+  const BmkGlobalStandardPermissionException();
+
+  @override
+  String toString() =>
+      'Global BMK defaults are admin-only. Pick a hatchery to save an '
+      'override instead.';
+}
+
 class BmkProvider extends ChangeNotifier {
   final BmkRepository _repository;
 
@@ -21,6 +40,32 @@ class BmkProvider extends ChangeNotifier {
   List<BmkOperationalHatcheryOption> _operationalHatcheries = [];
   List<BmkOperationalStandardModel> _operationalStandards = [];
   String? _selectedOperationalMetricKey;
+
+  /// Whether this session may write GLOBAL operational standards. Mirrors the
+  /// cloud `app_is_admin()` gate; set from the BMK screen once the signed-in
+  /// user is known. Defaults to false so a session with no known role can
+  /// never mint a row the cloud will reject.
+  bool _canEditGlobalStandards = false;
+
+  bool get canEditGlobalStandards => _canEditGlobalStandards;
+
+  /// Set from `build` alongside the other permission gates, so it must not
+  /// notify listeners.
+  void setCanEditGlobalStandards(bool value) {
+    _canEditGlobalStandards = value;
+  }
+
+  /// Resolves the id/scope for an operational-standard write, refusing global
+  /// writes this session is not allowed to make.
+  String _operationalRowId(String metricKey, String? hatcheryId) {
+    if (hatcheryId == null || hatcheryId.isEmpty) {
+      if (!_canEditGlobalStandards) {
+        throw const BmkGlobalStandardPermissionException();
+      }
+      return 'global-$metricKey';
+    }
+    return '$hatcheryId-$metricKey';
+  }
 
   String get selectedBreed => _selectedBreed;
   int get selectedBreedAge => _selectedBreedAge;
@@ -189,9 +234,7 @@ class BmkProvider extends ChangeNotifier {
     final selected = selectedOperationalStandard;
     if (selected == null) return;
     final hatcheryId = _selectedHatcheryId;
-    final id = hatcheryId == null || hatcheryId.isEmpty
-        ? 'global-${selected.metricKey}'
-        : '$hatcheryId-${selected.metricKey}';
+    final id = _operationalRowId(selected.metricKey, hatcheryId);
     await _repository.upsertOperationalStandard(
       selected.copyWith(
         id: id,
@@ -220,9 +263,7 @@ class BmkProvider extends ChangeNotifier {
     if (selected == null) return;
 
     final hatcheryId = _selectedHatcheryId;
-    final id = hatcheryId == null || hatcheryId.isEmpty
-        ? 'global-${selected.metricKey}'
-        : '$hatcheryId-${selected.metricKey}';
+    final id = _operationalRowId(selected.metricKey, hatcheryId);
     await _repository.upsertOperationalStandard(
       selected.copyWith(
         id: id,
@@ -245,9 +286,7 @@ class BmkProvider extends ChangeNotifier {
     if (selected == null) return;
 
     final hatcheryId = _selectedHatcheryId;
-    final id = hatcheryId == null || hatcheryId.isEmpty
-        ? 'global-${selected.metricKey}'
-        : '$hatcheryId-${selected.metricKey}';
+    final id = _operationalRowId(selected.metricKey, hatcheryId);
     await _repository.upsertOperationalStandard(
       selected.copyWith(
         id: id,

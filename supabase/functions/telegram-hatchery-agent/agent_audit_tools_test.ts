@@ -91,6 +91,93 @@ Deno.test('the benchmark block is present and explicit when unavailable',
     assertEquals(benchmark.reason, 'benchmark_unavailable')
   })
 
+Deno.test(
+  'the auto-attached benchmark keeps availableBreeds on a breed miss',
+  async () => {
+    const store = fixtureStore()
+    store.latestSelectedAuditResult = {
+      ok: true,
+      code: 'ok',
+      data: {
+        id: 'audit-completed',
+        customerId: 'customer-a',
+        flockId: 'flock-a',
+      },
+    }
+    const handlers = createAgentAuditToolHandlers(store, {
+      bmkStore: {
+        // Coverage that does not contain the audit's breed (Ross308).
+        listBreedCoverage: () =>
+          Promise.resolve([{ breed: 'Cobb500', ageWeek: 35 }]),
+        findBreedBenchmark: () => Promise.resolve(null),
+        listEggBreakoutWeeks: () => Promise.resolve([35]),
+        findEggBreakoutBenchmark: () => Promise.resolve(null),
+        findHatcheryCustomerId: () => Promise.resolve(null),
+        listOperationalStandards: () => Promise.resolve([]),
+      },
+    })
+
+    const result = await handlers.get_audit_summary!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+
+    const benchmark = result.data?.benchmark as Record<string, unknown>
+    assertEquals(benchmark.status, 'unavailable')
+    assertEquals(benchmark.reason, 'breed_not_found')
+    // The prompt tells the agent to say what IS covered and ask; the coverage
+    // payload has to survive into the auto-attached block for that to work
+    // without a second tool call.
+    assertEquals(benchmark.availableBreeds, ['Cobb500'])
+  },
+)
+
+Deno.test(
+  'the auto-attached benchmark keeps coveredWeeks on a week miss',
+  async () => {
+    const store = fixtureStore()
+    store.latestSelectedAuditResult = {
+      ok: true,
+      code: 'ok',
+      data: {
+        id: 'audit-completed',
+        customerId: 'customer-a',
+        flockId: 'flock-a',
+      },
+    }
+    const handlers = createAgentAuditToolHandlers(store, {
+      bmkStore: {
+        // Breed is covered, the audit's age week (35) is not.
+        listBreedCoverage: () =>
+          Promise.resolve([
+            { breed: 'Ross308', ageWeek: 40 },
+            { breed: 'Ross308', ageWeek: 45 },
+          ]),
+        findBreedBenchmark: () => Promise.resolve(null),
+        listEggBreakoutWeeks: () => Promise.resolve([40, 45]),
+        findEggBreakoutBenchmark: () => Promise.resolve(null),
+        findHatcheryCustomerId: () => Promise.resolve(null),
+        listOperationalStandards: () => Promise.resolve([]),
+      },
+    })
+
+    const result = await handlers.get_audit_summary!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+
+    const benchmark = result.data?.benchmark as Record<string, unknown>
+    assertEquals(benchmark.status, 'unavailable')
+    assertEquals(benchmark.reason, 'week_out_of_range')
+    assertEquals(benchmark.breed, 'Ross308')
+    assertEquals(benchmark.coveredWeeks, { min: 40, max: 45 })
+  },
+)
+
 interface AuditRow {
   id: string
   customerId: string
