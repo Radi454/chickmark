@@ -124,7 +124,15 @@ edit the selected operational BMK row's minimum, maximum, target, and notes. The
 Operational BMK Admin sector includes a `Global defaults`
 scope plus every saved hatchery; saving while a hatchery is selected writes a
 hatchery-specific row that overrides the matching global metric for that
-hatchery. Existing station and dashboard warning logic still uses the current
+hatchery. Writing a `Global defaults` row requires an approved admin, matching
+the cloud `bmk_operational_global_write` policy: `BmkProvider` refuses the write
+with `BmkGlobalStandardPermissionException` unless the screen has granted
+global-write rights via `setCanEditGlobalStandards`. Auditors keep
+hatchery-scoped override edits. Allowing a non-admin global edit would create a
+locally dirty row that RLS rejects on every push, and because the operational
+push sends the whole dirty batch in one call and marks every id failed on any
+error, that one row would block every legitimate hatchery override
+indefinitely. Existing station and dashboard warning logic still uses the current
 hard-coded `AppThresholds` values until those consumers are explicitly wired to
 the operational BMK lookup.
 
@@ -1538,7 +1546,35 @@ The implemented hierarchy is:
   hatchery-specific override rows for station setup targets. Each row stores a
   source label, optional external `sourceUrl`, optional local
   `sourcePhotoPath`, and optional cloud `sourcePhotoRemotePath` for per-item
-  citations.
+  citations. The cloud `public.bmk_operational_standards` table mirrors the
+  local schema; global rows (`hatchery_id` null) are reference data readable by
+  all authenticated users and writable by admins only. Hatchery-owned rows are
+  scoped through the owning customer using the same RLS helpers as other
+  customer-owned tables. The local table carries per-row `syncStatus`,
+  `dirtyAt`, `lastSyncedAt`, and `syncError` columns (added in the v58
+  upgrade). `BmkRepository.upsertOperationalStandard` marks the written row
+  `pending`/`dirtyAt = now`; `getDirtyOperationalRows`,
+  `markOperationalRowsSynced`, `markOperationalRowsFailed`, and
+  `getOperationalRowSyncStatus` mirror the `getDirtyRows`/`markRowsSynced`
+  pattern used by `CustomerRepository` et al., including the same
+  `dirtyAt`-cutoff guard against clearing an edit that lands mid-push.
+  `upsertOperationalStandardRow` accepts a raw snake_case cloud row (as pulled
+  from Supabase), camelizes and filters it to known columns, and writes it as
+  `synced` with `dirtyAt` cleared since a pulled row is clean by definition.
+  Fresh-install and reseed paths mark seeded standards `synced` up front so
+  baseline reference data is never treated as a pending local edit. The v58
+  upgrade does the same for an existing database, then re-marks
+  `pending`/`dirtyAt = now` any row with a non-null `updatedAt` or a non-null
+  `hatcheryId`: seeds carry no `updatedAt` and the seed-source backfill never
+  writes one, so those two conditions identify exactly the rows a user edited
+  before this table joined the sync path. Without that second pass, pre-branch
+  local edits would sit permanently `synced` and never push. Column-level
+  coverage for the upgrade lives in
+  `test/data/database/bmk_operational_sync_migration_test.dart`, because the
+  whole-table schema-parity net cannot see a migration that only ALTERs a
+  baseline table. Both push
+  and pull wiring that call these methods are implemented — see the sync
+  section below.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
@@ -1770,7 +1806,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 57. The database file
+The app uses SQLite through `sqflite` at database version 58. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1891,11 +1927,43 @@ is guarded by the `dirtyAt` cutoff captured at the last `getDirtyRows` call, so
 an edit that lands while a push is in flight stays dirty and is picked up by the
 next sync rather than being marked synced.
 
-This dirty tracking covers `customers`, `hatcheries`, and `flocks` only. The
-local reference tables — `bmk_breeds`, `bmk_egg_breakout`,
-`bmk_operational_standards`, and `troubleshooting` — carry no `syncStatus`,
-`dirtyAt`, `lastSyncedAt`, or `syncError` columns at all and are not part of
-this push path.
+This `getDirtyRows`/`markRowsSynced`/`markRowsFailed`/`getRowSyncStatus` push
+path currently drives `customers`, `hatcheries`, `flocks`, and
+`bmk_operational_standards`. `bmk_operational_standards` carries the same
+per-row `syncStatus`, `dirtyAt`, `lastSyncedAt`, and `syncError` columns and
+the matching `BmkRepository.getDirtyOperationalRows` /
+`markOperationalRowsSynced` / `markOperationalRowsFailed` /
+`getOperationalRowSyncStatus` methods (see above). Inside
+`StartupSyncService._pushLocalData`, dirty operational-standard rows are
+pushed to `public.bmk_operational_standards` right after the `hatcheries`
+push and before `flocks`, so any dirty row's `hatchery_id` FK already
+resolves remotely (global rows carry a null `hatchery_id` and have no FK
+dependency). A private `_operationalStandardToRemote` mapper in
+`StartupSyncService` translates the local camelCase columns to the cloud's
+snake_case columns via an explicit name dictionary — `hatcheryId` →
+`hatchery_id`, `stationKey` → `station_key`, `sectorKey` → `sector_key`,
+`metricKey` → `metric_key`, `metricLabel` → `metric_label`, `minValue` →
+`min_value`, `maxValue` → `max_value`, `targetValue` → `target_value`,
+`sourceUrl` → `source_url`, `sourcePhotoPath` → `source_photo_path`,
+`sourcePhotoRemotePath` → `source_photo_remote_path`, `sortOrder` →
+`sort_order`, `updatedAt` → `updated_at` — before the shared
+`_pushDirtyReferenceRows` helper strips the device-local sync columns
+(`syncStatus`, `dirtyAt`, `lastSyncedAt`, `syncError`) and uploads. The pull
+side reads `public.bmk_operational_standards` alongside `bmk_breeds` and
+`bmk_egg_breakout`: `SupabaseService`'s pull entry point gains a
+`SupabasePullSummary.bmkOperationalStandards` count and an optional
+`upsertBmkOperationalStandard` callback, called through the shared
+`pullTable('bmk_operational_standards', ...)` helper right after the
+`bmk_egg_breakout` pull. `StartupSyncService` wires that callback through the
+existing `_upsertReferenceRow(..., canPush:, getSyncStatus:, upsert:)` dirty
+guard — the same one `hatcheries`/`flocks` use — using
+`_bmkRepository.getOperationalRowSyncStatus` and
+`_bmkRepository.upsertOperationalStandardRow`, so an incoming cloud row never
+overwrites a local edit that has not yet successfully pushed. The remaining
+local reference tables — `bmk_breeds`, `bmk_egg_breakout`, and
+`troubleshooting` — carry no `syncStatus`, `dirtyAt`, `lastSyncedAt`, or
+`syncError` columns at all and are not part of this dirty-guarded push/pull
+path (their pulls always overwrite, since they are pull-only).
 
 The v56 local upgrade and the checked-in Supabase migration also apply the same
 conservative legacy-flock sector repair. When the deployed schema includes the
@@ -1999,6 +2067,110 @@ orders date, creation time, and ID descending with nulls last. Listing,
 selection, and detail lookup fail closed for missing, malformed, unknown,
 inaccessible, changed-scope, or mismatched evidence without revealing whether
 an out-of-scope audit exists.
+
+Two read-only benchmark tools answer breed-standard questions from the global
+reference tables `bmk_breeds` and `bmk_egg_breakout` (read-all-authenticated
+RLS, no customer scope filter). `get_breed_benchmark` takes a breed name and
+an age in weeks; the breed is resolved against the live vocabulary in
+`bmk_breeds` (never a hardcoded list) using an exact normalized match or a
+unique prefix match, and an ambiguous or unmatched prefix returns
+`breed_not_found` with the current `availableBreeds` list. A resolved breed
+with no row at the requested week returns `week_out_of_range` with that
+breed's own `coveredWeeks` min/max instead of substituting or interpolating a
+nearby week's value. `get_egg_breakout_benchmark` takes only an age in weeks
+and follows the same never-substitute contract against `bmk_egg_breakout`,
+reporting `week_out_of_range` with the table's covered week range when no row
+matches. Both tools are pure lookups with no write path.
+
+A third benchmark tool, `get_operational_standards`, reads
+`bmk_operational_standards` instead and, unlike the two global lookups above,
+is customer-scope-checked: a hatchery's operational-standard overrides belong
+to one customer. It takes optional `stationKey`, `sectorKey`, and
+`hatcheryId` filters. With no `hatcheryId` it returns only the global rows
+(`hatchery_id is null`). With a `hatcheryId`, it resolves that hatchery's
+owning customer via `findHatcheryCustomerId`, rejects with `scope_denied` if
+the hatchery is unknown or its customer is outside
+`scope.allowedCustomerIds` (never returning an empty result to hide the
+mismatch), and otherwise merges the global rows with that hatchery's rows,
+keyed on `metricKey` so a hatchery row overrides the matching global row —
+the same precedence `BmkRepository.getOperationalStandards` implements in the
+Flutter app, so the agent and the BMK screen never disagree. The merged rows
+are then filtered by `stationKey`/`sectorKey` when supplied and sorted by
+`sortOrder` then `metricLabel`. This tool is also a pure lookup with no write
+path.
+
+A fourth tool, `compare_selected_audit_to_benchmark`, takes no arguments and
+never accepts or reconstructs an audit ID -- it operates only on the audit
+already selected in the conversation, the same contract as
+`get_selected_audit_breakouts` and `get_audit_summary`: if no audit is
+selected, or the conversation's remembered `customerId`/`flockId` no longer
+matches the fetched audit's own `customerId`/`flockId` (a stale selection --
+e.g. the customer picked a different flock after the audit was selected), it
+returns `fresh_audit_selection_required` with
+`{ selectedCustomerId, selectedFlockId }` via the same
+`freshAuditSelectionRequired` helper the sibling tools use, rather than
+comparing against the wrong audit's benchmark. It resolves the selected audit's breed and
+flock age against `bmk_breeds`/`bmk_egg_breakout` via the same
+`resolveBreedBenchmark`/`resolveEggBreakoutBenchmark` functions the read tools
+use, then reads that audit's breakout rows and aggregates each metric's actual
+value with `sampleWeightedMean(rows, valueKey, 'traySize')` (not a plain
+average). It compares `hatchabilityPct`, `fertilityPct`, and `hofPct` (present
+on breakout rows) plus `productionPct`, `eggWeightG`, and `chickWeightG` (no
+breakout-row actual, always reported with `reason: 'no_actual'`) against the
+breed benchmark, and all eleven `bmk_egg_breakout` defect percentages against
+the breakout benchmark -- the audit's `contaminatedPct` column maps explicitly
+onto the benchmark's `contamPct` column. For the four metrics that exist on
+both `fresh_egg_breakout` and `candled_egg_breakout` (`infertilePct`,
+`early24hPct`, `early48hPct`, `bloodRingPct`), the actual is deliberately a
+single sample-weighted blend across every breakout-type sample rather than one
+figure per breakout stage: the published `bmk_egg_breakout` benchmark carries
+exactly one target per age week regardless of which breakout stage measured it,
+so blending the actuals before comparing against that single target is the
+intended design, not an oversight. Each comparison reports `actual`,
+`standard`, `observedRows`, and `delta = actual - standard` rounded to one
+decimal via `roundTo`; a metric missing its benchmark value reports `reason:
+'no_benchmark'` and a metric missing its actual reports `reason: 'no_actual'`,
+but neither is ever dropped from the result. If the breed/week benchmark
+cannot be resolved at all, the tool short-circuits to the same
+`breed_not_found`/`week_out_of_range` shape `get_breed_benchmark` returns, with
+no `comparisons` array. If only the breakout benchmark is unavailable, breed
+metrics still compare normally and every breakout metric individually reports
+`reason: 'no_benchmark'`, signaled by `breakoutBenchmarkAvailable: false` on
+the result. This tool is read-only; it never writes and the audit store
+argument to `createAgentBmkToolHandlers` is optional so the tool is only
+registered where an audit store is wired in.
+
+`get_audit_summary` and `get_selected_audit_breakouts` also attach a
+`benchmark` block to every result, so the agent sees the matching standard on
+a plain audit read without asking `compare_selected_audit_to_benchmark`
+separately. The block is always present, never silently omitted. When a BMK
+store is wired in (`createAgentAuditToolHandlers(store, { bmkStore })`,
+`bmkStore` optional for backward compatibility) it resolves the selected
+audit's breed and flock age through the same `resolveBreedBenchmark`/
+`resolveEggBreakoutBenchmark` functions `compare_selected_audit_to_benchmark`
+uses and returns `{ status: 'ok', breed, ageWeek, breedStandard,
+breakoutStandard }`, with `breakoutStandard` explicitly `null` when only the
+breed benchmark resolves. Otherwise it returns `{ status: 'unavailable',
+reason }` with `reason` one of `benchmark_unavailable` (no `bmkStore` wired),
+`missing_breed`, `missing_flock_age`, `breed_not_found`, or
+`week_out_of_range` -- never a substituted or interpolated benchmark. On the
+two resolver misses the block also carries the resolver's coverage payload
+through: `availableBreeds` on `breed_not_found`, and `breed` plus
+`coveredWeeks` on `week_out_of_range`. That is what lets the agent obey its
+own "say what is covered and ask" prompt rule straight from an auto-attached
+block, with no second tool call.
+
+The agent's system prompt (`CHICKMARK_AGENT_POLICY` in
+`supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) carries a
+"Benchmark discipline" rules block: benchmark figures may only come from
+`get_breed_benchmark`, `get_egg_breakout_benchmark`, and
+`get_operational_standards` -- the agent must never state a benchmark from
+memory; any benchmark figure must be stated alongside its breed and age in
+weeks; a `breed_not_found`/`week_out_of_range` tool result must be relayed as
+what is covered plus a clarifying question, never interpolated,
+extrapolated, or answered with a nearby week; and judging how an audit
+performed must go through `compare_selected_audit_to_benchmark` rather than
+the agent subtracting numbers itself.
 
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and

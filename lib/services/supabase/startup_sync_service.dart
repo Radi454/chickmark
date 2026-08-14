@@ -243,6 +243,17 @@ class StartupSyncService {
       markFailed: _hatcheryRepository.markRowsFailed,
     );
 
+    progress(0.24, 'Uploading benchmark standards');
+    pushed += await _pushDirtyReferenceRows(
+      'bmk_operational_standards',
+      getDirtyRows: () async {
+        final rows = await _bmkRepository.getDirtyOperationalRows();
+        return rows.map(_operationalStandardToRemote).toList(growable: false);
+      },
+      markSynced: _bmkRepository.markOperationalRowsSynced,
+      markFailed: _bmkRepository.markOperationalRowsFailed,
+    );
+
     // FK-ordering note: if the customers push above failed, this and later
     // dependent pushes (flocks/sessions/panels) may fail remotely on FK
     // violations against the still-missing remote customer row. Each push
@@ -491,6 +502,40 @@ class StartupSyncService {
     return prepared;
   }
 
+  /// The local `bmk_operational_standards` table is camelCase, the cloud
+  /// table is snake_case. Only the mirrored columns are sent; the sync
+  /// columns (syncStatus/dirtyAt/lastSyncedAt/syncError) are dropped by
+  /// stripSyncMeta in _pushDirtyReferenceRows.
+  static const _operationalRemoteColumns = <String, String>{
+    'id': 'id',
+    'hatcheryId': 'hatchery_id',
+    'stationKey': 'station_key',
+    'sectorKey': 'sector_key',
+    'metricKey': 'metric_key',
+    'metricLabel': 'metric_label',
+    'unit': 'unit',
+    'minValue': 'min_value',
+    'maxValue': 'max_value',
+    'targetValue': 'target_value',
+    'source': 'source',
+    'sourceUrl': 'source_url',
+    'sourcePhotoPath': 'source_photo_path',
+    'sourcePhotoRemotePath': 'source_photo_remote_path',
+    'notes': 'notes',
+    'sortOrder': 'sort_order',
+    'updatedAt': 'updated_at',
+  };
+
+  Map<String, dynamic> _operationalStandardToRemote(
+    Map<String, dynamic> row,
+  ) {
+    final remote = <String, dynamic>{};
+    for (final entry in _operationalRemoteColumns.entries) {
+      if (row.containsKey(entry.key)) remote[entry.value] = row[entry.key];
+    }
+    return remote;
+  }
+
   Future<void> _pushPendingDeletes(
     void Function(double value, String message) progress,
   ) async {
@@ -577,6 +622,14 @@ class StartupSyncService {
       ),
       upsertBmkBreed: (row) => _bmkRepository.upsertBmkBreed(row),
       upsertBmkEggBreakout: (row) => _bmkRepository.upsertBmkEggBreakout(row),
+      upsertBmkOperationalStandard: (row) => _upsertReferenceRow(
+        'bmk_operational_standards',
+        row,
+        canPush: canPush,
+        getSyncStatus: _bmkRepository.getOperationalRowSyncStatus,
+        upsert: (value) =>
+            _bmkRepository.upsertOperationalStandardRow(value),
+      ),
       upsertAuditSession: (row) => _upsertSessionWithConflictCheck(row),
       upsertGoveeDailyCapture: (row) => _upsertGoveeWithConflictCheck(row),
       upsertDashboardAction: (row) =>

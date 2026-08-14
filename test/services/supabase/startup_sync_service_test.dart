@@ -146,6 +146,17 @@ void main() {
     when(
       () => customers.getRowSyncStatus(any()),
     ).thenAnswer((_) async => 'synced');
+    // Dirty-tracking push for BMK operational standards (Task 3): default to
+    // nothing dirty unless a test overrides it.
+    when(
+      () => bmk.getDirtyOperationalRows(),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => bmk.markOperationalRowsSynced(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => bmk.markOperationalRowsFailed(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => hatcheries.getDirtyRows()).thenAnswer((_) async => const []);
     when(() => hatcheries.markRowsSynced(any())).thenAnswer((_) async {});
     when(

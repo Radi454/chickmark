@@ -144,6 +144,20 @@ This file is the dated history of the app: what changed, and when.
   during a send or while awaiting or playing a voice reply, both controls are
   disabled so the two input modes cannot race. This closes out the mic-control
   gap noted in the two entries below.
+- 2026-08-14: The v58 upgrade no longer stamps pre-existing user edits to operational BMK standards as `synced`. It now re-marks any row with a non-null `updatedAt` or `hatcheryId` as pending, so edits made before this table joined the sync path still push instead of being silently dropped from sync forever.
+- 2026-08-14: Writing a global operational BMK standard now requires an approved admin, matching the cloud admin-only policy. Previously any auditor could create a global row that RLS rejected on every push, and because the operational push marks the whole dirty batch failed on any error, that one row blocked every legitimate hatchery override indefinitely.
+- 2026-08-14: Added direct column-level coverage for the v58 migration (`bmk_operational_sync_migration_test.dart`) and corrected the schema-parity net's docs, which wrongly claimed no migration alters a v41-baseline table; v57 and v58 both do, so that net cannot see them.
+- 2026-08-14: The benchmark block auto-attached to audit reads now carries the coverage payload on a miss (`availableBreeds`, or `breed` plus `coveredWeeks`) instead of only the reason code, so the agent can say what is covered without a second tool call.
+- 2026-08-14: The agent prompt now requires benchmark figures to come from the BMK tools, with the breed and age week always stated.
+- 2026-08-14: Audit summary and selected-breakout reads now carry the matching breed and breakout benchmark, or an explicit reason it is unavailable.
+- 2026-08-14: Fixed `compare_selected_audit_to_benchmark` to match its stated sibling contract: it now returns `fresh_audit_selection_required` (not `audit_selection_required`) when no audit is selected, and now also treats a stale `flockId` in the conversation's remembered selection as requiring fresh selection, instead of silently comparing against the wrong audit's benchmark.
+- 2026-08-14: The agent can compare the selected audit against breed and egg-breakout standards, with deltas computed server-side and unmatched metrics reported rather than dropped.
+- 2026-08-14: The agent can read operational standards, merging global rows with the requesting hatchery's overrides and rejecting hatcheries outside the caller's scope.
+- 2026-08-14: The agent can look up breed and egg-breakout benchmarks from bmk_breeds / bmk_egg_breakout, with structured misses instead of guessed values.
+- 2026-08-14: Sync now pulls BMK operational standards from the cloud, behind the same dirty-row guard as the other reference tables.
+- 2026-08-14: Sync now pushes dirty BMK operational standards to the cloud, after hatcheries so the hatchery FK resolves.
+- 2026-08-14: BMK operational standards are now dirty-tracked on edit and can be applied from a cloud row.
+- 2026-08-14: Added the cloud `bmk_operational_standards` table with split RLS — global rows read-all/write-admin, hatchery rows scoped through the owning customer.
 - 2026-08-14: Fixed two review findings on the voice-turn state added to
   `AssistantProvider` earlier the same day. (1) A playback failure of the TTS
   reply audio (bad codec, no output device, decode failure) was being caught

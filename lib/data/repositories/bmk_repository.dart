@@ -11,6 +11,15 @@ class BmkRepository {
   BmkRepository({DatabaseHelper? dbHelper})
     : dbHelper = dbHelper ?? DatabaseHelper();
 
+  static const _operationalTable = 'bmk_operational_standards';
+
+  String _nowStamp() => DateTime.now().toIso8601String();
+
+  /// dirtyAt value captured at the last getDirtyOperationalRows() call.
+  /// markOperationalRowsSynced only clears rows whose dirtyAt is at or before
+  /// this cutoff, so an edit landing while a push is in flight stays pending.
+  String? _operationalDirtyReadCutoff;
+
   Future<List<int>> getBreedAges(String breed) async {
     final db = await dbHelper.db;
     final results = await db.rawQuery(
@@ -143,8 +152,86 @@ class BmkRepository {
   ) async {
     final db = await dbHelper.db;
     await db.insert(
-      'bmk_operational_standards',
-      row.copyWith(updatedAt: DateTime.now().toIso8601String()).toMap(),
+      _operationalTable,
+      {
+        ...row.copyWith(updatedAt: _nowStamp()).toMap(),
+        'syncStatus': 'pending',
+        'dirtyAt': _nowStamp(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getDirtyOperationalRows() async {
+    final db = await dbHelper.db;
+    _operationalDirtyReadCutoff = _nowStamp();
+    final rows = await db.query(
+      _operationalTable,
+      where: "syncStatus IN ('pending', 'failed')",
+      orderBy: 'dirtyAt ASC, id ASC',
+    );
+    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  Future<void> markOperationalRowsSynced(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final cutoff = _operationalDirtyReadCutoff ?? _nowStamp();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _operationalTable,
+      {
+        'syncStatus': 'synced',
+        'dirtyAt': null,
+        'lastSyncedAt': _nowStamp(),
+        'syncError': null,
+      },
+      where: 'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...ids, cutoff],
+    );
+  }
+
+  Future<void> markOperationalRowsFailed(
+    List<String> ids,
+    Object error,
+  ) async {
+    if (ids.isEmpty) return;
+    final db = await dbHelper.db;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      _operationalTable,
+      {'syncStatus': 'failed', 'syncError': error.toString()},
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
+  Future<String?> getOperationalRowSyncStatus(String id) async {
+    final db = await dbHelper.db;
+    final rows = await db.query(
+      _operationalTable,
+      columns: ['syncStatus'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['syncStatus'] as String?;
+  }
+
+  /// Apply one snake_case cloud row. Pulled rows are clean by definition, so
+  /// the sync columns are reset rather than left at whatever the pull carried.
+  Future<void> upsertOperationalStandardRow(Map<String, dynamic> row) async {
+    final db = await dbHelper.db;
+    final columns = await _tableColumns(db, _operationalTable);
+    final normalized = _filterColumns(_normalizeRow(row), columns);
+    normalized['syncStatus'] = 'synced';
+    normalized['dirtyAt'] = null;
+    normalized['lastSyncedAt'] = _nowStamp();
+    normalized['syncError'] = null;
+    await db.insert(
+      _operationalTable,
+      normalized,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }

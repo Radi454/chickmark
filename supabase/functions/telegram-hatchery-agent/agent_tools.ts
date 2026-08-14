@@ -127,6 +127,16 @@ const versionRule: ArgumentRule = {
   minimum: 1,
   maximum: 1000,
 }
+const ageWeekRule: ArgumentRule = {
+  type: 'integer',
+  minimum: 1,
+  maximum: 120,
+}
+const breedRule: ArgumentRule = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 60,
+}
 
 function definition(
   name: AgentToolName,
@@ -266,6 +276,32 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
       'Load fields and validation for one versioned station module.',
       { schemaKey: schemaKeyRule, schemaVersion: versionRule },
       ['schemaKey', 'schemaVersion'],
+    ),
+    definition(
+      'get_breed_benchmark',
+      'Look up the published breed standard (hatchability, fertility, HOF, production, egg weight, chick weight) for one breed at one flock age in weeks. Always use this instead of stating a benchmark from memory.',
+      { breed: breedRule, ageWeek: ageWeekRule },
+      ['breed', 'ageWeek'],
+    ),
+    definition(
+      'get_egg_breakout_benchmark',
+      'Look up the published egg-breakout standard (infertile, early/mid/late dead, blood ring, black eye, external pip, cracked, contaminated) for one flock age in weeks.',
+      { ageWeek: ageWeekRule },
+      ['ageWeek'],
+    ),
+    definition(
+      'get_operational_standards',
+      'Look up operational target ranges (temperature, humidity, airflow and similar) for a station. Global standards apply everywhere; a hatchery may override any of them. Pass hatcheryId to get that hatchery\'s effective standards.',
+      {
+        stationKey: measureKeyRule,
+        sectorKey: measureKeyRule,
+        hatcheryId: idRule,
+      },
+      [],
+    ),
+    definition(
+      'compare_selected_audit_to_benchmark',
+      'Compare the audit already selected in this conversation against the published breed and egg-breakout standards for that flock\'s breed and age. Returns actual, standard and delta per metric. Never supply or reconstruct an audit ID.',
     ),
     definition(
       'propose_intake',

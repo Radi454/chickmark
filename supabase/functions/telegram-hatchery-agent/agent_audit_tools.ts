@@ -4,6 +4,59 @@ import type {
   AgentToolResult,
 } from './agent_protocol.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
+import {
+  type AgentBmkStore,
+  resolveBreedBenchmark,
+  resolveEggBreakoutBenchmark,
+} from './bmk_tools.ts'
+
+export interface AgentAuditToolOptions {
+  bmkStore?: AgentBmkStore
+}
+
+/**
+ * The benchmark block for one audit. Always returned -- an unresolvable
+ * benchmark is reported with a reason so the agent can say the standard is
+ * unknown instead of quietly answering without one.
+ */
+async function auditBenchmark(
+  audit: AgentAuditReadRow,
+  bmkStore: AgentBmkStore | undefined,
+): Promise<Record<string, unknown>> {
+  if (!bmkStore) {
+    return { status: 'unavailable', reason: 'benchmark_unavailable' }
+  }
+  if (!audit.breed) {
+    return { status: 'unavailable', reason: 'missing_breed' }
+  }
+  if (audit.flockAgeWeeks === null) {
+    return { status: 'unavailable', reason: 'missing_flock_age' }
+  }
+  const breed = await resolveBreedBenchmark(
+    bmkStore,
+    audit.breed,
+    audit.flockAgeWeeks,
+  )
+  if (breed.status !== 'ok') {
+    // Keep the coverage payload the miss variants carry (`availableBreeds` on
+    // breed_not_found, `breed`/`coveredWeeks` on week_out_of_range) so the
+    // agent can follow the prompt rule -- "say what is covered and ask" --
+    // straight from the auto-attached block, with no second tool call.
+    const { status: _status, ...coverage } = breed
+    return { status: 'unavailable', reason: breed.status, ...coverage }
+  }
+  const breakout = await resolveEggBreakoutBenchmark(
+    bmkStore,
+    audit.flockAgeWeeks,
+  )
+  return {
+    status: 'ok',
+    breed: breed.row.breed,
+    ageWeek: audit.flockAgeWeeks,
+    breedStandard: breed.row,
+    breakoutStandard: breakout.status === 'ok' ? breakout.row : null,
+  }
+}
 
 export interface AgentAuditReadRow {
   id: string
@@ -379,13 +432,15 @@ export function createSupabaseAgentAuditStore(
 
 export function createAgentAuditToolHandlers(
   store: AgentAuditStore,
+  options?: AgentAuditToolOptions,
 ): Partial<Record<AgentToolName, AgentToolHandler>> {
+  const bmkStore = options?.bmkStore
   return {
     list_customer_audits: (input) => listCustomerAudits(store, input),
     select_audit_option: (input) => selectAuditOption(store, input),
-    get_audit_summary: (input) => getAuditSummary(store, input),
+    get_audit_summary: (input) => getAuditSummary(store, input, bmkStore),
     get_selected_audit_breakouts: (input) =>
-      getSelectedAuditBreakouts(store, input),
+      getSelectedAuditBreakouts(store, input, bmkStore),
   }
 }
 
@@ -420,6 +475,7 @@ async function listCustomerAudits(
 async function getAuditSummary(
   store: AgentAuditStore,
   input: AgentToolExecutionInput,
+  bmkStore: AgentBmkStore | undefined,
 ): Promise<AgentToolResult> {
   const context = store.loadConversationContext
     ? await store.loadConversationContext(input.conversationId)
@@ -465,7 +521,10 @@ async function getAuditSummary(
       ? freshAuditSelectionRequired(context)
       : scopeDenied()
   }
-  return auditSummary(audit)
+  return ok({
+    ...(auditSummary(audit).data ?? {}),
+    benchmark: await auditBenchmark(audit, bmkStore),
+  })
 }
 
 async function selectAuditOption(
@@ -498,6 +557,7 @@ async function selectAuditOption(
 async function getSelectedAuditBreakouts(
   store: AgentAuditStore,
   input: AgentToolExecutionInput,
+  bmkStore: AgentBmkStore | undefined,
 ): Promise<AgentToolResult> {
   const context = store.loadConversationContext
     ? await store.loadConversationContext(input.conversationId)
@@ -555,6 +615,7 @@ async function getSelectedAuditBreakouts(
     audit: publicAuditOption(audit),
     breakouts: rows.slice(0, MAX_AUDIT_BREAKOUT_ROWS).map(publicBreakoutRow),
     truncated: page.truncated || rows.length > MAX_AUDIT_BREAKOUT_ROWS,
+    benchmark: await auditBenchmark(audit, bmkStore),
   })
 }
 
@@ -634,7 +695,7 @@ function selectedAuditFromSnapshot(
   return auditId ? { customerId, flockId, auditId } : null
 }
 
-function freshAuditSelectionRequired(
+export function freshAuditSelectionRequired(
   context: {
     customerId: string | null
     flockId: string | null
