@@ -1,9 +1,10 @@
 // supabase/functions/app-hatchery-agent/voice.ts
 //
 // Wraps OpenAI Whisper (speech-to-text) and TTS (text-to-speech) behind two
-// small functions. Uses a dedicated OPENAI_VOICE_KEY secret, kept separate
-// from OPENAI_API_KEY (the agent brain's key) so the $5 voice spend cap
-// stays isolated from brain billing.
+// small functions. Prefers a dedicated OPENAI_VOICE_KEY secret so a voice
+// spend cap can be isolated from the agent brain's OPENAI_API_KEY, but falls
+// back to OPENAI_API_KEY when no separate voice key has been set — so voice
+// works immediately with only the key the brain already uses.
 //
 // Logging discipline: never log audio bytes, transcripts, or replies.
 
@@ -26,7 +27,8 @@ export interface VoiceConfig {
 }
 
 export function readVoiceConfig(): VoiceConfig | null {
-  const apiKey = Deno.env.get('OPENAI_VOICE_KEY')?.trim()
+  const apiKey = Deno.env.get('OPENAI_VOICE_KEY')?.trim() ||
+    Deno.env.get('OPENAI_API_KEY')?.trim()
   return apiKey ? { apiKey } : null
 }
 

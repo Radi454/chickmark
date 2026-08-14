@@ -15,17 +15,30 @@ function fakeFetch(
     Promise.resolve(handler(input, init))) as typeof fetch
 }
 
-Deno.test('readVoiceConfig reads OPENAI_VOICE_KEY and trims it', () => {
+Deno.test('readVoiceConfig prefers OPENAI_VOICE_KEY and trims it', () => {
   Deno.env.set('OPENAI_VOICE_KEY', '  sk-voice-123  ')
+  Deno.env.set('OPENAI_API_KEY', 'sk-brain-456')
   try {
     assertEquals(readVoiceConfig(), { apiKey: 'sk-voice-123' })
   } finally {
     Deno.env.delete('OPENAI_VOICE_KEY')
+    Deno.env.delete('OPENAI_API_KEY')
   }
 })
 
-Deno.test('readVoiceConfig returns null when unset', () => {
+Deno.test('readVoiceConfig falls back to OPENAI_API_KEY when no voice key is set', () => {
   Deno.env.delete('OPENAI_VOICE_KEY')
+  Deno.env.set('OPENAI_API_KEY', '  sk-brain-456  ')
+  try {
+    assertEquals(readVoiceConfig(), { apiKey: 'sk-brain-456' })
+  } finally {
+    Deno.env.delete('OPENAI_API_KEY')
+  }
+})
+
+Deno.test('readVoiceConfig returns null when neither key is set', () => {
+  Deno.env.delete('OPENAI_VOICE_KEY')
+  Deno.env.delete('OPENAI_API_KEY')
   assertEquals(readVoiceConfig(), null)
 })
 
