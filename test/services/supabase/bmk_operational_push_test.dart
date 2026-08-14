@@ -95,4 +95,73 @@ void main() {
 
     expect(await repo.getOperationalRowSyncStatus('std-1'), 'failed');
   });
+
+  test('pulls cloud operational standards into local', () async {
+    final service = harness.buildService(
+      remoteRows: {
+        'bmk_operational_standards': [
+          {
+            'id': 'std-cloud',
+            'hatchery_id': null,
+            'station_key': 'hatcher',
+            'sector_key': 'incubation',
+            'metric_key': 'hatcher_humidity',
+            'metric_label': 'Hatcher humidity',
+            'unit': '%',
+            'min_value': 50.0,
+            'max_value': 60.0,
+            'target_value': 55.0,
+            'sort_order': 2,
+            'updated_at': '2026-08-14T00:00:00.000Z',
+          },
+        ],
+      },
+    );
+    await service.run();
+
+    final rows = await BmkRepository().getOperationalStandards();
+    expect(rows.map((row) => row.metricKey), contains('hatcher_humidity'));
+  });
+
+  test('a locally dirty row is not overwritten by the pull', () async {
+    final repo = BmkRepository();
+    await repo.upsertOperationalStandard(
+      BmkOperationalStandardModel(
+        id: 'std-cloud',
+        stationKey: 'hatcher',
+        sectorKey: 'incubation',
+        metricKey: 'hatcher_humidity',
+        metricLabel: 'Hatcher humidity',
+        unit: '%',
+        targetValue: 57.0,
+        sortOrder: 0,
+      ),
+    );
+
+    final service = harness.buildService(
+      canPush: true,
+      failUpsertsFor: {'bmk_operational_standards'},
+      remoteRows: {
+        'bmk_operational_standards': [
+          {
+            'id': 'std-cloud',
+            'station_key': 'hatcher',
+            'sector_key': 'incubation',
+            'metric_key': 'hatcher_humidity',
+            'metric_label': 'Hatcher humidity',
+            'target_value': 55.0,
+            'sort_order': 0,
+          },
+        ],
+      },
+    );
+    await service.run();
+
+    final rows = await repo.getOperationalStandards();
+    // The local edit survived the pull because the push had not succeeded.
+    // (Use firstWhere rather than `.single`: resetAppDatabase only closes the
+    // shared test-suite database between tests, it doesn't wipe rows, so
+    // earlier tests' unrelated ids are still present here.)
+    expect(rows.firstWhere((row) => row.id == 'std-cloud').targetValue, 57.0);
+  });
 }

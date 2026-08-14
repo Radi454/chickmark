@@ -30,6 +30,7 @@ class SupabasePullSummary {
   final int photos;
   final int bmkBreeds;
   final int bmkEggBreakout;
+  final int bmkOperationalStandards;
   final int goveeDailyCaptures;
   final int dashboardActions;
   final int labAnalysisRows;
@@ -44,6 +45,7 @@ class SupabasePullSummary {
     this.photos = 0,
     this.bmkBreeds = 0,
     this.bmkEggBreakout = 0,
+    this.bmkOperationalStandards = 0,
     this.goveeDailyCaptures = 0,
     this.dashboardActions = 0,
     this.labAnalysisRows = 0,
@@ -59,6 +61,7 @@ class SupabasePullSummary {
       photos +
       bmkBreeds +
       bmkEggBreakout +
+      bmkOperationalStandards +
       goveeDailyCaptures +
       dashboardActions +
       labAnalysisRows +
@@ -73,6 +76,7 @@ class SupabasePullSummary {
     int? photos,
     int? bmkBreeds,
     int? bmkEggBreakout,
+    int? bmkOperationalStandards,
     int? goveeDailyCaptures,
     int? dashboardActions,
     int? labAnalysisRows,
@@ -87,6 +91,8 @@ class SupabasePullSummary {
       photos: photos ?? this.photos,
       bmkBreeds: bmkBreeds ?? this.bmkBreeds,
       bmkEggBreakout: bmkEggBreakout ?? this.bmkEggBreakout,
+      bmkOperationalStandards:
+          bmkOperationalStandards ?? this.bmkOperationalStandards,
       goveeDailyCaptures: goveeDailyCaptures ?? this.goveeDailyCaptures,
       dashboardActions: dashboardActions ?? this.dashboardActions,
       labAnalysisRows: labAnalysisRows ?? this.labAnalysisRows,
@@ -784,6 +790,7 @@ class SupabaseService {
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
+    Future<void> Function(Map<String, dynamic>)? upsertBmkOperationalStandard,
     Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
     Future<void> Function(Map<String, dynamic>)? upsertDashboardAction,
     Future<void> Function(String table, Map<String, dynamic> row)?
@@ -848,6 +855,14 @@ class SupabaseService {
           bmkEggBreakout: await pullTable(
             'bmk_egg_breakout',
             upsertBmkEggBreakout,
+          ),
+        );
+      }
+      if (upsertBmkOperationalStandard != null) {
+        summary = summary.copyWith(
+          bmkOperationalStandards: await pullTable(
+            'bmk_operational_standards',
+            upsertBmkOperationalStandard,
           ),
         );
       }

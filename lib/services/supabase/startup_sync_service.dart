@@ -622,6 +622,14 @@ class StartupSyncService {
       ),
       upsertBmkBreed: (row) => _bmkRepository.upsertBmkBreed(row),
       upsertBmkEggBreakout: (row) => _bmkRepository.upsertBmkEggBreakout(row),
+      upsertBmkOperationalStandard: (row) => _upsertReferenceRow(
+        'bmk_operational_standards',
+        row,
+        canPush: canPush,
+        getSyncStatus: _bmkRepository.getOperationalRowSyncStatus,
+        upsert: (value) =>
+            _bmkRepository.upsertOperationalStandardRow(value),
+      ),
       upsertAuditSession: (row) => _upsertSessionWithConflictCheck(row),
       upsertGoveeDailyCapture: (row) => _upsertGoveeWithConflictCheck(row),
       upsertDashboardAction: (row) =>

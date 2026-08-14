@@ -15,10 +15,18 @@ import 'package:hatchaudit/services/supabase/supabase_service.dart';
 /// wired to the same test database via `useIsolatedAppDatabase()`. None of
 /// them have dirty rows in these tests, so their push/pull passes are no-ops.
 class FakeSupabaseService extends Fake implements SupabaseService {
-  FakeSupabaseService({Set<String> failUpsertsFor = const {}})
-    : _failUpsertsFor = failUpsertsFor;
+  FakeSupabaseService({
+    Set<String> failUpsertsFor = const {},
+    Map<String, List<Map<String, dynamic>>> remoteRows = const {},
+  }) : _failUpsertsFor = failUpsertsFor,
+       _remoteRows = remoteRows;
 
   final Set<String> _failUpsertsFor;
+
+  /// Rows a test wants the pull pass to "receive" from the cloud, keyed by
+  /// table name. Only tables with a wired callback below actually get
+  /// delivered; add a table here as pull tests need it.
+  final Map<String, List<Map<String, dynamic>>> _remoteRows;
 
   /// Every batch handed to [upsertRowsStrict], keyed by table name.
   final Map<String, List<Map<String, dynamic>>> upserts = {};
@@ -59,6 +67,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
     Future<void> Function(Map<String, dynamic>)? upsertBmkEggBreakout,
+    Future<void> Function(Map<String, dynamic>)? upsertBmkOperationalStandard,
     Future<void> Function(Map<String, dynamic>)? upsertGoveeDailyCapture,
     Future<void> Function(Map<String, dynamic>)? upsertDashboardAction,
     Future<void> Function(String table, Map<String, dynamic> row)?
@@ -66,7 +75,14 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
-  }) async => const SupabasePullSummary();
+  }) async {
+    if (upsertBmkOperationalStandard != null) {
+      for (final row in _remoteRows['bmk_operational_standards'] ?? const []) {
+        await upsertBmkOperationalStandard(row);
+      }
+    }
+    return const SupabasePullSummary();
+  }
 
   @override
   Future<int> pullOperationalRows({
@@ -89,8 +105,18 @@ late FakeSupabaseService fakeSupabase;
 /// each call starts with an empty `upserts` map) and real repositories
 /// pointed at the current test database. Call `useIsolatedAppDatabase()` in
 /// `setUpAll` and `resetAppDatabase()` in `tearDown` before using this.
-StartupSyncService buildService({Set<String> failUpsertsFor = const {}}) {
-  fakeSupabase = FakeSupabaseService(failUpsertsFor: failUpsertsFor);
+StartupSyncService buildService({
+  Set<String> failUpsertsFor = const {},
+  Map<String, List<Map<String, dynamic>>> remoteRows = const {},
+  // Accepted for readability at call sites (tests already default to
+  // pushing); StartupSyncService.run() defaults canPush to true on its own,
+  // so this isn't threaded through separately.
+  bool canPush = true,
+}) {
+  fakeSupabase = FakeSupabaseService(
+    failUpsertsFor: failUpsertsFor,
+    remoteRows: remoteRows,
+  );
   return StartupSyncService(
     supabaseService: fakeSupabase,
     photoSyncService: _FakePhotoSyncService(),

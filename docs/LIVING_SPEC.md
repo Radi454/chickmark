@@ -1552,8 +1552,9 @@ The implemented hierarchy is:
   from Supabase), camelizes and filters it to known columns, and writes it as
   `synced` with `dirtyAt` cleared since a pulled row is clean by definition.
   Fresh-install and reseed paths mark seeded standards `synced` up front so
-  baseline reference data is never treated as a pending local edit. Push/pull
-  wiring that calls these methods is not implemented yet.
+  baseline reference data is never treated as a pending local edit. Both push
+  and pull wiring that call these methods are implemented — see the sync
+  section below.
 - `troubleshooting`: seeded troubleshooting/reference content.
 - `activity_log`: user actions for logins, syncs, session starts/resumes,
   station completion, audit changes, and related events.
@@ -1876,11 +1877,22 @@ snake_case columns via an explicit name dictionary — `hatcheryId` →
 `sourcePhotoRemotePath` → `source_photo_remote_path`, `sortOrder` →
 `sort_order`, `updatedAt` → `updated_at` — before the shared
 `_pushDirtyReferenceRows` helper strips the device-local sync columns
-(`syncStatus`, `dirtyAt`, `lastSyncedAt`, `syncError`) and uploads. Nothing
-pulls this table from the cloud yet. The remaining local reference tables —
-`bmk_breeds`, `bmk_egg_breakout`, and `troubleshooting` — carry no
-`syncStatus`, `dirtyAt`, `lastSyncedAt`, or `syncError` columns at all and are
-not part of this push path.
+(`syncStatus`, `dirtyAt`, `lastSyncedAt`, `syncError`) and uploads. The pull
+side reads `public.bmk_operational_standards` alongside `bmk_breeds` and
+`bmk_egg_breakout`: `SupabaseService`'s pull entry point gains a
+`SupabasePullSummary.bmkOperationalStandards` count and an optional
+`upsertBmkOperationalStandard` callback, called through the shared
+`pullTable('bmk_operational_standards', ...)` helper right after the
+`bmk_egg_breakout` pull. `StartupSyncService` wires that callback through the
+existing `_upsertReferenceRow(..., canPush:, getSyncStatus:, upsert:)` dirty
+guard — the same one `hatcheries`/`flocks` use — using
+`_bmkRepository.getOperationalRowSyncStatus` and
+`_bmkRepository.upsertOperationalStandardRow`, so an incoming cloud row never
+overwrites a local edit that has not yet successfully pushed. The remaining
+local reference tables — `bmk_breeds`, `bmk_egg_breakout`, and
+`troubleshooting` — carry no `syncStatus`, `dirtyAt`, `lastSyncedAt`, or
+`syncError` columns at all and are not part of this dirty-guarded push/pull
+path (their pulls always overwrite, since they are pull-only).
 
 The v56 local upgrade and the checked-in Supabase migration also apply the same
 conservative legacy-flock sector repair. When the deployed schema includes the
