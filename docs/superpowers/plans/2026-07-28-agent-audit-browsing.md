@@ -487,3 +487,47 @@ Ask the user to send:
 Expected: the bot lists all matching audits as numbered options. After the user
 chooses one, it returns that audit summary. Keep the task in progress until the
 user approves the live result.
+
+---
+
+## Follow-up (2026-08-14): deploying the in-app agent door
+
+`supabase/functions/app-hatchery-agent` is a second door into the same agent
+brain, called by the Flutter app instead of by Telegram. Unlike
+`telegram-hatchery-agent` it MUST keep Supabase JWT verification enabled — the
+caller is a signed-in app user, not a signed webhook, so do **not** pass
+`--no-verify-jwt`.
+
+Apply the migration first, then deploy:
+
+```bash
+npx --yes supabase db push --project-ref kgucchapksiiqxmiutsz
+
+npx --yes supabase functions deploy app-hatchery-agent \
+  --project-ref kgucchapksiiqxmiutsz \
+  --use-api
+```
+
+Secrets it reads from the deployed Edge Function environment (no key ever lives
+in the repo or in the Flutter bundle):
+
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — injected by the platform.
+- `AI_PROVIDER` — optional, `openai` or `openrouter`; defaults to `openrouter`
+  when `OPENROUTER_API_KEY` is set, otherwise `openai`.
+- `OPENROUTER_API_KEY` / `OPENAI_API_KEY` — at least one is required.
+- `OPENROUTER_MODEL` / `OPENAI_MODEL` / `AI_MODEL` — optional model overrides.
+
+These are the same secrets `telegram-hatchery-agent` already uses, so a project
+that runs the Telegram agent needs no new secrets:
+
+```bash
+npx --yes supabase secrets list --project-ref kgucchapksiiqxmiutsz
+```
+
+Tests (run from inside the function directory so its `deno.json` import map is
+picked up):
+
+```bash
+cd supabase/functions/app-hatchery-agent && deno test --allow-env --allow-net .
+cd supabase/functions/telegram-hatchery-agent && deno test --allow-env --allow-net .
+```

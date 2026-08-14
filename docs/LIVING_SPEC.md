@@ -245,38 +245,37 @@ The main shell has eleven destinations for approved admins:
 - BMK
 - Performance
 - Agent
-- Assistant
+- Pip
 - Settings
 
 Approved auditors receive the same destination set except Agent, leaving ten
 auditor destinations. Agent Monitor is restricted to approved admins because
 its remote tables use admin-only RLS.
 
-Approved customer-role accounts see only Dashboard, Assistant, and Settings.
+Approved customer-role accounts see only Dashboard, Pip, and Settings.
 Settings is reduced to account details and sign-out, so the only product data
-surfaces they can open are Dashboard and the Assistant chat. Their Dashboard
+surfaces they can open are Dashboard and the Pip chat. Their Dashboard
 customer selector is locked to the profile's assigned `customerId`; hatchery
 and flock selectors are populated only from that customer. Dashboard action
 creation/editing is hidden and also rejected by provider guards for
-customer-role users. Assistant is open to every approved role because the Edge
+customer-role users. Pip is open to every approved role because the Edge
 Function resolves each caller's own customer scope server-side rather than
 trusting the client.
 
-The Assistant destination opens `AssistantChatScreen`, an in-app chat with the
-same hatchery agent that serves Telegram, by text or by voice. It shows the
-current conversation oldest-first, a multiline input with a send button and a
-mic button, a thinking indicator while a reply is outstanding, an empty state
-before the first message, and an error banner with a retry action. While the
-shared network monitor reports offline the input is disabled behind a short
-notice, because the conversation runs entirely against the Edge Function and
-has no local fallback. An app-bar action clears the conversation after a
-confirmation dialog. The screen offers no photo or file attachment; see the
-`AssistantProvider` section below for how the mic button, recording, and
-spoken replies work. Its labels, states, notices, and errors are available in
-English and Arabic, except the mic button's own tooltips ("Ask by voice",
-"Stop recording"), which are hardcoded English literals. `AssistantProvider`
-is created at this tab rather than with the root providers, so it exists only
-while the Assistant tab is built.
+The Pip destination opens `AssistantChatScreen`, an in-app chat with the same
+hatchery agent that serves Telegram, by text or by voice. It shows the current
+conversation oldest-first, a multiline input with send and mic buttons, a
+thinking indicator while a reply is outstanding, an empty state before the
+first message, and an error banner with a retry action. While the shared network
+monitor reports offline the input is disabled behind a short notice, because
+the conversation runs entirely against the Edge Function and has no local
+fallback. An app-bar action clears the conversation after a confirmation
+dialog. The mic control starts recording and, on the next tap, stops and sends
+the recording. The screen offers no photo or file attachment; see the
+`AssistantProvider` section below for recording and spoken-reply behavior. Its
+labels, states, notices, errors, and action tooltips are available in English
+and Arabic. `AssistantProvider` is created at this tab rather than with the root
+providers, so it exists only while the Pip tab is built.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
@@ -1711,6 +1710,12 @@ and raises `AssistantChatException` for transport and server errors. The
 service's only literal is the Edge Function name: no keys, model names, or
 provider details are compiled into the app.
 
+The in-app assistant is named Pip in both English and Arabic interfaces; Arabic
+copy keeps `Pip` in Latin script. A static, clean ChickMark avatar appears in
+the chat header, empty state, assistant messages, and thinking state, while
+user messages receive no avatar. The avatar has no sparkle, badge, or other
+AI-brand symbol.
+
 `AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
 and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
 a microphone or speaker. `startRecording()` starts capture and sets
@@ -1748,13 +1753,15 @@ recording (releasing the microphone and cleaning up its temp file) and stops
 any in-flight playback, so navigating away from the Assistant tab mid-voice
 never leaves the mic hot. `AssistantChatScreen` exposes a mic button next to
 the text input: tapping it calls `startRecording()` (the icon and color switch
-to a stop control), tapping again calls `stopRecordingAndSend()`. The mic and
-the text field disable each other while a send, recording, or voice reply is
-in flight (`isSending`, `isRecording`, `isAwaitingVoiceReply`, `isSpeaking`),
-so the two input modes cannot race. A voice clip's base64 payload is capped
-client-side at `assistantAudioMaxBase64Chars` (1,500,000 chars, matching the
-server's `MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not
-minutes, to bound the Whisper/TTS spend.
+to a stop control), tapping again calls `stopRecordingAndSend()`. While
+recording (`isRecording`), the text field is disabled but the mic remains
+enabled as the Stop control. Both controls are disabled while offline, during a
+text send (`isSending`), while awaiting a voice reply (`isAwaitingVoiceReply`),
+or while playing one (`isSpeaking`), so the two input modes cannot race. A
+voice clip's base64 payload is capped client-side at
+`assistantAudioMaxBase64Chars` (1,500,000 chars, matching the server's
+`MAX_AUDIO_BASE64_CHARS`) — enough for a few seconds of speech, not minutes, to
+bound the Whisper/TTS spend.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type

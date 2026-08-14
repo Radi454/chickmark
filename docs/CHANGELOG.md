@@ -51,6 +51,17 @@ This file is the dated history of the app: what changed, and when.
   in favor of the faster, reliable pure-Dart proof. `test:` was added as an
   explicit dev dependency in `pubspec.yaml` (it was already resolved
   transitively via `flutter_test`) since the new test imports it directly.
+- 2026-08-14: Localized Pip chat action tooltips and their accessible labels in
+  Arabic, including the voice recording states, and documented Pip as the
+  shell destination with text and voice turns. Arabic chat layout regression
+  coverage now verifies Pip's avatar and reply bubble occupy reading-start
+  while the user's turn remains at reading-end.
+- 2026-08-14: Introduced Pip as the in-app assistant identity, retaining the
+  Latin-script name in Arabic so the product name remains consistent across
+  interfaces. A static clean ChickMark avatar now anchors the chat header,
+  empty state, assistant messages, and thinking state; user messages remain
+  unbadged, and the logo treatment intentionally omits sparkles, badges, and
+  other generic AI-brand symbols.
 - 2026-08-14: Fixed a batch of findings from the final whole-branch review of
   the voice-chat feature (7 items, all in `lib/features/chat/`,
   `lib/services/audio/assistant_audio_player.dart`,
@@ -113,10 +124,11 @@ This file is the dated history of the app: what changed, and when.
   degrades the call to a text-only reply instead of failing the turn. On the
   phone, `AssistantChatScreen` gained a mic button that starts and stops
   recording through the `AssistantAudioRecorder`/`AssistantAudioPlayer` ports
-  landed for `AssistantProvider` earlier the same day, disabling itself and
-  the text field while a send, recording, or voice reply is in flight so the
-  two input modes cannot race. This closes out the mic-control gap noted in
-  the two entries below.
+  landed for `AssistantProvider` earlier the same day. While recording, the
+  text field is disabled but the mic remains enabled as the Stop control;
+  during a send or while awaiting or playing a voice reply, both controls are
+  disabled so the two input modes cannot race. This closes out the mic-control
+  gap noted in the two entries below.
 - 2026-08-14: Fixed two review findings on the voice-turn state added to
   `AssistantProvider` earlier the same day. (1) A playback failure of the TTS
   reply audio (bad codec, no output device, decode failure) was being caught

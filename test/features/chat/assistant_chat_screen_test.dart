@@ -57,6 +57,7 @@ Future<AssistantProvider> _pumpScreen(
   await tester.pumpWidget(
     MaterialApp(
       locale: locale,
+      supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -92,18 +93,20 @@ void main() {
     expect(find.byKey(_emptyAvatarKey), findsOneWidget);
     expect(find.byIcon(Icons.forum_outlined), findsNothing);
     expect(
-      find.text('Ask about flock performance, hatch results, or a recent audit.'),
+      find.text(
+        'Ask about flock performance, hatch results, or a recent audit.',
+      ),
       findsOneWidget,
     );
     expect(find.byKey(_errorBannerKey), findsNothing);
   });
 
-  testWidgets('server history renders both roles, Arabic included', (
+  testWidgets('Arabic history mirrors assistant avatars and message bubbles', (
     tester,
   ) async {
     final port = FakeAssistantChatPort(history: twoTurnHistory());
 
-    await _pumpScreen(tester, port: port);
+    await _pumpScreen(tester, port: port, locale: const Locale('ar'));
 
     expect(port.historyCount, 1);
     expect(find.byKey(_emptyTitleKey), findsNothing);
@@ -111,11 +114,14 @@ void main() {
     expect(find.text('Hatch was 84%.'), findsWidgets);
     expect(find.byKey(_messageAvatarKey), findsOneWidget);
 
-    // The user's own turn sits on the reading-end side, the assistant's on the
-    // reading-start side — mirrored by direction, never hardcoded LTR.
-    final userLeft = tester.getTopLeft(find.text('ما نسبة الفقس؟').first).dx;
-    final assistantLeft = tester.getTopLeft(find.text('Hatch was 84%.').first).dx;
-    expect(userLeft, greaterThan(assistantLeft));
+    // Arabic reading-start is on the right: Pip's avatar and bubble occupy
+    // that edge, while the user's bubble is aligned to reading-end.
+    final userBubble = tester.getRect(find.text('ما نسبة الفقس؟').first);
+    final assistantBubble = tester.getRect(find.text('Hatch was 84%.').first);
+    final assistantAvatar = tester.getRect(find.byKey(_messageAvatarKey));
+    expect(assistantAvatar.left, greaterThan(userBubble.right));
+    expect(assistantAvatar.left, greaterThan(assistantBubble.right));
+    expect(assistantBubble.right, greaterThan(userBubble.right));
   });
 
   testWidgets('typing and sending shows the assistant reply', (tester) async {
@@ -288,12 +294,6 @@ void main() {
     );
 
     expect(find.text('Pip'), findsOneWidget);
-    debugPrint(
-      tester.allWidgets
-          .whereType<Text>()
-          .map((widget) => widget.data)
-          .join(' | '),
-    );
     expect(find.byKey(_emptyTitleKey), findsOneWidget);
     expect(
       find.descendant(
@@ -303,6 +303,59 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('بيب'), findsNothing);
+  });
+
+  testWidgets('Arabic tooltips and semantics describe the chat actions', (
+    tester,
+  ) async {
+    final recorder = FakeAssistantAudioRecorder();
+    await _pumpScreen(
+      tester,
+      port: FakeAssistantChatPort(history: twoTurnHistory()),
+      locale: const Locale('ar'),
+      audioRecorder: recorder,
+      audioPlayer: FakeAssistantAudioPlayer(),
+    );
+    final semantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester.widget<IconButton>(find.byKey(_clearKey)).tooltip,
+        'مسح المحادثة',
+      );
+      expect(
+        tester.widget<IconButton>(find.byKey(_sendKey)).tooltip,
+        'إرسال رسالة',
+      );
+      expect(
+        tester.widget<IconButton>(find.byKey(_micKey)).tooltip,
+        'اسأل صوتيًا',
+      );
+      expect(
+        tester.getSemantics(find.byKey(_clearKey)).tooltip,
+        'مسح المحادثة',
+      );
+      expect(tester.getSemantics(find.byKey(_sendKey)).tooltip, 'إرسال رسالة');
+      expect(tester.getSemantics(find.byKey(_micKey)).tooltip, 'اسأل صوتيًا');
+
+      await tester.tap(find.byKey(_micKey));
+      await tester.pump();
+
+      expect(recorder.startCount, 1);
+      expect(
+        tester.widget<IconButton>(find.byKey(_micKey)).tooltip,
+        'إيقاف التسجيل',
+      );
+      expect(tester.getSemantics(find.byKey(_micKey)).tooltip, 'إيقاف التسجيل');
+
+      // Stop the recording so the provider's 60-second safety timer does not
+      // outlive this widget test. A null clip keeps this a tooltip-only test.
+      recorder.nextClip = null;
+      await tester.tap(find.byKey(_micKey));
+      await tester.pump();
+      expect(recorder.stopCount, 1);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('tapping the mic starts recording, tapping again sends it', (

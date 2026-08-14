@@ -40,6 +40,7 @@ void main() {
       'bmk',
       'performance',
       'agent',
+      'assistant',
       'settings',
     ]);
     expect(mainShellTabKeysForUser(auditor), [
@@ -51,8 +52,14 @@ void main() {
       'lab_analysis',
       'bmk',
       'performance',
+      'assistant',
       'settings',
     ]);
-    expect(mainShellTabKeysForUser(customer), ['dashboard', 'settings']);
+    // The assistant is open to every approved role, customers included.
+    expect(mainShellTabKeysForUser(customer), [
+      'dashboard',
+      'assistant',
+      'settings',
+    ]);
   });
 }

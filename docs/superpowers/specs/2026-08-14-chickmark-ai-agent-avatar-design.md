@@ -33,11 +33,13 @@ Use the name as follows:
 - English thinking label: `Pip is thinking`;
 - introductory identity when needed: `Pip, your ChickMark hatchery assistant`;
 - Telegram display name: `Pip by ChickMark`;
-- Arabic display name: `بيب`;
-- Arabic branded introduction: `بيب، مساعد التفريخ من ChickMark`.
+- Arabic-interface display name: `Pip`;
+- Arabic branded introduction: `Pip، مساعد التفريخ من ChickMark`.
 
 Pip is a proper name, not an acronym. Do not style it as `PIP`, expand its
-letters, or translate its hatchery meaning inside ordinary UI copy.
+letters, transliterate it into Arabic script, or translate its hatchery meaning
+inside ordinary UI copy. The Latin-script spelling `Pip` remains unchanged in
+both English and Arabic interfaces.
 
 ## Approved Visual Direction
 
@@ -139,7 +141,8 @@ without coupling branding to conversation state.
 - No text is embedded in the image, so the asset works unchanged in English and
   Arabic.
 - User-facing Pip labels are added to the hand-written English-to-Arabic map in
-  the same implementation change so Arabic never falls back to English.
+  the same implementation change. Arabic sentences keep the proper name `Pip`
+  in Latin script rather than transliterating it.
 - All message layout continues to use `AlignmentDirectional` and directional
   padding.
 - The static avatar introduces no flashing or required motion.

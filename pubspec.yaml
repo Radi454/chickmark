@@ -50,6 +50,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/chickmark-icon.png
+    - assets/branding/chickmark-agent-avatar.png
     - assets/branding/chickmark-mark-onbrand.png
     - assets/audio/filler_chime.wav
     - .env.json
