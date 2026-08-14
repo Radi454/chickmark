@@ -12,6 +12,22 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Landed voice input/output for the in-app assistant chat. On the
+  server, `app-hatchery-agent`'s `send` action now accepts an `audioBase64`
+  clip in place of `message`: it transcribes the clip via OpenAI Whisper
+  using a new `OPENAI_VOICE_KEY` secret (kept separate from the text brain's
+  `OPENAI_API_KEY`), runs the transcript through the same unmodified agent
+  brain used for typed messages, stores it as an ordinary turn `text`, and
+  attempts to synthesize the reply via OpenAI TTS, returning `audioBase64` on
+  success; a transcription failure returns `agent_unavailable` rather than
+  `invalid_request` since it is an audio-quality problem, and a TTS failure
+  degrades the call to a text-only reply instead of failing the turn. On the
+  phone, `AssistantChatScreen` gained a mic button that starts and stops
+  recording through the `AssistantAudioRecorder`/`AssistantAudioPlayer` ports
+  landed for `AssistantProvider` earlier the same day, disabling itself and
+  the text field while a send, recording, or voice reply is in flight so the
+  two input modes cannot race. This closes out the mic-control gap noted in
+  the two entries below.
 - 2026-08-14: Fixed two review findings on the voice-turn state added to
   `AssistantProvider` earlier the same day. (1) A playback failure of the TTS
   reply audio (bad codec, no output device, decode failure) was being caught

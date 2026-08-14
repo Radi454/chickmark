@@ -1706,9 +1706,12 @@ the reply audio is attempted only after the send has already succeeded and is
 best-effort: if the player throws (bad codec, no output device, decode
 failure), the error is swallowed rather than surfacing on `error` or marking
 the just-delivered turn failed, since the text reply is already visible either
-way. A `null` or empty clip from the recorder is a no-op. This state exists at the provider
-layer only — `AssistantChatScreen` does not yet expose a mic control, so the
-screen remains text-only from the user's perspective.
+way. A `null` or empty clip from the recorder is a no-op. `AssistantChatScreen`
+exposes a mic button next to the text input: tapping it calls `startRecording()`
+(the icon and color switch to a stop control), tapping again calls
+`stopRecordingAndSend()`. The mic and the text field disable each other while a
+send, recording, or voice reply is in flight (`isSending`, `isRecording`,
+`isAwaitingVoiceReply`, `isSpeaking`), so the two input modes cannot race.
 
 `HomeProvider` derives Home KPIs from audit and flock repositories: audits this
 month, active flocks, last audit date, recently saved audits, and audit type
@@ -2225,19 +2228,33 @@ durable conversation evidence as Telegram turns.
 Each app user has exactly one conversation, stored in the existing
 `agent_conversations`, `agent_conversation_turns`, and `agent_tool_events`
 tables with `telegram_chat_id = 'app'`. The function accepts `send`, `history`,
-and `reset` actions on `POST /functions/v1/app-hatchery-agent`. `send` takes a
-1 to 4000 character message plus a client-supplied idempotency key, stored as
-`telegram_update_id = 'app:<id>'`, so a replayed send returns the stored reply
-instead of calling the model again; it answers with the conversation ID, the
-user and reply turn IDs, the reply text, its language, and a creation time.
+and `reset` actions on `POST /functions/v1/app-hatchery-agent`. `send` takes
+either a 1 to 4000 character `message` or an `audioBase64` clip, plus a
+client-supplied idempotency key, stored as `telegram_update_id = 'app:<id>'`,
+so a replayed send returns the stored reply instead of calling the model
+again (and, for voice, never re-transcribes). When `audioBase64` is present,
+the function transcribes it via OpenAI Whisper using a dedicated
+`OPENAI_VOICE_KEY` secret — kept separate from the text brain's
+`OPENAI_API_KEY` — and runs the resulting transcript through the same
+unmodified agent brain used for typed messages; a transcription failure or an
+empty transcript returns `agent_unavailable` rather than `invalid_request`,
+since it is an audio-quality problem, not a malformed request. The stored
+turn's `text` is the transcript, indistinguishable from a typed turn once
+saved. The function then attempts to synthesize the reply via OpenAI TTS; on
+success the response carries `audioBase64` for the phone to play back, but a
+TTS failure is swallowed and the call still succeeds with the text-only
+reply, since speech is a presentation layer over an already-successful turn.
+`send` always answers with the conversation ID, the user and reply turn IDs,
+the reply text, its language, and a creation time; a voice `send` additionally
+returns `transcript` and, when synthesis succeeded, `audioBase64`.
 `history` returns the current context epoch's turns oldest-first. `reset` bumps
 the context epoch, which hides earlier turns from both the user and the model
 while retaining them as immutable evidence, matching what `/new` does on
 Telegram. Sends are limited to 20 per user per rolling five minutes. Failures
 return a code with the error: `invalid_request`, `unauthenticated`,
-`not_approved`, `rate_limited`, `agent_unavailable`, or `server_error`. The
-door is text only; any attachment, audio, or image field is rejected as an
-invalid request.
+`not_approved`, `rate_limited`, `agent_unavailable`, or `server_error`. Besides
+the `audioBase64` voice input, the door accepts no other attachment or image
+field; any such field is rejected as an invalid request.
 
 Only approved admins have an `Agent` main-shell destination.
 Auditors and customer-role users do not receive that destination. The screen
