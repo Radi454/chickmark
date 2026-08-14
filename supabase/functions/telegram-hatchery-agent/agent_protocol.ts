@@ -18,6 +18,7 @@ export type AgentToolName =
   | 'get_breed_benchmark'
   | 'get_egg_breakout_benchmark'
   | 'get_operational_standards'
+  | 'compare_selected_audit_to_benchmark'
   | 'get_flock_context'
   | 'query_station_records'
   | 'compare_station_metrics'

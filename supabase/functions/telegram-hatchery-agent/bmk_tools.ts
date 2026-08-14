@@ -10,8 +10,10 @@ import type {
   AgentToolResult,
 } from './agent_protocol.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
+import type { AgentAuditStore } from './agent_audit_tools.ts'
 import { coverageFor, resolveBreed } from './bmk_lookup.ts'
 import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
+import { roundTo, sampleWeightedMean } from './agent_metrics.ts'
 
 export interface BmkBreedBenchmarkRow {
   breed: string
@@ -73,14 +75,20 @@ export interface AgentBmkStore {
 
 export function createAgentBmkToolHandlers(
   store: AgentBmkStore,
+  auditStore?: AgentAuditStore,
 ): Partial<Record<AgentToolName, AgentToolHandler>> {
-  return {
+  const handlers: Partial<Record<AgentToolName, AgentToolHandler>> = {
     get_breed_benchmark: (input) => getBreedBenchmark(store, input),
     get_egg_breakout_benchmark: (input) =>
       getEggBreakoutBenchmark(store, input),
     get_operational_standards: (input) =>
       getOperationalStandards(store, input),
   }
+  if (auditStore) {
+    handlers.compare_selected_audit_to_benchmark = (input) =>
+      compareSelectedAuditToBenchmark(store, auditStore, input)
+  }
+  return handlers
 }
 
 /**
@@ -212,6 +220,153 @@ async function getOperationalStandards(
     )
 
   return ok({ hatcheryId: hatcheryId ?? null, standards })
+}
+
+/** Breakout-row field -> breed-benchmark field. */
+const BREED_METRIC_SOURCES: readonly {
+  metricKey: keyof BmkBreedBenchmarkRow
+  actualKey: string | null
+  label: string
+  unit: string
+}[] = [
+  { metricKey: 'hatchabilityPct', actualKey: 'hatchabilityPct', label: 'Hatchability', unit: '%' },
+  { metricKey: 'fertilityPct', actualKey: 'fertilityPct', label: 'Fertility', unit: '%' },
+  { metricKey: 'hofPct', actualKey: 'hofPct', label: 'Hatch of fertile', unit: '%' },
+  { metricKey: 'productionPct', actualKey: null, label: 'Production', unit: '%' },
+  { metricKey: 'eggWeightG', actualKey: null, label: 'Egg weight', unit: 'g' },
+  { metricKey: 'chickWeightG', actualKey: null, label: 'Chick weight', unit: 'g' },
+]
+
+/**
+ * Breakout-row field -> breakout-benchmark field. The audit column is
+ * contaminatedPct while the benchmark column is contamPct, so the mapping is
+ * explicit rather than by name.
+ */
+const BREAKOUT_METRIC_SOURCES: readonly {
+  metricKey: keyof BmkEggBreakoutBenchmarkRow
+  actualKey: string
+  label: string
+}[] = [
+  { metricKey: 'infertilePct', actualKey: 'infertilePct', label: 'Infertile' },
+  { metricKey: 'early24hPct', actualKey: 'early24hPct', label: 'Early dead 24h' },
+  { metricKey: 'early48hPct', actualKey: 'early48hPct', label: 'Early dead 48h' },
+  { metricKey: 'bloodRingPct', actualKey: 'bloodRingPct', label: 'Blood ring' },
+  { metricKey: 'blackEyePct', actualKey: 'blackEyePct', label: 'Black eye' },
+  { metricKey: 'earlyDeadPct', actualKey: 'earlyDeadPct', label: 'Early dead' },
+  { metricKey: 'midDeadPct', actualKey: 'midDeadPct', label: 'Mid dead' },
+  { metricKey: 'lateDeadPct', actualKey: 'lateDeadPct', label: 'Late dead' },
+  { metricKey: 'externalPipPct', actualKey: 'externalPipPct', label: 'External pip' },
+  { metricKey: 'crackedPct', actualKey: 'crackedPct', label: 'Cracked' },
+  { metricKey: 'contamPct', actualKey: 'contaminatedPct', label: 'Contaminated' },
+]
+
+async function compareSelectedAuditToBenchmark(
+  store: AgentBmkStore,
+  auditStore: AgentAuditStore,
+  input: AgentToolExecutionInput,
+): Promise<AgentToolResult> {
+  const context = auditStore.loadConversationContext
+    ? await auditStore.loadConversationContext(input.conversationId)
+    : null
+  if (
+    !context?.customerId || !context.auditId ||
+    !input.scope.allowedCustomerIds.includes(context.customerId)
+  ) {
+    return { ok: false, code: 'audit_selection_required', data: null }
+  }
+
+  const audit = await auditStore.findAudit(
+    context.auditId,
+    input.scope.allowedCustomerIds,
+  )
+  if (!audit || audit.customerId !== context.customerId) return scopeDenied()
+
+  const ageWeek = audit.flockAgeWeeks
+  if (!audit.breed || ageWeek === null) {
+    return ok({
+      status: 'unavailable',
+      reason: audit.breed ? 'missing_flock_age' : 'missing_breed',
+      auditId: audit.id,
+    })
+  }
+
+  const breedResult = await resolveBreedBenchmark(store, audit.breed, ageWeek)
+  if (breedResult.status !== 'ok') {
+    const { status, ...rest } = breedResult
+    return ok({ status, auditId: audit.id, ageWeek, ...rest })
+  }
+  const breakoutResult = await resolveEggBreakoutBenchmark(store, ageWeek)
+
+  const page = await auditStore.listAuditBreakouts({
+    auditId: audit.id,
+    customerId: audit.customerId,
+  })
+  const rows = page.rows.filter((row) =>
+    row.sessionId === audit.id && row.customerId === audit.customerId
+  ) as unknown as Record<string, unknown>[]
+
+  const comparisons: Record<string, unknown>[] = []
+
+  for (const metric of BREED_METRIC_SOURCES) {
+    const standard = breedResult.row[metric.metricKey]
+    comparisons.push(
+      comparison({
+        metricKey: metric.metricKey,
+        label: metric.label,
+        unit: metric.unit,
+        standard: typeof standard === 'number' ? standard : null,
+        aggregate: metric.actualKey === null
+          ? { value: null, observedRows: 0, weight: null }
+          : sampleWeightedMean(rows, metric.actualKey, 'traySize'),
+      }),
+    )
+  }
+
+  for (const metric of BREAKOUT_METRIC_SOURCES) {
+    const standard = breakoutResult.status === 'ok'
+      ? breakoutResult.row[metric.metricKey]
+      : null
+    comparisons.push(
+      comparison({
+        metricKey: metric.metricKey,
+        label: metric.label,
+        unit: '%',
+        standard: typeof standard === 'number' ? standard : null,
+        aggregate: sampleWeightedMean(rows, metric.actualKey, 'traySize'),
+      }),
+    )
+  }
+
+  return ok({
+    auditId: audit.id,
+    breed: breedResult.row.breed,
+    ageWeek,
+    breakoutBenchmarkAvailable: breakoutResult.status === 'ok',
+    comparisons,
+  })
+}
+
+function comparison(input: {
+  metricKey: string
+  label: string
+  unit: string
+  standard: number | null
+  aggregate: { value: number | null; observedRows: number }
+}): Record<string, unknown> {
+  const actual = input.aggregate.value
+  const base = {
+    metricKey: input.metricKey,
+    label: input.label,
+    unit: input.unit,
+    actual,
+    standard: input.standard,
+    observedRows: input.aggregate.observedRows,
+  }
+  if (actual === null) return { ...base, delta: null, reason: 'no_actual' }
+  if (input.standard === null) {
+    return { ...base, delta: null, reason: 'no_benchmark' }
+  }
+  return { ...base, delta: roundTo(actual - input.standard) }
 }
 
 function optionalIdentifier(value: unknown): string | null {

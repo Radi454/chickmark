@@ -1161,7 +1161,7 @@ export function createUnifiedAgentToolHandlers(
   return {
     ...createAgentReadToolHandlers(readStore),
     ...createAgentAuditToolHandlers(auditStore),
-    ...createAgentBmkToolHandlers(bmkStore),
+    ...createAgentBmkToolHandlers(bmkStore, auditStore),
     ...createAgentIntakeToolHandlers({
       store: intakeStore,
       contextResolver: createSupabaseAgentIntakeContextResolver(intakeClient),

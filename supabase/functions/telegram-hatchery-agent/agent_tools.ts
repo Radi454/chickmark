@@ -300,6 +300,10 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
       [],
     ),
     definition(
+      'compare_selected_audit_to_benchmark',
+      'Compare the audit already selected in this conversation against the published breed and egg-breakout standards for that flock\'s breed and age. Returns actual, standard and delta per metric. Never supply or reconstruct an audit ID.',
+    ),
+    definition(
       'propose_intake',
       'Record a proposed data-entry action for user confirmation.',
       {

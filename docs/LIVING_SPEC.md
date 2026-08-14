@@ -2028,6 +2028,33 @@ are then filtered by `stationKey`/`sectorKey` when supplied and sorted by
 `sortOrder` then `metricLabel`. This tool is also a pure lookup with no write
 path.
 
+A fourth tool, `compare_selected_audit_to_benchmark`, takes no arguments and
+never accepts or reconstructs an audit ID -- it operates only on the audit
+already selected in the conversation, the same contract as
+`get_selected_audit_breakouts`. It resolves the selected audit's breed and
+flock age against `bmk_breeds`/`bmk_egg_breakout` via the same
+`resolveBreedBenchmark`/`resolveEggBreakoutBenchmark` functions the read tools
+use, then reads that audit's breakout rows and aggregates each metric's actual
+value with `sampleWeightedMean(rows, valueKey, 'traySize')` (not a plain
+average). It compares `hatchabilityPct`, `fertilityPct`, and `hofPct` (present
+on breakout rows) plus `productionPct`, `eggWeightG`, and `chickWeightG` (no
+breakout-row actual, always reported with `reason: 'no_actual'`) against the
+breed benchmark, and all eleven `bmk_egg_breakout` defect percentages against
+the breakout benchmark -- the audit's `contaminatedPct` column maps explicitly
+onto the benchmark's `contamPct` column. Each comparison reports `actual`,
+`standard`, `observedRows`, and `delta = actual - standard` rounded to one
+decimal via `roundTo`; a metric missing its benchmark value reports `reason:
+'no_benchmark'` and a metric missing its actual reports `reason: 'no_actual'`,
+but neither is ever dropped from the result. If the breed/week benchmark
+cannot be resolved at all, the tool short-circuits to the same
+`breed_not_found`/`week_out_of_range` shape `get_breed_benchmark` returns, with
+no `comparisons` array. If only the breakout benchmark is unavailable, breed
+metrics still compare normally and every breakout metric individually reports
+`reason: 'no_benchmark'`, signaled by `breakoutBenchmarkAvailable: false` on
+the result. This tool is read-only; it never writes and the audit store
+argument to `createAgentBmkToolHandlers` is optional so the tool is only
+registered where an audit store is wired in.
+
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
 HOF. Edge metric aggregation uses ratio-of-sums or sample-weighted means from

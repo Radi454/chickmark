@@ -1,6 +1,7 @@
 import { assertEquals } from '@std/assert'
 
 import type { AgentScope } from './agent_protocol.ts'
+import type { AgentAuditStore } from './agent_audit_tools.ts'
 import {
   type AgentBmkStore,
   createAgentBmkToolHandlers,
@@ -245,4 +246,151 @@ Deno.test('an unknown hatchery is rejected', async () => {
   })
   assertEquals(result.ok, false)
   assertEquals(result.code, 'scope_denied')
+})
+
+function fixtureAuditStore(): AgentAuditStore {
+  const audit = {
+    id: 'audit-1',
+    customerId: 'customer-a',
+    flockId: 'flock-a',
+    hatcheryId: 'hatchery-a',
+    date: '2026-08-01',
+    status: 'completed',
+    customerName: 'Customer A',
+    flockName: 'Flock A',
+    hatcheryName: 'Hatchery A',
+    selectedStationKeys: null,
+    stationsCompleted: null,
+    createdAt: null,
+    completedAt: null,
+    breed: 'Ross308',
+    flockAgeWeeks: 35,
+    findings: null,
+    scorecard: null,
+    notes: null,
+  }
+  return {
+    findFlockCustomerId: () => Promise.resolve('customer-a'),
+    findLatestAuditListResult: () => Promise.resolve(null),
+    findLatestSelectedAuditResult: () => Promise.resolve(null),
+    loadConversationContext: () =>
+      Promise.resolve({
+        customerId: 'customer-a',
+        flockId: 'flock-a',
+        auditId: 'audit-1',
+      }),
+    findAudit: () => Promise.resolve(audit),
+    listAudits: () => Promise.resolve({ rows: [audit], truncated: false }),
+    listAuditBreakouts: () =>
+      Promise.resolve({
+        rows: [
+          {
+            breakoutType: 'fresh' as const,
+            id: 'b-1',
+            sessionId: 'audit-1',
+            customerId: 'customer-a',
+            flockId: 'flock-a',
+            hatcheryId: 'hatchery-a',
+            date: '2026-08-01',
+            house: null,
+            setter: null,
+            hatcher: null,
+            trolley: null,
+            tray: null,
+            position: null,
+            traySize: 100,
+            infertileCount: null,
+            infertilePct: 6,
+            early24hPct: 1,
+            early48hPct: 1,
+            bloodRingPct: 0.5,
+            blackEyePct: 0.5,
+            earlyDeadPct: 2,
+            midDeadPct: 1,
+            lateDeadPct: 2,
+            externalPipPct: 0.5,
+            crackedPct: 1,
+            contaminatedPct: 1.5,
+            hatchabilityPct: 86,
+            fertilityPct: 94,
+            hofPct: 84,
+            culledPct: null,
+            deadPct: null,
+          },
+        ],
+        truncated: false,
+      }),
+  } as unknown as AgentAuditStore
+}
+
+Deno.test('compare_selected_audit_to_benchmark returns per-metric deltas',
+  async () => {
+    const handlers = createAgentBmkToolHandlers(
+      fixtureStore(),
+      fixtureAuditStore(),
+    )
+    const result = await handlers.compare_selected_audit_to_benchmark!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+
+    assertEquals(result.ok, true)
+    assertEquals(result.data?.breed, 'Ross308')
+    assertEquals(result.data?.ageWeek, 35)
+
+    const rows = result.data?.comparisons as Record<string, unknown>[]
+    const byKey = new Map(rows.map((row) => [row.metricKey, row]))
+
+    assertEquals(byKey.get('hatchabilityPct')?.actual, 86)
+    assertEquals(byKey.get('hatchabilityPct')?.standard, 90)
+    assertEquals(byKey.get('hatchabilityPct')?.delta, -4)
+
+    // Audit contaminatedPct maps onto benchmark contamPct.
+    assertEquals(byKey.get('contamPct')?.actual, 1.5)
+    assertEquals(byKey.get('contamPct')?.standard, 0.5)
+    assertEquals(byKey.get('contamPct')?.delta, 1)
+
+    // No actual exists for these on a breakout row -- reported, not dropped.
+    assertEquals(byKey.get('eggWeightG')?.reason, 'no_actual')
+    assertEquals(byKey.get('productionPct')?.reason, 'no_actual')
+  })
+
+Deno.test('compare reports a missing benchmark rather than dropping metrics',
+  async () => {
+    const store = fixtureStore()
+    const emptyBenchmarks: AgentBmkStore = {
+      ...store,
+      findBreedBenchmark: () => Promise.resolve(null),
+      findEggBreakoutBenchmark: () => Promise.resolve(null),
+    }
+    const handlers = createAgentBmkToolHandlers(
+      emptyBenchmarks,
+      fixtureAuditStore(),
+    )
+    const result = await handlers.compare_selected_audit_to_benchmark!({
+      scope,
+      conversationId: 'conversation-a',
+      activeVisitId: null,
+      arguments: {},
+    })
+
+    assertEquals(result.data?.status, 'week_out_of_range')
+    assertEquals(result.data?.breed, 'Ross308')
+  })
+
+Deno.test('compare requires a selected audit', async () => {
+  const auditStore = {
+    ...fixtureAuditStore(),
+    loadConversationContext: () => Promise.resolve(null),
+  } as unknown as AgentAuditStore
+  const handlers = createAgentBmkToolHandlers(fixtureStore(), auditStore)
+  const result = await handlers.compare_selected_audit_to_benchmark!({
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    arguments: {},
+  })
+  assertEquals(result.ok, false)
 })
