@@ -245,38 +245,37 @@ The main shell has eleven destinations for approved admins:
 - BMK
 - Performance
 - Agent
-- Assistant
+- Pip
 - Settings
 
 Approved auditors receive the same destination set except Agent, leaving ten
 auditor destinations. Agent Monitor is restricted to approved admins because
 its remote tables use admin-only RLS.
 
-Approved customer-role accounts see only Dashboard, Assistant, and Settings.
+Approved customer-role accounts see only Dashboard, Pip, and Settings.
 Settings is reduced to account details and sign-out, so the only product data
-surfaces they can open are Dashboard and the Assistant chat. Their Dashboard
+surfaces they can open are Dashboard and the Pip chat. Their Dashboard
 customer selector is locked to the profile's assigned `customerId`; hatchery
 and flock selectors are populated only from that customer. Dashboard action
 creation/editing is hidden and also rejected by provider guards for
-customer-role users. Assistant is open to every approved role because the Edge
+customer-role users. Pip is open to every approved role because the Edge
 Function resolves each caller's own customer scope server-side rather than
 trusting the client.
 
-The Assistant destination opens `AssistantChatScreen`, an in-app chat with the
-same hatchery agent that serves Telegram, by text or by voice. It shows the
-current conversation oldest-first, a multiline input with a send button and a
-mic button, a thinking indicator while a reply is outstanding, an empty state
-before the first message, and an error banner with a retry action. While the
-shared network monitor reports offline the input is disabled behind a short
-notice, because the conversation runs entirely against the Edge Function and
-has no local fallback. An app-bar action clears the conversation after a
-confirmation dialog. The screen offers no photo or file attachment; see the
-`AssistantProvider` section below for how the mic button, recording, and
-spoken replies work. Its labels, states, notices, and errors are available in
-English and Arabic, except the mic button's own tooltips ("Ask by voice",
-"Stop recording"), which are hardcoded English literals. `AssistantProvider`
-is created at this tab rather than with the root providers, so it exists only
-while the Assistant tab is built.
+The Pip destination opens `AssistantChatScreen`, an in-app chat with the same
+hatchery agent that serves Telegram, by text or by voice. It shows the current
+conversation oldest-first, a multiline input with send and mic buttons, a
+thinking indicator while a reply is outstanding, an empty state before the
+first message, and an error banner with a retry action. While the shared network
+monitor reports offline the input is disabled behind a short notice, because
+the conversation runs entirely against the Edge Function and has no local
+fallback. An app-bar action clears the conversation after a confirmation
+dialog. The mic control starts recording and, on the next tap, stops and sends
+the recording. The screen offers no photo or file attachment; see the
+`AssistantProvider` section below for recording and spoken-reply behavior. Its
+labels, states, notices, errors, and action tooltips are available in English
+and Arabic. `AssistantProvider` is created at this tab rather than with the root
+providers, so it exists only while the Pip tab is built.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell

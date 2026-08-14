@@ -143,7 +143,7 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
         actions: [
           IconButton(
             key: const ValueKey('assistant-clear-action'),
-            tooltip: 'Clear conversation',
+            tooltip: context.tr('Clear conversation'),
             icon: const Icon(Icons.delete_sweep_outlined),
             onPressed:
                 provider.isSending ||
@@ -264,7 +264,7 @@ class _AssistantMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUser = message.isUser;
     // AlignmentDirectional, not Alignment: in Arabic the user's own turns must
-    // sit on the reading-start side, so the layout mirrors with the locale.
+    // sit on the reading-end side, so the layout mirrors with the locale.
     final alignment = isUser
         ? AlignmentDirectional.centerEnd
         : AlignmentDirectional.centerStart;
@@ -526,7 +526,9 @@ class _AssistantComposer extends StatelessWidget {
           const SizedBox(width: AppSizes.spaceSm),
           IconButton(
             key: const ValueKey('assistant-mic'),
-            tooltip: isRecording ? 'Stop recording' : 'Ask by voice',
+            tooltip: context.tr(
+              isRecording ? 'Stop recording' : 'Ask by voice',
+            ),
             icon: Icon(isRecording ? Icons.stop_circle : Icons.mic),
             color: isRecording ? AppColors.statusError : AppColors.primary,
             onPressed: canRecord ? onMicTap : null,
@@ -534,7 +536,7 @@ class _AssistantComposer extends StatelessWidget {
           const SizedBox(width: AppSizes.spaceSm),
           IconButton(
             key: const ValueKey('assistant-send'),
-            tooltip: 'Send message',
+            tooltip: context.tr('Send message'),
             icon: const Icon(Icons.send),
             color: AppColors.primary,
             onPressed: canType ? onSend : null,

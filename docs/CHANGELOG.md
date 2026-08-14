@@ -12,6 +12,11 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-14: Localized Pip chat action tooltips and their accessible labels in
+  Arabic, including the voice recording states, and documented Pip as the
+  shell destination with text and voice turns. Arabic chat layout regression
+  coverage now verifies Pip's avatar and reply bubble occupy reading-start
+  while the user's turn remains at reading-end.
 - 2026-08-14: Introduced Pip as the in-app assistant identity, retaining the
   Latin-script name in Arabic so the product name remains consistent across
   interfaces. A static clean ChickMark avatar now anchors the chat header,

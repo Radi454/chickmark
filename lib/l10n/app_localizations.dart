@@ -2352,6 +2352,8 @@ const Map<String, String> _ar = {
       'اسأل عن أداء القطيع أو نتائج الفقس أو زيارة تدقيق حديثة.',
   'Unavailable while offline': 'غير متاح دون اتصال',
   'Send message': 'إرسال رسالة',
+  'Ask by voice': 'اسأل صوتيًا',
+  'Stop recording': 'إيقاف التسجيل',
   'Sending': 'جارٍ الإرسال',
   'Not sent': 'لم تُرسل',
   'Pip is thinking': 'Pip يفكر',
