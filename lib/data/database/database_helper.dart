@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 60,
+      version: 61,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -54,7 +54,7 @@ class DatabaseHelper {
         await _surgicalSchemaRepair(db);
         await _dropPanelUniqueRowIndexes(db);
         await _dropDeprecatedPanelColumns(db);
-        await _ensurePanelSampleSchemaColumns(db);
+        await ensurePanelSampleSchemaColumns(db);
         await _ensurePanelQueryIndexes(db);
         await _ensurePanelUniqueRowIndexes(db);
         await _ensureTelegramStaffLinkIndexes(db);
@@ -183,6 +183,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 60) {
       await _applyV60Upgrade(db);
+    }
+    if (oldVersion < 61) {
+      await _applyV61Upgrade(db);
     }
   }
 
@@ -945,6 +948,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV60UpgradeForTest(Database db) => _applyV60Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV61UpgradeForTest(Database db) => _applyV61Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

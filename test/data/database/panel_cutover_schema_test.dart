@@ -52,11 +52,13 @@ const _commonPanelColumns = [
   'syncError',
 ];
 
+// 'scopeType' and 'sampleIndex' were legacy pre-cutover identity columns and
+// used to live in this list. v61 reintroduces both names with new nullable
+// metadata semantics (see _panelContextColumnDefinitions), so they are no
+// longer legacy-excluded here; the remaining names are still genuinely gone.
 const _legacyPanelIdentityColumns = [
   'mode',
-  'scopeType',
   'scopeLabel',
-  'sampleIndex',
   'groupKey',
   'groupLabel',
 ];

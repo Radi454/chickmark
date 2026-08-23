@@ -3169,8 +3169,11 @@ tables, or legacy Govee spot-reading tables.
 
 Every panel table includes visit ownership fields, explicit sample hierarchy
 fields for that panel, storage/BMK context fields (`storagePeriodDays`,
-`bmkAgeWeeks`), panel-specific measurement and calculated summary fields, and
-sync fields. Egg, chick, and breakout panel hierarchy can include `house`,
+`bmkAgeWeeks`), panel sample/domain metadata fields (`sampleMode`,
+`scopeType`, `sampleLabel`, `sampleIndex`, `sourceDomain`, `actionDomain`,
+`recommendationTarget` — all nullable, unread as of schema v61),
+panel-specific measurement and calculated summary fields, and sync fields.
+Egg, chick, and breakout panel hierarchy can include `house`,
 `setter`, `hatcher`, `trolley`, `tray`, and `position`; `setter_optimizing`
 uses only `setter`, `trolley`, and `tray`; `hatcher_optimizing` uses only
 `hatcher`, `trolley`, and `tray`. Each panel table has session, dashboard, and

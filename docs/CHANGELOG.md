@@ -1,5 +1,9 @@
 # ChickMark Change Log
 
+- 2026-08-23: Panel tables now record what each saved row represents
+  (`sampleMode`, `scopeType`, `sampleLabel`, `sampleIndex`) and which side of
+  the operation owns it (`sourceDomain`, `actionDomain`,
+  `recommendationTarget`). All nullable; schema version 61.
 - 2026-08-20: fix(pip): opening a brand-new Pip conversation no longer shows
   "Could not load the conversation. Please try again.". The history action
   answers `{conversationId: null, messages: []}` for a conversation that has

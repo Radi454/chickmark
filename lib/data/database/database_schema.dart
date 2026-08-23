@@ -228,9 +228,20 @@ Future<void> _createPanelSampleSchemaTables(DatabaseExecutor db) async {
 const _panelContextColumnDefinitions = [
   'storagePeriodDays INTEGER',
   'bmkAgeWeeks INTEGER',
+  // v61: what this row represents, recorded explicitly instead of being
+  // re-inferred from the hierarchy columns on reopen.
+  'sampleMode TEXT',
+  'scopeType TEXT',
+  'sampleLabel TEXT',
+  'sampleIndex INTEGER',
+  // v61: which side of the operation owns the measurement, the fix, and the
+  // recommendation. Free text so the vocabulary can grow without a migration.
+  'sourceDomain TEXT',
+  'actionDomain TEXT',
+  'recommendationTarget TEXT',
 ];
 
-Future<void> _ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
+Future<void> ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
     if (!await _tableExists(db, panel.tableName)) continue;
     final columns = _columnNames(

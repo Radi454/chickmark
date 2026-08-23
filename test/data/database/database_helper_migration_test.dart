@@ -112,8 +112,12 @@ void main() {
         'culledChicksAnalysisJson',
       ]),
     );
-    expect(eggQualityColumns, isNot(contains('scopeType')));
-    expect(chickQualityColumns, isNot(contains('sampleIndex')));
+    // 'scopeType' and 'sampleIndex' were legacy pre-cutover identity columns
+    // and are intentionally excluded here. v61 reintroduces both names with
+    // new metadata semantics (see _panelContextColumnDefinitions), so the
+    // legacy-exclusion check now targets names v61 does not reuse.
+    expect(eggQualityColumns, isNot(contains('scopeLabel')));
+    expect(chickQualityColumns, isNot(contains('groupKey')));
   });
 
   test(

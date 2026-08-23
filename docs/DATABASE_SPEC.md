@@ -23,7 +23,7 @@ Old generated specs are intentionally not used.
 ## Runtime
 
 - Engine: SQLite through `sqflite`. Database file: `hatchaudit.db`.
-- Current schema version: `60`.
+- Current schema version: `61`.
 - Columns are camelCase locally. The Supabase mirror is snake_case; conversion
   happens at the sync boundary, not in the repositories.
 - Local-first: SQLite is the operational source. Supabase mirrors it.
@@ -210,6 +210,13 @@ gets the same envelope, then its own measurement columns appended:
 | `position TEXT` | Optional position identity. | Candled/Residue tray position. |
 | `storagePeriodDays INTEGER` | Storage period context. | Egg storage and breakout BMK calculations. |
 | `bmkAgeWeeks INTEGER` | Rounded BMK age in weeks. | BMK/dashboard filtering and display. |
+| `sampleMode TEXT` | v61: what this row represents (recorded explicitly instead of re-inferred from hierarchy columns on reopen). Nullable, unread as of v61. | Not yet wired to any screen. |
+| `scopeType TEXT` | v61: comparison-row scope identity. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `sampleLabel TEXT` | v61: display label for the sample/row. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `sampleIndex INTEGER` | v61: ordinal position of the sample within its scope. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `sourceDomain TEXT` | v61: which side of the operation owns the measurement. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `actionDomain TEXT` | v61: which side of the operation owns the fix. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `recommendationTarget TEXT` | v61: which side of the operation owns the recommendation. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
 | `notes TEXT` | Station-level notes. | Notes field on the station screen. |
 | `createdAt TEXT NOT NULL` | Local creation timestamp. | Draft/station save timestamp. |
 | `updatedAt TEXT NOT NULL` | Conflict resolution and dashboard freshness. | Updated on each station save. |
