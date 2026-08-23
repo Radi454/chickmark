@@ -1,5 +1,11 @@
 # ChickMark Change Log
 
+- 2026-08-23: Tightened `egg_quality_defect_counts` row-level security.
+  It launched with a blanket "any signed-in user can read/write any
+  tenant's rows" policy; it now uses the same per-customer read/write
+  check every sibling audit table uses (`chickmark_private.app_can_read_customer`
+  / `app_can_write_customer`), matching `egg_quality` exactly. The table
+  had zero rows, so no data was exposed.
 - 2026-08-23: Added the cloud-only Supabase schema for visual egg grading:
   eight nullable grading summary columns on `egg_quality` and a new
   `egg_quality_defect_counts` table (RLS enabled, one row per defect code per
