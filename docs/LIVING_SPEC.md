@@ -529,7 +529,13 @@ Station save behavior:
   history. `deleteCountsForSamples` does the same tombstone-then-delete for
   every row under the given `eggQualityId`s. `getDirtyRows`/`markRowsSynced`/
   `markRowsFailed` follow the same pending/failed sync-status convention as
-  the other per-row dirty-tracked repositories.
+  the other per-row dirty-tracked repositories, including the dirtyAt-cutoff
+  guard: `getDirtyRows` captures the read time, and `markRowsSynced` only
+  clears `dirtyAt`/flips to `synced` for rows whose `dirtyAt` is still at or
+  before that cutoff, so an edit landing between the push read and the sync
+  ack stays `pending` instead of being silently marked synced and dropped —
+  the same pattern `LabAnalysisRepository.markRowsSynced` uses. A re-save of
+  an existing count row also never touches `createdAt`, only `updatedAt`.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit

@@ -17,6 +17,11 @@ class EggGradingRepository {
 
   static const String table = 'egg_quality_defect_counts';
 
+  /// dirtyAt cutoff captured at the last getDirtyRows() call; see
+  /// markRowsSynced. Mirrors LabAnalysisRepository's per-table cutoff map,
+  /// but this repository only ever owns one table.
+  String? _dirtyReadCutoff;
+
   Future<Map<String, int>> countsForSample(String eggQualityId) async {
     final db = await _dbHelper.db;
     final rows = await db.query(
@@ -82,7 +87,8 @@ class EggGradingRepository {
         final code = entry.key;
         keptCodes.add(code);
         final defectType = eggDefectTypeForCode(code);
-        final id = existingIdByCode[code] ?? '$eggQualityId:$code';
+        final existingId = existingIdByCode[code];
+        final id = existingId ?? '$eggQualityId:$code';
         final row = {
           'id': id,
           'eggQualityId': eggQualityId,
@@ -100,13 +106,18 @@ class EggGradingRepository {
           'count': entry.value,
           'pctOfSample': sampleSize <= 0 ? null : entry.value * 100 / sampleSize,
           'sortOrder': defectType?.sortOrder ?? sortOrder,
-          'createdAt': now,
           'updatedAt': now,
           'syncStatus': 'pending',
           'dirtyAt': now,
           'syncError': null,
         };
-        await _upsertById(txn, table, row);
+        if (existingId == null) {
+          // New row: set createdAt once. Existing rows keep their original
+          // createdAt — _upsertById's update path never touches it.
+          await _upsertById(txn, table, {...row, 'createdAt': now});
+        } else {
+          await _upsertById(txn, table, row);
+        }
         sortOrder++;
       }
 
@@ -159,6 +170,7 @@ class EggGradingRepository {
 
   Future<List<Map<String, dynamic>>> getDirtyRows() async {
     final db = await _dbHelper.db;
+    _dirtyReadCutoff = DateTime.now().toIso8601String();
     final rows = await db.query(
       table,
       where: "syncStatus IN ('pending', 'failed')",
@@ -171,6 +183,7 @@ class EggGradingRepository {
     final idList = ids.toList(growable: false);
     if (idList.isEmpty) return;
     final db = await _dbHelper.db;
+    final cutoff = _dirtyReadCutoff ?? DateTime.now().toIso8601String();
     await db.update(
       table,
       {
@@ -179,8 +192,10 @@ class EggGradingRepository {
         'lastSyncedAt': DateTime.now().toIso8601String(),
         'syncError': null,
       },
-      where: 'id IN (${List.filled(idList.length, '?').join(', ')})',
-      whereArgs: idList,
+      where:
+          'id IN (${List.filled(idList.length, '?').join(', ')}) '
+          'AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      whereArgs: [...idList, cutoff],
     );
   }
 
@@ -196,6 +211,11 @@ class EggGradingRepository {
     );
   }
 
+  /// Upserts by id. Relies on sqflite's `insert` returning `0` for a
+  /// conflicting row under `ConflictAlgorithm.ignore` (no rowid is assigned
+  /// when the insert is skipped), which signals us to fall through to an
+  /// update instead. This is a plain insert-then-update, not
+  /// `INSERT ... ON CONFLICT(id) DO UPDATE`, so it takes two statements.
   Future<void> _upsertById(
     DatabaseExecutor executor,
     String table,

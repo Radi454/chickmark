@@ -122,19 +122,48 @@ void main() {
 
   test('re-saving a sample keeps each count row id stable', () async {
     await save('eq-1', {'dirty': 4});
-    final firstId = (await db.query(
+    final firstRow = (await db.query(
       'egg_quality_defect_counts',
       where: 'eggQualityId = ? AND defectCode = ?',
       whereArgs: ['eq-1', 'dirty'],
-    )).single['id'];
+    )).single;
+    expect(firstRow['id'], 'eq-1:dirty');
 
     await save('eq-1', {'dirty': 9});
-    final secondId = (await db.query(
+    final secondRow = (await db.query(
       'egg_quality_defect_counts',
       where: 'eggQualityId = ? AND defectCode = ?',
       whereArgs: ['eq-1', 'dirty'],
-    )).single['id'];
+    )).single;
 
-    expect(secondId, firstId);
+    // Load-bearing on both axes: the id did not change AND the write
+    // actually landed (a fresh-id-per-save bug can make an ignored insert
+    // leave the old id in place while silently failing to update the count).
+    expect(secondRow['id'], firstRow['id']);
+    expect(secondRow['id'], 'eq-1:dirty');
+    expect(secondRow['count'], 9);
+  });
+
+  test('markRowsSynced does not clear dirtyAt for an edit that landed after the dirty read', () async {
+    await save('eq-1', {'dirty': 4});
+    final rows = await db.query('egg_quality_defect_counts');
+    final id = rows.single['id'] as String;
+
+    final dirtyRows = await repository.getDirtyRows();
+    expect(dirtyRows, hasLength(1));
+
+    // Simulate an edit landing between the dirty read and the sync ack.
+    await save('eq-1', {'dirty': 7});
+
+    await repository.markRowsSynced([id]);
+
+    final row = (await db.query(
+      'egg_quality_defect_counts',
+      where: 'id = ?',
+      whereArgs: [id],
+    )).single;
+    expect(row['syncStatus'], 'pending');
+    expect(row['dirtyAt'], isNotNull);
+    expect(row['count'], 7);
   });
 }

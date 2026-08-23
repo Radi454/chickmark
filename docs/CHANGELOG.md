@@ -1,5 +1,14 @@
 # ChickMark Change Log
 
+- 2026-08-23: Fixed `EggGradingRepository.markRowsSynced` (review finding
+  F1): it had no `dirtyAt` cutoff guard, unlike the `LabAnalysisRepository`
+  pattern it was modeled on, so an edit landing between a dirty-row push read
+  and its sync ack could get silently marked `synced` and dropped. Added the
+  same cutoff capture in `getDirtyRows` / guard in `markRowsSynced` as
+  `LabAnalysisRepository`. Also stopped `replaceCountsForSample` from
+  rewriting `createdAt` on an existing count row's re-save (only `updatedAt`
+  changes now), and documented the `_upsertById` insert-then-update fallback's
+  reliance on sqflite returning 0 for an ignored conflicting insert.
 - 2026-08-23: Added `EggGradingRepository`
   (`lib/data/repositories/egg_grading_repository.dart`), the read/write layer
   over `egg_quality_defect_counts` for per-sample defect counts. Not yet
