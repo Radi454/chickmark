@@ -1,5 +1,12 @@
 # ChickMark Change Log
 
+- 2026-08-23: The Supabase cloud mirror now has the seven panel sample/domain
+  metadata columns (`sample_mode`, `scope_type`, `sample_label`,
+  `sample_index`, `source_domain`, `action_domain`, `recommendation_target`)
+  on all nine panel tables, matching the local v61 SQLite columns. Additive
+  and nullable — no data migration, no destructive change. This must land
+  before any client writes those columns, otherwise PostgREST would reject
+  the whole upload batch for that table.
 - 2026-08-23: Panel tables now record what each saved row represents
   (`sampleMode`, `scopeType`, `sampleLabel`, `sampleIndex`) and which side of
   the operation owns it (`sourceDomain`, `actionDomain`,

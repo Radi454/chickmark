@@ -3173,6 +3173,14 @@ fields for that panel, storage/BMK context fields (`storagePeriodDays`,
 `scopeType`, `sampleLabel`, `sampleIndex`, `sourceDomain`, `actionDomain`,
 `recommendationTarget` — all nullable, unread as of schema v61),
 panel-specific measurement and calculated summary fields, and sync fields.
+The seven panel sample/domain metadata columns are also mirrored on every
+Supabase panel table (`egg_storage`, `egg_quality`, `chick_quality`,
+`chick_weights`, `fresh_egg_breakout`, `candled_egg_breakout`,
+`residue_breakout`, `setter_optimizing`, `hatcher_optimizing`) under their
+snake_case names (`sample_mode`, `scope_type`, `sample_label`, `sample_index`,
+`source_domain`, `action_domain`, `recommendation_target`), added additively
+and nullable so upsert batches from clients that do not yet write these
+columns are unaffected.
 Egg, chick, and breakout panel hierarchy can include `house`,
 `setter`, `hatcher`, `trolley`, `tray`, and `position`; `setter_optimizing`
 uses only `setter`, `trolley`, and `tray`; `hatcher_optimizing` uses only
