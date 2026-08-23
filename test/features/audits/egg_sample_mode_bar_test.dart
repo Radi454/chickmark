@@ -91,8 +91,9 @@ void main() {
 
     expect(find.widgetWithText(ChoiceChip, 'Pooled'), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, 'Compare by house'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Compare by tray'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'Compare by trolley'), findsNothing);
+    // Exactly these two chips exist in the Sample mode bar row -- no other
+    // comparison-scope options (tray, trolley, machine, ...) are offered.
+    expect(find.byType(ChoiceChip), findsNWidgets(3));
   });
 
   testWidgets('switching back to pooled asks before discarding houses',
@@ -124,7 +125,7 @@ void main() {
   });
 
   testWidgets(
-      'the mode bar cannot be tapped twice into producing two houses with the same number',
+      'the compare by house chip disables itself once compare mode is active',
       (tester) async {
     await pumpEggStation(tester);
     await tester.tap(find.text('Egg quality'));
@@ -188,5 +189,91 @@ void main() {
       findsOneWidget,
     );
     expect(providerUnderTest.activeStationSample.houseNo, 'H1');
+  });
+
+  Future<void> enterCompareModeWithTwoValuedHouses(
+    WidgetTester tester, {
+    required int house1Value,
+    required int house2Value,
+  }) async {
+    await pumpEggStation(tester);
+    await tester.tap(find.text('Egg quality'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Compare by house'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final houseField = find.byWidgetPredicate(
+      (w) =>
+          w is TextFormField &&
+          (w.key as ValueKey?)?.value.toString().startsWith(
+                'egg-quality-house-',
+              ) ==
+              true,
+    );
+    await tester.enterText(houseField, 'H1');
+    await tester.pump(const Duration(milliseconds: 100));
+    providerUnderTest.updateField('esEggSampleSize', house1Value);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byTooltip('Add house sample'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+      find.byKey(const ValueKey('scope-identity-house')),
+      'H2',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    await tester.pump(const Duration(milliseconds: 300));
+    providerUnderTest.updateField('esEggSampleSize', house2Value);
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  testWidgets(
+      'canceling the pooled-mode confirmation keeps both houses and their values',
+      (tester) async {
+    await enterCompareModeWithTwoValuedHouses(
+      tester,
+      house1Value: 30,
+      house2Value: 55,
+    );
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Pooled'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('will be discarded'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(providerUnderTest.isCompareMode, isTrue);
+    expect(providerUnderTest.stationSamples, hasLength(2));
+    expect(
+      providerUnderTest.stationSamples.map((s) => s.houseNo).toList(),
+      ['H1', 'H2'],
+    );
+    expect(providerUnderTest.drafts, hasLength(2));
+    expect(providerUnderTest.drafts[0].esEggSampleSize, 30);
+    expect(providerUnderTest.drafts[1].esEggSampleSize, 55);
+  });
+
+  testWidgets(
+      'confirming the pooled-mode switch discards house 2 and keeps house 1\'s value',
+      (tester) async {
+    await enterCompareModeWithTwoValuedHouses(
+      tester,
+      house1Value: 30,
+      house2Value: 55,
+    );
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Pooled'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('will be discarded'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Discard and pool'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(providerUnderTest.isCompareMode, isFalse);
+    expect(providerUnderTest.stationSamples, hasLength(1));
+    expect(providerUnderTest.drafts, hasLength(1));
+    expect(providerUnderTest.drafts.single.esEggSampleSize, 30);
   });
 }
