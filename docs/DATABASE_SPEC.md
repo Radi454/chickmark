@@ -762,17 +762,19 @@ Startup sync pushes dirty rows in dependency order:
    `hatchery_agent_audit_events`, `hatchery_daily_records`,
    `agent_intake_sessions`, `agent_intake_turns`, `agent_intake_values`
 7. `audit_sessions`
-8. Panel tables
-9. `govee_daily_captures`
-10. `dashboard_actions`
-11. Lab analysis
-12. Photos
+8. Panel tables (including `egg_quality`)
+9. `egg_quality_defect_counts` (after its `egg_quality` parent)
+10. `govee_daily_captures`
+11. `dashboard_actions`
+12. Lab analysis
+13. Photos
 
 A failed table never aborts the run: its rows are marked failed and retried next
 sync. If `customers` fails, dependent pushes can fail remotely on FK violations
 and retry once customers goes through. That is intended degradation.
 
-Deletes are pushed as tombstones in the reverse of the push order.
+Deletes are pushed as tombstones in the reverse of the push order, including
+`egg_quality_defect_counts` before its `egg_quality` parent.
 
 ### Pull rules
 

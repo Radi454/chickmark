@@ -482,9 +482,9 @@ Station save behavior:
   `lib/features/audits/logic/egg_station_reconstruction.dart`, extracted from
   `_StationFrameState` so it can be exercised directly against raw panel rows
   without a widget tree.
-- As of v62, the data model for visual egg grading exists (catalogue, local
-  schema, and summary/validation logic), and its save/reopen wiring is done —
-  grading UI still lands in a later task. The defect catalogue is `kEggDefectTypes` in
+- As of v62, visual egg grading has its catalogue, local schema,
+  summary/validation logic, per-sample save/reopen wiring, and Egg Quality UI.
+  The defect catalogue is `kEggDefectTypes` in
   `lib/features/audits/models/egg_grading.dart`: 18 fixed defect codes across
   five categories (shell contamination, shell integrity, shell quality, shape
   and size, other), each with a `code`, `name`, `category`, `isReject`,
@@ -511,7 +511,7 @@ Station save behavior:
   column and table shapes.
 - `EggGradingRepository` (`lib/data/repositories/egg_grading_repository.dart`)
   is the read/write layer over `egg_quality_defect_counts`, called from the
-  audit save path (see below); station UI still lands in a later task.
+  audit save path (see below).
   `countsForSample(eggQualityId)` and
   `countsForSession(sessionId)` (the latter keyed by `eggQualityId`) read back
   a `{defectCode: count}` map. `replaceCountsForSample` runs in one
@@ -537,6 +537,10 @@ Station save behavior:
   ack stays `pending` instead of being silently marked synced and dropped —
   the same pattern `LabAnalysisRepository.markRowsSynced` uses. A re-save of
   an existing count row also never touches `createdAt`, only `updatedAt`.
+  On cloud pull, `getRowById` / `upsertRemoteRow` conflict-check the row by
+  its deterministic id and safely normalize Supabase snake_case (and boolean
+  values) back to SQLite camelCase before marking the accepted remote row
+  synced; unknown cloud columns are ignored for upgrade compatibility.
 - Grading is threaded into the draft, save, and reopen paths for every Egg
   Quality sample independently. `AuditModel` carries `esGradingSampleSize`
   (`int?`), `esGradingRejectedCount` (`int?`), and `esGradingDefectsJson`
@@ -3623,14 +3627,19 @@ The Egg Storage dashboard EST evidence card reads photo rows from the synced
 mapped back onto the 9-point dashboard grid after the file is downloaded.
 
 Supabase sync is best effort and offline-first. `StartupSyncService` pushes
-local customers, hatcheries, flocks, audit sessions, panel rows, Govee captures,
-photo work, and tombstones in dependency order, then pulls shared data back into
-local repositories in the same parent-before-child order. Removed legacy tables
-are not pushed or pulled. It keeps newer local session, Govee, and panel rows
-when a pulled remote row has an older or invalid `updatedAt`. Local deletes
+local customers, hatcheries, flocks, audit sessions, panel rows, egg-grading
+defect counts, Govee captures, photo work, and tombstones in dependency order:
+the `egg_quality_defect_counts` child batch follows every panel row (including
+its `egg_quality` parent), and its device-local sync columns are stripped before
+the normal camelCase-to-snake_case Supabase upsert. It pulls the child table
+immediately after panel rows, also on customer-role pull-only devices, and
+counts it in `SupabasePullSummary`. Removed legacy tables are not pushed or
+pulled. It keeps newer local session, Govee, panel, and grading rows when a
+pulled remote row has an older or invalid `updatedAt`. Local deletes
 create `sync_tombstones`; startup sync uploads those tombstones, deletes remote
-rows child-before-parent, marks successful tombstones synced, and applies remote
-tombstones locally so another device reload removes stale rows. Customer deletes
+rows child-before-parent (including grading counts before `egg_quality`), marks
+successful tombstones synced, and applies remote tombstones locally so another
+device reload removes stale rows. Customer deletes
 queue child tombstones for station panel rows, photos, audit sessions, Govee
 captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
 cloud rows even when local SQLite cascade removes the children immediately.

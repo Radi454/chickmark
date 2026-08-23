@@ -104,7 +104,9 @@ class EggGradingRepository {
           'defectCategory': defectType?.category,
           'isReject': defectType == null ? null : (defectType.isReject ? 1 : 0),
           'count': entry.value,
-          'pctOfSample': sampleSize <= 0 ? null : entry.value * 100 / sampleSize,
+          'pctOfSample': sampleSize <= 0
+              ? null
+              : entry.value * 100 / sampleSize,
           'sortOrder': defectType?.sortOrder ?? sortOrder,
           'updatedAt': now,
           'syncStatus': 'pending',
@@ -133,8 +135,7 @@ class EggGradingRepository {
         );
         await txn.delete(
           table,
-          where:
-              'id IN (${List.filled(removedIds.length, '?').join(', ')})',
+          where: 'id IN (${List.filled(removedIds.length, '?').join(', ')})',
           whereArgs: removedIds,
         );
       }
@@ -149,8 +150,7 @@ class EggGradingRepository {
       final rows = await txn.query(
         table,
         columns: ['id'],
-        where:
-            'eggQualityId IN (${List.filled(ids.length, '?').join(', ')})',
+        where: 'eggQualityId IN (${List.filled(ids.length, '?').join(', ')})',
         whereArgs: ids,
       );
       final rowIds = rows.map((row) => row['id']).toList();
@@ -161,8 +161,7 @@ class EggGradingRepository {
       );
       await txn.delete(
         table,
-        where:
-            'eggQualityId IN (${List.filled(ids.length, '?').join(', ')})',
+        where: 'eggQualityId IN (${List.filled(ids.length, '?').join(', ')})',
         whereArgs: ids,
       );
     });
@@ -177,6 +176,50 @@ class EggGradingRepository {
       orderBy: 'dirtyAt ASC',
     );
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  Future<Map<String, dynamic>?> getRowById(String id) async {
+    final db = await _dbHelper.db;
+    final rows = await db.query(table, where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.single);
+  }
+
+  /// Stores a Supabase row as locally synced. Supabase returns snake_case
+  /// columns while SQLite uses camelCase; unknown remote fields are ignored so
+  /// a newer cloud schema cannot prevent otherwise-valid count rows from
+  /// arriving on an older device.
+  Future<void> upsertRemoteRow(Map<String, dynamic> row) async {
+    final db = await _dbHelper.db;
+    final columns = (await db.rawQuery(
+      'PRAGMA table_info($table)',
+    )).map((column) => column['name']?.toString()).whereType<String>().toSet();
+    final normalized = <String, dynamic>{
+      for (final entry in row.entries)
+        _toLocalColumn(entry.key): entry.value is bool
+            ? (entry.value ? 1 : 0)
+            : entry.value,
+    };
+    final synced = <String, dynamic>{
+      ...normalized,
+      'syncStatus': 'synced',
+      'dirtyAt': null,
+      'lastSyncedAt': DateTime.now().toIso8601String(),
+      'syncError': null,
+    };
+    final supported = <String, dynamic>{
+      for (final entry in synced.entries)
+        if (columns.contains(entry.key)) entry.key: entry.value,
+    };
+    if (supported['id'] == null) return;
+    await _upsertById(db, table, supported);
+  }
+
+  static String _toLocalColumn(String column) {
+    return column.replaceAllMapped(
+      RegExp(r'_([a-zA-Z0-9])'),
+      (match) => match.group(1)!.toUpperCase(),
+    );
   }
 
   Future<void> markRowsSynced(Iterable<String> ids) async {

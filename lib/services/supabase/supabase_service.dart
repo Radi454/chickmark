@@ -35,6 +35,7 @@ class SupabasePullSummary {
   final int dashboardActions;
   final int labAnalysisRows;
   final int panelRows;
+  final int eggGradingCounts;
   final int syncTombstones;
 
   const SupabasePullSummary({
@@ -50,6 +51,7 @@ class SupabasePullSummary {
     this.dashboardActions = 0,
     this.labAnalysisRows = 0,
     this.panelRows = 0,
+    this.eggGradingCounts = 0,
     this.syncTombstones = 0,
   });
 
@@ -66,6 +68,7 @@ class SupabasePullSummary {
       dashboardActions +
       labAnalysisRows +
       panelRows +
+      eggGradingCounts +
       syncTombstones;
 
   SupabasePullSummary copyWith({
@@ -81,6 +84,7 @@ class SupabasePullSummary {
     int? dashboardActions,
     int? labAnalysisRows,
     int? panelRows,
+    int? eggGradingCounts,
     int? syncTombstones,
   }) {
     return SupabasePullSummary(
@@ -97,6 +101,7 @@ class SupabasePullSummary {
       dashboardActions: dashboardActions ?? this.dashboardActions,
       labAnalysisRows: labAnalysisRows ?? this.labAnalysisRows,
       panelRows: panelRows ?? this.panelRows,
+      eggGradingCounts: eggGradingCounts ?? this.eggGradingCounts,
       syncTombstones: syncTombstones ?? this.syncTombstones,
     );
   }
@@ -797,6 +802,7 @@ class SupabaseService {
     upsertLabAnalysisRow,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
+    Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     var summary = const SupabasePullSummary();
@@ -903,6 +909,14 @@ class SupabaseService {
           });
         }
         summary = summary.copyWith(panelRows: count);
+      }
+      if (upsertEggGradingCount != null) {
+        summary = summary.copyWith(
+          eggGradingCounts: await pullTable(
+            'egg_quality_defect_counts',
+            upsertEggGradingCount,
+          ),
+        );
       }
       if (upsertSyncTombstone != null) {
         summary = summary.copyWith(

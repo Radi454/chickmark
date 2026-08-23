@@ -1,5 +1,6 @@
 import 'package:mocktail/mocktail.dart';
 
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
@@ -31,6 +32,12 @@ class FakeSupabaseService extends Fake implements SupabaseService {
   /// Every batch handed to [upsertRowsStrict], keyed by table name.
   final Map<String, List<Map<String, dynamic>>> upserts = {};
 
+  /// Every remote delete request, keyed by table name.
+  final Map<String, List<String>> deletes = {};
+
+  /// Pull callback order, so child-table tests can assert FK-safe delivery.
+  final List<String> pulledTables = [];
+
   @override
   Future<bool> refreshAvailability() async => true;
 
@@ -51,7 +58,9 @@ class FakeSupabaseService extends Fake implements SupabaseService {
   }
 
   @override
-  Future<void> deleteRows(String table, List<String> ids) async {}
+  Future<void> deleteRows(String table, List<String> ids) async {
+    deletes.putIfAbsent(table, () => []).addAll(ids);
+  }
 
   @override
   Future<int> pullSyncTombstones({
@@ -74,6 +83,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     upsertLabAnalysisRow,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
+    Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     if (upsertBmkOperationalStandard != null) {
@@ -81,7 +91,28 @@ class FakeSupabaseService extends Fake implements SupabaseService {
         await upsertBmkOperationalStandard(row);
       }
     }
-    return const SupabasePullSummary();
+    var panelRows = 0;
+    if (upsertPanelRow != null) {
+      for (final panel in PanelSampleSchema.panels) {
+        for (final row in _remoteRows[panel.tableName] ?? const []) {
+          pulledTables.add(panel.tableName);
+          await upsertPanelRow(panel.tableName, row);
+          panelRows++;
+        }
+      }
+    }
+    var eggGradingCounts = 0;
+    if (upsertEggGradingCount != null) {
+      for (final row in _remoteRows['egg_quality_defect_counts'] ?? const []) {
+        pulledTables.add('egg_quality_defect_counts');
+        await upsertEggGradingCount(row);
+        eggGradingCounts++;
+      }
+    }
+    return SupabasePullSummary(
+      panelRows: panelRows,
+      eggGradingCounts: eggGradingCounts,
+    );
   }
 
   @override

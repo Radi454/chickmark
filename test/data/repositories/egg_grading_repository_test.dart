@@ -78,7 +78,10 @@ void main() {
     await save('eq-1', {'dirty': 4, 'cracked': 3});
     await save('eq-2', {'wrinkled': 2});
 
-    expect(await repository.countsForSample('eq-1'), {'dirty': 4, 'cracked': 3});
+    expect(await repository.countsForSample('eq-1'), {
+      'dirty': 4,
+      'cracked': 3,
+    });
     expect(await repository.countsForSample('eq-2'), {'wrinkled': 2});
   });
 
@@ -144,26 +147,64 @@ void main() {
     expect(secondRow['count'], 9);
   });
 
-  test('markRowsSynced does not clear dirtyAt for an edit that landed after the dirty read', () async {
-    await save('eq-1', {'dirty': 4});
-    final rows = await db.query('egg_quality_defect_counts');
-    final id = rows.single['id'] as String;
+  test(
+    'markRowsSynced does not clear dirtyAt for an edit that landed after the dirty read',
+    () async {
+      await save('eq-1', {'dirty': 4});
+      final rows = await db.query('egg_quality_defect_counts');
+      final id = rows.single['id'] as String;
 
-    final dirtyRows = await repository.getDirtyRows();
-    expect(dirtyRows, hasLength(1));
+      final dirtyRows = await repository.getDirtyRows();
+      expect(dirtyRows, hasLength(1));
 
-    // Simulate an edit landing between the dirty read and the sync ack.
-    await save('eq-1', {'dirty': 7});
+      // Simulate an edit landing between the dirty read and the sync ack.
+      await save('eq-1', {'dirty': 7});
 
-    await repository.markRowsSynced([id]);
+      await repository.markRowsSynced([id]);
 
-    final row = (await db.query(
-      'egg_quality_defect_counts',
-      where: 'id = ?',
-      whereArgs: [id],
-    )).single;
-    expect(row['syncStatus'], 'pending');
-    expect(row['dirtyAt'], isNotNull);
-    expect(row['count'], 7);
-  });
+      final row = (await db.query(
+        'egg_quality_defect_counts',
+        where: 'id = ?',
+        whereArgs: [id],
+      )).single;
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+      expect(row['count'], 7);
+    },
+  );
+
+  test(
+    'upsertRemoteRow normalizes cloud columns and marks the row synced',
+    () async {
+      await repository.upsertRemoteRow({
+        'id': 'eq-cloud:dirty',
+        'egg_quality_id': 'eq-cloud',
+        'session_id': 'session-cloud',
+        'customer_id': 'customer-cloud',
+        'flock_id': 'flock-cloud',
+        'hatchery_id': 'hatchery-cloud',
+        'date': '2026-08-23',
+        'defect_code': 'dirty',
+        'defect_category': 'shell',
+        'is_reject': true,
+        'count': 4,
+        'pct_of_sample': 4.0,
+        'sort_order': 1,
+        'created_at': '2026-08-23T10:00:00.000Z',
+        'updated_at': '2026-08-23T10:05:00.000Z',
+        'cloud_only_column': 'ignored',
+      });
+
+      final row = (await db.query(
+        'egg_quality_defect_counts',
+        where: 'id = ?',
+        whereArgs: ['eq-cloud:dirty'],
+      )).single;
+      expect(row['eggQualityId'], 'eq-cloud');
+      expect(row['defectCode'], 'dirty');
+      expect(row['pctOfSample'], 4.0);
+      expect(row['syncStatus'], 'synced');
+      expect(row['dirtyAt'], isNull);
+    },
+  );
 }

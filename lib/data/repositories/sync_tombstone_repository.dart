@@ -31,6 +31,10 @@ class SyncTombstoneRepository {
         .map((panel) => panel.tableName)
         .toList();
     return [
+      // `egg_quality_defect_counts` is a child of the egg_quality panel row,
+      // so it must delete before the generated panel-table batch reaches its
+      // parent.
+      'egg_quality_defect_counts',
       ...panels,
       ...PerformanceSyncRepository.deleteOrder,
       ...baseDeleteOrder,

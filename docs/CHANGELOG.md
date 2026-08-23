@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg grading results now sync to the cloud alongside the rest of
+  the audit. Defect-count children upload after their Egg Quality parent, pull
+  on every role including pull-only customer devices, and delete before the
+  parent so pre-existing grading tombstones drain normally.
+
 - 2026-08-23: Egg Quality now has an egg grading section: enter how many eggs
   were inspected and rejected, then the count for each defect, and see the
   acceptable and rejected percentages update live. Because one egg can have

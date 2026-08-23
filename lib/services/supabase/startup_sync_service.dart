@@ -5,6 +5,7 @@ import '../../data/repositories/audit_session_repository.dart';
 import '../../data/repositories/bmk_repository.dart';
 import '../../data/repositories/customer_repository.dart';
 import '../../data/repositories/dashboard_action_repository.dart';
+import '../../data/repositories/egg_grading_repository.dart';
 import '../../data/repositories/flock_repository.dart';
 import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
@@ -119,6 +120,7 @@ class StartupSyncService {
   final AuditSessionRepository _auditSessionRepository;
   final GoveeCaptureRepository _goveeCaptureRepository;
   final PanelSampleRepository _panelSampleRepository;
+  final EggGradingRepository _eggGradingRepository;
   final PerformanceSyncRepository _performanceSyncRepository;
   final SyncTombstoneRepository _syncTombstoneRepository;
   final SyncConflictRepository _syncConflictRepository;
@@ -145,6 +147,7 @@ class StartupSyncService {
     AuditSessionRepository? auditSessionRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
     PanelSampleRepository? panelSampleRepository,
+    EggGradingRepository? eggGradingRepository,
     PerformanceSyncRepository? performanceSyncRepository,
     SyncTombstoneRepository? syncTombstoneRepository,
     SyncConflictRepository? syncConflictRepository,
@@ -169,6 +172,7 @@ class StartupSyncService {
            goveeCaptureRepository ?? GoveeCaptureRepository(),
        _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
+       _eggGradingRepository = eggGradingRepository ?? EggGradingRepository(),
        _performanceSyncRepository =
            performanceSyncRepository ?? PerformanceSyncRepository(),
        _syncTombstoneRepository =
@@ -349,6 +353,11 @@ class StartupSyncService {
     progress(0.52, 'Uploading panel rows');
     pushed += await _pushDirtyPanelRows();
 
+    // The grading counts are children of `egg_quality`, so their parent panel
+    // rows must have reached Supabase before this batch can satisfy its FK.
+    progress(0.54, 'Uploading egg grading');
+    pushed += await _pushDirtyEggGrading();
+
     progress(0.64, 'Uploading Govee captures');
     pushed += await _pushDirtyGoveeCaptures();
 
@@ -504,6 +513,25 @@ class StartupSyncService {
       );
     }
     return pushed;
+  }
+
+  Future<int> _pushDirtyEggGrading() async {
+    final dirty = await _eggGradingRepository.getDirtyRows();
+    if (dirty.isEmpty) return 0;
+    final ids = dirty
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList(growable: false);
+    return _pushBatch(
+      EggGradingRepository.table,
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
+        EggGradingRepository.table,
+        dirty.map(stripSyncMeta).toList(growable: false),
+      ),
+      markSynced: () => _eggGradingRepository.markRowsSynced(ids),
+      markFailed: (error) => _eggGradingRepository.markRowsFailed(ids, error),
+    );
   }
 
   /// Push only dirty Govee captures, marking synced/failed per batch.
@@ -737,6 +765,7 @@ class StartupSyncService {
       upsertLabAnalysisRow: (table, row) =>
           _upsertLabAnalysisWithConflictCheck(table, row),
       upsertPanelRow: (table, row) => _upsertPanelWithConflictCheck(table, row),
+      upsertEggGradingCount: _upsertEggGradingWithConflictCheck,
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
     );
@@ -832,6 +861,19 @@ class StartupSyncService {
       remoteRow,
       getLocal: (id) => _panelSampleRepository.getRowById(table, id),
       upsert: (row) => _panelSampleRepository.upsertPanelRow(table, row),
+    );
+    _countOtherIncoming(result);
+  }
+
+  Future<void> _upsertEggGradingWithConflictCheck(
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_hasPendingLocalDelete(EggGradingRepository.table, remoteRow)) return;
+    final result = await _upsertWithConflictCheck(
+      EggGradingRepository.table,
+      remoteRow,
+      getLocal: _eggGradingRepository.getRowById,
+      upsert: _eggGradingRepository.upsertRemoteRow,
     );
     _countOtherIncoming(result);
   }
