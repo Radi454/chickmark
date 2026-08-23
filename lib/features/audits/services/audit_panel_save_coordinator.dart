@@ -857,6 +857,19 @@ class AuditPanelSaveCoordinator {
     final mode = compareLayer == null
         ? PanelRecord.modePool
         : PanelRecord.modeCompare;
+    final sample = samples.first;
+    final domains = _domainsForPanel(tableName);
+    final metadata = <String, Object?>{
+      'sampleMode': sample.sampleMode,
+      'scopeType': _scopeTypeForPanel(tableName, sample, draft).dbValue,
+      'sampleLabel': sample.sampleLabel,
+      'sampleIndex': sample.sampleIndex,
+      if (domains != null) ...{
+        'sourceDomain': domains.source,
+        'actionDomain': domains.action,
+        'recommendationTarget': domains.target,
+      },
+    };
     return PanelRecord(
       id: '${samples.first.auditSessionId}:$tableName:${draft.id}',
       tableName: tableName,
@@ -872,12 +885,15 @@ class AuditPanelSaveCoordinator {
       mode: mode,
       scopeType: compareLayer ?? SamplingLayer.pool,
       notes: draft.notes,
-      values: panelValuesForDraft(
-        tableName,
-        draft,
-        flockAgeWeeks: _context?.flockAgeWeeks,
-        flockEntryDate: _context?.flockEntryDate,
-      ),
+      values: {
+        ...panelValuesForDraft(
+          tableName,
+          draft,
+          flockAgeWeeks: _context?.flockAgeWeeks,
+          flockEntryDate: _context?.flockEntryDate,
+        ),
+        ...metadata,
+      },
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
     );
@@ -914,8 +930,11 @@ class AuditPanelSaveCoordinator {
         tableName == 'hatcher_optimizing' ||
         scopeType == SamplingLayer.hatcher ||
         scopeType == SamplingLayer.setterHatcher;
+    final rowId = PanelSampleRepository.idKeyedPanelTables.contains(tableName)
+        ? sample.id
+        : '$panelId:${sample.id}';
     return PanelSampleRecord(
-      id: '$panelId:${sample.id}',
+      id: rowId,
       panelId: panelId,
       scopeType: scopeType,
       scopeLabel: scopeLabelForSample(scopeType, sample),
@@ -983,6 +1002,24 @@ class AuditPanelSaveCoordinator {
         contextHatcherId: _context?.hatcherId,
       ),
       _ => false,
+    };
+  }
+
+  /// Which side of the operation a panel's measurement, corrective action, and
+  /// recommendation belong to. Egg storage is measured and fixed inside the
+  /// hatchery; egg quality is measured in the hatchery but caused and fixed at
+  /// the breeder farm, so its recommendations target the farm.
+  ({String source, String action, String target})? _domainsForPanel(
+    String tableName,
+  ) {
+    return switch (tableName) {
+      'egg_storage' => (
+          source: 'hatchery',
+          action: 'hatchery',
+          target: 'hatchery',
+        ),
+      'egg_quality' => (source: 'hatchery', action: 'farm', target: 'farm'),
+      _ => null,
     };
   }
 

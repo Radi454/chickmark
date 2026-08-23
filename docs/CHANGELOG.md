@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Saved egg panel rows now record their sampling mode, scope,
+  label, and order, plus which side of the operation owns the measurement,
+  the fix, and the recommendation.
 - 2026-08-23: Egg Quality's id-first row save now falls through to the
   hierarchy-identity path instead of silently discarding a write if neither
   the insert nor the id-based update matches a row (only reachable with a

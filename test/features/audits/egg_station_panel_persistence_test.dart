@@ -39,6 +39,13 @@ Future<void> _createPanelTable(
     position TEXT,
     storagePeriodDays INTEGER,
     bmkAgeWeeks INTEGER,
+    sampleMode TEXT,
+    scopeType TEXT,
+    sampleLabel TEXT,
+    sampleIndex INTEGER,
+    sourceDomain TEXT,
+    actionDomain TEXT,
+    recommendationTarget TEXT,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -46,9 +53,16 @@ Future<void> _createPanelTable(
     lastSyncedAt TEXT,
     syncError TEXT$extra
   )''');
-  await db.execute(
-    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
-  );
+  // `egg_quality` is id-keyed (see `PanelSampleSchema.idKeyedPanelTables`):
+  // a comparison row may legitimately share or blank its hierarchy tuple, so
+  // the real schema (`database_schema.dart`, since v61) never creates this
+  // unique index for it. Mirror that here so the two comparison rows in the
+  // metadata test below don't collide and overwrite each other.
+  if (!PanelSampleSchema.idKeyedPanelTables.contains(tableName)) {
+    await db.execute(
+      "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+    );
+  }
 }
 
 void main() {
@@ -482,4 +496,51 @@ void main() {
       expect(afterRemoval.last['eggWeightsJson'], jsonEncode([52.0]));
     },
   );
+
+  test('saved egg_quality rows carry explicit sample and domain metadata',
+      () async {
+    provider.updateField('esEggSampleSize', 12);
+    // The first call to addEggQualityScopeSample only switches the existing
+    // single sample into comparison mode (see AuditProvider
+    // .addEggQualityScopeSample: it returns immediately after
+    // setStationSampleMode when not already comparing). A second call is
+    // needed to actually add a distinct second house-scoped sample, matching
+    // how the neighbouring 'comparison Egg station save...' test above
+    // builds its two-sample scenario via setStationSampleMode + addSample.
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': 'H4', 'houseLabel': 'House 4'});
+    provider.updateField('esEggSampleSize', 34);
+    await provider.saveSamplesWithResult(tabIndex: 0);
+
+    final saved = await db.query('egg_quality', orderBy: 'sampleIndex ASC');
+    expect(saved, hasLength(2));
+    expect(saved.map((r) => r['sampleMode']),
+        ['comparison', 'comparison']);
+    expect(saved.map((r) => r['scopeType']), ['house', 'house']);
+    expect(saved.map((r) => r['sampleIndex']), [1, 2]);
+    expect(saved.last['sampleLabel'], 'H4');
+    for (final row in saved) {
+      expect(row['sourceDomain'], 'hatchery');
+      expect(row['actionDomain'], 'farm');
+      expect(row['recommendationTarget'], 'farm');
+    }
+
+    final storage = await db.query('egg_storage');
+    for (final row in storage) {
+      expect(row['sampleMode'], 'pooled');
+      expect(row['scopeType'], 'pool');
+      expect(row['sourceDomain'], 'hatchery');
+      expect(row['actionDomain'], 'hatchery');
+      expect(row['recommendationTarget'], 'hatchery');
+    }
+  });
+
+  test('egg_quality row id is the station sample id', () async {
+    provider.updateField('esEggSampleSize', 12);
+    await provider.saveSamplesWithResult(tabIndex: 0);
+
+    final saved = await db.query('egg_quality');
+    expect(saved.single['id'], provider.activeStationSample.id);
+  });
 }

@@ -453,6 +453,17 @@ Station save behavior:
   (only reachable if a stale hierarchy unique index survives from a pre-v61
   database), the save falls through to the same hierarchy-identity path the
   other panels use rather than silently discarding the row.
+- Every saved panel row now writes its sampling metadata explicitly instead of
+  leaving it to be re-inferred from the hierarchy columns on reopen: the row's
+  `sampleMode` (`pooled`/`comparison`), `scopeType` (the `SamplingLayer` the
+  row is scoped to), `sampleLabel`, and `sampleIndex` are all persisted. Egg
+  station rows also record which side of the operation owns the measurement,
+  the corrective action, and the recommendation, via `sourceDomain` /
+  `actionDomain` / `recommendationTarget`: `egg_storage` is measured and fixed
+  inside the hatchery (all three `hatchery`), while `egg_quality` is measured
+  in the hatchery but caused and fixed at the breeder farm (`sourceDomain`
+  `hatchery`, `actionDomain`/`recommendationTarget` `farm`). Other panel tables
+  do not yet set these three domain columns.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
