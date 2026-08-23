@@ -509,6 +509,27 @@ Station save behavior:
   written back onto the owning `egg_quality` row as a fast dashboard summary;
   see `docs/DATABASE_SPEC.md`'s "Egg Grading Tables" section for the full
   column and table shapes.
+- `EggGradingRepository` (`lib/data/repositories/egg_grading_repository.dart`)
+  is the read/write layer over `egg_quality_defect_counts`; no station UI
+  calls it yet. `countsForSample(eggQualityId)` and
+  `countsForSession(sessionId)` (the latter keyed by `eggQualityId`) read back
+  a `{defectCode: count}` map. `replaceCountsForSample` runs in one
+  transaction: it upserts every positive count under the deterministic id
+  `'$eggQualityId:$defectCode'` — **an existing count row for that pair keeps
+  its id across re-saves, it is never re-minted** — then queues a sync
+  tombstone via `SyncTombstoneRepository.queueDeletesWithExecutor` and deletes
+  every row for a defect code that is no longer present. This matters because
+  cloud `ON DELETE CASCADE` only covers deleting the whole parent sample; an
+  auditor removing a single defect code has no other cloud-side signal, and
+  because the table also carries `unique (eggQualityId, defectCode)`, a
+  re-minted id on an existing pair would make PostgREST reject the whole sync
+  batch. `pctOfSample` is `count * 100 / sampleSize` (null when
+  `sampleSize <= 0`), and `defectCategory`/`isReject` are copied from
+  `eggDefectTypeForCode` at write time so a later catalogue edit cannot rewrite
+  history. `deleteCountsForSamples` does the same tombstone-then-delete for
+  every row under the given `eggQualityId`s. `getDirtyRows`/`markRowsSynced`/
+  `markRowsFailed` follow the same pending/failed sync-status convention as
+  the other per-row dirty-tracked repositories.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit

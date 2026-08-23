@@ -1,5 +1,16 @@
 # ChickMark Change Log
 
+- 2026-08-23: Added `EggGradingRepository`
+  (`lib/data/repositories/egg_grading_repository.dart`), the read/write layer
+  over `egg_quality_defect_counts` for per-sample defect counts. Not yet
+  wired into any station UI. `replaceCountsForSample` keeps a count row's
+  existing id stable across re-saves of the same `(eggQualityId, defectCode)`
+  pair instead of re-minting one, because the table's `unique
+  (eggQualityId, defectCode)` constraint would make PostgREST reject a
+  cloud-sync batch that upserted a fresh id onto an existing pair. Removing a
+  defect code queues a `SyncTombstoneRepository` tombstone before deleting the
+  row, since cloud `ON DELETE CASCADE` only fires on whole-sample deletion,
+  not on an auditor dropping a single defect code from a still-live sample.
 - 2026-08-23: Fixed the egg-grading schema (v62) surgical-repair gap:
   `_surgicalSchemaRepair` listed `egg_defect_types` and
   `egg_quality_defect_counts` in `_criticalTables` but never actually recreated
