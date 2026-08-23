@@ -25,11 +25,11 @@ void main() {
   });
 
   test(
-    'fresh v61 database preserves the performance monitoring contract',
+    'fresh v62 database preserves the performance monitoring contract',
     () async {
       final db = await DatabaseHelper().db;
 
-      expect(await _userVersion(db), 61);
+      expect(await _userVersion(db), 62);
       expect(
         await _tableNames(db),
         containsAll(const <String>[

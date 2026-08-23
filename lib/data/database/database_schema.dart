@@ -542,6 +542,65 @@ Future<void> _createDashboardActionTable(DatabaseExecutor db) async {
   );
 }
 
+Future<void> createEggGradingTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS egg_defect_types (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    isReject INTEGER NOT NULL DEFAULT 1,
+    description TEXT,
+    imageAsset TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    isActive INTEGER NOT NULL DEFAULT 1,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )''');
+
+  await db.execute('''CREATE TABLE IF NOT EXISTS egg_quality_defect_counts (
+    id TEXT PRIMARY KEY,
+    eggQualityId TEXT NOT NULL,
+    sessionId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT,
+    hatcheryId TEXT,
+    date TEXT NOT NULL,
+    scopeType TEXT,
+    houseKey TEXT,
+    sampleLabel TEXT,
+    defectCode TEXT NOT NULL,
+    defectCategory TEXT,
+    isReject INTEGER,
+    count INTEGER NOT NULL DEFAULT 0,
+    pctOfSample REAL,
+    notes TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (eggQualityId) REFERENCES egg_quality(id) ON DELETE CASCADE
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_eqdc_unique_defect '
+    'ON egg_quality_defect_counts (eggQualityId, defectCode)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_eqdc_parent '
+    'ON egg_quality_defect_counts (eggQualityId)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_eqdc_dashboard '
+    'ON egg_quality_defect_counts (customerId, flockId, date, defectCode)',
+  );
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_eqdc_sync '
+    'ON egg_quality_defect_counts (syncStatus, dirtyAt)',
+  );
+}
+
 Future<void> _createLabAnalysisTables(DatabaseExecutor db) async {
   await db.execute('''CREATE TABLE IF NOT EXISTS lab_analysis_reports (
     id TEXT PRIMARY KEY,

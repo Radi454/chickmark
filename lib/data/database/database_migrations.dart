@@ -647,6 +647,15 @@ Future<void> _applyV61Upgrade(Database db) async {
   await ensurePanelSampleSchemaColumns(db);
 }
 
+/// v62 adds visual egg grading: summary columns on the egg_quality panel
+/// (handled by the panel reconciliation pass), plus the defect catalogue and
+/// the per-sample defect-count child table.
+Future<void> _applyV62Upgrade(Database db) async {
+  await createEggGradingTables(db);
+  await seedEggDefectTypes(db);
+  await ensurePanelSampleSchemaColumns(db);
+}
+
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
   for (final table in const [
     'agent_conversations',

@@ -7,6 +7,7 @@ import '../models/panel_sample_schema.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
 import 'seeds/dashboard_demo_seeds.dart';
 import 'seeds/dummy_data_seeds.dart';
+import 'seeds/egg_defect_type_seeds.dart';
 import 'seeds/troubleshooting_seeds.dart';
 
 part 'database_schema.dart';
@@ -44,7 +45,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 61,
+      version: 62,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -105,6 +106,7 @@ class DatabaseHelper {
     await _createHatcheryAgentTables(db);
     await _createAgentIntakeTables(db);
     await _createUnifiedAgentHarnessTables(db);
+    await createEggGradingTables(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -137,6 +139,7 @@ class DatabaseHelper {
     await _backfillEggBreakoutAliases(db);
     await _backfillOperationalBmkSeedSources(db);
     await _seedTroubleshooting(db);
+    await seedEggDefectTypes(db);
     await _ensureDummyTestData(db);
   }
 
@@ -186,6 +189,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 61) {
       await _applyV61Upgrade(db);
+    }
+    if (oldVersion < 62) {
+      await _applyV62Upgrade(db);
     }
   }
 
@@ -244,6 +250,8 @@ class DatabaseHelper {
     'agent_conversation_turns',
     'agent_tool_events',
     'agent_intake_visits',
+    'egg_defect_types',
+    'egg_quality_defect_counts',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -455,6 +463,42 @@ class DatabaseHelper {
       "sensitivityCategory TEXT NOT NULL DEFAULT ''",
       "interpretation TEXT NOT NULL DEFAULT ''",
       "severity TEXT NOT NULL DEFAULT 'normal'",
+      'sortOrder INTEGER NOT NULL DEFAULT 0',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'egg_defect_types': [
+      'code TEXT NOT NULL UNIQUE',
+      'name TEXT NOT NULL',
+      'category TEXT NOT NULL',
+      'isReject INTEGER NOT NULL DEFAULT 1',
+      'description TEXT',
+      'imageAsset TEXT',
+      'sortOrder INTEGER NOT NULL DEFAULT 0',
+      'isActive INTEGER NOT NULL DEFAULT 1',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+    ],
+    'egg_quality_defect_counts': [
+      'eggQualityId TEXT NOT NULL',
+      'sessionId TEXT NOT NULL',
+      'customerId TEXT NOT NULL',
+      'flockId TEXT',
+      'hatcheryId TEXT',
+      'date TEXT NOT NULL',
+      'scopeType TEXT',
+      'houseKey TEXT',
+      'sampleLabel TEXT',
+      'defectCode TEXT NOT NULL',
+      'defectCategory TEXT',
+      'isReject INTEGER',
+      'count INTEGER NOT NULL DEFAULT 0',
+      'pctOfSample REAL',
+      'notes TEXT',
       'sortOrder INTEGER NOT NULL DEFAULT 0',
       'createdAt TEXT NOT NULL',
       'updatedAt TEXT NOT NULL',
@@ -951,6 +995,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV61UpgradeForTest(Database db) => _applyV61Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV62UpgradeForTest(Database db) => _applyV62Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

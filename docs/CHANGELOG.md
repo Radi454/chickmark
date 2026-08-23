@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Added the egg-defect catalogue and per-sample defect-count
+  storage behind the Egg Quality station, plus grading summary fields on the
+  egg quality panel. Schema version 62.
 - 2026-08-23: Tightened `egg_quality_defect_counts` row-level security.
   It launched with a blanket "any signed-in user can read/write any
   tenant's rows" policy; it now uses the same per-customer read/write

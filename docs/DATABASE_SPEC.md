@@ -23,7 +23,7 @@ Old generated specs are intentionally not used.
 ## Runtime
 
 - Engine: SQLite through `sqflite`. Database file: `hatchaudit.db`.
-- Current schema version: `61`.
+- Current schema version: `62`.
 - Columns are camelCase locally. The Supabase mirror is snake_case; conversion
   happens at the sync boundary, not in the repositories.
 - Local-first: SQLite is the operational source. Supabase mirrors it.
@@ -41,7 +41,7 @@ Old generated specs are intentionally not used.
 
 | Layer | Contents |
 | --- | --- |
-| SQLite (device) | 61 tables, camelCase, offline source of truth |
+| SQLite (device) | 63 tables, camelCase, offline source of truth |
 | Supabase Postgres | same graph, snake_case, RLS scoped per customer |
 | Supabase Edge functions | `telegram-hatchery-agent`, `app-hatchery-agent`, `approve-agent-intake`, `create-customer-account`, `reset-customer-password` |
 
@@ -287,6 +287,16 @@ Calculated/dashboard: `uvCuticleDamagePct`, `uvWashedPct`, `uvDirtyPct`,
 `uvAffectedCount`, `uvAffectedPct`, `eggAvgWeight`, `eggUniformityPct`,
 `eggCvPct`, `eggBmkAgeWeeks`, `eggBmkWeight`.
 
+As of v62, `egg_quality` also carries eight nullable visual-grading summary
+columns, derived from the sample's rows in `egg_quality_defect_counts` (see
+below) and written back onto the parent for fast dashboard reads:
+`gradingSampleSize`, `gradingRejectedCount`, `gradingAcceptableCount`,
+`gradingRejectedPct`, `gradingAcceptablePct`, `gradingDefectsJson`,
+`gradingTopDefectCode`, `gradingTopDefectPct`. One egg may carry several
+defects, so there is deliberately no constraint tying the sum of per-defect
+counts to `gradingSampleSize`; `gradingAcceptableCount` is simply
+`gradingSampleSize - gradingRejectedCount`.
+
 ### `chick_quality`
 
 UI fields: Pasgar, YFBM, Chick Vent Temperature, PM Necropsy, Culled Chicks
@@ -375,6 +385,47 @@ User-entered or captured: `setpointF`, `setpointRh`, `incubationAgeDays`,
 Calculated/dashboard: `cvtSampleSize`, `cvtAvg`, `cvtCvPct`.
 
 Hatcher temperatures are recorded in °F.
+
+## Egg Grading Tables
+
+v62 adds visual egg grading, built on the `egg_quality` sample identity
+(`PanelSampleSchema.idKeyedPanelTables`). Not panel tables themselves — plain
+tables outside `PanelSampleSchema.panels`, so they are not reconciled by the
+panel column pass and are registered directly in `_criticalTables` /
+`_criticalColumns` instead.
+
+### `egg_defect_types`
+
+The defect catalogue, seeded from the Dart source of truth
+(`kEggDefectTypes` in `lib/features/audits/models/egg_grading.dart`) by
+`seedEggDefectTypes` on create and on the v62 upgrade hop. Reseeding is
+idempotent (`ConflictAlgorithm.replace` keyed by `id = 'egg-defect-<code>'`)
+and never removes a code, because saved defect counts join on `code`.
+
+Columns: `id`, `code` (unique), `name`, `category`, `isReject`,
+`description`, `imageAsset`, `sortOrder`, `isActive`, `createdAt`,
+`updatedAt`.
+
+### `egg_quality_defect_counts`
+
+One row per defect code observed on an `egg_quality` sample — a child table
+keyed by `(eggQualityId, defectCode)` (enforced by a unique index), with
+`ON DELETE CASCADE` from `egg_quality`. **One egg may carry several
+defects**, so `count` is an occurrence count, not a per-egg exclusive
+bucket: there is deliberately no constraint tying `SUM(count)` to the
+sample's `gradingSampleSize`. The auditor enters `gradingRejectedCount`
+directly; acceptable eggs are `gradingSampleSize - gradingRejectedCount`.
+
+Columns: `id`, `eggQualityId`, `sessionId`, `customerId`, `flockId`,
+`hatcheryId`, `date`, `scopeType`, `houseKey`, `sampleLabel`, `defectCode`,
+`defectCategory`, `isReject`, `count`, `pctOfSample`, `notes`, `sortOrder`,
+`createdAt`, `updatedAt`, plus the standard sync columns (`syncStatus`,
+`dirtyAt`, `lastSyncedAt`, `syncError`, all local-only and stripped before
+upload).
+
+Local camelCase columns snake_case onto the cloud `egg_quality_defect_counts`
+table 1:1 (`supabase/migrations/20260823100000_egg_grading.sql`), except the
+four local-only sync columns, which the cloud mirror does not carry.
 
 ## Scope Support By Panel
 

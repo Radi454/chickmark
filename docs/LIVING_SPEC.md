@@ -482,6 +482,33 @@ Station save behavior:
   `lib/features/audits/logic/egg_station_reconstruction.dart`, extracted from
   `_StationFrameState` so it can be exercised directly against raw panel rows
   without a widget tree.
+- As of v62, the data model for visual egg grading exists (catalogue, local
+  schema, and summary/validation logic; no station UI wiring yet — that lands
+  in later tasks). The defect catalogue is `kEggDefectTypes` in
+  `lib/features/audits/models/egg_grading.dart`: 18 fixed defect codes across
+  five categories (shell contamination, shell integrity, shell quality, shape
+  and size, other), each with a `code`, `name`, `category`, `isReject`,
+  `description`, and `sortOrder`. It is seeded into the `egg_defect_types`
+  table on create and on every upgrade past v62 by `seedEggDefectTypes`, and
+  is the single source of truth other layers join against by `code`.
+  **One egg may carry several defects.** Per-defect occurrence counts for one
+  `egg_quality` sample live in `egg_quality_defect_counts`, one row per
+  `(eggQualityId, defectCode)`, cascading from its parent. The rejected count
+  is entered directly by the auditor rather than derived from the defect
+  counts; acceptable count is `sampleSize - rejectedCount`. There is
+  deliberately no constraint — in SQL or in `EggGradingValidation` — tying
+  `SUM(defect counts)` to the sample size, because defects are not mutually
+  exclusive per egg. `EggGradingValidation.validate` only rejects negative
+  counts, a per-defect count above the sample size, and a rejected count
+  above the sample size. `EggGradingSummary` derives `acceptableCount`,
+  `rejectedPct`, `acceptablePct`, and the top defect (by count) from a raw
+  counts map, and round-trips its non-zero counts through a JSON array
+  (`encodedJson` / `fromJson`) that also carries each defect's resolved name,
+  category, and reject flag for display without a catalogue join. The eight
+  derived fields (`gradingSampleSize` through `gradingTopDefectPct`) are
+  written back onto the owning `egg_quality` row as a fast dashboard summary;
+  see `docs/DATABASE_SPEC.md`'s "Egg Grading Tables" section for the full
+  column and table shapes.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
