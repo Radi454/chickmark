@@ -472,7 +472,7 @@ class DatabaseHelper {
       'syncError TEXT',
     ],
     'egg_defect_types': [
-      'code TEXT NOT NULL UNIQUE',
+      'code TEXT NOT NULL',
       'name TEXT NOT NULL',
       'category TEXT NOT NULL',
       'isReject INTEGER NOT NULL DEFAULT 1',
@@ -720,6 +720,7 @@ class DatabaseHelper {
     await _createHatcheryAgentTables(db);
     await _createAgentIntakeTables(db);
     await _createUnifiedAgentHarnessTables(db);
+    await createEggGradingTables(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -743,6 +744,10 @@ class DatabaseHelper {
     if (missingTables.contains('troubleshooting')) {
       await _seedTroubleshooting(db);
       report.add('reseeded troubleshooting');
+    }
+    if (missingTables.contains('egg_defect_types')) {
+      await seedEggDefectTypes(db);
+      report.add('reseeded egg defect catalogue');
     }
 
     if (report.isNotEmpty) {

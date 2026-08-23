@@ -1,5 +1,16 @@
 # ChickMark Change Log
 
+- 2026-08-23: Fixed the egg-grading schema (v62) surgical-repair gap:
+  `_surgicalSchemaRepair` listed `egg_defect_types` and
+  `egg_quality_defect_counts` in `_criticalTables` but never actually recreated
+  them, so a dropped/missing pair stayed missing on every reopen while the
+  repair log falsely claimed "tables restored". `createEggGradingTables` is now
+  called from the repair pass's table-creation step, and the catalogue is
+  reseeded when `egg_defect_types` was missing. Also dropped `UNIQUE` from the
+  `code` column's `_criticalColumns` repair definition (kept in the `CREATE
+  TABLE` DDL) — SQLite rejects `ALTER TABLE ... ADD COLUMN ... UNIQUE`, so with
+  the first fix in place a database missing just that column would otherwise
+  throw out of `onOpen`.
 - 2026-08-23: Added the egg-defect catalogue and per-sample defect-count
   storage behind the Egg Quality station, plus grading summary fields on the
   egg quality panel. Schema version 62.

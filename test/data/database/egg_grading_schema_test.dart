@@ -101,4 +101,71 @@ void main() {
     final db = await DatabaseHelper().db;
     expect(await db.getVersion(), 62);
   });
+
+  test(
+    'surgical repair restores both grading tables and reseeds the catalogue',
+    () async {
+      var db = await DatabaseHelper().db;
+      // Sanity: the tables exist before we start dropping them.
+      expect(await db.query('egg_defect_types'), isNotEmpty);
+
+      await db.execute('DROP TABLE egg_defect_types');
+      await db.execute('DROP TABLE egg_quality_defect_counts');
+      await DatabaseHelper().close();
+
+      db = await DatabaseHelper().db;
+
+      final tables = (await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name IN ('egg_defect_types', 'egg_quality_defect_counts')",
+      )).map((row) => row['name'] as String).toSet();
+      expect(
+        tables,
+        {'egg_defect_types', 'egg_quality_defect_counts'},
+        reason: 'both tables must be restored by the repair pass, not just '
+            'logged as restored',
+      );
+
+      final seeded = await db.query('egg_defect_types');
+      expect(
+        seeded.map((row) => row['code']).toSet(),
+        kEggDefectTypes.map((d) => d.code).toSet(),
+        reason: 'repair must reseed the catalogue, not leave it empty',
+      );
+      expect(seeded, hasLength(kEggDefectTypes.length));
+    },
+  );
+
+  test(
+    'database opens cleanly when egg_defect_types is missing its code column',
+    () async {
+      var db = await DatabaseHelper().db;
+      await db.execute('DROP TABLE egg_defect_types');
+      // Recreate a drifted shape missing `code` entirely, so the repair pass
+      // has to ALTER TABLE ADD COLUMN it back in via _criticalColumns. If the
+      // critical-column definition still carried UNIQUE, SQLite would throw
+      // "Cannot add a UNIQUE column" here and onOpen would fail outright.
+      await db.execute('''CREATE TABLE egg_defect_types (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )''');
+      await db.insert('egg_defect_types', {
+        'id': 'egg-defect-dirty',
+        'name': 'Dirty',
+        'createdAt': '2026-08-23T00:00:00.000Z',
+        'updatedAt': '2026-08-23T00:00:00.000Z',
+      });
+      await DatabaseHelper().close();
+
+      // Must not throw out of onOpen.
+      db = await DatabaseHelper().db;
+
+      final columns = (await db.rawQuery('PRAGMA table_info(egg_defect_types)'))
+          .map((row) => row['name'] as String)
+          .toSet();
+      expect(columns, contains('code'));
+    },
+  );
 }

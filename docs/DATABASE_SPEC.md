@@ -398,13 +398,19 @@ panel column pass and are registered directly in `_criticalTables` /
 
 The defect catalogue, seeded from the Dart source of truth
 (`kEggDefectTypes` in `lib/features/audits/models/egg_grading.dart`) by
-`seedEggDefectTypes` on create and on the v62 upgrade hop. Reseeding is
+`seedEggDefectTypes` on create, on the v62 upgrade hop, and again by
+`_surgicalSchemaRepair` whenever the table is found missing (Step 2 creates
+it via `createEggGradingTables`, Step 4 reseeds it — the same
+missing-table-triggers-reseed pattern `troubleshooting` uses). Reseeding is
 idempotent (`ConflictAlgorithm.replace` keyed by `id = 'egg-defect-<code>'`)
 and never removes a code, because saved defect counts join on `code`.
 
-Columns: `id`, `code` (unique), `name`, `category`, `isReject`,
-`description`, `imageAsset`, `sortOrder`, `isActive`, `createdAt`,
-`updatedAt`.
+Columns: `id`, `code` (unique in the `CREATE TABLE` DDL only — the
+`_criticalColumns` repair definition omits `UNIQUE`, since SQLite rejects
+`ALTER TABLE ... ADD COLUMN` with a `UNIQUE` constraint; a table that already
+exists but is missing `code` gets it back as a plain column, not
+re-uniqued), `name`, `category`, `isReject`, `description`, `imageAsset`,
+`sortOrder`, `isActive`, `createdAt`, `updatedAt`.
 
 ### `egg_quality_defect_counts`
 
