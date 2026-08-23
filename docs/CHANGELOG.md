@@ -1,5 +1,13 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg Quality's id-first row save now falls through to the
+  hierarchy-identity path instead of silently discarding a write if neither
+  the insert nor the id-based update matches a row (only reachable with a
+  stale pre-v61 unique index). Added schema-level regression coverage
+  (`test/data/database/panel_row_identity_schema_test.dart`) asserting the
+  hierarchy unique index is absent for Egg Quality on both a fresh database
+  and after upgrading a database that still had it, while other panels keep
+  theirs.
 - 2026-08-23: Egg Quality panel rows are now identified by their own row id
   instead of by their house/setter/hatcher values. Two comparison rows with a
   blank or repeated house no longer overwrite each other.

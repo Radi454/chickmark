@@ -554,13 +554,19 @@ class PanelSampleRepository {
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
       if (inserted != 0) return;
-      await executor.update(
+      final updatedById = await executor.update(
         table,
         filtered,
         where: 'id = ?',
         whereArgs: [rowId],
       );
-      return;
+      if (updatedById != 0) return;
+      // The insert was ignored (a conflict happened) but no row exists with
+      // this id to update either. This should be unreachable for an
+      // id-keyed table under the current schema (no hierarchy unique index
+      // remains to collide on), but if a stale index somehow lingers, fall
+      // through to the shared hierarchy path below rather than silently
+      // discarding the write.
     }
     final inserted = await executor.insert(
       table,

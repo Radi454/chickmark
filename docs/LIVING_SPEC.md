@@ -448,7 +448,11 @@ Station save behavior:
   `egg_quality` is the one exception: as of v61 its row identity is its own
   row `id`, not the hierarchy tuple, so two comparison rows with a blank or
   repeated `house` stay separate instead of overwriting each other. It carries
-  no hierarchy unique index and no hierarchy-identity merge/update path.
+  no hierarchy unique index and no hierarchy-identity merge/update path. If a
+  write for an `egg_quality` row somehow neither inserts nor updates by `id`
+  (only reachable if a stale hierarchy unique index survives from a pre-v61
+  database), the save falls through to the same hierarchy-identity path the
+  other panels use rather than silently discarding the row.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
