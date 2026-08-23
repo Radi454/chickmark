@@ -12,6 +12,7 @@ import '../../../data/models/user_model.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
+import '../../../data/repositories/egg_grading_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
@@ -19,6 +20,7 @@ import '../../../services/notifications/notification_service.dart';
 import '../../../services/supabase/supabase_service.dart';
 import '../models/audit_context.dart';
 import '../models/egg_breakout_tray_rollup.dart';
+import '../models/egg_grading.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/residue_batch_metrics.dart';
 import '../models/station_completion_validation.dart';
@@ -38,6 +40,7 @@ class AuditProvider extends ChangeNotifier {
     ActivityLogRepository? activityLogRepository,
     BenchmarkLookup? benchmarkLookup,
     SupabaseService? supabaseService,
+    EggGradingRepository? eggGradingRepository,
     Duration autosaveDebounceDuration = defaultAutosaveDebounceDuration,
     bool autosaveEnabled = true,
   }) : _panelSampleRepository =
@@ -54,6 +57,7 @@ class AuditProvider extends ChangeNotifier {
       activeSessionId: () => _activeSessionId,
       stationSamples: () => _stationSamples,
       chickWeightSamples: () => _chickWeightSamples,
+      eggGradingRepository: eggGradingRepository,
     );
   }
 
@@ -354,6 +358,32 @@ class AuditProvider extends ChangeNotifier {
     if (_isReadOnly) return;
 
     updateHatchField(_activeHatchIndex, key, value);
+  }
+
+  /// Grading counts for the active sample. Held on the draft as JSON, which is
+  /// already per-sample, so switching houses cannot move them.
+  Map<String, int> get activeGradingCounts {
+    return EggGradingSummary.fromJson(
+      activeDraft.esGradingDefectsJson,
+      sampleSize: activeDraft.esGradingSampleSize ?? 0,
+      rejectedCount: activeDraft.esGradingRejectedCount ?? 0,
+    ).counts;
+  }
+
+  void updateGradingCounts(Map<String, int> counts) {
+    if (_isReadOnly) return;
+    final summary = EggGradingSummary.fromCounts(
+      sampleSize: activeDraft.esGradingSampleSize ?? 0,
+      rejectedCount: activeDraft.esGradingRejectedCount ?? 0,
+      counts: counts,
+    );
+    final map = activeDraft.toMap()
+      ..['esGradingDefectsJson'] = summary.encodedJson
+      ..['updatedAt'] = DateTime.now().toIso8601String();
+    _drafts[_activeHatchIndex] = AuditModel.fromMap(map);
+    _syncStationSampleFromDraft(_activeHatchIndex);
+    _markDirtyAndScheduleAutosave();
+    notifyListeners();
   }
 
   void updateHatchField(int hatchIndex, String key, dynamic value) {
@@ -1170,7 +1200,8 @@ class AuditProvider extends ChangeNotifier {
     _drafts.removeAt(removedIndex);
     _stationSamples.removeAt(removedIndex);
     _activeHatchIndex = _activeHatchIndex.clamp(0, _drafts.length - 1).toInt();
-    final keepsEggHouseScope = _context?.auditType == 'Egg' &&
+    final keepsEggHouseScope =
+        _context?.auditType == 'Egg' &&
         _stationSamples.any(
           (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
         );

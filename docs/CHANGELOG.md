@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg grading results are saved against the individual Egg Quality
+  sample they were entered on, and come back on the right sample when the
+  audit is reopened. Removing a sample removes its grading with it.
 - 2026-08-23: Fixed `EggGradingRepository.markRowsSynced` (review finding
   F1): it had no `dirtyAt` cutoff guard, unlike the `LabAnalysisRepository`
   pattern it was modeled on, so an edit landing between a dirty-row push read

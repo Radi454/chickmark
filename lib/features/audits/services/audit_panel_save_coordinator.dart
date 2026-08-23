@@ -9,6 +9,7 @@ import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
+import '../../../data/repositories/egg_grading_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
@@ -16,6 +17,7 @@ import '../logic/breakout_value_builders.dart';
 import '../logic/panel_value_builders.dart';
 import '../models/audit_context.dart';
 import '../models/egg_breakout_sample.dart';
+import '../models/egg_grading.dart';
 
 /// One draft paired with the station sample it is being persisted as.
 ///
@@ -72,15 +74,18 @@ class AuditPanelSaveCoordinator {
     required String? Function() activeSessionId,
     required List<StationSampleModel> Function() stationSamples,
     required List<StationSampleModel> Function() chickWeightSamples,
+    EggGradingRepository? eggGradingRepository,
   }) : _panelSampleRepository = panelSampleRepository,
        _benchmarkLookup = benchmarkLookup,
        _readContext = context,
        _readActiveSessionId = activeSessionId,
        _readStationSamples = stationSamples,
-       _readChickWeightSamples = chickWeightSamples;
+       _readChickWeightSamples = chickWeightSamples,
+       _eggGradingRepository = eggGradingRepository ?? EggGradingRepository();
 
   final PanelSampleRepository _panelSampleRepository;
   final BenchmarkLookup _benchmarkLookup;
+  final EggGradingRepository _eggGradingRepository;
   final AuditContext? Function() _readContext;
   final String? Function() _readActiveSessionId;
   final List<StationSampleModel> Function() _readStationSamples;
@@ -190,8 +195,46 @@ class AuditPanelSaveCoordinator {
         await _saveEggBreakoutPanelTable(tableName, draft, sample);
       } else {
         await _savePanelTableWithSamples(tableName, draft, [sample]);
+        if (tableName == 'egg_quality') {
+          await _saveEggGradingForSample(draft, sample);
+        }
       }
     }
+  }
+
+  Future<void> _saveEggGradingForSample(
+    AuditModel draft,
+    StationSampleModel sample,
+  ) async {
+    final summary = EggGradingSummary.fromJson(
+      draft.esGradingDefectsJson,
+      sampleSize: draft.esGradingSampleSize ?? 0,
+      rejectedCount: draft.esGradingRejectedCount ?? 0,
+    );
+    final scopeType = _scopeTypeForPanel('egg_quality', sample, draft);
+    await _eggGradingRepository.replaceCountsForSample(
+      eggQualityId: sample.id,
+      sessionId: sample.auditSessionId,
+      customerId: draft.customerId,
+      flockId: blankToNull(draft.flockId),
+      hatcheryId: blankToNull(_context?.hatcheryId),
+      date: _dateOnly(draft.date),
+      scopeType: scopeType.dbValue,
+      houseKey: blankToNull(sample.houseNo),
+      sampleLabel: sample.sampleLabel,
+      sampleSize: summary.sampleSize,
+      counts: summary.counts,
+    );
+  }
+
+  /// Mirrors `PanelRecord`'s private date-only formatting (`_dateOnly`) so
+  /// the grading child table's `date` string matches the panel row's.
+  static String _dateOnly(DateTime value) {
+    final utc = value.toUtc();
+    final year = utc.year.toString().padLeft(4, '0');
+    final month = utc.month.toString().padLeft(2, '0');
+    final day = utc.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 
   Future<void> _savePooledEggStoragePanelTable(
@@ -568,6 +611,9 @@ class AuditPanelSaveCoordinator {
         sessionId,
         sampleIds,
       );
+    }
+    if (tableNames.contains('egg_quality')) {
+      await _eggGradingRepository.deleteCountsForSamples(sampleIds);
     }
   }
 
@@ -1014,10 +1060,10 @@ class AuditPanelSaveCoordinator {
   ) {
     return switch (tableName) {
       'egg_storage' => (
-          source: 'hatchery',
-          action: 'hatchery',
-          target: 'hatchery',
-        ),
+        source: 'hatchery',
+        action: 'hatchery',
+        target: 'hatchery',
+      ),
       'egg_quality' => (source: 'hatchery', action: 'farm', target: 'farm'),
       _ => null,
     };

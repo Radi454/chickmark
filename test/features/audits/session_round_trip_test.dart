@@ -8,6 +8,7 @@ import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
+import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/est_grid_data.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
@@ -168,8 +169,42 @@ void main() {
           "IFNULL(tray, ''), IFNULL(position, ''))",
         );
       }
+      // egg_quality now writes matching `egg_quality_defect_counts` child
+      // rows (task B4); create the table so those writes land somewhere.
+      await db.execute('''CREATE TABLE egg_quality_defect_counts (
+        id TEXT PRIMARY KEY,
+        eggQualityId TEXT NOT NULL,
+        sessionId TEXT NOT NULL,
+        customerId TEXT NOT NULL,
+        flockId TEXT,
+        hatcheryId TEXT,
+        date TEXT NOT NULL,
+        scopeType TEXT,
+        houseKey TEXT,
+        sampleLabel TEXT,
+        defectCode TEXT NOT NULL,
+        defectCategory TEXT,
+        isReject INTEGER,
+        count INTEGER NOT NULL DEFAULT 0,
+        pctOfSample REAL,
+        notes TEXT,
+        sortOrder INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        syncStatus TEXT NOT NULL DEFAULT 'pending',
+        dirtyAt TEXT,
+        lastSyncedAt TEXT,
+        syncError TEXT
+      )''');
+      await db.execute(
+        'CREATE UNIQUE INDEX idx_egg_quality_defect_counts_unique '
+        'ON egg_quality_defect_counts (eggQualityId, defectCode)',
+      );
       await db.insert('customers', {'id': 'rt-customer'});
-      await db.insert('flocks', {'id': 'rt-flock', 'customerId': 'rt-customer'});
+      await db.insert('flocks', {
+        'id': 'rt-flock',
+        'customerId': 'rt-customer',
+      });
       await db.insert('hatcheries', {
         'id': 'rt-hatchery',
         'customerId': 'rt-customer',
@@ -189,6 +224,9 @@ void main() {
       provider = AuditProvider(
         panelSampleRepository: panelSampleRepository,
         activityLogRepository: activityLogRepository,
+        eggGradingRepository: EggGradingRepository(
+          databaseHelper: databaseHelper,
+        ),
         autosaveEnabled: false,
       );
       provider.initialize(
@@ -212,7 +250,11 @@ void main() {
     });
 
     test('EST grid, average, shell temp and storage survive reload', () async {
-      const readings = {'front_top': 19.8, 'middle_middle': 20.0, 'back_bottom': 20.2};
+      const readings = {
+        'front_top': 19.8,
+        'middle_middle': 20.0,
+        'back_bottom': 20.2,
+      };
       provider.updateField('esEggStorageDays', 6);
       provider.updateField('es_estReadingsJson', jsonEncode(readings));
       provider.updateField('es_estAvg', 20.0);
@@ -233,32 +275,38 @@ void main() {
       expect(restored.esEggStorageDays, 6);
     });
 
-    test('Egg quality weights, sample size and average survive reload', () async {
-      // Average is exactly 62.4 so the reloaded aggregate is derived from raw.
-      const weights = <double>[61.0, 62.0, 62.4, 63.0, 63.6];
-      provider.updateField('esEggQualityStorageDays', 5);
-      provider.updateField('esUvTrays', jsonEncode(const [
-        {'totalEggs': 150, 'cuticleDamage': 2, 'washed': 1, 'dirty': 1},
-      ]));
-      provider.updateField('esEggWeights', jsonEncode(weights));
-      provider.updateField('esEggSampleSize', weights.length);
-      provider.updateField('esEggAvgWeight', 62.4);
-      provider.updateField('esEggUniformityPct', 100.0);
-      provider.updateField('esEggCvPct', 1.6);
+    test(
+      'Egg quality weights, sample size and average survive reload',
+      () async {
+        // Average is exactly 62.4 so the reloaded aggregate is derived from raw.
+        const weights = <double>[61.0, 62.0, 62.4, 63.0, 63.6];
+        provider.updateField('esEggQualityStorageDays', 5);
+        provider.updateField(
+          'esUvTrays',
+          jsonEncode(const [
+            {'totalEggs': 150, 'cuticleDamage': 2, 'washed': 1, 'dirty': 1},
+          ]),
+        );
+        provider.updateField('esEggWeights', jsonEncode(weights));
+        provider.updateField('esEggSampleSize', weights.length);
+        provider.updateField('esEggAvgWeight', 62.4);
+        provider.updateField('esEggUniformityPct', 100.0);
+        provider.updateField('esEggCvPct', 1.6);
 
-      expect(await provider.saveSamplesWithResult(), isTrue);
+        expect(await provider.saveSamplesWithResult(), isTrue);
 
-      final quality = await db.query('egg_quality');
-      expect(quality, hasLength(1));
-      expect(quality.single['uvTrayEggCount'], 150);
+        final quality = await db.query('egg_quality');
+        expect(quality, hasLength(1));
+        expect(quality.single['uvTrayEggCount'], 150);
 
-      final restored = _eggDraftFromRows(<String, Object?>{}, quality.single);
-      final reloaded = _decodeWeights(restored.esEggWeights);
-      expect(reloaded, weights);
-      expect(CalculationUtils.average(reloaded), closeTo(62.4, 0.05));
-      expect(restored.esEggSampleSize, weights.length);
-      expect(restored.esEggAvgWeight, 62.4);
-    });
+        final restored = _eggDraftFromRows(<String, Object?>{}, quality.single);
+        final reloaded = _decodeWeights(restored.esEggWeights);
+        expect(reloaded, weights);
+        expect(CalculationUtils.average(reloaded), closeTo(62.4, 0.05));
+        expect(restored.esEggSampleSize, weights.length);
+        expect(restored.esEggAvgWeight, 62.4);
+      },
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────
@@ -326,13 +374,16 @@ void main() {
       expect(row['uvTrayEggCount'], 150);
     });
 
-    test('Chick weights reopen as a raw array averaging the seeded mean', () async {
-      final row = await singleRow('chick_weights', 'demo-cw-0');
-      final weights = _decodeWeights(row['weightsJson'] as String?);
-      expect(weights, hasLength(100));
-      expect(CalculationUtils.average(weights), closeTo(42.3, 0.05));
-      expect(row['avgWeight'], 42.3);
-    });
+    test(
+      'Chick weights reopen as a raw array averaging the seeded mean',
+      () async {
+        final row = await singleRow('chick_weights', 'demo-cw-0');
+        final weights = _decodeWeights(row['weightsJson'] as String?);
+        expect(weights, hasLength(100));
+        expect(CalculationUtils.average(weights), closeTo(42.3, 0.05));
+        expect(row['avgWeight'], 42.3);
+      },
+    );
 
     test('Machine EST/CVT grids reopen populated', () async {
       final setter = await singleRow('setter_optimizing', 'demo-set-0');
@@ -345,7 +396,9 @@ void main() {
       expect((samples.first as Map)['estReadings'], isA<Map>());
 
       final hatcher = await singleRow('hatcher_optimizing', 'demo-hat-0');
-      final hatcherGrid = _decodeReadings(hatcher['cvtReadingsJson'] as String?);
+      final hatcherGrid = _decodeReadings(
+        hatcher['cvtReadingsJson'] as String?,
+      );
       expect(hatcherGrid, hasLength(EstGridData.scanKeys.length));
       expect(CalculationUtils.average(hatcherGrid), closeTo(103.6, 0.05));
 
@@ -365,11 +418,14 @@ void main() {
   group('Autosave does not wipe a populated aggregate', () {
     test('recomputed EST average reproduces the seeded mean', () {
       final grid = EstGridData.normalizeReadings(
-        jsonDecode(jsonEncode({
-          'front_top': 20.5,
-          'middle_middle': 20.0,
-          'back_bottom': 19.5,
-        })) as Map<dynamic, dynamic>,
+        jsonDecode(
+              jsonEncode({
+                'front_top': 20.5,
+                'middle_middle': 20.0,
+                'back_bottom': 19.5,
+              }),
+            )
+            as Map<dynamic, dynamic>,
       ).values.toList();
 
       // This mirrors _updateEstCalculations: avg of the live grid cells.

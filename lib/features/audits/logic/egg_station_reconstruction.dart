@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
+import '../models/egg_grading.dart';
 import '../screens/audit_context_screen.dart';
 import 'panel_row_to_draft.dart';
 
@@ -31,11 +32,17 @@ StationReconstruction reconstructStation({
   required AuditContextData context,
   required Map<String, List<Map<String, dynamic>>> rowsByPanel,
 }) {
-  final stationAudits =
-      _auditDraftsFromPanelRows(stationKey, sessionId, context, rowsByPanel)
-        ..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
-  final stationSamples =
-      _stationSamplesFromPanelRows(stationKey, sessionId, rowsByPanel);
+  final stationAudits = _auditDraftsFromPanelRows(
+    stationKey,
+    sessionId,
+    context,
+    rowsByPanel,
+  )..sort((a, b) => a.hatchNumber.compareTo(b.hatchNumber));
+  final stationSamples = _stationSamplesFromPanelRows(
+    stationKey,
+    sessionId,
+    rowsByPanel,
+  );
   return StationReconstruction(
     stationAudits: stationAudits,
     stationSamples: stationSamples,
@@ -65,10 +72,11 @@ Future<StationReconstruction> reopenEggStation(
         .map((row) => Map<String, dynamic>.from(row))
         .toList();
   }
-  return reconstructStation(
+  final reconstruction = reconstructStation(
     stationKey: 'egg',
     sessionId: sessionId,
-    context: context ??
+    context:
+        context ??
         AuditContextData(
           auditType: 'Egg',
           customerId: '',
@@ -77,6 +85,66 @@ Future<StationReconstruction> reopenEggStation(
         ),
     rowsByPanel: rowsByPanel,
   );
+  return _withGradingFromChildRows(db, sessionId, rowsByPanel, reconstruction);
+}
+
+/// Overlays grading data read from `egg_quality_defect_counts` onto the
+/// reconstructed drafts. The panel row's own `esGradingDefectsJson` (copied
+/// in via `mergePanelRowIntoAuditMap`) is the fallback for a cloud-pulled row
+/// whose child rows have not arrived yet; where child rows do exist for a
+/// sample, they win, since they are the primary source the save path writes.
+Future<StationReconstruction> _withGradingFromChildRows(
+  Database db,
+  String sessionId,
+  Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  StationReconstruction reconstruction,
+) async {
+  final qualityRows = _sortedByPanelOrder(
+    rowsByPanel['egg_quality'] ?? const <Map<String, dynamic>>[],
+  );
+  if (qualityRows.isEmpty) return reconstruction;
+
+  final defectRows = await db.query(
+    'egg_quality_defect_counts',
+    where: 'sessionId = ?',
+    whereArgs: [sessionId],
+  );
+  if (defectRows.isEmpty) return reconstruction;
+
+  final countsByEggQualityId = <String, Map<String, int>>{};
+  for (final row in defectRows) {
+    final eggQualityId = row['eggQualityId']?.toString();
+    final code = row['defectCode']?.toString();
+    final count = row['count'];
+    if (eggQualityId == null || code == null || count is! int) continue;
+    (countsByEggQualityId[eggQualityId] ??= <String, int>{})[code] = count;
+  }
+  if (countsByEggQualityId.isEmpty) return reconstruction;
+
+  final stationAudits = [
+    for (var i = 0; i < reconstruction.stationAudits.length; i++)
+      _withGradingOverride(
+        reconstruction.stationAudits[i],
+        i < qualityRows.length
+            ? countsByEggQualityId[qualityRows[i]['id']?.toString()]
+            : null,
+      ),
+  ];
+  return StationReconstruction(
+    stationAudits: stationAudits,
+    stationSamples: reconstruction.stationSamples,
+  );
+}
+
+AuditModel _withGradingOverride(AuditModel draft, Map<String, int>? counts) {
+  if (counts == null || counts.isEmpty) return draft;
+  final summary = EggGradingSummary.fromCounts(
+    sampleSize: draft.esGradingSampleSize ?? 0,
+    rejectedCount: draft.esGradingRejectedCount ?? 0,
+    counts: counts,
+  );
+  final map = draft.toMap()..['esGradingDefectsJson'] = summary.encodedJson;
+  return AuditModel.fromMap(map);
 }
 
 Future<Set<String>> _tableColumnNames(Database db, String table) async {
@@ -90,8 +158,12 @@ List<AuditModel> _auditDraftsFromPanelRows(
   AuditContextData context,
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
-  final eggDrafts =
-      _eggAuditDraftsFromPanelRows(stationKey, sessionId, context, rowsByPanel);
+  final eggDrafts = _eggAuditDraftsFromPanelRows(
+    stationKey,
+    sessionId,
+    context,
+    rowsByPanel,
+  );
   if (eggDrafts != null) return eggDrafts;
 
   final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
@@ -143,7 +215,8 @@ Map<String, dynamic> _auditMapFromPanelRows(
       .fold<String>(createdAt, (latest, value) {
         return value.compareTo(latest) > 0 ? value : latest;
       });
-  final mode = panelRowAsText(first['sampleMode']) ??
+  final mode =
+      panelRowAsText(first['sampleMode']) ??
       (_rowHasHierarchy(first) ? 'comparison' : 'pool');
   final map = <String, dynamic>{
     'id': '$sessionId:$stationKey:$sampleIndex',
@@ -159,8 +232,9 @@ Map<String, dynamic> _auditMapFromPanelRows(
     'sampleMode': mode == StationSampleModel.sampleModeComparison
         ? 'comparison'
         : 'pool',
-    'compareGroupKey':
-        _rowHasHierarchy(first) ? 'panel-hierarchy-$sessionId' : null,
+    'compareGroupKey': _rowHasHierarchy(first)
+        ? 'panel-hierarchy-$sessionId'
+        : null,
     'hatchNumber': sampleIndex + 1,
     'notes': first['notes'],
   };
@@ -273,12 +347,14 @@ StationSampleModel _sampleFromPanelRow(
 }) {
   final inferredScope = _scopeTypeForRow(row);
   final scopeType = panelRowAsText(row['scopeType']) ?? inferredScope;
-  final sampleMode = panelRowAsText(row['sampleMode']) ??
+  final sampleMode =
+      panelRowAsText(row['sampleMode']) ??
       (_rowHasHierarchy(row)
           ? StationSampleModel.sampleModeComparison
           : StationSampleModel.sampleModePooled);
   final sampleIndex = panelRowAsInt(row['sampleIndex']) ?? fallbackIndex;
-  final sampleLabel = panelRowAsText(row['sampleLabel']) ??
+  final sampleLabel =
+      panelRowAsText(row['sampleLabel']) ??
       _sampleLabelForRow(row) ??
       'Sample $sampleIndex';
   return StationSampleModel(
@@ -293,14 +369,14 @@ StationSampleModel _sampleFromPanelRow(
     sampleLabel: sampleLabel,
     sampleType: _sampleTypeForTable(table),
     breakoutType: _breakoutTypeForTable(table),
-    groupKey:
-        _rowHasHierarchy(row) ? 'panel-hierarchy-$sessionId' : null,
+    groupKey: _rowHasHierarchy(row) ? 'panel-hierarchy-$sessionId' : null,
     groupLabel: _rowHasHierarchy(row) ? 'Hierarchy comparison' : null,
     houseNo: panelRowAsText(row['house']),
     houseLabel: panelRowAsText(row['house']),
     storageDays: panelRowAsInt(row['storagePeriodDays']),
-    incubationDay:
-        panelRowAsInt(row['incubationAgeDays'] ?? row['candlingDay']),
+    incubationDay: panelRowAsInt(
+      row['incubationAgeDays'] ?? row['candlingDay'],
+    ),
     setterNo: panelRowAsText(row['setter']),
     hatcherNo: panelRowAsText(row['hatcher']),
     notes: row['notes']?.toString(),

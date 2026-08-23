@@ -335,10 +335,7 @@ bool hasMeaningfulSetterData(
   AuditModel draft, {
   required String? contextSetterId,
 }) {
-  return hasMeaningfulSetterCoreData(
-        draft,
-        contextSetterId: contextSetterId,
-      ) ||
+  return hasMeaningfulSetterCoreData(draft, contextSetterId: contextSetterId) ||
       draft.soActualF != null ||
       draft.soActualRh != null ||
       hasText(draft.soBreed) ||
@@ -513,7 +510,10 @@ bool hasMeaningfulEggQualityData(AuditModel draft) {
       (draft.esEggSampleSize ?? 0) > 0 ||
       draft.esEggAvgWeight != null ||
       draft.esEggUniformityPct != null ||
-      draft.esEggCvPct != null;
+      draft.esEggCvPct != null ||
+      (draft.esGradingSampleSize ?? 0) > 0 ||
+      (draft.esGradingRejectedCount ?? 0) > 0 ||
+      hasText(draft.esGradingDefectsJson);
 }
 
 bool hasMeaningfulEggQualityMetadata(AuditModel draft) {

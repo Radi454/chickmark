@@ -11,6 +11,7 @@ import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
+import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/station_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
@@ -31,6 +32,8 @@ class MockPanelSampleRepository extends Mock implements PanelSampleRepository {}
 
 class MockBenchmarkLookup extends Mock implements BenchmarkLookup {}
 
+class MockEggGradingRepository extends Mock implements EggGradingRepository {}
+
 void main() {
   late MockAuditRepository auditRepository;
   late MockActivityLogRepository activityLogRepository;
@@ -38,6 +41,7 @@ void main() {
   late MockStationSampleRepository stationSampleRepository;
   late MockPanelSampleRepository panelSampleRepository;
   late MockBenchmarkLookup benchmarkLookup;
+  late MockEggGradingRepository eggGradingRepository;
   late AuditProvider provider;
 
   final user = UserModel(
@@ -93,6 +97,26 @@ void main() {
     stationSampleRepository = MockStationSampleRepository();
     panelSampleRepository = MockPanelSampleRepository();
     benchmarkLookup = MockBenchmarkLookup();
+    eggGradingRepository = MockEggGradingRepository();
+
+    when(
+      () => eggGradingRepository.replaceCountsForSample(
+        eggQualityId: any(named: 'eggQualityId'),
+        sessionId: any(named: 'sessionId'),
+        customerId: any(named: 'customerId'),
+        flockId: any(named: 'flockId'),
+        hatcheryId: any(named: 'hatcheryId'),
+        date: any(named: 'date'),
+        scopeType: any(named: 'scopeType'),
+        houseKey: any(named: 'houseKey'),
+        sampleLabel: any(named: 'sampleLabel'),
+        sampleSize: any(named: 'sampleSize'),
+        counts: any(named: 'counts'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => eggGradingRepository.deleteCountsForSamples(any()),
+    ).thenAnswer((_) async {});
 
     when(
       () => activityLogRepository.log(
@@ -165,6 +189,7 @@ void main() {
       stationSampleRepository: stationSampleRepository,
       panelSampleRepository: panelSampleRepository,
       benchmarkLookup: benchmarkLookup,
+      eggGradingRepository: eggGradingRepository,
       autosaveEnabled: false,
     );
     provider.initialize(
@@ -1309,6 +1334,7 @@ void main() {
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
         panelSampleRepository: panelSampleRepository,
+        eggGradingRepository: eggGradingRepository,
         autosaveDebounceDuration: const Duration(milliseconds: 10),
       );
       autosaveProvider.initialize(
@@ -1372,6 +1398,7 @@ void main() {
         supabaseService: supabaseService,
         stationSampleRepository: stationSampleRepository,
         panelSampleRepository: panelSampleRepository,
+        eggGradingRepository: eggGradingRepository,
         autosaveDebounceDuration: const Duration(milliseconds: 10),
       );
       provider.initialize(

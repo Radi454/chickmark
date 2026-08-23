@@ -6,6 +6,7 @@ import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/models/user_model.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
+import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:mocktail/mocktail.dart';
@@ -63,6 +64,41 @@ Future<void> _createPanelTable(
       "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
     );
   }
+}
+
+// The egg_quality panel row now writes a matching set of
+// `egg_quality_defect_counts` child rows (task B4); this harness creates the
+// table so those writes have somewhere to land, mirroring B2/B3's schema.
+Future<void> _createEggQualityDefectCountsTable(Database db) async {
+  await db.execute('''CREATE TABLE egg_quality_defect_counts (
+    id TEXT PRIMARY KEY,
+    eggQualityId TEXT NOT NULL,
+    sessionId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    flockId TEXT,
+    hatcheryId TEXT,
+    date TEXT NOT NULL,
+    scopeType TEXT,
+    houseKey TEXT,
+    sampleLabel TEXT,
+    defectCode TEXT NOT NULL,
+    defectCategory TEXT,
+    isReject INTEGER,
+    count INTEGER NOT NULL DEFAULT 0,
+    pctOfSample REAL,
+    notes TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
+  )''');
+  await db.execute(
+    'CREATE UNIQUE INDEX idx_egg_quality_defect_counts_unique '
+    'ON egg_quality_defect_counts (eggQualityId, defectCode)',
+  );
 }
 
 void main() {
@@ -129,6 +165,7 @@ void main() {
     )) {
       await _createPanelTable(db, panel.tableName, panel.measurementColumns);
     }
+    await _createEggQualityDefectCountsTable(db);
     await db.insert('customers', {'id': 'customer-egg-db'});
     await db.insert('flocks', {
       'id': 'flock-egg-db',
@@ -153,6 +190,9 @@ void main() {
     provider = AuditProvider(
       panelSampleRepository: panelSampleRepository,
       activityLogRepository: activityLogRepository,
+      eggGradingRepository: EggGradingRepository(
+        databaseHelper: databaseHelper,
+      ),
       autosaveEnabled: false,
     );
     provider.initialize(
@@ -433,16 +473,10 @@ void main() {
       expect(quality.map((row) => row['uvAffectedCount']), [2, 5]);
       expect(quality.map((row) => row['uvCuticleDamagePct']), [2.0, 0.0]);
       expect(quality.map((row) => row['uvWashedPct']).toList()[0], 2.0);
-      expect(
-        quality.map((row) => row['uvWashedPct']).toList()[1],
-        3.3,
-      );
+      expect(quality.map((row) => row['uvWashedPct']).toList()[1], 3.3);
       expect(quality.map((row) => row['uvDirtyPct']), [0.0, 5.0]);
       expect(quality.map((row) => row['uvAffectedPct']).toList()[0], 4.0);
-      expect(
-        quality.map((row) => row['uvAffectedPct']).toList()[1],
-        8.3,
-      );
+      expect(quality.map((row) => row['uvAffectedPct']).toList()[1], 8.3);
       expect(quality.any((row) => row.containsKey('affectedCount')), isFalse);
       expect(quality.any((row) => row.containsKey('upsideDownCount')), isFalse);
 
@@ -503,52 +537,53 @@ void main() {
     },
   );
 
-  test('saved egg_quality rows carry explicit sample and domain metadata',
-      () async {
-    provider.updateField('esEggStorageDays', 9);
-    provider.updateField(
-      'es_estReadingsJson',
-      jsonEncode({'front_top': 19.1}),
-    );
-    provider.updateField('es_estAvg', 19.1);
-    provider.updateField('es_estCv', 0.0);
-    provider.updateField('esEggSampleSize', 12);
-    // The first call to addEggQualityScopeSample only switches the existing
-    // single sample into comparison mode (see AuditProvider
-    // .addEggQualityScopeSample: it returns immediately after
-    // setStationSampleMode when not already comparing). A second call is
-    // needed to actually add a distinct second house-scoped sample, matching
-    // how the neighbouring 'comparison Egg station save...' test above
-    // builds its two-sample scenario via setStationSampleMode + addSample.
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    provider.updateSampleMetadata({'houseNo': 'H4', 'houseLabel': 'House 4'});
-    provider.updateField('esEggSampleSize', 34);
-    await provider.saveSamplesWithResult(tabIndex: 0);
+  test(
+    'saved egg_quality rows carry explicit sample and domain metadata',
+    () async {
+      provider.updateField('esEggStorageDays', 9);
+      provider.updateField(
+        'es_estReadingsJson',
+        jsonEncode({'front_top': 19.1}),
+      );
+      provider.updateField('es_estAvg', 19.1);
+      provider.updateField('es_estCv', 0.0);
+      provider.updateField('esEggSampleSize', 12);
+      // The first call to addEggQualityScopeSample only switches the existing
+      // single sample into comparison mode (see AuditProvider
+      // .addEggQualityScopeSample: it returns immediately after
+      // setStationSampleMode when not already comparing). A second call is
+      // needed to actually add a distinct second house-scoped sample, matching
+      // how the neighbouring 'comparison Egg station save...' test above
+      // builds its two-sample scenario via setStationSampleMode + addSample.
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({'houseNo': 'H4', 'houseLabel': 'House 4'});
+      provider.updateField('esEggSampleSize', 34);
+      await provider.saveSamplesWithResult(tabIndex: 0);
 
-    final saved = await db.query('egg_quality', orderBy: 'sampleIndex ASC');
-    expect(saved, hasLength(2));
-    expect(saved.map((r) => r['sampleMode']),
-        ['comparison', 'comparison']);
-    expect(saved.map((r) => r['scopeType']), ['house', 'house']);
-    expect(saved.map((r) => r['sampleIndex']), [1, 2]);
-    expect(saved.last['sampleLabel'], 'H4');
-    for (final row in saved) {
-      expect(row['sourceDomain'], 'hatchery');
-      expect(row['actionDomain'], 'farm');
-      expect(row['recommendationTarget'], 'farm');
-    }
+      final saved = await db.query('egg_quality', orderBy: 'sampleIndex ASC');
+      expect(saved, hasLength(2));
+      expect(saved.map((r) => r['sampleMode']), ['comparison', 'comparison']);
+      expect(saved.map((r) => r['scopeType']), ['house', 'house']);
+      expect(saved.map((r) => r['sampleIndex']), [1, 2]);
+      expect(saved.last['sampleLabel'], 'H4');
+      for (final row in saved) {
+        expect(row['sourceDomain'], 'hatchery');
+        expect(row['actionDomain'], 'farm');
+        expect(row['recommendationTarget'], 'farm');
+      }
 
-    final storage = await db.query('egg_storage');
-    expect(storage, isNotEmpty);
-    for (final row in storage) {
-      expect(row['sampleMode'], 'pooled');
-      expect(row['scopeType'], 'pool');
-      expect(row['sourceDomain'], 'hatchery');
-      expect(row['actionDomain'], 'hatchery');
-      expect(row['recommendationTarget'], 'hatchery');
-    }
-  });
+      final storage = await db.query('egg_storage');
+      expect(storage, isNotEmpty);
+      for (final row in storage) {
+        expect(row['sampleMode'], 'pooled');
+        expect(row['scopeType'], 'pool');
+        expect(row['sourceDomain'], 'hatchery');
+        expect(row['actionDomain'], 'hatchery');
+        expect(row['recommendationTarget'], 'hatchery');
+      }
+    },
+  );
 
   test('egg_quality row id is the station sample id', () async {
     provider.updateField('esEggSampleSize', 12);

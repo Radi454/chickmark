@@ -235,6 +235,11 @@ class AuditModel {
   final String? esWallProximity;
   final bool? esCondensation;
 
+  // --- Egg: Visual Grading ---
+  final int? esGradingSampleSize;
+  final int? esGradingRejectedCount;
+  final String? esGradingDefectsJson;
+
   AuditModel({
     required this.id,
     required this.auditType,
@@ -457,6 +462,10 @@ class AuditModel {
     this.esCoolerProximity,
     this.esWallProximity,
     this.esCondensation,
+    // --- Egg: Visual Grading ---
+    this.esGradingSampleSize,
+    this.esGradingRejectedCount,
+    this.esGradingDefectsJson,
   }) : sampleMode = SampleMode.normalize(sampleMode);
 
   factory AuditModel.fromMap(Map<String, dynamic> map) {
@@ -687,6 +696,10 @@ class AuditModel {
       esCondensation: map['es_condensation'] == null
           ? null
           : map['es_condensation'] == 1,
+      // --- Egg: Visual Grading ---
+      esGradingSampleSize: map['esGradingSampleSize'],
+      esGradingRejectedCount: map['esGradingRejectedCount'],
+      esGradingDefectsJson: map['esGradingDefectsJson'],
     );
   }
 
@@ -917,6 +930,10 @@ class AuditModel {
       'es_condensation': esCondensation == null
           ? null
           : (esCondensation! ? 1 : 0),
+      // --- Egg: Visual Grading ---
+      'esGradingSampleSize': esGradingSampleSize,
+      'esGradingRejectedCount': esGradingRejectedCount,
+      'esGradingDefectsJson': esGradingDefectsJson,
     };
   }
 }

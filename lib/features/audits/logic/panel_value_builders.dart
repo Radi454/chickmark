@@ -4,6 +4,7 @@ import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../models/culled_chicks_analysis.dart';
 import '../models/egg_breakout_sample.dart';
+import '../models/egg_grading.dart';
 import '../models/temperature_entry_unit.dart';
 import '../models/temperature_readings_payload.dart';
 import 'audit_value_parsing.dart';
@@ -189,6 +190,26 @@ Map<String, Object?> eggQualityValues(AuditModel draft) {
     'eggCvPct': draft.esEggCvPct,
     'eggBmkAgeWeeks': draft.esEggBmkAge,
     'eggBmkWeight': draft.esEggBmkWeight,
+    ..._eggGradingValues(draft),
+  };
+}
+
+Map<String, Object?> _eggGradingValues(AuditModel draft) {
+  final summary = EggGradingSummary.fromJson(
+    draft.esGradingDefectsJson,
+    sampleSize: draft.esGradingSampleSize ?? 0,
+    rejectedCount: draft.esGradingRejectedCount ?? 0,
+  );
+  if (!summary.hasData) return const {};
+  return {
+    'gradingSampleSize': summary.sampleSize,
+    'gradingRejectedCount': summary.rejectedCount,
+    'gradingAcceptableCount': summary.acceptableCount,
+    'gradingRejectedPct': summary.rejectedPct,
+    'gradingAcceptablePct': summary.acceptablePct,
+    'gradingDefectsJson': summary.encodedJson,
+    'gradingTopDefectCode': summary.topDefectCode,
+    'gradingTopDefectPct': summary.topDefectPct,
   };
 }
 
@@ -273,9 +294,7 @@ Map<String, Object?> chickWeightValuesForSample(
   final weights = summary['chickWeights'];
   return {
     'weightsJson': weights is List ? jsonEncode(weights) : null,
-    'sampleSize': weights is List
-        ? weightSampleSizeFromDecoded(weights)
-        : null,
+    'sampleSize': weights is List ? weightSampleSizeFromDecoded(weights) : null,
     'avgWeight': asDouble(summary['chickAvgWeight']),
     'uniformityPct': asDouble(summary['chickUniformityPct']),
     'cvPct': asDouble(summary['chickCvPct']),

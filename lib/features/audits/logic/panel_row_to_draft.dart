@@ -53,6 +53,9 @@ void mergePanelRowIntoAuditMap(
       copy('esEggCvPct', 'eggCvPct');
       copy('esEggBmkAge', 'eggBmkAgeWeeks');
       copy('esEggBmkWeight', 'eggBmkWeight');
+      copy('esGradingSampleSize', 'gradingSampleSize');
+      copy('esGradingRejectedCount', 'gradingRejectedCount');
+      copy('esGradingDefectsJson', 'gradingDefectsJson');
       break;
     case 'chick_quality':
       copy('pasgarSampleSize', 'pasgarSampleSize');

@@ -483,8 +483,8 @@ Station save behavior:
   `_StationFrameState` so it can be exercised directly against raw panel rows
   without a widget tree.
 - As of v62, the data model for visual egg grading exists (catalogue, local
-  schema, and summary/validation logic; no station UI wiring yet — that lands
-  in later tasks). The defect catalogue is `kEggDefectTypes` in
+  schema, and summary/validation logic), and its save/reopen wiring is done —
+  grading UI still lands in a later task. The defect catalogue is `kEggDefectTypes` in
   `lib/features/audits/models/egg_grading.dart`: 18 fixed defect codes across
   five categories (shell contamination, shell integrity, shell quality, shape
   and size, other), each with a `code`, `name`, `category`, `isReject`,
@@ -510,8 +510,9 @@ Station save behavior:
   see `docs/DATABASE_SPEC.md`'s "Egg Grading Tables" section for the full
   column and table shapes.
 - `EggGradingRepository` (`lib/data/repositories/egg_grading_repository.dart`)
-  is the read/write layer over `egg_quality_defect_counts`; no station UI
-  calls it yet. `countsForSample(eggQualityId)` and
+  is the read/write layer over `egg_quality_defect_counts`, called from the
+  audit save path (see below); station UI still lands in a later task.
+  `countsForSample(eggQualityId)` and
   `countsForSession(sessionId)` (the latter keyed by `eggQualityId`) read back
   a `{defectCode: count}` map. `replaceCountsForSample` runs in one
   transaction: it upserts every positive count under the deterministic id
@@ -536,6 +537,39 @@ Station save behavior:
   ack stays `pending` instead of being silently marked synced and dropped —
   the same pattern `LabAnalysisRepository.markRowsSynced` uses. A re-save of
   an existing count row also never touches `createdAt`, only `updatedAt`.
+- Grading is threaded into the draft, save, and reopen paths for every Egg
+  Quality sample independently. `AuditModel` carries `esGradingSampleSize`
+  (`int?`), `esGradingRejectedCount` (`int?`), and `esGradingDefectsJson`
+  (`String?`, the per-sample JSON mirror described above). `AuditProvider`
+  exposes `activeGradingCounts` (reads the active sample's counts back out of
+  its JSON) and `updateGradingCounts(Map<String, int>)` (re-encodes and writes
+  `esGradingDefectsJson` on the active draft only — because the JSON already
+  lives on the per-sample draft, switching samples cannot move it). On save,
+  `panel_value_builders.dart`'s `eggQualityValues` writes the eight summary
+  columns onto the `egg_quality` row from an `EggGradingSummary` built off the
+  draft's three grading fields (skipped entirely when the summary has no
+  data), and `hasMeaningfulEggQualityData` treats a sample with grading data
+  but nothing else as savable. `AuditPanelSaveCoordinator` writes the child
+  `egg_quality_defect_counts` rows immediately after each sample's
+  `egg_quality` panel write, via a constructor-injected `EggGradingRepository`
+  (defaults to a real instance): `replaceCountsForSample` is called with that
+  sample's id as `eggQualityId` (the `egg_quality` row id **is** the sample id
+  as of Phase A), its session/customer/flock/hatchery/date, scope type, the
+  sample's `houseNo` as `houseKey`, sample label, and the decoded counts —
+  called with an empty map when a sample carries no grading data, so any
+  previously-saved counts for that sample are removed. When a sample is
+  deleted outright, `_deletePanelRowsForRemovedSamples` also calls
+  `deleteCountsForSamples` for the removed sample ids (guarded to only run
+  when `egg_quality` is one of the affected tables, so non-Egg station saves
+  never touch the grading repository). On reopen, `mergePanelRowIntoAuditMap`
+  copies the three `esGrading*` draft fields back from the panel row's
+  `gradingSampleSize`/`gradingRejectedCount`/`gradingDefectsJson` columns —
+  this is the fallback path for a cloud-pulled row whose child rows have not
+  arrived yet — and `reopenEggStation` additionally reads
+  `egg_quality_defect_counts` for the session and, for any sample that has
+  child rows, rebuilds `esGradingDefectsJson` from them instead, since the
+  child rows are the primary source the save path writes and may be more
+  current than the row's own JSON mirror.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
