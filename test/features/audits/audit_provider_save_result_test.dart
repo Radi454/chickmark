@@ -117,6 +117,9 @@ void main() {
     when(
       () => eggGradingRepository.deleteCountsForSamples(any()),
     ).thenAnswer((_) async {});
+    when(
+      () => eggGradingRepository.countsForSession(any()),
+    ).thenAnswer((_) async => <String, Map<String, int>>{});
 
     when(
       () => activityLogRepository.log(
@@ -162,6 +165,9 @@ void main() {
         any(),
       ),
     ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.getRowsBySessionId(any(), any()),
+    ).thenAnswer((_) async => <Map<String, dynamic>>[]);
     when(
       () => benchmarkLookup.nearestBreakoutBenchmark(
         calculatedBmkAgeDays: any(named: 'calculatedBmkAgeDays'),

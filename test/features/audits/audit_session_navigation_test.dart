@@ -8,6 +8,7 @@ import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
+import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
@@ -33,6 +34,8 @@ class MockAuditSessionRepository extends Mock
 class MockAuditRepository extends Mock implements AuditRepository {}
 
 class MockPanelSampleRepository extends Mock implements PanelSampleRepository {}
+
+class MockEggGradingRepository extends Mock implements EggGradingRepository {}
 
 class MockActivityLogRepository extends Mock implements ActivityLogRepository {}
 
@@ -639,6 +642,8 @@ void main() {
     final repository = MockAuditSessionRepository();
     final activityLog = MockActivityLogRepository();
     final panelRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final supabase = MockSupabaseService();
     final provider = AuditSessionProvider(
       repository: repository,
@@ -682,7 +687,10 @@ void main() {
           ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ],
         child: MaterialApp(
-          home: AuditSessionScreen(panelSampleRepository: panelRepository),
+          home: AuditSessionScreen(
+            panelSampleRepository: panelRepository,
+            eggGradingRepository: eggGradingRepository,
+          ),
         ),
       ),
     );
@@ -710,6 +718,8 @@ void main() {
     final repository = MockAuditSessionRepository();
     final activityLog = MockActivityLogRepository();
     final panelRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final supabase = MockSupabaseService();
     final provider = AuditSessionProvider(
       repository: repository,
@@ -753,7 +763,10 @@ void main() {
           ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
         ],
         child: MaterialApp(
-          home: AuditSessionScreen(panelSampleRepository: panelRepository),
+          home: AuditSessionScreen(
+            panelSampleRepository: panelRepository,
+            eggGradingRepository: eggGradingRepository,
+          ),
         ),
       ),
     );
@@ -872,6 +885,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final supabase = MockSupabaseService();
     final session = AuditSessionModel.fromMap(
       makeAuditSessionRow(
@@ -911,6 +926,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -939,6 +955,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final supabase = MockSupabaseService();
     final session = AuditSessionModel.fromMap(
       makeAuditSessionRow(
@@ -982,6 +1000,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1013,6 +1032,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final session = AuditSessionModel.fromMap(
@@ -1108,6 +1129,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1132,6 +1154,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final provider = AuditSessionProvider(
@@ -1181,6 +1205,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1220,6 +1245,8 @@ void main() {
       final sessionRepository = MockAuditSessionRepository();
       final auditRepository = MockAuditRepository();
       final panelSampleRepository = MockPanelSampleRepository();
+      final eggGradingRepository = MockEggGradingRepository();
+      _stubEmptyGradingPersistence(eggGradingRepository);
       final supabase = MockSupabaseService();
       final firstSession = AuditSessionModel.fromMap(
         makeAuditSessionRow(
@@ -1266,6 +1293,7 @@ void main() {
             home: AuditSessionScreen(
               auditRepository: auditRepository,
               panelSampleRepository: panelSampleRepository,
+              eggGradingRepository: eggGradingRepository,
             ),
           ),
         ),
@@ -1295,6 +1323,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final session = AuditSessionModel(
@@ -1360,6 +1390,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1376,6 +1407,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final session = AuditSessionModel(
@@ -1452,6 +1485,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1470,6 +1504,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final session = AuditSessionModel(
@@ -1552,6 +1588,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -1570,6 +1607,8 @@ void main() {
     final sessionRepository = MockAuditSessionRepository();
     final auditRepository = MockAuditRepository();
     final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
     final activityLog = MockActivityLogRepository();
     final supabase = MockSupabaseService();
     final session = AuditSessionModel(
@@ -1662,6 +1701,7 @@ void main() {
           home: AuditSessionScreen(
             auditRepository: auditRepository,
             panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
           ),
         ),
       ),
@@ -2022,6 +2062,28 @@ Finder _completionCheckOverlayFinder() {
         widget is Icon && widget.icon == Icons.check && widget.size == 48,
     description: 'large completion check overlay',
   );
+}
+
+void _stubEmptyGradingPersistence(MockEggGradingRepository repository) {
+  when(
+    () => repository.replaceCountsForSample(
+      eggQualityId: any(named: 'eggQualityId'),
+      sessionId: any(named: 'sessionId'),
+      customerId: any(named: 'customerId'),
+      flockId: any(named: 'flockId'),
+      hatcheryId: any(named: 'hatcheryId'),
+      date: any(named: 'date'),
+      scopeType: any(named: 'scopeType'),
+      houseKey: any(named: 'houseKey'),
+      sampleLabel: any(named: 'sampleLabel'),
+      sampleSize: any(named: 'sampleSize'),
+      counts: any(named: 'counts'),
+    ),
+  ).thenAnswer((_) async {});
+  when(() => repository.deleteCountsForSamples(any())).thenAnswer((_) async {});
+  when(
+    () => repository.countsForSession(any()),
+  ).thenAnswer((_) async => <String, Map<String, int>>{});
 }
 
 void _stubEmptyPanelPersistence(

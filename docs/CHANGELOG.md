@@ -1,5 +1,20 @@
 # ChickMark Change Log
 
+- 2026-08-23: Fixed a B4 review finding (Critical): clearing a sample's
+  grading down to nothing, or a whole session having no meaningful egg
+  quality data, could delete the sample's `egg_quality` row while its
+  `egg_quality_defect_counts` children were left behind — orphaned locally,
+  or silently cascade-deleted with no sync tombstone if the local schema's
+  `ON DELETE CASCADE` fired, leaving the cloud copy alive. Every path that
+  removes an `egg_quality` row now removes its grading children through
+  `EggGradingRepository` first (`_deleteEggQualityRowsBySessionId`,
+  `_pruneStalePanelHierarchyRowsForTable`), so a tombstone is always queued.
+  Also fixed a B4 review finding (Important): added a test where a sample's
+  grading child rows and its panel row's JSON mirror disagree, asserting
+  reopen prefers the child rows — the earlier suite could not tell if
+  `egg_station_reconstruction.dart`'s child-row overlay was deleted.
+  `AuditSessionScreen` gained an optional `eggGradingRepository` constructor
+  parameter so tests can inject a mock instead of hitting a real database.
 - 2026-08-23: Egg grading results are saved against the individual Egg Quality
   sample they were entered on, and come back on the right sample when the
   audit is reopened. Removing a sample removes its grading with it.

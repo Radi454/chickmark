@@ -9,6 +9,7 @@ import '../../../data/models/audit_model.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/audit_repository.dart';
+import '../../../data/repositories/egg_grading_repository.dart';
 import '../../../data/repositories/panel_dashboard_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
@@ -41,12 +42,14 @@ class AuditSessionScreen extends StatefulWidget {
   final AuditRepository? auditRepository;
   final StationSampleRepository? stationSampleRepository;
   final PanelSampleRepository? panelSampleRepository;
+  final EggGradingRepository? eggGradingRepository;
 
   const AuditSessionScreen({
     super.key,
     this.auditRepository,
     this.stationSampleRepository,
     this.panelSampleRepository,
+    this.eggGradingRepository,
   });
 
   @override
@@ -465,6 +468,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
       final p = AuditProvider(
         panelSampleRepository: widget.panelSampleRepository,
+        eggGradingRepository: widget.eggGradingRepository,
       );
       return p;
     });

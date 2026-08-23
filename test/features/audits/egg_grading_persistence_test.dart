@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
@@ -304,5 +306,95 @@ void main() {
     );
     expect(counts.map((r) => r['defectCode']), ['cracked', 'dirty']);
     expect(await db.query('sync_tombstones'), isNotEmpty);
+  });
+
+  // Reviewer finding (Critical, post-8889bf5): H1 is graded (grading data is
+  // its only meaningful egg_quality signal), H2 gets plain quality data
+  // (esEggSampleSize, not grading). Clearing H1's grading down to nothing
+  // makes H1's whole egg_quality row non-meaningful while H2 stays meaningful
+  // — H1's egg_quality row is now pruned by
+  // `_pruneStalePanelHierarchyRowsForTable`, not by
+  // `_deleteEggQualityRowsBySessionId` (which only fires when *no* sample in
+  // the session has meaningful quality data). Before the fix, that prune path
+  // deleted the parent row without going through `EggGradingRepository`, so
+  // H1's `egg_quality_defect_counts` rows were left behind with no tombstone
+  // queued for them — dead weight locally, and a batch PostgREST would
+  // reject if it round-tripped that pending child row against an already
+  // uploaded delete of its parent.
+  test('clearing one house grading does not orphan its child rows', () async {
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': 'H1', 'houseLabel': 'House 1'});
+    provider.updateField('esGradingSampleSize', 100);
+    provider.updateField('esGradingRejectedCount', 9);
+    provider.updateGradingCounts({'dirty': 4, 'cracked': 3});
+
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': 'H2', 'houseLabel': 'House 2'});
+    provider.updateField('esEggSampleSize', 5);
+
+    await provider.saveSamplesWithResult(tabIndex: 0);
+
+    final beforeCounts = await db.query('egg_quality_defect_counts');
+    expect(beforeCounts, hasLength(2));
+
+    provider.switchSample(0);
+    provider.updateField('esGradingSampleSize', null);
+    provider.updateField('esGradingRejectedCount', null);
+    provider.updateGradingCounts({});
+
+    await provider.saveSamplesWithResult(tabIndex: 0);
+
+    final afterCounts = await db.query('egg_quality_defect_counts');
+    expect(afterCounts, isEmpty);
+
+    final tombstones = await db.query(
+      'sync_tombstones',
+      where: 'tableName = ?',
+      whereArgs: ['egg_quality_defect_counts'],
+    );
+    expect(tombstones, isNotEmpty);
+  });
+
+  // Reviewer finding (Important, post-8889bf5): every earlier test's child
+  // rows agreed with the panel row's own `gradingDefectsJson` mirror, so
+  // `_withGradingFromChildRows` could be deleted from
+  // `egg_station_reconstruction.dart` without any test noticing. This test
+  // deliberately makes them disagree — the panel row's JSON is overwritten to
+  // a different, wrong defect set after saving, simulating a panel row pulled
+  // from the cloud whose own JSON has gone stale relative to its (more
+  // current) child rows — and asserts the child rows win.
+  test('reopen prefers child rows over a stale panel JSON mirror', () async {
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateSampleMetadata({'houseNo': 'H1', 'houseLabel': 'House 1'});
+    provider.updateField('esGradingSampleSize', 100);
+    provider.updateField('esGradingRejectedCount', 9);
+    provider.updateGradingCounts({'dirty': 4, 'cracked': 3});
+    await provider.saveSamplesWithResult(tabIndex: 0);
+
+    final panelRow = (await db.query('egg_quality')).single;
+    await db.update(
+      'egg_quality',
+      {
+        'gradingDefectsJson': jsonEncode([
+          {
+            'code': 'wrinkled',
+            'name': 'Wrinkled',
+            'category': 'shell_quality',
+            'isReject': true,
+            'count': 99,
+          },
+        ]),
+      },
+      where: 'id = ?',
+      whereArgs: [panelRow['id']],
+    );
+
+    final reopened = await reopenEggStation(db, 'session-egg-db');
+    final restored = EggGradingSummary.fromJson(
+      reopened.stationAudits.first.esGradingDefectsJson,
+      sampleSize: 100,
+      rejectedCount: 9,
+    );
+    expect(restored.counts, {'dirty': 4, 'cracked': 3});
   });
 }

@@ -541,9 +541,32 @@ class AuditPanelSaveCoordinator {
     if (pairs.isEmpty) return;
     final sessionId = pairs.first.sample.auditSessionId;
     if (sessionId.isEmpty) return;
+    // Clean up every grading child row through the repository (queuing a
+    // sync tombstone for each) *before* the parent egg_quality rows go away.
+    // SQLite's `ON DELETE CASCADE` on egg_quality_defect_counts would
+    // otherwise silently drop these rows with no tombstone the moment the
+    // parent delete below runs, leaving the cloud copy alive — the plan's
+    // global constraint this guards against. Doing the child cleanup after
+    // the parent delete would be too late: the rows would already be gone
+    // (cascaded away) with nothing left to tombstone.
+    await _deleteGradingCountsForSession(sessionId);
     await _panelSampleRepository.deleteRowsBySessionId(
       'egg_quality',
       sessionId,
+    );
+  }
+
+  /// Removes every grading child row for every egg_quality sample in
+  /// [sessionId], through the repository so each removal queues a sync
+  /// tombstone. See [_deleteEggQualityRowsBySessionId] for why this must run
+  /// before the parent rows are deleted rather than after.
+  Future<void> _deleteGradingCountsForSession(String sessionId) async {
+    final countsByEggQualityId = await _eggGradingRepository.countsForSession(
+      sessionId,
+    );
+    if (countsByEggQualityId.isEmpty) return;
+    await _eggGradingRepository.deleteCountsForSamples(
+      countsByEggQualityId.keys,
     );
   }
 
@@ -673,12 +696,68 @@ class AuditPanelSaveCoordinator {
       keepIds.add(row['id']! as String);
       keepHierarchyRows.add(row);
     }
+    if (tableName == 'egg_quality') {
+      // This prunes an egg_quality row whose sample is no longer meaningful
+      // (see `_panelTablesForScopedPrune`) even while sibling samples in the
+      // same session are kept — e.g. one house's grading is cleared while
+      // another house still has data. Clean up that row's grading children
+      // through the repository first, for the same reason
+      // `_deleteEggQualityRowsBySessionId` does: cascade would drop them
+      // with no tombstone once the parent row below is deleted.
+      await _deleteGradingCountsForStaleEggQualityRows(
+        sessionId,
+        keepIds,
+        keepHierarchyRows,
+      );
+    }
     await _panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
       tableName,
       sessionId,
       keepIds,
       keepHierarchyRows: keepHierarchyRows,
     );
+  }
+
+  /// Mirrors `PanelSampleRepository.deleteHierarchyRowsBySessionIdExcept`'s
+  /// own stale-id computation (id match, then hierarchy-tuple match) so the
+  /// set of egg_quality rows this identifies as about to be pruned is exactly
+  /// the set that method will actually delete.
+  Future<void> _deleteGradingCountsForStaleEggQualityRows(
+    String sessionId,
+    Set<String> keepIds,
+    List<Map<String, Object?>> keepHierarchyRows,
+  ) async {
+    final keepHierarchyKeys = keepHierarchyRows
+        .map(_hierarchyKeyForRow)
+        .toSet();
+    final rows = await _panelSampleRepository.getRowsBySessionId(
+      'egg_quality',
+      sessionId,
+    );
+    final staleIds = <String>[
+      for (final row in rows)
+        if (row['id'] != null &&
+            !keepIds.contains(row['id'].toString()) &&
+            !keepHierarchyKeys.contains(_hierarchyKeyForRow(row)))
+          row['id'].toString(),
+    ];
+    if (staleIds.isEmpty) return;
+    await _eggGradingRepository.deleteCountsForSamples(staleIds);
+  }
+
+  static const _hierarchyColumnsForKey = [
+    'house',
+    'setter',
+    'hatcher',
+    'trolley',
+    'tray',
+    'position',
+  ];
+
+  String _hierarchyKeyForRow(Map<String, Object?> row) {
+    return _hierarchyColumnsForKey
+        .map((column) => row[column]?.toString() ?? '')
+        .join('|');
   }
 
   Future<void> _pruneStaleBreakoutRows(List<PanelSavePair> pairs) async {

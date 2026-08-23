@@ -570,6 +570,38 @@ Station save behavior:
   child rows, rebuilds `esGradingDefectsJson` from them instead, since the
   child rows are the primary source the save path writes and may be more
   current than the row's own JSON mirror.
+- Every path that removes an `egg_quality` row also removes its grading
+  children through `EggGradingRepository` first, never relying on SQLite's
+  `ON DELETE CASCADE` on `egg_quality_defect_counts` — cascade does not queue
+  a sync tombstone, so a cascaded child row would go on existing in the cloud
+  copy forever, and a still-`pending` child whose cloud parent has already
+  been deleted makes PostgREST reject the whole sync batch on an FK
+  violation. This matters beyond the two paths already covered above
+  (`_saveEggGradingForSample`'s empty-map call, `_deletePanelRowsForRemovedSamples`):
+  a sample can also lose its `egg_quality` row while staying otherwise
+  present — its grading is cleared to nothing while the sample itself is not
+  removed. `AuditPanelSaveCoordinator._deleteEggQualityRowsBySessionId`
+  (fires when *no* sample in the session has meaningful quality data) calls
+  `_deleteGradingCountsForSession` first, which reads
+  `EggGradingRepository.countsForSession` for every `eggQualityId` in the
+  session and deletes them all before the parent rows are dropped.
+  `_pruneStalePanelHierarchyRowsForTable` (fires per-table when *some*
+  samples in the session keep meaningful data but others do not — e.g. one
+  house's grading is cleared while a sibling house still has quality data)
+  calls `_deleteGradingCountsForStaleEggQualityRows` when pruning the
+  `egg_quality` table specifically: it mirrors
+  `PanelSampleRepository.deleteHierarchyRowsBySessionIdExcept`'s own
+  stale-id computation (id match, then hierarchy-tuple match) locally so the
+  set of rows it cleans up through the repository is exactly the set that
+  method is about to delete, then deletes those rows' children before the
+  parent-row prune runs. Both helpers must run *before* their corresponding
+  parent-row delete, not after — once the parent is gone, cascade may have
+  already removed the children with no tombstone, leaving nothing left to
+  clean up through the repository.
+- `AuditSessionScreen` accepts an optional `eggGradingRepository` constructor
+  parameter (alongside its existing `panelSampleRepository`), threaded into
+  the per-station `AuditProvider` it builds, so a test can inject a mock
+  repository instead of the coordinator's default real `EggGradingRepository()`.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
