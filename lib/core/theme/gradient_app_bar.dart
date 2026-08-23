@@ -13,6 +13,17 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   final PreferredSizeWidget? bottom;
   final double toolbarHeight;
 
+  /// When supplied, renders in place of the default `Text(title, ...)` —
+  /// [title] is still required (used as the `Semantics`/window title source
+  /// and as the fallback when this is null) but is not itself put on screen.
+  ///
+  /// This exists so a caller can show user/model content as the title (a
+  /// conversation's derived name, say) without it passing through this app's
+  /// localized `Text` wrapper, which runs every string through the Arabic UI
+  /// phrasebook — fine for static labels, wrong for someone else's words.
+  /// Build the widget with the app's raw `material.Text` in that case.
+  final Widget? titleWidget;
+
   const GradientAppBar({
     super.key,
     required this.title,
@@ -21,6 +32,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.actions,
     this.bottom,
     this.toolbarHeight = kToolbarHeight,
+    this.titleWidget,
   });
 
   @override
@@ -63,17 +75,20 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
                   )
                 : null),
         title: titleLeading == null
-            ? Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)
+            ? (titleWidget ??
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis))
             : Row(
                 children: [
                   titleLeading!,
                   const SizedBox(width: AppSizes.spaceSm),
                   Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child:
+                        titleWidget ??
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                   ),
                 ],
               ),

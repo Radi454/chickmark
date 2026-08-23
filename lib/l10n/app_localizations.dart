@@ -93,6 +93,13 @@ final List<_PatternTranslator> _patterns = [
     return 'اكتملت المزامنة · رفع ${match.group(1)} تنزيل ${match.group(2)}';
   },
   (value) {
+    final match = RegExp(
+      r'^Sync incomplete · ↑(.+) ↓(.+) · (.+)$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'لم تكتمل المزامنة · رفع ${match.group(1)} تنزيل ${match.group(2)} · ${match.group(3)}';
+  },
+  (value) {
     final match = RegExp(r'^Could not save (.+): (.+)$').firstMatch(value);
     if (match == null) return null;
     return 'تعذر حفظ ${_ar[match.group(1)] ?? match.group(1)}: ${match.group(2)}';
@@ -2354,9 +2361,10 @@ const Map<String, String> _ar = {
   'Send message': 'إرسال رسالة',
   'Ask by voice': 'اسأل صوتيًا',
   'Stop recording': 'إيقاف التسجيل',
+  'Replay': 'إعادة التشغيل',
   'Sending': 'جارٍ الإرسال',
   'Not sent': 'لم تُرسل',
-  'Pip is thinking': 'Pip يفكر',
+  'Pip is thinking': 'بيب يفكر',
   'The assistant needs a connection. Your other work still saves offline.':
       'يحتاج المساعد إلى اتصال. يستمر حفظ باقي عملك دون اتصال.',
   'Type a message before sending.': 'اكتب رسالة قبل الإرسال.',
@@ -2381,4 +2389,63 @@ const Map<String, String> _ar = {
       'تعذّر مسح المحادثة. حاول مرة أخرى.',
   'Could not send that message. Please try again.':
       'تعذّر إرسال تلك الرسالة. حاول مرة أخرى.',
+  'Voice transcript': 'نص صوتي مكتوب',
+
+  // Pip conversations list
+  'New conversation': 'محادثة جديدة',
+  'No conversations yet': 'لا توجد محادثات بعد',
+  'Start your first conversation with Pip': 'ابدأ أول محادثة لك مع Pip',
+  'Voice conversation': 'محادثة صوتية',
+  'Today': 'اليوم',
+  'Yesterday': 'أمس',
+  'Earlier': 'سابقًا',
+  'Could not load your conversations. Please try again.':
+      'تعذّر تحميل محادثاتك. حاول مرة أخرى.',
+  // Live voice ("Pip Live") — realtime call copy.
+  'Pip Live': 'بيب لايف',
+  'Listening': 'أستمع',
+  'You are speaking': 'أنت تتحدث',
+  'Pip is speaking': 'بيب يتحدث',
+  'Connecting securely': 'جارٍ الاتصال بأمان',
+  'Reconnecting': 'جارٍ إعادة الاتصال',
+  'Live voice conversation in progress': 'محادثة صوتية مباشرة قيد التقدم',
+  'Mute': 'كتم الصوت',
+  'Unmute': 'إلغاء كتم الصوت',
+  'Minimize': 'تصغير',
+  'Return to Pip Live': 'العودة إلى بيب لايف',
+  'End live conversation': 'إنهاء المحادثة المباشرة',
+  'Talk live': 'تحدث مباشرة',
+  'You': 'أنت',
+  'Call ended': 'انتهت المكالمة',
+  'Expand transcript': 'عرض النص الكامل',
+  'Collapse transcript': 'طي النص',
+  'Live voice is unavailable right now. Please try again.':
+      'المحادثة الصوتية المباشرة غير متاحة حاليًا. حاول مرة أخرى.',
+  'Live voice returned an unexpected response. Please try again.':
+      'أعادت المحادثة المباشرة استجابة غير متوقعة. حاول مرة أخرى.',
+  'ChickMark needs microphone access for live voice. Enable it in Settings and try again.':
+      'يحتاج ChickMark إلى إذن الميكروفون للمحادثة المباشرة. فعّله من الإعدادات وحاول مرة أخرى.',
+  'No microphone was available for live voice.':
+      'لا يوجد ميكروفون متاح للمحادثة المباشرة.',
+  'Could not start the live call. Please try again.':
+      'تعذّر بدء المكالمة المباشرة. حاول مرة أخرى.',
+  'The live call was not ready to send audio.':
+      'المكالمة المباشرة لم تكن جاهزة لإرسال الصوت.',
+  'The live call was not connected yet.':
+      'لم يتم توصيل المكالمة المباشرة بعد.',
+  'Could not reach the live voice service. Check your connection.':
+      'تعذّر الوصول إلى خدمة المحادثة المباشرة. تحقق من اتصالك.',
+  'The live voice service refused the call. Please try again.':
+      'رفضت خدمة المحادثة المباشرة المكالمة. حاول مرة أخرى.',
+  'The live voice service did not identify the call. Please try again.':
+      'لم تحدد خدمة المحادثة المباشرة المكالمة. حاول مرة أخرى.',
+  'The live voice service returned an empty answer. Please try again.':
+      'أعادت خدمة المحادثة المباشرة ردًا فارغًا. حاول مرة أخرى.',
+  'Could not connect the live voice session. Please try again.':
+      'تعذّر الاتصال بجلسة المحادثة المباشرة. حاول مرة أخرى.',
+  'The live voice session dropped.': 'انقطعت جلسة المحادثة المباشرة.',
+  'The live voice session failed.': 'فشلت جلسة المحادثة المباشرة.',
+  'The live voice session hit an error.':
+      'حدث خطأ في جلسة المحادثة المباشرة.',
+  'The live voice call dropped.': 'انقطعت المكالمة الصوتية المباشرة.',
 };

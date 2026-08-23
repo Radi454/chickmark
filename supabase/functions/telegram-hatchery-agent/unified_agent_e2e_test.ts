@@ -5,9 +5,21 @@ import { handleTelegramUpdate } from './index.ts'
 
 type Row = Record<string, unknown>
 
+interface TurnCounters {
+  nextSeq: number
+  epoch: number
+  nextInbound: number
+  nextOutbound: number
+}
+
 class FakeAdmin {
   readonly inserts: Record<string, unknown[]> = {}
   readonly updates: Record<string, unknown[]> = {}
+  /** Every allocate_agent_turn_slot call, in order. */
+  readonly turnSlots: Row[] = []
+  /** Set to make the allocator report a database error. */
+  allocatorFails = false
+  private readonly counters = new Map<string, TurnCounters>()
 
   constructor(
     readonly staff: Row | null = {
@@ -30,9 +42,13 @@ class FakeAdmin {
       )
       rows.sort((left, right) => {
         for (const ordering of orderings) {
-          const comparison = String(left[ordering.column] ?? '').localeCompare(
-            String(right[ordering.column] ?? ''),
-          )
+          const a = left[ordering.column]
+          const b = right[ordering.column]
+          // conversation_seq and turn_index are integers; a string compare
+          // would put 10 before 9.
+          const comparison = typeof a === 'number' && typeof b === 'number'
+            ? (a === b ? 0 : a < b ? -1 : 1)
+            : String(a ?? '').localeCompare(String(b ?? ''))
           if (comparison !== 0) {
             return ordering.ascending ? comparison : -comparison
           }
@@ -118,6 +134,84 @@ class FakeAdmin {
     }
     return query
   }
+
+  // Stands in for chickmark_private.allocate_agent_turn_slot: authoritative
+  // counters per conversation, seeded once from the rows that already exist,
+  // with the turn_index counters restarting when the epoch advances.
+  rpc(fn: string, args: Row) {
+    if (fn !== 'allocate_agent_turn_slot') {
+      throw new Error(`unexpected function ${fn}`)
+    }
+    this.turnSlots.push({ ...args })
+    if (this.allocatorFails) {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'allocation failed' },
+      })
+    }
+    return Promise.resolve({
+      data: [this.allocate(args)],
+      error: null,
+    })
+  }
+
+  private allocate(args: Row): Row {
+    const conversationId = String(args.p_conversation_id)
+    const epoch = Number(args.p_context_epoch)
+    const direction = String(args.p_direction)
+    const override = args.p_turn_index_override
+    const counters = this.countersFor(conversationId, epoch)
+    if (counters.epoch !== epoch) {
+      counters.epoch = epoch
+      counters.nextInbound = 1
+      counters.nextOutbound = 1
+    }
+    let turnIndex: number
+    if (typeof override === 'number') {
+      turnIndex = override
+      if (direction === 'inbound') {
+        counters.nextInbound = Math.max(counters.nextInbound, turnIndex + 1)
+      } else {
+        counters.nextOutbound = Math.max(counters.nextOutbound, turnIndex + 1)
+      }
+    } else if (direction === 'inbound') {
+      turnIndex = counters.nextInbound
+      counters.nextInbound += 1
+    } else {
+      turnIndex = counters.nextOutbound
+      counters.nextOutbound += 1
+    }
+    const conversationSeq = counters.nextSeq
+    counters.nextSeq += 1
+    return { conversation_seq: conversationSeq, turn_index: turnIndex }
+  }
+
+  private countersFor(conversationId: string, epoch: number): TurnCounters {
+    const existing = this.counters.get(conversationId)
+    if (existing) return existing
+    const rows = (this.tables.agent_conversation_turns ?? []).filter(
+      (row) => row.conversation_id === conversationId,
+    )
+    const inEpoch = (direction: string) =>
+      rows.filter((row) =>
+        row.direction === direction && Number(row.context_epoch) === epoch
+      )
+    const seeded: TurnCounters = {
+      nextSeq: highest(rows, 'conversation_seq') + 1,
+      epoch,
+      nextInbound: highest(inEpoch('inbound'), 'turn_index') + 1,
+      nextOutbound: highest(inEpoch('outbound'), 'turn_index') + 1,
+    }
+    this.counters.set(conversationId, seeded)
+    return seeded
+  }
+}
+
+function highest(rows: readonly Row[], column: string): number {
+  return rows.reduce((latest, row) => {
+    const value = Number(row[column])
+    return Number.isFinite(value) ? Math.max(latest, value) : latest
+  }, 0)
 }
 
 function request(text: string, updateId = 100): Request {
@@ -223,6 +317,9 @@ Deno.test('authorized text persists one unified conversation evidence chain', as
       text: turn.text,
       deliveryStatus: turn.delivery_status,
       turnIndex: turn.turn_index,
+      conversationSeq: turn.conversation_seq,
+      sourceChannel: turn.source_channel,
+      completionStatus: turn.completion_status,
       replyToTurnId: turn.reply_to_turn_id ?? null,
     })),
     [
@@ -231,19 +328,67 @@ Deno.test('authorized text persists one unified conversation evidence chain', as
         text: 'سجل لي ملاحظة',
         deliveryStatus: 'received',
         turnIndex: 1,
+        conversationSeq: 1,
+        sourceChannel: 'telegram',
+        completionStatus: 'finalized',
         replyToTurnId: null,
       },
       {
+        // The reply reuses its inbound turn_index and takes its own
+        // conversation_seq.
         direction: 'outbound',
         text: 'تم حفظ ملاحظتك في المحادثة.',
         deliveryStatus: 'pending',
         turnIndex: 1,
+        conversationSeq: 2,
+        sourceChannel: 'telegram',
+        completionStatus: 'finalized',
         replyToTurnId: 'generated-2',
       },
     ],
   )
+  assertEquals(
+    client.turnSlots.map((call) => ({
+      direction: call.p_direction,
+      epoch: call.p_context_epoch,
+      override: call.p_turn_index_override,
+    })),
+    [
+      { direction: 'inbound', epoch: 1, override: null },
+      { direction: 'outbound', epoch: 1, override: 1 },
+    ],
+  )
   assertEquals(client.inserts.telegram_agent_update_receipts?.length, 1)
   assertEquals(client.inserts.agent_submissions, undefined)
+})
+
+Deno.test('a failed turn-slot allocation stores nothing and never calls the model', async () => {
+  let modelCalls = 0
+  const messages: string[] = []
+  const client = new FakeAdmin()
+  client.allocatorFails = true
+
+  const response = await handleTelegramUpdate(
+    request('hello', 260),
+    dependencies({
+      client,
+      messages,
+      run: () => {
+        modelCalls += 1
+        return Promise.resolve({
+          status: 'replied',
+          reply: 'must not run',
+          providerResponseId: 'response-none',
+          toolCallCount: 0,
+        })
+      },
+    }),
+  )
+
+  assertEquals(response.status, 500)
+  assertEquals(modelCalls, 0)
+  assertEquals(messages, [])
+  assertEquals(client.inserts.agent_conversation_turns, undefined)
 })
 
 Deno.test('explicit new conversation control clears context without model access', async () => {

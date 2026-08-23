@@ -1,6 +1,6 @@
 // supabase/functions/app-hatchery-agent/voice.ts
 //
-// Wraps OpenAI Whisper (speech-to-text) and TTS (text-to-speech) behind two
+// Wraps OpenAI transcription (speech-to-text) and TTS (text-to-speech) behind two
 // small functions. Prefers a dedicated OPENAI_VOICE_KEY secret so a voice
 // spend cap can be isolated from the agent brain's OPENAI_API_KEY, but falls
 // back to OPENAI_API_KEY when no separate voice key has been set — so voice
@@ -8,21 +8,39 @@
 //
 // Logging discipline: never log audio bytes, transcripts, or replies.
 
+import { PIP_MODEL_DEFAULTS } from '../_shared/pip_model_routing.ts'
+
 const TRANSCRIPTION_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions'
 const SPEECH_ENDPOINT = 'https://api.openai.com/v1/audio/speech'
-const WHISPER_MODEL = 'whisper-1'
-const TTS_MODEL = 'gpt-4o-mini-tts'
-const TTS_VOICE = 'ash'
+const STT_MODEL = PIP_MODEL_DEFAULTS.voiceNoteTranscription
+const TTS_MODEL = PIP_MODEL_DEFAULTS.voiceNoteSpeech
+// Matches Pip Live's realtime voice (`realtimeVoice: 'cedar'` in
+// pip-realtime-session/config.ts) so a recorded voice note and a live call
+// sound like the SAME assistant. Previously 'ash' (and 'alloy' before that),
+// which made Pip's voice change identity depending on which surface the user
+// happened to be on. Verified against /v1/audio/speech: `cedar` is accepted
+// by gpt-4o-mini-tts, not just by the realtime model.
+const TTS_VOICE = 'cedar'
 
 export type ReplyLanguage = 'en' | 'ar' | 'mixed'
 
 /// Steers gpt-4o-mini-tts pronunciation per reply language. Arabic replies
 /// come from Egyptian hatchery staff, so Egyptian Arabic is the target.
 const TTS_INSTRUCTIONS: Partial<Record<ReplyLanguage, string>> = {
-  ar: 'Speak natural, clear Egyptian Arabic with correct pronunciation.',
+  ar:
+    'Speak in Egyptian Colloquial Arabic (اللهجة المصرية العامية) as spoken ' +
+    'in Cairo — NOT Modern Standard Arabic, and not a Gulf, Levantine or ' +
+    'Maghrebi accent. Use the Egyptian pronunciation of the letters ج (hard ' +
+    '"g" as in "go") and ق (glottal stop). Sound like a normal Egyptian ' +
+    'colleague talking to a co-worker: relaxed, warm, conversational pace, ' +
+    'not a newsreader.',
   mixed:
     'The text mixes Arabic and English. Speak each part in its own language ' +
-    'naturally — Egyptian Arabic for the Arabic parts.',
+    'naturally. For the Arabic parts use Egyptian Colloquial Arabic (اللهجة ' +
+    'المصرية العامية) as spoken in Cairo — hard "g" for ج, glottal stop for ' +
+    'ق — never Modern Standard Arabic. Keep English technical terms ' +
+    '(hatchability, breakout, PASGAR) in clear English rather than ' +
+    'transliterating them.',
 }
 
 export class VoiceProviderError extends Error {
@@ -43,7 +61,7 @@ export function readVoiceConfig(): VoiceConfig | null {
   return apiKey ? { apiKey } : null
 }
 
-/** Decodes a base64 audio clip and sends it to Whisper. Returns the transcript. */
+/** Decodes a base64 audio clip and sends it to OpenAI transcription. */
 export async function transcribeAudio(
   audioBase64: string,
   config: VoiceConfig,
@@ -51,7 +69,7 @@ export async function transcribeAudio(
   const bytes = decodeBase64(audioBase64)
   const form = new FormData()
   form.append('file', new Blob([bytes.slice().buffer as ArrayBuffer]), 'audio.m4a')
-  form.append('model', WHISPER_MODEL)
+  form.append('model', STT_MODEL)
 
   const fetchImpl = config.fetchImpl ?? fetch
   let response: Response

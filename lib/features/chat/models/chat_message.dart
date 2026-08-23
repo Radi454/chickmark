@@ -26,6 +26,7 @@ class ChatMessage {
     this.language,
     this.clientMessageId,
     this.audioBase64,
+    this.source,
   });
 
   final String id;
@@ -48,11 +49,18 @@ class ChatMessage {
   /// only replies received in this session are replayable.
   final String? audioBase64;
 
+  /// `"text" | "voice" | null` as classified by the server: `"voice"` marks a
+  /// turn that originated as a realtime call transcript rather than a typed
+  /// or recorded-and-sent message. Null for locally-composed turns not yet
+  /// round-tripped through history.
+  final String? source;
+
   bool get isUser => role == ChatMessageRole.user;
   bool get isAssistant => role == ChatMessageRole.assistant;
   bool get isFailed => status == ChatMessageStatus.failed;
   bool get isSending => status == ChatMessageStatus.sending;
   bool get hasAudio => audioBase64 != null && audioBase64!.isNotEmpty;
+  bool get isVoice => source == 'voice';
 
   /// Parses one entry of the `messages` array from `action: "history"`.
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
@@ -70,6 +78,7 @@ class ChatMessage {
       text: text,
       createdAt: _createdAtFromJson(json['createdAt']),
       language: json['language']?.toString(),
+      source: json['source']?.toString(),
     );
   }
 
@@ -82,6 +91,7 @@ class ChatMessage {
     String? language,
     String? clientMessageId,
     String? audioBase64,
+    String? source,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -92,6 +102,7 @@ class ChatMessage {
       language: language ?? this.language,
       clientMessageId: clientMessageId ?? this.clientMessageId,
       audioBase64: audioBase64 ?? this.audioBase64,
+      source: source ?? this.source,
     );
   }
 
@@ -105,7 +116,8 @@ class ChatMessage {
         other.status == status &&
         other.language == language &&
         other.clientMessageId == clientMessageId &&
-        other.audioBase64 == audioBase64;
+        other.audioBase64 == audioBase64 &&
+        other.source == source;
   }
 
   @override
@@ -118,6 +130,7 @@ class ChatMessage {
     language,
     clientMessageId,
     audioBase64,
+    source,
   );
 }
 

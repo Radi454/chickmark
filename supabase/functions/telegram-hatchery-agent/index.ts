@@ -18,10 +18,15 @@ import {
   type HatcheryRowWarning,
 } from './warning_rules.ts'
 import { createResponsesAgentProvider } from './agent_provider.ts'
+import {
+  resolveOpenRouterTextModels,
+  resolvePipTextModel,
+} from '../_shared/pip_model_routing.ts'
 import type { AgentScope } from './agent_protocol.ts'
 import {
   type AgentTurnInput,
   type AgentTurnResult,
+  type AgentTurnTelemetry,
   runAgentTurn,
 } from './agent_runtime.ts'
 import {
@@ -29,6 +34,11 @@ import {
   createSupabaseAgentScopeStore,
   resolveAgentScope,
 } from './agent_scope.ts'
+import {
+  type AgentContextClient,
+  allocateAgentTurnSlot,
+  buildAgentContext,
+} from './agent_context.ts'
 import {
   type AgentIntakeClient,
   createSupabaseAgentIntakeStore,
@@ -122,6 +132,31 @@ interface AiExtractionConfig {
   provider: AiProvider
   apiKey: string
   model?: string
+  /**
+   * The text agent's one-step OpenRouter fallback model (see
+   * `agent_provider.ts`'s `classifyProviderFailure`). Only ever set by
+   * `readAiConfig()` (the conversational text-agent path); the separate
+   * extraction pipeline's `readAiExtractionConfig()` never sets it and its
+   * own inline 402 retry is untouched by this field.
+   */
+  fallbackModel?: string
+  /**
+   * The vision-capable model a conversational call is routed to when its
+   * input carries an image or video (see `requestIsVisual` in
+   * `agent_provider.ts`). Only ever set by `readAiConfig()`, from
+   * `resolveOpenRouterTextModels(...).vision` — never set by
+   * `readAiExtractionConfig()`.
+   */
+  visionModel?: string
+  /**
+   * Optional fallback for a failed vision call. Only ever set by
+   * `readAiConfig()`, and only when `OPENROUTER_VISION_FALLBACK_MODEL` is
+   * explicitly configured — see the CRITICAL doc comment on
+   * `visionFallbackModel` in `ResponsesAgentProviderConfig`
+   * (`agent_provider.ts`) for why this defaults to unset rather than
+   * reusing `fallbackModel`.
+   */
+  visionFallbackModel?: string
 }
 
 type HandlerExtractedRow = Partial<ExtractedHatcheryRow>
@@ -512,26 +547,29 @@ async function handleUnifiedAgentTurn(params: {
     ? previousContextEpoch + 1
     : previousContextEpoch
 
-  const historyResult = await params.deps.adminClient
-    .from('agent_conversation_turns')
-    .select(
-      'id, direction, text, turn_index, created_at',
-    )
-    .eq('conversation_id', conversationId)
-    .eq('context_epoch', contextEpoch)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(40)
-  if (historyResult.error) {
+  const contextClient = params.deps
+    .adminClient as unknown as AgentContextClient
+  const activeVisitId = nullableString(conversation.active_visit_id)
+  const agentContext = await buildAgentContext(contextClient, {
+    conversationId,
+    contextEpoch,
+    // A reset clears the context before any model call, so the intake session
+    // is never read on that path.
+    activeVisitId: resetRequested ? null : activeVisitId,
+  })
+  if (!agentContext) {
     return json(500, { error: 'Could not load agent conversation history.' })
   }
-  const storedTurns = historyResult.data ?? []
-  const latestInboundIndex = storedTurns.reduce((latest, turn) => {
-    if (turn.direction !== 'inbound') return latest
-    const value = integerValue(turn.turn_index)
-    return value === null ? latest : Math.max(latest, value)
-  }, 0)
-  const turnIndex = latestInboundIndex + 1
+
+  const inboundSlot = await allocateAgentTurnSlot(contextClient, {
+    conversationId,
+    contextEpoch,
+    direction: 'inbound',
+  })
+  if (!inboundSlot) {
+    return json(500, { error: 'Could not allocate agent turn.' })
+  }
+  const turnIndex = inboundSlot.turnIndex
   const inboundTurnId = params.newId()
   const inboundInsert = await params.deps.adminClient
     .from('agent_conversation_turns')
@@ -540,7 +578,10 @@ async function handleUnifiedAgentTurn(params: {
       conversation_id: conversationId,
       direction: 'inbound',
       turn_index: turnIndex,
+      conversation_seq: inboundSlot.conversationSeq,
       context_epoch: contextEpoch,
+      source_channel: 'telegram',
+      completion_status: 'finalized',
       telegram_update_id: params.updateId,
       telegram_message_id: params.messageId,
       text,
@@ -610,6 +651,15 @@ async function handleUnifiedAgentTurn(params: {
     }
     const reply = 'بدأت محادثة جديدة وحُفظ السجل السابق للمراجعة.\n' +
       'A new conversation has started. Previous evidence was preserved.'
+    const resetSlot = await allocateAgentTurnSlot(contextClient, {
+      conversationId,
+      contextEpoch,
+      direction: 'outbound',
+      turnIndexOverride: turnIndex,
+    })
+    if (!resetSlot) {
+      return json(500, { error: 'Could not allocate agent turn.' })
+    }
     const outboundTurnId = params.newId()
     const outboundInsert = await params.deps.adminClient
       .from('agent_conversation_turns')
@@ -617,8 +667,11 @@ async function handleUnifiedAgentTurn(params: {
         id: outboundTurnId,
         conversation_id: conversationId,
         direction: 'outbound',
-        turn_index: turnIndex,
+        turn_index: resetSlot.turnIndex,
+        conversation_seq: resetSlot.conversationSeq,
         context_epoch: contextEpoch,
+        source_channel: 'telegram',
+        completion_status: 'finalized',
         reply_to_turn_id: inboundTurnId,
         telegram_update_id: null,
         telegram_message_id: null,
@@ -660,23 +713,6 @@ async function handleUnifiedAgentTurn(params: {
     })
   }
 
-  const activeVisitId = nullableString(conversation.active_visit_id)
-  let activeIntake: Record<string, unknown> | null = null
-  if (activeVisitId) {
-    const activeResult = await params.deps.adminClient
-      .from('agent_intake_sessions')
-      .select(
-        'id, visit_id, state, schema_key, schema_version, row_version, ' +
-          'working_values_json, pending_clarification_json, summary_version, ' +
-          'summary_snapshot_json, user_confirmed_at, updated_at',
-      )
-      .eq('visit_id', activeVisitId)
-      .order('updated_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(1)
-    if (!activeResult.error) activeIntake = activeResult.data?.[0] ?? null
-  }
-
   const result = await params.deps.runAgentTurn({
     scope: params.scope,
     conversationId,
@@ -693,21 +729,22 @@ async function handleUnifiedAgentTurn(params: {
         fileData,
       }
       : null,
-    recentTurns: storedTurns
-      .slice()
-      .reverse()
-      .flatMap((turn) => {
-        const role = turn.direction === 'inbound'
-          ? 'user' as const
-          : turn.direction === 'outbound'
-          ? 'assistant' as const
-          : null
-        const turnText = nullableString(turn.text)
-        return role && turnText ? [{ role, text: turnText }] : []
-      })
-      .slice(-20),
+    recentTurns: agentContext.recentTurns,
     pendingAction: jsonObjectOrNull(conversation.pending_action_json),
-    activeIntake,
+    activeIntake: agentContext.activeIntake,
+  })
+
+  // Sink (a): a structured log line for EVERY turn, success or failure — a
+  // `provider_unavailable` / `provider_timeout` turn is exactly the one most
+  // worth observing, and it never writes an outbound row (see sink (b)
+  // below), so this is the only durable trace it leaves. Deliberately never
+  // includes message text, reply text, tokens, or provider keys.
+  logAgentTurnTelemetry({
+    door: 'telegram',
+    conversationId,
+    status: result.status,
+    telemetry: result.telemetry,
+    toolCallCount: result.toolCallCount,
   })
 
   if (result.status !== 'replied') {
@@ -720,6 +757,15 @@ async function handleUnifiedAgentTurn(params: {
     })
   }
 
+  const outboundSlot = await allocateAgentTurnSlot(contextClient, {
+    conversationId,
+    contextEpoch,
+    direction: 'outbound',
+    turnIndexOverride: turnIndex,
+  })
+  if (!outboundSlot) {
+    return json(500, { error: 'Could not allocate agent turn.' })
+  }
   const outboundTurnId = params.newId()
   const outboundInsert = await params.deps.adminClient
     .from('agent_conversation_turns')
@@ -727,8 +773,11 @@ async function handleUnifiedAgentTurn(params: {
       id: outboundTurnId,
       conversation_id: conversationId,
       direction: 'outbound',
-      turn_index: turnIndex,
+      turn_index: outboundSlot.turnIndex,
+      conversation_seq: outboundSlot.conversationSeq,
       context_epoch: contextEpoch,
+      source_channel: 'telegram',
+      completion_status: 'finalized',
       reply_to_turn_id: inboundTurnId,
       telegram_update_id: null,
       telegram_message_id: null,
@@ -737,6 +786,7 @@ async function handleUnifiedAgentTurn(params: {
       provider: result.provider ?? null,
       model: result.model ?? null,
       provider_response_id: result.providerResponseId,
+      provider_telemetry_json: result.telemetry ?? null,
       attachment_json: null,
       delivery_status: 'pending',
       created_at: params.timestamp,
@@ -771,6 +821,39 @@ async function handleUnifiedAgentTurn(params: {
     agent: true,
     status: result.status,
   })
+}
+
+/**
+ * Sink (a) of the two required observability sinks — see the doc comment at
+ * the call site. One `console.log(JSON.stringify(...))` per turn. Never logs
+ * message text, reply text, tokens, or provider keys, matching this file's
+ * existing logging discipline.
+ */
+function logAgentTurnTelemetry(params: {
+  door: 'telegram'
+  conversationId: string
+  status: string
+  /** The TURN-level aggregate (see `AgentTurnTelemetry`), not a single call's. */
+  telemetry: AgentTurnTelemetry | null | undefined
+  toolCallCount: number
+}): void {
+  console.log(JSON.stringify({
+    event: 'agent_turn_telemetry',
+    door: params.door,
+    conversationId: params.conversationId,
+    status: params.status,
+    provider: params.telemetry?.provider ?? null,
+    primaryModel: params.telemetry?.primaryModel ?? null,
+    fallbackModel: params.telemetry?.fallbackModel ?? null,
+    modelsUsed: params.telemetry?.modelsUsed ?? [],
+    totalCallCount: params.telemetry?.totalCallCount ?? 0,
+    fallbackCallCount: params.telemetry?.fallbackCallCount ?? 0,
+    fallbackOccurred: params.telemetry?.fallbackOccurred ?? false,
+    fallbackReasons: params.telemetry?.fallbackReasons ?? [],
+    providerResponseIds: params.telemetry?.providerResponseIds ?? [],
+    latencyMs: params.telemetry?.latencyMs ?? null,
+    toolCallCount: params.toolCallCount,
+  }))
 }
 
 async function sendUnifiedInfrastructureRetry(
@@ -1177,7 +1260,7 @@ export function serveTelegramWebhook(
 ): Response | Promise<Response> {
   const expectedTelegramSecret = Deno.env.get('TELEGRAM_WEBHOOK_SECRET')
   const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN')
-  const aiConfig = readAiExtractionConfig()
+  const aiConfig = readAiConfig()
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (
@@ -1240,7 +1323,44 @@ export function serveTelegramWebhook(
   })
 }
 
-function readAiExtractionConfig(): AiExtractionConfig | null {
+export function readAiConfig(): AiExtractionConfig | null {
+  const configuredProvider = nullableString(Deno.env.get('AI_PROVIDER'))
+    ?.toLowerCase()
+  if (
+    configuredProvider &&
+    configuredProvider !== 'openai' &&
+    configuredProvider !== 'openrouter'
+  ) {
+    return null
+  }
+
+  const openRouterApiKey = nullableString(Deno.env.get('OPENROUTER_API_KEY'))
+  const openAiApiKey = nullableString(Deno.env.get('OPENAI_API_KEY'))
+  const provider = (configuredProvider ??
+    (openRouterApiKey ? 'openrouter' : 'openai')) as AiProvider
+  const apiKey = provider === 'openrouter' ? openRouterApiKey : openAiApiKey
+  if (!apiKey) return null
+  if (provider === 'openai') {
+    return { provider, apiKey, model: resolvePipTextModel(Deno.env.get) }
+  }
+
+  const { primary, fallback, vision } = resolveOpenRouterTextModels(
+    Deno.env.get,
+  )
+  const visionFallbackModel = nullableString(
+    Deno.env.get('OPENROUTER_VISION_FALLBACK_MODEL'),
+  ) ?? undefined
+  return {
+    provider,
+    apiKey,
+    model: primary,
+    fallbackModel: fallback,
+    visionModel: vision,
+    visionFallbackModel,
+  }
+}
+
+export function readAiExtractionConfig(): AiExtractionConfig | null {
   const configuredProvider = nullableString(Deno.env.get('AI_PROVIDER'))
     ?.toLowerCase()
   if (

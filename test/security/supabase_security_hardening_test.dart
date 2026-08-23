@@ -7,8 +7,8 @@ void main() {
 
   setUpAll(() {
     migration = [
-      'supabase/migrations/0007_security_hardening.sql',
-      'supabase/migrations/0008_explicit_function_revokes.sql',
+      'supabase/migrations/20260719131203_0007_security_hardening.sql',
+      'supabase/migrations/20260719144840_explicit_function_revokes.sql',
     ].map((path) => File(path).readAsStringSync()).join('\n');
   });
 

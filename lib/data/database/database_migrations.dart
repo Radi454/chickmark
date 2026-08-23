@@ -493,12 +493,151 @@ Future<void> _applyV58Upgrade(Database db) async {
     final userEditedWhere = columns.contains('updatedAt')
         ? 'updatedAt IS NOT NULL OR hatcheryId IS NOT NULL'
         : 'hatcheryId IS NOT NULL';
-    await db.update(
-      'bmk_operational_standards',
-      {'syncStatus': 'pending', 'dirtyAt': DateTime.now().toIso8601String()},
-      where: userEditedWhere,
-    );
+    await db.update('bmk_operational_standards', {
+      'syncStatus': 'pending',
+      'dirtyAt': DateTime.now().toIso8601String(),
+    }, where: userEditedWhere);
   }
+}
+
+Future<void> _applyV59Upgrade(Database db) async {
+  await _rebuildV59TelegramStaffLinksTable(db);
+}
+
+/// `telegram_staff_links` was created when Telegram was the only channel, so
+/// `telegramUserId` was `NOT NULL UNIQUE`. The agent now also serves in-app
+/// staff (`channel = 'app'`), whose cloud rows carry no Telegram identity at
+/// all. Those rows failed the NOT NULL constraint on pull — and because the
+/// pull upsert uses `INSERT OR IGNORE`, which SQLite applies to NOT NULL
+/// violations, they were dropped without an error. Every `agent_conversations`
+/// row referencing an app link then failed its foreign key (`OR IGNORE` does
+/// not suppress FK errors), which aborted the whole conversation/turn/tool
+/// event pull.
+///
+/// SQLite cannot relax NOT NULL or drop a column-level UNIQUE in place, so the
+/// table is rebuilt.
+Future<void> _rebuildV59TelegramStaffLinksTable(Database db) async {
+  if (!await _tableExists(db, 'telegram_staff_links')) return;
+
+  final columns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('telegram_staff_links')"),
+  );
+  // Columns carried over from the old table. `channel` and `appUserId` may
+  // already exist on databases that took the surgical-repair path first.
+  const carriedColumns = [
+    'id',
+    'telegramUserId',
+    'telegramChatId',
+    'displayName',
+    'username',
+    'status',
+    'accessRole',
+    'customerId',
+    'invitedBy',
+    'createdAt',
+    'updatedAt',
+    'syncStatus',
+    'dirtyAt',
+    'lastSyncedAt',
+    'syncError',
+  ];
+  final copied = carriedColumns.where(columns.contains).toList();
+  for (final optional in const ['channel', 'appUserId']) {
+    if (columns.contains(optional)) copied.add(optional);
+  }
+  if (!copied.contains('id')) return;
+  final copiedList = copied.join(', ');
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    // The application upgrade path already disabled foreign keys in
+    // onConfigure; this keeps the test hook safe when called directly.
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+  // Modern ALTER TABLE semantics so RENAME rewrites references rather than
+  // leaving them pointing at the dropped shadow name. See the v56 rebuild for
+  // why Apple's system SQLite needs this made explicit.
+  await db.execute('PRAGMA legacy_alter_table = OFF');
+
+  try {
+    const shadow = 'telegram_staff_links_v59';
+    // SQLite reparses *every* trigger during ALTER TABLE, not just the ones
+    // bound to the renamed table. Sparse legacy databases can be missing a
+    // table some other guard references (`flocks`, say), which makes the
+    // RENAME fail on an unrelated trigger. Drop the whole unified-agent guard
+    // set for the duration; onOpen's surgical repair recreates the rest once
+    // the table graph is whole again.
+    for (final trigger in const [
+      'trg_telegram_staff_links_scope_insert',
+      'trg_telegram_staff_links_scope_update',
+      'trg_agent_intake_visit_scope_insert',
+      'trg_agent_intake_visit_scope_update',
+      'trg_agent_intake_summary_immutable',
+      'trg_agent_tool_events_immutable',
+      'trg_agent_tool_events_delete_immutable',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+    await db.execute('DROP TABLE IF EXISTS $shadow');
+    await _createTelegramStaffLinksTable(db, tableName: shadow);
+
+    await db.execute('''
+      INSERT INTO $shadow ($copiedList)
+      SELECT $copiedList FROM telegram_staff_links
+    ''');
+    // Rows that predate the column default their channel from the identity
+    // they actually carry rather than blanket 'telegram'.
+    if (copied.contains('appUserId')) {
+      await db.execute('''
+        UPDATE $shadow SET channel = 'app'
+        WHERE appUserId IS NOT NULL AND telegramUserId IS NULL
+      ''');
+    }
+
+    final sourceCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM telegram_staff_links'),
+    );
+    final shadowCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM $shadow'),
+    );
+    if (sourceCount != shadowCount) {
+      throw StateError('v59 telegram_staff_links rebuild row-count mismatch');
+    }
+
+    await db.execute('DROP TABLE telegram_staff_links');
+    await db.execute('ALTER TABLE $shadow RENAME TO telegram_staff_links');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_telegram_staff_links_customer '
+      'ON telegram_staff_links (customerId) WHERE customerId IS NOT NULL',
+    );
+    await _createTelegramStaffLinkIndexes(db);
+    await _createTelegramStaffLinkGuards(db);
+
+    final violations = await db.rawQuery(
+      'PRAGMA foreign_key_check(telegram_staff_links)',
+    );
+    if (violations.isNotEmpty) {
+      throw StateError(
+        'v59 telegram_staff_links rebuild found foreign-key violations',
+      );
+    }
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
+/// Mirrors `supabase/migrations/20260818090000_pip_conversation_titles.sql`:
+/// `agent_conversations.title` backs the app door's multi-conversation list
+/// (app-hatchery-agent/index.ts), holding a short title derived from the
+/// caller's first message in a conversation. NULL means "not yet titled",
+/// including every conversation that predates this column.
+Future<void> _applyV60Upgrade(Database db) async {
+  if (!await _tableExists(db, 'agent_conversations')) return;
+  await _ensureColumns(db, 'agent_conversations', const ['title TEXT']);
 }
 
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {

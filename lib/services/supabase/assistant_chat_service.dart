@@ -2,6 +2,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../features/chat/models/chat_message.dart';
+import '../../features/chat/models/pip_conversation_summary.dart';
+
+/// The single-thread legacy conversation key, and the default for every port
+/// call that does not name one explicitly.
+const String defaultConversationKey = 'app';
 
 /// Injectable seam over `functions.invoke('app-hatchery-agent', body: ...)`.
 ///
@@ -33,19 +38,39 @@ abstract interface class AssistantChatPort {
   /// [clientMessageId] is optional; when omitted the implementation mints a
   /// fresh v4 uuid. Passing the same id twice returns the same stored reply
   /// rather than producing a second turn, which is what makes retry safe.
-  Future<AssistantChatReply> sendMessage(String message, {String? clientMessageId});
+  ///
+  /// [conversationKey] selects which conversation the turn belongs to —
+  /// `'app'` (the default, legacy single-thread conversation) or
+  /// `'app:'+uuid-v4` for one of the multi-conversation threads.
+  Future<AssistantChatReply> sendMessage(
+    String message, {
+    String? clientMessageId,
+    String conversationKey = defaultConversationKey,
+  });
 
   /// Sends one recorded question as base64 audio and returns the assistant's
   /// reply, including the Whisper [AssistantChatReply.transcript] and TTS
   /// [AssistantChatReply.audioBase64] when available.
-  Future<AssistantChatReply> sendVoice(String audioBase64, {String? clientMessageId});
+  Future<AssistantChatReply> sendVoice(
+    String audioBase64, {
+    String? clientMessageId,
+    String conversationKey = defaultConversationKey,
+  });
 
   /// Loads the visible conversation, oldest turn first.
-  Future<AssistantChatHistory> loadHistory({int limit = 50});
+  Future<AssistantChatHistory> loadHistory({
+    int limit = 50,
+    String conversationKey = defaultConversationKey,
+  });
 
   /// Clears the visible conversation. Prior turns are retained server-side but
   /// are no longer shown or sent to the model.
-  Future<void> resetConversation();
+  Future<void> resetConversation({
+    String conversationKey = defaultConversationKey,
+  });
+
+  /// Lists the caller's Pip conversations, most recently updated first.
+  Future<List<PipConversationSummary>> listConversations({int limit = 50});
 }
 
 class AssistantChatReply {
@@ -93,7 +118,12 @@ class AssistantChatHistory {
     required this.messages,
   });
 
-  final String conversationId;
+  /// Null until the conversation actually exists server-side. A conversation
+  /// the user has opened but not yet sent anything in has no row yet, and
+  /// `app-hatchery-agent`'s history action deliberately answers
+  /// `{conversationId: null, messages: []}` for it. Nothing in the app reads
+  /// this id; it is carried for diagnostics only.
+  final String? conversationId;
   final List<ChatMessage> messages;
 }
 
@@ -133,6 +163,7 @@ class AssistantChatService implements AssistantChatPort {
   Future<AssistantChatReply> sendMessage(
     String message, {
     String? clientMessageId,
+    String conversationKey = defaultConversationKey,
   }) async {
     final trimmed = message.trim();
     if (trimmed.isEmpty) {
@@ -152,6 +183,7 @@ class AssistantChatService implements AssistantChatPort {
       'action': 'send',
       'message': trimmed,
       'clientMessageId': clientMessageId ?? _newClientMessageId(),
+      'conversationId': conversationKey,
     });
     final row = _object(payload);
     return AssistantChatReply(
@@ -168,6 +200,7 @@ class AssistantChatService implements AssistantChatPort {
   Future<AssistantChatReply> sendVoice(
     String audioBase64, {
     String? clientMessageId,
+    String conversationKey = defaultConversationKey,
   }) async {
     final trimmed = audioBase64.trim();
     if (trimmed.isEmpty) {
@@ -187,6 +220,7 @@ class AssistantChatService implements AssistantChatPort {
       'action': 'send',
       'audioBase64': trimmed,
       'clientMessageId': clientMessageId ?? _newClientMessageId(),
+      'conversationId': conversationKey,
     });
     final row = _object(payload);
     return AssistantChatReply(
@@ -202,10 +236,14 @@ class AssistantChatService implements AssistantChatPort {
   }
 
   @override
-  Future<AssistantChatHistory> loadHistory({int limit = 50}) async {
+  Future<AssistantChatHistory> loadHistory({
+    int limit = 50,
+    String conversationKey = defaultConversationKey,
+  }) async {
     final payload = await _invoke({
       'action': 'history',
       'limit': limit.clamp(1, 100),
+      'conversationId': conversationKey,
     });
     final row = _object(payload);
     final rawMessages = row['messages'];
@@ -213,7 +251,10 @@ class AssistantChatService implements AssistantChatPort {
       throw const FormatException('History response must contain messages');
     }
     return AssistantChatHistory(
-      conversationId: _requiredText(row['conversationId'], 'conversationId'),
+      // Optional on purpose — see `AssistantChatHistory.conversationId`. A
+      // brand-new conversation legitimately has no server id yet, and
+      // demanding one here turned every first open into an error banner.
+      conversationId: _optionalText(row['conversationId']),
       messages: List.unmodifiable(
         rawMessages.map((entry) => ChatMessage.fromJson(_object(entry))),
       ),
@@ -221,8 +262,32 @@ class AssistantChatService implements AssistantChatPort {
   }
 
   @override
-  Future<void> resetConversation() async {
-    await _invoke({'action': 'reset'});
+  Future<void> resetConversation({
+    String conversationKey = defaultConversationKey,
+  }) async {
+    await _invoke({'action': 'reset', 'conversationId': conversationKey});
+  }
+
+  @override
+  Future<List<PipConversationSummary>> listConversations({
+    int limit = 50,
+  }) async {
+    final payload = await _invoke({
+      'action': 'conversations',
+      'limit': limit.clamp(1, 100),
+    });
+    final row = _object(payload);
+    final rawConversations = row['conversations'];
+    if (rawConversations is! List) {
+      throw const FormatException(
+        'Conversations response must contain conversations',
+      );
+    }
+    return List.unmodifiable(
+      rawConversations
+          .map(PipConversationSummary.tryParse)
+          .whereType<PipConversationSummary>(),
+    );
   }
 
   /// Single choke point where every transport/decoding failure becomes one
@@ -291,6 +356,14 @@ Map<String, dynamic> _object(Object? payload) {
     throw const FormatException('Assistant response must be an object');
   }
   return payload.map((key, value) => MapEntry(key.toString(), value));
+}
+
+/// A text field the contract allows to be absent or explicitly null. Blank is
+/// treated as absent so `""` never reaches the UI as a meaningful value.
+String? _optionalText(Object? value) {
+  final text = value?.toString();
+  if (text == null || text.trim().isEmpty) return null;
+  return text;
 }
 
 String _requiredText(Object? value, String field) {

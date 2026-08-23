@@ -1,14 +1,23 @@
+import 'package:flutter/material.dart' as material;
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/config/feature_flags.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/network/network_status_monitor.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/gradient_app_bar.dart';
+import '../../../core/utils/conversation_title.dart';
+import '../../../core/utils/text_direction_detector.dart';
+import '../../../services/supabase/assistant_chat_service.dart'
+    show defaultConversationKey;
 import '../models/chat_message.dart';
 import '../providers/assistant_provider.dart';
+import '../providers/realtime_voice_controller.dart';
+import 'realtime_voice_screen.dart';
 import '../widgets/assistant_avatar.dart';
 
 /// In-app assistant chat.
@@ -17,29 +26,87 @@ import '../widgets/assistant_avatar.dart';
 /// one the shell registers above this screen, so a widget test can drive the
 /// conversation from a fake port. [loadOnInit] lets a test pump the screen
 /// without firing the history request.
+///
+/// [realtimeController] is the same seam for the live ("Pip Live") call. It is
+/// looked up as a *nullable* dependency, so a test that only cares about typed
+/// chat can pump this screen without registering one, and the live control
+/// simply does not appear.
+///
+/// [conversationKey] identifies which conversation this screen is showing —
+/// `'app'` (legacy single thread) or `'app:'+uuid-v4` for one of the
+/// multi-conversation threads opened from the conversations list. It is
+/// purely a label carried through to [onOpenLive]; the injected [provider]
+/// (or the shell-registered one) is what actually determines which
+/// conversation's turns are loaded. [initialTitle] is the list-derived title
+/// shown in the app bar immediately, before this conversation's own history
+/// (and any server-derived title) has loaded — `null` falls back to "Pip".
+/// Derives the app-bar title from the first user turn once a fresh
+/// conversation (no server/list-derived [AssistantChatScreen.initialTitle])
+/// has one — mirrors the server's own title derivation
+/// (`conversation_title.ts`) via [deriveConversationTitle]. Returns `null`
+/// while there is no user turn yet (or its text collapses to nothing), so the
+/// caller falls back to [AppStrings.assistantTab].
+String? _deriveDisplayTitle(List<ChatMessage> messages) {
+  for (final message in messages) {
+    if (message.isUser) return deriveConversationTitle(message.text);
+  }
+  return null;
+}
+
 class AssistantChatScreen extends StatelessWidget {
-  const AssistantChatScreen({super.key, this.provider, this.loadOnInit = true});
+  const AssistantChatScreen({
+    super.key,
+    this.provider,
+    this.realtimeController,
+    this.onOpenLive,
+    this.loadOnInit = true,
+    this.conversationKey = defaultConversationKey,
+    this.initialTitle,
+  });
 
   final AssistantProvider? provider;
+  final RealtimeVoiceController? realtimeController;
+  final void Function(String conversationKey)? onOpenLive;
   final bool loadOnInit;
+  final String conversationKey;
+  final String? initialTitle;
 
   @override
   Widget build(BuildContext context) {
-    final injected = provider;
-    if (injected == null) {
-      return _AssistantChatView(loadOnInit: loadOnInit);
+    Widget child = _AssistantChatView(
+      loadOnInit: loadOnInit,
+      conversationKey: conversationKey,
+      initialTitle: initialTitle,
+      onOpenLive: onOpenLive,
+    );
+    final realtime = realtimeController;
+    if (realtime != null) {
+      child = ChangeNotifierProvider<RealtimeVoiceController>.value(
+        value: realtime,
+        child: child,
+      );
     }
+    final injected = provider;
+    if (injected == null) return child;
     return ChangeNotifierProvider<AssistantProvider>.value(
       value: injected,
-      child: _AssistantChatView(loadOnInit: loadOnInit),
+      child: child,
     );
   }
 }
 
 class _AssistantChatView extends StatefulWidget {
-  const _AssistantChatView({required this.loadOnInit});
+  const _AssistantChatView({
+    required this.loadOnInit,
+    required this.conversationKey,
+    this.initialTitle,
+    this.onOpenLive,
+  });
 
   final bool loadOnInit;
+  final String conversationKey;
+  final String? initialTitle;
+  final void Function(String conversationKey)? onOpenLive;
 
   @override
   State<_AssistantChatView> createState() => _AssistantChatViewState();
@@ -49,6 +116,20 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
   int _lastMessageCount = 0;
+  bool _openingLive = false;
+
+  // Reloads this conversation's history exactly once after a Pip Live call
+  // that belonged to it ends, so the call's persisted transcript (written
+  // server-side by the sideband) appears in the visible thread without the
+  // user having to leave and reopen it. `_reloadArmedForThisCall` is set
+  // while the controller is bound to THIS screen's conversationKey (in any
+  // non-idle state — including error, so a call that failed after already
+  // going live still triggers the reload) and consumed on the transition
+  // back to idle. By the time a call reaches idle, `activeConversationKey`
+  // has already been cleared (see `RealtimeVoiceController.stop`), so the key
+  // must be captured earlier, while the call is still active.
+  RealtimeVoiceController? _realtimeForReload;
+  bool _reloadArmedForThisCall = false;
 
   @override
   void initState() {
@@ -59,10 +140,42 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
         context.read<AssistantProvider>().load();
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _attachRealtimeReloadListener();
+    });
+  }
+
+  void _attachRealtimeReloadListener() {
+    if (!mounted) return;
+    // Parked: with the flag off the shell never provides a controller, so
+    // this lookup is already null — skip it explicitly rather than rely on
+    // that alone.
+    if (!FeatureFlags.realtimeEnabled) return;
+    final realtime = context.read<RealtimeVoiceController?>();
+    if (realtime == null) return;
+    _realtimeForReload = realtime;
+    _reloadArmedForThisCall =
+        realtime.activeConversationKey == widget.conversationKey;
+    realtime.addListener(_onRealtimeChangedForReload);
+  }
+
+  void _onRealtimeChangedForReload() {
+    final realtime = _realtimeForReload;
+    if (realtime == null) return;
+    if (realtime.state != RealtimeVoiceState.idle) {
+      if (realtime.activeConversationKey == widget.conversationKey) {
+        _reloadArmedForThisCall = true;
+      }
+      return;
+    }
+    if (!_reloadArmedForThisCall) return;
+    _reloadArmedForThisCall = false;
+    if (mounted) context.read<AssistantProvider>().load();
   }
 
   @override
   void dispose() {
+    _realtimeForReload?.removeListener(_onRealtimeChangedForReload);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -91,6 +204,34 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
       await provider.stopRecordingAndSend();
     } else {
       await provider.startRecording();
+    }
+  }
+
+  Future<void> _toggleLive(RealtimeVoiceController realtime) async {
+    // Parked: unreachable via the UI (see `onLiveTap` above), kept as a
+    // defensive guard rather than relying solely on the button being absent.
+    if (!FeatureFlags.realtimeEnabled) return;
+    final shellOpen = widget.onOpenLive;
+    if (shellOpen != null) {
+      shellOpen(widget.conversationKey);
+      return;
+    }
+    if (_openingLive) return;
+    _openingLive = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => ChangeNotifierProvider.value(
+            value: realtime,
+            child: RealtimeVoiceScreen(
+              autoStart: !realtime.isRealtimeActive,
+              conversationKey: widget.conversationKey,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      _openingLive = false;
     }
   }
 
@@ -123,6 +264,10 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AssistantProvider>();
+    // Nullable lookup on purpose: pre-existing tests (and any host that has
+    // not registered the controller) must keep working without one.
+    final realtime = context.watch<RealtimeVoiceController?>();
+    final isRealtimeActive = realtime?.isRealtimeActive ?? false;
     final isOffline = context.select<NetworkStatusMonitor, bool>(
       (monitor) => monitor.isOffline,
     );
@@ -132,10 +277,34 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
       _scrollToNewest();
     }
 
+    // True only while a live call THIS conversation owns is up — a call
+    // bound to some other conversation must never gate this screen's clear
+    // action (see F7: clearing bumps context_epoch server-side, which would
+    // orphan the rest of a call's transcript if that call belonged here).
+    final liveCallOwnsThisConversation =
+        isRealtimeActive && realtime?.activeConversationKey == widget.conversationKey;
+
+    // A fresh conversation has no list-derived title yet — derive one from
+    // its first user turn (mirrors the server's own derivation) instead of
+    // sitting on "Pip" forever. Both this and `initialTitle` are user/model
+    // content, so they must never pass through the app's localized `Text`
+    // (which runs every string through the Arabic UI phrasebook) — only the
+    // static "Pip" fallback goes through the normal (translated) path.
+    final contentTitle = widget.initialTitle ?? _deriveDisplayTitle(messages);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradientAppBar(
-        title: AppStrings.assistantTab,
+        title: contentTitle ?? AppStrings.assistantTab,
+        titleWidget: contentTitle == null
+            ? null
+            : material.Text(
+                contentTitle,
+                key: const ValueKey('assistant-header-title'),
+                maxLines: 1,
+                overflow: material.TextOverflow.ellipsis,
+                textDirection: TextDirectionDetector.detect(contentTitle),
+              ),
         titleLeading: const AssistantAvatar(
           key: ValueKey('assistant-header-avatar'),
           size: 36,
@@ -149,7 +318,8 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
                 provider.isSending ||
                     provider.isRecording ||
                     provider.isAwaitingVoiceReply ||
-                    messages.isEmpty
+                    messages.isEmpty ||
+                    liveCallOwnsThisConversation
                 ? null
                 : _confirmClear,
           ),
@@ -165,6 +335,24 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
                 message: provider.error!,
                 onRetry: () => _retryLast(provider),
               ),
+            // The live call failing must say WHERE, not just that it failed —
+            // "nothing happens" is undebuggable from a device. The detail line
+            // carries the setup stage and exception text, nothing sensitive.
+            // Scoped to THIS conversation (F5): a call that failed while
+            // bound to a different conversation must not show here, and its
+            // Retry must rebind to *this* screen's conversation, never the
+            // controller's `start()` default.
+            if (realtime != null &&
+                realtime.state == RealtimeVoiceState.error &&
+                realtime.errorMessage != null &&
+                realtime.activeConversationKey == widget.conversationKey)
+              _AssistantErrorBanner(
+                key: const ValueKey('assistant-live-error'),
+                message: realtime.errorMessage!,
+                detail: realtime.errorDetail,
+                onRetry: () =>
+                    realtime.start(conversationKey: widget.conversationKey),
+              ),
             Expanded(child: _buildBody(provider)),
             if (provider.isSending || provider.isAwaitingVoiceReply)
               const _AssistantThinkingIndicator(),
@@ -174,8 +362,37 @@ class _AssistantChatViewState extends State<_AssistantChatView> {
               isSending: provider.isSending,
               onSend: _send,
               isRecording: provider.isRecording,
-              isVoiceBusy: provider.isAwaitingVoiceReply || provider.isSpeaking,
+              // A live call holds the one iOS audio session, so recorded voice
+              // and typing are gated on it exactly like an in-flight TTS reply.
+              isVoiceBusy:
+                  provider.isAwaitingVoiceReply ||
+                  provider.isSpeaking ||
+                  isRealtimeActive,
               onMicTap: _toggleMic,
+              // Separate control with its own callback — the recorded-voice mic
+              // button is request/response and must not be overloaded.
+              //
+              // Pip Live is parked behind `FeatureFlags.realtimeEnabled`
+              // (lib/core/config/feature_flags.dart). The single choke point
+              // is the shell never providing a `RealtimeVoiceController` when
+              // the flag is off, which already makes `realtime` null here —
+              // this explicit check is belt-and-braces so a stray provider
+              // (e.g. from a test or a future call site) cannot resurrect the
+              // button on its own.
+              showLiveControl: realtime != null && FeatureFlags.realtimeEnabled,
+              isLive: isRealtimeActive,
+              canGoLive:
+                  realtime != null &&
+                  FeatureFlags.realtimeEnabled &&
+                  (isRealtimeActive ||
+                      (realtime.canStart &&
+                          !provider.isSending &&
+                          !provider.isRecording &&
+                          !provider.isAwaitingVoiceReply &&
+                          !provider.isSpeaking)),
+              onLiveTap: realtime == null || !FeatureFlags.realtimeEnabled
+                  ? null
+                  : () => _toggleLive(realtime),
             ),
           ],
         ),
@@ -309,7 +526,15 @@ class _AssistantMessageBubble extends StatelessWidget {
     final alignment = isUser
         ? AlignmentDirectional.centerEnd
         : AlignmentDirectional.centerStart;
-    final background = isUser ? AppColors.activeBg : AppColors.surface;
+    // A voice-source turn (a realtime call transcript, per `source: "voice"`
+    // in history) gets a slightly tinted bubble on top of its normal
+    // role-based color, plus the mic icon built in `_buildMessageContent` —
+    // together they mark it as "this is what was said on a call", not typed.
+    final background = isUser
+        ? (message.isVoice
+              ? Color.lerp(AppColors.activeBg, AppColors.primary, 0.15)!
+              : AppColors.activeBg)
+        : (message.isVoice ? AppColors.surfaceVariant : AppColors.surface);
     final textColor = isUser ? AppColors.activeText : AppColors.textBody;
 
     return Padding(
@@ -324,6 +549,8 @@ class _AssistantMessageBubble extends StatelessWidget {
             isUser: isUser,
             background: background,
             textColor: textColor,
+            replayTooltip: context.tr('Replay'),
+            voiceTranscriptLabel: context.tr('Voice transcript'),
           ),
         ),
       ),
@@ -334,27 +561,55 @@ class _AssistantMessageBubble extends StatelessWidget {
     required bool isUser,
     required Color background,
     required Color textColor,
+    required String replayTooltip,
+    required String voiceTranscriptLabel,
   }) {
+    final bubble = Container(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.spaceMd,
+        vertical: AppSizes.spaceSm,
+      ),
+      child: message.isVoice
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.mic,
+                  key: const ValueKey('assistant-voice-transcript-icon'),
+                  size: 14,
+                  color: textColor,
+                ),
+                const SizedBox(width: AppSizes.spaceXs),
+                Flexible(
+                  child: GptMarkdown(
+                    message.text,
+                    textDirection: TextDirectionDetector.detect(message.text),
+                    style: AppTextStyles.body.copyWith(color: textColor),
+                  ),
+                ),
+              ],
+            )
+          : GptMarkdown(
+              message.text,
+              textDirection: TextDirectionDetector.detect(message.text),
+              style: AppTextStyles.body.copyWith(color: textColor),
+            ),
+    );
+
     final messageColumn = Column(
       crossAxisAlignment: isUser
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            border: Border.all(color: AppColors.borderDefault),
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSizes.spaceMd,
-            vertical: AppSizes.spaceSm,
-          ),
-          child: SelectableText(
-            message.text,
-            style: AppTextStyles.body.copyWith(color: textColor),
-          ),
-        ),
+        message.isVoice
+            ? Semantics(label: voiceTranscriptLabel, child: bubble)
+            : bubble,
         if (message.isSending)
           Padding(
             padding: const EdgeInsets.only(top: AppSizes.spaceXs),
@@ -406,7 +661,7 @@ class _AssistantMessageBubble extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                  tooltip: 'Replay',
+                  tooltip: replayTooltip,
                   icon: const Icon(Icons.replay, size: 20),
                   color: AppColors.textTertiary,
                   onPressed: onReplay,
@@ -505,10 +760,20 @@ class _AssistantOfflineNotice extends StatelessWidget {
 }
 
 class _AssistantErrorBanner extends StatelessWidget {
-  const _AssistantErrorBanner({required this.message, required this.onRetry});
+  const _AssistantErrorBanner({
+    super.key,
+    required this.message,
+    required this.onRetry,
+    this.detail,
+  });
 
   final String message;
   final VoidCallback onRetry;
+
+  /// Optional diagnostic line (setup stage + exception text) rendered small
+  /// and selectable under the message, so a failure on a device can be copied
+  /// and reported verbatim.
+  final String? detail;
 
   @override
   Widget build(BuildContext context) {
@@ -529,11 +794,32 @@ class _AssistantErrorBanner extends StatelessWidget {
           ),
           const SizedBox(width: AppSizes.spaceSm),
           Expanded(
-            child: Text(
-              message,
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.statusError,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  message,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.statusError,
+                  ),
+                ),
+                if (detail != null) ...[
+                  const SizedBox(height: 2),
+                  SelectableText(
+                    detail!,
+                    key: const ValueKey('assistant-error-detail'),
+                    // Diagnostics are left-to-right technical text even when
+                    // the surrounding locale is Arabic.
+                    textDirection: TextDirection.ltr,
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.statusError,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           TextButton(
@@ -556,6 +842,10 @@ class _AssistantComposer extends StatelessWidget {
     required this.isRecording,
     required this.isVoiceBusy,
     required this.onMicTap,
+    this.showLiveControl = false,
+    this.isLive = false,
+    this.canGoLive = false,
+    this.onLiveTap,
   });
 
   final TextEditingController controller;
@@ -565,6 +855,21 @@ class _AssistantComposer extends StatelessWidget {
   final bool isRecording;
   final bool isVoiceBusy;
   final VoidCallback onMicTap;
+
+  /// Whether a live-call control is available at all (a
+  /// [RealtimeVoiceController] is registered above this screen).
+  final bool showLiveControl;
+
+  /// Whether a live call is currently up.
+  final bool isLive;
+
+  /// Whether the live control is tappable right now.
+  final bool canGoLive;
+
+  /// The live control's own callback. Never [onMicTap]: the mic button drives
+  /// the request/response recorded-voice turn, which is a different feature
+  /// with a different transport.
+  final VoidCallback? onLiveTap;
 
   @override
   Widget build(BuildContext context) {
@@ -607,6 +912,16 @@ class _AssistantComposer extends StatelessWidget {
             color: isRecording ? AppColors.statusError : AppColors.primary,
             onPressed: canRecord ? onMicTap : null,
           ),
+          if (showLiveControl) ...[
+            const SizedBox(width: AppSizes.spaceSm),
+            IconButton(
+              key: const ValueKey('assistant-live'),
+              tooltip: context.tr(isLive ? 'Return to Pip Live' : 'Talk live'),
+              icon: const Icon(Icons.graphic_eq),
+              color: AppColors.primary,
+              onPressed: (enabled || isLive) && canGoLive ? onLiveTap : null,
+            ),
+          ],
           const SizedBox(width: AppSizes.spaceSm),
           IconButton(
             key: const ValueKey('assistant-send'),

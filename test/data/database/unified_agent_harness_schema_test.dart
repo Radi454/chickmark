@@ -38,11 +38,11 @@ void main() {
   });
 
   test(
-    'fresh v58 database exposes ordered agent diagnostics and context',
+    'fresh v60 database exposes ordered agent diagnostics and context',
     () async {
       final db = await DatabaseHelper().db;
 
-      expect(await _userVersion(db), 58);
+      expect(await _userVersion(db), 60);
       expect(
         await _tableNames(db),
         containsAll(const [
@@ -69,6 +69,7 @@ void main() {
           'contextUpdatedAt',
           'pendingActionJson',
           'activeVisitId',
+          'title',
         ]),
       );
       expect(
@@ -564,6 +565,89 @@ void main() {
           {'id': 'customer-link'},
           {'id': 'admin-link'},
         ]),
+      );
+    },
+  );
+
+  test(
+    'app-channel staff links persist and anchor their conversation',
+    () async {
+      final db = await DatabaseHelper().db;
+      const now = '2026-08-15T10:00:00.000Z';
+
+      // The cloud shape for an in-app staff member: no Telegram identity at
+      // all. Before v59 this row failed telegramUserId NOT NULL, and because
+      // the pull upsert uses INSERT OR IGNORE it vanished without an error —
+      // taking every conversation that referenced it down with it.
+      await db.insert('telegram_staff_links', {
+        'id': 'app-user-link',
+        'telegramUserId': null,
+        'telegramChatId': 'app',
+        'displayName': 'App Admin',
+        'status': 'allowed',
+        'accessRole': 'admin',
+        'channel': 'app',
+        'appUserId': 'dc4cd5c0-e3d9-4761-b973-2b19f8f9c9a5',
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      expect(
+        await db.query('telegram_staff_links', where: "id = 'app-user-link'"),
+        hasLength(1),
+      );
+
+      await db.insert('agent_conversations', {
+        'id': 'app-conversation',
+        'staffLinkId': 'app-user-link',
+        'telegramChatId': 'app',
+        'stateVersion': 1,
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      expect(
+        await db.rawQuery('PRAGMA foreign_key_check(agent_conversations)'),
+        isEmpty,
+      );
+
+      // A second app link must not collide with the first: uniqueness is per
+      // channel, so the NULL telegramUserId columns do not compete.
+      await db.insert('telegram_staff_links', {
+        'id': 'app-user-link-2',
+        'telegramUserId': null,
+        'telegramChatId': 'app',
+        'status': 'allowed',
+        'accessRole': 'admin',
+        'channel': 'app',
+        'appUserId': 'a2f0f1b6-0000-4000-8000-000000000002',
+        'createdAt': now,
+        'updatedAt': now,
+      });
+
+      // Telegram identities stay unique, and so do app identities.
+      await db.insert('telegram_staff_links', {
+        'id': 'telegram-dupe-source',
+        'telegramUserId': 'telegram-dupe',
+        'status': 'pending',
+        'accessRole': 'customer',
+      });
+      await expectLater(
+        () => db.insert('telegram_staff_links', {
+          'id': 'telegram-dupe-clash',
+          'telegramUserId': 'telegram-dupe',
+          'status': 'pending',
+          'accessRole': 'customer',
+        }),
+        throwsA(isA<DatabaseException>()),
+      );
+      await expectLater(
+        () => db.insert('telegram_staff_links', {
+          'id': 'app-user-link-clash',
+          'status': 'pending',
+          'accessRole': 'customer',
+          'channel': 'app',
+          'appUserId': 'dc4cd5c0-e3d9-4761-b973-2b19f8f9c9a5',
+        }),
+        throwsA(isA<DatabaseException>()),
       );
     },
   );

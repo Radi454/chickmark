@@ -1,0 +1,92 @@
+<style>
+  :root { --blue:#1769D8; --cyan:#079FE0; --indigo:#193FC2; --yellow:#FFC21A; --orange:#E65100; --navy:#081B3A; }
+  .signal-wrap { max-width:960px; margin:0 auto; }
+  .signal-head { text-align:center; max-width:720px; margin:0 auto 24px; }
+  .signal-head h2 { margin:5px 0 8px; }
+  .signal-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+  .signal-card { border:1px solid rgba(255,255,255,.11); border-radius:18px; overflow:hidden; cursor:pointer; background:rgba(255,255,255,.035); transition:.18s ease; }
+  .signal-card:hover { transform:translateY(-3px); border-color:rgba(7,159,224,.72); }
+  .signal-card.selected { border-color:#25b7ef; box-shadow:0 0 0 2px rgba(37,183,239,.22); }
+  .stage { height:270px; position:relative; display:grid; place-items:center; overflow:hidden; background:radial-gradient(circle at 50% 39%,#38c3ff 0%,#1769d8 50%,#193fc2 100%); }
+  .stage:before { content:""; position:absolute; inset:0; opacity:.22; background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1px); background-size:18px 18px; }
+  .avatar { width:170px; height:170px; border-radius:50%; overflow:hidden; background:white; border:6px solid white; box-shadow:0 18px 35px rgba(8,27,58,.36); position:relative; z-index:2; }
+  .avatar img { position:absolute; width:154%; height:154%; object-fit:contain; left:-27%; top:-23%; }
+  .card-copy { padding:16px; border-top:1px solid rgba(255,255,255,.08); }
+  .card-copy h3 { font-size:17px; color:#f8faff; margin:0 0 6px; }
+  .card-copy p { color:#9da7b8; font-size:11px; line-height:1.5; margin:0; min-height:50px; }
+  .tag { position:absolute; left:12px; top:12px; z-index:8; padding:5px 8px; border-radius:999px; background:rgba(8,27,58,.75); color:#ddebff; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .tag.best { background:linear-gradient(135deg,var(--cyan),var(--indigo)); color:#fff; }
+  .mini { position:absolute; right:12px; bottom:12px; width:38px; height:38px; z-index:8; border-radius:50%; overflow:hidden; background:#fff; border:2px solid #fff; box-shadow:0 4px 12px rgba(0,0,0,.25); }
+  .mini img { position:absolute; width:154%; height:154%; object-fit:contain; left:-27%; top:-23%; }
+
+  /* A: check-shaped circuit, no generic badge container */
+  .check-circuit { position:absolute; z-index:5; width:78px; height:70px; top:39px; right:32px; filter:drop-shadow(0 7px 11px rgba(8,27,58,.34)); }
+  .check-circuit .trace { fill:none; stroke:white; stroke-width:12; stroke-linecap:round; stroke-linejoin:round; }
+  .check-circuit .inner { fill:none; stroke:var(--blue); stroke-width:5; stroke-linecap:round; stroke-linejoin:round; }
+  .check-circuit .node { fill:var(--yellow); stroke:white; stroke-width:3; }
+
+  /* B: branded egg with a circuit crack */
+  .egg-signal { position:absolute; z-index:5; top:39px; right:37px; width:62px; height:74px; filter:drop-shadow(0 7px 11px rgba(8,27,58,.34)); }
+  .egg-signal .shell { fill:white; stroke:var(--blue); stroke-width:5; }
+  .egg-signal .crack { fill:none; stroke:var(--blue); stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+  .egg-signal .yolk { fill:var(--yellow); stroke:var(--orange); stroke-width:2; }
+
+  /* C: intelligence lives inside the round glasses */
+  .lens-ui { position:absolute; z-index:5; width:49px; height:49px; border-radius:50%; top:99px; right:90px; pointer-events:none; }
+  .lens-ui:before { content:""; position:absolute; inset:4px; border-radius:50%; border:3px dashed var(--cyan); transform:rotate(-22deg); box-shadow:0 0 10px rgba(7,159,224,.45); }
+  .lens-ui:after { content:""; position:absolute; width:9px; height:9px; border-radius:50%; background:var(--yellow); right:2px; top:16px; border:2px solid white; }
+  .lens-check { position:absolute; left:15px; top:15px; width:18px; height:10px; border-left:4px solid var(--blue); border-bottom:4px solid var(--blue); transform:rotate(-45deg); }
+
+  .why { margin-top:20px; padding:14px 16px; border:1px solid rgba(7,159,224,.28); border-radius:14px; background:rgba(7,159,224,.07); color:#a9b4c6; font-size:12px; line-height:1.5; }
+  .why strong { color:#edf7ff; }
+  @media(max-width:780px){ .signal-grid{grid-template-columns:1fr}.stage{height:245px}.card-copy p{min-height:0} }
+</style>
+
+<div class="signal-wrap">
+  <div class="signal-head">
+    <div class="label">Spark removed · Brand-owned alternatives</div>
+    <h2>Which ChickMark signal should replace it?</h2>
+    <p class="subtitle">All three avoid Gemini’s star language. Each is built only from ChickMark’s existing check, egg, glasses, and blue/yellow palette.</p>
+  </div>
+
+  <div class="signal-grid">
+    <div class="signal-card" data-choice="check-circuit" onclick="toggleSelect(this)">
+      <div class="stage">
+        <span class="tag best">Recommended</span>
+        <div class="avatar"><img src="/files/chickmark-icon.png" alt="ChickMark avatar"></div>
+        <svg class="check-circuit" viewBox="0 0 90 80" aria-label="Check circuit signal">
+          <path class="trace" d="M12 41 L34 62 L76 15"/><path class="inner" d="M12 41 L34 62 L76 15"/>
+          <circle class="node" cx="12" cy="41" r="6"/><circle class="node" cx="34" cy="62" r="6"/><circle class="node" cx="76" cy="15" r="6"/>
+        </svg>
+        <div class="mini"><img src="/files/chickmark-icon.png" alt="Small preview"></div>
+      </div>
+      <div class="card-copy"><h3>A. Check Circuit</h3><p>The ChickMark check becomes a three-node data path. It says “verified intelligence” and is the most ownable extension of the logo.</p></div>
+    </div>
+
+    <div class="signal-card" data-choice="egg-signal" onclick="toggleSelect(this)">
+      <div class="stage">
+        <span class="tag">Hatchery-first</span>
+        <div class="avatar"><img src="/files/chickmark-icon.png" alt="ChickMark avatar"></div>
+        <svg class="egg-signal" viewBox="0 0 70 82" aria-label="Egg signal">
+          <path class="shell" d="M35 4 C50 4 64 32 64 51 C64 68 52 78 35 78 C18 78 6 68 6 51 C6 32 20 4 35 4 Z"/>
+          <path class="crack" d="M13 46 L26 39 L34 49 L44 39 L58 46"/>
+          <circle class="yolk" cx="35" cy="59" r="7"/>
+        </svg>
+        <div class="mini"><img src="/files/chickmark-icon.png" alt="Small preview"></div>
+      </div>
+      <div class="card-copy"><h3>B. Egg Signal</h3><p>A tiny hatching egg with a circuit-like crack and yellow core. Highly specific to hatchery work and distinctly ChickMark.</p></div>
+    </div>
+
+    <div class="signal-card" data-choice="smart-lens" onclick="toggleSelect(this)">
+      <div class="stage">
+        <span class="tag">Most subtle</span>
+        <div class="avatar"><img src="/files/chickmark-icon.png" alt="ChickMark avatar"></div>
+        <div class="lens-ui"><div class="lens-check"></div></div>
+        <div class="mini"><img src="/files/chickmark-icon.png" alt="Small preview"></div>
+      </div>
+      <div class="card-copy"><h3>C. Smart Lens</h3><p>The AI cue moves into one round lens as a scan ring and micro-check. No external badge; strongest character integration.</p></div>
+    </div>
+  </div>
+
+  <div class="why"><strong>My recommendation: Check Circuit.</strong> The main logo already owns the check mark, so turning it into a connected data path makes the AI identity feel like a natural ChickMark evolution—not borrowed AI decoration.</div>
+</div>

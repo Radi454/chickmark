@@ -57,6 +57,13 @@ export interface AgentToolExecutionInput {
   activeVisitId: string | null
   conversationTurnId?: string
   conversationTurnIndex?: number
+  /**
+   * The conversation's CURRENT context epoch. `/new` (and the app's clear
+   * control) bumps it, and every read that reconstructs conversational state
+   * must filter on it — otherwise "start over" doesn't, and a tool can serve
+   * the user a list they explicitly threw away.
+   */
+  conversationContextEpoch?: number
   toolCallSequence?: number
   toolCallId?: string
   arguments: Readonly<Record<string, unknown>>

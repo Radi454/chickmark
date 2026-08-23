@@ -308,7 +308,26 @@ async function startIntake(
     context.layer === 'setter_hatcher' &&
     (!context.setterIdentity || !context.hatcherIdentity)
   ) {
-    return { ok: false, code: 'context_incomplete', data: null }
+    // Naming the missing field is the whole difference between one focused
+    // question and a guessing game: a null payload told the model only that
+    // something was incomplete, so it re-asked for the whole machine context
+    // — including the half the user had already given it.
+    return {
+      ok: false,
+      code: 'context_incomplete',
+      data: {
+        missing: [
+          ...(context.setterIdentity ? [] : ['setterIdentity']),
+          ...(context.hatcherIdentity ? [] : ['hatcherIdentity']),
+        ],
+        message: {
+          en:
+            'This station needs both the setter and the hatcher machine. Ask the user only for the one that is missing.',
+          ar:
+            'هذه المحطة تحتاج ماكينة التحضين وماكينة الفقس معًا. اسأل المستخدم عن الناقصة فقط.',
+        },
+      },
+    }
   }
 
   let visit: AgentIntakeVisit | null = null
@@ -733,6 +752,54 @@ async function changeIntakeState(
   })
 }
 
+// Projects a registry station schema down to what the model actually needs
+// to run natural data entry, not the full registry entry (which also carries
+// `persistence`, `read`, and `warnings` — server-only concerns already
+// stripped before this comment was written). This result sits in the
+// model's context for the rest of the session, so every field earns its
+// place:
+//   - `validation` (min/max/choices/item schemas) is RETAINED. The
+//     NATURAL_DATA_ENTRY policy in agent_prompt.ts (shared by the text and
+//     realtime voice policies) instructs the model to "use its localized
+//     fields and validation instead of inventing... limits" before it
+//     collects values — dropping the key leaves that instruction pointing
+//     at data the model can no longer see. recordStationValues ->
+//     validateStationValueSet (agent_station_adapter.ts, validateField)
+//     still re-checks every submitted value against these same limits and
+//     is still the real safety gate (below_minimum, above_maximum,
+//     invalid_choice, item_above_maximum, ...), but relying on it alone
+//     means a wrong guess costs a rejected record_station_values round
+//     trip: a full extra model inference (~4,000+ input tokens) plus a
+//     worse spoken experience, since the model has to re-ask the user.
+//     Keeping `validation` costs ~300-450 tokens per schema load, roughly
+//     once or twice per session — cheaper than one rejected call, and it
+//     is omitted per-field (not emitted as `{}`/undefined) when a field
+//     genuinely has no constraints, so the cost is only paid where the
+//     signal exists.
+//   - `explicitZero` is RETAINED for the same reason: NATURAL_DATA_ENTRY
+//     also instructs the model to "treat zero as supplied only when...the
+//     schema permits it," which needs this flag. It is emitted only when
+//     `true` (most fields are `false` and gain nothing from stating it),
+//     keeping the token cost near zero while still letting the model
+//     avoid asking the user to confirm a zero the schema already permits.
+//   - `aliases` stays, but flattened and deduplicated (see flattenAliases
+//     below). Nothing server-side maps a spoken phrase to a fieldKey —
+//     recordStationValues/parseCandidate takes fieldKey as already
+//     resolved — so the MODEL is the alias matcher and still needs the
+//     vocabulary. The nested {en:[...], ar:[...]} registry shape is
+//     collapsed to one list, and any alias that only case-insensitively
+//     repeats the field's own `names.en`/`names.ar` is dropped since it
+//     teaches the model nothing `names` doesn't already say.
+//   - `names` (en + ar) is never dropped: users speak Egyptian Arabic, and
+//     the Arabic name is how the model maps speech to this field.
+//   - `moduleKey` is dropped: it is always exactly the substring after the
+//     last "." in `schemaKey` (verified against the full registry), so it
+//     is redundant with a field the model already has. `stationKey` stays
+//     because it is not always derivable the same way (the hatch_analysis
+//     stations use an internal stationKey that differs from their
+//     schemaKey prefix).
+//   - `fieldKey`, `type`, `unit`, `required` stay: the model needs them to
+//     build and describe record_station_values candidates.
 function loadSchemaResult(input: AgentToolExecutionInput): AgentToolResult {
   const schema = loadSchema(input.arguments)
   return schema
@@ -740,18 +807,17 @@ function loadSchemaResult(input: AgentToolExecutionInput): AgentToolResult {
       schemaKey: schema.schemaKey,
       version: schema.version,
       stationKey: schema.stationKey,
-      moduleKey: schema.moduleKey,
       names: schema.names,
       allowedLayers: schema.allowedLayers,
       fields: schema.fields.map((field) => ({
         fieldKey: field.fieldKey,
         names: field.names,
-        aliases: field.aliases,
+        aliases: flattenAliases(field),
         type: field.type,
         unit: field.unit,
         required: field.required,
-        explicitZero: field.explicitZero,
-        validation: field.validation,
+        ...explicitZeroEntry(field),
+        ...validationEntry(field),
       })),
       calculatedFields: schema.calculations.map((calculation) => ({
         fieldKey: calculation.fieldKey,
@@ -760,6 +826,68 @@ function loadSchemaResult(input: AgentToolExecutionInput): AgentToolResult {
       completion: schema.completion,
     })
     : { ok: false, code: 'unknown_schema', data: null }
+}
+
+// `explicitZero` is only worth stating when it is `true` (the schema
+// permits an explicit zero) — most fields default to `false`, and stating
+// that costs tokens on every field for a signal the model does not act on
+// differently than simply not seeing the key.
+function explicitZeroEntry(
+  field: Record<string, unknown>,
+): { explicitZero: true } | Record<string, never> {
+  return field.explicitZero === true ? { explicitZero: true } : {}
+}
+
+// `validation` is only worth stating when it actually constrains the
+// field — the registry emits `validation: {}` for fields with no min/max/
+// choices/item rules (e.g. plain booleans), and shipping an empty object
+// costs tokens for zero signal.
+function validationEntry(
+  field: Record<string, unknown>,
+): { validation: unknown } | Record<string, never> {
+  const validation = field.validation
+  return isRecord(validation) && Object.keys(validation).length > 0
+    ? { validation }
+    : {}
+}
+
+// Collapses a {en:[...], ar:[...]} aliases shape into one deduplicated
+// list, dropping any alias that is just a case-insensitive repeat of the
+// owner's own localized name (see the WHY-comment on loadSchemaResult above
+// for the rationale). Used for both registry fields and, in
+// listApplicableStations, station-level entries — both share the same
+// `names`/`aliases` shape. Defensive: a missing/non-array alias list is
+// treated as empty and a missing name is treated as absent, so a malformed
+// registry entry yields `[]` instead of throwing and turning this
+// model-reachable tool call into a 500. Exported only so tests can exercise
+// the defensive fallback directly against synthetic garbage input.
+export function flattenAliases(
+  owner: { readonly names?: unknown; readonly aliases?: unknown },
+): string[] {
+  const names = isRecord(owner.names) ? owner.names : {}
+  const ownNames = new Set(
+    [names.en, names.ar]
+      .filter((name): name is string => typeof name === 'string')
+      .map((name) => name.toLowerCase()),
+  )
+  const aliases = isRecord(owner.aliases) ? owner.aliases : {}
+  const seen = new Set<string>()
+  const flattened: string[] = []
+  for (
+    const alias of [...toStringList(aliases.en), ...toStringList(aliases.ar)]
+  ) {
+    const key = alias.toLowerCase()
+    if (ownNames.has(key) || seen.has(key)) continue
+    seen.add(key)
+    flattened.push(alias)
+  }
+  return flattened
+}
+
+function toStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
 }
 
 async function listApplicableStations(
@@ -786,9 +914,8 @@ async function listApplicableStations(
       schemaKey: schema.schemaKey,
       version: schema.version,
       stationKey: schema.stationKey,
-      moduleKey: schema.moduleKey,
       names: schema.names,
-      aliases: schema.aliases,
+      aliases: flattenAliases(schema),
       allowedLayers: schema.allowedLayers,
     })),
   })
@@ -975,8 +1102,40 @@ function stateConflict(): AgentToolResult {
   return { ok: false, code: 'state_conflict', data: null }
 }
 
+/**
+ * The turn anchor an intake needs is missing.
+ *
+ * On the TEXT doors this cannot happen: `executeAgentTool` always receives
+ * the inbound turn id and index. On the REALTIME door it happens on EVERY
+ * call, by construction — `pip-realtime-tool-broker` omits
+ * `conversationTurnId` on purpose, because a voice transcript may never
+ * finalize and no placeholder turn is ever fabricated to satisfy a foreign
+ * key. A pending action expires by turn index, so there is nothing to anchor
+ * it to.
+ *
+ * Fixing that properly is a persistence design change (anchor the pending
+ * action on the realtime interaction instead of the turn index) and is NOT
+ * done here. What IS done here is refusing in a way the model can act on: a
+ * null payload told it only "no", which it answered by calling the same tool
+ * again until the turn ran out of budget and the caller heard the same
+ * half-sentence several times. The message below names the one recovery that
+ * actually exists — do this in the typed chat — so the refusal costs one
+ * sentence instead of a whole turn.
+ */
 function infrastructureContextRequired(): AgentToolResult {
-  return { ok: false, code: 'turn_context_required', data: null }
+  return {
+    ok: false,
+    code: 'turn_context_required',
+    data: {
+      retryable: false,
+      message: {
+        en:
+          'Guided data entry is not available on a live voice call. Tell the user to record this in the ChickMark chat instead, and do not call this tool again in this call.',
+        ar:
+          'إدخال البيانات الموجّه غير متاح أثناء المكالمة الصوتية. أخبر المستخدم أن يسجّل هذه البيانات من محادثة ChickMark المكتوبة، ولا تستدعِ هذه الأداة مرة أخرى في هذه المكالمة.',
+      },
+    },
+  }
 }
 
 function optionalText(value: unknown): string | null {

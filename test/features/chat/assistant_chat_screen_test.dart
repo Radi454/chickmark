@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:hatchaudit/core/network/network_status_monitor.dart';
+import 'package:hatchaudit/features/chat/models/chat_message.dart';
 import 'package:hatchaudit/features/chat/providers/assistant_provider.dart';
 import 'package:hatchaudit/features/chat/screens/assistant_chat_screen.dart';
 import 'package:hatchaudit/l10n/app_localizations.dart';
@@ -46,6 +48,8 @@ Future<AssistantProvider> _pumpScreen(
   Locale locale = const Locale('en'),
   AssistantAudioRecorder? audioRecorder,
   AssistantAudioPlayer? audioPlayer,
+  String conversationKey = defaultConversationKey,
+  String? initialTitle,
 }) async {
   var counter = 0;
   final provider = AssistantProvider(
@@ -53,6 +57,7 @@ Future<AssistantProvider> _pumpScreen(
     clientMessageIdFactory: () => 'cid-${++counter}',
     audioRecorder: audioRecorder,
     audioPlayer: audioPlayer,
+    conversationKey: conversationKey,
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -66,7 +71,12 @@ Future<AssistantProvider> _pumpScreen(
       ],
       home: ChangeNotifierProvider<NetworkStatusMonitor>.value(
         value: _monitor(offline),
-        child: AssistantChatScreen(provider: provider, loadOnInit: loadOnInit),
+        child: AssistantChatScreen(
+          provider: provider,
+          loadOnInit: loadOnInit,
+          conversationKey: conversationKey,
+          initialTitle: initialTitle,
+        ),
       ),
     ),
   );
@@ -479,4 +489,232 @@ void main() {
       expect(player.playedBase64, ['YXVkaW8=', 'YXVkaW8=']);
     },
   );
+
+  testWidgets('a markdown reply renders as formatted text, not raw syntax', (
+    tester,
+  ) async {
+    final port = FakeAssistantChatPort(
+      history: AssistantChatHistory(
+        conversationId: 'conv-1',
+        messages: [
+          ChatMessage(
+            id: 'turn-1',
+            role: ChatMessageRole.assistant,
+            text:
+                '**Hatchability** is 92%.\n\n1. Check the setter\n2. Check the hatcher',
+            createdAt: DateTime.utc(2026, 8, 14, 10),
+            language: 'en',
+          ),
+        ],
+      ),
+    );
+
+    await _pumpScreen(tester, port: port);
+
+    // A GptMarkdown widget renders the reply, so the bold marker is gone as
+    // literal text and each list item is its own widget rather than one raw
+    // "1. Check the setter\n2. Check the hatcher" blob.
+    expect(find.byType(GptMarkdown), findsOneWidget);
+    expect(find.textContaining('**'), findsNothing);
+    expect(find.textContaining('1. Check the setter'), findsNothing);
+    expect(find.textContaining('Check the setter'), findsWidgets);
+    expect(find.textContaining('Check the hatcher'), findsWidgets);
+  });
+
+  testWidgets(
+    'an Arabic reply gets rtl direction even inside an English-locale screen',
+    (tester) async {
+      final port = FakeAssistantChatPort(
+        history: AssistantChatHistory(
+          conversationId: 'conv-1',
+          messages: [
+            ChatMessage(
+              id: 'turn-1',
+              role: ChatMessageRole.assistant,
+              text: 'نسبة الفقس هي 92%.',
+              createdAt: DateTime.utc(2026, 8, 14, 10),
+              language: 'ar',
+            ),
+          ],
+        ),
+      );
+
+      // English locale: the ambient Directionality is ltr, so a correct rtl
+      // reply proves per-message detection, not just locale inheritance.
+      await _pumpScreen(tester, port: port, locale: const Locale('en'));
+
+      final markdown = tester.widget<GptMarkdown>(find.byType(GptMarkdown));
+      expect(markdown.textDirection, TextDirection.rtl);
+    },
+  );
+
+  testWidgets(
+    'an English reply stays ltr even inside an Arabic-locale screen',
+    (tester) async {
+      final port = FakeAssistantChatPort(
+        history: AssistantChatHistory(
+          conversationId: 'conv-1',
+          messages: [
+            ChatMessage(
+              id: 'turn-1',
+              role: ChatMessageRole.assistant,
+              text: 'Hatchability is 92%.',
+              createdAt: DateTime.utc(2026, 8, 14, 10),
+              language: 'en',
+            ),
+          ],
+        ),
+      );
+
+      await _pumpScreen(tester, port: port, locale: const Locale('ar'));
+
+      final markdown = tester.widget<GptMarkdown>(find.byType(GptMarkdown));
+      expect(markdown.textDirection, TextDirection.ltr);
+    },
+  );
+
+  testWidgets('a supplied initialTitle replaces "Pip" in the app bar', (
+    tester,
+  ) async {
+    await _pumpScreen(
+      tester,
+      port: FakeAssistantChatPort(),
+      initialTitle: 'Hatch rate this week',
+    );
+
+    expect(find.text('Hatch rate this week'), findsOneWidget);
+    expect(find.text('Pip'), findsNothing);
+  });
+
+  testWidgets('a null initialTitle still falls back to "Pip"', (
+    tester,
+  ) async {
+    await _pumpScreen(tester, port: FakeAssistantChatPort());
+
+    expect(find.text('Pip'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a null initialTitle derives the header title from the first user '
+    'message once it exists (F12)',
+    (tester) async {
+      final port = FakeAssistantChatPort();
+      await _pumpScreen(tester, port: port);
+      expect(find.text('Pip'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(_inputKey),
+        'How is the flock doing today?',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(_sendKey));
+      await tester.pump();
+      await tester.pump();
+
+      // Trailing punctuation is stripped, mirroring the server's own
+      // derivation (conversation_title.ts / deriveConversationTitle).
+      expect(find.text('How is the flock doing today'), findsOneWidget);
+      expect(find.text('Pip'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'the derived header title is never run through the localized Text '
+    'wrapper, even when it equals a UI phrasebook key (F12 + F11)',
+    (tester) async {
+      // 'Refresh' -> 'تحديث' is a real entry in the app's Arabic phrasebook.
+      final port = FakeAssistantChatPort();
+      await _pumpScreen(tester, port: port, locale: const Locale('ar'));
+
+      await tester.enterText(find.byKey(_inputKey), 'Refresh');
+      await tester.pump();
+      await tester.tap(find.byKey(_sendKey));
+      await tester.pump();
+      await tester.pump();
+
+      final headerTitle = tester.widget<Text>(
+        find.byKey(const ValueKey('assistant-header-title')),
+      );
+      expect(headerTitle.data, 'Refresh');
+    },
+  );
+
+  testWidgets(
+    'a voice-source history message shows a mic icon and a "Voice transcript" semantics label',
+    (tester) async {
+      final port = FakeAssistantChatPort(
+        history: AssistantChatHistory(
+          conversationId: 'conv-1',
+          messages: [
+            ChatMessage(
+              id: 'turn-1',
+              role: ChatMessageRole.user,
+              text: 'What is the hatch rate?',
+              createdAt: DateTime.utc(2026, 8, 14, 10),
+              source: 'voice',
+            ),
+            ChatMessage(
+              id: 'turn-2',
+              role: ChatMessageRole.assistant,
+              text: 'Hatch was 84%.',
+              createdAt: DateTime.utc(2026, 8, 14, 10, 1),
+              source: 'text',
+            ),
+          ],
+        ),
+      );
+      final semantics = tester.ensureSemantics();
+      try {
+        await _pumpScreen(tester, port: port);
+
+        expect(
+          find.byKey(const ValueKey('assistant-voice-transcript-icon')),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<Icon>(
+                find.byKey(const ValueKey('assistant-voice-transcript-icon')),
+              )
+              .icon,
+          Icons.mic,
+        );
+        expect(
+          tester
+              .getSemantics(
+                find.byKey(const ValueKey('assistant-voice-transcript-icon')),
+              )
+              .label,
+          contains('Voice transcript'),
+        );
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets('a text-source message shows no mic icon', (tester) async {
+    final port = FakeAssistantChatPort(
+      history: AssistantChatHistory(
+        conversationId: 'conv-1',
+        messages: [
+          ChatMessage(
+            id: 'turn-1',
+            role: ChatMessageRole.user,
+            text: 'Typed question',
+            createdAt: DateTime.utc(2026, 8, 14, 10),
+            source: 'text',
+          ),
+        ],
+      ),
+    );
+
+    await _pumpScreen(tester, port: port);
+
+    expect(
+      find.byKey(const ValueKey('assistant-voice-transcript-icon')),
+      findsNothing,
+    );
+  });
+
 }

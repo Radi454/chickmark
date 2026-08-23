@@ -1,0 +1,72 @@
+<style>
+  :root { --blue:#1769D8; --cyan:#079FE0; --indigo:#193FC2; --yellow:#FFC21A; --navy:#081B3A; }
+  .clean-wrap { max-width:900px; margin:0 auto; }
+  .clean-head { text-align:center; max-width:680px; margin:0 auto 24px; }
+  .clean-head h2 { margin:5px 0 8px; }
+  .clean-layout { display:grid; grid-template-columns:minmax(300px,1.15fr) minmax(260px,.85fr); gap:22px; }
+  .preview, .logic { border:1px solid rgba(255,255,255,.1); border-radius:20px; background:rgba(255,255,255,.035); overflow:hidden; }
+  .preview-stage { min-height:430px; position:relative; display:grid; place-items:center; overflow:hidden; background:radial-gradient(circle at 50% 38%,#31bbfa 0%,#1769d8 48%,#193fc2 100%); }
+  .egg-lines { position:absolute; width:410px; height:470px; border:1px solid rgba(255,255,255,.11); border-radius:50% 50% 46% 46% / 58% 58% 42% 42%; }
+  .egg-lines:before, .egg-lines:after { content:""; position:absolute; inset:25px; border:1px solid rgba(255,255,255,.08); border-radius:inherit; }
+  .egg-lines:after { inset:55px; }
+  .avatar { width:245px; height:245px; border-radius:50%; overflow:hidden; background:white; border:8px solid white; box-shadow:0 24px 52px rgba(8,27,58,.42); position:relative; z-index:3; }
+  .avatar img { position:absolute; width:124%; height:124%; object-fit:contain; left:-12%; top:-10%; }
+  .preview-footer { padding:16px 18px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-top:1px solid rgba(255,255,255,.08); }
+  .preview-footer strong { display:block; color:#f6f9ff; font-size:13px; margin-bottom:3px; }
+  .preview-footer span { color:#9ea8b9; font-size:11px; }
+  .sizes { display:flex; align-items:end; gap:9px; }
+  .mini { border-radius:50%; overflow:hidden; background:white; border:2px solid white; position:relative; flex:0 0 auto; }
+  .mini img { position:absolute; width:124%; height:124%; object-fit:contain; left:-12%; top:-10%; }
+  .s64 { width:54px; height:54px; } .s40 { width:38px; height:38px; } .s24 { width:26px; height:26px; }
+  .logic { padding:20px; }
+  .logic h3 { margin:0 0 14px; }
+  .rule { display:grid; grid-template-columns:38px 1fr; gap:11px; padding:13px 0; border-top:1px solid rgba(255,255,255,.08); }
+  .rule:first-of-type { border-top:0; padding-top:2px; }
+  .rule b { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:#78dcff; background:rgba(23,105,216,.17); font-size:12px; }
+  .rule strong { display:block; color:#f3f7ff; font-size:12px; margin-bottom:3px; }
+  .rule span { display:block; color:#9da8b9; font-size:11px; line-height:1.46; }
+  .no-badge { margin-top:13px; padding:12px 13px; border-radius:12px; color:#cdeeff; background:rgba(7,159,224,.09); border:1px solid rgba(7,159,224,.28); font-size:11px; line-height:1.5; }
+  .decision { margin-top:22px; }
+  @media(max-width:750px){ .clean-layout{grid-template-columns:1fr}.preview-stage{min-height:360px}.avatar{width:220px;height:220px}.preview-footer{align-items:flex-start;flex-direction:column}.egg-lines{width:340px;height:400px} }
+</style>
+
+<div class="clean-wrap">
+  <div class="clean-head">
+    <div class="label">Revised · No floating mark</div>
+    <h2>Clean ChickMark Agent</h2>
+    <p class="subtitle">The mascot is the identity. The existing chick, cap, glasses, egg outline, and check do all the branding—nothing extra is attached to the right.</p>
+  </div>
+
+  <div class="clean-layout">
+    <div class="preview">
+      <div class="preview-stage">
+        <div class="egg-lines"></div>
+        <div class="avatar"><img src="/files/chickmark-icon.png" alt="Clean ChickMark AI agent avatar"></div>
+      </div>
+      <div class="preview-footer">
+        <div><strong>Clean master avatar</strong><span>No star, badge, circuit, or side ornament.</span></div>
+        <div class="sizes">
+          <div class="mini s64"><img src="/files/chickmark-icon.png" alt="64 px"></div>
+          <div class="mini s40"><img src="/files/chickmark-icon.png" alt="40 px"></div>
+          <div class="mini s24"><img src="/files/chickmark-icon.png" alt="24 px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="logic">
+      <h3>What makes it uniquely ours</h3>
+      <div class="rule"><b>✓</b><div><strong>The check is already the signal</strong><span>We use the logo’s own oversized blue check instead of inventing a second AI symbol.</span></div></div>
+      <div class="rule"><b>◯</b><div><strong>Egg-shaped depth</strong><span>Very subtle egg contours live only in the blue background, adding hatchery character without clutter.</span></div></div>
+      <div class="rule"><b>⌁</b><div><strong>Cap and glasses lead</strong><span>The close crop keeps the most ownable mascot details readable in chat bubbles and profile circles.</span></div></div>
+      <div class="rule"><b>#</b><div><strong>Pure ChickMark color</strong><span>Only the existing blue gradient, yellow chick, white field, and navy outlines are used.</span></div></div>
+      <div class="no-badge"><strong>No generic AI decoration.</strong> The agent feels intelligent through its behavior and voice; the avatar stays confident, simple, and unmistakably ChickMark.</div>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="options">
+      <div class="option" data-choice="approve-clean-agent" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>Approve the clean version</h3><p>Use this as the production direction with no right-side mark.</p></div></div>
+      <div class="option" data-choice="revise-clean-agent" onclick="toggleSelect(this)"><div class="letter">↻</div><div class="content"><h3>Adjust the mascot crop</h3><p>Keep it clean, but change how much of the chick or check is visible.</p></div></div>
+    </div>
+  </div>
+</div>

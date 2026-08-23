@@ -5,33 +5,18 @@ import {
   type AgentToolResult,
 } from './agent_protocol.ts'
 import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
+import { requireStationSchema } from '../_shared/station_registry.generated.ts'
 import {
-  agentStationRegistry,
-  requireStationSchema,
-} from '../_shared/station_registry.generated.ts'
+  AGENT_TOOL_CONTRACT,
+  type ArgumentRule,
+  MAX_AGENT_READ_ROWS,
+  modelFacingContract,
+  type ObjectArguments,
+} from './agent_tool_contract.ts'
 
 export const MAX_AGENT_TOOL_CALLS_PER_TURN = 5
-export const MAX_AGENT_READ_ROWS = 100
+export { MAX_AGENT_READ_ROWS }
 export const MAX_AGENT_READ_RANGE_DAYS = 366
-
-type JsonType = 'string' | 'integer' | 'number' | 'boolean' | 'object' | 'array'
-
-interface ArgumentRule {
-  type: JsonType
-  minLength?: number
-  maxLength?: number
-  minimum?: number
-  maximum?: number
-  enum?: readonly (string | number | boolean)[]
-  pattern?: string
-}
-
-interface ObjectArguments {
-  type: 'object'
-  properties: Readonly<Record<string, ArgumentRule>>
-  required: readonly string[]
-  additionalProperties: false
-}
 
 export interface AgentToolDefinition {
   type: 'function'
@@ -87,346 +72,36 @@ export interface AgentToolContext {
   now?: () => number
 }
 
-const idRule: ArgumentRule = {
-  type: 'string',
-  minLength: 1,
-  maxLength: 160,
-}
-const schemaKeyRule: ArgumentRule = {
-  type: 'string',
-  minLength: 1,
-  maxLength: 120,
-  enum: agentStationRegistry.stations.map((schema) => schema.schemaKey),
-}
-const measureKeyRule: ArgumentRule = {
-  type: 'string',
-  minLength: 1,
-  maxLength: 120,
-}
-const dateRule: ArgumentRule = {
-  type: 'string',
-  pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-}
-const limitRule: ArgumentRule = {
-  type: 'integer',
-  minimum: 1,
-  maximum: MAX_AGENT_READ_ROWS,
-}
-const auditLimitRule: ArgumentRule = {
-  type: 'integer',
-  minimum: 1,
-  maximum: 20,
-}
-const auditPositionRule: ArgumentRule = {
-  type: 'integer',
-  minimum: 1,
-  maximum: 20,
-}
-const versionRule: ArgumentRule = {
-  type: 'integer',
-  minimum: 1,
-  maximum: 1000,
-}
-const ageWeekRule: ArgumentRule = {
-  type: 'integer',
-  minimum: 1,
-  maximum: 120,
-}
-const breedRule: ArgumentRule = {
-  type: 'string',
-  minLength: 1,
-  maxLength: 60,
-}
-
-function definition(
-  name: AgentToolName,
-  description: string,
-  properties: Record<string, ArgumentRule> = {},
-  required: readonly string[] = [],
-): AgentToolDefinition {
-  return {
-    type: 'function',
-    name,
-    description,
-    parameters: {
-      type: 'object',
-      properties,
-      required,
-      additionalProperties: false,
-    },
-  }
-}
-
+// Full-fidelity definitions. This is the VALIDATION surface: `executeAgentTool`
+// enforces every `minLength`/`maxLength`/`enum` in here via `validArguments`,
+// regardless of what was ever shown to a model. Keep this derived straight
+// from `AGENT_TOOL_CONTRACT` with nothing stripped — weakening it weakens
+// server-side enforcement.
 export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = Object
-  .freeze([
-    definition(
-      'get_user_scope',
-      'Return the customer access already enforced for this Telegram user.',
-    ),
-    definition(
-      'list_customers',
-      'List customers inside the server-enforced scope. Use this instead of guessing from raw customer IDs.',
-    ),
-    definition(
-      'resolve_customer_flock',
-      'Resolve an allowed customer name and optional flock name together using exact normalized names. Use this before ID-based tools when the user supplies names.',
-      {
-        customerName: idRule,
-        flockName: idRule,
-      },
-      ['customerName'],
-    ),
-    definition(
-      'get_customer_context',
-      'Load an allowed customer context.',
-      { customerId: idRule },
-      ['customerId'],
-    ),
-    definition(
-      'list_customer_flocks',
-      'List flocks for an allowed customer.',
-      { customerId: idRule, limit: limitRule },
-      ['customerId'],
-    ),
-    definition(
-      'list_customer_hatcheries',
-      'List hatcheries for an allowed customer.',
-      { customerId: idRule, limit: limitRule },
-      ['customerId'],
-    ),
-    definition(
-      'list_customer_audits',
-      'List a bounded page of recent audit options for an allowed customer and optional flock so the user can choose one.',
-      { customerId: idRule, flockId: idRule, limit: auditLimitRule },
-      ['customerId'],
-    ),
-    definition(
-      'select_audit_option',
-      'Select one numbered audit from the latest persisted audit options in this conversation. Use position 1 for an affirmative confirmation after offering the only displayed option.',
-      { position: auditPositionRule },
-      ['position'],
-    ),
-    definition(
-      'get_audit_summary',
-      'Reload the verified summary of the audit already selected in the server conversation context. Never supply or reconstruct an audit ID.',
-    ),
-    definition(
-      'get_selected_audit_breakouts',
-      'Load allowlisted fresh, candled, and residue egg-breakout measurements for the latest persisted selected audit in this conversation.',
-    ),
-    definition(
-      'get_flock_context',
-      'Load one authorized flock and its operational context.',
-      { flockId: idRule },
-      ['flockId'],
-    ),
-    definition(
-      'query_station_records',
-      'Read allowlisted station records in a bounded date range.',
-      {
-        customerId: idRule,
-        flockId: idRule,
-        schemaKey: schemaKeyRule,
-        schemaVersion: versionRule,
-        fromDate: dateRule,
-        toDate: dateRule,
-        limit: limitRule,
-      },
-      ['customerId', 'schemaKey', 'schemaVersion', 'fromDate', 'toDate'],
-    ),
-    definition(
-      'compare_station_metrics',
-      'Compare deterministic station metrics from authorized records.',
-      {
-        customerId: idRule,
-        flockId: idRule,
-        schemaKey: schemaKeyRule,
-        schemaVersion: versionRule,
-        measureKey: measureKeyRule,
-        fromDate: dateRule,
-        toDate: dateRule,
-      },
-      [
-        'customerId',
-        'schemaKey',
-        'schemaVersion',
-        'measureKey',
-        'fromDate',
-        'toDate',
-      ],
-    ),
-    definition(
-      'get_record_provenance',
-      'Load the source context and freshness of an authorized record.',
-      {
-        schemaKey: schemaKeyRule,
-        schemaVersion: versionRule,
-        recordId: idRule,
-      },
-      ['schemaKey', 'schemaVersion', 'recordId'],
-    ),
-    definition(
-      'list_applicable_stations',
-      'List station modules applicable to an authorized flock sector.',
-      { customerId: idRule, flockId: idRule },
-      ['customerId', 'flockId'],
-    ),
-    definition(
-      'load_station_schema',
-      'Load fields and validation for one versioned station module.',
-      { schemaKey: schemaKeyRule, schemaVersion: versionRule },
-      ['schemaKey', 'schemaVersion'],
-    ),
-    definition(
-      'get_breed_benchmark',
-      'Look up the published breed standard (hatchability, fertility, HOF, production, egg weight, chick weight) for one breed at one flock age in weeks. Always use this instead of stating a benchmark from memory.',
-      { breed: breedRule, ageWeek: ageWeekRule },
-      ['breed', 'ageWeek'],
-    ),
-    definition(
-      'get_egg_breakout_benchmark',
-      'Look up the published egg-breakout standard (infertile, early/mid/late dead, blood ring, black eye, external pip, cracked, contaminated) for one flock age in weeks.',
-      { ageWeek: ageWeekRule },
-      ['ageWeek'],
-    ),
-    definition(
-      'get_operational_standards',
-      'Look up operational target ranges (temperature, humidity, airflow and similar) for a station. Global standards apply everywhere; a hatchery may override any of them. Pass hatcheryId to get that hatchery\'s effective standards.',
-      {
-        stationKey: measureKeyRule,
-        sectorKey: measureKeyRule,
-        hatcheryId: idRule,
-      },
-      [],
-    ),
-    definition(
-      'compare_selected_audit_to_benchmark',
-      'Compare the audit already selected in this conversation against the published breed and egg-breakout standards for that flock\'s breed and age. Returns actual, standard and delta per metric. Never supply or reconstruct an audit ID.',
-    ),
-    definition(
-      'propose_intake',
-      'Record a proposed data-entry action for user confirmation.',
-      {
-        customerId: idRule,
-      },
-      ['customerId'],
-    ),
-    definition(
-      'start_intake',
-      'Start intake only from a recently confirmed proposal.',
-      {
-        pendingActionId: idRule,
-        schemaKey: schemaKeyRule,
-        schemaVersion: versionRule,
-        customerId: idRule,
-        flockId: idRule,
-        hatcheryId: idRule,
-        auditDate: dateRule,
-        layer: {
-          type: 'string',
-          enum: [
-            'pool',
-            'house',
-            'setter',
-            'hatcher',
-            'setter_hatcher',
-            'trolley',
-            'tray',
-          ],
-        },
-        setterIdentity: idRule,
-        hatcherIdentity: idRule,
-      },
-      [
-        'pendingActionId',
-        'schemaKey',
-        'schemaVersion',
-        'customerId',
-        'flockId',
-        'hatcheryId',
-        'auditDate',
-        'layer',
-      ],
-    ),
-    definition(
-      'record_station_values',
-      'Validate and record explicit station values without finalizing them.',
-      {
-        intakeId: idRule,
-        expectedRowVersion: versionRule,
-        values: { type: 'array' },
-      },
-      ['intakeId', 'expectedRowVersion', 'values'],
-    ),
-    definition(
-      'get_intake_status',
-      'Return accepted values, missing fields, and unresolved clarifications.',
-      { intakeId: idRule },
-      ['intakeId'],
-    ),
-    definition(
-      'create_station_summary',
-      'Create one versioned summary after all required values are valid.',
-      { intakeId: idRule, expectedRowVersion: versionRule },
-      ['intakeId', 'expectedRowVersion'],
-    ),
-    definition(
-      'confirm_station_summary',
-      'Confirm the exact current station summary version.',
-      {
-        intakeId: idRule,
-        expectedRowVersion: versionRule,
-        summaryVersion: versionRule,
-      },
-      ['intakeId', 'expectedRowVersion', 'summaryVersion'],
-    ),
-    definition(
-      'submit_station_for_review',
-      'Submit a confirmed station intake for administrator review.',
-      { intakeId: idRule, expectedRowVersion: versionRule },
-      ['intakeId', 'expectedRowVersion'],
-    ),
-    definition(
-      'pause_intake',
-      'Pause an active intake.',
-      { intakeId: idRule, expectedRowVersion: versionRule },
-      [
-        'intakeId',
-        'expectedRowVersion',
-      ],
-    ),
-    definition(
-      'resume_intake',
-      'Resume a paused intake.',
-      { intakeId: idRule, expectedRowVersion: versionRule },
-      [
-        'intakeId',
-        'expectedRowVersion',
-      ],
-    ),
-    definition(
-      'cancel_intake',
-      'Cancel an intake.',
-      { intakeId: idRule, expectedRowVersion: versionRule },
-      ['intakeId', 'expectedRowVersion'],
-    ),
-    definition(
-      'list_legacy_draft_questions',
-      'List unresolved questions from an authorized legacy draft.',
-      { submissionId: idRule },
-      ['submissionId'],
-    ),
-    definition(
-      'answer_legacy_draft_question',
-      'Record an answer to one unresolved authorized legacy draft question.',
-      {
-        submissionId: idRule,
-        questionId: idRule,
-        answer: { type: 'string', minLength: 1, maxLength: 2000 },
-      },
-      ['submissionId', 'questionId', 'answer'],
-    ),
-  ])
+  .freeze(
+    AGENT_TOOL_CONTRACT.map((tool) => ({
+      type: 'function' as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    })),
+  )
+
+// Model-facing definitions: the same tools, with `modelFacingParameters`
+// stripping the parts of the schema (length bounds, most `schemaKey` enums)
+// that cost prompt tokens on every inference but add no validation strength
+// the server doesn't already enforce. This is what `agent_runtime.ts` sends
+// to the text model's `tools:` field — NEVER what `executeAgentTool` validates
+// against.
+export const AGENT_MODEL_TOOL_DEFINITIONS: readonly AgentToolDefinition[] =
+  Object.freeze(
+    modelFacingContract().map((tool) => ({
+      type: 'function' as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    })),
+  )
 
 const definitionsByName = new Map(
   AGENT_TOOL_DEFINITIONS.map((item) => [item.name, item]),
@@ -507,6 +182,9 @@ export async function executeAgentTool(
           ...(context.conversationTurnIndex === undefined
             ? {}
             : { conversationTurnIndex: context.conversationTurnIndex }),
+          ...(context.conversationContextEpoch === undefined
+            ? {}
+            : { conversationContextEpoch: context.conversationContextEpoch }),
           ...(call.sequence === undefined
             ? {}
             : { toolCallSequence: call.sequence }),

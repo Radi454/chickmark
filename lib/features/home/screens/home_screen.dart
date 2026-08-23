@@ -935,17 +935,12 @@ class _HomeScreenState extends State<HomeScreen> {
         incoming: outcome.incomingSessions,
         otherIncoming: outcome.otherIncomingCount,
         acknowledgeIncoming: true,
+        error: outcome.failureSummary,
       );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            outcome.online
-                ? 'Sync complete · ↑${outcome.pushed} ↓${outcome.pulled}'
-                : 'Offline — using local data',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(outcome.statusMessage)));
     } catch (error) {
       await settings.recordSync(
         online: false,

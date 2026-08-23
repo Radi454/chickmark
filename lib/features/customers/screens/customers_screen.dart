@@ -230,7 +230,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       final outcome = syncAfterDelete != null
           ? await syncAfterDelete(userId: userId)
           : await StartupSyncService().run(userId: userId);
-      synchronized = outcome.online && outcome.pendingDeletes == 0;
+      synchronized = outcome.fullySynced;
     } catch (_) {
       synchronized = false;
     }

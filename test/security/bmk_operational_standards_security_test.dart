@@ -7,7 +7,7 @@ void main() {
 
   setUpAll(() {
     migration = File(
-      'supabase/migrations/20260814130000_bmk_operational_standards.sql',
+      'supabase/migrations/20260814001935_bmk_operational_standards.sql',
     ).readAsStringSync();
   });
 

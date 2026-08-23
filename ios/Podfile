@@ -40,6 +40,10 @@ end
 post_install do |installer|
   installer.pods_project.build_configurations.each do |config|
     config.build_settings["EXCLUDED_ARCHS[sdk=*]"] = "armv7"
+    # flutter_webrtc ships a fat WebRTC.xcframework; building every slice on
+    # every incremental build is what makes the Realtime voice feature take
+    # minutes to link. Required by the plugin's own iOS setup notes.
+    config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
     config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = $iOSVersion
   end
 

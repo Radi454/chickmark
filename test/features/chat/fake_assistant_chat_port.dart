@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:hatchaudit/features/chat/models/chat_message.dart';
+import 'package:hatchaudit/features/chat/models/pip_conversation_summary.dart';
 import 'package:hatchaudit/services/supabase/assistant_chat_service.dart';
 
 /// In-memory [AssistantChatPort] shared by the provider and widget tests.
@@ -16,6 +17,8 @@ class FakeAssistantChatPort implements AssistantChatPort {
     this.resetError,
     this.manualSend = false,
     AssistantChatReply? nextReply,
+    this.conversations = const [],
+    this.conversationsError,
   }) : nextReply = nextReply ?? reply('Hatch was 84%.');
 
   AssistantChatHistory? history;
@@ -24,12 +27,18 @@ class FakeAssistantChatPort implements AssistantChatPort {
   Object? resetError;
   final bool manualSend;
   AssistantChatReply nextReply;
+  List<PipConversationSummary> conversations;
+  Object? conversationsError;
 
   final List<String> sentMessages = [];
   final List<String?> sentClientMessageIds = [];
   final List<String> sentAudio = [];
+  final List<String> sentConversationKeys = [];
+  final List<String> historyConversationKeys = [];
+  final List<String> resetConversationKeys = [];
   int historyCount = 0;
   int resetCount = 0;
+  int listConversationsCount = 0;
 
   Completer<AssistantChatReply>? _pendingSend;
 
@@ -37,9 +46,11 @@ class FakeAssistantChatPort implements AssistantChatPort {
   Future<AssistantChatReply> sendMessage(
     String message, {
     String? clientMessageId,
+    String conversationKey = defaultConversationKey,
   }) {
     sentMessages.add(message);
     sentClientMessageIds.add(clientMessageId);
+    sentConversationKeys.add(conversationKey);
     final error = sendError;
     if (error != null) return Future.error(error);
     if (!manualSend) return Future.value(nextReply);
@@ -52,9 +63,11 @@ class FakeAssistantChatPort implements AssistantChatPort {
   Future<AssistantChatReply> sendVoice(
     String audioBase64, {
     String? clientMessageId,
+    String conversationKey = defaultConversationKey,
   }) {
     sentAudio.add(audioBase64);
     sentClientMessageIds.add(clientMessageId);
+    sentConversationKeys.add(conversationKey);
     final error = sendError;
     if (error != null) return Future.error(error);
     if (!manualSend) return Future.value(nextReply);
@@ -74,8 +87,12 @@ class FakeAssistantChatPort implements AssistantChatPort {
   }
 
   @override
-  Future<AssistantChatHistory> loadHistory({int limit = 50}) {
+  Future<AssistantChatHistory> loadHistory({
+    int limit = 50,
+    String conversationKey = defaultConversationKey,
+  }) {
     historyCount++;
+    historyConversationKeys.add(conversationKey);
     final error = historyError;
     if (error != null) return Future.error(error);
     return Future.value(
@@ -85,8 +102,11 @@ class FakeAssistantChatPort implements AssistantChatPort {
   }
 
   @override
-  Future<void> resetConversation() {
+  Future<void> resetConversation({
+    String conversationKey = defaultConversationKey,
+  }) {
     resetCount++;
+    resetConversationKeys.add(conversationKey);
     final error = resetError;
     if (error != null) return Future.error(error);
     history = const AssistantChatHistory(
@@ -94,6 +114,14 @@ class FakeAssistantChatPort implements AssistantChatPort {
       messages: [],
     );
     return Future.value();
+  }
+
+  @override
+  Future<List<PipConversationSummary>> listConversations({int limit = 50}) {
+    listConversationsCount++;
+    final error = conversationsError;
+    if (error != null) return Future.error(error);
+    return Future.value(conversations);
   }
 }
 

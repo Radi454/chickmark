@@ -1,5 +1,6 @@
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/config/feature_flags.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -16,7 +17,14 @@ import '../../auth/providers/auth_provider.dart';
 import '../../agents/providers/agent_monitor_provider.dart';
 import '../../agents/screens/agent_monitor_screen.dart';
 import '../../chat/providers/assistant_provider.dart';
+import '../../chat/providers/pip_conversations_provider.dart';
+import '../../chat/providers/realtime_voice_controller.dart';
 import '../../chat/screens/assistant_chat_screen.dart';
+import '../../chat/screens/pip_conversations_screen.dart';
+import '../../chat/screens/realtime_voice_screen.dart';
+import '../../chat/widgets/realtime_live_banner.dart';
+import '../../../services/supabase/assistant_chat_service.dart'
+    show defaultConversationKey;
 import '../../home/screens/home_screen.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
@@ -93,12 +101,53 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
+/// Serializes every production entry point to the one shell-owned Live route.
+@visibleForTesting
+class RealtimeLiveRouteGuard {
+  RealtimeLiveRouteGuard(this._open);
+
+  final Future<void> Function() _open;
+  bool _opening = false;
+
+  Future<void> open() async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await _open();
+    } finally {
+      _opening = false;
+    }
+  }
+}
+
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final BgSyncService _bgSync = BgSyncService();
   int _currentIndex = 0;
   final List<int> _tabHistory = [];
   bool _syncConfigured = false;
+  // The call belongs to the shell, not the assistant tab: minimizing or
+  // changing tabs never duplicates or tears down its WebRTC session.
+  //
+  // Pip Live is parked behind `FeatureFlags.realtimeEnabled` (see
+  // lib/core/config/feature_flags.dart): while the flag is off this stays
+  // null so the controller is never constructed and no Realtime provider
+  // reaches the widget tree — the single choke point every entry point
+  // below is gated on.
+  final RealtimeVoiceController? _realtimeVoice = FeatureFlags.realtimeEnabled
+      ? RealtimeVoiceController()
+      : null;
+  late final RealtimeLiveRouteGuard? _realtimeRouteGuard = _realtimeVoice == null
+      ? null
+      : RealtimeLiveRouteGuard(_pushRealtimeLive);
+  // Which conversation a Live call opened from should be associated with.
+  // Stored ahead of opening the route so the Live screen/controller (out of
+  // scope here) has it available once it starts consuming per-conversation
+  // context in a later change.
+  String _liveConversationKey = defaultConversationKey;
+
+  @visibleForTesting
+  String get liveConversationKeyForTest => _liveConversationKey;
 
   // Tabs a read-only customer is allowed to see. Agent Monitor is narrower:
   // its remote tables are admin-only, so auditors must not enter the local
@@ -197,9 +246,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           icon: Icons.chat_bubble_outline,
           selectedIcon: Icons.chat_bubble,
         ),
+        // The tab's root is the conversations list, not a chat screen: each
+        // conversation is opened as its own pushed route (see
+        // `_openConversation`) with its own `AssistantProvider`, so switching
+        // tabs and back always lands back on the list rather than mid-thread.
         () => ChangeNotifierProvider(
-          create: (_) => AssistantProvider(),
-          child: const AssistantChatScreen(),
+          create: (_) => PipConversationsProvider(),
+          child: PipConversationsScreen(openConversation: _openConversation),
         ),
       ),
       _ShellTab(
@@ -232,7 +285,81 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     AppSyncCoordinator.disable();
     WidgetsBinding.instance.removeObserver(this);
     _bgSync.dispose();
+    _realtimeVoice?.dispose();
     super.dispose();
+  }
+
+  Future<void> _openRealtimeLive({
+    String conversationKey = defaultConversationKey,
+  }) async {
+    // Parked: with the flag off there is no controller and no route guard,
+    // so this is a no-op — nothing in the tree can reach it anyway (no Live
+    // banner, no Live button), but it stays defensive.
+    final realtimeVoice = _realtimeVoice;
+    final routeGuard = _realtimeRouteGuard;
+    if (realtimeVoice == null || routeGuard == null) return;
+    // A call already up owns its conversation binding; reopening the Live
+    // screen on it (e.g. the shell banner's "onOpen", which supplies no key)
+    // must not overwrite it with the default — that would rebind the running
+    // call to the wrong conversation on the next reconnect/retry.
+    if (!realtimeVoice.isRealtimeActive) {
+      _liveConversationKey = conversationKey;
+    }
+    await routeGuard.open();
+  }
+
+  /// Opens one Pip conversation (existing or freshly minted by the
+  /// conversations screen) in its own route with its own [AssistantProvider],
+  /// so it keeps its history independent of every other open conversation.
+  Future<void> _openConversation(String conversationKey, String? title) async {
+    // Pip Live parked: while the flag is off `_realtimeVoice` is null, so no
+    // Realtime provider is pushed and `onOpenLive` is null — the chat
+    // screen's own nullable lookup then renders no Live control at all.
+    final realtimeVoice = _realtimeVoice;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        // The pushed route lives ABOVE the shell body, so the shell-scoped
+        // Realtime provider does not reach it — without re-providing the
+        // shell's controller here the screen's nullable lookup finds nothing
+        // and the Live control disappears entirely.
+        builder: (_) => MultiProvider(
+          providers: [
+            if (realtimeVoice != null)
+              ChangeNotifierProvider<RealtimeVoiceController>.value(
+                value: realtimeVoice,
+              ),
+            ChangeNotifierProvider(
+              create: (_) =>
+                  AssistantProvider(conversationKey: conversationKey),
+            ),
+          ],
+          child: AssistantChatScreen(
+            conversationKey: conversationKey,
+            initialTitle: title,
+            onOpenLive: realtimeVoice == null
+                ? null
+                : (key) => _openRealtimeLive(conversationKey: key),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Only ever invoked through `_realtimeRouteGuard`, which itself is only
+  // constructed when `_realtimeVoice` is non-null — see the field above.
+  Future<void> _pushRealtimeLive() async {
+    final realtimeVoice = _realtimeVoice!;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ChangeNotifierProvider.value(
+          value: realtimeVoice,
+          child: RealtimeVoiceScreen(
+            autoStart: !realtimeVoice.isRealtimeActive,
+            conversationKey: _liveConversationKey,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -286,7 +413,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       });
     }
 
-    return LayoutBuilder(
+    Widget shellBody = LayoutBuilder(
       builder: (context, constraints) {
         final useNavigationRail = constraints.maxWidth >= 900;
 
@@ -299,23 +426,37 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   currentIndex: _currentIndex,
                   onDestinationSelected: _selectDestination,
                 ),
-          body: ShellNavigationScope(
-            hasDrawer: !useNavigationRail,
-            openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-            canGoBack: _tabHistory.isNotEmpty,
-            goBack: _goBack,
-            switchTab: _selectDestination,
-            child: _buildMainShellBody(
-              useNavigationRail: useNavigationRail,
-              destinations: _tabs.map((t) => t.destination).toList(),
-              currentIndex: _currentIndex,
-              onDestinationSelected: _selectDestination,
-              content: _builtScreens[_currentIndex]!,
+          body: _buildMainShellLiveBody(
+            controller: _realtimeVoice,
+            onOpen: _openRealtimeLive,
+            content: ShellNavigationScope(
+              hasDrawer: !useNavigationRail,
+              openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+              canGoBack: _tabHistory.isNotEmpty,
+              goBack: _goBack,
+              switchTab: _selectDestination,
+              child: _buildMainShellBody(
+                useNavigationRail: useNavigationRail,
+                destinations: _tabs.map((t) => t.destination).toList(),
+                currentIndex: _currentIndex,
+                onDestinationSelected: _selectDestination,
+                content: _builtScreens[_currentIndex]!,
+              ),
             ),
           ),
         );
       },
     );
+    // Pip Live parked: only stand up the shell-scoped Realtime provider (and
+    // therefore only let any descendant find one) when the flag is on.
+    final realtimeVoice = _realtimeVoice;
+    if (realtimeVoice != null) {
+      shellBody = ChangeNotifierProvider<RealtimeVoiceController>.value(
+        value: realtimeVoice,
+        child: shellBody,
+      );
+    }
+    return shellBody;
   }
 
   bool _tabsHaveSameKeys(List<_ShellTab> a, List<_ShellTab> b) {
@@ -357,6 +498,34 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     });
   }
 }
+
+// Pip Live parked: a null [controller] (the flag-off case — see
+// `_MainShellState._realtimeVoice`) renders bare `content`, with no
+// [RealtimeLiveBanner] and nothing Realtime-shaped in the tree at all.
+Widget _buildMainShellLiveBody({
+  required RealtimeVoiceController? controller,
+  required VoidCallback onOpen,
+  required Widget content,
+}) {
+  if (controller == null) return content;
+  return Column(
+    children: [
+      Expanded(child: content),
+      RealtimeLiveBanner(controller: controller, onOpen: onOpen),
+    ],
+  );
+}
+
+@visibleForTesting
+Widget buildMainShellLiveBodyForTest({
+  required RealtimeVoiceController? controller,
+  required VoidCallback onOpen,
+  required Widget content,
+}) => _buildMainShellLiveBody(
+  controller: controller,
+  onOpen: onOpen,
+  content: content,
+);
 
 /// Passive, non-interactive indicator shown while the authoritative network
 /// monitor says the cloud endpoint is offline. All local work — audits, customers,

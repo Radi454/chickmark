@@ -1,0 +1,76 @@
+<style>
+  :root { --blue:#1769D8; --cyan:#079FE0; --indigo:#193FC2; --navy:#081B3A; }
+  .selected-wrap { max-width:900px; margin:0 auto; }
+  .selected-head { text-align:center; margin-bottom:24px; }
+  .selected-head h2 { margin:5px 0 8px; }
+  .selected-head .subtitle { max-width:620px; margin:0 auto; }
+  .selected-layout { display:grid; grid-template-columns:minmax(280px,1.05fr) minmax(270px,.95fr); gap:24px; align-items:stretch; }
+  .hero-panel, .spec-panel { border:1px solid rgba(255,255,255,.1); border-radius:20px; background:rgba(255,255,255,.035); overflow:hidden; }
+  .hero-panel { min-height:430px; display:flex; flex-direction:column; }
+  .hero-stage { flex:1; min-height:335px; display:grid; place-items:center; position:relative; overflow:hidden; background:radial-gradient(circle at 50% 38%,#39c5ff 0%,#1769d8 48%,#193fc2 100%); }
+  .dot-field { position:absolute; inset:0; opacity:.28; background-image:radial-gradient(rgba(255,255,255,.55) 1.2px,transparent 1.2px); background-size:19px 19px; mask-image:linear-gradient(to bottom,#000,transparent 86%); }
+  .avatar-master { width:232px; height:232px; border-radius:50%; overflow:hidden; background:white; border:8px solid rgba(255,255,255,.96); box-shadow:0 24px 54px rgba(3,19,48,.42); position:relative; z-index:2; }
+  .avatar-master img { position:absolute; width:154%; height:154%; object-fit:contain; left:-27%; top:-23%; }
+  .spark { position:absolute; z-index:4; margin-left:190px; margin-top:-178px; width:55px; height:55px; border-radius:50%; display:grid; place-items:center; background:linear-gradient(145deg,#fff,#dff7ff); color:var(--blue); border:5px solid var(--blue); font-size:29px; font-weight:900; box-shadow:0 10px 24px rgba(8,27,58,.32); }
+  .hero-caption { padding:15px 17px; display:flex; justify-content:space-between; gap:16px; align-items:center; color:#a8b2c2; font-size:11px; }
+  .hero-caption strong { color:#f5f8ff; display:block; font-size:13px; margin-bottom:2px; }
+  .sizes { display:flex; gap:9px; align-items:end; }
+  .mini { border-radius:50%; overflow:hidden; background:white; border:2px solid rgba(255,255,255,.8); position:relative; flex:0 0 auto; }
+  .mini img { position:absolute; width:154%; height:154%; object-fit:contain; left:-27%; top:-23%; }
+  .m64 { width:52px; height:52px; } .m40 { width:36px; height:36px; } .m24 { width:25px; height:25px; }
+  .spec-panel { padding:20px; }
+  .spec-panel h3 { margin:0 0 15px; }
+  .spec-row { padding:13px 0; display:grid; grid-template-columns:44px 1fr; gap:11px; border-top:1px solid rgba(255,255,255,.08); }
+  .spec-row:first-of-type { border-top:0; padding-top:2px; }
+  .spec-icon { width:38px; height:38px; border-radius:11px; display:grid; place-items:center; background:rgba(23,105,216,.16); color:#6bd6ff; font-weight:800; }
+  .spec-row strong { display:block; color:#f5f8ff; font-size:12px; margin-bottom:3px; }
+  .spec-row span { display:block; color:#9ca7b8; font-size:11px; line-height:1.45; }
+  .palette { display:flex; gap:7px; margin-top:7px; }
+  .swatch { width:24px; height:24px; border-radius:50%; border:2px solid rgba(255,255,255,.65); }
+  .approval { margin-top:22px; }
+  .approval .options { margin-top:10px; }
+  @media(max-width:760px){ .selected-layout{grid-template-columns:1fr}.hero-panel{min-height:390px}.hero-stage{min-height:300px}.avatar-master{width:205px;height:205px}.spark{margin-left:168px;margin-top:-158px}.hero-caption{align-items:flex-start;flex-direction:column} }
+</style>
+
+<div class="selected-wrap">
+  <div class="selected-head">
+    <div class="label">Selected Direction · 01</div>
+    <h2>Spark Guide</h2>
+    <p class="subtitle">A friendly hatchery expert with a subtle AI signal—not a generic robot, and still unmistakably ChickMark.</p>
+  </div>
+
+  <div class="selected-layout">
+    <div class="hero-panel">
+      <div class="hero-stage">
+        <div class="dot-field"></div>
+        <div class="avatar-master"><img src="/files/chickmark-icon.png" alt="Spark Guide avatar"></div>
+        <div class="spark">✦</div>
+      </div>
+      <div class="hero-caption">
+        <div><strong>Master avatar</strong>Round, centered, and safe for automatic circular cropping.</div>
+        <div class="sizes" title="Small-size previews">
+          <div class="mini m64"><img src="/files/chickmark-icon.png" alt="64 px preview"></div>
+          <div class="mini m40"><img src="/files/chickmark-icon.png" alt="40 px preview"></div>
+          <div class="mini m24"><img src="/files/chickmark-icon.png" alt="24 px preview"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spec-panel">
+      <h3>Final design anatomy</h3>
+      <div class="spec-row"><div class="spec-icon">01</div><div><strong>Recognizable crop</strong><span>Keep the blue cap, round glasses, smiling beak, and both yellow wings. Remove the large outer egg/check mark only where it competes at small sizes.</span></div></div>
+      <div class="spec-row"><div class="spec-icon">✦</div><div><strong>AI signal</strong><span>One white four-point sparkle at the upper-right, inside a small blue-outlined badge. It remains visible at 40 px and disappears below 32 px.</span></div></div>
+      <div class="spec-row"><div class="spec-icon">◉</div><div><strong>Avatar framing</strong><span>Royal-blue radial gradient, white inner ring, and 10% safe margin so Telegram, iOS, Android, and Flutter circle masks do not clip the face.</span></div></div>
+      <div class="spec-row"><div class="spec-icon">Aa</div><div><strong>No text</strong><span>No “AI” letters or wordmark. The mascot and sparkle must communicate the identity even at notification size.</span></div></div>
+      <div class="spec-row"><div class="spec-icon">#</div><div><strong>Brand palette</strong><span>Use existing ChickMark colors only.<span class="palette"><i class="swatch" style="background:#1769D8"></i><i class="swatch" style="background:#079FE0"></i><i class="swatch" style="background:#193FC2"></i><i class="swatch" style="background:#FFC21A"></i><i class="swatch" style="background:#fff"></i></span></span></div></div>
+    </div>
+  </div>
+
+  <div class="approval">
+    <div class="label">Decision</div>
+    <div class="options">
+      <div class="option" data-choice="approve-spark-guide" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>Approve this direction</h3><p>Lock the design and prepare the production avatar files.</p></div></div>
+      <div class="option" data-choice="revise-spark-guide" onclick="toggleSelect(this)"><div class="letter">↻</div><div class="content"><h3>Adjust it first</h3><p>Tell me what you want changed: crop, sparkle, colors, or expression.</p></div></div>
+    </div>
+  </div>
+</div>

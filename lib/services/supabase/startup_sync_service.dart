@@ -18,6 +18,7 @@ import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/incoming_change.dart';
 import '../photo/photo_sync_service.dart';
 import 'sync_meta.dart';
+import 'sync_retry_policy.dart';
 import 'supabase_service.dart';
 
 class StartupSyncProgress {
@@ -36,6 +37,17 @@ class SyncOutcome {
   final int conflicts;
   final int pendingDeletes;
 
+  /// Rows that did not reach the cloud this run — a rejected push batch, or a
+  /// batch skipped because its table is inside its retry backoff window. Rows
+  /// stay dirty locally and are retried later; nothing is lost, but the run is
+  /// *not* fully successful and must not be reported as such.
+  final int failed;
+
+  /// The tables behind [failed], de-duplicated and sorted. Cheap to collect
+  /// (the push loop already knows the table name) and the only thing that makes
+  /// a failure diagnosable without digging through logs.
+  final List<String> failedTables;
+
   /// Audit sessions that arrived from the cloud this run (created/edited on
   /// another device). Empty on the first sync / after a DB reset (baseline).
   final List<IncomingChange> incomingSessions;
@@ -50,11 +62,41 @@ class SyncOutcome {
     this.pulled = 0,
     this.conflicts = 0,
     this.pendingDeletes = 0,
+    this.failed = 0,
+    this.failedTables = const [],
     this.incomingSessions = const [],
     this.otherIncomingCount = 0,
   });
 
   static const SyncOutcome offline = SyncOutcome(online: false);
+
+  bool get hasFailures => failed > 0 || failedTables.isNotEmpty;
+
+  /// True only when everything this run intended to move actually moved.
+  bool get fullySynced => online && !hasFailures && pendingDeletes == 0;
+
+  /// Human-readable one-liner for the failure, or null when there is none.
+  /// Suitable for `SettingsProvider.recordSync(error: ...)` and snackbars.
+  String? get failureSummary {
+    if (!hasFailures) return null;
+    const shown = 3;
+    final tables = failedTables.length <= shown
+        ? failedTables.join(', ')
+        : '${failedTables.take(shown).join(', ')} +${failedTables.length - shown} more';
+    final rows = failed == 1 ? '1 row' : '$failed rows';
+    return tables.isEmpty
+        ? '$rows could not reach the cloud'
+        : '$rows could not reach the cloud ($tables)';
+  }
+
+  /// One-line result for a user-initiated sync (the "Sync now" snackbars).
+  String get statusMessage {
+    if (!online) return 'Offline — using local data';
+    if (hasFailures) {
+      return 'Sync incomplete · ↑$pushed ↓$pulled · $failureSummary';
+    }
+    return 'Sync complete · ↑$pushed ↓$pulled';
+  }
 }
 
 /// Outcome of applying one pulled row. Lets the pull path tell a cloud-origin
@@ -81,8 +123,11 @@ class StartupSyncService {
   final SyncTombstoneRepository _syncTombstoneRepository;
   final SyncConflictRepository _syncConflictRepository;
   final PhotoSyncService _photoSyncService;
+  final SyncRetryPolicy _retryPolicy;
   final Set<String> _pendingLocalDeleteTargets = {};
   int _conflictsThisRun = 0;
+  int _failedRowsThisRun = 0;
+  final Set<String> _failedTablesThisRun = {};
   final List<IncomingChange> _incomingSessionsThisRun = [];
   int _otherIncomingThisRun = 0;
   bool _collectIncoming = false;
@@ -104,7 +149,9 @@ class StartupSyncService {
     SyncTombstoneRepository? syncTombstoneRepository,
     SyncConflictRepository? syncConflictRepository,
     PhotoSyncService? photoSyncService,
-  }) : _supabaseService = supabaseService ?? SupabaseService(),
+    SyncRetryPolicy? retryPolicy,
+  }) : _retryPolicy = retryPolicy ?? SyncRetryPolicy.shared,
+       _supabaseService = supabaseService ?? SupabaseService(),
        _customerRepository = customerRepository ?? CustomerRepository(),
        _dashboardActionRepository =
            dashboardActionRepository ?? DashboardActionRepository(),
@@ -174,6 +221,8 @@ class StartupSyncService {
     // so skip the upload passes and just pull their scoped slice.
     var pushed = 0;
     _conflictsThisRun = 0;
+    _failedRowsThisRun = 0;
+    _failedTablesThisRun.clear();
     _incomingSessionsThisRun.clear();
     _otherIncomingThisRun = 0;
     _collectIncoming = collectIncoming;
@@ -186,22 +235,34 @@ class StartupSyncService {
     progress(0.96, 'Syncing photos');
     await _photoSyncService.syncDownloaded();
     await _photoSyncService.syncPending();
+    final failedTables = _failedTablesThisRun.toList()..sort();
     if (userId != null && userId.isNotEmpty) {
       await _activityLogRepository.log(
         userId,
         'sync',
-        details: '$pushed pushed, $pulled pulled, $_conflictsThisRun conflicts',
+        details:
+            '$pushed pushed, $pulled pulled, $_conflictsThisRun conflicts, '
+            '$_failedRowsThisRun failed',
       );
     }
     final pendingDeletes =
         (await _syncTombstoneRepository.getPendingDeletes()).length;
-    progress(1, 'Ready');
+    // A run with failures must never end on the same "all done" note as a
+    // clean one — that is exactly what hid unreachable tables from the user.
+    progress(
+      1,
+      _failedRowsThisRun == 0
+          ? 'Ready'
+          : 'Ready — $_failedRowsThisRun not uploaded',
+    );
     return SyncOutcome(
       online: true,
       pushed: pushed,
       pulled: pulled,
       conflicts: _conflictsThisRun,
       pendingDeletes: pendingDeletes,
+      failed: _failedRowsThisRun,
+      failedTables: List.unmodifiable(failedTables),
       incomingSessions: List.unmodifiable(_incomingSessionsThisRun),
       otherIncomingCount: _otherIncomingThisRun,
     );
@@ -301,10 +362,50 @@ class StartupSyncService {
     return pushed;
   }
 
+  /// Record rows that did not reach the cloud this run, so `_run` can report
+  /// a failure instead of a clean bill of health.
+  void _recordFailedRows(String table, int rows) {
+    _failedRowsThisRun += rows;
+    _failedTablesThisRun.add(table);
+  }
+
+  /// Push one already-collected dirty batch for [table].
+  ///
+  /// Returns the number of rows that actually reached the cloud — 0 when the
+  /// upload was rejected, and 0 when the table is inside its retry backoff
+  /// window and the upload was skipped entirely. A failure here never aborts
+  /// the sync: the batch's rows are marked failed, the run continues to the
+  /// next table and eventually the pull, and the failure is counted so the
+  /// caller can surface it.
+  Future<int> _pushBatch(
+    String table,
+    int rowCount, {
+    required Future<void> Function() upload,
+    required Future<void> Function() markSynced,
+    required Future<void> Function(Object error) markFailed,
+  }) async {
+    if (rowCount == 0) return 0;
+    if (!_retryPolicy.shouldAttempt(table)) {
+      // Rows keep their existing dirty status; only the doomed round-trip is
+      // skipped. Still reported as failed — backing off must not re-hide it.
+      _recordFailedRows(table, rowCount);
+      return 0;
+    }
+    try {
+      await upload();
+      await markSynced();
+      _retryPolicy.recordSuccess(table);
+      return rowCount;
+    } catch (error) {
+      await markFailed(error);
+      _retryPolicy.recordFailure(table);
+      _recordFailedRows(table, rowCount);
+      return 0;
+    }
+  }
+
   /// Push only dirty reference rows (customers/hatcheries/flocks), marking
-  /// synced/failed per batch. A failed push here never aborts the sync — it
-  /// marks its rows failed and the caller continues on to the next table and
-  /// eventually the pull. Device-local sync columns are stripped before
+  /// synced/failed per batch. Device-local sync columns are stripped before
   /// upload.
   Future<int> _pushDirtyReferenceRows(
     String table, {
@@ -318,17 +419,16 @@ class StartupSyncService {
         .map((row) => row['id']?.toString())
         .whereType<String>()
         .toList(growable: false);
-    try {
-      await _supabaseService.upsertRowsStrict(
+    return _pushBatch(
+      table,
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
         table,
         dirty.map(stripSyncMeta).toList(growable: false),
-      );
-      await markSynced(ids);
-      return dirty.length;
-    } catch (error) {
-      await markFailed(ids, error);
-      return 0;
-    }
+      ),
+      markSynced: () => markSynced(ids),
+      markFailed: (error) => markFailed(ids, error),
+    );
   }
 
   Future<int> _pushDirtyOperationalRows(Iterable<String> tables) async {
@@ -340,8 +440,10 @@ class StartupSyncService {
           .map((row) => row['id']?.toString())
           .whereType<String>()
           .toList(growable: false);
-      try {
-        await _supabaseService.upsertRowsStrict(
+      pushed += await _pushBatch(
+        table,
+        dirty.length,
+        upload: () => _supabaseService.upsertRowsStrict(
           table,
           dirty
               .map(
@@ -349,12 +451,11 @@ class StartupSyncService {
                     _performanceSyncRepository.prepareRemoteRow(table, row),
               )
               .toList(growable: false),
-        );
-        await _performanceSyncRepository.markRowsSynced(table, ids);
-        pushed += dirty.length;
-      } catch (error) {
-        await _performanceSyncRepository.markRowsFailed(table, ids, error);
-      }
+        ),
+        markSynced: () => _performanceSyncRepository.markRowsSynced(table, ids),
+        markFailed: (error) =>
+            _performanceSyncRepository.markRowsFailed(table, ids, error),
+      );
     }
     return pushed;
   }
@@ -366,17 +467,17 @@ class StartupSyncService {
     final dirty = await _auditSessionRepository.getDirtySessionRows();
     if (dirty.isEmpty) return 0;
     final ids = dirty.map((session) => session.id).toList(growable: false);
-    try {
-      await _supabaseService.upsertRowsStrict(
+    return _pushBatch(
+      'audit_sessions',
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
         'audit_sessions',
         dirty.map((session) => stripSyncMeta(session.toMap())).toList(),
-      );
-      await _auditSessionRepository.markSessionsSynced(ids);
-      return dirty.length;
-    } catch (error) {
-      await _auditSessionRepository.markSessionsFailed(ids, error);
-      return 0;
-    }
+      ),
+      markSynced: () => _auditSessionRepository.markSessionsSynced(ids),
+      markFailed: (error) =>
+          _auditSessionRepository.markSessionsFailed(ids, error),
+    );
   }
 
   /// Push only dirty panel rows, per table, marking synced/failed per batch.
@@ -389,20 +490,18 @@ class StartupSyncService {
           .map((row) => row['id']?.toString())
           .whereType<String>()
           .toList(growable: false);
-      try {
-        await _supabaseService.upsertRowsStrict(
+      pushed += await _pushBatch(
+        panel.tableName,
+        dirty.length,
+        upload: () => _supabaseService.upsertRowsStrict(
           panel.tableName,
           dirty.map(stripSyncMeta).toList(),
-        );
-        await _panelSampleRepository.markRowsSynced(panel.tableName, ids);
-        pushed += dirty.length;
-      } catch (error) {
-        await _panelSampleRepository.markRowsFailed(
-          panel.tableName,
-          ids,
-          error,
-        );
-      }
+        ),
+        markSynced: () =>
+            _panelSampleRepository.markRowsSynced(panel.tableName, ids),
+        markFailed: (error) =>
+            _panelSampleRepository.markRowsFailed(panel.tableName, ids, error),
+      );
     }
     return pushed;
   }
@@ -412,34 +511,33 @@ class StartupSyncService {
     final dirty = await _goveeCaptureRepository.getDirtyCaptureRows();
     if (dirty.isEmpty) return 0;
     final ids = dirty.map((capture) => capture.id).toList(growable: false);
-    try {
-      await _supabaseService.upsertRowsStrict(
+    return _pushBatch(
+      'govee_daily_captures',
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
         'govee_daily_captures',
         dirty.map((capture) => stripSyncMeta(capture.toMap())).toList(),
-      );
-      await _goveeCaptureRepository.markCapturesSynced(ids);
-      return dirty.length;
-    } catch (error) {
-      await _goveeCaptureRepository.markCapturesFailed(ids, error);
-      return 0;
-    }
+      ),
+      markSynced: () => _goveeCaptureRepository.markCapturesSynced(ids),
+      markFailed: (error) =>
+          _goveeCaptureRepository.markCapturesFailed(ids, error),
+    );
   }
 
   Future<int> _pushDirtyDashboardActions() async {
     final dirty = await _dashboardActionRepository.getDirtyRows();
     if (dirty.isEmpty) return 0;
     final ids = dirty.map((action) => action.id).toList(growable: false);
-    try {
-      await _supabaseService.upsertRowsStrict(
+    return _pushBatch(
+      'dashboard_actions',
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
         'dashboard_actions',
         dirty.map((action) => stripSyncMeta(action.toMap())).toList(),
-      );
-      await _dashboardActionRepository.markSynced(ids);
-      return dirty.length;
-    } catch (error) {
-      await _dashboardActionRepository.markFailed(ids, error);
-      return 0;
-    }
+      ),
+      markSynced: () => _dashboardActionRepository.markSynced(ids),
+      markFailed: (error) => _dashboardActionRepository.markFailed(ids, error),
+    );
   }
 
   Future<int> _pushDirtyLabAnalysis() async {
@@ -451,17 +549,20 @@ class StartupSyncService {
           .map((row) => row['id']?.toString())
           .whereType<String>()
           .toList(growable: false);
-      try {
-        final prepared = await _prepareDirtyLabAnalysisRows(table, dirty);
-        await _supabaseService.upsertRowsStrict(
-          table,
-          prepared.map(stripSyncMeta).toList(),
-        );
-        await _labAnalysisRepository.markRowsSynced(table, ids);
-        pushed += dirty.length;
-      } catch (error) {
-        await _labAnalysisRepository.markRowsFailed(table, ids, error);
-      }
+      pushed += await _pushBatch(
+        table,
+        dirty.length,
+        upload: () async {
+          final prepared = await _prepareDirtyLabAnalysisRows(table, dirty);
+          await _supabaseService.upsertRowsStrict(
+            table,
+            prepared.map(stripSyncMeta).toList(),
+          );
+        },
+        markSynced: () => _labAnalysisRepository.markRowsSynced(table, ids),
+        markFailed: (error) =>
+            _labAnalysisRepository.markRowsFailed(table, ids, error),
+      );
     }
     return pushed;
   }
@@ -526,9 +627,7 @@ class StartupSyncService {
     'updatedAt': 'updated_at',
   };
 
-  Map<String, dynamic> _operationalStandardToRemote(
-    Map<String, dynamic> row,
-  ) {
+  Map<String, dynamic> _operationalStandardToRemote(Map<String, dynamic> row) {
     final remote = <String, dynamic>{};
     for (final entry in _operationalRemoteColumns.entries) {
       if (row.containsKey(entry.key)) remote[entry.value] = row[entry.key];
@@ -551,6 +650,7 @@ class StartupSyncService {
       for (final tombstone in pending) {
         await _syncTombstoneRepository.markFailed(tombstone.id, error);
       }
+      _recordFailedRows(SyncTombstoneRepository.tableName, pending.length);
       return;
     }
     for (final table in SyncTombstoneRepository.deleteOrder) {
@@ -570,6 +670,7 @@ class StartupSyncService {
         for (final tombstone in tombstones) {
           await _syncTombstoneRepository.markFailed(tombstone.id, error);
         }
+        _recordFailedRows(table, tombstones.length);
       }
     }
   }
@@ -627,8 +728,7 @@ class StartupSyncService {
         row,
         canPush: canPush,
         getSyncStatus: _bmkRepository.getOperationalRowSyncStatus,
-        upsert: (value) =>
-            _bmkRepository.upsertOperationalStandardRow(value),
+        upsert: (value) => _bmkRepository.upsertOperationalStandardRow(value),
       ),
       upsertAuditSession: (row) => _upsertSessionWithConflictCheck(row),
       upsertGoveeDailyCapture: (row) => _upsertGoveeWithConflictCheck(row),

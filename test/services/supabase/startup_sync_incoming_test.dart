@@ -168,6 +168,9 @@ void main() {
         upsertPhoto: any(named: 'upsertPhoto'),
         upsertBmkBreed: any(named: 'upsertBmkBreed'),
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+        upsertBmkOperationalStandard: any(
+          named: 'upsertBmkOperationalStandard',
+        ),
         upsertAuditSession: any(named: 'upsertAuditSession'),
         upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
         upsertDashboardAction: any(named: 'upsertDashboardAction'),

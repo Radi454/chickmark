@@ -5,29 +5,49 @@ codebase. The current code is the primary source of truth.
 
 Primary implementation files:
 
-- `lib/data/database/database_helper.dart`
-- `lib/data/database/database_schema.dart`
-- `lib/data/models/panel_sample_schema.dart`
-- `lib/data/models/panel_sample_model.dart`
+- `lib/data/database/database_helper.dart` — open path, version, `_onCreate`
+- `lib/data/database/database_schema.dart` — all DDL
+- `lib/data/database/database_migrations.dart` — `_onUpgrade` handlers
+- `lib/data/models/panel_sample_schema.dart` — panel table generator input
+- `lib/data/models/panel_sample_model.dart` — `PanelRecord` runtime shape
 - `lib/data/repositories/panel_sample_repository.dart`
 - `lib/data/repositories/panel_dashboard_repository.dart`
+- `lib/data/repositories/performance_sync_repository.dart` — sync table order
 - `lib/services/supabase/startup_sync_service.dart`
 - `lib/services/supabase/supabase_service.dart`
+- `lib/services/supabase/sync_meta.dart`
+- `supabase/migrations/*.sql` — the cloud mirror
 
 Old generated specs are intentionally not used.
 
 ## Runtime
 
-- Engine: SQLite through `sqflite`.
-- Current schema version: `47`.
-- Database file: `hatchaudit.db`.
-- Cutover behavior: only databases older than v41 use the destructive panel
-  cutover. v45 to v46 adds `dashboard_actions` without replacing existing data;
-  v46 to v47 adds Lab Analysis tables additively.
-- Fresh install schema: no `audits`, no `sample_records`, no sample detail
-  tables, and no `{panel}_samples` child tables.
-- Local-first behavior: SQLite is the operational source. Supabase sync mirrors
-  the current table set on a best-effort basis.
+- Engine: SQLite through `sqflite`. Database file: `hatchaudit.db`.
+- Current schema version: `60`.
+- Columns are camelCase locally. The Supabase mirror is snake_case; conversion
+  happens at the sync boundary, not in the repositories.
+- Local-first: SQLite is the operational source. Supabase mirrors it.
+- `onConfigure` disables foreign keys, `onOpen` re-enables them after repair.
+- `onOpen` runs, in order: surgical schema repair, panel unique-index drop,
+  deprecated panel column drop, panel column reconciliation, panel query
+  indexes, panel unique indexes, telegram staff link indexes, then the
+  operational BMK seed-source backfill.
+- Panel tables are reconciled on every open, so a panel column added to
+  `PanelSampleSchema` lands without a version bump.
+- In debug builds only, a corrupt/unopenable database file is deleted and
+  recreated. Release builds rethrow.
+
+## Storage layers
+
+| Layer | Contents |
+| --- | --- |
+| SQLite (device) | 61 tables, camelCase, offline source of truth |
+| Supabase Postgres | same graph, snake_case, RLS scoped per customer |
+| Supabase Edge functions | `telegram-hatchery-agent`, `app-hatchery-agent`, `approve-agent-intake`, `create-customer-account`, `reset-customer-password` |
+
+Tenant-owned cloud child tables carry a server-derived `customer_id` that is
+intentionally absent from the local row shape: a before-write trigger derives it
+from the authoritative parent edge and rejects cross-customer links.
 
 ## High-Level Model
 
@@ -35,173 +55,142 @@ Old generated specs are intentionally not used.
 erDiagram
   customers ||--o{ hatcheries : owns
   customers ||--o{ flocks : owns
+  customers ||--o{ customer_sectors : enables
+  customers ||--o{ farms : owns
   customers ||--o{ audit_sessions : scopes
   customers ||--o{ panel_tables : scopes
   customers ||--o{ govee_daily_captures : scopes
   customers ||--o{ dashboard_actions : owns
+  customers ||--o{ lab_analysis_reports : owns
 
-  flocks ||--o{ audit_sessions : selected_for
-  flocks ||--o{ panel_tables : selected_for
+  farms ||--o{ houses : contains
+  flocks ||--o{ flock_placements : placed_as
+  houses ||--o{ flock_placements : hosts
+  flock_placements ||--o{ broiler_daily_records : recorded_for
+  broiler_daily_records ||--o{ broiler_daily_record_revisions : versioned_by
 
   hatcheries ||--o{ audit_sessions : selected_for
-  hatcheries ||--o{ panel_tables : selected_for
-  hatcheries ||--o{ govee_daily_captures : recorded_at
-  hatcheries ||--o{ dashboard_actions : scopes
-
+  flocks ||--o{ audit_sessions : selected_for
   audit_sessions ||--o{ panel_tables : owns
   audit_sessions ||--o{ photos : owns
-  audit_sessions ||--o{ dashboard_actions : source_for
-
   panel_tables ||--o{ photos : evidence_for
+
+  performance_alert_rules ||--o{ performance_concerns : raises
+  performance_concerns ||--o{ cause_assessments : explained_by
+  performance_concerns ||--o{ corrective_actions : remediated_by
+  farm_visit_sessions ||--o{ visit_investigations : plans
+  visit_investigations ||--o{ visit_findings : produces
+  corrective_actions ||--o{ action_kpi_evaluations : measured_by
+
+  agent_conversations ||--o{ agent_conversation_turns : contains
+  agent_conversation_turns ||--o{ agent_tool_events : invokes
+  agent_conversations ||--o{ agent_intake_visits : opens
+  agent_intake_visits ||--o{ agent_intake_sessions : collects
 ```
 
-`panel_tables` means any implemented station/panel table:
-`egg_storage`, `egg_quality`, `chick_quality`, `chick_weights`,
-`fresh_egg_breakout`, `candled_egg_breakout`, `residue_breakout`,
-`setter_optimizing`, or `hatcher_optimizing`.
+`panel_tables` means any implemented station/panel table: `egg_storage`,
+`egg_quality`, `chick_quality`, `chick_weights`, `fresh_egg_breakout`,
+`candled_egg_breakout`, `residue_breakout`, `setter_optimizing`, or
+`hatcher_optimizing`.
 
 Each panel table is the only source of truth for that panel. A single sample is
-one row in the panel table. Multi-sample screens write one row per sampled leaf
-and identify each row with explicit nullable hierarchy columns:
-`house`, `setter`, `hatcher`, `trolley`, `tray`, and `position`. A sample is a
-row, not a separate child-table record or generic mode.
+one row. Multi-sample screens write one row per sampled leaf and identify each
+row with explicit nullable hierarchy columns. A sample is a row, not a separate
+child-table record or generic mode.
 
 ## Table Catalog
 
-Fresh databases create these tables:
+Fresh databases create 61 tables, in these groups:
 
-- Identity and ownership: `users`, `customers`, `hatcheries`, `flocks`
-- Visit container: `audit_sessions`
-- Panel tables:
-  - `egg_storage`
-  - `egg_quality`
-  - `chick_quality`
-  - `chick_weights`
-  - `fresh_egg_breakout`
-  - `candled_egg_breakout`
-  - `residue_breakout`
-  - `setter_optimizing`
-  - `hatcher_optimizing`
-- Govee captures: `govee_daily_captures`
-- Corrective action workflow: `dashboard_actions`
-- Lab Analysis: `lab_analysis_reports`, `lab_analysis_groups`,
-  `lab_analysis_rows`
-- Reference data: `bmk_breeds`, `bmk_egg_breakout`, `troubleshooting`
-- Supporting data: `photos`, `activity_log`, `sync_tombstones`
+| Group | Tables |
+| --- | --- |
+| Identity and ownership | `users`, `customers`, `hatcheries`, `flocks` |
+| Farm hierarchy | `customer_sectors`, `farms`, `houses`, `flock_placements` |
+| Visit container | `audit_sessions` |
+| Panels (9) | `egg_storage`, `egg_quality`, `chick_quality`, `chick_weights`, `fresh_egg_breakout`, `candled_egg_breakout`, `residue_breakout`, `setter_optimizing`, `hatcher_optimizing` |
+| Environment captures | `govee_daily_captures` |
+| Corrective action workflow | `dashboard_actions` |
+| Lab analysis | `lab_analysis_reports`, `lab_analysis_groups`, `lab_analysis_rows` |
+| Broiler daily records | `broiler_daily_records`, `broiler_daily_record_revisions`, `broiler_daily_events`, `daily_record_sources` |
+| Broiler objectives | `broiler_target_profiles`, `broiler_target_rows` |
+| Performance monitoring | `performance_alert_rules`, `performance_concerns` |
+| Diagnostic farm visits | `farm_visit_sessions`, `farm_visit_houses`, `visit_investigations`, `visit_findings`, `cause_assessments`, `corrective_actions`, `action_kpi_evaluations` |
+| Agent — document intake | `telegram_staff_links`, `agent_settings`, `agent_submissions`, `agent_questions`, `hatchery_draft_batches`, `hatchery_draft_rows`, `hatchery_agent_audit_events`, `hatchery_daily_records` |
+| Agent — conversational harness | `agent_conversations`, `agent_conversation_turns`, `agent_tool_events`, `agent_intake_visits`, `agent_intake_sessions`, `agent_intake_turns`, `agent_intake_values` |
+| Reference data | `bmk_breeds`, `bmk_egg_breakout`, `bmk_operational_standards`, `troubleshooting` |
+| Supporting data | `photos`, `activity_log`, `sync_tombstones`, `sync_conflicts` |
 
-### `dashboard_actions`
-
-Persistent corrective actions derived from dashboard findings:
-
-- Scope/source: `findingKey`, `customerId`, `hatcheryId`, optional `flockId`,
-  `sessionId`, `panelName`, `panelRowId`, `fieldKey`, and `metricKey`.
-- Workflow: `title`, `description`, `priority`, `status`, `ownerId`,
-  `ownerName`, `dueAt`, `firstObservedAt`, and `lastObservedAt`.
-- Resolution: `resolvedAt`, `resolutionNotes`, `resolutionPhotoId`, and
-  `recurrenceOfId`.
-- Lifecycle/sync: `createdBy`, `createdAt`, `updatedAt`, `syncStatus`,
-  `dirtyAt`, `lastSyncedAt`, and `syncError`.
-
-Customer and hatchery deletion cascades actions. Flock and audit-session source
-deletion clears the optional reference. Local action changes are dirty-tracked,
-conflict-checked, pushed/pulled through Supabase, and explicitly tombstoned when
-an action itself is deleted.
-
-Removed tables:
-
-- `audits`
-- `sample_records`
-- `sample_house_details`
-- `sample_machine_details`
-- `sample_batch_details`
-- `sample_timing_details`
-- all `{panel}_samples` tables
-- legacy `station_samples`
+Removed tables: `audits`, `sample_records`, `sample_house_details`,
+`sample_machine_details`, `sample_batch_details`, `sample_timing_details`, all
+`{panel}_samples` tables, legacy `station_samples`.
 
 ## Core Tables
 
 ### `users`
 
-Local user/profile state:
+Local user/profile state. The only syncable-looking table with no sync columns —
+identity is owned by Supabase auth, not by row sync.
 
-- `id TEXT PRIMARY KEY`
-- `fullName TEXT`
-- `email TEXT UNIQUE`
-- `role TEXT`
-- `status TEXT`
-- `customerId TEXT`
-- `accessToken TEXT`
-- `tokenExpiry TEXT`
-- `createdAt TEXT`
-- `lastLoginAt TEXT`
+`id`, `fullName`, `email UNIQUE`, `role`, `status`, `customerId`, `accessToken`,
+`tokenExpiry`, `createdAt`, `lastLoginAt`.
 
 ### `customers`
 
-Top-level customer account/entity:
-
-- `id TEXT PRIMARY KEY`
-- `name TEXT`
-- `location TEXT`
-- `phone TEXT`
-- `email TEXT`
-- `createdAt TEXT`
-- `createdBy TEXT`
+Top-level customer account: `id`, `name`, `location`, `phone`, `email`,
+`createdAt`, `createdBy`, plus sync columns.
 
 ### `hatcheries`
 
-Customer-owned hatchery/location:
-
-- `id TEXT PRIMARY KEY`
-- `customerId TEXT NOT NULL`
-- `name TEXT NOT NULL`
-- `location TEXT`
-- `notes TEXT`
-- `createdAt TEXT`
-- `createdBy TEXT`
+Customer-owned hatchery/location: `id`, `customerId NOT NULL`, `name NOT NULL`,
+`location`, `notes`, `createdAt`, `createdBy`, plus sync columns.
+Indexed on `customerId`.
 
 ### `flocks`
 
-Customer-owned flock:
+Customer-owned flock. `flockId` is the human label, `id` is the row key.
 
-- `id TEXT PRIMARY KEY`
-- `customerId TEXT`
-- `flockId TEXT`
-- `breed TEXT`
-- `entryDate TEXT`
-- `isAgeEstimated INTEGER NOT NULL DEFAULT 0`
-- `status TEXT NOT NULL DEFAULT 'active'`
-- `depletionAgeWeeks INTEGER NOT NULL DEFAULT 65`
-- `soldAt TEXT`
+`id`, `customerId`, `flockId`, `breed`, `entryDate`, `farmId`, `sectorKey`,
+`sexProfile NOT NULL DEFAULT 'as_hatched'`, `targetProfileId`, `productionPhase`,
+`isAgeEstimated NOT NULL DEFAULT 0`, `status NOT NULL DEFAULT 'active'`,
+`depletionAgeWeeks NOT NULL DEFAULT 65`, `soldAt`, `updatedAt`, plus sync
+columns. Indexed on `(customerId, status)`.
+
+`updatedAt` exists locally but not in the cloud `flocks` table, so the push path
+strips it before upload.
 
 ### `audit_sessions`
 
 Visit-level container for selected customer, hatchery, flock, station order,
 station completion, notes, and visit summary payloads:
 
-- `id TEXT PRIMARY KEY`
-- `customerId TEXT NOT NULL`
-- `flockId TEXT NOT NULL`
-- `hatcheryId TEXT NOT NULL`
-- `date TEXT NOT NULL`
-- `breed TEXT`
-- `flockAgeWeeks INTEGER`
-- `status TEXT DEFAULT 'in_progress'`
-- `selectedStationKeys TEXT`
-- `stationsCompleted TEXT`
-- `findingsJson TEXT`
-- `scorecardJson TEXT`
-- `notes TEXT`
-- `createdBy TEXT`
-- `createdAt TEXT`
-- `updatedAt TEXT`
-- `completedAt TEXT`
+`id`, `customerId NOT NULL`, `flockId NOT NULL`, `hatcheryId NOT NULL`,
+`date NOT NULL`, `breed`, `flockAgeWeeks`, `status DEFAULT 'in_progress'`,
+`selectedStationKeys`, `stationsCompleted`, `findingsJson`, `scorecardJson`,
+`notes`, `createdBy`, `createdAt`, `updatedAt`, `completedAt`, plus sync columns.
+
+Indexed on `(customerId, date DESC)`, `(flockId, date DESC)`, `(syncStatus)`.
 
 `audit_sessions` is not a measurement table. It owns the visit workflow only.
 
+## Farm Hierarchy
+
+| Table | Shape |
+| --- | --- |
+| `customer_sectors` | `customerId` + `sectorKey`, unique together, `isActive` |
+| `farms` | `customerId`, `sectorKey`, `name`, `location`, `notes`, `isActive`, `createdBy` |
+| `houses` | `farmId`, `name`, `code`, `capacity`, `notes`, `isActive` — `name` and `code` are each unique per farm |
+| `flock_placements` | `flockId`, `houseId`, `placedBirds`, `placedAt`, `endedAt`, `status` in `active`/`ended`/`transferred`, `notes` |
+
+`flock_placements` carries a unique partial index allowing only one `active`
+placement per house.
+
+Sector keys come from `PoultrySector` in
+`lib/data/models/poultry_hierarchy_models.dart`.
+
 ## Panel Table Common Columns
 
-Every panel table has the same ownership, explicit sample hierarchy,
-storage/BMK context, metadata, and sync columns.
+Panel tables are generated from `PanelSampleSchema.panels`. Every panel table
+gets the same envelope, then its own measurement columns appended:
 
 | Column | Why it exists | Current UI/workflow mapping |
 | --- | --- | --- |
@@ -225,17 +214,32 @@ storage/BMK context, metadata, and sync columns.
 | `createdAt TEXT NOT NULL` | Local creation timestamp. | Draft/station save timestamp. |
 | `updatedAt TEXT NOT NULL` | Conflict resolution and dashboard freshness. | Updated on each station save. |
 | `syncStatus TEXT NOT NULL DEFAULT 'pending'` | Supabase push queue state. | Set locally before startup sync. |
+| `dirtyAt TEXT` | When the row was last locally edited. | Drives dirty-row selection and the mark-synced cutoff. |
 | `lastSyncedAt TEXT` | Successful remote sync timestamp. | Set by sync after push/pull. |
 | `syncError TEXT` | Last sync failure detail. | Set by sync failure handling. |
+
+`setter_optimizing` and `hatcher_optimizing` are the exceptions: they override
+`hierarchyColumnDefinitions` and carry only `setter` or only `hatcher`. The open
+path drops any hierarchy column a panel no longer declares, plus the retired
+`bmkAgeDays`.
 
 Each panel table has these indexes:
 
 - `idx_{panel}_session(sessionId)`
 - `idx_{panel}_dashboard(customerId, flockId, date)`
-- `idx_{panel}_unique_row(sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))`
+- `idx_{panel}_sync(syncStatus)`
+- `idx_{panel}_unique_row(sessionId, IFNULL(<each declared hierarchy column>, ''))`
 
 The unique row index prevents duplicate rows for the same sampled hierarchy
 inside a visit session.
+
+### `PanelRecord`
+
+`PanelRecord` is the in-memory shape the save path and dashboard use. It carries
+the envelope fields plus presentation state that is not persisted as columns:
+`mode` (`pool` or `comparison`), `scopeType` (a `SamplingLayer`), `scopeLabel`,
+`sampleIndex`, `groupKey`, `groupLabel`, and an open `values` map holding the
+panel's measurement columns.
 
 ## Panel Measurement Columns
 
@@ -244,341 +248,513 @@ dashboard queries.
 
 ### `egg_storage`
 
-UI fields: Egg storage days, EST readings, shell temperature, turning, tray
-spacing, cooler proximity, condensation, upside-down score, station notes.
+UI fields: Egg storage days, EST readings, turning, tray spacing, cooler
+proximity, condensation, upside-down score, station notes.
 
-User-entered or captured columns:
+User-entered or captured: `estReadingsJson`, `turningTimes`, `traySpacing`,
+`coolerProximity`, `condensationPresent`, `upsideDownCount`.
 
-- `estReadingsJson TEXT`
-- `shellTemp REAL`
-- `turningTimes INTEGER`
-- `traySpacing TEXT`
-- `coolerProximity TEXT`
-- `condensationPresent INTEGER`
-- `upsideDownCount INTEGER`
+Calculated/dashboard: `estAvg`, `estCvPct`, `upsideDownPct`.
 
-Calculated/dashboard columns:
-
-- `estAvg REAL`
-- `estCvPct REAL`
-- `upsideDownPct REAL`
+Egg storage temperatures are recorded in °C.
 
 ### `egg_quality`
 
 UI fields: UV tray inspection, cuticle damage, washing evidence, dirt/fecal
-evidence, tray totals, and 100-egg weight grid.
+evidence, tray totals, and the egg weight grid.
 
-User-entered columns:
+User-entered: `uvTrayEggCount`, `uvCuticleDamageCount`, `uvWashedCount`,
+`uvDirtyCount`, `eggWeightsJson`, `eggSampleSize`.
 
-- `eggWeightsJson TEXT`
-- `eggSampleSize INTEGER`
-
-Calculated/dashboard columns:
-
-- `uvTrayEggCount INTEGER`
-- `uvCuticleDamageCount INTEGER`
-- `uvWashedCount INTEGER`
-- `uvDirtyCount INTEGER`
-- `uvAffectedCount INTEGER`
-- `uvAffectedPct REAL`
-- `eggAvgWeight REAL`
-- `eggUniformityPct REAL`
-- `eggCvPct REAL`
-- `eggBmkAgeWeeks INTEGER`
-- `eggBmkWeight REAL`
+Calculated/dashboard: `uvCuticleDamagePct`, `uvWashedPct`, `uvDirtyPct`,
+`uvAffectedCount`, `uvAffectedPct`, `eggAvgWeight`, `eggUniformityPct`,
+`eggCvPct`, `eggBmkAgeWeeks`, `eggBmkWeight`.
 
 ### `chick_quality`
 
-UI fields: Pasgar, YFBM, Chick Vent Temperature, PM Necropsy, and Culled
-Chicks Analysis.
+UI fields: Pasgar, YFBM, Chick Vent Temperature, PM Necropsy, Culled Chicks
+Analysis.
 
-User-entered or captured columns:
-
-- `pasgarSampleSize INTEGER`
-- `pasgarReflexesCount INTEGER`
-- `pasgarBeakCount INTEGER`
-- `pasgarNavelCount INTEGER`
-- `pasgarBellyCount INTEGER`
-- `pasgarLegCount INTEGER`
-- `pasgarFeatherDevCount INTEGER`
-- `yfbmEntriesJson TEXT`
-- `cvtReadingsJson TEXT`
-- `cvtSampleSize INTEGER`
-- `pmSampleSize INTEGER`
-- `pmCollectionPoint TEXT`
-- `pmOmphalitisCount INTEGER`
-- `pmOmphalitisSeverity TEXT`
-- `pmGaseousCecaCount INTEGER`
-- `pmGaseousCecaSeverity TEXT`
-- `pmGizzardErosionsCount INTEGER`
-- `pmGizzardErosionsSeverity TEXT`
-- `pmAirSacCaseationsCount INTEGER`
-- `pmAirSacCaseationsSeverity TEXT`
-- `pmUrolithiasisCount INTEGER`
-- `pmUrolithiasisSeverity TEXT`
-- `pmNephritisCount INTEGER`
-- `pmNephritisSeverity TEXT`
-- `pmGeneralSepticemiaCount INTEGER`
-- `pmGeneralSepticemiaSeverity TEXT`
-- `pmOtherLesionsJson TEXT`
-- `pmSuspectedCauseAuto TEXT`
-- `pmSuspectedCauseManual TEXT`
-- `culledChicksTotalEggSet INTEGER`
-- `culledChicksAnalysisJson TEXT`
+User-entered or captured: `pasgarSampleSize`, the six Pasgar defect counts
+(`pasgarReflexesCount`, `pasgarBeakCount`, `pasgarNavelCount`,
+`pasgarBellyCount`, `pasgarLegCount`, `pasgarFeatherDevCount`), `yfbmPhoto`,
+`yfbmEntriesJson`, `cvtReadingsJson`, `cvtPhotosJson`, `cvtSampleSize`, the
+per-basket CVT triples (`cvtTopBasket`/`cvtTopTemp`/`cvtTopPhoto` and the middle
+and bottom equivalents), `pmSampleSize`, `pmCollectionPoint`, the seven PM lesion
+count/severity pairs (`pmOmphalitis*`, `pmGaseousCeca*`, `pmGizzardErosions*`,
+`pmAirSacCaseations*`, `pmUrolithiasis*`, `pmNephritis*`,
+`pmGeneralSepticemia*`), `pmOtherLesionsJson`, `pmSuspectedCauseManual`,
+`pmPhotosJson`, `culledChicksTotalEggSet`, `culledChicksAnalysisJson`.
 
 `culledChicksAnalysisJson` stores defect subtype percentages (`pct`) calculated
 from the total egg set denominator; raw defect row counts are not persisted.
 
-Calculated/dashboard columns:
+Calculated/dashboard: the six Pasgar pcts, `pasgarFinalScore`, `yfbmEntryCount`,
+`yfbmAvgPct`, `yfbmCvPct`, `cvtAvgTemp`, `cvtCvPct`, `pmSuspectedCauseAuto`,
+`culledChicksAffectedPct`, `culledChicksTopCategory`, `culledChicksTopSubtype`.
 
-- `pasgarReflexesPct REAL`
-- `pasgarBeakPct REAL`
-- `pasgarNavelPct REAL`
-- `pasgarBellyPct REAL`
-- `pasgarLegPct REAL`
-- `pasgarFeatherDevPct REAL`
-- `pasgarFinalScore REAL`
-- `yfbmEntryCount INTEGER`
-- `yfbmAvgPct REAL`
-- `yfbmCvPct REAL`
-- `cvtAvgTemp REAL`
-- `cvtCvPct REAL`
-- `culledChicksAffectedPct REAL`
-- `culledChicksTopCategory TEXT`
-- `culledChicksTopSubtype TEXT`
+CVT temperatures are recorded in °F.
 
 ### `chick_weights`
 
 UI fields: chick weight grid.
 
-User-entered columns:
+User-entered: `weightsJson`, `sampleSize`.
 
-- `weightsJson TEXT`
-- `sampleSize INTEGER`
-
-Calculated/dashboard columns:
-
-- `avgWeight REAL`
-- `uniformityPct REAL`
-- `cvPct REAL`
-- `bmkWeight REAL`
+Calculated/dashboard: `avgWeight`, `uniformityPct`, `cvPct`, `bmkWeight`.
 
 ### `fresh_egg_breakout`
 
 UI fields: storage period, calculated BMK age, house/tray identity, tray size,
 fresh breakout counts.
 
-User-entered columns:
+User-entered: `traySize`, `infertileCount`, `early24hCount`, `early48hCount`,
+`bloodRingCount`.
 
-- `traySize INTEGER`
-- `infertileCount INTEGER`
-- `early24hCount INTEGER`
-- `early48hCount INTEGER`
-- `bloodRingCount INTEGER`
-
-Calculated/dashboard columns:
-
-- `infertilePct REAL`
-- `early24hPct REAL`
-- `early48hPct REAL`
-- `bloodRingPct REAL`
-- `infertileDiffPct REAL`
-- `early24hDiffPct REAL`
-- `early48hDiffPct REAL`
-- `bloodRingDiffPct REAL`
+Calculated/dashboard: `infertilePct`, `early24hPct`, `early48hPct`,
+`bloodRingPct`, and the matching `*DiffPct` columns (row value minus BMK).
 
 ### `candled_egg_breakout`
 
-UI fields: storage period, calculated BMK age, candling day, tray hierarchy,
-tray size, candled breakout counts.
-
-User-entered columns:
-
-- `candlingDay INTEGER`
-- `traySize INTEGER`
-- `infertileCount INTEGER`
-- `early24hCount INTEGER`
-- `early48hCount INTEGER`
-- `bloodRingCount INTEGER`
-- `blackEyeCount INTEGER`
-
-Calculated/dashboard columns:
-
-- `infertilePct REAL`
-- `early24hPct REAL`
-- `early48hPct REAL`
-- `bloodRingPct REAL`
-- `blackEyePct REAL`
-- `infertileDiffPct REAL`
-- `early24hDiffPct REAL`
-- `early48hDiffPct REAL`
-- `bloodRingDiffPct REAL`
-- `blackEyeDiffPct REAL`
+Same as fresh breakout plus `candlingDay`, `blackEyeCount`, `blackEyePct`,
+`blackEyeDiffPct`.
 
 ### `residue_breakout`
 
 UI fields: storage period, calculated BMK age, full tray hierarchy, tray size,
 residue counts, hatch results totals.
 
-User-entered columns:
+User-entered: `traySize`, `infertileCount`, `earlyDeadCount`, `midDeadCount`,
+`lateDeadCount`, `externalPipCount`, `crackedCount`, `contaminatedCount`,
+`totalEggsSet`, `hatchedCount`, `culledCount`, `deadCount`.
 
-- `traySize INTEGER`
-- `infertileCount INTEGER`
-- `earlyDeadCount INTEGER`
-- `midDeadCount INTEGER`
-- `lateDeadCount INTEGER`
-- `externalPipCount INTEGER`
-- `crackedCount INTEGER`
-- `contaminatedCount INTEGER`
-- `totalEggsSet INTEGER`
-- `hatchedCount INTEGER`
-- `culledCount INTEGER`
-- `deadCount INTEGER`
-
-Calculated/dashboard columns:
-
-- `infertilePct REAL`
-- `earlyDeadPct REAL`
-- `midDeadPct REAL`
-- `lateDeadPct REAL`
-- `externalPipPct REAL`
-- `crackedPct REAL`
-- `contaminatedPct REAL`
-- `infertileDiffPct REAL`
-- `earlyDeadDiffPct REAL`
-- `midDeadDiffPct REAL`
-- `lateDeadDiffPct REAL`
-- `externalPipDiffPct REAL`
-- `crackedDiffPct REAL`
-- `contaminatedDiffPct REAL`
-- `hatchabilityPct REAL`
-- `fertilityPct REAL`
-- `hofPct REAL`
-- `culledPct REAL`
-- `deadPct REAL`
+Calculated/dashboard: the seven defect pcts and their `*DiffPct` counterparts,
+plus `hatchabilityPct`, `fertilityPct`, `hofPct`, `culledPct`, `deadPct`.
 
 ### `setter_optimizing`
 
-UI fields: setter hierarchy identity, machine type, setpoint/actual screen
-values, batch size, batch count, total eggs set, turning angle, CO2, breed,
-incubation age/hour, EST readings.
+UI fields: setter identity, machine type, setpoint/actual screen values, batch
+size, batch count, total eggs set, turning angle, CO2, breed, incubation
+age/hour, EST readings.
 
-User-entered or captured columns:
+User-entered or captured: `machineType`, `setpointF`, `actualF`, `setpointRh`,
+`actualRh`, `batchSize`, `batchCount`, `totalEggsSet`, `turningAngle`, `co2Ppm`,
+`co2Photo`, `estBreed`, `incubationAgeDays`, `incubationHours`,
+`estReadingsJson`, `estPhotosJson`, `estSamplesJson`, `machineScreenPhoto`.
 
-- `machineType TEXT`
-- `setpointF REAL`
-- `actualF REAL`
-- `batchSize INTEGER`
-- `batchCount INTEGER`
-- `totalEggsSet INTEGER`
-- `turningAngle REAL`
-- `co2Ppm REAL`
-- `estBreed TEXT`
-- `incubationAgeDays INTEGER`
-- `incubationHours INTEGER`
-- `estReadingsJson TEXT`
+Calculated/dashboard: `estSampleSize`, `estAvg`, `estCvPct`.
 
-Calculated/dashboard columns:
-
-- `estSampleSize INTEGER`
-- `estAvg REAL`
-- `estCvPct REAL`
+Setter temperatures are recorded in °F.
 
 ### `hatcher_optimizing`
 
-UI fields: hatcher hierarchy identity, incubation age/hour, CO2, CVT readings,
-chick panting, meconium.
+UI fields: hatcher identity, setpoints, incubation age/hour, CO2, CVT readings,
+chick panting, meconium, transfer day.
 
-User-entered or captured columns:
+User-entered or captured: `setpointF`, `setpointRh`, `incubationAgeDays`,
+`incubationHours`, `co2Ppm`, `co2Photo`, `cvtReadingsJson`, `cvtPhotosJson`,
+`chickPanting`, `chickPantingPhoto`, `meconium`, `transferDay`.
 
-- `incubationAgeDays INTEGER`
-- `incubationHours INTEGER`
-- `co2Ppm REAL`
-- `cvtReadingsJson TEXT`
-- `chickPanting INTEGER`
-- `meconium TEXT`
+Calculated/dashboard: `cvtSampleSize`, `cvtAvg`, `cvtCvPct`.
 
-Calculated/dashboard columns:
-
-- `cvtSampleSize INTEGER`
-- `cvtAvg REAL`
-- `cvtCvPct REAL`
+Hatcher temperatures are recorded in °F.
 
 ## Scope Support By Panel
 
 Scope rows are hierarchical. If a sector records a deeper scope, the row keeps
 all populated parent hierarchy columns in order: `house`, machine
-(`setter`/`hatcher`), `trolley`, then `tray`. If no scope is selected, the row
-is station-scoped and leaves the hierarchy columns null.
+(`setter`/`hatcher`), `trolley`, then `tray`. If no scope is selected, the row is
+station-scoped and leaves the hierarchy columns null.
 
-| Panel | Allowed scopes |
+The authoritative list is `allowedLayers` on each `PanelSampleDefinition`:
+
+| Panel | Allowed layers |
 | --- | --- |
-| `egg_storage` | `pool`, `house` |
-| `egg_quality` | `pool`, `house`, `setter_hatcher` |
-| `chick_quality` | `pool`, `house`, `setter_hatcher` |
+| `egg_storage` | `pool` |
+| `egg_quality` | `pool`, `house` |
+| `chick_quality` | `pool`, `setter_hatcher` |
 | `chick_weights` | `pool`, `house` |
 | `fresh_egg_breakout` | `pool`, `house`, `tray` |
-| `candled_egg_breakout` | `pool`, `house`, `setter`, `tray` |
-| `residue_breakout` | `pool`, `house`, `setter_hatcher`, `tray`, `batch` |
-| `setter_optimizing` | `pool`, `setter`, `trolley`, `tray` |
-| `hatcher_optimizing` | `pool`, `hatcher`, `trolley`, `tray` |
+| `candled_egg_breakout` | `pool`, `house`, `setter_hatcher`, `trolley`, `tray` |
+| `residue_breakout` | `pool`, `house`, `setter_hatcher`, `trolley`, `tray` |
+| `setter_optimizing` | `setter` |
+| `hatcher_optimizing` | `hatcher` |
+
+`SamplingLayer` values: `pool`, `house`, `setter`, `hatcher`, `setter_hatcher`,
+`trolley`, `tray`.
+
+## Station To Panel Mapping
+
+An audit station key selects one or more panel tables:
+
+| Station key | Panel tables |
+| --- | --- |
+| `egg` | `egg_storage`, `egg_quality` |
+| `chicks` | `chick_quality`, `chick_weights` |
+| `hatch_analysis_egg_breakouts` | `fresh_egg_breakout`, `candled_egg_breakout`, `residue_breakout` |
+| `setters` | `setter_optimizing` |
+| `hatchers` | `hatcher_optimizing` |
 
 ## Photos
 
-Photos no longer depend on an audit row.
+Photos do not depend on an audit row. Bytes live on disk; the row stores the
+path.
 
-Columns:
-
-- `id TEXT PRIMARY KEY`
-- `filePath TEXT`
-- `description TEXT`
-- `createdAt TEXT`
-- `sessionId TEXT NOT NULL`
-- `panelName TEXT NOT NULL`
-- `panelRowId TEXT NOT NULL`
-- `fieldKey TEXT NOT NULL`
-- `uploadStatus TEXT NOT NULL DEFAULT 'local'`
+Columns: `id`, `filePath`, `description`, `createdAt`, `sessionId NOT NULL`,
+`panelName NOT NULL`, `panelRowId NOT NULL`, `fieldKey NOT NULL`,
+`uploadStatus NOT NULL DEFAULT 'local'`.
 
 Photo identity:
 
 - `sessionId`: visit container.
 - `panelName`: panel/table name such as `egg_storage`.
 - `panelRowId`: panel row id.
-- `fieldKey`: measurement or evidence field, such as `photo`, `est`, `cvt`,
-  or `co2`.
+- `fieldKey`: measurement or evidence field, such as `photo`, `est`, `cvt`, or
+  `co2`.
 
-## Dashboard Rules
+Indexed on `(sessionId, panelName, panelRowId)`.
 
-Dashboard queries read panel tables directly through
-`PanelDashboardRepository`. Dashboard code does not read the removed `audits`
-table or removed sample tables.
+## Environment And Workflow Tables
 
-Dashboard-ready summary columns are stored on panel rows where the current UI
-already calculates them during save. Examples include `avgWeight`, `cvPct`,
-`uniformityPct`, `finalScore`, breakout percentages, hatchability/fertility/HOF,
-`estAvg`, and `cvtAvg`.
+### `govee_daily_captures`
+
+One row per `(customerId, hatcheryId, place, machineId, captureDate)` — enforced
+by a table-level `UNIQUE`. Carries `stationKey`, `startedAt`, `endedAt`,
+`deviceId`, `deviceName`, `status`, temperature stats
+(`tempAvg`/`Min`/`Max`/`Sd`/`CvPct`), humidity stats
+(`rhAvg`/`Min`/`Max`/`Sd`/`CvPct`), `readingCount`, and `chartPointsJson`.
+
+Govee readings are stored in °F and toggled for display.
+
+### `dashboard_actions`
+
+Persistent corrective actions derived from dashboard findings:
+
+- Scope/source: `findingKey`, `customerId`, `hatcheryId`, optional `flockId`,
+  `sessionId`, `panelName`, `panelRowId`, `fieldKey`, `metricKey`.
+- Workflow: `title`, `description`, `priority` (`watch`/`critical`), `status`
+  (`open`/`inProgress`/`resolved`/`reopened`), `ownerId`, `ownerName`, `dueAt`,
+  `firstObservedAt`, `lastObservedAt`.
+- Resolution: `resolvedAt`, `resolutionNotes`, `resolutionPhotoId`,
+  `recurrenceOfId`.
+
+Customer and hatchery deletion cascades actions. Flock and audit-session source
+deletion clears the optional reference. Local changes are dirty-tracked,
+conflict-checked, pushed/pulled, and explicitly tombstoned on delete.
+
+### Lab analysis
+
+Three levels, all denormalized with `customerId`/`flockId`/`reportDate` so the
+dashboard can query any level directly:
+
+- `lab_analysis_reports` — `labName`, `sampleType`, `flockAgeWeeks`, `title`,
+  `notes`, and the PDF attachment triple `reportFileName`/`reportFilePath`/
+  `reportFileRemotePath`.
+- `lab_analysis_groups` — one analyte block: `testType`, `groupLabel`,
+  `sampleScope`, `analyte`, `method`, `kitName`, `productCode`, `antigen`,
+  `sampleCount`, `meanTiter`, `minTiter`, `maxTiter`, `gmtTiter`, `cvPct`,
+  `positiveCount`/`negativeCount`/`positivePct`, `cutoffValue`, `cutoffTiter`,
+  `gmLog2`, `protectiveThresholdLog2`, `protectiveCount`, `protectivePct`,
+  `interpretation`, `severity`, `sortOrder`.
+- `lab_analysis_rows` — one sample line: `rowLabel`, `analyte`, `result`,
+  `resultCategory`, `numericValue`, `unit`, `ctValue`, `odValue`, `spRatio`,
+  `titer`, `titerGroup`, `hiLog2`, `count`, `antibiotic`,
+  `sensitivityCategory`, `interpretation`, `severity`, `sortOrder`.
+
+## Broiler Daily Records
+
+```
+flock_placements
+  └─ broiler_daily_records            (thin head, points at current revision)
+       └─ broiler_daily_record_revisions   (immutable, append-only)
+            ├─ broiler_daily_events
+            └─ daily_record_sources
+```
+
+- `broiler_daily_records`: `placementId`, `recordDate`, `currentRevisionId`,
+  `verificationStatus` in `pending_entry`/`entered`/`requires_clarification`/
+  `corrected`. Unique per `(placementId, recordDate)`.
+- `broiler_daily_record_revisions`: 65 columns, unique per
+  `(recordId, revisionNumber)`, never updated after insert. Groups:
+  - Provenance — `dataSourceType`, `sourceDescription`, `reportedBy`,
+    `enteredBy`/`enteredAt`, `reviewedBy`/`reviewedAt`, `verifiedBy`/
+    `verifiedAt`, `correctionReason`.
+  - Population — `openingBirdCount`, `dailyMortality`, `dailyCulls`,
+    `transfersIn`, `transfersOut`, `partialDepletion`,
+    `otherPopulationAdjustment`, `mortalityCausesJson`, `closingLiveBirdCount`.
+  - Feed — `dailyFeedConsumedKg`, `feedType`, `feedPhase`, `feedChange`,
+    `feedInterruptionMinutes`, `feedShortage`.
+  - Water — `waterConsumedLiters`, `flushingWaterLiters`,
+    `waterInterruptionMinutes`, `waterMedication`, `waterVaccination`.
+  - Weights — `averageBodyWeightG`, `birdsWeighed`, `uniformityPct`, `cvPct`,
+    `individualWeightsJson`.
+  - Environment — `minTemperatureC`, `maxTemperatureC`, `averageTemperatureC`,
+    `relativeHumidityPct`, `co2Ppm`, `ammoniaPpm`, `environmentIncident`.
+  - Health — `clinicalSigns`, `treatmentStarted`, `treatmentStopped`,
+    `vaccination`, `powerFailure`, `equipmentFailure`, `veterinaryObservation`.
+- `broiler_daily_events`: timed events on a revision — `eventType`, `eventAt`,
+  `isAllDay`, `eventState`, `description`, `treatment`, `vaccination`,
+  `feedPhase`, `equipment`.
+- `daily_record_sources`: evidence files — `sourceKind`, `localPath`,
+  `remoteStoragePath`, `originalFilename`, `checksum`, `uploadState`,
+  `uploadError`. `localPath`, `uploadState`, and `uploadError` are device-only
+  and stripped before push.
+
+### Broiler objectives
+
+- `broiler_target_profiles`: `brand`, `breed`, `featheringVariant`,
+  `sexProfile` in `as_hatched`/`male`/`female`, `publicationVersion`,
+  `publicationDate`, `sourceTitle`, `sourceUrl`, `sourceFilePath`, `region`,
+  `languageCode`, `activeFrom`/`activeTo`, `isOfficial`, `isActive`,
+  `supersedesProfileId` (self-reference).
+- `broiler_target_rows`: one row per `(profileId, ageDay)` — `bodyWeightG`,
+  `dailyGainG`, `averageDailyGainG`, `dailyFeedIntakeGPerLivingBird`,
+  `cumulativeFeedIntakeGPerLivingBird`, `fcr`, `waterMlPerLivingBird`,
+  `metricMethodNotes`.
+
+`flocks.targetProfileId` selects the profile a flock is judged against.
+
+## Performance Monitoring And Diagnostic Visits
+
+- `performance_alert_rules`: `metricKey`, `scopeLevel`, optional `customerId`
+  (null = global), `watchThreshold`, `criticalThreshold`, `lowerThreshold`,
+  `upperThreshold`, `direction` in `above`/`below`/`outside_range`/`ratio`,
+  `persistenceWindow`, `minimumValidObservations`, `source`, `rationale`,
+  `isEnabled`. Unique per rule scope.
+- `performance_concerns`: raised by a rule. Full scope (`customerId`, `farmId`,
+  `flockId`, `placementId`, `houseId`), `metricKey`, `severity`,
+  `firstObservedAt`/`lastObservedAt`, `evidenceWindowStart`/`End`,
+  `baselineValue`, `targetValue`, `actualValue`, `evidenceJson`, `status` in
+  `open`/`monitoring`/…, resolve and dismiss trails, `recurrenceOfId`
+  (self-reference).
+- `farm_visit_sessions`: `customerId`, `farmId`, optional `flockId`,
+  `visitDate`, `briefingSnapshotJson`, `status` in `planned`/`in_progress`/
+  `completed`/`cancelled`, `assignedAuditorId`, `startedAt`, `completedAt`.
+- `farm_visit_houses`: join table, unique per `(visitId, houseId)`.
+- `visit_investigations`: `visitId`, optional `sourceConcernId`, `houseId`,
+  `location`, `origin`, `investigationType`, `instruction`, `status`,
+  `resultSummary`.
+- `visit_findings`: `visitId`, `investigationId`, `findingType`, `severity`,
+  `measuredValue`, `unit`, `observationJson`, `houseId`, `location`,
+  `staffExplanation`, `attachmentRefsJson`, `authoredBy`.
+- `cause_assessments`: `visitId`, `concernId`, `probableCause`,
+  `alternativeCausesJson`, `supportingEvidenceJson`, `conflictingEvidenceJson`,
+  `status` in `suspected`/`probable`/`confirmed`/`ruled_out`.
+- `corrective_actions`: `concernId`, `visitId`, `causeAssessmentId`,
+  `instruction`, `ownerId`, `ownerName`, `dueAt`, `implementedAt`,
+  `implementationConfirmedBy`, `status`, `completionNotes`,
+  `evidenceRefsJson`.
+- `action_kpi_evaluations`: `actionId`, `kpiKey`, `scopeJson`, baseline window
+  and value, `targetRule`, `targetValue`, evaluation window, `observedValue`,
+  `effectiveness`, `evaluationReason`, `evaluatedBy`, `evaluatedAt`.
+
+## Agent Tables
+
+Two generations, both live.
+
+### Document intake
+
+```
+telegram_staff_links → agent_submissions → agent_questions
+                            ↓
+                    hatchery_draft_batches → hatchery_draft_rows
+                            ↓ (approval)
+                    hatchery_daily_records
+```
+
+- `telegram_staff_links`: `telegramUserId`, `telegramChatId`, `displayName`,
+  `username`, `status`, `accessRole` in `customer`/`admin`, `customerId`,
+  `invitedBy`, `channel`, `appUserId`. Admin links have no customer; customer
+  links must have one. In-app links carry no Telegram identity, so
+  `telegramUserId` is nullable and uniqueness is enforced by partial index.
+- `agent_settings`: singleton row (`id INTEGER`) — `telegramEnabled`,
+  `hatchabilityWarningThresholdPoints`, `minimumReadyConfidencePct`.
+- `agent_submissions`: one inbound document/message — `telegramUpdateId`,
+  `telegramMessageId`, `telegramChatId`, `telegramUserId`, `staffLinkId`,
+  `sourceKind`, `sourceText`, `sourceFileName`, `sourceMimeType`,
+  `sourceRemotePath`, `status`, `errorMessage`, `submittedAt`, `processedAt`.
+- `agent_questions`: bilingual clarifications — `submissionId`, `rowOrdinal`,
+  `fieldKey`, `questionTextEn`, `questionTextAr`, `status`, `answerText`,
+  `answeredAt`.
+- `hatchery_draft_batches` / `hatchery_draft_rows`: extraction output awaiting
+  review. Draft rows carry the resolved scope (`customerId`/`customerName`,
+  `flockId`/`flockName`, `hatcheryId`/`stationName`), the hatchery KPIs
+  (`eggsPlaced`, `productionDate`, `placementDate`, `eggWeightG`,
+  `fertilityPct`, `transferWeightG`, `setterNumber`, `hatcherNumber`,
+  `hatchDate`, `healthyChicks`, `secondGradeChicks`, `condemnedChicks`,
+  `totalProduction`, `hatchabilityPct`), plus `confidencePct`,
+  `extractionJson`, `warningsJson`, `proposedFlockAgeWeeks`,
+  `approvedRecordId`, and the review trail.
+- `hatchery_daily_records`: the approved record, carrying `sourceDraftRowId`
+  and `approvedBy`/`approvedAt`.
+- `hatchery_agent_audit_events`: append-only trail — `submissionId`, `rowId`,
+  `actorType`, `actorId`, `eventType`, `detailsJson`.
+
+### Conversational harness
+
+```
+agent_conversations → agent_conversation_turns → agent_tool_events
+        ↓
+agent_intake_visits → agent_intake_sessions → agent_intake_turns
+                                            → agent_intake_values
+```
+
+- `agent_conversations`: one per `(staffLinkId, telegramChatId)`. Holds
+  `stateVersion`, `contextEpoch`, the selected context
+  (`selectedCustomerId`/`selectedFlockId`/`selectedAuditId`,
+  `contextUpdatedAt`), `pendingActionJson`, `activeVisitId`, and `title`
+  (schema v60, migration `20260818090000_pip_conversation_titles.sql`; `TEXT`,
+  `NULL` until the app door derives one from the caller's first message in
+  that conversation — see LIVING_SPEC 7.z). For the app channel,
+  `telegramChatId` doubles as a per-caller conversation key: `'app'` is the
+  legacy single conversation, and `'app:<uuid v4 lowercase>'` keys any other
+  conversation the same app user (one staff-link row) opened from the Pip
+  conversations list or a Pip Live call started from one of its threads.
+  Telegram rows are unaffected — their `telegramChatId` is the numeric
+  Telegram chat id, never this pattern.
+- `agent_conversation_turns`: ordered by `turnIndex` (unique per conversation),
+  with `contextEpoch`, `direction`, `text`, `language`, `provider`, `model`,
+  `providerResponseId`, `replyToTurnId`, `attachmentJson`, `deliveryStatus`.
+- `agent_tool_events`: `conversationTurnId`, `toolCallId`, `toolName`,
+  `toolSequence` (unique per turn), `argumentsJson`, `resultJson`, `status`,
+  `durationMs`, `stateVersionBefore`/`After`.
+- `agent_intake_visits`: station-selection state machine — `conversationId`,
+  scope, `auditDate`, `state` in `selecting_station`/`collecting`/
+  `awaiting_admin_review`/`completed`/`cancelled`, `approvedSessionId`.
+- `agent_intake_sessions`: the field-collection state machine. `schemaKey`,
+  `schemaVersion`, `state` (`collecting`, `awaiting_clarification`, `paused`,
+  `ready_for_summary`, `awaiting_user_confirmation`, `awaiting_admin_review`,
+  `approved`, `rejected`, `cancelled`), `language`, resolved scope, `scope` (a
+  `SamplingLayer` value), `setterIdentity`/`hatcherIdentity`,
+  `workingValuesJson`, `pendingClarificationJson`, `summaryVersion`,
+  `summarySnapshotJson`, `userConfirmedAt`, `visitId`, `rowVersion`,
+  `lastToolEventId`, `approvedSessionId`, `approvedPanelRowId`, review trail.
+- `agent_intake_turns`: message log per intake session.
+- `agent_intake_values`: one row per `(intakeSessionId, fieldKey)` —
+  `valueJson`, `sourcePhrase`, `confidence`, `clarificationReason`.
+
+Approval (`approve-agent-intake`) writes the collected values into an
+`audit_sessions` row and the matching panel row, then stamps
+`approvedSessionId`/`approvedPanelRowId`.
+
+## Reference Data
+
+Seeded on create from `lib/data/database/seeds/`.
+
+- `bmk_breeds`: `breed` × `ageWeek` → `hatchabilityPct`, `fertilityPct`,
+  `hofPct`, `productionPct`, `eggWeightG`, `chickWeightG`. Breed names carry no
+  spaces so they match BMK lookups.
+- `bmk_egg_breakout`: `ageWeek` (unique, `> 0`) → twelve defect percentages.
+- `bmk_operational_standards`: `(hatcheryId, stationKey, sectorKey, metricKey)`
+  → `minValue`, `maxValue`, `targetValue`, `unit`, `metricLabel`, plus the
+  provenance columns `source`, `sourceUrl`, `sourcePhotoPath`,
+  `sourcePhotoRemotePath`, `notes`, `sortOrder`. A null `hatcheryId` is the
+  global default. This is the only reference table pushed as snake_case through
+  an explicit row mapper.
+- `troubleshooting`: `hatcheryCauses`, `farmFlockCauses`, `benchmarkJson`,
+  `interpretationJson`, `sourceRefsJson`.
 
 ## Sync Rules
 
-Startup sync pushes and pulls the current table set in dependency order:
+### Sync metadata
+
+Every syncable table carries four device-local columns: `syncStatus`
+(`pending`/`synced`/`failed`), `dirtyAt`, `lastSyncedAt`, `syncError`. They
+describe this device's push state only and are stripped by `stripSyncMeta`
+before upload, so the cloud schema never sees them.
+
+All tables are dirty-tracked, including reference tables. `markRowsSynced` is
+guarded by the `dirtyAt` cutoff captured at the last `getDirtyRows` call, so an
+edit made mid-push is not falsely marked synced.
+
+### Push order
+
+Startup sync pushes dirty rows in dependency order:
 
 1. `customers`
-2. `hatcheries`
-3. `flocks`
-4. `audit_sessions`
-5. panel tables
-6. `govee_daily_captures`
-7. `photos`
-8. `sync_tombstones`
+2. Pre-flock operational setup: `customer_sectors`, `farms`, `houses`,
+   `broiler_target_profiles`, `broiler_target_rows`
+3. `hatcheries`
+4. `bmk_operational_standards`
+5. `flocks` (with `updatedAt` stripped)
+6. Post-flock operational records, in order: `flock_placements`,
+   `broiler_daily_records`, `broiler_daily_record_revisions`,
+   `broiler_daily_events`, `daily_record_sources`, `performance_alert_rules`,
+   `performance_concerns`, `farm_visit_sessions`, `farm_visit_houses`,
+   `visit_investigations`, `visit_findings`, `cause_assessments`,
+   `corrective_actions`, `action_kpi_evaluations`, `telegram_staff_links`,
+   `agent_settings`, `agent_submissions`, `agent_questions`,
+   `hatchery_draft_batches`, `hatchery_draft_rows`,
+   `hatchery_agent_audit_events`, `hatchery_daily_records`,
+   `agent_intake_sessions`, `agent_intake_turns`, `agent_intake_values`
+7. `audit_sessions`
+8. Panel tables
+9. `govee_daily_captures`
+10. `dashboard_actions`
+11. Lab analysis
+12. Photos
 
-Removed tables are not pushed or pulled. Tombstones support panel tables and
-photos directly. On Supabase, a before-insert trigger derives each tombstone's
-`customer_id` from the target row and snapshots the approved user ids that may
-receive the deletion. The browser cannot provide or later change this scope.
-RLS permits only that audience (plus approved admins) to read the event; legacy
-unscoped tombstones are admin-only. Public data tables do not grant CRUD access
-to the anonymous role, and tenant authorization helpers are security-definer
-functions in the non-exposed `chickmark_private` schema.
+A failed table never aborts the run: its rows are marked failed and retried next
+sync. If `customers` fails, dependent pushes can fail remotely on FK violations
+and retry once customers goes through. That is intended degradation.
+
+Deletes are pushed as tombstones in the reverse of the push order.
+
+### Pull rules
+
+- Pulls are conflict-checked on `updatedAt`; the loser is recorded in
+  `sync_conflicts`.
+- Reference tables have no `updatedAt` check. Instead, while a local edit is
+  pending or failed, the local row wins. A device that can never push
+  (`canPush: false`, e.g. the customer role) bypasses that guard so it is not
+  stuck behind a `pending` status forever.
+- Server-authored evidence is pull-only and never pushed or tombstoned by the
+  app: `agent_conversations`, `agent_conversation_turns`, `agent_tool_events`,
+  `agent_intake_visits`.
+- Immutable tables are inserted, never updated:
+  `broiler_daily_record_revisions`, `broiler_daily_events`,
+  `daily_record_sources`, `agent_tool_events`.
+
+### Cloud security
+
+On Supabase, a before-insert trigger derives each tombstone's `customer_id` from
+the target row and snapshots the approved user ids that may receive the
+deletion. The browser cannot provide or later change this scope. RLS permits
+only that audience (plus approved admins) to read the event; legacy unscoped
+tombstones are admin-only. Public data tables do not grant CRUD access to the
+anonymous role, and tenant authorization helpers are security-definer functions
+in the non-exposed `chickmark_private` schema.
+
+## Repositories
+
+One repository per domain, in `lib/data/repositories/`: `customer`, `flock`,
+`hatchery`, `audit`, `audit_session`, `panel_sample`, `station_sample`, `photo`,
+`bmk` (with `benchmark_lookup`), `troubleshooting`, `govee_capture`,
+`dashboard_action`, `lab_analysis`, `poultry_hierarchy`, `broiler_daily_record`,
+`broiler_target`, `performance_concern`, `corrective_action`, `farm_visit`,
+`hatchery_agent`, `agent_intake`, `agent_diagnostic`, `activity_log`, `admin`,
+`user`, `panel_dashboard`, `scope_comparison`, `sync_tombstone`,
+`sync_conflict`, `performance_sync`.
+
+`PerformanceSyncRepository` is the generic offline-sync adapter for the
+operational table graph: it exposes dirty rows, applies filtered cloud rows, and
+updates device-local sync metadata in dependency-safe order. Domain
+repositories keep validation and business writes.
+
+## Dashboard Rules
+
+Dashboard queries read panel tables directly through `PanelDashboardRepository`.
+Dashboard code does not read the removed `audits` table or removed sample
+tables.
+
+Dashboard-ready summary columns are stored on panel rows where the current UI
+already calculates them during save. Examples include `avgWeight`, `cvPct`,
+`uniformityPct`, `pasgarFinalScore`, breakout percentages,
+hatchability/fertility/HOF, `estAvg`, and `cvtAvgTemp`.
+
+View-model shapes under `lib/features/*/models/` are derived, never persisted —
+scope models, alarm triage feeds, egg storage and chick quality summaries, hatch
+analysis, EST capture state, and chat messages.
 
 ## Removed Fields And Safe Deletions
 
@@ -590,7 +766,11 @@ startup sync:
 - `sample_records` and all sample detail tables.
 - All `{panel}_samples` tables.
 - `photos.auditId`.
+- `egg_storage.shellTemp`.
+- `bmkAgeDays` on panel tables, replaced by `bmkAgeWeeks`.
+- Hierarchy columns a panel no longer declares — dropped on open for
+  `setter_optimizing` and `hatcher_optimizing`.
 
-The current UI still uses legacy-named in-memory draft models in several
-screens as compatibility form state, but persistence converts those drafts into
-panel rows at save time.
+The current UI still uses legacy-named in-memory draft models in several screens
+as compatibility form state, but persistence converts those drafts into panel
+rows at save time.

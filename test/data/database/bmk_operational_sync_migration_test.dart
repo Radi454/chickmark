@@ -88,10 +88,7 @@ void main() {
 
       // A pristine seed row: seeds in kBmkOperationalStandardSeeds carry no
       // updatedAt, and _backfillOperationalBmkSeedSources never writes one.
-      await db.insert(
-        'bmk_operational_standards',
-        _row(id: 'global-cv_alert'),
-      );
+      await db.insert('bmk_operational_standards', _row(id: 'global-cv_alert'));
       // A user-edited GLOBAL row: same id shape as the seed, but
       // BmkRepository.upsertOperationalStandard stamped updatedAt.
       await db.insert(
@@ -146,18 +143,20 @@ void main() {
     },
   );
 
-  test('v58 upgrade is idempotent and does not re-dirty synced seed rows',
-      () async {
-    final db = await DatabaseHelper().db;
-    await db.execute('PRAGMA foreign_keys = OFF');
-    await db.execute('DROP TABLE IF EXISTS bmk_operational_standards');
-    await db.execute(_preV58Ddl);
-    await db.insert('bmk_operational_standards', _row(id: 'global-cv_alert'));
+  test(
+    'v58 upgrade is idempotent and does not re-dirty synced seed rows',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('DROP TABLE IF EXISTS bmk_operational_standards');
+      await db.execute(_preV58Ddl);
+      await db.insert('bmk_operational_standards', _row(id: 'global-cv_alert'));
 
-    await DatabaseHelper().applyV58UpgradeForTest(db);
-    await DatabaseHelper().applyV58UpgradeForTest(db);
+      await DatabaseHelper().applyV58UpgradeForTest(db);
+      await DatabaseHelper().applyV58UpgradeForTest(db);
 
-    final rows = await db.query('bmk_operational_standards');
-    expect(rows.single['syncStatus'], 'synced');
-  });
+      final rows = await db.query('bmk_operational_standards');
+      expect(rows.single['syncStatus'], 'synced');
+    },
+  );
 }

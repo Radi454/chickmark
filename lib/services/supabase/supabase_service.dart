@@ -943,16 +943,37 @@ class SupabaseService {
     try {
       if (!await _prepareRemoteAccess()) return 0;
       for (final table in PerformanceSyncRepository.allPullTables) {
+        List<dynamic> rows;
         try {
-          final rows = await _client.from(table).select();
-          safeDebugLog('Supabase pull: ${rows.length} $table rows');
-          for (final row in rows) {
-            await upsertOperationalRow(table, Map<String, dynamic>.from(row));
-          }
-          pulled += rows.length;
+          rows = await _client.from(table).select();
         } catch (error) {
           safeDebugLog('Supabase $table pull skipped', error: error);
+          continue;
         }
+        safeDebugLog('Supabase pull: ${rows.length} $table rows');
+        // One unusable row (a constraint the local schema does not yet allow,
+        // a parent this device cannot see) must not cost the whole table. The
+        // rest of the rows still apply; the failures are reported together.
+        var applied = 0;
+        Object? firstError;
+        var failed = 0;
+        for (final row in rows) {
+          try {
+            await upsertOperationalRow(table, Map<String, dynamic>.from(row));
+            applied++;
+          } catch (error) {
+            failed++;
+            firstError ??= error;
+          }
+        }
+        if (failed > 0) {
+          safeDebugLog(
+            'Supabase $table pull applied $applied of ${rows.length} rows; '
+            '$failed failed',
+            error: firstError,
+          );
+        }
+        pulled += applied;
       }
     } catch (error) {
       safeDebugLog('Supabase operational pull failed', error: error);

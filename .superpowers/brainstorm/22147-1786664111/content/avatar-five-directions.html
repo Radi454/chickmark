@@ -1,0 +1,173 @@
+<style>
+  :root {
+    --cm-blue: #1769D8;
+    --cm-cyan: #079FE0;
+    --cm-indigo: #193FC2;
+    --cm-yellow: #FFC21A;
+    --cm-navy: #081B3A;
+  }
+
+  .avatar-intro { max-width: 780px; margin: 0 auto 24px; text-align: center; }
+  .avatar-intro h2 { margin-bottom: 8px; }
+  .avatar-intro .subtitle { max-width: 660px; margin: 0 auto; }
+  .approach-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 22px auto 24px;
+    max-width: 850px;
+  }
+  .approach {
+    padding: 12px 14px;
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 12px;
+    background: rgba(255,255,255,.035);
+    text-align: left;
+  }
+  .approach strong { display:block; color:#f7f9ff; font-size:13px; margin-bottom:3px; }
+  .approach span { color:#9ea7b7; font-size:11px; line-height:1.35; }
+  .approach.recommended { border-color: rgba(7,159,224,.55); background: rgba(7,159,224,.08); }
+  .design-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .design-card {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.11);
+    border-radius: 18px;
+    background: linear-gradient(165deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
+    cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .design-card:hover { transform: translateY(-3px); border-color: rgba(23,105,216,.75); }
+  .design-card.selected { border-color: #25b7ef; box-shadow: 0 0 0 2px rgba(37,183,239,.23), 0 16px 40px rgba(0,0,0,.25); }
+  .visual-stage {
+    min-height: 236px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    overflow:hidden;
+  }
+  .card-copy { padding: 16px 17px 18px; border-top:1px solid rgba(255,255,255,.08); }
+  .card-copy h3 { margin:0 0 5px; font-size:17px; color:#f8faff; }
+  .card-copy p { margin:0; color:#9ea8ba; font-size:12px; line-height:1.45; }
+  .tag { position:absolute; top:12px; left:12px; z-index:8; padding:5px 8px; border-radius:999px; color:#dce9ff; background:rgba(8,27,58,.72); border:1px solid rgba(255,255,255,.13); font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .tag.best { color:white; background:linear-gradient(135deg,var(--cm-cyan),var(--cm-indigo)); border:none; }
+  .small-test { position:absolute; right:12px; bottom:12px; width:40px; height:40px; border-radius:50%; border:2px solid rgba(255,255,255,.75); box-shadow:0 4px 12px rgba(0,0,0,.25); overflow:hidden; z-index:7; background:#fff; }
+  .small-test img { width:100%; height:100%; object-fit:cover; }
+
+  /* 1 — Spark Guide */
+  .spark-stage { background:radial-gradient(circle at 50% 42%, #27baff 0%, #1769d8 48%, #193fc2 100%); }
+  .spark-disc { width:172px; height:172px; border-radius:50%; overflow:hidden; background:white; border:6px solid rgba(255,255,255,.92); box-shadow:0 18px 38px rgba(8,27,58,.4); position:relative; }
+  .spark-disc img { position:absolute; width:154%; height:154%; object-fit:contain; left:-27%; top:-23%; }
+  .ai-spark { position:absolute; right:42px; top:43px; width:44px; height:44px; z-index:6; border-radius:50%; display:grid; place-items:center; background:linear-gradient(145deg,#fff,#dff7ff); color:var(--cm-blue); border:4px solid var(--cm-blue); font-size:22px; font-weight:900; box-shadow:0 8px 18px rgba(8,27,58,.28); }
+  .spark-dots { position:absolute; inset:0; background-image:radial-gradient(rgba(255,255,255,.45) 1px, transparent 1px); background-size:17px 17px; opacity:.32; }
+
+  /* 2 — Smart Check */
+  .check-stage { background:linear-gradient(150deg,#f8fbff 0%,#dbeeff 100%); }
+  .check-logo { width:180px; height:196px; object-fit:contain; filter:drop-shadow(0 15px 18px rgba(23,105,216,.22)); }
+  .chat-badge { position:absolute; right:38px; top:55px; width:52px; height:42px; border-radius:15px 15px 15px 5px; display:flex; align-items:center; justify-content:center; gap:4px; background:var(--cm-navy); border:4px solid white; box-shadow:0 8px 16px rgba(8,27,58,.2); }
+  .chat-badge i { width:5px; height:5px; border-radius:50%; background:#67d5ff; }
+
+  /* 3 — Data Halo */
+  .halo-stage { background:radial-gradient(circle at 50% 50%,#133b74 0%,#081b3a 62%,#040c1b 100%); }
+  .halo-ring, .halo-ring:before { position:absolute; border-radius:50%; }
+  .halo-ring { width:184px; height:184px; border:3px dashed #28c8ff; animation:spin 12s linear infinite; box-shadow:0 0 28px rgba(40,200,255,.22); }
+  .halo-ring:before { content:""; inset:12px; border:1px solid rgba(103,213,255,.45); }
+  .halo-face { width:150px; height:150px; border-radius:50%; overflow:hidden; background:white; position:relative; border:3px solid #9de7ff; z-index:2; }
+  .halo-face img { position:absolute; width:158%; height:158%; object-fit:contain; left:-29%; top:-23%; }
+  .halo-node { position:absolute; width:9px; height:9px; border-radius:50%; background:#7ce5ff; box-shadow:0 0 10px #28c8ff; }
+  .halo-node.n1 { top:31px; left:72px; } .halo-node.n2 { right:54px; top:89px; } .halo-node.n3 { bottom:34px; left:67px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* 4 — Field Expert */
+  .expert-stage { background:linear-gradient(145deg,#0c2145,#1769d8); }
+  .expert-shield { width:174px; height:188px; position:relative; overflow:hidden; background:white; clip-path:polygon(50% 0,94% 18%,88% 74%,50% 100%,12% 74%,6% 18%); filter:drop-shadow(0 16px 22px rgba(0,0,0,.3)); }
+  .expert-shield:after { content:""; position:absolute; inset:7px; clip-path:inherit; border:4px solid var(--cm-blue); pointer-events:none; }
+  .expert-shield img { position:absolute; width:146%; height:146%; object-fit:contain; left:-23%; top:-15%; }
+  .verified { position:absolute; right:40px; bottom:41px; z-index:5; width:46px; height:46px; border-radius:50%; display:grid; place-items:center; background:#2eaa58; color:white; border:4px solid white; font-size:24px; font-weight:900; }
+
+  /* 5 — Hatch Core */
+  .core-stage { background:linear-gradient(145deg,#f8fbff,#eef5ff); }
+  .core-egg { width:164px; height:190px; position:relative; border-radius:50% 50% 47% 47% / 58% 58% 42% 42%; overflow:hidden; background:linear-gradient(145deg,#fff,#d9efff); border:7px solid var(--cm-blue); box-shadow:0 16px 26px rgba(23,105,216,.22); }
+  .core-egg img { position:absolute; width:165%; height:165%; object-fit:contain; left:-32%; top:-25%; }
+  .core-cut { position:absolute; z-index:4; left:10px; right:10px; bottom:34px; height:18px; background:linear-gradient(90deg,transparent 0 8%,#fff 8% 23%,transparent 23% 32%,#fff 32% 50%,transparent 50% 61%,#fff 61% 78%,transparent 78%); transform:skewY(-8deg); opacity:.94; }
+  .core-pulse { position:absolute; width:205px; height:205px; border-radius:50%; border:1px solid rgba(23,105,216,.22); box-shadow:0 0 0 13px rgba(23,105,216,.06),0 0 0 28px rgba(23,105,216,.04); }
+
+  .selection-note { text-align:center; color:#8792a4; font-size:11px; margin:20px auto 5px; }
+  @media (max-width: 720px) {
+    .approach-strip { grid-template-columns:1fr; }
+    .design-grid { grid-template-columns:1fr; }
+    .visual-stage { min-height:218px; }
+  }
+</style>
+
+<div class="avatar-intro">
+  <div class="label">ChickMark AI Avatar · Five Directions</div>
+  <h2>Same trusted chick. A clearer AI identity.</h2>
+  <p class="subtitle">Each concept preserves the current cap-and-glasses mascot and ChickMark blue/yellow palette. Click the one you want me to develop.</p>
+</div>
+
+<div class="approach-strip">
+  <div class="approach recommended"><strong>Friendly AI · Recommended</strong><span>Warm, recognizable, and readable in tiny chat bubbles.</span></div>
+  <div class="approach"><strong>Brand-first</strong><span>Keeps the complete logo almost unchanged; safest for recognition.</span></div>
+  <div class="approach"><strong>Specialist</strong><span>Adds futuristic or professional signals for a more capable agent.</span></div>
+</div>
+
+<div class="design-grid" data-multiselect>
+  <div class="design-card" data-choice="spark-guide" onclick="toggleSelect(this)">
+    <div class="visual-stage spark-stage">
+      <span class="tag best">Recommended</span><div class="spark-dots"></div>
+      <div class="spark-disc"><img src="/files/chickmark-icon.png" alt="ChickMark chick close-up"></div>
+      <div class="ai-spark">✦</div>
+      <div class="small-test"><img src="/files/chickmark-icon.png" alt="Small avatar preview" style="width:150%;height:150%;margin:-24% 0 0 -25%"></div>
+    </div>
+    <div class="card-copy"><h3>1. Spark Guide</h3><p>Friendly mascot close-up with a crisp AI sparkle. Best balance of personality, brand recognition, and small-size clarity.</p></div>
+  </div>
+
+  <div class="design-card" data-choice="smart-check" onclick="toggleSelect(this)">
+    <div class="visual-stage check-stage">
+      <span class="tag">Brand-first</span>
+      <img class="check-logo" src="/files/chickmark-mark.png" alt="Current ChickMark logo">
+      <div class="chat-badge"><i></i><i></i><i></i></div>
+      <div class="small-test"><img src="/files/chickmark-mark.png" alt="Small avatar preview" style="object-fit:contain"></div>
+    </div>
+    <div class="card-copy"><h3>2. Smart Check</h3><p>The complete current mark plus a subtle chat badge. Most familiar, though slightly busier at notification size.</p></div>
+  </div>
+
+  <div class="design-card" data-choice="data-halo" onclick="toggleSelect(this)">
+    <div class="visual-stage halo-stage">
+      <span class="tag">AI-forward</span>
+      <div class="halo-ring"></div><span class="halo-node n1"></span><span class="halo-node n2"></span><span class="halo-node n3"></span>
+      <div class="halo-face"><img src="/files/chickmark-icon.png" alt="ChickMark chick with data halo"></div>
+      <div class="small-test"><img src="/files/chickmark-icon.png" alt="Small avatar preview" style="width:150%;height:150%;margin:-24% 0 0 -25%"></div>
+    </div>
+    <div class="card-copy"><h3>3. Data Halo</h3><p>A smart, technical companion with a cyan data ring. Strongest AI signal for diagnostics and analytical answers.</p></div>
+  </div>
+
+  <div class="design-card" data-choice="field-expert" onclick="toggleSelect(this)">
+    <div class="visual-stage expert-stage">
+      <span class="tag">Professional</span>
+      <div class="expert-shield"><img src="/files/chickmark-icon.png" alt="ChickMark field expert"></div>
+      <div class="verified">✓</div>
+      <div class="small-test"><img src="/files/chickmark-icon.png" alt="Small avatar preview" style="width:150%;height:150%;margin:-24% 0 0 -25%"></div>
+    </div>
+    <div class="card-copy"><h3>4. Field Expert</h3><p>Shield framing and a verified badge make the agent feel authoritative, reliable, and ready for operational audits.</p></div>
+  </div>
+
+  <div class="design-card" data-choice="hatch-core" onclick="toggleSelect(this)">
+    <div class="visual-stage core-stage">
+      <span class="tag">Distinctive</span><div class="core-pulse"></div>
+      <div class="core-egg"><img src="/files/chickmark-icon.png" alt="ChickMark chick hatching"><div class="core-cut"></div></div>
+      <div class="small-test"><img src="/files/chickmark-icon.png" alt="Small avatar preview" style="width:150%;height:150%;margin:-24% 0 0 -25%"></div>
+    </div>
+    <div class="card-copy"><h3>5. Hatch Core</h3><p>The AI “hatches” from an egg-shaped core. Most distinctive and thematic, with a slightly more playful personality.</p></div>
+  </div>
+</div>
+
+<p class="selection-note">You can select more than one if you want a hybrid direction.</p>

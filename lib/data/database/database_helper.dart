@@ -44,7 +44,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 58,
+      version: 60,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -57,6 +57,7 @@ class DatabaseHelper {
         await _ensurePanelSampleSchemaColumns(db);
         await _ensurePanelQueryIndexes(db);
         await _ensurePanelUniqueRowIndexes(db);
+        await _ensureTelegramStaffLinkIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
         await _backfillOperationalBmkSeedSources(db);
         if (seedDemoData) await ensureDashboardDemoData(db);
@@ -176,6 +177,12 @@ class DatabaseHelper {
     }
     if (oldVersion < 58) {
       await _applyV58Upgrade(db);
+    }
+    if (oldVersion < 59) {
+      await _applyV59Upgrade(db);
+    }
+    if (oldVersion < 60) {
+      await _applyV60Upgrade(db);
     }
   }
 
@@ -517,6 +524,8 @@ class DatabaseHelper {
     'telegram_staff_links': [
       "accessRole TEXT NOT NULL DEFAULT 'customer'",
       'customerId TEXT',
+      "channel TEXT NOT NULL DEFAULT 'telegram'",
+      'appUserId TEXT',
     ],
     'agent_conversations': [
       'staffLinkId TEXT NOT NULL',
@@ -529,6 +538,7 @@ class DatabaseHelper {
       'contextUpdatedAt TEXT',
       'pendingActionJson TEXT',
       'activeVisitId TEXT',
+      'title TEXT',
       'createdAt TEXT NOT NULL',
       'updatedAt TEXT NOT NULL',
       "syncStatus TEXT NOT NULL DEFAULT 'synced'",
@@ -929,6 +939,12 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV58UpgradeForTest(Database db) => _applyV58Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV59UpgradeForTest(Database db) => _applyV59Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV60UpgradeForTest(Database db) => _applyV60Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

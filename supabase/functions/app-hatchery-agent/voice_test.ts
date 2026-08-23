@@ -44,8 +44,10 @@ Deno.test('readVoiceConfig returns null when neither key is set', () => {
 
 Deno.test('transcribeAudio posts multipart form and returns trimmed text', async () => {
   let sawAuth: string | null = null
+  let model: FormDataEntryValue | null = null
   const fetchImpl = fakeFetch((_url, init) => {
     sawAuth = (init?.headers as Record<string, string>)['Authorization']
+    model = (init?.body as FormData).get('model')
     return new Response(JSON.stringify({ text: '  what is the hatch rate?  ' }), {
       status: 200,
     })
@@ -56,6 +58,7 @@ Deno.test('transcribeAudio posts multipart form and returns trimmed text', async
   })
   assertEquals(text, 'what is the hatch rate?')
   assertEquals(sawAuth, 'Bearer sk-test')
+  assertEquals(model, 'gpt-4o-mini-transcribe')
 })
 
 Deno.test('transcribeAudio rejects invalid base64', async () => {
@@ -109,13 +112,20 @@ Deno.test('synthesizeSpeech sends the new model/voice and per-language instructi
 
   for (const body of bodies) {
     assertEquals(body.model, 'gpt-4o-mini-tts')
-    assertEquals(body.voice, 'ash')
+    // Same voice Pip Live uses, so the assistant does not change identity
+    // between a recorded voice note and a live call.
+    assertEquals(body.voice, 'cedar')
   }
   // No instructions unless the language needs steering.
   assertEquals('instructions' in bodies[0], false)
   assertEquals('instructions' in bodies[1], false)
   assertEquals(typeof bodies[2].instructions, 'string')
   assertEquals(typeof bodies[3].instructions, 'string')
+  // Arabic steering must name the Egyptian dialect explicitly and rule out
+  // MSA — "Egyptian Arabic" alone read as MSA in practice.
+  const arabic = bodies[2].instructions as string
+  assertEquals(arabic.includes('Egyptian Colloquial Arabic'), true)
+  assertEquals(arabic.includes('NOT Modern Standard Arabic'), true)
 })
 
 Deno.test('synthesizeSpeech throws on non-2xx response', async () => {

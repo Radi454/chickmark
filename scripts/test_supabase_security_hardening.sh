@@ -126,8 +126,11 @@ begin
   where n.nspname = 'chickmark_private'
     and p.proname like 'app$_%' escape '$';
 
-  if helper_count <> 7 then
-    raise exception 'expected 7 private authorization helpers, found %', helper_count;
+  -- 9 since the organizations stack (20260813171740..20260813183005) added
+  -- app_org_id and app_org_role alongside the original seven. Verified against
+  -- production on 2026-08-16: chickmark_private has exactly these nine.
+  if helper_count <> 9 then
+    raise exception 'expected 9 private authorization helpers, found %', helper_count;
   end if;
 
   if exists (

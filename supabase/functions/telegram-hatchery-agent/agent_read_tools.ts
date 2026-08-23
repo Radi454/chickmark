@@ -9,6 +9,8 @@ import type {
   AgentToolResult,
 } from './agent_protocol.ts'
 import { ratioOfSums, sampleWeightedMean } from './agent_metrics.ts'
+import { matchByName, strictOperationalKey } from './agent_name_match.ts'
+import { MAX_AGENT_READ_ROWS } from './agent_tool_contract.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
 
 export interface AgentCustomerReadRow {
@@ -232,89 +234,185 @@ async function listCustomers(
   store: AgentReadStore,
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
-  const rows = await scopedCustomers(store, input.scope)
+  const scoped = await scopedCustomers(store, input.scope)
   return ok({
-    customers: rows.map(({ id, name }) => ({ id, name })),
+    customers: scoped.rows.map(({ id, name }) => ({ id, name })),
+    // See `scopedCustomers`: without this the model states that a customer
+    // past the alphabetical cap does not exist.
+    truncated: scoped.truncated,
   })
 }
+
+// Cap on the flock roster `resolveCustomerFlock` will inline into a
+// single-customer `resolved` result (see below). Below the cap, handing back
+// the roster we already fetched saves the model a whole extra tool round
+// trip for the extremely common "who is X" -> "what flocks does X have"
+// follow-up; on the Realtime voice path a round trip is not free plumbing,
+// it is a full additional model inference plus a spoken silence while it
+// runs. Above the cap we omit the field instead of truncating it, because a
+// customer with a roster this large is rare enough that the savings stop
+// paying for the extra bytes on every other single-customer resolution, and
+// a truncated list would look complete to the model and get answered from a
+// partial roster instead of triggering `list_customer_flocks`.
+const RESOLVE_INLINE_FLOCK_LIMIT = 25
+
+/**
+ * How many customers a miss or an ambiguity will name back to the model.
+ *
+ * Every non-resolved status carries CANDIDATES WITH IDS. That is the whole
+ * point: a bare `customer_not_found` gives the model nothing it can act on
+ * except asking the user the same question again, which is what a re-ask loop
+ * is made of. With the roster in hand it can either pick the obvious entry or
+ * ask ONE question naming real options.
+ *
+ * Bounded because the roster travels back through the model's context on the
+ * voice path, where every token is spoken latency. Past the cap the list is
+ * omitted and `truncated: true` says so, so the model reaches for
+ * `list_customers` instead of answering from a partial roster it thinks is
+ * complete.
+ */
+const RESOLVE_CANDIDATE_LIMIT = 25
+
+/**
+ * How many ambiguous customers get their flock roster fetched. Each roster is
+ * its own `listFlocks` query, so an ambiguity across a large slice of a
+ * tenant must not fan out into dozens of round trips; past this many
+ * candidates the model gets ids and names only, which is still enough to ask
+ * one good question.
+ */
+const AMBIGUOUS_ROSTER_LIMIT = 5
 
 async function resolveCustomerFlock(
   store: AgentReadStore,
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
-  const requestedCustomerName = normalizeOperationalName(
-    input.arguments.customerName as string,
-  )
+  const requestedCustomerName = typeof input.arguments.customerName === 'string'
+    ? input.arguments.customerName
+    : ''
   const requestedFlockName = typeof input.arguments.flockName === 'string'
-    ? normalizeOperationalName(input.arguments.flockName)
+    ? input.arguments.flockName
     : null
-  const customers = (await scopedCustomers(store, input.scope))
-    .filter((customer) =>
-      normalizeOperationalName(customer.name) === requestedCustomerName
-    )
 
-  if (customers.length === 0) {
+  const scoped = await scopedCustomers(store, input.scope)
+  const customerMatch = matchByName(
+    requestedCustomerName,
+    scoped.rows,
+    (customer) => customer.name,
+  )
+
+  if (!customerMatch) {
+    // Not a dead end: the caller learns which customers it MAY see, with
+    // their ids, so the next move is a choice rather than another question.
     return ok({
       status: 'customer_not_found',
       customer: null,
       flock: null,
+      ...candidateCustomerList(scoped),
+    })
+  }
+
+  const customers = customerMatch.matches
+
+  // TENANT GUARD. More than one customer matched, and the flock name is NOT
+  // allowed to pick between them unless they genuinely carry the same name.
+  //
+  // "Exact tier" alone is not that evidence. The matcher folds hamza, alef
+  // maqsura and ta-marbuta so a spoken name is findable at all, which means
+  // `هانئ` and `هاني` — different people — collide at the exact tier. Letting
+  // the flock name break that tie answers the caller about the wrong
+  // operator's flock and PERSISTS it as the conversation's selection, with no
+  // ambiguity signal anywhere. So the bypass additionally requires the
+  // fold-free keys to agree: only then are these two rows really spelled the
+  // same, and only then is telling them apart by a unique flock the only way
+  // to answer at all.
+  const sameWrittenName = customers.every((customer) =>
+    strictOperationalKey(customer.name) === strictOperationalKey(customers[0].name)
+  )
+  if (customers.length > 1 && !(customerMatch.tier === 'exact' && sameWrittenName)) {
+    return ok({
+      status: 'ambiguous_customer',
+      customer: null,
+      flock: null,
+      matchedBy: { customer: customerMatch.tier, flock: null },
+      candidates: await customerCandidates(store, input, customers),
     })
   }
 
   const candidates = await Promise.all(customers.map(async (customer) => ({
     customer,
-    flocks: (await store.listFlocks(customer.id, 100))
-      .filter((flock) =>
-        flock.customerId === customer.id &&
-        input.scope.allowedCustomerIds.includes(flock.customerId)
-      )
-      .sort((left, right) =>
-        left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
-      ),
+    flocks: scopedFlocks(
+      await store.listFlocks(customer.id, MAX_AGENT_READ_ROWS),
+      customer.id,
+      input.scope,
+    ),
   })))
 
   if (requestedFlockName === null) {
     if (candidates.length === 1) {
+      const { customer, flocks } = candidates[0]
       return ok({
         status: 'resolved',
-        customer: candidates[0].customer,
+        customer,
         flock: null,
+        matchedBy: { customer: customerMatch.tier, flock: null },
+        // `flocks` was already fetched and scope-filtered above to build
+        // `candidates`; returning it here (bounded by
+        // RESOLVE_INLINE_FLOCK_LIMIT) means a caller that resolves a
+        // customer and then immediately asks for its flocks never pays for
+        // a second `list_customer_flocks` call that would just re-run the
+        // identical `listFlocks` query.
+        ...(flocks.length <= RESOLVE_INLINE_FLOCK_LIMIT
+          ? { flocks: flocks.map(publicFlock) }
+          : {}),
       })
     }
     return ok({
       status: 'ambiguous_customer',
       customer: null,
       flock: null,
+      matchedBy: { customer: customerMatch.tier, flock: null },
       candidates: candidates.map(({ customer, flocks }) => ({
         customer,
-        flockNames: flocks.map((flock) => flock.name),
+        flocks: flocks.slice(0, RESOLVE_CANDIDATE_LIMIT).map(namedFlock),
+        truncated: flocks.length > RESOLVE_CANDIDATE_LIMIT,
       })),
     })
   }
 
-  const matches = candidates.flatMap(({ customer, flocks }) =>
-    flocks
-      .filter((flock) =>
-        normalizeOperationalName(flock.name) === requestedFlockName
-      )
-      .map((flock) => ({ customer, flock }))
+  // Flock matching runs over the flocks of the matched customers ONLY, which
+  // are themselves already filtered to `allowedCustomerIds` — a flock can
+  // never be matched out of a customer the caller cannot see.
+  const flockPool = candidates.flatMap(({ customer, flocks }) =>
+    flocks.map((flock) => ({ customer, flock }))
   )
-  if (matches.length === 1) {
+  const flockMatch = matchByName(
+    requestedFlockName,
+    flockPool,
+    (entry) => entry.flock.name,
+  )
+
+  if (flockMatch && flockMatch.matches.length === 1) {
+    const [{ customer, flock }] = flockMatch.matches
     return ok({
       status: 'resolved',
-      customer: matches[0].customer,
-      flock: publicFlock(matches[0].flock),
+      customer,
+      flock: publicFlock(flock),
+      // BOTH tiers, not just the flock's. A `contains`-tier customer hit that
+      // happened to be unique, plus an `exact` flock hit, would otherwise be
+      // reported as simply `exact` — erasing the one signal the model has
+      // that the customer was GUESSED, in precisely the case where it was.
+      matchedBy: { customer: customerMatch.tier, flock: flockMatch.tier },
     })
   }
-  if (matches.length > 1) {
+  if (flockMatch) {
     return ok({
       status: 'ambiguous_flock',
       customer: null,
       flock: null,
-      candidates: matches.map(({ customer, flock }) => ({
-        customer,
-        flock: publicFlock(flock),
-      })),
+      matchedBy: { customer: customerMatch.tier, flock: flockMatch.tier },
+      candidates: flockMatch.matches
+        .slice(0, RESOLVE_CANDIDATE_LIMIT)
+        .map(({ customer, flock }) => ({ customer, flock: publicFlock(flock) })),
     })
   }
   return ok({
@@ -323,22 +421,112 @@ async function resolveCustomerFlock(
     flock: null,
     candidates: candidates.map(({ customer, flocks }) => ({
       customer,
-      flockNames: flocks.map((flock) => flock.name),
+      flocks: flocks.slice(0, RESOLVE_CANDIDATE_LIMIT).map(namedFlock),
+      truncated: flocks.length > RESOLVE_CANDIDATE_LIMIT,
     })),
   })
 }
 
+/** Scope-recheck a roster the store handed back for one customer. */
+function scopedFlocks(
+  rows: readonly AgentFlockReadRow[],
+  customerId: string,
+  scope: AgentScope,
+): AgentFlockReadRow[] {
+  return rows
+    .filter((flock) =>
+      flock.customerId === customerId &&
+      scope.allowedCustomerIds.includes(flock.customerId)
+    )
+    .sort((left, right) =>
+      left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+    )
+}
+
+/**
+ * The customer roster attached to a miss. Omitted past the cap rather than
+ * truncated, for the same reason the inline flock roster is: a silently
+ * shortened list reads as complete.
+ */
+function candidateCustomerList(
+  scoped: { rows: readonly AgentCustomerReadRow[]; truncated: boolean },
+): Record<string, unknown> {
+  // `truncated` covers BOTH reasons the list can be incomplete: more
+  // candidates than are worth spending tokens on, and a scope larger than the
+  // read cap. The model needs the same answer either way — do not tell the
+  // user this customer does not exist.
+  return scoped.rows.length <= RESOLVE_CANDIDATE_LIMIT && !scoped.truncated
+    ? {
+      candidates: scoped.rows.map(({ id, name }) => ({ id, name })),
+      truncated: false,
+    }
+    : { truncated: true }
+}
+
+/** Ambiguous customers, each with its roster while the fan-out stays cheap. */
+async function customerCandidates(
+  store: AgentReadStore,
+  input: AgentToolExecutionInput,
+  customers: readonly AgentCustomerReadRow[],
+): Promise<Record<string, unknown>[]> {
+  const listed = customers.slice(0, RESOLVE_CANDIDATE_LIMIT)
+  if (listed.length > AMBIGUOUS_ROSTER_LIMIT) {
+    return listed.map((customer) => ({ customer }))
+  }
+  return await Promise.all(listed.map(async (customer) => {
+    const flocks = scopedFlocks(
+      await store.listFlocks(customer.id, MAX_AGENT_READ_ROWS),
+      customer.id,
+      input.scope,
+    )
+    return {
+      customer,
+      flocks: flocks.slice(0, RESOLVE_CANDIDATE_LIMIT).map(namedFlock),
+      truncated: flocks.length > RESOLVE_CANDIDATE_LIMIT,
+    }
+  }))
+}
+
+/**
+ * A candidate flock as the model needs it: the ID it must pass to every
+ * ID-based tool, plus the name a human can be asked about. Deliberately not
+ * `publicFlock` — a candidate list is for CHOOSING, and status/breed/entry
+ * date/sector are answered by `get_flock_context` once a choice is made.
+ */
+function namedFlock(flock: AgentFlockReadRow): { id: string; name: string } {
+  return { id: flock.id, name: flock.name }
+}
+
+/**
+ * The customers this caller may see, name-ordered, capped at
+ * `MAX_AGENT_READ_ROWS`.
+ *
+ * `truncated` is not decoration. An `admin` staff link is scoped to EVERY
+ * customer, so a tenant past the cap is invisible to every name-based tool —
+ * and without this flag the honest answer ("I can only see the first 100")
+ * came out as the confident and wrong one ("there is no such customer"),
+ * which is the original incident's symptom reached by a different route. The
+ * cap is alphabetical, so who falls off it is arbitrary from the caller's
+ * point of view.
+ */
 async function scopedCustomers(
   store: AgentReadStore,
   scope: AgentScope,
-): Promise<AgentCustomerReadRow[]> {
+): Promise<{ rows: AgentCustomerReadRow[]; truncated: boolean }> {
   const allowedIds = new Set(scope.allowedCustomerIds)
-  return (await store.listCustomers(scope.allowedCustomerIds, 100))
+  const rows = (await store.listCustomers(
+    scope.allowedCustomerIds,
+    MAX_AGENT_READ_ROWS + 1,
+  ))
     .filter((customer) => allowedIds.has(customer.id))
     .sort((left, right) =>
       left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
     )
-    .slice(0, 100)
+  return {
+    rows: rows.slice(0, MAX_AGENT_READ_ROWS),
+    truncated: rows.length > MAX_AGENT_READ_ROWS ||
+      scope.allowedCustomerIds.length > MAX_AGENT_READ_ROWS,
+  }
 }
 
 async function getCustomerContext(
@@ -767,18 +955,6 @@ function requiredText(value: unknown): string {
 function optionalText(value: unknown): string | null {
   const text = value?.toString().trim()
   return text ? text : null
-}
-
-function normalizeOperationalName(value: string): string {
-  return value
-    .normalize('NFKC')
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/\u0640/g, '')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('ar')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

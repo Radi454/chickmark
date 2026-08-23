@@ -243,17 +243,19 @@ void main() {
     ]);
   });
 
-  test('v54 repairs divergent harness tables missing indexed columns', () async {
-    final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
-    addTearDown(db.close);
-    await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
-    await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
-    await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
-    await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
-    // Divergent development lines shipped these tables without turnIndex,
-    // contextEpoch, or toolSequence; v54's partial unique indexes reference
-    // them, so the upgrade used to fail with "no such column: turnIndex".
-    await db.execute('''CREATE TABLE agent_conversations (
+  test(
+    'v54 repairs divergent harness tables missing indexed columns',
+    () async {
+      final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('CREATE TABLE customers (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE flocks (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE hatcheries (id TEXT PRIMARY KEY)');
+      await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+      // Divergent development lines shipped these tables without turnIndex,
+      // contextEpoch, or toolSequence; v54's partial unique indexes reference
+      // them, so the upgrade used to fail with "no such column: turnIndex".
+      await db.execute('''CREATE TABLE agent_conversations (
       id TEXT PRIMARY KEY,
       staffLinkId TEXT NOT NULL,
       telegramChatId TEXT NOT NULL,
@@ -265,7 +267,7 @@ void main() {
       lastSyncedAt TEXT,
       syncError TEXT
     )''');
-    await db.execute('''CREATE TABLE agent_conversation_turns (
+      await db.execute('''CREATE TABLE agent_conversation_turns (
       id TEXT PRIMARY KEY,
       conversationId TEXT NOT NULL,
       direction TEXT NOT NULL,
@@ -276,7 +278,7 @@ void main() {
       lastSyncedAt TEXT,
       syncError TEXT
     )''');
-    await db.execute('''CREATE TABLE agent_tool_events (
+      await db.execute('''CREATE TABLE agent_tool_events (
       id TEXT PRIMARY KEY,
       conversationTurnId TEXT NOT NULL,
       toolCallId TEXT NOT NULL,
@@ -288,26 +290,27 @@ void main() {
       lastSyncedAt TEXT,
       syncError TEXT
     )''');
-    await db.insert('agent_conversation_turns', {
-      'id': 'turn-1',
-      'conversationId': 'conv-1',
-      'direction': 'inbound',
-      'text': 'legacy row',
-      'createdAt': '2026-07-01T00:00:00Z',
-    });
+      await db.insert('agent_conversation_turns', {
+        'id': 'turn-1',
+        'conversationId': 'conv-1',
+        'direction': 'inbound',
+        'text': 'legacy row',
+        'createdAt': '2026-07-01T00:00:00Z',
+      });
 
-    await DatabaseHelper().applyV54UpgradeForTest(db);
+      await DatabaseHelper().applyV54UpgradeForTest(db);
 
-    final turnColumns = (await db.rawQuery(
-      'PRAGMA table_info(agent_conversation_turns)',
-    )).map((row) => row['name']).toSet();
-    expect(turnColumns, containsAll(const ['turnIndex', 'contextEpoch']));
-    final toolColumns = (await db.rawQuery(
-      'PRAGMA table_info(agent_tool_events)',
-    )).map((row) => row['name']).toSet();
-    expect(toolColumns, contains('toolSequence'));
-    expect(await db.query('agent_conversation_turns'), hasLength(1));
-  });
+      final turnColumns = (await db.rawQuery(
+        'PRAGMA table_info(agent_conversation_turns)',
+      )).map((row) => row['name']).toSet();
+      expect(turnColumns, containsAll(const ['turnIndex', 'contextEpoch']));
+      final toolColumns = (await db.rawQuery(
+        'PRAGMA table_info(agent_tool_events)',
+      )).map((row) => row['name']).toSet();
+      expect(toolColumns, contains('toolSequence'));
+      expect(await db.query('agent_conversation_turns'), hasLength(1));
+    },
+  );
 
   test('v56 rebuild survives legacy ALTER TABLE semantics', () async {
     final db = await databaseFactory.openDatabase(inMemoryDatabasePath);

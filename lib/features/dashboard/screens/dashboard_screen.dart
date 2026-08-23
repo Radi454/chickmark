@@ -92,7 +92,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
     _observedSyncTimestamp = timestamp;
-    if (!settings.lastSyncOnline || settings.lastSyncError != null) return;
+    // Only a run that never reached the cloud (online == false) has nothing to
+    // refresh from. A run that completed with some push failures still pulled
+    // fresh rows, so it must still refresh the dashboard.
+    if (!settings.lastSyncOnline) return;
     unawaited(_refreshAfterSync());
   }
 

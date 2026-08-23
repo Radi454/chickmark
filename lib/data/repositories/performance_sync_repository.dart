@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../../core/security/safe_debug_log.dart';
 import '../../services/supabase/sync_meta.dart';
 import '../database/database_helper.dart';
 
@@ -190,8 +191,7 @@ class PerformanceSyncRepository {
         'lastSyncedAt': DateTime.now().toUtc().toIso8601String(),
         'syncError': null,
       },
-      where:
-          'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      where: 'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
       whereArgs: [...uniqueIds, cutoff],
     );
   }
@@ -404,7 +404,21 @@ class PerformanceSyncRepository {
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
     if (inserted != 0) return;
-    await db.update(table, row, where: 'id = ?', whereArgs: [row['id']]);
+    final updated = await db.update(
+      table,
+      row,
+      where: 'id = ?',
+      whereArgs: [row['id']],
+    );
+    if (updated != 0) return;
+    // Neither branch touched a row: `INSERT OR IGNORE` swallowed a NOT NULL,
+    // UNIQUE or CHECK violation (it does not swallow foreign-key errors), so
+    // the row does not exist and never will. Silence here is what let an
+    // app-channel staff link vanish locally while its child rows kept failing
+    // their foreign key on every sync.
+    safeDebugLog(
+      'Supabase pull dropped $table row ${row['id']}: local schema rejected it',
+    );
   }
 
   void _assertPushTable(String table) {

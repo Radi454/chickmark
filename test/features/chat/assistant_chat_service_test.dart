@@ -8,50 +8,85 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   group('request shape', () {
-    test('send posts action/message/clientMessageId per the contract', () async {
+    test(
+      'send posts action/message/clientMessageId/conversationId per the contract',
+      () async {
+        final recorder = _Recorder(_sendResponse());
+        final service = AssistantChatService(
+          rpc: recorder.call,
+          clientMessageIdFactory: () => 'cid-1',
+        );
+
+        await service.sendMessage('  How did last hatch go?  ');
+
+        expect(recorder.bodies.single, {
+          'action': 'send',
+          'message': 'How did last hatch go?',
+          'clientMessageId': 'cid-1',
+          'conversationId': 'app',
+        });
+      },
+    );
+
+    test('an explicit conversationKey is sent as conversationId', () async {
       final recorder = _Recorder(_sendResponse());
       final service = AssistantChatService(
         rpc: recorder.call,
         clientMessageIdFactory: () => 'cid-1',
       );
 
-      await service.sendMessage('  How did last hatch go?  ');
-
-      expect(recorder.bodies.single, {
-        'action': 'send',
-        'message': 'How did last hatch go?',
-        'clientMessageId': 'cid-1',
-      });
-    });
-
-    test('an explicit clientMessageId is used verbatim so retry is idempotent', () async {
-      final recorder = _Recorder(_sendResponse());
-      final service = AssistantChatService(
-        rpc: recorder.call,
-        clientMessageIdFactory: () => 'never-used',
+      await service.sendMessage(
+        'hi',
+        conversationKey: 'app:11111111-1111-4111-8111-111111111111',
       );
 
-      await service.sendMessage('hi', clientMessageId: 'cid-retry');
-
-      expect(recorder.bodies.single['clientMessageId'], 'cid-retry');
+      expect(
+        recorder.bodies.single['conversationId'],
+        'app:11111111-1111-4111-8111-111111111111',
+      );
     });
 
-    test('history posts action=history with a clamped limit', () async {
-      final recorder = _Recorder(_historyResponse());
-      final service = AssistantChatService(rpc: recorder.call);
+    test(
+      'an explicit clientMessageId is used verbatim so retry is idempotent',
+      () async {
+        final recorder = _Recorder(_sendResponse());
+        final service = AssistantChatService(
+          rpc: recorder.call,
+          clientMessageIdFactory: () => 'never-used',
+        );
 
-      await service.loadHistory(limit: 500);
+        await service.sendMessage('hi', clientMessageId: 'cid-retry');
 
-      expect(recorder.bodies.single, {'action': 'history', 'limit': 100});
-    });
+        expect(recorder.bodies.single['clientMessageId'], 'cid-retry');
+      },
+    );
 
-    test('reset posts action=reset and nothing else', () async {
+    test(
+      'history posts action=history with a clamped limit and conversationId',
+      () async {
+        final recorder = _Recorder(_historyResponse());
+        final service = AssistantChatService(rpc: recorder.call);
+
+        await service.loadHistory(limit: 500);
+
+        expect(recorder.bodies.single, {
+          'action': 'history',
+          'limit': 100,
+          'conversationId': 'app',
+        });
+      },
+    );
+
+    test('reset posts action=reset and the conversationId', () async {
       final recorder = _Recorder({'conversationId': 'c1', 'cleared': true});
       final service = AssistantChatService(rpc: recorder.call);
 
       await service.resetConversation();
 
-      expect(recorder.bodies.single, {'action': 'reset'});
+      expect(recorder.bodies.single, {
+        'action': 'reset',
+        'conversationId': 'app',
+      });
     });
 
     test('an empty or over-long message never reaches the wire', () async {
@@ -72,35 +107,42 @@ void main() {
   });
 
   group('sendVoice', () {
-    test('sendVoice posts audioBase64 and parses transcript + audioBase64', () async {
-      Map<String, dynamic>? capturedBody;
-      final service = AssistantChatService(
-        rpc: (body) async {
-          capturedBody = body;
-          return {
-            'conversationId': 'conv-1',
-            'userTurnId': 'turn-user',
-            'replyTurnId': 'turn-reply',
-            'reply': 'Hatch was 84%.',
-            'transcript': 'What is the hatch rate?',
-            'audioBase64': 'c3ludGg=',
-            'createdAt': '2026-08-14T10:00:00.000Z',
-            'language': 'en',
-          };
-        },
-      );
+    test(
+      'sendVoice posts audioBase64 and parses transcript + audioBase64',
+      () async {
+        Map<String, dynamic>? capturedBody;
+        final service = AssistantChatService(
+          rpc: (body) async {
+            capturedBody = body;
+            return {
+              'conversationId': 'conv-1',
+              'userTurnId': 'turn-user',
+              'replyTurnId': 'turn-reply',
+              'reply': 'Hatch was 84%.',
+              'transcript': 'What is the hatch rate?',
+              'audioBase64': 'c3ludGg=',
+              'createdAt': '2026-08-14T10:00:00.000Z',
+              'language': 'en',
+            };
+          },
+        );
 
-      final reply = await service.sendVoice('aGVsbG8=', clientMessageId: 'cid-1');
+        final reply = await service.sendVoice(
+          'aGVsbG8=',
+          clientMessageId: 'cid-1',
+        );
 
-      expect(capturedBody, {
-        'action': 'send',
-        'audioBase64': 'aGVsbG8=',
-        'clientMessageId': 'cid-1',
-      });
-      expect(reply.reply, 'Hatch was 84%.');
-      expect(reply.transcript, 'What is the hatch rate?');
-      expect(reply.audioBase64, 'c3ludGg=');
-    });
+        expect(capturedBody, {
+          'action': 'send',
+          'audioBase64': 'aGVsbG8=',
+          'clientMessageId': 'cid-1',
+          'conversationId': 'app',
+        });
+        expect(reply.reply, 'Hatch was 84%.');
+        expect(reply.transcript, 'What is the hatch rate?');
+        expect(reply.audioBase64, 'c3ludGg=');
+      },
+    );
 
     test(
       'a voice send matches the shared client/server contract fixture',
@@ -116,9 +158,10 @@ void main() {
         );
         final fixture =
             jsonDecode(fixtureFile.readAsStringSync()) as Map<String, dynamic>;
-        final requestFixture = (fixture['request'] as Map).cast<String, dynamic>();
-        final responseFixture =
-            (fixture['response'] as Map).cast<String, dynamic>();
+        final requestFixture = (fixture['request'] as Map)
+            .cast<String, dynamic>();
+        final responseFixture = (fixture['response'] as Map)
+            .cast<String, dynamic>();
 
         Map<String, dynamic>? capturedBody;
         final service = AssistantChatService(
@@ -133,8 +176,16 @@ void main() {
           clientMessageId: requestFixture['clientMessageId'] as String,
         );
 
-        // Request shape: the service must send exactly the fixture's keys.
-        expect(capturedBody!.keys.toSet(), requestFixture.keys.toSet());
+        // Request shape: the service must send every fixture key, plus the
+        // multi-conversation `conversationId` key the fixture predates (it
+        // pins the shared voice-turn fields; conversation targeting is a
+        // client-only addition layered on top, defaulting to the legacy
+        // 'app' conversation so the server side of the fixture is untouched).
+        expect(
+          capturedBody!.keys.toSet(),
+          {...requestFixture.keys, 'conversationId'},
+        );
+        expect(capturedBody!['conversationId'], 'app');
 
         // Response shape: every fixture response field must be reachable
         // through the parsed reply.
@@ -148,20 +199,92 @@ void main() {
       },
     );
 
-    test('sendVoice rejects an empty audio payload without a request', () async {
-      var invoked = false;
+    test(
+      'sendVoice rejects an empty audio payload without a request',
+      () async {
+        var invoked = false;
+        final service = AssistantChatService(
+          rpc: (_) async {
+            invoked = true;
+            return <String, dynamic>{};
+          },
+        );
+
+        await expectLater(
+          () => service.sendVoice(''),
+          throwsA(isA<AssistantChatException>()),
+        );
+        expect(invoked, isFalse);
+      },
+    );
+  });
+
+  group('listConversations', () {
+    test('posts action=conversations with a clamped limit', () async {
+      final recorder = _Recorder({'conversations': <dynamic>[]});
+      final service = AssistantChatService(rpc: recorder.call);
+
+      await service.listConversations(limit: 500);
+
+      expect(recorder.bodies.single, {
+        'action': 'conversations',
+        'limit': 100,
+      });
+    });
+
+    test('parses every conversation row, most-recently-updated first', () async {
       final service = AssistantChatService(
-        rpc: (_) async {
-          invoked = true;
-          return <String, dynamic>{};
+        rpc: (_) async => {
+          'conversations': [
+            {
+              'conversationKey': 'app:11111111-1111-4111-8111-111111111111',
+              'title': 'Hatch rate this week',
+              'lastMessageText': 'Hatch was 84%.',
+              'lastMessageAt': '2026-08-14T10:00:00.000Z',
+              'updatedAt': '2026-08-14T10:00:00.000Z',
+              'createdAt': '2026-08-14T09:00:00.000Z',
+            },
+            {
+              'conversationKey': 'app',
+              'title': null,
+              'lastMessageText': null,
+              'lastMessageAt': null,
+              'updatedAt': '2026-08-13T10:00:00.000Z',
+              'createdAt': '2026-08-01T09:00:00.000Z',
+            },
+          ],
         },
       );
 
-      await expectLater(
-        () => service.sendVoice(''),
-        throwsA(isA<AssistantChatException>()),
+      final conversations = await service.listConversations();
+
+      expect(conversations, hasLength(2));
+      expect(
+        conversations.first.conversationKey,
+        'app:11111111-1111-4111-8111-111111111111',
       );
-      expect(invoked, isFalse);
+      expect(conversations.first.title, 'Hatch rate this week');
+      expect(conversations.last.conversationKey, 'app');
+      expect(conversations.last.title, isNull);
+    });
+
+    test('skips a malformed row instead of throwing', () async {
+      final service = AssistantChatService(
+        rpc: (_) async => {
+          'conversations': [
+            {'conversationKey': 'app', 'updatedAt': 'not-a-date'},
+            {
+              'conversationKey': 'app',
+              'updatedAt': '2026-08-14T10:00:00.000Z',
+              'createdAt': '2026-08-01T09:00:00.000Z',
+            },
+          ],
+        },
+      );
+
+      final conversations = await service.listConversations();
+
+      expect(conversations, hasLength(1));
     });
   });
 
@@ -187,28 +310,31 @@ void main() {
       expect(message.text, 'Hatch was 84%.');
     });
 
-    test('history parses turns oldest-first, preserving order and roles', () async {
-      final service = AssistantChatService(
-        rpc: _Recorder(_historyResponse()).call,
-      );
+    test(
+      'history parses turns oldest-first, preserving order and roles',
+      () async {
+        final service = AssistantChatService(
+          rpc: _Recorder(_historyResponse()).call,
+        );
 
-      final history = await service.loadHistory();
+        final history = await service.loadHistory();
 
-      expect(history.conversationId, 'conv-1');
-      expect(history.messages.map((m) => m.text), [
-        'ما نسبة الفقس؟',
-        'Hatch was 84%.',
-      ]);
-      expect(history.messages.map((m) => m.role), [
-        ChatMessageRole.user,
-        ChatMessageRole.assistant,
-      ]);
-      expect(history.messages.first.language, 'ar');
-      expect(
-        history.messages.every((m) => m.status == ChatMessageStatus.sent),
-        isTrue,
-      );
-    });
+        expect(history.conversationId, 'conv-1');
+        expect(history.messages.map((m) => m.text), [
+          'ما نسبة الفقس؟',
+          'Hatch was 84%.',
+        ]);
+        expect(history.messages.map((m) => m.role), [
+          ChatMessageRole.user,
+          ChatMessageRole.assistant,
+        ]);
+        expect(history.messages.first.language, 'ar');
+        expect(
+          history.messages.every((m) => m.status == ChatMessageStatus.sent),
+          isTrue,
+        );
+      },
+    );
 
     test('an empty history is a valid, empty conversation', () async {
       final service = AssistantChatService(
@@ -220,6 +346,45 @@ void main() {
 
       final history = await service.loadHistory();
 
+      expect(history.messages, isEmpty);
+    });
+
+    // A conversation the user has opened but not yet sent anything in has no
+    // row on the server, so `app-hatchery-agent`'s history action answers
+    // `{conversationId: null, messages: []}` ON PURPOSE (see the
+    // `conversation === null` branch in its index.ts). Requiring a non-empty
+    // id here threw a FormatException, which `AssistantProvider.load()`
+    // caught as an unknown error and surfaced as "Could not load the
+    // conversation. Please try again." — every brand-new conversation opened
+    // with a visible error banner.
+    test(
+      'a not-yet-created conversation returns a null id, not an error',
+      () async {
+        final service = AssistantChatService(
+          rpc: _Recorder({
+            'conversationId': null,
+            'conversationKey': 'app:9f0c1f6e-0000-4000-8000-000000000001',
+            'messages': <dynamic>[],
+          }).call,
+        );
+
+        final history = await service.loadHistory(
+          conversationKey: 'app:9f0c1f6e-0000-4000-8000-000000000001',
+        );
+
+        expect(history.conversationId, isNull);
+        expect(history.messages, isEmpty);
+      },
+    );
+
+    test('a missing conversationId key is also tolerated', () async {
+      final service = AssistantChatService(
+        rpc: _Recorder({'messages': <dynamic>[]}).call,
+      );
+
+      final history = await service.loadHistory();
+
+      expect(history.conversationId, isNull);
       expect(history.messages, isEmpty);
     });
   });

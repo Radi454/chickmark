@@ -34,11 +34,21 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   file_picker: ^8.1.4
   url_launcher: ^6.3.1
-  record: ^5.2.1
+  record: ^7.1.1
   audioplayers: ^6.1.0
+  gpt_markdown: ^1.1.8
+  # Realtime voice ("Pip Live"): WebRTC transport to OpenAI Realtime, plus the
+  # HTTP/WebSocket clients the SDP exchange and Cloud Run sideband need. `http`
+  # and `web_socket_channel` were already present transitively; they are
+  # declared here because this feature imports them directly.
+  flutter_webrtc: ^1.6.0
+  http: ^1.2.0
+  web_socket_channel: ^3.0.0
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   test: ^1.31.0
   flutter_lints: ^6.0.0

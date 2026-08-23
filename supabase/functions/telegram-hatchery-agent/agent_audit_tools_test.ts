@@ -201,9 +201,13 @@ interface AuditRow {
 
 interface AuditStore {
   findFlockCustomerId(flockId: string): Promise<string | null>
-  findLatestAuditListResult(conversationId: string): Promise<unknown | null>
+  findLatestAuditListResult(
+    conversationId: string,
+    contextEpoch: number | null,
+  ): Promise<unknown | null>
   findLatestSelectedAuditResult(
     conversationId: string,
+    contextEpoch: number | null,
   ): Promise<unknown | null>
   listAudits(input: {
     customerId: string
@@ -478,14 +482,17 @@ async function call(
   name: string,
   arguments_: Record<string, unknown>,
   selectedScope: AgentScope = scope,
-  conversationId = 'conversation-a',
+  options: { conversationId?: string; conversationContextEpoch?: number } = {},
 ): Promise<AgentToolResult> {
   return executeAgentTool(
     { id: `call-${name}`, name, arguments: arguments_ },
     {
       scope: selectedScope,
-      conversationId,
+      conversationId: options.conversationId ?? 'conversation-a',
       activeVisitId: null,
+      ...(options.conversationContextEpoch === undefined
+        ? {}
+        : { conversationContextEpoch: options.conversationContextEpoch }),
       evidence: { record: () => undefined },
       handlers: createAgentAuditToolHandlers(store),
     },
@@ -870,13 +877,18 @@ Deno.test('persisted audit options keep their ordinal after a newer audit is ins
   assertEquals(store.selectedAuditIds.at(-1), 'audit-completed')
 })
 
-Deno.test('missing malformed and out-of-range audit snapshots fail closed', async () => {
-  const malformedSnapshots: Array<{
+Deno.test('missing malformed and out-of-range audit snapshots fail closed, and say which', async () => {
+  // Every one of these refuses to select an audit. What changed is that the
+  // model can now tell WHY: "you never listed the options" and "that number
+  // is off the end of the list" have different recoveries, and a null-payload
+  // `scope_denied` for both left it nothing to do but ask the user again.
+  const fixtures: Array<{
     snapshot: unknown | null
     position: number
+    code: string
   }> = [
-    { snapshot: null, position: 1 },
-    { snapshot: {}, position: 1 },
+    { snapshot: null, position: 1, code: 'audit_options_required' },
+    { snapshot: {}, position: 1, code: 'audit_options_required' },
     {
       snapshot: {
         ok: true,
@@ -884,6 +896,7 @@ Deno.test('missing malformed and out-of-range audit snapshots fail closed', asyn
         data: { customerId: 'customer-a', audits: 'not-an-array' },
       },
       position: 1,
+      code: 'audit_options_required',
     },
     {
       snapshot: {
@@ -897,6 +910,7 @@ Deno.test('missing malformed and out-of-range audit snapshots fail closed', asyn
         },
       },
       position: 1,
+      code: 'audit_options_required',
     },
     {
       snapshot: {
@@ -905,27 +919,47 @@ Deno.test('missing malformed and out-of-range audit snapshots fail closed', asyn
         data: { customerId: 'customer-a', audits: [{ id: 'audit-new' }] },
       },
       position: 2,
+      code: 'audit_position_out_of_range',
     },
     {
+      // A snapshot whose option ids are unusable. Nothing about the recovery
+      // is safe to describe, so this stays an opaque refusal.
       snapshot: {
         ok: true,
         code: 'ok',
         data: { customerId: 'customer-a', audits: [{}] },
       },
       position: 1,
+      code: 'scope_denied',
     },
   ]
 
-  for (const fixture of malformedSnapshots) {
+  for (const fixture of fixtures) {
     const store = fixtureStore()
     store.latestAuditListResult = fixture.snapshot
-    assertEquals(
-      await call(store, 'select_audit_option', {
-        position: fixture.position,
-      }),
-      { ok: false, code: 'scope_denied', data: null },
-    )
+    const result = await call(store, 'select_audit_option', {
+      position: fixture.position,
+    })
+    assertEquals(result.ok, false)
+    assertEquals(result.code, fixture.code)
+    // Nothing was selected, whatever the code.
+    assertEquals(store.selectedAuditIds.length, 0)
   }
+})
+
+Deno.test('an out-of-range position tells the model how many options there actually are', async () => {
+  const store = fixtureStore()
+  store.latestAuditListResult = {
+    ok: true,
+    code: 'ok',
+    data: {
+      customerId: 'customer-a',
+      audits: [{ id: 'audit-1' }, { id: 'audit-2' }],
+    },
+  }
+  const result = await call(store, 'select_audit_option', { position: 3 })
+  assertEquals(result.code, 'audit_position_out_of_range')
+  assertEquals(result.data?.optionCount, 2)
 })
 
 Deno.test('changed scope unknown audits and unauthorized audits fail identically', async () => {
@@ -1598,3 +1632,246 @@ Deno.test(
     )
   },
 )
+
+Deno.test('an option list produced on a LIVE CALL is selectable — realtime evidence carries no turn link', async () => {
+  // The realtime broker writes `agent_tool_events` with
+  // `conversation_turn_id` NULL on purpose (a voice transcript may never
+  // finalize). Searching only turn-linked rows meant `select_audit_option`
+  // answered a refusal to a user who had just been read the numbered options
+  // aloud, and the model's only move was to ask again.
+  const client = new FakeAuditClient({
+    agent_conversation_turns: [],
+    agent_realtime_sessions: [
+      {
+        id: 'rt-sess-1',
+        conversation_id: 'conversation-a',
+        created_at: '2026-07-28T11:00:00Z',
+      },
+      {
+        id: 'rt-sess-other',
+        conversation_id: 'conversation-b',
+        created_at: '2026-07-28T12:00:00Z',
+      },
+    ],
+    agent_tool_events: [
+      {
+        id: 'event-voice',
+        conversation_turn_id: null,
+        realtime_session_id: 'rt-sess-1',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-latest']),
+        created_at: '2026-07-28T11:01:00Z',
+      },
+      {
+        id: 'event-voice-other-thread',
+        conversation_turn_id: null,
+        realtime_session_id: 'rt-sess-other',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-b', ['audit-other']),
+        created_at: '2026-07-28T12:01:00Z',
+      },
+    ],
+    audit_sessions: [
+      remoteAudit('audit-latest'),
+      remoteAudit('audit-other', 'customer-b'),
+    ],
+  })
+  const store = createSupabaseAgentAuditStore(client)
+
+  const selected = await call(store, 'select_audit_option', { position: 1 })
+
+  assertEquals(selected.ok, true)
+  assertEquals(selected.data?.id, 'audit-latest')
+  // Sessions were looked up for THIS conversation only…
+  const sessionQuery = client.queries.find((query) =>
+    query.table === 'agent_realtime_sessions'
+  )
+  assertEquals(sessionQuery?.equals.conversation_id, 'conversation-a')
+  // …and the evidence search was confined to those session ids, so a sibling
+  // thread's live call can never supply this one's options.
+  const realtimeEventQuery = client.queries.find((query) =>
+    query.table === 'agent_tool_events' &&
+    query.included.realtime_session_id !== undefined
+  )
+  assertEquals(
+    [...(realtimeEventQuery?.included.realtime_session_id ?? [])],
+    ['rt-sess-1'],
+  )
+})
+
+Deno.test('the newest option list wins whichever door produced it', async () => {
+  const client = new FakeAuditClient({
+    agent_conversation_turns: [
+      {
+        id: 'turn-a',
+        conversation_id: 'conversation-a',
+        created_at: '2026-07-28T10:00:00Z',
+      },
+    ],
+    agent_realtime_sessions: [
+      {
+        id: 'rt-sess-1',
+        conversation_id: 'conversation-a',
+        created_at: '2026-07-28T11:00:00Z',
+      },
+    ],
+    agent_tool_events: [
+      {
+        id: 'event-typed-older',
+        conversation_turn_id: 'turn-a',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-old']),
+        created_at: '2026-07-28T10:01:00Z',
+      },
+      {
+        id: 'event-voice-newer',
+        conversation_turn_id: null,
+        realtime_session_id: 'rt-sess-1',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-latest']),
+        created_at: '2026-07-28T11:01:00Z',
+      },
+    ],
+    audit_sessions: [remoteAudit('audit-old'), remoteAudit('audit-latest')],
+  })
+  const store = createSupabaseAgentAuditStore(client)
+
+  const selected = await call(store, 'select_audit_option', { position: 1 })
+
+  assertEquals(selected.ok, true)
+  assertEquals(selected.data?.id, 'audit-latest')
+})
+
+Deno.test('a cleared conversation cannot select from the list it threw away', async () => {
+  // `/new` (and the app's clear control) bumps `context_epoch` precisely so
+  // "start over" means it. Reconstructing the pre-reset option list from
+  // durable evidence would let the user's next number select an audit from a
+  // conversation they explicitly ended.
+  const client = new FakeAuditClient({
+    agent_conversation_turns: [
+      {
+        id: 'turn-old',
+        conversation_id: 'conversation-a',
+        context_epoch: 1,
+        conversation_seq: 4,
+        created_at: '2026-07-28T10:00:00Z',
+      },
+    ],
+    agent_realtime_sessions: [],
+    agent_tool_events: [
+      {
+        id: 'event-old',
+        conversation_turn_id: 'turn-old',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-old']),
+        created_at: '2026-07-28T10:01:00Z',
+      },
+    ],
+    audit_sessions: [remoteAudit('audit-old')],
+  })
+  const store = createSupabaseAgentAuditStore(client)
+
+  const refused = await call(
+    store,
+    'select_audit_option',
+    { position: 1 },
+    scope,
+    { conversationContextEpoch: 2 },
+  )
+  assertEquals(refused.ok, false)
+  assertEquals(refused.code, 'audit_options_required')
+  const turnQuery = client.queries.find((query) =>
+    query.table === 'agent_conversation_turns'
+  )
+  assertEquals(turnQuery?.equals.context_epoch, 2)
+
+  // Same conversation, same evidence, the epoch it was written in: selectable.
+  const allowed = await call(
+    store,
+    'select_audit_option',
+    { position: 1 },
+    scope,
+    { conversationContextEpoch: 1 },
+  )
+  assertEquals(allowed.ok, true)
+  assertEquals(allowed.data?.id, 'audit-old')
+})
+
+Deno.test('the newest snapshot is chosen by plain string order, not ICU collation', async () => {
+  // `localeCompare` treats punctuation as variable-weight and inverts on
+  // timestamps whose fractional-second parts differ in length. `created_at`
+  // is a TEXT column with nothing enforcing one rendering, so the shapes are
+  // uniform only by convention — and getting this backwards resolves position
+  // N against the OLDER list.
+  const client = new FakeAuditClient({
+    agent_conversation_turns: [
+      {
+        id: 'turn-a',
+        conversation_id: 'conversation-a',
+        conversation_seq: 1,
+        created_at: '2026-07-28T10:00:00Z',
+      },
+    ],
+    agent_realtime_sessions: [
+      {
+        id: 'rt-sess-1',
+        conversation_id: 'conversation-a',
+        created_at: '2026-07-28T10:00:00Z',
+      },
+    ],
+    agent_tool_events: [
+      {
+        id: 'event-older',
+        conversation_turn_id: 'turn-a',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-old']),
+        created_at: '2026-07-28T12:34:56+00:00',
+      },
+      {
+        id: 'event-newer',
+        conversation_turn_id: null,
+        realtime_session_id: 'rt-sess-1',
+        tool_name: 'list_customer_audits',
+        status: 'succeeded',
+        result_json: auditListResult('customer-a', ['audit-latest']),
+        // Half a second later. `localeCompare` calls this one OLDER.
+        created_at: '2026-07-28T12:34:56.5+00:00',
+      },
+    ],
+    audit_sessions: [remoteAudit('audit-old'), remoteAudit('audit-latest')],
+  })
+  const store = createSupabaseAgentAuditStore(client)
+
+  const selected = await call(store, 'select_audit_option', { position: 1 })
+
+  assertEquals(selected.ok, true)
+  assertEquals(selected.data?.id, 'audit-latest')
+})
+
+Deno.test('a non-integer position is refused with a real code, never a null-payload denial', async () => {
+  const store = fixtureStore()
+  store.latestAuditListResult = {
+    ok: true,
+    code: 'ok',
+    data: { customerId: 'customer-a', audits: [{ id: 'audit-1' }] },
+  }
+  // Bypasses executeAgentTool's own contract validation on purpose: this is
+  // the defence-in-depth check, and NaN used to pass both comparisons and
+  // fall through to `scope_denied`.
+  const handlers = createAgentAuditToolHandlers(store)
+  const result = await handlers.select_audit_option!({
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    toolCallId: 'tool-nan',
+    arguments: Object.freeze({ position: undefined as unknown as number }),
+  })
+  assertEquals(result.ok, false)
+  assertEquals(result.code, 'audit_position_out_of_range')
+})

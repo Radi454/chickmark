@@ -530,17 +530,12 @@ class SettingsScreen extends StatelessWidget {
         pushed: outcome.pushed,
         pulled: outcome.pulled,
         acknowledgeIncoming: true,
+        error: outcome.failureSummary,
       );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              outcome.online
-                  ? 'Sync complete · ↑${outcome.pushed} ↓${outcome.pulled}'
-                  : 'Offline — using local data',
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(outcome.statusMessage)));
       }
     } catch (error) {
       await settings.recordSync(

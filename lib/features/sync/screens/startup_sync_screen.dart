@@ -52,6 +52,10 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
             pulled: outcome.pulled,
             incoming: outcome.incomingSessions,
             otherIncoming: outcome.otherIncomingCount,
+            // A push that could not reach the cloud is a sync error, even
+            // though the run itself completed — otherwise the status sector
+            // would show a clean sync while data sits stranded locally.
+            error: outcome.failureSummary,
           );
           return outcome;
         })

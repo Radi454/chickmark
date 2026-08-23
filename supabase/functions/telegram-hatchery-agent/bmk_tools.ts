@@ -12,7 +12,7 @@ import type {
 import type { AgentToolHandler } from './agent_tools.ts'
 import type { AgentAuditStore } from './agent_audit_tools.ts'
 import { freshAuditSelectionRequired } from './agent_audit_tools.ts'
-import { coverageFor, resolveBreed } from './bmk_lookup.ts'
+import { coverageFor, resolveBreedMatch } from './bmk_lookup.ts'
 import { AgentScopeError, assertCustomerAllowed } from './agent_scope.ts'
 import { roundTo, sampleWeightedMean } from './agent_metrics.ts'
 
@@ -82,8 +82,7 @@ export function createAgentBmkToolHandlers(
     get_breed_benchmark: (input) => getBreedBenchmark(store, input),
     get_egg_breakout_benchmark: (input) =>
       getEggBreakoutBenchmark(store, input),
-    get_operational_standards: (input) =>
-      getOperationalStandards(store, input),
+    get_operational_standards: (input) => getOperationalStandards(store, input),
   }
   if (auditStore) {
     handlers.compare_selected_audit_to_benchmark = (input) =>
@@ -104,6 +103,7 @@ export async function resolveBreedBenchmark(
 ): Promise<
   | { status: 'ok'; row: BmkBreedBenchmarkRow }
   | { status: 'breed_not_found'; availableBreeds: string[] }
+  | { status: 'breed_ambiguous'; candidateBreeds: string[] }
   | {
     status: 'week_out_of_range'
     breed: string
@@ -112,10 +112,17 @@ export async function resolveBreedBenchmark(
 > {
   const coverage = await store.listBreedCoverage()
   const vocabulary = [...new Set(coverage.map((row) => row.breed))].sort()
-  const breed = resolveBreed(requestedBreed, vocabulary)
-  if (!breed) {
+  const match = resolveBreedMatch(requestedBreed, vocabulary)
+  if (match.status === 'ambiguous') {
+    // NOT `breed_not_found`. Reporting two real breeds as none made the agent
+    // tell the user a breed it stocks does not exist; the useful question —
+    // "Ross 308 or Ross 708?" — was already computed.
+    return { status: 'breed_ambiguous', candidateBreeds: match.candidates }
+  }
+  if (match.status === 'unmatched') {
     return { status: 'breed_not_found', availableBreeds: vocabulary }
   }
+  const breed = match.breed
 
   const row = await store.findBreedBenchmark(breed, ageWeek)
   if (row) return { status: 'ok', row }
@@ -152,6 +159,75 @@ export async function resolveEggBreakoutBenchmark(
   }
 }
 
+/** One entry in a `metrics`-requestable catalogue, keyed by row field. */
+interface RequestableMetric<TRow> {
+  key: string
+  field: keyof TRow
+  unit: string
+}
+
+/** Metric keys the model may request via get_breed_benchmark's `metrics`. */
+const BREED_REQUESTABLE_METRICS: readonly RequestableMetric<
+  BmkBreedBenchmarkRow
+>[] = [
+  { key: 'production', field: 'productionPct', unit: '%' },
+  { key: 'hatchability', field: 'hatchabilityPct', unit: '%' },
+  { key: 'fertility', field: 'fertilityPct', unit: '%' },
+  { key: 'hof', field: 'hofPct', unit: '%' },
+  { key: 'egg_weight', field: 'eggWeightG', unit: 'g' },
+  { key: 'chick_weight', field: 'chickWeightG', unit: 'g' },
+]
+
+/** Metric keys the model may request via get_egg_breakout_benchmark's `metrics`. */
+const BREAKOUT_REQUESTABLE_METRICS: readonly RequestableMetric<
+  BmkEggBreakoutBenchmarkRow
+>[] = [
+  { key: 'infertile', field: 'infertilePct', unit: '%' },
+  { key: 'early_24h', field: 'early24hPct', unit: '%' },
+  { key: 'early_48h', field: 'early48hPct', unit: '%' },
+  { key: 'blood_ring', field: 'bloodRingPct', unit: '%' },
+  { key: 'black_eye', field: 'blackEyePct', unit: '%' },
+  { key: 'early_dead', field: 'earlyDeadPct', unit: '%' },
+  { key: 'mid_dead', field: 'midDeadPct', unit: '%' },
+  { key: 'late_dead', field: 'lateDeadPct', unit: '%' },
+  { key: 'external_pip', field: 'externalPipPct', unit: '%' },
+  { key: 'cracked', field: 'crackedPct', unit: '%' },
+  // Deliberate name mismatch, same as BREAKOUT_METRIC_SOURCES below: the
+  // model-facing key is `contaminated`, the row field is `contamPct`.
+  { key: 'contaminated', field: 'contamPct', unit: '%' },
+]
+
+/**
+ * Comma/space-separated request → known metric keys (order kept, deduped)
+ * plus whatever tokens didn't match a known key (lowercased, order kept,
+ * deduped) -- callers need both to distinguish "no metrics arg" from "a
+ * metrics arg that didn't resolve to anything requestable".
+ */
+function parseRequestedMetrics<TRow>(
+  raw: unknown,
+  catalogue: readonly RequestableMetric<TRow>[],
+): { keys: string[]; unknown: string[] } {
+  if (typeof raw !== 'string') return { keys: [], unknown: [] }
+  const known = new Set(catalogue.map((entry) => entry.key))
+  const tokens = raw.toLowerCase().split(/[\s,]+/).filter((token) =>
+    token.length > 0
+  )
+  return {
+    keys: [...new Set(tokens.filter((token) => known.has(token)))],
+    unknown: [...new Set(tokens.filter((token) => !known.has(token)))],
+  }
+}
+
+/** Requestable metrics whose row value is null, in catalogue order. */
+function nullMetricKeys<TRow>(
+  row: TRow,
+  catalogue: readonly RequestableMetric<TRow>[],
+): string[] {
+  return catalogue
+    .filter((entry) => row[entry.field] === null)
+    .map((entry) => entry.key)
+}
+
 async function getBreedBenchmark(
   store: AgentBmkStore,
   input: AgentToolExecutionInput,
@@ -161,7 +237,72 @@ async function getBreedBenchmark(
     input.arguments.breed as string,
     input.arguments.ageWeek as number,
   )
-  if (resolved.status === 'ok') return ok({ ...resolved.row })
+  if (resolved.status === 'ok') {
+    // Null metrics are also NAMED in an `unavailable` list: a bare JSON null
+    // is not salient enough for the mini realtime model, which otherwise
+    // fills the gap with a value parroted from its calibration examples.
+    const allUnavailable = nullMetricKeys(
+      resolved.row,
+      BREED_REQUESTABLE_METRICS,
+    )
+    const rawMetrics = input.arguments.metrics
+    // Any non-empty string counts as "metrics were requested" -- including a
+    // whitespace-only value. Trimming here (rather than just checking for a
+    // non-empty string) would let " " fall through to the flat row below,
+    // which is the exact full-dump this shaped path exists to prevent.
+    const metricsRequested = typeof rawMetrics === 'string' &&
+      rawMetrics.length > 0
+
+    if (metricsRequested) {
+      const { keys, unknown } = parseRequestedMetrics(
+        rawMetrics,
+        BREED_REQUESTABLE_METRICS,
+      )
+      if (keys.length > 0) {
+        const unavailable = allUnavailable.filter((key) => keys.includes(key))
+        return ok({
+          breed: resolved.row.breed,
+          ageWeek: resolved.row.ageWeek,
+          requested: keys.map((key) => {
+            const spec = BREED_REQUESTABLE_METRICS.find((entry) =>
+              entry.key === key
+            )!
+            return {
+              metric: key,
+              value: resolved.row[spec.field],
+              unit: spec.unit,
+            }
+          }),
+          // Even though some tokens resolved, any unresolved tokens must
+          // still surface: silently dropping them means the model answers
+          // only the part it understood and treats the rest as answered,
+          // per the voice policy's "requested list IS the answer" rule.
+          ...(unknown.length > 0 ? { unknownMetrics: unknown } : {}),
+          ...(unavailable.length > 0 ? { unavailable } : {}),
+          context: { ...resolved.row },
+        })
+      }
+      // A metrics arg was given but none of its tokens matched a known
+      // metric key: never silently degrade to the full flat row -- that
+      // would hand the model unrequested metrics it might read aloud. Return
+      // the shaped payload with an empty `requested` and the raw tokens that
+      // didn't resolve, so the caller can see what was misunderstood.
+      return ok({
+        breed: resolved.row.breed,
+        ageWeek: resolved.row.ageWeek,
+        requested: [],
+        ...(unknown.length > 0 ? { unknownMetrics: unknown } : {}),
+        ...(allUnavailable.length > 0 ? { unavailable: allUnavailable } : {}),
+        context: { ...resolved.row },
+      })
+    }
+
+    return ok(
+      allUnavailable.length > 0
+        ? { ...resolved.row, unavailable: allUnavailable }
+        : { ...resolved.row },
+    )
+  }
   const { status, ...rest } = resolved
   return ok({ status, ...rest })
 }
@@ -174,7 +315,70 @@ async function getEggBreakoutBenchmark(
     store,
     input.arguments.ageWeek as number,
   )
-  if (resolved.status === 'ok') return ok({ ...resolved.row })
+  if (resolved.status === 'ok') {
+    // Null metrics are also NAMED in an `unavailable` list: a bare JSON null
+    // is not salient enough for the mini realtime model, which otherwise
+    // fills the gap with a value parroted from its calibration examples.
+    const allUnavailable = nullMetricKeys(
+      resolved.row,
+      BREAKOUT_REQUESTABLE_METRICS,
+    )
+    const rawMetrics = input.arguments.metrics
+    // Any non-empty string counts as "metrics were requested" -- including a
+    // whitespace-only value. Trimming here (rather than just checking for a
+    // non-empty string) would let " " fall through to the flat row below,
+    // which is the exact full-dump this shaped path exists to prevent.
+    const metricsRequested = typeof rawMetrics === 'string' &&
+      rawMetrics.length > 0
+
+    if (metricsRequested) {
+      const { keys, unknown } = parseRequestedMetrics(
+        rawMetrics,
+        BREAKOUT_REQUESTABLE_METRICS,
+      )
+      if (keys.length > 0) {
+        const unavailable = allUnavailable.filter((key) => keys.includes(key))
+        return ok({
+          ageWeek: resolved.row.ageWeek,
+          requested: keys.map((key) => {
+            const spec = BREAKOUT_REQUESTABLE_METRICS.find((entry) =>
+              entry.key === key
+            )!
+            return {
+              metric: key,
+              value: resolved.row[spec.field],
+              unit: spec.unit,
+            }
+          }),
+          // Even though some tokens resolved, any unresolved tokens must
+          // still surface: silently dropping them means the model answers
+          // only the part it understood and treats the rest as answered,
+          // per the voice policy's "requested list IS the answer" rule.
+          ...(unknown.length > 0 ? { unknownMetrics: unknown } : {}),
+          ...(unavailable.length > 0 ? { unavailable } : {}),
+          context: { ...resolved.row },
+        })
+      }
+      // A metrics arg was given but none of its tokens matched a known
+      // metric key: never silently degrade to the full flat row -- that
+      // would hand the model unrequested metrics it might read aloud. Return
+      // the shaped payload with an empty `requested` and the raw tokens that
+      // didn't resolve, so the caller can see what was misunderstood.
+      return ok({
+        ageWeek: resolved.row.ageWeek,
+        requested: [],
+        ...(unknown.length > 0 ? { unknownMetrics: unknown } : {}),
+        ...(allUnavailable.length > 0 ? { unavailable: allUnavailable } : {}),
+        context: { ...resolved.row },
+      })
+    }
+
+    return ok(
+      allUnavailable.length > 0
+        ? { ...resolved.row, unavailable: allUnavailable }
+        : { ...resolved.row },
+    )
+  }
   const { status, ...rest } = resolved
   return ok({ status, ...rest })
 }
@@ -230,12 +434,37 @@ const BREED_METRIC_SOURCES: readonly {
   label: string
   unit: string
 }[] = [
-  { metricKey: 'hatchabilityPct', actualKey: 'hatchabilityPct', label: 'Hatchability', unit: '%' },
-  { metricKey: 'fertilityPct', actualKey: 'fertilityPct', label: 'Fertility', unit: '%' },
-  { metricKey: 'hofPct', actualKey: 'hofPct', label: 'Hatch of fertile', unit: '%' },
-  { metricKey: 'productionPct', actualKey: null, label: 'Production', unit: '%' },
+  {
+    metricKey: 'hatchabilityPct',
+    actualKey: 'hatchabilityPct',
+    label: 'Hatchability',
+    unit: '%',
+  },
+  {
+    metricKey: 'fertilityPct',
+    actualKey: 'fertilityPct',
+    label: 'Fertility',
+    unit: '%',
+  },
+  {
+    metricKey: 'hofPct',
+    actualKey: 'hofPct',
+    label: 'Hatch of fertile',
+    unit: '%',
+  },
+  {
+    metricKey: 'productionPct',
+    actualKey: null,
+    label: 'Production',
+    unit: '%',
+  },
   { metricKey: 'eggWeightG', actualKey: null, label: 'Egg weight', unit: 'g' },
-  { metricKey: 'chickWeightG', actualKey: null, label: 'Chick weight', unit: 'g' },
+  {
+    metricKey: 'chickWeightG',
+    actualKey: null,
+    label: 'Chick weight',
+    unit: 'g',
+  },
 ]
 
 /**
@@ -249,16 +478,32 @@ const BREAKOUT_METRIC_SOURCES: readonly {
   label: string
 }[] = [
   { metricKey: 'infertilePct', actualKey: 'infertilePct', label: 'Infertile' },
-  { metricKey: 'early24hPct', actualKey: 'early24hPct', label: 'Early dead 24h' },
-  { metricKey: 'early48hPct', actualKey: 'early48hPct', label: 'Early dead 48h' },
+  {
+    metricKey: 'early24hPct',
+    actualKey: 'early24hPct',
+    label: 'Early dead 24h',
+  },
+  {
+    metricKey: 'early48hPct',
+    actualKey: 'early48hPct',
+    label: 'Early dead 48h',
+  },
   { metricKey: 'bloodRingPct', actualKey: 'bloodRingPct', label: 'Blood ring' },
   { metricKey: 'blackEyePct', actualKey: 'blackEyePct', label: 'Black eye' },
   { metricKey: 'earlyDeadPct', actualKey: 'earlyDeadPct', label: 'Early dead' },
   { metricKey: 'midDeadPct', actualKey: 'midDeadPct', label: 'Mid dead' },
   { metricKey: 'lateDeadPct', actualKey: 'lateDeadPct', label: 'Late dead' },
-  { metricKey: 'externalPipPct', actualKey: 'externalPipPct', label: 'External pip' },
+  {
+    metricKey: 'externalPipPct',
+    actualKey: 'externalPipPct',
+    label: 'External pip',
+  },
   { metricKey: 'crackedPct', actualKey: 'crackedPct', label: 'Cracked' },
-  { metricKey: 'contamPct', actualKey: 'contaminatedPct', label: 'Contaminated' },
+  {
+    metricKey: 'contamPct',
+    actualKey: 'contaminatedPct',
+    label: 'Contaminated',
+  },
 ]
 
 async function compareSelectedAuditToBenchmark(

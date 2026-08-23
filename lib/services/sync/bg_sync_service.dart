@@ -60,7 +60,9 @@ class BgSyncService extends ChangeNotifier {
       StartupTimer.lap('bg_sync_customers_loaded');
 
       _state = BgSyncState.completed;
-      _message = 'Sync complete';
+      _message = outcome.hasFailures
+          ? 'Sync incomplete — ${outcome.failureSummary}'
+          : 'Sync complete';
       _progress = 1;
       await settingsProvider?.recordSync(
         online: outcome.online,
@@ -68,6 +70,7 @@ class BgSyncService extends ChangeNotifier {
         pulled: outcome.pulled,
         incoming: outcome.incomingSessions,
         otherIncoming: outcome.otherIncomingCount,
+        error: outcome.failureSummary,
       );
       notifyListeners();
       StartupTimer.report();

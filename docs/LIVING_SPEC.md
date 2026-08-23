@@ -15,7 +15,7 @@ This file describes only how the app works today. It is not a history.
 
 ## 1. Last Updated
 
-2026-08-14
+2026-08-16
 
 Mapped from the working tree under `lib/`, covering app bootstrap, navigation,
 audit and station screens, providers, models, repositories, services, and the
@@ -270,20 +270,59 @@ customer-role users. Pip is open to every approved role because the Edge
 Function resolves each caller's own customer scope server-side rather than
 trusting the client.
 
-The Pip destination opens `AssistantChatScreen`, an in-app chat with the same
-hatchery agent that serves Telegram, by text or by voice. It shows the current
-conversation oldest-first, a multiline input with send and mic buttons, a
-thinking indicator while a reply is outstanding, an empty state before the
-first message, and an error banner with a retry action. While the shared network
-monitor reports offline the input is disabled behind a short notice, because
-the conversation runs entirely against the Edge Function and has no local
-fallback. An app-bar action clears the conversation after a confirmation
-dialog. The mic control starts recording and, on the next tap, stops and sends
-the recording. The screen offers no photo or file attachment; see the
-`AssistantProvider` section below for recording and spoken-reply behavior. Its
-labels, states, notices, errors, and action tooltips are available in English
-and Arabic. `AssistantProvider` is created at this tab rather than with the root
-providers, so it exists only while the Pip tab is built.
+The Pip destination is conversation-centric: the tab's root is
+`PipConversationsScreen`, a day-grouped list (Today/Yesterday/Earlier, by the
+local calendar date of each conversation's `updatedAt`) of every conversation
+the caller has with the shared hatchery agent, each row showing its title (or
+a preview/"Voice conversation" fallback when untitled), a last-message
+preview, and a time/date label. A FAB starts a new conversation by minting a
+fresh `'app:'+uuid-v4` key and opening it immediately — the server creates the
+row lazily on the first send, so an abandoned new-conversation tap never
+leaves a placeholder in the list. `PipConversationsProvider` owns the list
+(`load()`/`refresh()`, an `uninitialized`/`loading`/`loaded`/`error` state);
+`groupConversationsByDay` is the pure day-bucketing function. Tapping a tile
+(or the FAB) pushes `AssistantChatScreen` in its own route with its own
+`AssistantProvider(conversationKey: ...)`, so each open conversation keeps its
+own history independent of the others and switching shell tabs and back always
+lands back on the list rather than mid-thread; returning from a pushed
+conversation refreshes the list so its new preview/title/ordering shows
+immediately.
+
+`AssistantChatScreen` is one persistent conversation thread with the same
+hatchery agent that serves Telegram, by text or by voice; Live (see 7.af) is a
+mode reachable from inside that same thread rather than a separate
+destination. It shows the conversation oldest-first, a multiline input with
+send and mic buttons, a thinking indicator while a reply is outstanding, an
+empty state before the first message, and an error banner with a retry action.
+A turn whose `source` is `'voice'` (a finalized Realtime call transcript,
+distinct from the mic button's own request/response recording) renders with a
+small mic glyph and a distinct bubble tint instead of the plain role-based
+styling. While the shared network monitor reports offline the input is
+disabled behind a short notice, because the conversation runs entirely against
+the Edge Function and has no local fallback. An app-bar action clears the
+conversation after a confirmation dialog. The mic control starts recording
+and, on the next tap, stops and sends the recording. The screen offers no
+photo or file attachment; see the `AssistantProvider` section below for
+recording and spoken-reply behavior. Its labels, states, notices, errors, and
+action tooltips are available in English and Arabic. `AssistantProvider` is
+created per pushed conversation route rather than with the root providers, so
+it exists only while that conversation's screen is on the stack.
+
+`conversationKey` identifies which conversation a screen shows: `'app'` is the
+legacy single-thread key (still what a Pip Live call started with no
+conversation context binds to) and `'app:'+uuid-v4` keys any other
+conversation; the key is carried through `AssistantChatScreen`,
+`AssistantProvider`, `AssistantChatService`/`AssistantChatPort` (every
+call — `sendMessage`, `sendVoice`, `loadHistory`, `resetConversation` — takes
+it, defaulting to `defaultConversationKey`), `RealtimeVoiceController.start`,
+and `RealtimeVoiceScreen`, and is opaque to the client: it never determines
+which conversation's turns are loaded on its own (the provider/service call
+does), it is just the label passed through to identify the request. While a
+live call for a conversation is active, `AssistantChatScreen` listens for that
+call reaching `idle` and, if the call belonged to its own `conversationKey`,
+reloads history exactly once — this is how a call's persisted transcript
+(written server-side by the sideband) appears in the visible thread without
+the user leaving and reopening the conversation.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
@@ -1715,11 +1754,15 @@ tracks selected breed, selected ages, and selected egg-breakout type, and
 upserts internal BMK admin edits back into the same `bmk_breeds` and
 `bmk_egg_breakout` rows used by audit and dashboard benchmark lookups.
 
-`AssistantProvider` owns the in-app assistant chat: an ordered `ChatMessage`
-list, an `AssistantLoadState` of uninitialized, loading, loaded, or error, and
-the send/retry/clear actions. A `ChatMessage` carries its role (`user` or
-`assistant`) and, for outgoing messages, a `sending`, `sent`, or `failed`
-status. Sending appends the user message optimistically before the request
+`AssistantProvider` owns one conversation's in-app assistant chat, bound to
+the `conversationKey` it is constructed with (default `'app'`, the legacy
+thread): an ordered `ChatMessage` list, an `AssistantLoadState` of
+uninitialized, loading, loaded, or error, and the send/retry/clear actions. A
+`ChatMessage` carries its role (`user` or `assistant`), a `source` (`'text'`
+or `'voice'`, exposed as `isVoice` — `'voice'` marks a turn that came from a
+finalized Pip Live call transcript rather than the mic button's own
+recorded-clip round trip) and, for outgoing messages, a `sending`, `sent`, or
+`failed` status. Sending appends the user message optimistically before the request
 returns; a failed send keeps the message visible in `failed` state and `retry`
 resends it under the same `clientMessageId`, so a reply that was produced but
 not received is returned instead of asking the model twice. `canRetry(message)`
@@ -1751,6 +1794,20 @@ copy keeps `Pip` in Latin script. A static, clean ChickMark avatar appears in
 the chat header, empty state, assistant messages, and thinking state, while
 user messages receive no avatar. The avatar has no sparkle, badge, or other
 AI-brand symbol.
+
+Each message bubble renders `message.text` through `GptMarkdown` instead of
+plain `Text`, so bold, numbered/bulleted lists, and other markdown the agent
+replies with render as formatted content rather than literal syntax
+characters. Its `textDirection` is set per message by
+`TextDirectionDetector.detect`, which walks the message's characters and
+returns `TextDirection.rtl` on the first strong-direction character from
+Hebrew/Arabic script (and their presentation-form blocks), `ltr` on the first
+Latin letter, defaulting to `ltr` when neither appears — this follows the
+Unicode Bidi algorithm's paragraph-direction rule (P2/P3) rather than the
+screen's ambient locale, so an Arabic reply renders right-to-left even inside
+an English-locale screen and vice versa, and a bubble is never forced into the
+wrong direction just because the app locale doesn't match the reply's
+language.
 
 `AssistantProvider` also owns voice-turn state behind an `AssistantAudioRecorder`
 and an `AssistantAudioPlayer`, both constructor-injectable so tests never touch
@@ -1826,7 +1883,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 58. The database file
+The app uses SQLite through `sqflite` at database version 59. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -1985,6 +2042,27 @@ local reference tables — `bmk_breeds`, `bmk_egg_breakout`, and
 `syncError` columns at all and are not part of this dirty-guarded push/pull
 path (their pulls always overwrite, since they are pull-only).
 
+Version 59 lets the local mirror hold app-channel staff links. It rebuilds
+`telegram_staff_links` through a shadow table so `telegramUserId` becomes
+nullable and loses its column-level `UNIQUE`, adds `channel` (defaulting to
+`telegram`) and `appUserId`, and replaces the dropped uniqueness with partial
+unique indexes over the non-null `telegramUserId` and `appUserId` values. Rows
+are copied, counted, and foreign-key checked before the swap. The unified-agent
+guards are dropped for the rename, because SQLite reparses every trigger during
+`ALTER TABLE` and a sparse legacy database can be missing a table an unrelated
+guard references; the staff-link guards are recreated immediately and the rest
+by the surgical repair pass at `onOpen`.
+
+Two pull behaviours make a schema mismatch like that visible instead of silent.
+`SupabaseService.pullOperationalRows` catches per row rather than per table, so
+one unusable row no longer discards the rest of its table, and it reports how
+many of the fetched rows applied. `PerformanceSyncRepository._upsertById` logs
+when neither its `INSERT OR IGNORE` nor its fallback `UPDATE` touched a row —
+the signature of a local constraint rejecting a cloud row, which SQLite's
+`OR IGNORE` suppresses for NOT NULL, UNIQUE, and CHECK violations (but not for
+foreign keys, which is why the children of a dropped parent kept failing
+loudly while the parent's own loss went unrecorded).
+
 The v56 local upgrade and the checked-in Supabase migration also apply the same
 conservative legacy-flock sector repair. When the deployed schema includes the
 optional farm and customer-sector catalogs, an unassigned flock first inherits
@@ -2025,14 +2103,80 @@ status, duration, bounded access scope, and optimistic state versions through an
 evidence port. Tool definitions and evidence never contain service credentials,
 unrestricted table names, raw attachment bytes, or secret-shaped values.
 
+That catalog is a stable, versioned contract rather than a view of the physical
+schema. `agent_tool_contract.ts` holds the only model-facing surface — each
+tool's name, description, and JSON-Schema parameters — under
+`AGENT_TOOL_CONTRACT_VERSION` (currently `1.2.0`), and `AGENT_TOOL_DEFINITIONS`
+in `agent_tools.ts` is derived from it, so there is exactly one source of truth
+for the model, the runtime's known-tool set, and the gateway's argument
+validation. The contract moves only when a business capability changes;
+migrations that rename a column or reshape a table change only the tool
+handler's query, never the contract. `contractFingerprint()` is a stable FNV-1a
+digest over the canonicalised contract, and `agent_tool_contract_test.ts` pins
+both that fingerprint and a full inline snapshot of every tool name, parameter,
+required flag, and enum, so any drift fails the build until the version is
+deliberately bumped. The same test pins the flat tool-definition shape
+(`{type, name, description, parameters}`) that the OpenAI Realtime API
+requires, rather than the nested Chat-Completions `{type, function:{…}}` form.
+
 Customer-data tools can now return the enforced customer's identity, flock
 list, flock status/breed/sector/entry date, and an exact age calculated for the
 query date. The model receives customer IDs only through scoped read tools, not
 through its trusted prompt or scope summary. When a user supplies customer and
-flock names, an exact Arabic-normalized resolver evaluates them together; a
-unique flock can disambiguate duplicate customer names, while missing or
-multiple matches return structured clarification candidates instead of choosing
-an ID. Versioned station reads derive their table and selectable columns
+flock names, `resolve_customer_flock` evaluates them together through a
+matching ladder in `agent_name_match.ts`. Names are folded to a comparison key
+first — harakat, tatweel, zero-width marks and directional marks removed; أ إ آ
+ٱ to ا, ى and ئ to ي, ؤ to و, ة to ه; Arabic-Indic and Eastern Arabic-Indic
+digits to 0-9; whitespace collapsed; Latin lowercased — then split into word
+tokens on every non-alphanumeric run. Three tiers are tried in decreasing
+confidence and the FIRST tier that produces any match wins outright: `exact`
+(identical token sequence), `prefix` (the stored name begins with the spoken
+one, on a token boundary), then `contains` (the spoken token run appears
+anywhere inside the stored one). This is what lets a caller say `بدر` and
+resolve the flock stored as `بدر - 25 Oct 2025 - Avian`; matching on tokens
+rather than substrings means a match always starts and ends on a word boundary,
+so `ابر` can never match `صابر`. The two fallback tiers also strip a leading
+Arabic definite article from both sides, so `البدر` finds `بدر` and `امل` finds
+`الأمل`; the exact tier stays strict, because if both spellings exist as
+separate flocks the caller must be told rather than guessed at. The `contains`
+tier — the only one that may match the MIDDLE of a stored name — additionally
+requires at least three characters and at least one letter: a stored flock name
+carries its entry date and breed as tokens, so without that guard an operator
+saying "flock 25" would resolve, confidently and uniquely, to whichever flock
+happened to be entered on the 25th.
+
+The fold is deliberately one-way. `normalizeOperationalName` merges the
+spellings a name can be written with; `strictOperationalKey` performs the same
+NFKC/marks/invisibles/digits/whitespace pass WITHOUT the letter equivalences.
+The pair exists because `هانئ` and `هاني` are different people who collide
+once hamza is folded, and "these fold together" must never be mistaken for
+"these two database rows carry the same name".
+
+Ambiguity is never resolved by guessing: every match in the winning tier is
+reported. A single match resolves and the result names the tier in `matchedBy`;
+more than one returns `ambiguous_customer` or `ambiguous_flock`. `matchedBy` reports BOTH tiers
+(`{customer, flock}`), so a customer reached by a contained word and a flock
+matched exactly cannot be presented as simply "exact" — the model keeps the
+signal that the weaker half was guessed.
+
+Flock matching runs only over the matched customers' own rosters, which are
+themselves re-filtered to `allowedCustomerIds`. More than one matching customer
+is refused outright rather than disambiguated by the flock name, UNLESS the
+match was exact AND the candidates' fold-free keys agree — that is, unless they
+really are spelled the same, which is the one case where the flock is the only
+way to answer at all. Every non-resolved status carries candidate IDs with
+names — `customer_not_found` returns the customers the caller may see, and both
+flock statuses return the roster as `{id, name}` pairs — so the model can pick,
+or ask one question naming real options, instead of repeating the question the
+caller already answered.
+
+Every roster carries `truncated`. `list_customers` and `resolve_customer_flock`
+read at most `MAX_AGENT_READ_ROWS` customers in name order, and an `admin`
+staff link is scoped to every customer — so past that cap a real tenant is
+invisible to every name-based tool, and the honest answer ("I can only see the
+first hundred") used to come out as the confident wrong one ("there is no such
+customer"). A list is omitted rather than silently shortened whenever it is
+incomplete, for the same reason the inline flock roster is. Versioned station reads derive their table and selectable columns
 only from the canonical registry, always inject customer scope, optionally
 verify flock ownership, use inclusive bounded dates, keep nulls as null, and
 return at most 100 records in stable date/ID order. Provenance reports the
@@ -2051,8 +2195,28 @@ numbered reply calls `select_audit_option` with only a one-based position from
 confirmation question, an affirmative reply selects position 1. The server
 uses the injected conversation ID to load that conversation's latest
 successful audit-list snapshot, so a newly inserted audit cannot remap an
-already displayed number. The selected opaque audit ID is then revalidated
-through the current customer scope before its summary is returned.
+already displayed number. That lookup searches BOTH doors' evidence, because
+the two record a tool call differently: the text doors write
+`agent_tool_events.conversation_turn_id`, while the realtime broker writes it
+NULL by design and links back through `realtime_session_id`, so the snapshot is
+found through `agent_realtime_sessions.conversation_id` as well and the newer of
+the two wins. Both sides are filtered by the conversation's CURRENT
+`context_epoch`, so a cleared conversation cannot serve the user the list they
+threw away; the turn side is ordered by `conversation_seq` rather than
+`created_at`, which is the same rule the history loader follows and for the
+same reason. The cross-door "newer wins" comparison is a plain string
+comparison, deliberately not `localeCompare` — ICU collation treats punctuation
+as variable-weight and inverts on timestamps whose fractional-second parts
+differ in length, and `created_at` is a text column with nothing enforcing one
+rendering. An option list read aloud on a live call is therefore selectable
+by the number the caller says. The selected opaque audit ID is then revalidated
+through the current customer scope before its summary is returned. A refusal
+names its recovery: `audit_options_required` when nothing has been listed in
+this conversation yet, `audit_position_out_of_range` (with `optionCount`) when
+the number is off the end of the list. A snapshot naming a customer outside the
+caller's scope still returns a bare `scope_denied`, identical to an unknown or
+unauthorized audit, so nothing about another tenant leaks through the shape of
+the refusal.
 `get_audit_summary` accepts no model-supplied audit ID and can only reload the
 audit already selected in the server conversation context. The model never
 reconstructs IDs or re-lists an ordinal mapping.
@@ -2100,7 +2264,31 @@ breed's own `coveredWeeks` min/max instead of substituting or interpolating a
 nearby week's value. `get_egg_breakout_benchmark` takes only an age in weeks
 and follows the same never-substitute contract against `bmk_egg_breakout`,
 reporting `week_out_of_range` with the table's covered week range when no row
-matches. Both tools are pure lookups with no write path.
+matches. Both tools are pure lookups with no write path. `get_egg_breakout_benchmark`
+accepts the same optional `metrics` argument as `get_breed_benchmark`, with
+keys `infertile`, `early_24h`, `early_48h`, `blood_ring`, `black_eye`,
+`early_dead`, `mid_dead`, `late_dead`, `external_pip`, `cracked` and
+`contaminated` (`BREAKOUT_REQUESTABLE_METRICS`; `contaminated` maps to the
+`contamPct` column), and returns the same
+`requested`/`unavailable`/`unknownMetrics`/`context` shape. A `metrics`
+argument whose tokens match no known key returns an empty `requested` plus
+`unknownMetrics` and never degrades to the flat eleven-field row, which is
+what previously caused the model to read every metric aloud.
+
+`get_breed_benchmark` also accepts an optional `metrics` argument: a
+comma/space-separated list of keys from `production`, `hatchability`,
+`fertility`, `hof`, `egg_weight`, `chick_weight` (`bmk_tools.ts`'s
+`BREED_REQUESTABLE_METRICS`, parsed by `parseRequestedMetrics`). When one or
+more known keys are supplied, a resolved lookup returns a shaped payload —
+`{ breed, ageWeek, requested: [{ metric, value, unit }, ...], context: {
+...fullRow } }` — instead of the flat row: `requested` carries only the asked-
+for fields in request order (deduplicated), and `context` carries the
+complete row for the model's own understanding, not for reciting. An
+unrecognized or empty `metrics` string (or the argument omitted entirely)
+falls back to the original flat `{ ...row }` shape unchanged. This exists so
+the realtime voice channel can ask for exactly the metric it needs instead of
+receiving every metric on every lookup; the miss paths (`breed_not_found`,
+`week_out_of_range`) are unaffected by `metrics`.
 
 A third benchmark tool, `get_operational_standards`, reads
 `bmk_operational_standards` instead and, unlike the two global lookups above,
@@ -2180,17 +2368,149 @@ through: `availableBreeds` on `breed_not_found`, and `breed` plus
 own "say what is covered and ask" prompt rule straight from an auto-attached
 block, with no second tool call.
 
+The voice policy (`CHICKMARK_REALTIME_POLICY` only — the typed policy is
+unchanged) additionally carries a "Report vs benchmark routing" block. It
+exists because a live call asked for the last breakout REPORT
+("إيه آخر تقرير break out موجود عندك؟") and was answered from the published
+standard. The block draws exactly one distinction — a published STANDARD
+versus a recorded AUDIT REPORT — and states that nothing else about tool
+choice changes. The decision is made silently from the user's wording: the
+model must never ask the user which of the two they meant, nor offer them as
+options. Ambiguous wording DEFAULTS to the standard, and a question that
+gives a flock age in weeks or names no customer is a standard question
+answered without asking who the customer is. Only wording that actually names
+recorded data (آخر تقرير، آخر breakout، آخر audit، التقرير بتاع العميل،
+النتيجة بتاعتنا، السجل) routes to `resolve_customer_flock`,
+`list_customer_audits`, `select_audit_option`, `get_audit_summary`,
+`get_selected_audit_breakouts` and `compare_selected_audit_to_benchmark`; a
+report request is never answered from a benchmark tool, and when no customer
+is resolved the model asks exactly one short question and calls no benchmark
+tool that turn. Arguments are never carried forward from an earlier benchmark
+turn into a report request. The block also records that the egg-breakout
+standard is age-only, so the model must not ask which breed before calling
+`get_egg_breakout_benchmark`, and that questions which are neither a standard
+nor an audit report (flock counts, customer and flock contexts, hatcheries,
+station records) keep their existing tools. Each of those last constraints was
+added after live canaries caught the model demanding a breed for the
+breed-less table, asking "لأي عميل؟" for plain standard questions, and asking
+the user out loud whether they meant a standard or a report.
+
 The agent's system prompt (`CHICKMARK_AGENT_POLICY` in
 `supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) carries a
 "Benchmark discipline" rules block: benchmark figures may only come from
 `get_breed_benchmark`, `get_egg_breakout_benchmark`, and
 `get_operational_standards` -- the agent must never state a benchmark from
 memory; any benchmark figure must be stated alongside its breed and age in
-weeks; a `breed_not_found`/`week_out_of_range` tool result must be relayed as
-what is covered plus a clarifying question, never interpolated,
-extrapolated, or answered with a nearby week; and judging how an audit
-performed must go through `compare_selected_audit_to_benchmark` rather than
-the agent subtracting numbers itself.
+weeks; the `breed` argument to `get_breed_benchmark` must be the Latin-script
+breed name — a breed the user names in Arabic script or informally (روس,
+كوب/كاب, هبرد) is transliterated before the tool call, never passed in Arabic;
+on `breed_not_found` the agent compares the user's wording against the returned
+`availableBreeds` and, when exactly one entry plausibly matches, asks a single
+"do you mean X?" confirmation (e.g. هل تقصد سلالة كوب 500؟) and only calls the
+tool with that breed after the user confirms — only when nothing plausibly
+matches does it fall back to listing what is covered; a `week_out_of_range`
+tool result must be relayed as what is covered plus a clarifying question,
+never interpolated, extrapolated, or answered with a nearby week; and judging
+how an audit performed must go through `compare_selected_audit_to_benchmark`
+rather than the agent subtracting numbers itself.
+
+The same prompt's "Conversation behavior" block requires the model to output
+only the final user-facing reply: internal planning, conversation analysis,
+policy/tool deliberation, and third-person self-narration ("We need to
+interpret the user's request", "the assistant should") are explicitly
+forbidden from the reply text. This guards against reasoning-style models
+(the OpenRouter path in particular) bleeding their chain-of-thought into the
+message channel. The Responses provider caps each model call at
+`max_output_tokens: 2400` (raised from 1200, which reasoning models could
+exhaust mid-answer, truncating the reply).
+
+`CHICKMARK_AGENT_POLICY` (Telegram and typed Pip only — NOT
+`CHICKMARK_REALTIME_POLICY`, which is parked) also carries a "Grounding
+guard" block, added at `CHICKMARK_AGENT_POLICY_VERSION` 1.2.0: a value that
+belongs to a specific flock, hatchery, farm, user, session, production
+record, metric, or other database state must come from an appropriate tool
+result or already-grounded trusted context earlier in the conversation —
+never invented, estimated, interpolated, or carried over from an example, a
+similar-sounding record, or a benchmark figure. When such a value is needed
+and nothing grounds it, the model says it is unavailable or asks one focused
+clarification rather than producing a number. The rule is deliberately
+scoped narrower than it might read at first: it does not restrict general
+veterinary/husbandry reference knowledge that is not specific to this user's
+own data, and it does not restrict arithmetic on values the user themselves
+already supplied earlier in the same conversation, so the model is not
+pushed into over-refusing ordinary questions it can safely answer.
+
+An on-demand text-agent model-acceptance harness lives in
+`supabase/functions/app-hatchery-agent/evals/` (see its README), built to
+decide whether a candidate OpenRouter model is fit to drive this agent.
+`google/gemma-4-31b-it:free` (fallback `openai/gpt-oss-20b:free`) passed this
+harness and was the OpenRouter default through 2026-08-19. As of 2026-08-20
+the OpenRouter text default moved to the PAID (non-`:free`) tier for
+reliability: primary `openai/gpt-oss-120b`, fallback `openai/gpt-oss-20b` —
+see `resolveOpenRouterTextModels` in `_shared/pip_model_routing.ts` and the
+fallback ladder described below. `google/gemma-4-31b-it` (the same model,
+paid tier) was kept on as a separate, dedicated VISION model rather than
+retired, because `openai/gpt-oss-120b`/`-20b` are text->text only and cannot
+accept image or video input — see "Vision routing" below.
+Unlike
+the Pip Realtime harness it is modeled on
+(`services/pip-realtime-sideband/evals/`), it drives the REST
+`/v1/responses` endpoint rather than a WebSocket, because that is what this
+agent's provider actually uses, and it imports the real production artefacts
+directly rather than re-declaring them: `AGENT_MODEL_TOOL_DEFINITIONS` from
+`agent_tools.ts`, `buildAgentInstructions` from `agent_prompt.ts`, and a
+request body and multi-round tool loop copied field-for-field from
+`createResponsesAgentProvider`/`runAgentTurn`. `run_probe.ts` is a fast
+7-check tool-calling compatibility gate; `run_evals.ts` is an 18-scenario,
+9-dimension scored acceptance suite runnable against any `--model` so two
+candidates get the identical suite, with `--json` output for cross-model
+diffing. Both cost real money against a live provider and are, like the Pip
+Realtime suites, deliberately not part of `deno test`. One dimension,
+`report_vs_benchmark`, is a genuinely open question for this channel rather
+than a check against a documented rule: the explicit "Report vs benchmark
+routing" section (`REPORT_VS_BENCHMARK` in `agent_prompt.ts`) is voice-only
+and is not part of `CHICKMARK_AGENT_POLICY`, the prompt this harness actually
+sends — see the harness's own README for why that matters when reading a
+failure on that dimension.
+
+The same `evals/` directory also has a separate, on-demand MODEL-VS-MODEL
+COMPARISON suite (`models.ts`, `comparison_scenarios.ts`, `run_comparison.ts`)
+that answers a different question than the acceptance harness above: not "is
+this one model fit to be the default", but "of several PAID OpenRouter
+candidates that all advertise tool support, which is the cheapest one that
+still meets our reliability bar". It is a pure evaluation tool — running it
+never changes the live default model, a secret, or any runtime file; only the
+human deciding the outcome does that separately. `models.ts` hand-pins a
+pricing snapshot (dated) for five candidates —
+`openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `qwen/qwen3-30b-a3b-instruct-2507`,
+`deepseek/deepseek-v4-flash-0731`, and `google/gemma-4-31b-it` (the current
+production default, included as the baseline, not because it's cheapest) —
+and `run_comparison.ts` re-verifies that snapshot against OpenRouter's live
+`/v1/models` at startup, aborting before spending anything if an id has
+vanished, no longer advertises `tools`, or its price has drifted.
+`comparison_scenarios.ts` reuses `agent_client.ts`'s real transport and
+`scenarios.ts`'s assertion primitives for 45 scenarios across 9 dimensions
+(Arabic/mixed-language intent, tool selection, tool arguments, tool-result
+reasoning, progressive disclosure, brevity, hallucination/grounding,
+multi-turn conversations, and degradation under a long/loaded conversation).
+`run_comparison.ts` runs every scenario `--repeats` times per model (default
+3, since temperature 0 was observed not to guarantee identical tool choices
+across runs) to separate a consistent defect from noise, retries a transient
+transport error with backoff and marks a scenario-repeat that still can't
+complete `INCONCLUSIVE` (excluded from every pass-rate metric and reported
+separately, never scored as a model failure), and enforces a real-money
+`--max-cost` budget guard (default $2.00) checked before every scenario-repeat
+against OpenRouter's own reported `usage.cost` — `agent_client.ts`'s
+`Round`/`TurnResult` were extended, additively, to parse and return that
+`usage` block (tokens and cost) for exactly this purpose. It reports, per
+model, a weighted composite score (30% tool selection+arguments, 20%
+grounding, 20% Arabic/mixed, 15% scope/progressive-disclosure/brevity, 10%
+latency, 5% cost) alongside a separate hard PASS/FAIL gate — any failing
+assertion in tool selection, tool arguments, hallucination/grounding,
+multi-turn, or degradation-under-load disqualifies a model regardless of its
+weighted score — plus estimated cost per 1000 realistic Pip turns (derived
+from the measured calls-per-turn ratio in that run). Like the acceptance
+harness, it is deliberately not part of `deno test`.
 
 Shared calculation parity vectors now verify the Dart and Edge implementations
 of percent-of, sample CV, uniformity, Pasgar score, fertility, hatchability, and
@@ -2248,10 +2568,77 @@ the 20-second turn budget, and preserve reasoning/function output items needed
 by the provider protocol. Malformed and unknown calls never reach a handler,
 tool data cannot add instructions or capabilities, and provider
 unavailability returns an infrastructure status for the webhook boundary.
-OpenRouter HTTP 402 fallback remains contained inside the provider adapter.
-Diagnostic provider-response identities are bounded to 160 characters, and
-the stored model prefers the concrete model returned by the provider over a
-routing alias when that metadata is available.
+For the OpenRouter provider, `createResponsesAgentProvider` (`agent_provider.ts`)
+runs a one-step fallback ladder rather than a single hardcoded retry:
+`classifyProviderFailure` classifies each attempt's failure into an exact
+reason-code table. Fallback-eligible (retried once on the configured
+fallback model): a transport error, the provider's own per-attempt timeout,
+HTTP 400/402/404/408/429/5xx, an HTTP 200 body carrying an error envelope
+instead of a result, a malformed body, or an empty `output` array.
+Not eligible (thrown immediately, no fallback): HTTP 401/403 (a bad or
+blocked key — a second model cannot fix that), HTTP 413 (the fallback has a
+SMALLER context window, so retrying only makes it worse), and an
+already-expired turn deadline, which is rethrown untouched rather than
+classified. At most one fallback attempt happens per `respond()` call, never
+to a fallback that is absent, blank, or equal to the primary, and never to
+the paid OpenAI API — the fallback stays on OpenRouter. Once the primary has
+failed eligibly once within a turn, later `respond()` calls in that SAME turn
+skip the doomed primary attempt entirely and go straight to the fallback
+model ("sticky" fallback), because a rate-limited or unavailable model does
+not usually recover mid-turn; stickiness lives on the provider instance,
+which both doors construct fresh per incoming request, so it never survives
+into a later turn. Diagnostic provider-response identities are bounded to
+160 characters, and the stored model prefers the concrete model returned by
+the provider over a routing alias when that metadata is available.
+
+**Vision routing.** Before choosing a model, `respond()` inspects the call's
+`input` for visual content (`requestIsVisual` in `agent_provider.ts`): any
+content part with `type === 'input_image'`, or an `input_file` part whose
+filename or MIME type indicates an image or video (`.jpg`, `.png`, `.mp4`,
+`video/*`, etc.). A visual call is routed to `ResponsesAgentProviderConfig.
+visionModel` instead of the text `model`/`fallbackModel` pair; when no
+`visionModel` is configured (true for the OpenAI-provider branch of both
+doors today), a visual call just takes the ordinary text route, unchanged
+from before vision routing existed. `visionModel` defaults to
+`google/gemma-4-31b-it` (paid tier) via `resolveOpenRouterTextModels(...)
+.vision` in `_shared/pip_model_routing.ts`, overridable with
+`OPENROUTER_VISION_MODEL`.
+The text fallback model (`openai/gpt-oss-20b`) is text->text and cannot
+accept image or video input, so a failed vision call NEVER falls back to it
+— that would guarantee a second failure, not retry anything. The vision
+route has its own, entirely independent, optional fallback,
+`visionFallbackModel` (env `OPENROUTER_VISION_FALLBACK_MODEL`), which
+defaults to UNSET: with no vision fallback configured, a failed vision call
+throws `AgentProviderError` as that call's terminal outcome, with telemetry
+intact, after exactly one attempt. Sticky fallback (above) is tracked as two
+separate reasons, one per route, inside the same provider instance — a text
+call going sticky within a turn never forces a later vision call in that
+same turn onto a text model, and vice versa; each route only ever remembers
+its own prior failure. `AgentProviderTelemetry` carries `visionRouted:
+boolean` so a call's route is visible in the aggregated per-turn telemetry
+below, and `requestedModel`/`actualModel` report the vision model, not the
+text primary, on that path.
+Both doors' `readAiConfig()` wire `visionModel`/`visionFallbackModel`
+through only on the OpenRouter branch, from `resolveOpenRouterTextModels`.
+The app door (`app-hatchery-agent/index.ts`) hardcodes `attachment: null`
+for every turn regardless of this wiring, so vision routing is reachable
+only from Telegram today; sending an image (or a video re-sent as a
+document, since Telegram's native video message type is not parsed by
+`describeSource` — see the source comment on `requestIsVisual`) is the only
+way to exercise it before the app gains its own attachment upload path.
+
+Every text-agent turn — replied or failed — emits one structured
+`agent_turn_telemetry` log line, aggregated across every `respond()` call the
+turn made (a turn can make several: one per tool-calling pass, plus the
+final-answer pass, and with sticky fallback different calls can land on
+different models): door, conversation id, turn status, provider, primary and
+fallback model, the models actually used in call order, whether/how many
+calls fell back and why, provider response ids, total latency, and tool-call
+count. It never logs message text, reply text, tokens, or provider keys. A
+`replied` turn's outbound row also persists this same turn-aggregated object
+in `agent_conversation_turns.provider_telemetry_json` (nullable); a failed
+turn writes no outbound row at all, so the log line is its only durable
+trace.
 The policy distinguishes an informational flock question from a request to
 record operational data: asking to review, explain, or compare existing flock
 data uses scoped read tools and cannot by itself propose an intake. Intake is
@@ -2360,8 +2747,63 @@ unknown values, and forbids guessing customer, flock, station, or breed names.
 One draft batch groups every returned row. The backend calculates hatchability
 as total production divided by positive eggs placed times 100, stores the raw
 structured extraction, and marks invalid-count or unresolved rows for review.
-This extractor remains available for existing draft records and compatibility
-tests; it is not the live authorized Telegram conversation router.
+This legacy compatibility extractor boundary remains available for existing
+draft records and compatibility tests; it is not the live Telegram webhook
+conversation path.
+
+Pip routes model choices by workload through one internal router. OpenAI typed
+app and Telegram conversations use `OPENAI_TEXT_MODEL` when it is set
+(trimmed), or `gpt-5-nano` by default; they never inherit the extraction-only
+`OPENAI_MODEL`. OpenRouter conversation routing remains explicitly configured
+with `OPENROUTER_MODEL` or `AI_MODEL`, defaulting to `openai/gpt-oss-120b`
+(text fallback `openai/gpt-oss-20b` via `OPENROUTER_FALLBACK_MODEL`), plus a
+separate vision route defaulting to `google/gemma-4-31b-it` via
+`OPENROUTER_VISION_MODEL` (optional fallback `OPENROUTER_VISION_FALLBACK_MODEL`,
+unset by default — see "Vision routing" above for why the text fallback is
+never reused for a failed vision call). The router also pins the live default to
+`gpt-realtime-2.1-mini`, recorded-note transcription to
+`gpt-4o-mini-transcribe`, and recorded-note speech to `gpt-4o-mini-tts`.
+Live-call captions (the Realtime session's own input-audio transcription,
+configured by the sideband) default to `gpt-4o-mini-transcribe` as well
+($0.003/min instead of `gpt-live-transcribe`'s $0.017/min); the live call
+itself never touches the standalone `/audio/transcriptions` or `/audio/speech`
+endpoints. The `languages` (plural) and `delay` transcription parameters are
+`gpt-live-transcribe`-only: any other model rejects the entire
+`session.update` with `invalid_value` (provider-named, live, 2026-08-17), so
+`buildSessionUpdate` includes them only for that model. The SINGULAR
+`language` field is different and is supported by the default model too —
+verified accepted for `gpt-4o-mini-transcribe` on a live probe connection
+(`tools/probe_session_knobs.ts`, 2026-08-19), echoed back as `"ar"`.
+`buildSessionUpdate` sends it, set from `PIP_REALTIME_TRANSCRIPTION_LANGUAGE`
+(default `ar`), for every transcription model except `gpt-live-transcribe`
+(which keeps only its own `languages`/`delay` shape); an empty string omits
+the field entirely and is the no-code-deploy rollback knob. The transcription
+prompt (`TRANSCRIPTION_PROMPT` in `src/session_config.ts`) is bilingual —
+Egyptian-Arabic framing and Arabic hatchery terms alongside the original
+English term list — replacing an English-only prompt that, combined with no
+language hint at all, had been biasing the transcriber into hallucinated
+English captions ("Hello, world.", "I'm Elly.", "In Tamil") over Egyptian
+Arabic audio, polluting stored conversation history.
+
+`session.max_output_tokens` caps a single spoken reply; the sideband had never
+set it before, and the provider's own default is unbounded (echoed `"inf"`,
+`tools/probe_session_knobs.ts`, 2026-08-19). It is set from
+`PIP_REALTIME_MAX_OUTPUT_TOKENS` (default `1536`, valid range 200-4096,
+out-of-range values fail startup rather than clamping). The default was
+chosen from measured `response.usage.output_tokens` for every reply size the
+voice policy allows (`tools/probe_output_tokens.ts`, 2026-08-19,
+`gpt-realtime-2.1-mini`, production session payload): a greeting costs 66
+tokens, a single metric 60, two metrics 145, a six-metric breed summary 488,
+and an eleven-metric dump — the shape of a 2026-08-19 incident — 761. The
+largest reply the policy legitimately permits is an EXPLICITLY requested full
+eleven-metric breakout summary, measured on the live canary path at 832 and
+865 tokens. 1536 is roughly 1.8x that, so ordinary variance cannot truncate a
+real answer mid-word (`max_output_tokens` truncation is not graceful; the
+response stops and comes back `incomplete`). It is deliberately not sized to
+cut the 761-token dump — that is cured at its source by the shaped tool
+payload and the report-vs-benchmark routing policy — and exists only as a
+backstop against an unanticipated payload.
+
 Before storing rows, the backend loads existing customers, flocks, and
 hatcheries and compares extracted identity names using Unicode-normalized,
 case-insensitive exact matching with collapsed whitespace. A uniquely matched
@@ -2447,8 +2889,8 @@ idempotently instead of becoming a new submission; this backend receipt table
 is intentionally excluded from the app's mirrored sync graph.
 
 The Edge Function reads `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-`AI_PROVIDER`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`,
-`OPENAI_MODEL`, `AI_MODEL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`
+`AI_PROVIDER`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODEL`,
+`OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TEXT_MODEL`, `AI_MODEL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`
 only from its server environment. Either `OPENROUTER_API_KEY` or
 `OPENAI_API_KEY` must be present for extraction. Deployment must disable
 Supabase JWT verification for this signed webhook; the function itself
@@ -2467,38 +2909,89 @@ refused. The function then ensures one `app` staff-link row for the caller
 under a deterministic `app-<auth uid>` id, so app turns produce the same
 durable conversation evidence as Telegram turns.
 
-Each app user has exactly one conversation, stored in the existing
+Each app user can have any number of conversations, stored in the existing
 `agent_conversations`, `agent_conversation_turns`, and `agent_tool_events`
-tables with `telegram_chat_id = 'app'`. The function accepts `send`, `history`,
-and `reset` actions on `POST /functions/v1/app-hatchery-agent`. `send` takes
-either a 1 to 4000 character `message` or an `audioBase64` clip up to
+tables, one `agent_conversations` row per `(staff_link_id, telegram_chat_id)`
+under the caller's single app staff-link id. `telegram_chat_id` doubles as the
+conversation key: `'app'` is the legacy single conversation (also the row the
+staff-link resolution itself always ensures), and `'app:<uuid v4 lowercase>'`
+keys any additional conversation the same app user opens — validated against
+`APP_CONVERSATION_KEY_PATTERN`, a strict lowercase-v4-UUID regex. `send`,
+`history`, and `reset` all take an optional `conversationId` field carrying
+this key; a missing or null value resolves to the legacy `'app'` conversation,
+preserving pre-multi-conversation behavior exactly, and any other value must
+match `'app'` or the `'app:<uuid>'` shape or the request is refused as
+`invalid_request`. A conversation row is created lazily on first use
+(`loadOrCreateConversation`), so opening a fresh `'app:<uuid>'` key from the
+client costs nothing server-side until the first `send`. `send`, `history`,
+and `reset` responses all echo `conversationKey` alongside `conversationId` (a
+convenience for a client that only tracks the key), and each `history`
+message additionally carries `source` — `'voice'` when the turn's
+`source_channel` is `'realtime_voice'` (a Pip Live call transcript), `'text'`
+otherwise.
+
+A new `conversations` action (`{"action":"conversations"}`, no
+`conversationId`) lists the caller's own conversations — up to `limit`
+(default 50, max 100) — as `{conversationKey, title, lastMessageText,
+lastMessageAt, updatedAt, createdAt}`, newest-`updatedAt`-first. It queries
+every `agent_conversations` row for the staff-link id whose key starts with
+`'app'` (defensively re-validated against the exact key shape rather than
+trusting the SQL `like` prefix match), then loads each conversation's newest
+turn with text for the preview (truncated to 140 characters). A conversation
+with no turns yet, no title, and that isn't the legacy `'app'` key is a bare
+placeholder — nothing yet distinguishes it for the caller — and is omitted
+from the list rather than shown empty.
+
+`agent_conversations.title` (added in schema v60, `NULL` until set) is
+derived once, server-side, from the caller's first user message in a
+conversation: `conversation_title.ts`'s `deriveConversationTitle` collapses
+whitespace, keeps at most 48 characters (cutting at the last word boundary at
+or after character 12 when one exists in that range, otherwise a hard cut),
+and strips trailing Latin or Arabic punctuation left over from the cut. It is
+set the first time `send` stores a conversation's first inbound turn
+(`maybeSetConversationTitle`) and is otherwise never overwritten; the write is
+best-effort and never blocks the reply, and the title itself is never logged
+(it is message text). A conversation opened but never sent into keeps
+`title = NULL` and is the placeholder case omitted from `conversations` above.
+
+`send` takes either a 1 to 4000 character `message` or an `audioBase64` clip up to
 `MAX_AUDIO_BASE64_CHARS` (1,500,000 characters — numerically equal to the
 client's `assistantAudioMaxBase64Chars`; an oversized clip is rejected with
 `invalid_request`), plus a client-supplied idempotency key, stored as
 `telegram_update_id = 'app:<id>'`,
 so a replayed send returns the stored reply instead of calling the model
 again (and, for voice, never re-transcribes). When `audioBase64` is present,
-the function transcribes it via OpenAI Whisper (`whisper-1`) using a
+the function transcribes it via OpenAI (`gpt-4o-mini-transcribe`) using a
 dedicated `OPENAI_VOICE_KEY` secret when set, falling back to the text
 brain's `OPENAI_API_KEY` otherwise (so voice works immediately off whichever
 key is already configured; a separate key only isolates voice spend once one
 is explicitly added) — and runs the resulting transcript through the same
-unmodified agent brain used for typed messages; a transcription failure or an
+reasoning route and unmodified agent brain used for typed messages; a transcription failure or an
 empty transcript returns `agent_unavailable` rather than `invalid_request`,
 since it is an audio-quality problem, not a malformed request. The stored
 turn's `text` is the transcript, indistinguishable from a typed turn once
 saved. The function then attempts to synthesize the reply via OpenAI TTS
-(`gpt-4o-mini-tts`, voice `ash`), steering pronunciation with the model's
-`instructions` field when the reply's detected language is `ar` (asks for
-natural Egyptian Arabic) or `mixed` (asks for each part to be spoken in its
-own language); English replies pass no instructions. On success the response
+(`gpt-4o-mini-tts`, voice `cedar` — deliberately the same voice Pip Live uses,
+so Pip does not change vocal identity between a recorded note and a live
+call), steering pronunciation with the model's `instructions` field when the
+reply's detected language is `ar` or `mixed`. Those instructions name Egyptian
+Colloquial Arabic (Cairo) explicitly and rule out Modern Standard Arabic and
+other regional accents, including the Egyptian pronunciation of ج and ق; the
+`mixed` variant additionally asks for English technical terms to stay in
+English rather than being transliterated. English replies pass no
+instructions. On success the response
 carries `audioBase64` for the phone to play back, but a TTS failure is
 swallowed and the call still succeeds with the text-only reply, since speech
 is a presentation layer over an already-successful turn.
 `send` always answers with the conversation ID, the user and reply turn IDs,
 the reply text, its language, and a creation time; a voice `send` additionally
 returns `transcript` and, when synthesis succeeded, `audioBase64`.
-`history` returns the current context epoch's turns oldest-first. `reset` bumps
+`history` returns the current context epoch's turns oldest-first. For a
+conversation the user has opened but not yet sent anything in there is no
+server row at all, and `history` answers `{conversationId: null, messages: []}`
+rather than an error; the Flutter client treats that id as optional
+(`AssistantChatHistory.conversationId` is nullable) so a first open renders an
+empty conversation, not an error banner. `reset` bumps
 the context epoch, which hides earlier turns from both the user and the model
 while retaining them as immutable evidence, matching what `/new` does on
 Telegram. Sends are limited to 20 per user per rolling five minutes. Failures
@@ -2716,8 +3209,12 @@ leave `customer_id` null, because an app row is only an identity anchor: the
 caller's real customer allow-list is recomputed per request from `profiles` and
 `auditor_customers` rather than read from the link. Telegram rows keep the
 existing rule that an allowed customer link names exactly one customer and an
-allowed admin link names none. The local SQLite mirror is unchanged and still
-holds Telegram staff links only.
+allowed admin link names none. The local SQLite mirror carries the same two
+channels: `telegram_staff_links` has a `channel` column defaulting to
+`telegram` and a nullable `appUserId`, `telegramUserId` is nullable, and
+uniqueness for each identity is enforced by a partial unique index over the
+non-null values rather than a column constraint, so app rows without a Telegram
+identity neither collide with each other nor fail insertion.
 Conversational intake turns and normalized values belong to one intake session.
 The intake context links to the customer, flock, and hatchery hierarchy, while
 approved intake rows link back to the resulting audit session and Chick Quality
@@ -2956,6 +3453,26 @@ local retry metadata from forcing a rejected camelCase fallback payload.
 Production does not install the
 `customers_keep_only_ghareeb` trigger; multi-customer inserts are supported and
 existing device-local rows retry on the next automatic or manual sync.
+Each table's push is isolated: a rejected batch marks only its own rows failed
+and the run continues to the next table and then to the pull. The failure is
+never silent. A sync outcome carries `failed` (rows that did not reach the
+cloud this run) and `failedTables` alongside `pushed`, `pulled`, `conflicts`
+and `pendingDeletes`; `hasFailures` and `fullySynced` classify the run, and
+`failureSummary` / `statusMessage` render it. A run with failures ends on a
+progress message naming how many rows did not upload rather than `Ready`,
+shows a "Sync incomplete" snackbar for a manual Sync Now, and is recorded
+through `SettingsProvider.recordSync(error:)` so the cloud status shows an
+error. The customers screen only claims a deletion was synchronized when the
+run was fully synced. A run that failed a push but completed its pull still
+refreshes the dashboard; only a run that never reached the cloud does not.
+Retries are bounded. Because dirty rows keep a `pending`/`failed` status and
+are re-read every run, a table whose cloud counterpart is missing would
+otherwise re-attempt the same doomed upload on every sync. After a failed
+push, `SyncRetryPolicy` skips that table for an exponentially growing window —
+1, 2, 4, 8, 16, then 30 minutes — and the first success clears the table's
+state. Skipped batches are still counted in `failed`, so backing off never
+hides the problem; the state is process-local, so restarting the app is an
+immediate retry.
 The generic operational sync adapter recognizes and synchronizes the eight
 hatchery-agent tables after the customer/flock/hatchery dependency graph.
 The app assumes Supabase tables and storage are protected by project
@@ -3016,6 +3533,1086 @@ focused on that point so the attached photo and reading can be replaced through
 the same save path. Photo pick/save/delete failures keep recoverable return
 behavior and emit debug logs in development builds.
 
+### 7.x Supabase migration directories
+
+`supabase/migrations/` holds the migrations that replay cleanly, in filename
+order, against an empty database. Three scripts depend on that property. Each
+spins up a throwaway PostgreSQL cluster, replays the directory, and then asserts
+behaviour — not migration text — against the result:
+
+- `scripts/test_supabase_security_hardening.sh` — RLS, grants and function
+  hardening.
+- `scripts/test_pip_realtime_persistence.sh` — the Pip Realtime V1 invariants
+  (atomic turn allocator, evidence with no durable turn, the two claim key
+  shapes, the Realtime operational tables) against empty agent tables.
+- `scripts/test_pip_realtime_backfill.sh` — the same migration set *minus*
+  `20260816120000_pip_realtime_v1_persistence.sql`, seeded with legacy agent
+  rows shaped the way the pre-Realtime code wrote them (no `conversation_seq`,
+  `source_channel` or `completion_status`; outbound turns reusing the inbound
+  `turn_index`; `created_at` disagreeing with insertion order, id order and
+  turn_index order; several context epochs including a conversation reset into
+  an epoch with no turns). That migration is then applied over the data and
+  every backfill is asserted: per-conversation `conversation_seq` unique and
+  contiguous from 1 in `(context_epoch, created_at, id)` order, channel
+  classification from `agent_conversations.telegram_chat_id`, `finalized`
+  completion, `next_conversation_seq = max + 1`, `turn_index` counters seeded
+  from the current epoch only, a fresh `public.allocate_agent_turn_slot`
+  allocation that does not collide with any pre-existing row, `owner_profile_id`
+  set only where the staff link carries an `app_user_id`, and the survival plus
+  continued immutability of pre-existing `agent_tool_events`.
+
+Filename prefixes match the versions recorded in
+production's `supabase_migrations.schema_migrations`, so `supabase migration
+list --linked` is a meaningful comparison.
+
+Two sibling directories deliberately sit outside the replay set:
+
+- `supabase/migrations_unapplied/` — written but never applied to production.
+  `0009_customer_usernames.sql` is superseded (its `handle_new_auth_user()`
+  body would overwrite the live account-type routing); `0017_performance_monitoring.sql`
+  is deferred, and cannot apply as written because nine `public.flocks` rows
+  carry a `farm_id` with no `farms` row to reference.
+- `supabase/migrations_archive/` — applied in production but not replayable
+  from empty. Currently `20260418043712_create_hatchaudit_schema.sql`, the
+  pre-reset schema that `20260605115351_reset_and_vertical_slice.sql` drops.
+
+A migration in either directory must not be moved back without a fresh
+timestamp that sorts after every applied migration.
+
+### 7.y Agent conversation ordering
+
+Durable agent turns carry two ordering keys, and they mean different things.
+
+`turn_index` is scoped to `(conversation_id, context_epoch, direction)` and is
+enforced by `agent_conversation_turns_order_check` and the unique index
+`idx_agent_conversation_turns_order`. For typed Pip and Telegram an outbound
+reply reuses its inbound turn's index, which is what makes the pairing in
+`reply_to_turn_id` readable.
+
+`conversation_seq` is the chronological key across all durable turns of a
+conversation, both directions. It is unique per conversation and does not reset
+when `context_epoch` advances, so it gives one stable order for transcript
+rendering, context loading and summary coverage ranges.
+
+Both are issued by `chickmark_private.allocate_agent_turn_slot`, which locks the
+conversation row and reads authoritative counters stored on
+`agent_conversations` rather than re-deriving them from `MAX()`. Callers pass a
+`turn_index` override to reuse an inbound index; the counter still advances past
+it so a later independent allocation in the same epoch cannot collide.
+
+Both text doors call that allocator through their service-role client for every
+durable turn they write, and stamp each row with `source_channel`
+(`telegram` or `app_text`) and `completion_status = 'finalized'`. Neither door
+scans existing rows to guess the next index any more.
+
+`supabase/functions/telegram-hatchery-agent/agent_context.ts` is the one loader
+both doors use to assemble a turn's model context. It reads the newest
+`AGENT_HISTORY_FETCH_LIMIT` (40) turns of the conversation's current
+`context_epoch`, ordered by `conversation_seq` rather than `created_at`, keeps
+only `completion_status = 'finalized'` rows, replays at most
+`AGENT_MODEL_HISTORY_TURNS` (20) of them to the model oldest-first, and attaches
+the conversation's active `agent_intake_sessions` row when one exists. A failed
+history read fails the turn; a failed intake read only drops the intake.
+
+### 7.z Pip Realtime session control plane
+
+`supabase/functions/pip-realtime-session/` is the authenticated control plane
+for Pip Realtime voice. It carries no audio, runs no agent turn and grants no
+tool authority: it decides whether a voice session may exist, records that
+decision, and hands the client the short-lived credentials to go and build one.
+It is deployed with Supabase JWT verification enabled and re-reads the bearer
+token through its service-role client.
+
+Realtime is OpenAI-only. The function reads `OPENAI_API_KEY` and nothing else —
+never `OPENAI_VOICE_KEY` (that secret belongs to the recorded-voice path in
+`app-hatchery-agent`) and never `OPENROUTER_API_KEY` or the text provider
+resolver, because a Realtime session has no text provider to fall back to. A
+missing key means Realtime reports itself unavailable.
+
+It accepts four actions on `POST /functions/v1/pip-realtime-session`:
+
+- `start` accepts the same optional `conversationId` field as
+  `app-hatchery-agent` (`'app'` or `'app:<uuid v4>'`; missing/null resolves to
+  the legacy `'app'` conversation) — validated first, before any DB work or
+  rate-limit/budget accounting, by `resolveConversationKey`. It then runs, in
+  order: the runtime kill switch, the per-profile start rate limit, identity
+  and scope resolution, the daily budgets, and the one-session invariant. On
+  success it loads or creates that conversation (same lazy-creation shape as
+  the app door) and binds the new session to it — `agent_realtime_sessions.
+  conversation_id`/`context_epoch` — so a live call continues the exact
+  conversation the client opened it from: both the transcript the sideband
+  persists and the conversation-history context it injects (see 7.ab) are
+  scoped to that conversation. It then creates the session and its
+  generation-1 call row, mints an ephemeral OpenAI client secret, and returns
+  the secret, a one-shot binding token, the session and generation ids, the
+  sideband URL and the authoritative deadlines.
+- `register_call` writes `openai_call_id` and `call_registered_at` onto the
+  already-provisioned generation row and advances it to `call_registered`. That
+  is the whole of it: it does not consume the binding token, claim the lease,
+  advance the fencing token, mark the call active, or grant any tool authority.
+- `abort_setup` is the narrow path for a client that created a call but cannot
+  continue. It records the known call id and marks the generation
+  `cleanup_pending` with `hangup_state = 'pending'` so the sweeper hangs it up.
+  It grants nothing, and unlike `register_call` it still works after the setup
+  deadline has passed — a client that blew the deadline is exactly the one that
+  most needs to report its orphaned call id.
+- `end` is user-initiated termination. It marks the session `ending` and the
+  live generation `cleanup_pending`; the OpenAI hangup itself is left to the
+  sweeper, so a user-facing action never blocks on a provider call that can
+  hang. `end_reason` comes from a fixed vocabulary, not client free text.
+
+Authorization is reused, not reinvented: `loadAppProfile`,
+`resolveAppAgentScope`, `ensureAppStaffLink` and `APP_CHANNEL_CHAT_ID` come from
+`app-hatchery-agent/app_agent_scope.ts`, so a Realtime session sees exactly the
+scope typed Pip sees and, via the shared `conversationId` key, can join any of
+the same app staff-link's conversations. From that the
+function derives an `authorization_fingerprint` — SHA-256 over the staff-link
+id, access role, sorted allowed-customer ids, profile role and profile status.
+Conversation id, context epoch and state version are deliberately excluded
+because they churn every turn and would flag a normal conversation as an
+authority change. The fingerprint is stamped on the session and the generation
+at provisioning time and recomputed on `register_call`; a demotion or a revoked
+approval between `start` and `register_call` invalidates the session.
+
+Budgets are enforced as **settled plus in-flight**, because usage settles only
+when a session ends and a caller who never ends one would otherwise never
+accrue anything. The gate sums today's (UTC) `agent_realtime_usage_seconds`
+rows and adds, for every non-terminal session, `max(0, min(now, end of UTC day,
+ready_at + MAX_SESSION_SECONDS) - max(ready_at, start of UTC day))`. A session
+that never reached `authoritative_ready_at` contributes zero; an orphaned row
+left by a crash cannot bill past its own ceiling; a session crossing midnight
+does not charge tomorrow's seconds against today. Exhaustion returns a distinct
+`budget_exhausted` code and is recorded as such on the attempt row.
+
+The start rate limit writes its attempt row *before* counting, so a burst
+cannot each read a stale count, and only attempts still marked `accepted`
+consume the window — a refused start is downgraded to its real outcome and
+never eats a later legitimate one. The one-session invariant is enforced by
+REPLACEMENT: a `start` that finds the caller's own session still non-terminal
+terminalizes it (`ended`/`replaced`), hands its generations to the sweeper as
+`cleanup_pending` (the OpenAI hangup is never dropped), and provisions the
+replacement — per the plan's race table. The partial unique index on
+`agent_realtime_sessions` still decides a genuine concurrent race; only
+SQLSTATE `23505` is treated as "you already have a session", so a genuine
+insert failure surfaces as an error rather than as a plausible-looking
+conflict. Two rapid concurrent starts from one profile may therefore both
+return 200, the later displacing the earlier — the invariant is "exactly one
+live session", never "somebody gets a 409".
+
+Every instant the function persists comes from a single read of the **database**
+clock, `public.realtime_now()`, taken once at the top of the request. Three
+hosts arbitrate one deadline — this function writes `setup_deadline_at`, the
+Cloud Run sideband evaluates it, and the SQL sweeper compares it against
+`now()` — so they must share one clock or skew silently moves the deadline. If
+that read fails the request is refused with `clock_unavailable`; it never falls
+back to the Edge Function's own clock.
+
+The binding token is 256 bits of CSPRNG entropy returned exactly once, in the
+body of a successful `start`. Only its SHA-256 hash reaches
+`agent_realtime_calls`, so no later read of the table — by an operator, a backup
+or a leaked dump — can recover a usable token. Neither the token, the minted
+client secret, nor the standing OpenAI key is ever logged.
+
+Configuration lives in `pip-realtime-session/config.ts` as `PIP_REALTIME_*`
+environment variables: `ENABLED`, `MAX_SESSION_SECONDS` (600),
+`SETUP_DEADLINE_SECONDS` (60), `CLIENT_SECRET_TTL_SECONDS` (30),
+`BIND_TOKEN_TTL_SECONDS` (60), `SESSION_START_LIMIT` (5),
+`SESSION_START_WINDOW_SECONDS` (300), `DAILY_SECONDS_PER_PROFILE` (1800),
+`DAILY_SECONDS_PER_TENANT` (14400), `TENANT_OVERAGE_FACTOR` (1.25),
+`CLOUD_RUN_URL`, `MODEL` (`gpt-realtime-2.1-mini`) and `VOICE` (`cedar`, the warm
+male voice; the rendered Live instructions additionally append a voice-only
+delivery addendum — warm tone, Egyptian colloquial Arabic when the user speaks
+Arabic, short spoken replies — after the shared typed-agent policy, versioned as
+`<policy>+voice.N`). A malformed
+or out-of-range value, or an incoherent combination such as a setup deadline
+longer than the session ceiling, fails fast — it is never silently clamped,
+because a clamped budget is indistinguishable from a working one until it costs
+money. `tenant_id` resolves to `profiles.organization_id`; a caller with no
+organization is subject to the per-profile budget only.
+
+### 7.aa Pip Realtime voice client (Flutter)
+
+**Parked behind a flag.** `FeatureFlags.realtimeEnabled`
+(`lib/core/config/feature_flags.dart`) gates every UI entry point below and
+defaults to **off** (`bool.fromEnvironment('PIP_REALTIME_ENABLED')`, no
+`defaultValue`, so it is `false` unless built with
+`--dart-define=PIP_REALTIME_ENABLED=true`). This is a stabilization-phase
+parking, not a removal: no Realtime source file, service, test or doc was
+deleted, and everything described in this section and in 7.z/7.ab/7.ac still
+works exactly as written once the flag is on. With the flag off, "Pip Live" is
+unreachable from the app:
+- `MainShell` (`lib/features/home/widgets/main_shell.dart`) never constructs a
+  `RealtimeVoiceController` and never provides one into the widget tree, at
+  the shell level or into a pushed conversation route — this is the single
+  choke point everything else follows from. The route guard and the push to
+  `RealtimeVoiceScreen` are therefore unreachable, and the shell's Live body
+  wrapper renders its bare content with no `RealtimeLiveBanner`.
+- `AssistantChatScreen` (`lib/features/chat/screens/assistant_chat_screen.dart`)
+  finds no controller via its nullable `context.watch`, so it shows no live
+  control (`assistant-live`) next to the composer, in addition to an explicit
+  `FeatureFlags.realtimeEnabled` check on the same condition — belt and braces
+  against a stray provider resurrecting the button. The recorded-voice mic
+  button (`assistant-mic`, request/response, unrelated code path) is
+  unaffected and stays fully enabled either way.
+- No Realtime session, WebRTC connection or sideband socket is opened at app
+  launch, on a notification, or anywhere else outside the (now unreachable)
+  entry points above — construction of `RealtimeVoiceController` itself never
+  touched the network before this change either (ports are built lazily), and
+  it is simply never constructed now.
+
+Restore Pip Live by building with `--dart-define=PIP_REALTIME_ENABLED=true`,
+or by flipping `realtimeEnabledDefault` in `feature_flags.dart`. Existing
+Realtime widget tests set `FeatureFlags.realtimeEnabled = true` in `setUp` (and
+reset it in `tearDown`) to keep exercising the full implementation regardless
+of the shipped default; `test/features/chat/realtime_parked_test.dart` asserts
+the opposite — that at the default (off) the UI stays unreachable even with a
+controller injected.
+
+`lib/services/realtime/` and `RealtimeVoiceController`
+(`lib/features/chat/providers/`) are the app's half of Pip Realtime. The
+assistant screen registers the controller alongside `AssistantProvider` under a
+`MultiProvider` and exposes a **separate** live control in the composer
+(`assistant-live`); the existing mic button remains the request/response
+recorded-voice path and is not overloaded. `AssistantChatPort` is untouched — it
+is strictly request/response.
+
+**The invariant.** No microphone audio reaches the remote peer before the
+server declares an authoritative READY. This is *not* implemented with
+`track.enabled`: W3C defines a disabled track as delivering zero-information
+content, not no content, so on Web the browser keeps sending silence at roughly
+40 kbps and `packetsSent` climbs. Instead `WebRtcRealtimeTransport` acquires the
+mic stream but never passes the track to `addTrack`; it adds a `sendrecv` audio
+transceiver with **no** `track:` argument, producing a sender whose track is
+null and which emits zero RTP by specification; SDP is negotiated in that state;
+and transmission begins only when `sender.replaceTrack(micTrack)` runs, which
+swaps the source without renegotiation so nothing touches the wire.
+`stopTransmitting` is `replaceTrack(null)`. `track.enabled` is a secondary UX
+mute only. Verification reads `getStats()` off the *peer connection* filtered to
+`type == 'outbound-rtp'` and `kind == 'audio'` — never `sender.getStats()`,
+which silently returns whole-peer-connection stats when the track is null — and
+`noAudioHasBeenTransmitted` treats "no audio report exists" and "packetsSent is
+0" as equally valid proof, because some stacks emit no report with no track
+attached.
+
+**States.** `idle → requestingPermission → connectingMuted → registeringCall →
+bindingSideband → awaitingAuthoritativeReady → listening ↔ userSpeaking ↔
+thinking ↔ assistantSpeaking → reconnectingMuted → ending → idle/error`.
+`connectingMuted` and `reconnectingMuted` are enforced media states, not
+labels: in them the sender holds a null track.
+
+**Setup order.** `start` on `pip-realtime-session` mints the grant; the SDP
+offer is POSTed to `https://api.openai.com/v1/realtime/calls` with the ephemeral
+client secret (the minted secret already encodes model and voice, so the
+endpoint is a fixed API property and never app config); the `rtc_…` call id is
+parsed out of the `Location` response header and `register_call` is sent
+immediately, before the answer is applied and before the sideband is bound;
+only then does the client bind to Cloud Run with the one-shot binding token and
+wait. Every step re-checks a monotonically increasing attempt generation, so a
+navigation, cancel, logout or dispose mid-setup releases the attempt instead of
+letting the last queued step enable the microphone.
+
+**Sideband wire contract.** The server owns the format; the client conforms to
+it. It is written down once, in `services/pip-realtime-sideband/WIRE_CONTRACT.md`,
+and pinned from both sides by tests that assert the same literal bind frame, so
+a change to one side fails the other side's suite. Every field is snake_case.
+The client's first application frame is
+`{"type":"bind","session_id","generation","access_token","binding_token"}` —
+the Supabase JWT read at bind time (never cached) and the one-shot binding token
+from `start`, in the frame body, never in the URL, never logged. The only
+notices the client parses are `ready` (`session_id`, `generation`), `error`
+(`code`) and `closing` (`reason`); anything else is dropped silently. The
+socket's close code is mapped to a distinct cause and message — 4408 bind
+timeout, 4401 bind rejected, 4409 lease lost, 4400 malformed, 4503 draining,
+4500 internal — and anything else is a normal end of call. A private-range close
+or an `error` notice goes through the ordinary failure path, so it spends the
+one automatic recovery before surfacing. **Captions never travel on this
+socket**: transcript deltas arrive on the WebRTC data channel straight from
+OpenAI.
+
+**READY validation.** Transmission is enabled at most once per generation, only
+while the controller is actually awaiting READY, and only when the frame's
+session id and server generation match the current attempt. A stale, duplicate
+or foreign READY is inert.
+
+**Ending and recovery.** A call that never reached READY is released with
+`abort_setup` (reporting the orphaned call id so the sweeper can hang it up);
+one that ran is released with `end` and a reason from the fixed vocabulary.
+Recovery is allowed exactly once per user-initiated start, always releases the
+previous session first — `start` enforces one live session per profile — and
+always restarts from a fresh, non-transmitting transport that needs its own
+READY. A microphone-permission denial is never auto-retried.
+
+**Mobile background lifecycle.** Flutter/WebRTC remains the sole owner of the
+microphone, peer connection, Realtime grant, SDP, captions, tools and RBAC. On
+Android, after microphone acquisition succeeds and before a Realtime session is
+minted, the controller starts a package-internal foreground service and waits
+for its acknowledgement (up to five seconds). The low-importance ongoing `Pip
+Live` notification includes an `End` action; it asks Dart to take the ordinary
+user-ended teardown path. The service remains active across the one automatic
+recovery and deactivates on stop, terminal error or disposal. On iOS the app
+declares only `UIBackgroundModes: audio`; `flutter_webrtc` configures its own
+Apple audio session to `localAndRemote` before microphone acquisition and
+returns it to `none` after the track stops. Web, macOS, Windows and Linux use a
+safe no-op lifecycle adapter. This does not provide incoming-call, VoIP or
+unrestricted background execution.
+
+**Client event policy.** The data channel delivers tool/function-call events.
+The client never executes them, never relays them to any backend, never logs
+their arguments or results, and drops unrecognised types silently; only the
+Cloud Run sideband executes tools. `classifyClientEvent` maps every event to a
+presentation-only action or to `ignore`, and tool detection short-circuits
+before any other matching.
+
+**Teardown** is `replaceTrack(null)` → data channel close → `track.stop()` →
+Apple audio mode release → `stream.dispose()` → `pc.close()` → `pc.dispose()`. Skipping `track.stop()`
+leaves the iOS microphone indicator lit.
+
+**Audio session contention.** `record`, `audioplayers` and `flutter_webrtc` all
+configure `AVAudioSession` independently, so Realtime has its own transport and
+an active call ORs into the assistant screen's `isVoiceBusy` gate — recorded
+voice, typing and a live call can never run at once.
+
+### 7.ab Pip Realtime sideband service (Cloud Run)
+
+`services/pip-realtime-sideband/` is the Deno service that attaches to a live
+OpenAI Realtime call and owns every authoritative consequence of the
+conversation. It is deployed to Cloud Run and started from `main.ts`;
+`deno test -A` in that directory covers it.
+
+**What it is and is not.** It carries no admission control — only
+`pip-realtime-session` may create a session — and it AUTHORS no tool catalogue:
+the catalogue still arrives whole as configuration. What it does own is WHEN
+each half of that catalogue is sent (see **Staged tool catalogue** below). Its
+job is the Realtime CONTROL path: binding a client connection, holding the lease,
+configuring the provider session, attributing turns, claiming and evidencing tool
+calls, settling usage, and draining cleanly.
+
+**Staged tool catalogue.** A session starts with the CORE catalogue only —
+every tool except the intake write path (`start_intake`,
+`record_station_values`, `get_intake_status`, `create_station_summary`,
+`confirm_station_summary`, `submit_station_for_review`, `pause_intake`,
+`resume_intake`, `cancel_intake`). `partitionToolCatalogue` in
+`src/session_config.ts` splits the configured catalogue by name at runtime
+rather than reading a second env var,
+so the two halves cannot drift from what was deployed, and the partition
+preserves the configured order because a reordered prefix costs an OpenAI
+prompt-cache hit. The staged half is attached by a second `session.update` the
+first time the model ATTEMPTS `propose_intake`, sent before the follow-up
+`response.create` and awaited to its `session.updated` ack under a bounded
+timeout. The gate is attempt-based, not success-based: `propose_intake` is the
+only possible gate (every staged tool requires a `pendingActionId` or
+`intakeId` that only `propose_intake`/`start_intake` can mint, and the realtime
+policy is static so no id can arrive from server context), and gating on
+success would mean the upgrade never fires while the broker's missing turn
+context makes `propose_intake` return `turn_context_required` on this channel.
+That refusal carries `retryable: false` and a bilingual recovery message
+naming the only route that exists — record it in the typed chat — so the model
+answers in one sentence instead of re-calling the tool until the turn runs out
+of budget.
+The upgrade is confirmed, not assumed. A provider that REJECTS a
+`session.update` drops it WHOLE, so an un-acked upgrade may mean the session is
+still running the core catalogue; treating the send itself as durably done
+would strand it there for the rest of the call with no retry and nothing in the
+logs to say so. The session is therefore marked upgraded only once a
+`session.updated` ack is actually observed, a later `propose_intake` may resend
+once, and `MAX_INTAKE_UPGRADE_ATTEMPTS` (2) stops that from becoming an
+unbounded resend loop. The ack-timeout warning carries
+`catalogue_unconfirmed` and `retry_available`, which is what separates "the ack
+was merely slow" from "the update was rejected and this session is still on the
+core catalogue" — only the second is a problem, and they were previously
+indistinguishable. A session never downgrades — the `vad_fallback` resend
+carries whichever catalogue is currently active. Measured live: a first turn
+costs 4,620 input tokens on the core catalogue against 5,909 on the deployed
+full one.
+
+The upgrade is not free, and the trade is deliberately one-sided. OpenAI's
+prompt cache keys on the tools array, so the upgrade costs one cache miss and
+leaves that session on the larger 32-tool prefix (5,243 tokens/turn measured)
+for the rest of the call. Sessions that reach `propose_intake` therefore save
+less than sessions that never do — and while the broker's missing turn context
+makes `propose_intake` fail, they save nothing at all beyond the schema
+slimming. That is accepted because the alternative is paying the full
+catalogue in EVERY session, including the large majority that only ever ask
+questions.
+
+**Binding.** The wire format — bind frame, the three outbound notices, the close
+codes, the ordering rule, and the fact that captions do not flow here — is
+documented in `services/pip-realtime-sideband/WIRE_CONTRACT.md` and pinned by a
+literal shared with the Flutter client's test. Inbound frames are processed
+strictly in arrival order through a per-connection queue: the client sends the
+health frame immediately behind the bind frame without waiting for any ack, and
+processing the bind frame awaits the database, so an un-serialized health frame
+would be inspected while the connection is still unbound and mistaken for a bad
+bind (4400 `bind_frame_required`). A connection that closes while its bind is
+still in flight also aborts the bind at the next checkpoint instead of claiming
+a lease it can never release. Credentials arrive in the FIRST
+WebSocket frame, never in the URL,
+because a query string is written to proxy logs, browser history and Cloud Run
+request logs. The frame carries the Supabase access token and the one-shot
+binding token. The access token is verified locally against the project JWKS
+(ES256) and proves IDENTITY ONLY; approval status and customer scope are
+re-resolved from the database on every bind by
+`src/authorization.ts::resolveBindAuthority`, which mirrors the provisioner's
+`loadAppProfile`/`resolveAppAgentScope` (profiles is the authorization record;
+`customers` / `auditor_customers` give the allow-list; the staff-link id is
+derived as `app-<profileId>`, never queried) and re-derives the authorization
+fingerprint with the SAME canonical-JSON SHA-256 as
+`pip-realtime-session/fingerprint.ts`. The two derivations cannot import each
+other (the Docker image ships only `main.ts` + `src/`), so parity is pinned by
+`test/authorization_parity_test.ts`, which imports the provisioner's real
+source and asserts identical digests — an earlier inline version drifted to a
+legacy `role:customerId` string and every bind failed as
+`bind.fingerprint_changed` → 4401. The binding token is consumed
+atomically, so two clients racing with the same token yield exactly one
+`consumed`. Until binding succeeds the connection may do nothing — no control
+action, no lease claim, no provider traffic. Close codes in the private range
+(4400 malformed, 4401 bind rejected, 4408 bind timeout, 4409 lease lost, 4500
+internal, 4503 draining) let the client distinguish causes. The bind deadline
+(`PIP_REALTIME_BIND_DEADLINE_SECONDS`, 5s, validated to be shorter than the setup
+deadline) starts when the socket is upgraded and is cleared the moment bind
+succeeds: a socket that never binds is sent `{"type":"error","code":
+"bind_timeout"}` and closed 4408, because an upgraded socket holds a Cloud Run
+concurrency slot for its whole life and nothing durable has been claimed at that
+point.
+
+**Lease and fencing.** Exactly one worker may drive a given (session,
+generation). Ownership is `lease_owner` + `lease_expires_at` on
+`agent_realtime_calls`, with a monotonically increasing `fencing_token` bumped on
+every claim. Every authoritative write carries the fence it was issued and the
+database rejects it if a newer owner has moved past — the failure this defends
+against is a worker that is alive but paused (GC, CPU starvation, a stalled
+socket) and does not know it lost the lease. On rejection the stale worker stops:
+it does not retry and does not reclaim.
+
+**Interactions and the tool budget.** The cap is INTERACTION-scoped, not
+generation-scoped: one user utterance plus the entire response chain it provokes,
+including the continuation responses the model produces after each
+`function_call_output`. `PIP_REALTIME_MAX_TOOL_CALLS_PER_INTERACTION` (5) tool
+calls per interaction, fresh budget for the next one. Capping across a whole call
+leg would let one long conversation starve its own later turns. This is the only
+place the Realtime cap is enforced; the text channel's
+`MAX_AGENT_TOOL_CALLS_PER_TURN` is separate and enforced in its own runtime loop.
+
+**Continuations and termination.** The tool budget bounds how many tools RUN;
+it does not bound how many RESPONSES are generated, because a refused call is
+still answered with a `function_call_output` and every answer used to be
+followed by an unconditional `response.create`. A second, separate
+per-interaction budget now bounds the continuations themselves
+(`InteractionTracker#tryConsumeContinuation`), with a limit of the tool cap plus
+two, and answers one of three things:
+
+* `continue` — an ordinary `response.create`; the model may call another tool.
+* `final` — `response.create` carrying `response: { tool_choice: 'none' }`. The
+  provider cannot emit a function call in that response, so it cannot produce
+  another `function_call_output`, so it cannot produce another continuation.
+  This is what terminates the chain deterministically rather than waiting for
+  the model to lose interest. A `tool_limit_reached` refusal force-finalizes
+  immediately, because another tool-calling response is provably useless: the
+  budget it would need is already spent.
+* `suppress` — nothing is sent. Once a final has gone out the interaction is
+  closed to further continuations forever, and the suppression is logged with
+  the interaction id, the disposition and the cap.
+
+Tool events are also SERIALISED. The provider socket delivers frames
+fire-and-forget, so two `response.output_item.done` events from one response
+would otherwise run concurrently, each awaiting its own broker round trip: a
+response carrying `propose_intake` plus another tool could interleave so that
+the other tool's `response.create` went out while `propose_intake` was still in
+flight, and the intake `session.update` landed after it — leaving the model to
+answer a data-entry request with the catalogue it started the call with. A
+promise chain runs `#onOutputItemDone` strictly in arrival order, so outputs are
+submitted, the catalogue is upgraded, and `response.create` is sent in the order
+the frames arrived. Only that one event type is serialised; transcripts, deltas
+and `response.done` still run immediately, so a slow broker call cannot stall
+unrelated work. Telemetry attribution follows the same grain: when one response
+emits several tool calls, all their names belong to the SINGLE follow-up they
+jointly caused and land on one usage row together, and a new user utterance
+clears any names still waiting for a follow-up that a barge-in prevented.
+
+A refused `response.create` is itself recovered. The provider answers a frame
+it rejects with an `error` event and NOTHING ELSE, so on the forced-final path
+the caller would be left in silence at the exact moment they were owed the
+answer, with the interaction already closed to further continuations. Every
+`response.create` therefore carries an `event_id` the provider echoes back,
+and a rejection naming it is handled three ways:
+`conversation_already_has_active_response` is not silence (a response is
+already in flight) and is ignored; a rejected FORCED FINAL is retried once
+without the `tool_choice` override, because answering plainly beats not
+answering and the sticky `finalForced` still refuses everything after it; any
+other rejection sends the client `{type:'error', code:'response_create_rejected'}`
+rather than leaving it staring at dead air.
+
+A call refused for liveness (`rejected_not_live` — the session is stopped, the
+lease is lost, or the generation is no longer this worker's) is still ANSWERED,
+because an unanswered function call wedges the chain whoever owns the session,
+but never continued: driving a response for a session this worker no longer owns
+would be two assistants talking over one caller. The followed-tool name is
+queued for telemetry attribution only when a continuation is actually sent, so a
+suppressed call cannot pin its name onto an unrelated later response. A fresh
+user utterance opens a fresh interaction with a fresh budget.
+
+The text runtime terminates the same way by a different mechanism. When a turn
+spends `MAX_AGENT_TOOL_CALLS_PER_TURN`, the over-limit call is answered
+`tool_limit_reached` rather than executed — every `function_call` in the model
+input needs a matching output or the next provider request is rejected — and the
+runtime then makes exactly ONE more provider call with the catalogue withdrawn
+(`tools: []`) and `tool_choice: 'none'`, so the model has to answer from what it
+already gathered. A provider that emits a function call anyway ends the turn as
+`tool_limit_exceeded` instead of looping. The catalogue is still sent on that
+pass — `tool_choice: 'none'` is what forbids the call, and withdrawing `tools`
+from a request whose input already holds `function_call` items is an unproven
+shape on both providers.
+
+The turn deadline still bounds everything, but it is now SPLIT: a fixed slice
+is reserved for the final pass, so a turn whose tool calls ate the whole budget
+is promoted to its final answer rather than failing as a timeout — running out
+of tool time is itself a reason to answer with what was gathered. For the same
+reason a tool that overruns is reported to the model as `tool_timeout` with a
+recovery and promotes the turn to its final pass, instead of ending it. Each
+awaited operation owns its own `AbortController`: a single shared one meant one
+timeout poisoned every later call, so a slow tool aborted the very request that
+was meant to deliver the answer.
+
+**Tool calls.** `ToolCallCoordinator` takes a REQUIRED, discriminated ownership
+argument (`ToolLedgerOwnership`) naming who writes the durable ledger —
+`agent_tool_call_claims` and `agent_tool_events` — for the calls it runs. There
+is no default, because both tables carry partial unique indexes on
+(`realtime_session_id`, `realtime_generation`, …) and a second writer for one
+call id is a unique violation, not a duplicate row.
+
+In `ledger: 'sideband'` mode the coordinator claims BEFORE executing — the claim
+ledger keyed (session, generation, tool call id) is what makes a redelivered call
+idempotent, and executing first would let a reconnect double-apply a write. The
+argument hash is part of the identity: the same call id with different arguments
+is a conflict, not a redelivery, and is rejected. It never waits for the
+transcript, which finalizes asynchronously and may never finalize at all.
+Evidence rows are written once with `conversation_turn_id = NULL` and the
+interaction id set.
+
+In `ledger: 'broker'` mode — what `main.ts` wires — the coordinator writes
+NEITHER table: `pip-realtime-tool-broker` (7.ac) creates, settles and evidences
+the claim around the tool it executes, and its answer is authoritative, including
+the duplicate it replays from a recorded claim, which arrives as `duplicate:true`
+and is reported as a duplicate disposition. What the coordinator keeps in both
+modes is what is genuinely its own: the per-interaction tool budget, a liveness
+guard that refuses a call outright once the session is stopped, the lease is lost
+or the generation is no longer this worker's, and the guarantee that the model
+always receives a real `function_call_output` — a broker that is unreachable,
+returns 5xx, refuses with 4xx, or answers 200 with an unusable body all produce a
+negative tool result the assistant can say out loud, never an invented success
+and never silence. A tool call left unanswered would wedge the response chain.
+
+A broker that HANGS is bounded too, and separately: `fetch` has no default
+timeout, so an unresponsive broker used to leave the promise unsettled — the
+`function_call_output` was never sent, and because tool events run on a
+serialized chain, every later tool call on the session queued behind it
+forever, leaving the session permanently mute to tool work while still
+reporting healthy. The call is now abandoned after `BROKER_TIMEOUT_MS` and
+reported as `broker_timeout`, kept distinct from `broker_unreachable` because
+the two mean different things: nothing ran, versus something may still be
+running. Retrying is safe either way — the broker owns the claim ledger, so a
+redelivery of the same call id replays rather than re-executes.
+
+The inbound-turn back-fill runs in both modes and is the one claim write the
+sideband keeps when the broker owns the ledger: `inbound_turn_id` has exactly one
+writer (only the sideband learns that the transcript finalized), the broker
+inserts NULL and never touches it, and the link is back-filled on the MUTABLE
+CLAIM, never on the immutable evidence row. No placeholder turn is ever
+fabricated to satisfy a foreign key.
+
+The tool catalogue itself is INJECTED (`src/tools.ts`), not defined here, so the
+voice channel cannot drift from the text channel. `main.ts` builds the registry
+with `brokeredToolRegistry` — the only constructor that pairs
+`pipRealtimeToolBrokerExecutor` with `ledger: 'broker'` — over definitions taken
+from `config.toolDefinitions`. Those definitions, the broker URL and the broker
+secret are all validated at startup and an invalid or absent value crashes the
+revision: a sideband serving an empty catalogue announces READY, carries audio
+and can do nothing. The secret is placed only in the `x-pip-broker-secret`
+request header and is never logged.
+
+Turn detection defaults to `semantic_vad` with `eagerness: low` — verified
+accepted for `gpt-realtime-2.1-mini` on a live probe connection
+(`tools/probe_turn_detection.ts`) — so the model ends the user's turn on
+semantic completion instead of a fixed silence timeout. It is configurable via
+`PIP_REALTIME_TURN_DETECTION` (`semantic_vad` | `server_vad`),
+`PIP_REALTIME_VAD_EAGERNESS` (`low`|`medium`|`high`|`auto`) and, for
+`server_vad` only, `PIP_REALTIME_VAD_SILENCE_MS` (default 800). If the provider
+rejects `turn_detection` before the config is acknowledged, the sideband
+resends the session.update exactly once with `server_vad` forced (logged
+`sideband.vad_fallback`). Both VAD shapes keep `create_response` and
+`interrupt_response` true, so user barge-in cancels the assistant's response
+server-side. Two on-demand conversation-behavior eval suites live in
+`services/pip-realtime-sideband/evals/` (see its README): `run_evals.ts` runs
+scripted Egyptian-Arabic conversations against the real model over the Realtime
+WebSocket in text mode with stubbed tools, asserting word budgets, progressive
+disclosure, benchmark discipline, missing-data honesty, inference hedging, and
+ask-before-acting; `run_canaries.ts` is the small production-path gate that
+sends the EXACT production `session.update` payload (audio output modality,
+reasoning effort, semantic VAD — built by the same `buildSessionUpdate` the
+Sideband uses) and asserts on the audio transcript. The canary suite exists
+because text-mode passing is not evidence about the spoken channel: the
+2026-08-18 production failures (verbose canned greetings, multi-question
+clarification paragraphs) reproduced under audio output while the text suite
+was green. Canaries run first; the large text suite is the regression tail.
+`tools/probe_token_cost.ts` is the third member of that family and answers a
+different question: what the provider actually CHARGES for a given payload. It
+builds the session through the same `buildSessionUpdate`, drives scripted
+turns, and prints `response.usage` per inference, so a token claim is always
+provider-reported rather than inferred from source-file size. It accepts
+`--instructions`/`--tools` overrides so a live Cloud Run revision's own env can
+be measured against the repo's, which is how a before/after is proved. It paces
+itself by default because the account's observed 40k TPM ceiling for
+`gpt-realtime-2.1-mini` is only about eight inferences a minute at this context
+size — an unpaced run gets `rate_limit_exceeded` responses that arrive as an
+empty `response.done` with zero usage and look exactly like a provider bug.
+`runTurn` also collects every non-empty transcript spoken across a turn's
+tool rounds (not just the final reply) into `allSpeech`, so a
+`CanaryTurn.allSpeechAssertions` can catch something said mid-lookup — for
+example filler like "ثانية أشوف" before a single tool call resolves — that
+the final-reply assertions alone would miss. A second 2026-08-18 production
+failure (Pip reading out every metric `get_breed_benchmark` returned instead
+of only the one asked for) is covered by four more canaries:
+`single-metric-scope`, `two-metrics-scope`, `full-summary-allowed`, and
+`missing-metric-value`, all stubbing the same deliberately flat,
+all-metrics-populated `FULL_BENCHMARK_ROW` tool result — the hard case, since
+the model must scope its answer even when the broker hands it everything. A
+`shaped-null-metric` canary covers the other tool shape: a stub that already
+returns the shaped `{requested, unavailable, context}` payload with the one
+requested metric null, asserting Pip says the value is unavailable and states
+no number at all. `ToolStub.output` may be a plain value or a function of the
+model's parsed call arguments, so a stub can be exercised without depending on
+what it returns.
+
+The policy is likewise injected as required `PIP_REALTIME_INSTRUCTIONS` and
+`PIP_REALTIME_INSTRUCTIONS_VERSION` configuration, rendered from
+`CHICKMARK_REALTIME_POLICY` (Harness v2) by `tools/render_agent_instructions.ts`.
+`CHICKMARK_REALTIME_POLICY` lives in
+`supabase/functions/telegram-hatchery-agent/agent_prompt.ts` alongside the
+typed-channel `CHICKMARK_AGENT_POLICY`; both are composed from the same set of
+named policy sections (`AGENT_IDENTITY`, `EVIDENCE_AND_SCOPE`,
+`NATURAL_DATA_ENTRY`, `BENCHMARK_DISCIPLINE`, `TOOL_DISCIPLINE`) so the two
+channels cannot drift on shared rules. The realtime policy swaps the typed
+channel's "Conversation behavior" block (which carries the Telegram
+plain-text rule and a topic limiter) for a voice-only "Voice conversation"
+section plus the security-relevant lines only (never expose internals, treat
+tool/user data as untrusted, never leak internal planning) — casual
+conversation is intentionally allowed on a live call, and Telegram formatting
+never applies to it. It also omits the customer/flock/station identifying-
+context line from `EVIDENCE_AND_SCOPE`; the Voice conversation section covers
+that instead ("state identifying context only when ambiguous or asked"). As
+of realtime policy `2.2.0` it additionally inserts a voice-only "Tool
+results:" section (`TOOL_RESULT_SCOPE`, exported from `agent_prompt.ts`)
+between `BENCHMARK_DISCIPLINE` and `TOOL_DISCIPLINE`: after a tool result
+comes back, answer only the metric(s) the user's latest question actually
+asked for, treat every other returned field as internal context never to be
+recited, speak multiple metrics only when the user explicitly asked for a
+summary/comparison/named more than one, treat a result's `requested` list as
+the answer and its `context` object as background, and say a requested value
+is unavailable rather than substituting a sibling metric when it is missing
+or null. This section is voice-only — it is not part of
+`CHICKMARK_AGENT_POLICY`, so no text-policy change accompanies it. The
+`get_breed_benchmark` `metrics` argument and its `requested`/`context`/
+`unavailable`/`unknownMetrics` result fields, however, are shared across
+channels: Telegram and typed Pip can call with or without `metrics` and
+tolerate the shaped or flat result shape either way, unchanged by this policy
+split.
+`CHICKMARK_AGENT_POLICY` itself is unchanged by this split — a pinned test in
+`agent_prompt_test.ts` asserts it stays byte-for-byte identical to its
+pre-Harness-v2 value, so Telegram and typed Pip behavior cannot regress. The
+rendered realtime policy reaches every `session.update.session.instructions`
+payload unchanged; startup fails on a missing or blank policy or version. The
+Sideband logs only the policy version, never policy text. A policy-version
+change requires re-rendering these values and redeploying the Sideband.
+
+The realtime policy's "Voice conversation" section is audio-tuned (Harness
+2.2.0): a hard length rule (default one short spoken sentence, at most one
+question mark per reply), an explicit greeting protocol (a greeting is answered
+with a matching two-to-four-word greeting, never an offer to help), a
+one-question clarification rule that forbids restating the request and
+enumerating candidate options, a banned list of assistant-service stock
+phrases, a lookup-filler rule ("ثانية أشوف" only when one request genuinely
+chains several lookups, never for a single one, never as a sign-off), and a
+block of literal calibration examples — including two 2.2.0 examples that
+model answering only the requested metric when the tool result carries
+several (production-only and fertility+hatchability-only). The examples are
+load-bearing: on `gpt-realtime-2.1-mini` in audio mode, abstract brevity and
+scope rules alone were not followed reliably — the canary suite only
+stabilised after the example pairs were added.
+
+**Session fingerprinting.** Every `session.update` the Sideband sends is logged
+as `session_config.sent` (sequence number, source
+`initial`/`vad_fallback`/`intake_upgrade`,
+Cloud Run revision from `K_REVISION`, harness version, SHA-256 and length of
+the instructions, model, voice, tool count, turn-detection type, eagerness,
+reasoning effort), and every provider `session.updated` ack as
+`session_config.acked`, which additionally hashes the instructions echoed back
+by the provider and records `instructions_match` — proving not just that the
+config was sent but what the session is actually running. Hash + version +
+length only; policy text never reaches a log line.
+
+**Conversation context injection.** Right after the initial `session.update`
+send — on the same socket, immediately after, so wire ordering is preserved —
+`SidebandSession` best-effort loads the bound conversation's recent finalized
+turns (`store.loadRecentTurns`, scoped to the session's
+`conversationId`/`contextEpoch` and constrained to
+`direction in (inbound, outbound)` and
+`source_channel in (app_text, realtime_voice, telegram)` so a future `system`
+row can never be replayed as speech) and replays them into the
+model as `conversation.item.create` frames (`role: 'user'|'assistant'`,
+`input_text`/`text` content) so a caller resuming a conversation — by text
+after a prior voice call, or by voice after prior typed turns — picks up where
+it left off instead of starting the model cold. Up to the newest
+`CONTEXT_TURN_LIMIT` (12) turns are fetched; each turn's text is tail-truncated
+to `CONTEXT_PER_TURN_CHAR_CAP` (600 characters, keeping the END so the most
+recent content of a long turn survives) and turns are then walked newest-first
+and kept while the running total stays under `CONTEXT_TOTAL_CHAR_CAP` (4000
+characters) — the walk stops at the first turn that would overflow the
+budget, which is exactly "drop the oldest turns first" — before being sent
+oldest-first. Injection participates in readiness as the `contextInjected`
+precondition: READY is withheld until the injection settles, but the store
+fetch is bounded by `CONTEXT_INJECTION_TIMEOUT_MS` (500 ms, overridable as a
+test seam), so a slow or hung fetch delays READY by at most that bound and a
+failure never blocks it — the precondition is marked in a `finally` on
+success, failure, and timeout alike, keeping "history lands before the first
+live utterance" without letting the database gate the call. Any failure (the
+store fetch, or a frame send) is swallowed after a content-free warning log
+(`context_injection.failed`); a success logs only counts
+(`context_injection.sent`: turns fetched vs. sent), never turn text.
+`contextInjectionPromise` exposes the in-flight injection as a test seam
+only. Voice-to-text continuity needed no separate work: the shared context
+loader used by `app-hatchery-agent`'s `send` already reads finalized turns
+channel-blind, so a realtime-voice turn is already visible to the next typed
+turn in the same conversation.
+
+**Turns and usage.** Deltas are never persisted — only finalized text — and an
+interrupted response stores only what was actually said. Failed transcription is
+recorded as `unavailable` rather than being given invented content. Usage settles
+into `agent_realtime_usage_seconds` as one row per (session, UTC date), so a call
+crossing midnight becomes two slices that sum to its true active seconds;
+`usage_settled_at` plus the table's unique key are two independent defences
+against double settlement.
+
+**Token telemetry.** Wall-clock seconds are what the caller is BUDGETED on;
+tokens are what the provider BILLS. They are recorded separately and must not
+be conflated. Every `response.done` is parsed by `src/response_usage.ts` — a
+pure function that never throws and coerces anything missing or non-numeric to
+zero — and written to `agent_realtime_response_usage`, one row per
+(session, response). The row carries total/input/output, cached and derived
+uncached input, the text/audio/image split on both sides, the model, the
+response status, whether the response followed a tool call and which tool it
+was, and the INTERACTION it belonged to — the same key
+`agent_tool_events.realtime_interaction_id` carries, so "how many assistant
+responses did one thing the caller said produce?" is a `group by` rather than a
+log search. It is null only when a response arrived with no preceding
+`response.created` to attribute it. That attribution is read via
+`InteractionTracker#lookupInteractionForResponse`, a PURE lookup that never
+mints an interaction and never touches budget-tracking state — telemetry
+observes attribution, it never creates it. (The tool-budget path uses a
+separate, minting `interactionForResponse`/`noteResponseCreated`, which is
+correct there: a real tool call in flight needs an interaction to attribute
+budget to, even for one the tracker has not seen yet.) A failed or
+rate-limited response arrives with all-zero usage and is recorded anyway,
+because "the provider refused this turn" is the signal that matters most. The
+primary key makes a redelivered `response.done` a no-op rather than a double
+count, and a persistence failure is logged content-free and swallowed —
+telemetry never breaks a live call.
+
+**Failure containment.** One instance holds many concurrent live calls, and
+Deno terminates the process on an unhandled rejection — so a single missing
+`.catch` on a fire-and-forget path drops EVERY call on the instance, not just
+the one that failed. Provider events are dispatched with an explicit `.catch`,
+the lease heartbeat treats a store error as a lost lease (a stale worker stops
+rather than retries, which is this service's rule), and `main.ts` registers a
+process-level `unhandledrejection` guard as the last resort.
+
+Losing the provider socket is likewise not a degradation the session rides out.
+The caller's WebRTC leg to OpenAI is a SEPARATE connection that stays up, so the
+model keeps talking while this service can no longer execute a tool, persist a
+turn, or drive a response — and every frame it tries to send queues into a
+socket that will never open again. The session stops itself and the client is
+failed with `sideband_lost`, so it starts a fresh generation instead of talking
+to a session with no authority behind it.
+
+**Drain and sweep.** Cloud Run's SIGTERM grace is a fixed, non-configurable 10
+seconds. The drain path (`PIP_REALTIME_DRAIN_BUDGET_MS`, 7000) does only what
+must be durable: ONE batched statement marks every generation this worker owns
+`cleanup_pending` and releases the leases, and a close frame is pushed to each
+client so it can fail over immediately. It performs NO OpenAI hangups — each is a
+third-party round trip with no latency guarantee. Those, and every setup that
+stalled past its deadline, are handled by `POST /internal/cleanup`, called by
+Cloud Scheduler on roughly a 60-second cadence and authenticated with Google
+OIDC: both the audience and a service-account allowlist are checked, so a token
+minted for another service cannot be replayed here. The sweep claims each
+generation by compare-and-swap on the fencing token first, so it is safe to run
+concurrently with itself and with a live worker. It terminalizes three kinds of
+generation: one handed over as `cleanup_pending` by a draining worker, a setup
+stalled past `setup_deadline_at`, and — newly enforced — an ACTIVE call past
+`active_expires_at`. The provisioner had always stamped that column from
+`maxSessionSeconds` and nothing ever selected on it, so a live session was
+bounded by nothing but the caller hanging up: every new utterance opens a fresh
+interaction with a fresh tool budget, so an echoing line could drive unbounded
+tool and inference cost with no server-side stop. Each hangup is bounded by its
+own timeout, so one unresponsive provider call cannot stall the whole sweep —
+and the sweep is the only thing that terminalizes anything.
+
+**Logging.** `src/log.ts` accepts only a stable event name plus scalar fields and
+scrubs any key that looks like content (`text`, `transcript`, `arguments`,
+`result`, `output`, …). No audio, transcript, tool argument, tool result, token
+or secret may reach a log line.
+
+**Configuration** is validated at startup in `src/config.ts`; an invalid value
+crashes the revision where the deploy fails loudly, never at the first session.
+Incoherent combinations are rejected too — a heartbeat interval more than half
+the lease would let a single missed beat expire the lease. The
+`openai-beta.realtime-v1` subprotocol is deliberately never sent: it forces the
+retired beta surface and the connection is rejected.
+
+**Attach transport.** The sideband attaches to the live call with `npm:ws`
+over http/1.1, sending a real `Authorization: Bearer` header and no
+subprotocols — and the bearer must be the call's own EPHEMERAL client secret,
+which the provisioner persists on the service-role-only
+`agent_realtime_calls.client_secret` column for exactly this purpose. All of
+this is load-bearing and was learned from two production outages on the same
+socket: the original `openai-insecure-api-key.<KEY>` subprotocol hack is
+ignored by the attach endpoint (HTTP 401 on every bind); Deno's
+header-capable `WebSocketStream` negotiates h2, which the endpoint rejects
+with HTTP 400; and a standard `sk-` key — despite the provider's own
+documentation — is answered with 404 `call_id_not_found` even for a live
+call, while the `ek_` secret attaches and acks `session.update` (proven with
+a real WebRTC call from the macOS integration harness,
+`integration_test/realtime_attach_probe_test.dart`). The secret's TTL is 60s,
+capped at the setup deadline — the only window attach can legally happen in. A connection that fails before ever opening is retried
+twice at ~750ms spacing (`sideband.attach_retry`); a rejected handshake logs
+`sideband.attach_rejected` with the HTTP status and a truncated body so the
+next transport failure names itself. Post-open failures never re-dial. The
+READY gate additionally requires the client's post-bind
+`{"type":"health","webrtc":true,"data_channel":true}` frame, which the Flutter
+client sends once per attempt immediately after a successful bind.
+
+### 7.ac Pip Realtime tool broker (Edge Function)
+
+`supabase/functions/pip-realtime-tool-broker/` is the narrow, authenticated
+internal interface through which the Cloud Run sideband executes ChickMark agent
+tools. It exists so the sideband never forks a second copy of the tool catalogue
+and never needs broad database privileges: the sideband sends ONE tool call, and
+this function executes it through the SAME shared runtime the Telegram and in-app
+doors use (`executeAgentTool` in
+`telegram-hatchery-agent/agent_tools.ts`, with handlers from
+`createUnifiedAgentToolHandlers`).
+
+**Authentication is of the SIDEBAND, not an end user.** A single POST endpoint
+accepts a shared secret in the `x-pip-broker-secret` header, compared in constant
+time against `PIP_REALTIME_BROKER_SECRET`. It FAILS CLOSED: when the variable is
+unset, blank, or shorter than 32 characters the endpoint refuses every request
+with 503 rather than degrading into "no secret configured, so accept anyone".
+Google OIDC was considered and rejected for this direction — a Supabase Edge
+Function has no Google trust anchor, so verifying an ID token would put a JWKS
+fetch on the hot tool path. The two directions are therefore asymmetric on
+purpose: outbound to Supabase is a shared secret, inbound from Cloud Scheduler to
+the sideband is OIDC. The function must be deployed with `--no-verify-jwt`,
+because its caller is a server and presents no end-user JWT.
+
+**Authorization is re-resolved, never trusted.** The request carries the caller's
+authorization fingerprint, but that is treated as a claim. The function loads the
+session row, resolves the owner's CURRENT scope through `loadAppProfile` /
+`resolveAppAgentScope`, and recomputes the fingerprint with the same derivation
+`pip-realtime-session/fingerprint.ts` used at provisioning time. Three values
+must agree — what the caller sent, what was stamped on the session, and what the
+database says now. Any disagreement, or a profile that is no longer approved,
+refuses the call: authorization changed mid-session. The session must be `active`
+and the generation must be both the session's `active_generation` and still in
+`setup_state = 'active'`; a stale or terminal generation executes nothing.
+Argument-level scope (a tool naming a customer outside the allow-list) is refused
+by the shared runtime's own `enforceArgumentScope`, which is not duplicated here.
+
+**Idempotency** uses `agent_tool_call_claims` on the Realtime key shape
+(`realtime_session_id`, `realtime_generation`, `openai_tool_call_id`) plus the
+argument hash, canonicalised identically to the sideband's (`canonicalJson`:
+recursively sorted keys, so a provider reordering the JSON is not mistaken for a
+different call). The same call id with the same hash returns the recorded
+terminal result WITHOUT re-executing and without writing a second evidence row.
+The same call id with a different hash is rejected as a conflict. A mutation that
+ends indeterminate — the tool ran but the outcome could not be recorded — settles
+its claim `indeterminate` and is NEVER auto-replayed: re-running could double
+apply the write and reporting success could report a write that never landed.
+
+**Evidence** is one immutable `agent_tool_events` insert per call. The table's
+trigger raises on UPDATE and DELETE, so the row is written once and never
+corrected. `conversation_turn_id` is NULL (Realtime evidence predates any durable
+turn) and the row carries `realtime_session_id`, `realtime_generation`,
+`realtime_interaction_id`, `argument_hash` and `source_channel =
+'realtime_voice'`. `tool_sequence` is NOT NULL and is allocated from the rows
+already present for that session and generation, re-allocated on collision,
+because a partial unique index enforces it and two brokers must not both believe
+they own the same sequence number.
+
+**The 5-call cap is NOT enforced here.** It is interaction-scoped and lives in
+the sideband's `InteractionTracker`; a second, differently-scoped cap in the
+broker could refuse a call the sideband had already budgeted for. The rule is one
+cap per channel, enforced where the loop that spends it lives.
+
+**Logging** carries identifiers and outcome codes only — never tool arguments,
+results, transcript text or secrets.
+
+### 7.ad Live-voice failure diagnostics
+
+`RealtimeVoiceController` tracks which setup stage is in flight
+(`openMicrophone → createSession → createConnection →
+addSilentAudioTransceiver → openEventChannel → createOffer → exchangeOffer →
+registerCall → acceptAnswer → accessToken → bind`). On failure,
+`errorDetail` carries `stage: ExceptionType: message` (truncated, never
+tokens/SDP/transcripts), survives the single automatic recovery so the
+original cause wins, clears on a fresh start, and renders as a selectable
+monospace line in the chat screen's error banner (`assistant-live-error` /
+`assistant-error-detail`). Diagnostics are always LTR even under an Arabic
+locale.
+
+### 7.ae Answer-SDP handling (terminal newline is load-bearing)
+
+`HttpRealtimeCallSignaling.exchangeOffer` returns OpenAI's answer SDP
+byte-preserved except for one guarantee: the string always ends with a
+newline (appended only if missing — the body is never trimmed). darwin
+libwebrtc (iOS/macOS, `flutter_webrtc`) refuses to parse an SDP whose final
+line is unterminated and surfaces it as `setRemoteDescription: Error
+SessionDescription is NULL.`, while Chrome's parser accepts the same string —
+so a bare `.trim()` on the HTTP body was a full live-voice outage on iOS. A
+non-empty body that does not start with `v=` fails signaling with the body's
+first line quoted (protocol metadata, never user content).
+`integration_test/realtime_sdp_parse_test.dart` pins the parser behaviour
+against a captured production answer; run it with
+`flutter test integration_test/realtime_sdp_parse_test.dart -d macos`
+(macOS shares `flutter_webrtc`'s darwin code and WebRTC framework with iOS).
+
+### 7.af Pip Live conversation surface
+
+Pip Live runs in `RealtimeVoiceScreen` (`pip-live-screen`), a dedicated
+minimal call screen backed by the one shell-owned `RealtimeVoiceController`;
+the screen never creates a second transport, session, audio-level stream, or
+AssistantProvider message. It is reached from inside a conversation's
+`AssistantChatScreen` (the live control in the composer) or reopened by the
+shell-wide banner, and it joins whichever `conversationKey` it was opened
+with — a fresh `autoStart` call binds to that conversation on `start`; once a
+call is already active (banner reopen) the screen never calls `start` again,
+so the key of a running call cannot change mid-call.
+
+**Header.** A minimal row: a chevron-down minimize button
+(`pip-live-minimize`, pops back to the shell — the call stays active), the
+centered label "Pip" plus a subtle one-line state label underneath (Listening
+/ You are speaking / Pip is thinking / Pip is speaking / Reconnecting / Call
+ended / a generic "Connecting securely" fallback while setting up), and a
+balancing spacer so the title stays centered. The state label is deliberately
+omitted in the error state — that message renders under the orb instead, so
+it is never said twice.
+
+**Orb.** `RealtimeVoiceOrb` renders a refined breathing orb reflecting the
+controller's turn state, dimmed to 45% opacity (animated) while
+`reconnectingMuted`, with an error tint/copy path of its own. Its failure
+message and, in the error state, a selectable monospace diagnostic line
+(`pip-live-error-detail`, LTR always — see 7.ad) render centered beneath it,
+followed by a Retry text button (`pip-live-retry`) shown in both the error and
+the muted-reconnect state; during muted reconnect, Retry stops that recovery
+first and starts a fresh, bounded attempt, while an error-state Retry starts
+directly.
+
+**Transcript.** A collapsed-by-default strip (`pip-live-transcript`) shows
+only the latest user turn and the latest assistant turn (each tracked
+independently, not just "the last two by index"), top-faded with a gradient
+mask; tapping the strip, or the dedicated toggle control, expands it into the
+full scrollable caption history (max height 260 vs. 116 collapsed) rendered in
+detected per-line text direction. It renders nothing when there are no
+captions yet. Caption lines accumulate from `.delta` frames; the terminal
+`.done`/`.completed` frame carries the full transcript and REPLACES the open
+line rather than extending it, so a reply never renders twice.
+
+**Controls.** Three circular controls in a row, each a `Semantics` button plus
+a `Tooltip` (no visible text): mute (`pip-live-mute`, 56dp, mic/mic-off,
+filled while muted), End call (`pip-live-end`, 64dp, always filled red), and a
+transcript expand/collapse toggle (`pip-live-transcript-toggle`, 44dp,
+disabled while there are no captions to show). Mute and End are disabled
+whenever the call is not active (`controller.isRealtimeActive` false).
+
+Minimize only returns to the shell, so a call remains active; the active-Live
+composer control and the shell-wide banner reopen the same screen bound to the
+same `conversationKey` the shell is currently tracking. The banner is visible
+across shell tabs and exposes the same stop path as the screen's End control.
+Recorded voice and Live remain mutually exclusive through the existing
+controller/assistant audio-session gates. All production entry points use the
+shell's one guarded route opener, so a near-simultaneous banner and composer
+tap can create at most one Live route. The shell reserves a bottom layout slot
+for the active-call banner rather than overlaying it on compact navigation or
+tab content. Every widget key on this screen is load-bearing for
+`realtime_voice_screen_test.dart` and `assistant_chat_screen_realtime_test.dart`
+and is kept stable across restyles.
+
+### 7.ag IoT device gateway (Edge Function `iot-gateway`)
+
+`supabase/functions/iot-gateway` is the device-facing API for ChickMark IoT
+hubs. It is deployed with `--no-verify-jwt`, because an ESP32 carries no Supabase
+credential; authentication is a per-device bearer token checked inside the
+function. It serves no browser and sets no CORS headers. The Flutter app never
+calls it — the app reaches IoT data through PostgREST and the `iot_claim_hub`
+RPC.
+
+Routing anchors on the last `/v1/` path segment, so the same handler works
+whether it is reached through `/functions/v1/iot-gateway/v1/telemetry` or a
+local `supabase functions serve` path. Endpoints: `GET /v1/health` (no auth),
+`POST /v1/provision`, `POST /v1/auth/token`, `POST /v1/telemetry`,
+`POST /v1/heartbeat`, `POST /v1/commands/ack`, `GET /v1/commands`,
+`POST /v1/topology`, `GET /v1/config`, `POST /v1/events`, `GET /v1/firmware`,
+`POST /v1/firmware/status`.
+
+Handlers are pure with respect to I/O: each takes a parsed body, the
+authenticated hub context, and a `Db` port. `db_supabase.ts` implements that port
+with the service-role key, and the tests implement it with plain objects. Because
+service_role bypasses RLS, every hub-scoped query filters on both `hub_id` and
+`customer_id`, and `customer_id` is taken only from the row the bearer token
+resolves to — never from a request body.
+
+Identity and credentials. `iot_hub_registry` holds one row per manufactured hub
+with the SHA-256 hashes of its factory secret and claim code. `iot_claim_hub`
+binds a registry entry to a customer's hatchery and is the only path that creates
+an `iot_hubs` row; it returns the new `hub_id`, returns `null` for both an unknown
+serial and a wrong claim code (indistinguishable on purpose), raises `42501` when
+the caller has no write scope on the hatchery or the hatchery does not exist (also
+merged), `55P03` when a serial is locked after five failed claim attempts, and
+`23505` when the serial already has a live hub. `POST /v1/provision` exchanges the
+factory secret for a `hub_id` and a freshly minted 64-hex `device_secret`, storing
+only its hash in `iot_hub_secrets` and revoking every previously issued token.
+`POST /v1/auth/token` exchanges that secret for an opaque 24-hour bearer token,
+stored as a SHA-256 hash in `iot_device_tokens`.
+
+Telemetry is stored raw in `iot_telemetry`, partitioned by month with a default
+partition. Ingestion runs through `public.iot_ingest_telemetry`, which merges
+metrics on conflict (`metrics || excluded.metrics`) rather than overwriting or
+dropping, so a batch re-split after a `413` cannot lose a partial metric set.
+Idempotency is two-layer: `(hub_id, batch_id)` in `iot_telemetry_batches`, and the
+`(sensor_id, measured_at)` primary key. Readings whose `measured_at` is more than
+300 s ahead or 90 days behind server time are rejected per reading, not per batch.
+A value outside `iot_metric_registry`'s plausible range is stored with
+`quality = 'suspect'` and reported in `flagged[]`; `t_est` marks a row
+`estimated`. An unknown `sensor_uid` is auto-created in `unassigned` state rather
+than rejected.
+
+Commands ride the heartbeat response, capped at ten, with `next_heartbeat_s`
+dropping to 10 s while any are queued. `public.iot_ack_commands` maps the device
+ack vocabulary onto the stored one (`received` becomes `acked`) and never lets a
+terminal status be overwritten by a non-terminal one.
+
+Configuration is resolved server-side and served flat: `BASE_CONFIG`, then the
+matching `iot_config_defaults` layers by priority, then the per-hub
+`iot_hub_config.doc`, plus the hub's `espnow_pmk` and the current `base_url`.
+Triggers bump `iot_hub_config.version` whenever the document changes, mirror it
+onto `iot_hubs.config_version`, and bump every affected hub when a fleet-default
+layer changes — that version is what tells a hub to refetch. `GET /v1/config`
+honours `If-None-Match` and returns `304`.
+
+Tenant isolation is enforced in the database, not only in the handler: composite
+`(hub_id, customer_id)` foreign keys tie every child row to a hub of the same
+customer, `iot_hubs` grants `authenticated` only column-level `select` plus
+`update` on `name`/`hatchery_id`/`status`, and RLS is enabled and forced on every
+telemetry partition as well as the parent, because a partition inherits neither
+row security nor the parent's policies.
+
 ## 8. Known Technical Debt
 
 - Several station screens still use legacy-named `AuditModel` fields as
@@ -3033,6 +4630,54 @@ behavior and emit debug logs in development builds.
   surfaced as blocking workflow errors.
 - Govee place names still share the `TemperaturePlace` enum while the active
   persistence path is the standalone Govee workflow.
+- `AGENT_TOOL_CONTRACT` serves two different jobs and they are deliberately
+  separated. It remains the VALIDATION schema in full — `executeAgentTool`
+  enforces every `minLength`, `maxLength`, `pattern`, `minimum`, `maximum` and
+  `enum` in it, and nothing about that changed. What the model is SHOWN is a
+  projection of it, `modelFacingContract()`, which drops constraints that carry
+  no tool-selection value and are re-enforced server-side regardless. The
+  consequence to keep in mind: the model-facing schema is strictly MORE
+  permissive than the validator, so an over-long or unknown value is caught at
+  the broker with `invalid_arguments`/`unsupported_station_schema` rather than
+  by the provider. That is the intended safety net, and it is pinned by tests
+  that feed the slimmed schema a value the full rule rejects.
+- Tool RESULTS are projected for the same reason the schemas are: a result
+  stays in the model's context for the rest of the session, so every field has
+  to earn its place. `load_station_schema` returns field `names` in both
+  English and Arabic (users speak Egyptian Arabic, and the Arabic name is how
+  speech maps to a field) plus a flattened, deduplicated alias list, and it
+  keeps `validation` and `explicitZero` because `NATURAL_DATA_ENTRY` tells the
+  model to use them and a value rejected at the broker costs a whole retry
+  inference. Both it and `list_applicable_stations` drop `moduleKey`, which is
+  always the substring of `schemaKey` after the last dot, and both flatten
+  their alias lists. `resolve_customer_flock` returns the flock roster it had
+  already fetched when exactly one customer matched and the roster is small,
+  omitting it entirely rather than truncating past the limit — a silently
+  truncated list would read as complete.
+- The model-facing tool catalogue reaches the Cloud Run sideband as
+  configuration (`PIP_REALTIME_TOOL_DEFINITIONS`), rendered from
+  `modelFacingContract()` by
+  `services/pip-realtime-sideband/tools/render_tool_definitions.ts`, because the
+  two deployments cannot import from each other. A contract change therefore
+  needs the value re-rendered and the sideband redeployed; nothing at runtime can
+  tell a stale rendering from a fresh one. When the contract or shared tool
+  sources change, the Supabase edge functions (`pip-realtime-tool-broker`,
+  `telegram-hatchery-agent`, `app-hatchery-agent`) must deploy FIRST — they
+  bundle the shared tool sources directly — and only then should env be
+  re-rendered and the sideband redeployed; Cloud-Run-first exposes a new tool
+  argument to the model while the still-old broker rejects it via
+  `additionalProperties:false`, failing every call to that tool until the edge
+  functions catch up.
+- The Harness v2 realtime policy (`CHICKMARK_REALTIME_POLICY`) reaches Pip
+  Live through the required `PIP_REALTIME_INSTRUCTIONS` and
+  `PIP_REALTIME_INSTRUCTIONS_VERSION` deployment values, rendered by
+  `services/pip-realtime-sideband/tools/render_agent_instructions.ts`. The
+  raw policy text is never logged.
+- `MUTATION_TOOL_NAMES` in `pip-realtime-tool-broker` is hand-maintained because
+  the tool contract carries no mutation flag.
+  `services/pip-realtime-sideband/test/tool_contract_test.ts` enumerates every
+  contract tool, fails when one is unclassified, and compares the classification
+  against the broker's list, so the omission cannot pass silently.
 
 
 ## 9. Change Log

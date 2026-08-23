@@ -25,6 +25,7 @@ import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
+import 'package:hatchaudit/services/supabase/sync_retry_policy.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 
 class _MockSupabaseService extends Mock implements SupabaseService {}
@@ -81,6 +82,10 @@ void main() {
   late _MockPerformanceSyncRepository operational;
   late _MockSyncTombstoneRepository tombstones;
   late _MockPhotoSyncService photoSync;
+  // Retry backoff is process-local state; give every test its own policy and
+  // its own controllable clock so one test's failures cannot leak into the next.
+  late SyncRetryPolicy retryPolicy;
+  late DateTime clock;
 
   setUpAll(() {
     registerFallbackValue(<Map<String, dynamic>>[]);
@@ -104,6 +109,8 @@ void main() {
     operational = _MockPerformanceSyncRepository();
     tombstones = _MockSyncTombstoneRepository();
     photoSync = _MockPhotoSyncService();
+    clock = DateTime.utc(2026, 8, 16, 9);
+    retryPolicy = SyncRetryPolicy(now: () => clock);
 
     when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
     when(() => customers.getAllCustomers()).thenAnswer(
@@ -148,12 +155,8 @@ void main() {
     ).thenAnswer((_) async => 'synced');
     // Dirty-tracking push for BMK operational standards (Task 3): default to
     // nothing dirty unless a test overrides it.
-    when(
-      () => bmk.getDirtyOperationalRows(),
-    ).thenAnswer((_) async => const []);
-    when(
-      () => bmk.markOperationalRowsSynced(any()),
-    ).thenAnswer((_) async {});
+    when(() => bmk.getDirtyOperationalRows()).thenAnswer((_) async => const []);
+    when(() => bmk.markOperationalRowsSynced(any())).thenAnswer((_) async {});
     when(
       () => bmk.markOperationalRowsFailed(any(), any()),
     ).thenAnswer((_) async {});
@@ -299,6 +302,9 @@ void main() {
         upsertPhoto: any(named: 'upsertPhoto'),
         upsertBmkBreed: any(named: 'upsertBmkBreed'),
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+        upsertBmkOperationalStandard: any(
+          named: 'upsertBmkOperationalStandard',
+        ),
         upsertAuditSession: any(named: 'upsertAuditSession'),
         upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
         upsertDashboardAction: any(named: 'upsertDashboardAction'),
@@ -330,6 +336,7 @@ void main() {
     performanceSyncRepository: operational,
     syncTombstoneRepository: tombstones,
     photoSyncService: photoSync,
+    retryPolicy: retryPolicy,
   );
 
   test(
@@ -463,6 +470,9 @@ void main() {
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertBmkOperationalStandard: any(
+            named: 'upsertBmkOperationalStandard',
+          ),
           upsertAuditSession: any(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
@@ -496,6 +506,9 @@ void main() {
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertBmkOperationalStandard: any(
+            named: 'upsertBmkOperationalStandard',
+          ),
           upsertAuditSession: any(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
@@ -571,6 +584,9 @@ void main() {
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertBmkOperationalStandard: any(
+            named: 'upsertBmkOperationalStandard',
+          ),
           upsertAuditSession: any(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
@@ -611,6 +627,9 @@ void main() {
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+          upsertBmkOperationalStandard: any(
+            named: 'upsertBmkOperationalStandard',
+          ),
           upsertAuditSession: any(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
@@ -823,6 +842,10 @@ void main() {
           upsertPhoto: captureAny(named: 'upsertPhoto'),
           upsertBmkBreed: captureAny(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
+          // Matched but NOT captured, so the captured[] indices below stay put.
+          upsertBmkOperationalStandard: any(
+            named: 'upsertBmkOperationalStandard',
+          ),
           upsertAuditSession: captureAny(named: 'upsertAuditSession'),
           upsertGoveeDailyCapture: captureAny(named: 'upsertGoveeDailyCapture'),
           upsertDashboardAction: captureAny(named: 'upsertDashboardAction'),
@@ -908,6 +931,195 @@ void main() {
       verify(() => tombstones.markSynced(tombstone.id)).called(1);
     },
   );
+
+  // ---------------------------------------------------------------------
+  // Push failures must never be reported as a clean sync.
+  // ---------------------------------------------------------------------
+
+  /// Makes the operational table `farms` dirty with [rows] rows.
+  void makeFarmsDirty({int rows = 1}) {
+    when(() => operational.getDirtyRows('farms')).thenAnswer(
+      (_) async => [
+        for (var index = 0; index < rows; index++)
+          {
+            'id': 'farm-$index',
+            'customerId': 'customer-1',
+            'name': 'Farm $index',
+            'syncStatus': 'pending',
+          },
+      ],
+    );
+  }
+
+  test('a rejected table push is reported as failed, not as a clean sync', () {
+    makeFarmsDirty();
+    when(
+      () => supabase.upsertRowsStrict('farms', any()),
+    ).thenThrow(StateError('relation "farms" does not exist'));
+
+    return service().run().then((outcome) {
+      expect(outcome.online, isTrue);
+      expect(outcome.failed, 1);
+      expect(outcome.failedTables, ['farms']);
+      expect(outcome.hasFailures, isTrue);
+      expect(outcome.fullySynced, isFalse);
+      expect(outcome.failureSummary, contains('farms'));
+      expect(outcome.statusMessage, startsWith('Sync incomplete'));
+      verify(
+        () => operational.markRowsFailed('farms', ['farm-0'], any()),
+      ).called(1);
+    });
+  });
+
+  test('other tables in a run with a failing table still succeed', () async {
+    makeFarmsDirty();
+    when(
+      () => supabase.upsertRowsStrict('farms', any()),
+    ).thenThrow(StateError('relation "farms" does not exist'));
+    when(() => customers.getDirtyRows()).thenAnswer(
+      (_) async => [
+        {'id': 'customer-1', 'name': 'Customer 1', 'syncStatus': 'pending'},
+      ],
+    );
+
+    final outcome = await service().run();
+
+    // customers + audit session + egg_storage row all still went up.
+    expect(outcome.pushed, 3);
+    expect(outcome.failed, 1);
+    verify(() => customers.markRowsSynced(['customer-1'])).called(1);
+    verify(() => sessions.markSessionsSynced(any())).called(1);
+    verify(() => panels.markRowsSynced('egg_storage', any())).called(1);
+  });
+
+  test(
+    'a run with failures does not finish on the clean "Ready" note',
+    () async {
+      makeFarmsDirty(rows: 2);
+      when(
+        () => supabase.upsertRowsStrict('farms', any()),
+      ).thenThrow(StateError('relation "farms" does not exist'));
+      final messages = <String>[];
+
+      await service().run(
+        onProgress: (progress) => messages.add(progress.message),
+      );
+
+      expect(messages, isNot(contains('Ready')));
+      expect(messages.last, contains('2 not uploaded'));
+    },
+  );
+
+  test('a clean run still reports Ready and no failures', () async {
+    final messages = <String>[];
+
+    final outcome = await service().run(
+      onProgress: (progress) => messages.add(progress.message),
+    );
+
+    expect(outcome.failed, 0);
+    expect(outcome.failedTables, isEmpty);
+    expect(outcome.hasFailures, isFalse);
+    expect(outcome.fullySynced, isTrue);
+    expect(outcome.statusMessage, startsWith('Sync complete'));
+    expect(messages.last, 'Ready');
+  });
+
+  test(
+    'a failed remote delete is counted as failed, not just pending',
+    () async {
+      final tombstone = SyncTombstone(
+        id: 'customers:customer-1',
+        tableName: 'customers',
+        rowId: 'customer-1',
+        deletedAt: DateTime(2026, 7, 5),
+        createdAt: DateTime(2026, 7, 5),
+      );
+      when(
+        () => tombstones.getPendingDeletes(),
+      ).thenAnswer((_) async => [tombstone]);
+      when(
+        () => supabase.deleteRows('customers', ['customer-1']),
+      ).thenThrow(StateError('network down'));
+
+      final outcome = await service().run();
+
+      expect(outcome.pendingDeletes, 1);
+      expect(outcome.failed, 1);
+      expect(outcome.failedTables, contains('customers'));
+      expect(outcome.fullySynced, isFalse);
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // Retry bound: a permanently failing table must not re-attempt its doomed
+  // upload on every single run.
+  // ---------------------------------------------------------------------
+
+  test(
+    'a failing table is not re-attempted while inside its backoff',
+    () async {
+      makeFarmsDirty();
+      when(
+        () => supabase.upsertRowsStrict('farms', any()),
+      ).thenThrow(StateError('relation "farms" does not exist'));
+
+      final first = await service().run();
+      final second = await service().run();
+
+      // One doomed round-trip, not two — but the failure stays visible.
+      verify(() => supabase.upsertRowsStrict('farms', any())).called(1);
+      verify(() => operational.markRowsFailed('farms', any(), any())).called(1);
+      expect(first.failed, 1);
+      expect(second.failed, 1);
+      expect(second.failedTables, ['farms']);
+    },
+  );
+
+  test('a failing table is re-attempted once its backoff expires', () async {
+    makeFarmsDirty();
+    when(
+      () => supabase.upsertRowsStrict('farms', any()),
+    ).thenThrow(StateError('relation "farms" does not exist'));
+
+    await service().run();
+    clock = clock.add(SyncRetryPolicy.baseBackoff);
+    await service().run();
+
+    verify(() => supabase.upsertRowsStrict('farms', any())).called(2);
+    // Two consecutive failures → the next window is twice as long.
+    expect(retryPolicy.consecutiveFailures('farms'), 2);
+    expect(retryPolicy.shouldAttempt('farms'), isFalse);
+  });
+
+  test('a successful push clears a table\'s backoff state', () async {
+    makeFarmsDirty();
+    var attempt = 0;
+    when(() => supabase.upsertRowsStrict('farms', any())).thenAnswer((_) async {
+      attempt++;
+      if (attempt == 1) throw StateError('transient');
+    });
+
+    final first = await service().run();
+    clock = clock.add(SyncRetryPolicy.baseBackoff);
+    final second = await service().run();
+
+    expect(first.failed, 1);
+    expect(second.failed, 0);
+    expect(second.fullySynced, isTrue);
+    expect(retryPolicy.consecutiveFailures('farms'), 0);
+    expect(retryPolicy.shouldAttempt('farms'), isTrue);
+  });
+
+  test('backoff grows exponentially and is capped', () {
+    expect(SyncRetryPolicy.backoffFor(1), const Duration(minutes: 1));
+    expect(SyncRetryPolicy.backoffFor(2), const Duration(minutes: 2));
+    expect(SyncRetryPolicy.backoffFor(3), const Duration(minutes: 4));
+    expect(SyncRetryPolicy.backoffFor(4), const Duration(minutes: 8));
+    expect(SyncRetryPolicy.backoffFor(5), const Duration(minutes: 16));
+    expect(SyncRetryPolicy.backoffFor(6), SyncRetryPolicy.maxBackoff);
+    expect(SyncRetryPolicy.backoffFor(50), SyncRetryPolicy.maxBackoff);
+  });
 
   test('sync tombstones delete panel tables before owning tables', () {
     final order = SyncTombstoneRepository.deleteOrder;

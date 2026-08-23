@@ -55,3 +55,6 @@ app.*.map.json
 
 # Flutter tool logs
 flutter_*.log
+
+# Never commit provider keys pasted in for local work.
+docs/test key.md

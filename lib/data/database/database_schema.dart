@@ -1235,10 +1235,18 @@ Future<void> _createPerformanceMonitoringTables(DatabaseExecutor db) async {
   );
 }
 
-Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
-  await db.execute('''CREATE TABLE IF NOT EXISTS telegram_staff_links (
+/// A staff link identifies one person on one channel. Telegram links carry a
+/// `telegramUserId`; in-app links carry an `appUserId` and no Telegram
+/// identity at all, so neither column can be NOT NULL. Uniqueness is enforced
+/// per channel by partial indexes instead of column constraints — a column
+/// UNIQUE would collide across every app link once a second one exists.
+Future<void> _createTelegramStaffLinksTable(
+  DatabaseExecutor db, {
+  String tableName = 'telegram_staff_links',
+}) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
     id TEXT PRIMARY KEY,
-    telegramUserId TEXT NOT NULL UNIQUE,
+    telegramUserId TEXT,
     telegramChatId TEXT,
     displayName TEXT,
     username TEXT,
@@ -1247,6 +1255,8 @@ Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
       CHECK (accessRole IN ('customer', 'admin')),
     customerId TEXT,
     invitedBy TEXT,
+    channel TEXT NOT NULL DEFAULT 'telegram',
+    appUserId TEXT,
     createdAt TEXT,
     updatedAt TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -1260,6 +1270,35 @@ Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
     ),
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE RESTRICT
   )''');
+}
+
+/// Legacy databases reach `onOpen` before their `channel`/`appUserId` columns
+/// exist (surgical repair adds them in the same pass), so index creation is
+/// skipped until the columns are present rather than throwing.
+Future<void> _ensureTelegramStaffLinkIndexes(DatabaseExecutor db) async {
+  if (!await _tableExists(db, 'telegram_staff_links')) return;
+  final columns = _columnNames(
+    await db.rawQuery('PRAGMA table_info(telegram_staff_links)'),
+  );
+  if (!columns.containsAll({'telegramUserId', 'appUserId'})) return;
+  await _createTelegramStaffLinkIndexes(db);
+}
+
+Future<void> _createTelegramStaffLinkIndexes(DatabaseExecutor db) async {
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS '
+    'idx_telegram_staff_links_telegram_user '
+    'ON telegram_staff_links (telegramUserId) '
+    'WHERE telegramUserId IS NOT NULL',
+  );
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_staff_links_app_user '
+    'ON telegram_staff_links (appUserId) WHERE appUserId IS NOT NULL',
+  );
+}
+
+Future<void> _createHatcheryAgentTables(DatabaseExecutor db) async {
+  await _createTelegramStaffLinksTable(db);
 
   await db.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1671,6 +1710,9 @@ Future<void> _createUnifiedAgentHarnessTables(
     'CREATE INDEX IF NOT EXISTS idx_telegram_staff_links_customer '
     'ON telegram_staff_links (customerId) WHERE customerId IS NOT NULL',
   );
+  // Guarded: legacy databases reach this point before the v59 rebuild gives
+  // them the columns these indexes cover.
+  await _ensureTelegramStaffLinkIndexes(db);
 
   if (createGuards) await _createUnifiedAgentHarnessGuards(db);
 }
@@ -1691,6 +1733,7 @@ Future<void> _createAgentConversationsTable(
     contextUpdatedAt TEXT,
     pendingActionJson TEXT,
     activeVisitId TEXT,
+    title TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     syncStatus TEXT NOT NULL DEFAULT 'synced',
@@ -1776,7 +1819,7 @@ Future<void> _createAgentToolEventsTable(
   )''');
 }
 
-Future<void> _createUnifiedAgentHarnessGuards(DatabaseExecutor db) async {
+Future<void> _createTelegramStaffLinkGuards(DatabaseExecutor db) async {
   await db.execute('''CREATE TRIGGER IF NOT EXISTS
     trg_telegram_staff_links_scope_insert
     BEFORE INSERT ON telegram_staff_links
@@ -1799,6 +1842,10 @@ Future<void> _createUnifiedAgentHarnessGuards(DatabaseExecutor db) async {
       SELECT RAISE(ABORT, 'Allowed Telegram link has invalid access scope');
     END
   ''');
+}
+
+Future<void> _createUnifiedAgentHarnessGuards(DatabaseExecutor db) async {
+  await _createTelegramStaffLinkGuards(db);
   await db.execute('''CREATE TRIGGER IF NOT EXISTS
     trg_agent_intake_visit_scope_insert
     BEFORE INSERT ON agent_intake_visits

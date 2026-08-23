@@ -24,14 +24,23 @@ class AssistantProvider extends ChangeNotifier {
     AssistantClientMessageIdFactory? clientMessageIdFactory,
     AssistantAudioRecorder? audioRecorder,
     AssistantAudioPlayer? audioPlayer,
+    String conversationKey = defaultConversationKey,
   }) : _port = port ?? AssistantChatService(),
        _newClientMessageId =
            clientMessageIdFactory ?? (() => const Uuid().v4()),
        _providedAudioRecorder = audioRecorder,
-       _providedAudioPlayer = audioPlayer;
+       _providedAudioPlayer = audioPlayer,
+       _conversationKey = conversationKey;
 
   final AssistantChatPort _port;
   final AssistantClientMessageIdFactory _newClientMessageId;
+
+  /// Which conversation this provider instance drives: `'app'` (legacy
+  /// single thread) or `'app:'+uuid-v4` for one of the multi-conversation
+  /// threads. Fixed for the provider's lifetime — a different conversation
+  /// gets its own provider instance.
+  final String _conversationKey;
+  String get conversationKey => _conversationKey;
   // record 7 eagerly opens its platform channel from AudioRecorder's
   // constructor. Keep the default recorder lazy so opening text chat does not
   // initialize microphone infrastructure, and pure provider tests can run
@@ -104,7 +113,7 @@ class AssistantProvider extends ChangeNotifier {
     _error = null;
     _notify();
     try {
-      final history = await _port.loadHistory();
+      final history = await _port.loadHistory(conversationKey: _conversationKey);
       _messages
         ..clear()
         ..addAll(history.messages);
@@ -205,19 +214,26 @@ class AssistantProvider extends ChangeNotifier {
       final reply = await _port.sendVoice(
         audioBase64,
         clientMessageId: clientMessageId,
+        conversationKey: _conversationKey,
       );
-      _replace(pending.id, (current) => current.copyWith(
-        id: reply.userTurnId,
-        text: reply.transcript ?? current.text,
-        status: ChatMessageStatus.sent,
-      ));
+      _replace(
+        pending.id,
+        (current) => current.copyWith(
+          id: reply.userTurnId,
+          text: reply.transcript ?? current.text,
+          status: ChatMessageStatus.sent,
+        ),
+      );
       assistantMessage = reply.toAssistantMessage();
       _messages.add(assistantMessage);
       _loadState = AssistantLoadState.loaded;
     } on AssistantChatException catch (error) {
       _failMessage(pending.id, error.message);
     } catch (_) {
-      _failMessage(pending.id, 'Could not send that recording. Please try again.');
+      _failMessage(
+        pending.id,
+        'Could not send that recording. Please try again.',
+      );
     } finally {
       _isAwaitingVoiceReply = false;
       _notify();
@@ -303,7 +319,7 @@ class AssistantProvider extends ChangeNotifier {
     _error = null;
     _notify();
     try {
-      await _port.resetConversation();
+      await _port.resetConversation(conversationKey: _conversationKey);
       _messages.clear();
       // The bubble owning any in-flight playback just vanished; stop the
       // audio with it. stop() also resolves playMessageAudio's pending
@@ -336,17 +352,24 @@ class AssistantProvider extends ChangeNotifier {
       final reply = await _port.sendMessage(
         pending.text,
         clientMessageId: pending.clientMessageId ?? pending.id,
+        conversationKey: _conversationKey,
       );
-      _replace(pending.id, (current) => current.copyWith(
-        id: reply.userTurnId,
-        status: ChatMessageStatus.sent,
-      ));
+      _replace(
+        pending.id,
+        (current) => current.copyWith(
+          id: reply.userTurnId,
+          status: ChatMessageStatus.sent,
+        ),
+      );
       _messages.add(reply.toAssistantMessage());
       _loadState = AssistantLoadState.loaded;
     } on AssistantChatException catch (error) {
       _failMessage(pending.id, error.message);
     } catch (_) {
-      _failMessage(pending.id, 'Could not send that message. Please try again.');
+      _failMessage(
+        pending.id,
+        'Could not send that message. Please try again.',
+      );
     } finally {
       _isSending = false;
       _notify();
@@ -367,9 +390,10 @@ class AssistantProvider extends ChangeNotifier {
   }
 
   void _failMessage(String id, String message) {
-    _replace(id, (current) => current.copyWith(
-      status: ChatMessageStatus.failed,
-    ));
+    _replace(
+      id,
+      (current) => current.copyWith(status: ChatMessageStatus.failed),
+    );
     _error = message;
   }
 

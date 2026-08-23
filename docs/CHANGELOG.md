@@ -1,5 +1,817 @@
 # ChickMark Change Log
 
+- 2026-08-20: fix(pip): opening a brand-new Pip conversation no longer shows
+  "Could not load the conversation. Please try again.". The history action
+  answers `{conversationId: null, messages: []}` for a conversation that has
+  no server row yet (by design), but the Flutter parser required a non-empty
+  `conversationId` and threw a `FormatException`, which
+  `AssistantProvider.load()` caught as an unknown error and surfaced as an
+  error banner on every first open. `AssistantChatHistory.conversationId` is
+  now nullable and parsed with a new `_optionalText` helper; nothing in the
+  app read that id. Regression tests cover both an explicit null and a
+  missing key.
+- 2026-08-20: fix(voice): recorded voice notes now speak with the `cedar`
+  voice, the same voice Pip Live uses, instead of `ash` — Pip no longer
+  changes vocal identity between a voice note and a live call. Verified
+  against `/v1/audio/speech` that `cedar` is accepted by `gpt-4o-mini-tts`.
+  The Arabic and mixed-language TTS steering now names Egyptian Colloquial
+  Arabic (Cairo) explicitly and rules out Modern Standard Arabic and other
+  regional accents, including the Egyptian pronunciation of ج and ق; the
+  previous "natural, clear Egyptian Arabic" wording was read as MSA.
+- 2026-08-20: feat(pip): move the OpenRouter text-agent default to the paid
+  tier (`openai/gpt-oss-120b`, fallback `openai/gpt-oss-20b`, both were
+  `:free`) and add a separate vision-capable route
+  (`google/gemma-4-31b-it`, paid) for a call whose `input` carries an image
+  or video. `resolveOpenRouterTextModels` (`_shared/pip_model_routing.ts`)
+  now returns `{primary, fallback, vision}`, `vision` overridable with
+  `OPENROUTER_VISION_MODEL`. `createResponsesAgentProvider`
+  (`telegram-hatchery-agent/agent_provider.ts`) detects visual content
+  (`requestIsVisual`: any `input_image` part, or an `input_file` part whose
+  filename/mime indicates an image or video) BEFORE choosing a model and
+  routes to `visionModel` instead of the text primary/fallback pair; the
+  vision route has its own independent, optional fallback
+  (`visionFallbackModel` / `OPENROUTER_VISION_FALLBACK_MODEL`, default
+  unset) and NEVER falls back to the text fallback model, since that model
+  is text->text and would guarantee a second failure on image/video input
+  -- with no vision fallback configured, a failed vision call throws
+  `AgentProviderError` after exactly one attempt. Sticky within-turn
+  fallback is now tracked per route (`stickyTextFallbackReason` /
+  `stickyVisionFallbackReason`) so a text call going sticky can never force
+  a later vision call onto a text model, and vice versa.
+  `AgentProviderTelemetry` gained `visionRouted: boolean`. Both doors'
+  `readAiConfig()` (`app-hatchery-agent/index.ts`,
+  `telegram-hatchery-agent/index.ts`) wire `visionModel`/
+  `visionFallbackModel` through on the OpenRouter branch only. The app door
+  still hardcodes `attachment: null` for every turn, so vision routing is
+  reachable only from Telegram until the app gains its own attachment
+  upload path; a native Telegram video message is also not yet captured as
+  an attachment at all (`TelegramMessage` has no `video` field), so today
+  only an image, or a video re-sent as a generic document, reaches the
+  vision route. Also added a new "Grounding guard" policy section to
+  `CHICKMARK_AGENT_POLICY` (Telegram + typed Pip only, NOT
+  `CHICKMARK_REALTIME_POLICY`, which stays byte-identical and out of
+  scope): a value belonging to a specific flock, hatchery, farm, user,
+  session, production record, metric, or other database state must come
+  from a tool result or already-grounded trusted context, never invented,
+  estimated, interpolated, or carried over from an example -- while
+  explicitly not restricting general veterinary/husbandry reference
+  knowledge or arithmetic on values the user themselves already supplied.
+  `CHICKMARK_AGENT_POLICY_VERSION` bumped `1.1.0` -> `1.2.0`; the pinned
+  byte-for-byte snapshot test in `agent_prompt_test.ts` was updated to
+  match. New/updated tests across `pip_model_routing_test.ts`,
+  `agent_provider_test.ts`, `agent_prompt_test.ts`,
+  `agent_runtime_test.ts`, and `app-hatchery-agent/index_test.ts`. Full
+  suites green: `telegram-hatchery-agent` (276 tests), `app-hatchery-agent`
+  (83 tests), and `_shared` (9 tests, run from a directory with a
+  `deno.json`). Did not touch `evals/` and did not run the model
+  comparison/acceptance harnesses (real-money, deliberately out of `deno
+  test`).
+
+- 2026-08-19: test(app-hatchery-agent): add a MODEL-VS-MODEL comparison
+  suite on top of the existing text-agent eval harness in
+  `supabase/functions/app-hatchery-agent/evals/`, to decide which of five
+  candidate paid OpenRouter models (`openai/gpt-oss-20b`,
+  `openai/gpt-oss-120b`, `qwen/qwen3-30b-a3b-instruct-2507`,
+  `deepseek/deepseek-v4-flash-0731`, and the current production default
+  `google/gemma-4-31b-it` as baseline) is the cheapest one that still meets
+  our reliability bar. New files only, reusing rather than forking the
+  existing harness: `models.ts` (hand-verified pricing snapshot, dated
+  2026-08-19, plus `verifyModelsAgainstOpenRouter` to re-check it live at
+  runner startup and abort before spending if an id or its price has
+  drifted), `comparison_scenarios.ts` (45 scenarios across 9 dimensions --
+  Arabic/mixed-language understanding, tool selection, tool arguments,
+  tool-result reasoning, progressive disclosure, brevity,
+  hallucination/grounding, multi-turn, and degradation under load -- built
+  from the real tool/prompt contracts after reading
+  `agent_tool_contract.ts`, `agent_read_tools.ts`, `bmk_tools.ts`, and
+  `agent_audit_tools.ts`), and `run_comparison.ts` (the runner: `--models`,
+  `--repeats` for per-scenario pass-RATE plus flap detection, `--filter`,
+  `--json`, and a `--max-cost` budget guard against real reported
+  OpenRouter cost). `agent_client.ts` was extended, additively, to parse and
+  return `/v1/responses`'s `usage` block (input/output/cached/reasoning
+  tokens and real `cost`) on `Round` and `TurnResult` -- `run_evals.ts` and
+  `run_probe.ts` are unaffected and still pass `deno check`/`lint`/`fmt`.
+  Like the rest of `evals/`, this is on-demand and NOT part of `deno test`.
+  Validated with `deno check`/`lint`/`fmt --check` (clean) and a real smoke
+  run (`--models openai/gpt-oss-20b --repeats 1 --filter toolsel-no
+  --max-cost 0.10`) confirming cost tracking, latency capture, the budget
+  abort path, and `--json` export all work; the full five-model matrix was
+  deliberately NOT run (that costs real money and is left for the user to
+  run on demand). No existing runtime file touched, and no default model
+  changed.
+- 2026-08-19: test(app-hatchery-agent): add a text-agent model-acceptance
+  harness (`supabase/functions/app-hatchery-agent/evals/`) to decide whether
+  `google/gemma-4-31b-it:free` is fit to be the default text-agent model, with
+  `openai/gpt-oss-20b:free` as fallback. Modeled on the house style of
+  `services/pip-realtime-sideband/evals/`, but driving the REAL OpenRouter
+  `/v1/responses` REST shape (not a WebSocket) with the REAL production
+  artefacts imported directly — `AGENT_MODEL_TOOL_DEFINITIONS` from
+  `agent_tools.ts`, `buildAgentInstructions` from `agent_prompt.ts`, and a
+  request body/multi-round tool loop copied field-for-field from
+  `createResponsesAgentProvider`/`runAgentTurn` in `agent_provider.ts`/
+  `agent_runtime.ts`. Two entry points: `run_probe.ts` (7 fast pass/fail
+  tool-calling compatibility checks) and `run_evals.ts` (an 18-scenario,
+  9-dimension scored acceptance suite, runnable against any `--model` with
+  `--json` output for cross-model diffing). Neither is part of `deno test` —
+  both cost real money and are meant to be run on demand. New files only;
+  no existing runtime file touched. Not run in this change (no API key
+  available here) — verified with `deno check`/`deno lint`/`deno fmt --check`
+  and dry-run CLI wiring instead.
+- 2026-08-19: feat(flags): park Pip Live (Realtime voice) behind
+  `FeatureFlags.realtimeEnabled` (new `lib/core/config/feature_flags.dart`,
+  compile-time default off via `bool.fromEnvironment('PIP_REALTIME_ENABLED')`,
+  runtime-overridable for tests) during the text-agent stabilization phase.
+  `MainShell` no longer constructs or provides a `RealtimeVoiceController`
+  when the flag is off — the shell's Live route guard, the push to
+  `RealtimeVoiceScreen`, and the `RealtimeLiveBanner` all become unreachable
+  from that one choke point — and `AssistantChatScreen` adds a matching
+  explicit flag check alongside its existing nullable-controller lookup so no
+  live control (`assistant-live`) can appear even if a controller were
+  injected some other way. The recorded-voice mic button (`assistant-mic`)
+  and all Realtime source, services, edge functions and tests are untouched —
+  this is a UI-reachability change only, not a removal. Added
+  `test/features/chat/realtime_parked_test.dart` asserting the flag-off
+  behaviour; existing Realtime widget tests now set
+  `FeatureFlags.realtimeEnabled = true` in `setUp`/reset in `tearDown` to keep
+  covering the full implementation.
+- 2026-08-19: fix(pip-realtime-sideband): restore public Cloud Run invoker —
+  self-inflicted Pip Live outage. The 00016-577 deploy followed the README's
+  documented `gcloud run deploy` line, which carried
+  `--no-allow-unauthenticated`. That stripped the `allUsers`
+  `roles/run.invoker` binding, so every client bind was rejected by the Cloud
+  Run IAM layer ("The request was not authenticated. Empty Authorization
+  header value.") BEFORE reaching the container, surfacing in the app as
+  `bind: RealtimeSidebandException: Could not connect the live voice session.`
+  The sideband never sees a Google IAM token: it authenticates every request
+  itself (bind tokens, JWT verification, authority re-resolution), and the one
+  privileged endpoint `/internal/cleanup` is separately gated by OIDC audience
+  plus a service-account allowlist — so public invocability at the edge is the
+  design, and the cleanup allowlist would be redundant otherwise. Restored the
+  `allUsers` invoker binding; a raw upgrade against `/v1/realtime` now returns
+  `101 Switching Protocols` and the IAM rejections stopped. The README's deploy
+  command has been corrected to `--allow-unauthenticated` with an explicit
+  do-not-harden warning and a recovery snippet, since the wrong flag was
+  documented and would have repeated on the next deploy. Also noted there:
+  this gcloud version rejects `--cpu-always-allocated`, the equivalent being
+  `--no-cpu-throttling`. No application code changed.
+
+
+- 2026-08-19: feat(iot): build, deploy and verify the `iot-gateway` device API.
+  Added the IoT schema (hubs, hub secrets, device tokens, sensors, metric
+  registry, month-partitioned telemetry, batches, events, commands, config
+  layers, firmware tables), the `iot_claim_hub` RPC, four service-role ingestion
+  RPCs, and the `iot-gateway` Edge Function deployed with `--no-verify-jwt` at
+  `/functions/v1/iot-gateway`. Twelve endpoints are live and were verified end to
+  end against the deployed project: provisioning, token issuance, telemetry with
+  two-layer idempotency, heartbeat, command delivery and acknowledgement,
+  topology, config with ETag, events, and an OTA check that reports no update.
+  Added `scripts/test_iot_tenant_isolation.sh`, which replays every migration into
+  a throwaway Postgres and asserts cross-tenant access is impossible; it caught
+  three real defects during this work. Fixed along the way: `iot_ingest_telemetry`
+  used `returning (xmax = 0)`, which is illegal on a partitioned table and failed
+  on every call; `iot_ack_commands` wrote the device's `received` status straight
+  into a column whose check constraint has no such value, breaking the ack
+  firmware must send before rebooting; `iot_claim_hub` still referenced the
+  pre-move `chickmark_private` schema, so claiming a hub was broken; the
+  claim-code lockout incremented a counter and then raised, which rolled the
+  increment back, so the lockout never engaged; and nothing incremented
+  `iot_hub_config.version`, so a hub would never have refetched changed config.
+  Added `docs/IOT_FIRMWARE_HANDOFF.md` as the forwardable integration package.
+  An adversarial review of the deployed build against the contract then found ten
+  more, all fixed and redeployed: re-provisioning rotated the ESP-NOW primary key
+  and would have stranded every paired sensor node on a recovery; omitting the
+  optional `topology_hash` wiped the stored one and put the hub in a permanent
+  snapshot loop; `POST /v1/firmware/status` answered `accepted: 1` for an
+  `update_id` that did not exist; OTA ignored channel, `min_from_version` and
+  `rollout_percent`, so a 1% staged release would have gone to the whole fleet;
+  `GET /v1/config` swallowed database errors and silently served defaults with no
+  ESP-NOW key; its scope filter was string-interpolated from a client-minted
+  `customer_id`; `GET /v1/commands` consumed commands despite being documented as
+  a pure read; a wrong HTTP method returned `400`, which tells firmware to discard
+  the payload; the device's `completed_at` was dropped on the way to storage; and
+  there was no way to enqueue a command at all. Added `public.iot_enqueue_command`
+  (closed command set enforced server-side) and widened telemetry partitions to
+  cover the 90-day backlog window plus twelve months ahead.
+
+- 2026-08-19: fix(pip-realtime-sideband): three fixes from an Opus production
+  review of the response-usage telemetry work.
+  (1) TELEMETRY NO LONGER MUTATES BUDGET STATE. `#persistResponseUsage` in
+  `src/sideband.ts` used to call `InteractionTracker#interactionForResponse`,
+  which MINTS a new interaction (and can evict, and consumes
+  `#pendingRootInteractionId`) when the response id is unknown — a pure
+  telemetry read was able to alter budget-tracking state, and could never
+  actually produce the documented null `interactionId` for an unattributed
+  response (it invented a synthetic `resp:<id>` instead, indistinguishable
+  from a real one in the table). Added a pure
+  `InteractionTracker#lookupInteractionForResponse(responseId): string | null`
+  that only reads `#responseInteraction` and never mints, evicts, or touches
+  pending-attribution state; `#persistResponseUsage` now uses it, so the null
+  documented on `ResponseUsageInsert.interactionId` (`src/store.ts`) and in
+  the `interaction_id` column comment
+  (`supabase/migrations/20260819120000_pip_realtime_response_usage_interaction.sql`)
+  is now real. The other call sites of `interactionForResponse`
+  (`src/interaction.ts`'s own `tryConsumeToolBudget`, and the `session_not_live`
+  rejection path in `src/claims.ts`) are budget/attribution paths handling a
+  real event and correctly keep the minting behavior. New tests:
+  `test/interaction_test.ts` ("lookupInteractionForResponse is a pure read:
+  null for an unseen response, no minting" and the paired "...returns the
+  same answer as interactionForResponse once attributed") and
+  `test/sideband_test.ts` ("persisting usage for a response the tracker never
+  saw writes a null interactionId and does not mint an interaction").
+  (2) SCHEMA CONTRACT TEST HEADER CORRECTED. The header on
+  `test/response_usage_schema_contract_test.ts` claimed it existed because a
+  migration "was not applied before the sideband revision shipped" — but the
+  test reads migration files off disk, and that migration file was on disk
+  throughout the incident, so this test would have PASSED during it. Rewrote
+  the header to say honestly what the test catches (code drifting ahead of
+  the committed migration files) versus what it does not (a committed but
+  unapplied migration — guarded instead by deploy ordering plus the fail-loud
+  `response_usage.persist_failed_first`/`response_usage.all_failed` logging).
+  Also gave `parseAlterTableAddColumns`'s blind spot on `alter table ... drop
+  column` a real fix rather than just a caveat: added
+  `parseAlterTableDropColumns`, wired into `loadMigrationColumns` so a
+  chronologically later drop removes the column from the derived set (and a
+  still-later re-add can reintroduce it). New tests cover the parser directly
+  and a synthetic add-then-drop migration pair.
+  (3) STALE DERIVATION COMMENT FIXED. `src/config.ts`'s comment on
+  `PIP_REALTIME_MAX_OUTPUT_TOKENS` still justified 1536 as "~2.1x the longest
+  legitimate spoken reply (488 output tokens)" — the derivation for the OLD
+  1024 default. Updated it to match the real derivation already documented in
+  `src/session_config.ts` (a live canary measurement of 832/865 output tokens
+  for an explicitly requested full eleven-metric summary; 1536 is ~1.8x that),
+  pointing at `session_config.ts` instead of duplicating it.
+  No behavior change to what gets persisted for an ATTRIBUTED response, no
+  change to the tool-budget enforcement path, and no assertion in any
+  existing test was weakened.
+
+- 2026-08-19: fix(pip-live): four production fixes from the diagnosed Realtime
+  session — report-vs-benchmark routing, breakout answer shaping, a spoken
+  output ceiling, and restored token telemetry. `propose_intake` / Voice Data
+  Entry deliberately untouched.
+  (1) ROUTING. A live call asked "إيه آخر تقرير break out موجود عندك؟" (the
+  last breakout REPORT) and Pip answered from the published standard via
+  `get_egg_breakout_benchmark`. A new voice-only `REPORT_VS_BENCHMARK` section
+  in `agent_prompt.ts` separates "what the standard says" from "what was
+  actually recorded", defaults ambiguous wording to the STANDARD, requires the
+  decision to be made silently (never asking the user which they meant),
+  routes real report requests through the audit tools, forbids answering a
+  report request from a benchmark, forbids carrying `ageWeek`/`breed` forward
+  from an earlier benchmark turn, records that the egg-breakout table is
+  age-only and needs no breed, and leaves every non-audit question on its
+  existing tool. Voice-only: `CHICKMARK_AGENT_POLICY` is byte-identical and
+  its pinned snapshot is untouched. `CHICKMARK_REALTIME_POLICY_VERSION`
+  2.2.0 → 2.3.0.
+  (2) SHAPING. `get_egg_breakout_benchmark` returned a flat 11-metric row,
+  which the mini realtime model read aloud in full (~25 seconds). It now
+  mirrors `get_breed_benchmark` exactly: an optional `metrics` argument and a
+  `requested`/`unavailable`/`unknownMetrics`/`context` payload, with the full
+  authoritative row preserved in `context`. An unknown metric name yields an
+  empty `requested` plus `unknownMetrics` and never degrades to the flat row.
+  `parseRequestedMetrics`/`nullMetricKeys` were generalized over a catalogue
+  rather than duplicated, so the two tools cannot drift.
+  `AGENT_TOOL_CONTRACT_VERSION` 1.1.0 → 1.2.0, fingerprint re-pinned.
+  (3) LENGTH. `session.max_output_tokens` had never been set — the provider
+  default is unbounded ("inf"). New `PIP_REALTIME_MAX_OUTPUT_TOKENS`
+  (default `1536`, range 200-4096, fails startup outside that range, never
+  clamped). Sized from live canary measurement: the largest LEGITIMATE reply
+  the policy permits — an explicitly requested full 11-metric summary — cost
+  832 and 865 output tokens, so 1536 is ~1.8x that and cannot clip a real
+  answer. Deliberately not sized to cut the 761-token incident dump, which is
+  fixed at its source by (1) and (2). `turnDetection`, `vadEagerness` and
+  `vadSilenceMs` are unchanged — the evidence never implicated VAD.
+  (4) TELEMETRY. Migration `20260819120000` (the `interaction_id` column) had
+  never been applied, while Cloud Run revision `00015-b48` was already writing
+  it, so every insert returned PostgREST 400 and `#persistResponseUsage`
+  swallowed all of them: zero rows and no token evidence at all. The migration
+  is now applied and verified against the deployed schema. Failures are now
+  loud without being fatal — the first failure in a session logs at error
+  level, later ones stay quiet, and a session where every attempt failed emits
+  one terminal event — while the catch still swallows unconditionally so
+  telemetry can never break a live call. A new schema-drift contract test
+  derives the expected column set by PARSING the migration SQL, so the code
+  cannot silently get ahead of the deployed schema again.
+  (5) TRANSCRIPTION. `TRANSCRIPTION_PROMPT` was 100% English hatchery
+  vocabulary with no language hint, producing hallucinated English captions
+  ("Hello, world.", "I'm Elly.", "In Tamil") over Egyptian Arabic audio which
+  then polluted stored conversation history. The prompt is now bilingual and a
+  new `PIP_REALTIME_TRANSCRIPTION_LANGUAGE` (default `ar`, the SINGULAR
+  `language` field, `''` omits it as a no-code-deploy rollback) is sent for
+  every transcription model except `gpt-live-transcribe`, whose
+  `languages`/`delay` shape is unchanged. A recorded probe
+  (`tools/probe_transcription_quality.ts`) shows the old prompt transliterated
+  "hatchability" into Arabic script — which silently poisons tool arguments —
+  while the new configuration keeps it in Latin script and leaves a
+  pure-English utterance transcribed identically.
+  Evidence lives in three recorded probes under
+  `services/pip-realtime-sideband/tools/`. Nine new canaries pin the
+  behaviour, two of them added after review because the first
+  report-vs-benchmark canary reused the incident sentence verbatim and so
+  could not tell "applied the rule" from "parroted the calibration example".
+  DEPLOYED 2026-08-19 in the required order: migration first, then the edge
+  functions (`telegram-hatchery-agent`, `pip-realtime-tool-broker`,
+  `app-hatchery-agent`), then Cloud Run revision
+  `pip-realtime-sideband-00016-577`, whose startup log reports
+  `instruction_version 2.3.0` / `tool_contract_version 1.2.0` with no
+  warnings. Production telemetry recovered from 0 rows to live per-response
+  token rows, every one carrying `interaction_id`. Env payload is now
+  31146/32768 bytes — 95% of the Cloud Run cap, which is the binding
+  constraint on further policy growth. Suites: telegram-hatchery-agent 228, app-hatchery-agent 82,
+  pip-realtime-sideband 252, live canaries 77 — all 0 failed.
+
+- 2026-08-19: fix(realtime): mint Realtime sessions with `cedar` from the start.
+  `pip-realtime-session/config.ts` still defaulted `PIP_REALTIME_VOICE` to
+  `marin`, so the ephemeral client secret was minted with `marin` and only
+  became `cedar` when the Sideband's `session.update` (which has defaulted to
+  `cedar` since 2026-08-17) landed. The Edge Function default is now `cedar`,
+  matching the Sideband and what `LIVING_SPEC.md` already documented. Verified
+  no override exists: `PIP_REALTIME_VOICE` is set neither in the Supabase
+  function secrets nor in the Cloud Run service env, and the Flutter client
+  never sends a voice. `config_test.ts` now pins the default and the hardcoded
+  `marin` in `integration_test/realtime_attach_probe_test.dart` became `cedar`.
+  Not deployed yet. No other voice or Realtime behaviour changed.
+
+- 2026-08-19: docs(iot): design the IoT hardware API contract and backend plan.
+  Added `docs/IOT_API_CONTRACT.md` (architecture, threat model, database model,
+  and the self-contained `Firmware Integration Contract v1` for the hardware
+  engineer) and `docs/IOT_BACKEND_PLAN.md` (phased backend build order). Design
+  only — no code, schema, or Edge Function was added, so `LIVING_SPEC.md` is
+  deliberately untouched: it describes behaviour that exists, and none of this
+  exists yet. Decisions recorded: ingestion lives in a new `--no-verify-jwt`
+  Supabase Edge Function rather than Cloud Run; devices authenticate with a
+  per-hub secret exchanged for a 24 h bearer token, never a Supabase key;
+  commands ride the heartbeat response instead of MQTT/WebSocket; telemetry is
+  stored raw in a monthly-partitioned table with hourly/daily rollups shaped to
+  match `govee_daily_captures`; and all production-threshold evaluation stays
+  server-side, mirroring how `ScopeSeverity` already works client-side.
+
+- 2026-08-19: fix(pip): natural entity names, and a deterministic end to every
+  Pip response chain. A caller said `بدر`; the flock is stored decorated as
+  `بدر - 25 Oct 2025 - Avian`, `resolve_customer_flock` compared the two with
+  `===` after normalization, and the miss came back with no candidate IDs — so
+  the model re-called the tool, and the Realtime sideband sent an unconditional
+  `response.create` after EVERY `function_call_output`, including the
+  `tool_limit_reached` refusal. `tool -> reject -> response.create -> tool ->
+  reject` had no bound anywhere in the service: the tool budget stopped the
+  tools running but never stopped the responses being generated, so the caller
+  heard Pip repeat itself and the only thing that ever ended it was the model
+  losing interest. Four fixes and an audit. (1) A new `agent_name_match.ts`
+  folds the Arabic spellings that differ between typists (harakat, tatweel,
+  zero-width marks, أإآٱ→ا, ى/ئ→ي, ؤ→و, ة→ه, Arabic-Indic digits) and matches
+  on WORD TOKENS through a ladder — exact, then leading-word prefix, then a
+  contained word run — where the first tier to match wins outright and every
+  match in it is reported, so `بدر` resolves the decorated name while `ابر`
+  still cannot match `صابر`. (2) Every non-resolved `resolve_customer_flock`
+  status now carries candidate IDs with names, including `customer_not_found`,
+  which returns the customers the caller may see; a fuzzy customer match
+  spanning two customers is refused rather than settled by the flock name, so
+  a partial name can never select another operator's records. Tool contract
+  1.1.0 → 1.2.0. (3) The sideband gained a per-interaction CONTINUATION budget
+  alongside the tool budget: a `tool_limit_reached` refusal force-finalizes with
+  `response.create` carrying `tool_choice: 'none'` — a response the provider
+  cannot answer with a function call, so the chain provably ends — and every
+  continuation after that is suppressed and logged; a call refused for liveness
+  is answered but never continued; tool events are now serialised in arrival
+  order, so a response carrying `propose_intake` plus another tool can no longer
+  land its catalogue upgrade AFTER the other tool's `response.create`, and when
+  one response emits several tool calls all their names land on the single
+  follow-up telemetry row they jointly caused; and the intake catalogue upgrade
+  is now confirmed by its `session.updated` ack rather than assumed from the
+  send, with one bounded retry, because a provider drops a rejected
+  `session.update` WHOLE and the session would otherwise stay on the core
+  catalogue for the rest of the call with nothing in the logs to say so.
+  (4) The text runtime stopped
+  answering a
+  spent tool budget with `tool_limit_exceeded` (a 502 the caller could only
+  retry into the same wall): the over-limit call is answered
+  `tool_limit_reached` and one final pass runs with the catalogue withdrawn, so
+  the model answers from what it already gathered. The broader audit closed
+  three more dead ends: `select_audit_option` could never see an option list
+  produced on a live call (realtime evidence carries a NULL
+  `conversation_turn_id` by design), so the lookup now searches
+  `agent_realtime_sessions` too and the newer snapshot wins; that tool's
+  refusals became `audit_options_required` / `audit_position_out_of_range`
+  instead of one null-payload `scope_denied`, while a real scope mismatch still
+  answers identically to an unknown audit; and `turn_context_required` — which
+  fires on EVERY realtime `propose_intake` because the broker omits the turn
+  anchor by design — now carries `retryable: false` and a bilingual message
+  naming the typed chat as the route. Also applied to production: the
+  `agent_realtime_response_usage` migration, which had never been recorded in
+  the migration ledger, so per-response token telemetry now has a table to land
+  in, and a follow-up migration adds `interaction_id` to that table so the
+  number of assistant responses one user utterance produced is a `group by`
+  instead of a log search — that one is NOT applied yet and must land before the
+  sideband revision that writes the column, because PostgREST rejects an insert
+  naming an unknown column and the telemetry write swallows its own failures by
+  design. `scripts/test_pip_realtime_backfill.sh` applies only migrations dated
+  BEFORE the Realtime migration in its pre-state loop; it had been applying
+  later ones too, which is why it was failing on `agent_realtime_calls does not
+  exist`. NOT fixed, and still open: `propose_intake` remains unreachable on
+  voice — anchoring a pending action on the realtime interaction instead of the
+  turn index is its own design change.
+
+- 2026-08-19: fix(pip): close the failure modes two adversarial review passes
+  found around the repetition fix — this batch is about Pip going SILENT or
+  taking the instance down with it, rather than looping. Critical: the tool
+  broker was called with no timeout, and `fetch` has none by default, so a
+  hung broker never settled — the `function_call_output` was never sent and,
+  because tool events run on a serialized chain, every later tool call on that
+  session queued behind it forever while the session still reported healthy;
+  calls are now abandoned after `BROKER_TIMEOUT_MS` and reported as
+  `broker_timeout`, kept distinct from `broker_unreachable`. Critical: provider
+  events were dispatched with `void` onto a handler that re-throws, and the
+  lease heartbeat with a `.then` and no `.catch`, so ONE transient PostgREST
+  5xx killed the whole Cloud Run instance and every concurrent call on it —
+  both now catch, a store error on renewal is treated as a lost lease, and
+  `main.ts` carries a process-level `unhandledrejection` guard. High: losing
+  the provider socket cleared a readiness gate and did nothing else, leaving a
+  session that looked alive while it could no longer execute a tool, persist a
+  turn or drive a response; it now stops and fails the client so it starts a
+  fresh generation. High: a REFUSED `response.create` produced an error event
+  and nothing else, so a rejected forced final left the caller in silence at
+  the exact moment they were owed the answer — every frame now carries an
+  `event_id`, an already-active-response refusal is correctly ignored, a
+  rejected forced final is retried once without the `tool_choice` override, and
+  anything else tells the client. Medium: `active_expires_at` had been stamped
+  since the beginning and read by nothing, so a live call was bounded only by
+  the caller hanging up; the sweep now terminalizes it, and each hangup got its
+  own timeout so one unresponsive provider call cannot stall the sweep that is
+  the only thing terminalizing anything. Entity resolution: the cross-door
+  "newest snapshot wins" comparison used `localeCompare`, which is ICU
+  collation and demonstrably inverts on timestamps whose fractional seconds
+  differ in length — it is now a plain string compare; the same lookup ignored
+  `context_epoch`, so a cleared conversation could still be selected from, and
+  ordered turns by `created_at` across two runtimes' clocks rather than by
+  `conversation_seq`. The matcher gained the guards its first version lacked:
+  a bare number can no longer resolve a flock through the entry date in its
+  decorated name, the Arabic definite article matches in both directions, the
+  mark and format-character strips are category-based (U+061C in a mixed
+  Arabic/Latin name used to split the word in half and silently kill the
+  match), and Persian/Urdu keyboard letter forms fold like their digits already
+  did. A second, fold-free key now guards the tenant bypass: `هانئ` and `هاني`
+  collide once hamza is folded, and "exact tier" was being read as "the same
+  name", so a unique flock could pick the wrong operator. `matchedBy` reports
+  both tiers so a guessed customer cannot hide behind an exact flock, and every
+  roster carries `truncated` — an admin is scoped to every customer, and past
+  the hundred-row read cap "I can only see the first hundred" was coming out as
+  "there is no such customer". The text runtime reserves a slice of the turn
+  budget for its final pass, gives each awaited operation its own
+  `AbortController` (one shared one meant a slow tool aborted the request meant
+  to deliver the answer), reports an overrunning tool as `tool_timeout` with a
+  recovery instead of failing the turn, and keeps sending the catalogue on the
+  final pass since `tool_choice: 'none'` is what forbids the call. Also:
+  `select_audit_option` validates its position as an integer rather than
+  relying solely on the contract layer, an ambiguous breed prefix is reported
+  as `breed_ambiguous` instead of being told to the user as "no such breed",
+  the interaction tracker's maps are bounded, and one write-only map was
+  deleted.
+
+- 2026-08-19: perf(pip): cut Pip Realtime static context and add token
+  telemetry. Measured live against production revision `00013-gpq`, a first
+  turn cost 5,909 input tokens before the user said anything — 3,166 of it the
+  32 tool schemas, 2,620 the voice policy, 123 provider baseline. Four changes,
+  none of which touch the policy text: the model-facing tool schemas are now a
+  PROJECTION of `AGENT_TOOL_CONTRACT` (`modelFacingContract`) that drops
+  `minLength`/`maxLength` — pure length bounds the broker re-enforces anyway —
+  and drops the 18-key `schemaKey` enum from `get_record_provenance`, the one
+  station tool that structurally cannot be called cold because it needs a
+  `recordId` from a prior `query_station_records` result; the intake write-path
+  tools are no longer sent at session start but attached mid-session by a
+  second `session.update` the first time the model attempts `propose_intake`;
+  `load_station_schema` and `list_applicable_stations` stopped shipping
+  `moduleKey` (always derivable from `schemaKey`) and now flatten and
+  deduplicate their alias lists; and
+  `resolve_customer_flock` returns the flock roster it had already fetched when
+  exactly one customer matched, removing a whole follow-up inference. Every
+  `response.done` now records its provider-reported token usage into the new
+  `agent_realtime_response_usage` table (PK `(session_id, response_id)`, so a
+  redelivery cannot double-count), including cached vs uncached input and
+  whether the response followed a tool call. `agent_realtime_usage_seconds` and
+  its settlement path are untouched. Server-side validation is unchanged:
+  `AGENT_TOOL_CONTRACT` still carries every rule and `executeAgentTool` still
+  enforces all of them, so a value the slimmed model-facing schema would accept
+  is still rejected by the broker. Deliberately NOT changed: the voice policy
+  (behaviourally load-bearing), `validation`/`explicitZero` in the station
+  schema projection (`NATURAL_DATA_ENTRY` instructs the model to use them, and
+  a rejected value costs a whole retry inference), and the `schemaKey` enum on
+  `load_station_schema`, `start_intake`, `query_station_records` and
+  `compare_station_metrics`, which the `inference-language` eval proves are
+  called cold.
+  An independent review then closed five defects in the above before it
+  shipped: tool-call attribution in the new telemetry is keyed to the
+  ORIGINATING response and cleared on the next user utterance, so a barge-in
+  can no longer stamp `followed_tool_call` onto an unrelated later turn and two
+  tool calls in one response land on one row together instead of being split;
+  the usage parser coerces every token field to a non-negative integer, so a
+  float can no longer be silently rejected by the column check and lose the
+  row; `response.output_item.done` handlers are serialised, so a second tool
+  call in the same response can no longer send `response.create` ahead of the
+  intake `session.update`; an un-acked catalogue upgrade is now retryable once
+  and logs `catalogue_unconfirmed` instead of silently stranding the session on
+  the core catalogue; and both the startup line and every `session_config.sent`
+  now carry a `tool_definitions_sha256`, because `AGENT_TOOL_CONTRACT_VERSION`
+  does NOT move for a projection-only change and a Cloud Run revision running a
+  stale rendered catalogue was otherwise indistinguishable from a fresh one.
+  Measured on the deployed revision: a first turn fell from 5,909 input tokens
+  to 4,620 (−21.8%), raising the ceiling under the account's 40k TPM cap from
+  6.8 to 8.7 inferences per minute.
+
+- 2026-08-18: fix(pip): review-hardening of the conversation redesign — a
+  fourteen-finding review pass closed: `history`/`reset` no longer create
+  conversation rows (only `send` and realtime `start` do, so an abandoned
+  new-conversation tap leaves nothing behind); conversation previews are
+  loaded per conversation instead of through one shared window a long thread
+  could starve; every stored turn (both doors) bumps the conversation's
+  `updated_at` so list order and day grouping follow real activity; the
+  20-per-5-minutes send limit counts across all of a caller's conversations
+  rather than per conversation; idempotency-replay lookups are scoped to the
+  conversation; visible history orders by `conversation_seq` (immune to
+  cross-runtime clock skew); realtime context injection became a READY
+  precondition bounded by a 500 ms timeout and its query now excludes
+  non-chat rows; the live-call error banner, retry, and clear-conversation
+  controls are conversation-scoped (retry can no longer rebind a call to the
+  wrong thread, and clear is disabled during that conversation's own live
+  call); conversation titles, previews, live captions, and the chat header
+  bypass the Arabic UI phrasebook so user text is never mistranslated; and a
+  fresh conversation's header derives its title from the first message
+  immediately.
+
+- 2026-08-18: feat(pip): conversation-centric redesign — the Pip tab now roots
+  at a day-grouped conversations list (Today/Yesterday/Earlier; title +
+  last-message preview + time, FAB to start a new one) instead of a single
+  chat screen; each conversation opens as its own persistent thread with its
+  own history, and Live is now a mode reachable from inside a conversation
+  rather than a separate destination. Server: `app-hatchery-agent`'s
+  `send`/`history`/`reset` and `pip-realtime-session`'s `start` all accept an
+  optional `conversationId` (`'app'` legacy or `'app:<uuid v4>'`), keying
+  additional `agent_conversations` rows under the caller's existing app
+  staff-link; a new `conversations` action lists them, and titles are derived
+  server-side from each conversation's first message
+  (`agent_conversations.title`, schema v60, migration
+  `20260818090000_pip_conversation_titles.sql`). `history` turns now carry
+  `source` (`'text'`/`'voice'`) so a realtime-call transcript renders with a
+  mic glyph in the typed thread; opening a conversation's Live call now
+  injects that conversation's recent finalized turns (up to 12, 600 chars/turn,
+  4000 total) into the Realtime session on connect so a caller can pick up a
+  typed thread by voice or vice versa. The Live call screen itself was
+  redesigned: a minimal header (minimize chevron, "Pip", subtle state label),
+  a refined breathing orb with glow/error tint, a collapsed-by-default
+  transcript strip (latest turn per speaker, tap or toggle to expand), and
+  three circular controls (mute, end call, transcript toggle) with
+  Semantics/Tooltip labels; all previous widget keys were kept and one new key
+  (`pip-live-transcript-toggle`) was added. New Arabic l10n entries cover every
+  new string.
+- 2026-08-18: fix(pip-live): answer-scope discipline after tool results — realtime policy 2.2.0 (voice-only "Tool results:" section + calibration examples + no "ثانية أشوف" filler for single lookups), get_breed_benchmark optional metrics arg returning {requested, context} (tool contract 1.1.0), and five new production-path canaries (single metric, two metrics, full summary, missing metric, filler). Root cause: post-tool synthesis existed but flat multi-metric tool payloads plus no answer-scope rule made the mini realtime model read every metric aloud. Post-review follow-up: the shaped path now also names null requested metrics in `unavailable`, a `metrics` arg with only unrecognized tokens returns `requested:[]` + `unknownMetrics` instead of silently falling back to the full row, a `shaped-null-metric` canary exercises the shaped payload directly, and the README/spec now document that edge functions must deploy before the sideband whenever the tool contract changes.
+- 2026-08-18 (Pip Live production-path debug, Harness 2.1.0): the Harness v2
+  deploy was verified end-to-end after the phone still behaved like the old
+  agent. Evidence chain: Cloud Run revision 00009 held 100% traffic with the
+  exact rendered 2.0.1 instructions (env SHA matched the local render), real
+  sessions reached `ready.announced` (i.e. `session.updated` acked, no
+  provider errors), and the failing screenshot turns were found in
+  `agent_conversation_turns` on that same revision — so the instructions WERE
+  applied and the failure was behavioral. Root cause of the eval gap: the
+  47-case suite (`run_evals.ts`) talks to the model in TEXT modality, and
+  gpt-realtime-2.1-mini follows the brevity/greeting rules in text mode but
+  not in audio mode. Fixes: (1) new production-path canary suite
+  (`evals/run_canaries.ts`) that sends the Sideband's exact `session.update`
+  payload (audio output, reasoning effort, semantic VAD) and asserts on the
+  audio transcript — it reproduced every phone failure; (2) voice policy
+  bumped to 2.1.0: hard length rule (one short sentence, one question mark),
+  explicit greeting protocol, single-question clarification (no restating, no
+  option enumeration), banned assistant-service phrases, and literal
+  calibration examples — the examples, not more rules, are what made audio
+  mode comply (canaries went 24/24 then 23/24; before: systematic failures);
+  (3) session fingerprinting in the Sideband: `session_config.sent` /
+  `session_config.acked` log seq, revision, harness version, instructions
+  SHA-256 + length, model, tool count, turn detection, eagerness, and an
+  `instructions_match` verdict computed from the instructions the provider
+  echoes back — every future session self-proves its harness identity;
+  (4) deployed as revision 00011 (100% traffic, env version 2.1.0, SHA
+  verified against the local render); (5) sideband README deploy recipe fixed
+  (it named nonexistent secrets: real ones are `openai-api-key:1`,
+  `supabase-service-role-key:1`, `pip-realtime-broker-secret:1`). All
+  regression suites green: sideband 166, telegram-hatchery-agent 146,
+  pip-realtime-session 59, app-hatchery-agent 50, pip-realtime-tool-broker 25.
+
+- 2026-08-18 (Harness v2, runtime + evals): completed the realtime harness
+  work. (1) Turn detection: a live probe
+  (`services/pip-realtime-sideband/tools/probe_turn_detection.ts`) confirmed
+  `semantic_vad` with `eagerness: low` is accepted by gpt-realtime-2.1-mini,
+  so the sideband default moved from `server_vad` (500ms silence cutoff —
+  the cause of Pip jumping in on short natural pauses) to `semantic_vad`
+  low-eagerness, with new envs `PIP_REALTIME_TURN_DETECTION`,
+  `PIP_REALTIME_VAD_EAGERNESS`, `PIP_REALTIME_VAD_SILENCE_MS` (800ms when
+  server_vad is chosen) and a one-shot runtime fallback: if the provider
+  rejects `turn_detection` before the config is acked, the sideband resends
+  once with `server_vad` (logged `sideband.vad_fallback`). (2) Voice policy
+  bumped to `2.0.1`: the no-narration line now explicitly forbids describing
+  steps/tools, allowing at most a brief "ثانية أشوف". (3) New on-demand
+  conversation-behavior eval suite
+  (`services/pip-realtime-sideband/evals/`): 14 scripted Egyptian-Arabic
+  conversations run against the real model over the Realtime WebSocket in
+  text mode with stubbed tools, asserting word budgets, progressive
+  disclosure, benchmark discipline, missing-data honesty, inference hedging,
+  no stock phrases, and ask-before-acting. Final runs: 45–47 of 47
+  assertions pass; the remaining failures are run-to-run wording variance, with no
+  reproducible core-behavior failure. Sideband redeployed with the v2.0.1
+  instructions and semantic VAD.
+
+- 2026-08-18: refactored the ChickMark agent prompt
+  (`supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) into
+  composable named sections (`AGENT_IDENTITY`, `CONVERSATION_TEXT_CHANNEL`,
+  `EVIDENCE_AND_SCOPE`, `NATURAL_DATA_ENTRY`, `BENCHMARK_DISCIPLINE`,
+  `TOOL_DISCIPLINE`) and added a voice-specific "Harness v2" realtime policy,
+  `CHICKMARK_REALTIME_POLICY` (version `2.0.0`). `CHICKMARK_AGENT_POLICY`
+  (version `1.1.0`, Telegram + typed Pip) is recomposed from the same
+  sections and is pinned byte-for-byte identical to its pre-refactor value
+  by a new snapshot test in `agent_prompt_test.ts` — Telegram and typed Pip
+  behavior does not change. The realtime policy replaces the superseded
+  `REALTIME_VOICE_ADDENDUM` in
+  `services/pip-realtime-sideband/tools/render_agent_instructions.ts` (which
+  now renders `CHICKMARK_REALTIME_POLICY` directly) with a full "Voice
+  conversation" section: Egyptian colloquial Arabic on a live call, answer
+  sizing matched to the question, no narrated tool lookups, and possibility-
+  vs-fact framing for interpretation. It keeps the shared security lines
+  (never expose internals, untrusted-data rule, no internal
+  planning/narration) and drops the Telegram plain-text rule and the topic
+  limiter so casual conversation is allowed on voice, and drops the
+  customer/flock/station identifying-context line from `EVIDENCE_AND_SCOPE`
+  (voice states that context only when ambiguous or asked instead).
+  `services/pip-realtime-sideband/test/instruction_parity_test.ts` now
+  checks for the voice section and the excluded Telegram/topic lines instead
+  of the old addendum. No VAD config, sideband runtime behavior, or Flutter
+  code changed.
+
+- 2026-08-17 (after the bind fix, first working calls): two follow-ups from
+  live use. (1) Every caption rendered twice — the terminal
+  `.done`/`.completed` transcript frame carries the FULL text and the client
+  appended it onto the line already accumulated from `.delta` frames; the
+  final frame now REPLACES the open line (controller + screen tests updated
+  to the real wire shape). Needs an app rebuild to take effect. (2) Pip
+  Live's voice switched from `marin` to `cedar` (warm male), and the rendered
+  Live instructions now append a voice-only delivery addendum after the
+  shared typed-agent policy — warm tone, Egyptian colloquial Arabic when the
+  user speaks Arabic, short spoken replies — versioned `1.1.0+voice.1` and
+  pinned by the updated instruction-parity test. Sideband revision 00008.
+
+- 2026-08-17 (fourth fix in the attach chain): every Pip Live call died at
+  bind with 4400 `bind_frame_required` even though the client's first frame
+  WAS the bind frame. Cloud Run logs showed the giveaway sequence
+  `client.closed bind_frame_required` → `bind.succeeded` on the same
+  connection: the server handled frames fire-and-forget, so the health frame
+  the client sends right behind the bind was inspected while the bind was
+  still awaiting the database, failed the "first frame must be bind" check,
+  and killed the socket — after which the in-flight bind completed on the
+  corpse, claimed the lease, and leaked it until `fence_lost`. The user then
+  retried into the start-rate limit ("Too many voice sessions were
+  started"). Fix: inbound frames are now serialized per connection (a promise
+  queue, so the health frame waits for the bind to settle), and `#bind`
+  aborts at its await checkpoints when the connection has already closed,
+  releasing a just-claimed lease instead of leaking it. Both pinned by new
+  server tests; sideband revision deployed.
+
+- 2026-08-17 (third fix in the attach chain): with the socket finally
+  attached, the provider rejected the whole `session.update` with
+  `invalid_value` — `transcription.languages` and `transcription.delay` are
+  `gpt-live-transcribe`-only parameters and the new default
+  `gpt-4o-mini-transcribe` refuses them, silently leaving the session with no
+  tools or instructions. Both are now sent only for `gpt-live-transcribe`
+  (payload acked live via the macOS probe), `sideband.provider_error` logs
+  now include the provider's `param` and message, and the Pip Live screen
+  shows the failing stage + exception under the error status (the diagnostic
+  line the chat banner used to have) plus the specific error message instead
+  of always the generic one. Sideband revision 00006; app rebuilt.
+
+- 2026-08-17 (later): Second attach fix, found by the new forensic logging on
+  the first real phone call: the provider rejects even a correctly-headered
+  standard API key on the call-attach WebSocket (404 `call_id_not_found` on a
+  LIVE call — its own docs notwithstanding) and accepts only the ephemeral
+  client secret that minted the call. Proven both ways with a real WebRTC
+  call from the macOS integration harness
+  (`integration_test/realtime_attach_probe_test.dart`), including a
+  `session.update` → `session.updated` ack over the ephemeral attach. The
+  provisioner now persists the secret on the service-role-only call row, the
+  sideband uses it as the attach bearer (standard key only as legacy
+  fallback), and the secret TTL rose from 30s to the full 60s setup window.
+  Deployed as `pip-realtime-session` v7 and a new sideband revision.
+
+- 2026-08-17: Fixed the outage that left Pip Live with no access to ChickMark
+  data: the sideband's WebSocket attach to the live call authenticated via the
+  `openai-insecure-api-key` subprotocol, which the provider rejects for
+  standard keys (HTTP 401 on every bind, socket dead in ~500ms), so tools and
+  the agent policy never reached the live model. The attach now uses `npm:ws`
+  over http/1.1 with a real `Authorization` header (the provider also rejects
+  h2 WebSocket upgrades, ruling out `WebSocketStream`), retries pre-open
+  failures twice, and logs `sideband.attach_rejected` with HTTP status and a
+  truncated body. Deployed as `pip-realtime-sideband-00004-fqs` with the
+  rendered v1.1.0 policy and 32-tool catalogue confirmed in the startup log.
+
+- 2026-08-17: The app now sends the wire contract's post-bind
+  `{"type":"health","webrtc":true,"data_channel":true}` frame once per
+  attempt, so the sideband's authoritative READY gate can actually be
+  satisfied; the frame text is pinned byte-for-byte between the Flutter and
+  sideband test suites. Live-call captions dropped from `gpt-live-transcribe`
+  ($0.017/min) to `gpt-4o-mini-transcribe` ($0.003/min).
+
+- 2026-08-17: Added `scripts/verify_pip_openai_models.sh` (checks the four
+  pinned model aliases against the OpenAI account without printing the key; a
+  static security test enforces no embedded credentials) — all four verified
+  available. Production routing switched per the approved plan:
+  `AI_PROVIDER=openai`, `OPENAI_TEXT_MODEL=gpt-5-nano`,
+  `PIP_REALTIME_MODEL=gpt-realtime-2.1-mini`; the three affected Edge
+  Functions redeployed. A Live start is now also test-proven to never touch
+  the recorded-voice STT/TTS pipeline.
+
+- 2026-08-17: Hardened Pip Live UI routing and recovery: all production Live
+  opens now share the shell guard, the active banner reserves layout space
+  instead of overlaying compact controls, active composer copy now reopens Pip
+  Live, and reconnecting calls can be safely retried as a fresh attempt.
+
+- 2026-08-17: Added the dedicated Pip Live call surface with a bounded
+  state-driven orb, localized call status, display-only directional captions,
+  mute/minimize/end controls, and a shell-wide active-call banner. The shell
+  now owns exactly one Realtime controller, so minimizing or switching tabs
+  preserves a Live call and reopening it never creates or stops a second call.
+
+- 2026-08-17: Pip Live calls now have a lifecycle-only mobile background
+  adapter. Android waits for its acknowledged, low-importance foreground
+  notification before provisioning a Realtime session and routes its End action
+  through the existing user-ended cleanup; iOS declares active audio background
+  mode and uses flutter_webrtc's Apple audio helper around microphone use. The
+  native lifecycle never receives call credentials, SDP, session data, audio,
+  tools, captions, or RBAC state.
+
+- 2026-08-17: Pip Live now receives the same versioned ChickMark agent policy
+  as the typed agent through required rendered Sideband configuration. Startup
+  fails closed on missing or blank policy values, every Realtime session update
+  carries the policy, and logs record only its version. Both Pip Live deployments
+  now default to `gpt-realtime-2.1-mini` through the shared model router.
+
+- 2026-08-17: Centralized Pip model routing by workload. OpenAI conversations
+  now use only the trimmed `OPENAI_TEXT_MODEL` override or the pinned
+  `gpt-5-nano` default, leaving the existing `OPENAI_MODEL` extraction route
+  untouched; this prevents a structured-extraction model from silently becoming
+  the conversational model. The same router pins Pip Live to
+  `gpt-realtime-2.1-mini`, recorded-note transcription to
+  `gpt-4o-mini-transcribe`, and recorded-note speech to `gpt-4o-mini-tts`.
+
+- 2026-08-17: fixed the second live-voice outage ("The live voice session
+  could not be authorised"): the sideband's bind-time authorization computed a
+  legacy `role:customerId` fingerprint while the provisioner stamps a SHA-256
+  over (staffLinkId, accessRole, sorted allow-list, profileRole,
+  profileStatus), so EVERY bind failed as `bind.fingerprint_changed` → close
+  4401. The sideband now resolves authority the same way the provisioner does
+  (`services/pip-realtime-sideband/src/authorization.ts`: profiles is the
+  authorization record, allow-list from `customers`/`auditor_customers`,
+  staff-link id derived as `app-<profileId>`) and derives the identical
+  digest; `test/authorization_parity_test.ts` imports the provisioner's real
+  fingerprint module and pins the two byte-for-byte. Deployed as Cloud Run
+  revision `pip-realtime-sideband-00003-szf`.
+- 2026-08-17: fixed the iOS live-voice outage (`acceptAnswer:
+  setRemoteDescription: Error SessionDescription is NULL.`). Root cause: the
+  signaling client `.trim()`ed OpenAI's answer SDP, stripping its terminal
+  newline; darwin libwebrtc refuses to parse an SDP whose last line is
+  unterminated (Chrome tolerates it, which is why the web console flow
+  worked). `exchangeOffer` now preserves the body, guarantees a trailing
+  newline, and rejects non-`v=` bodies with the first line quoted. Proven by
+  a new macOS integration test (`integration_test/realtime_sdp_parse_test.dart`)
+  that parses a captured production answer with the same darwin WebRTC build
+  the iPhone ships: with the newline it parses, `.trim()`ed it reproduces the
+  exact device error. Added `integration_test` dev dependency.
+- 2026-08-17: `pip-realtime-session start` now REPLACES the caller's lingering
+  session instead of refusing with 409 `session_active`, restoring the plan's
+  race-table semantics ("second session starts → clean old generation, then
+  provision replacement"). The refusal fought the user in practice — the
+  on-screen diagnostics showed a real device retry blocked by its own failed
+  predecessor, which sat in `provisioning` for up to the 60s setup deadline.
+  Replacement terminalizes only the caller's OWN session
+  (`ended`/`replaced`), hands every non-terminal generation to the sweeper as
+  `cleanup_pending` (the OpenAI hangup is never dropped), and the partial
+  unique index still decides a genuine concurrent race. Consequence made
+  explicit in tests: two rapid concurrent starts from one profile may BOTH
+  return 200, the later displacing the earlier — the invariant is "exactly
+  one live session", not "somebody gets a 409".
+
+- 2026-08-17: Live-voice failures now say WHERE they failed, on screen. The
+  controller records which setup stage was in flight when an exception
+  surfaced (`errorDetail`: stage, exception type, message — never tokens, SDP,
+  or transcript text), keeps the ORIGINAL failure's detail across the single
+  automatic recovery, and the chat screen renders it as a selectable
+  monospace line under the error banner so a device failure can be reported
+  verbatim instead of as "the button turned itself off". Driven by a real
+  on-device failure that server-side evidence could not localise: sessions
+  showed `register_call` succeeding and `binding_started_at` NULL, with zero
+  requests reaching Cloud Run — consistent with several distinct client-side
+  causes that only the on-screen stage can now tell apart.
+
+- 2026-08-17: The orphan sweeper now records an already-closed OpenAI call as
+  a hangup SUCCESS. Verified live: `POST /v1/realtime/calls/{id}/hangup` for a
+  call the provider has already dropped returns 404 "No session found" — the
+  ordinary outcome for an orphan, since the client is long gone. It was being
+  recorded as `hangup_state: failed`, which made every routine sweep look
+  broken. `makeHangup` had no tests at all; it now has five, pinning
+  404→success, 200→success, 5xx→failure, network-throw→failure, and the exact
+  REST path.
+
 ## Maintaining this file
 
 This file is the dated history of the app: what changed, and when.
@@ -12,6 +824,338 @@ This file is the dated history of the app: what changed, and when.
 - This file records what happened. `LIVING_SPEC.md` records what is true now.
   A meaningful change updates both.
 
+- 2026-08-16: Stopped sync from reporting a failed push as a successful run.
+  Each table's push is isolated in its own try/catch, which is correct, but the
+  failure was invisible: `SyncOutcome` carried no failure count, `pushed` simply
+  excluded the rejected batch, and the run still ended on `Ready`. A user whose
+  data could not reach the cloud saw a fully green sync — today that hides the
+  fourteen performance-monitoring tables whose cloud counterparts do not exist
+  yet, and it would equally have hidden any future breakage. `SyncOutcome` now
+  carries `failed` (rows that did not reach the cloud) and `failedTables`, plus
+  `hasFailures` / `fullySynced` / `failureSummary` / `statusMessage`. Both the
+  push and the delete paths populate them, the final progress message says how
+  many rows did not upload, the Sync Now snackbars say "Sync incomplete", the
+  outcome is passed to `SettingsProvider.recordSync(error:)` so the cloud status
+  turns to error, and the customers-screen delete confirmation now keys off
+  `fullySynced` instead of only checking pending deletes. The dashboard's
+  refresh-after-sync guard was narrowed to `lastSyncOnline` so a run that pulled
+  fine but failed one push still refreshes.
+  Also bounded the retry: failed rows stay `pending`/`failed` and so were
+  re-uploaded on every single sync forever. A new `SyncRetryPolicy` skips a
+  table for an exponentially growing window (1, 2, 4, 8, 16, then 30 minutes)
+  after each consecutive failure and clears on the first success. It is
+  process-local — no SQLite schema change, no version bump — so an app restart
+  is an explicit "try again now". Skipped batches are still counted as failed,
+  so backing off never re-hides the problem.
+
+- 2026-08-16: Covered the Pip Realtime migration's backfills against real
+  pre-existing data. `scripts/test_pip_realtime_persistence.sh` proves the new
+  invariants hold, but it asserts them on empty agent tables — while the riskiest
+  part of `20260816120000_pip_realtime_v1_persistence.sql` is the six backfills
+  that run over the rows production already holds. Added
+  `scripts/test_pip_realtime_backfill.sh` (and `test/security/
+  pip_realtime_backfill_test.dart`), which replays every migration *except* that
+  one, seeds legacy conversations, turns and tool events shaped the way the old
+  code wrote them, applies the migration over them, and then asserts each
+  backfill: `conversation_seq` unique and contiguous from 1 per conversation in
+  `(context_epoch, created_at, id)` order, `source_channel` derived from the
+  conversation's chat id, `completion_status` finalized, `next_conversation_seq`,
+  `turn_index` counters seeded from the current epoch only, a post-migration
+  allocation that does not collide with any legacy row, `owner_profile_id`, and
+  the survival and continued immutability of existing tool evidence. The fixture
+  is deliberately adversarial — created_at ordering disagrees with insertion
+  order, with id order and with turn_index order; one epoch-2 turn predates every
+  epoch-1 turn; two turns share a created_at; one conversation was reset into an
+  epoch that has no turns yet. No backfill bug was found: all six produce the
+  right answer on that data.
+
+- 2026-08-16: Gave the Realtime sideband a bind deadline. `CLOSE_BIND_TIMEOUT`
+  (4408) was declared and the Flutter client already handled it, but no timer
+  ever emitted it: a client could upgrade the socket, send nothing, and hold a
+  Cloud Run concurrency slot indefinitely — and with held WebSockets and a small
+  max-instance count that is an availability cost, not untidiness. A socket that
+  does not bind within `PIP_REALTIME_BIND_DEADLINE_SECONDS` (5s, validated to be
+  shorter than the setup deadline, never clamped) is now told
+  `{"type":"error","code":"bind_timeout"}` and closed 4408. The deadline is
+  cleared the moment bind succeeds, so a long healthy session is never closed by
+  it, and nothing durable has been claimed when it fires. Also wired the upgraded
+  socket's message and close events to the connection, which the deadline
+  assumes and which nothing had connected before.
+
+- 2026-08-16: Turned voice tools on. The Realtime sideband and the tool broker
+  both wrote `agent_tool_call_claims` and `agent_tool_events` for the same call;
+  the unique indexes on the Realtime key make the second writer a violation, and
+  the resulting throw would have left the model's `function_call_output` unsent
+  and the call hanging — so `main.ts` shipped with `emptyToolRegistry()` and
+  voice exposed no tools at all. The BROKER is now the declared owner: it is the
+  only component that re-resolves authorization, enforces argument scope and
+  knows the terminal result. `ToolCallCoordinator` takes a required,
+  discriminated ownership argument, and in `ledger: 'broker'` mode writes neither
+  table and treats the broker's answer — including a replayed duplicate — as
+  authoritative, while keeping the per-interaction 5-call budget, a new liveness
+  guard (stopped session, lost lease, superseded generation), and the guarantee
+  that the model always gets a real result. Broker failures are surfaced
+  honestly: unreachable, 5xx and unusable-200 are failures, 4xx are refusals, and
+  none of them crash the session or invent a success. `main.ts` now wires the
+  real broker executor over the catalogue rendered from `AGENT_TOOL_CONTRACT` and
+  supplied as `PIP_REALTIME_TOOL_DEFINITIONS`; the broker URL, secret and
+  catalogue are validated at startup and the secret is never logged. Added a test
+  that enumerates every contract tool, forces an explicit mutating/non-mutating
+  decision, and compares it against the broker's hand-maintained
+  `MUTATION_TOOL_NAMES`, so a new write tool cannot silently settle as `failed`
+  and become replayable.
+
+- 2026-08-16: Reconciled the Flutter client and the Cloud Run sideband onto one
+  wire contract. They were built concurrently and did not agree: the client sent
+  a camelCase bind frame with an `openaiCallId` and no access token, and expected
+  `ready`/`state`/`caption`/`error`/`ended`, while the server has always parsed a
+  snake_case bind frame and sent only `ready`/`error`/`closing`. The SERVER's
+  format is canonical — it matches the rest of the backend and it is the security
+  boundary — so the client was changed, not the server. The client now sends
+  exactly `{"type":"bind","session_id","generation","access_token",
+  "binding_token"}` with the caller's Supabase JWT (read at bind time through a
+  new `RealtimeSessionPort.accessToken`, so a refreshed session is never bound
+  with a stale token) plus the one-shot binding token, both in the first
+  application frame and never logged; parses only the three real notices with
+  snake_case fields; and maps the WebSocket close code to a distinct cause and
+  message so "bind rejected" (4401), "lease lost" (4409) and "bind timeout"
+  (4408) no longer read alike. The dead `caption` and `state` branches were
+  deleted: transcript deltas reach the app on its own WebRTC data channel
+  directly from OpenAI, and the sideband never sent captions at all. The contract
+  is written down once in `services/pip-realtime-sideband/WIRE_CONTRACT.md`,
+  referenced from both implementations, and pinned by tests on each side that
+  assert the same literal bind frame — an edit to one side now fails the other
+  side's suite.
+
+- 2026-08-16: Added `supabase/functions/pip-realtime-tool-broker/`, the internal
+  tool-broker endpoint that lets the Cloud Run Realtime sideband execute
+  ChickMark agent tools, and documented the sideband service itself
+  (`services/pip-realtime-sideband/`, 88 tests) whose spec entry was still owed.
+  The broker exists so the sideband never forks a second copy of the tool
+  catalogue and never needs broad database privileges: it is a single
+  authenticated POST that executes ONE tool call through the same shared runtime
+  (`executeAgentTool`) the Telegram and in-app doors use. It authenticates the
+  SIDEBAND, not an end user, with a constant-time shared-secret comparison
+  (`PIP_REALTIME_BROKER_SECRET`, `x-pip-broker-secret`) that fails CLOSED when
+  unconfigured — Google OIDC was rejected for this direction because a Supabase
+  Edge Function has no Google trust anchor and verifying an ID token would put a
+  JWKS fetch on the hot tool path. The fingerprint on the request is never
+  trusted: the owner's current scope is re-resolved through `loadAppProfile` /
+  `resolveAppAgentScope` and the fingerprint recomputed with the same derivation
+  the session provisioner used, and the call is refused unless the caller's
+  value, the value stamped on the session and the freshly derived value all
+  agree. The generation must still be the live, non-terminal one. Idempotency
+  uses `agent_tool_call_claims` on the Realtime key shape plus a canonical
+  argument hash: same call id and hash returns the recorded terminal result with
+  no second execution and no second evidence row, a different hash is rejected
+  as a conflict, and a mutation that ends indeterminate is never auto-replayed.
+  Exactly one immutable `agent_tool_events` row is written per call, with a NULL
+  `conversation_turn_id`, the interaction id set, and a `tool_sequence` allocated
+  per session and generation. The per-interaction 5-call cap is deliberately NOT
+  duplicated here — it stays in the sideband's `InteractionTracker`, and a
+  comment records that boundary. Also adds `pipRealtimeToolBrokerExecutor` to the
+  sideband's `src/tools.ts` as the concrete client for this endpoint. Known gap:
+  the sideband's `ToolCallCoordinator` still writes its own claim and evidence
+  rows, which collide with the broker's under the tables' partial unique indexes,
+  so `main.ts` continues to use `emptyToolRegistry()` until the coordinator gains
+  a "broker owns claims and evidence" mode.
+
+- 2026-08-16: Added the Flutter client for Pip Realtime V1 voice ("Pip Live"):
+  `lib/services/realtime/` and `RealtimeVoiceController`, plus a live control in
+  the assistant composer that is separate from the recorded-voice mic button.
+  The security invariant — no microphone audio reaches the remote peer before
+  the server declares an authoritative READY — is implemented as a null-track
+  sender, not as `track.enabled`: the mic stream is acquired but never passed to
+  `addTrack`, a `sendrecv` audio transceiver is added with **no** track
+  argument, SDP is negotiated while that sender is empty, and only a validated,
+  current-generation READY triggers `sender.replaceTrack(micTrack)`, which swaps
+  the source without renegotiation. `track.enabled` is used only as a secondary
+  UX mute. Assertions read `getStats()` filtered to `outbound-rtp`/`audio` off
+  the peer connection (never `sender.getStats()`, which returns whole-connection
+  stats when the track is null) and treat "no report at all" as proof of
+  silence. Every setup step is generation-guarded, so navigating away,
+  cancelling or logging out mid-setup tears the attempt down instead of turning
+  the microphone on; a stale or duplicate READY is inert. Recovery is allowed
+  exactly once per user-initiated start and always restarts non-transmitting,
+  handing the failed session back to the control plane first so the one-session
+  invariant cannot refuse the retry. Data-channel tool/function-call events are
+  dropped without being executed, relayed or logged — only the Cloud Run
+  sideband runs tools. A live call ORs into the assistant screen's `isVoiceBusy`
+  gate so recorded voice and Realtime can never contend for the one iOS
+  `AVAudioSession`. Adds `flutter_webrtc`, iOS `ONLY_ACTIVE_ARCH` and the
+  Android audio/network permissions.
+
+- 2026-08-16: Added `supabase/functions/pip-realtime-session/`, the
+  authenticated control plane for Pip Realtime V1 voice. It carries no audio,
+  runs no agent turn and grants no tool authority — it decides whether a voice
+  session may exist and records that decision. Four actions: `start` (kill
+  switch, then a 5-per-300s per-profile rate limit, identity, daily budgets,
+  and the one-session invariant, then provision generation 1, mint an ephemeral
+  OpenAI client secret and issue a one-shot binding token), `register_call`
+  (writes `openai_call_id` onto the already-provisioned generation row and
+  nothing else), `abort_setup` (marks the generation `cleanup_pending` for the
+  sweeper) and `end`. Realtime reads `OPENAI_API_KEY` only: never
+  `OPENAI_VOICE_KEY`, which belongs to the recorded-voice path, and never
+  OpenRouter or the text provider resolver, since a voice session has no text
+  provider to fall back to — a missing key means Realtime is unavailable, not
+  degraded. Authorization reuses `app_agent_scope.ts` verbatim and is
+  re-derived per action as a fingerprint over staff-link id, access role,
+  sorted allowed-customer ids, profile role and status, so a demotion between
+  `start` and `register_call` invalidates a live session; conversation id,
+  context epoch and state version are deliberately excluded because they churn
+  every turn. Budgets count settled seconds **plus in-flight** seconds of live
+  sessions, clamped to the UTC day and to `ready_at + MAX_SESSION_SECONDS`,
+  because usage settles only on end and a caller who never ends a session would
+  otherwise never accrue anything; a session that never reached READY counts
+  zero. The binding token is returned exactly once and stored only as a
+  SHA-256 hash. 59 colocated Deno tests, no network.
+
+- 2026-08-16: Every instant `pip-realtime-session` persists now comes from one
+  read of the database clock (`public.realtime_now()`) taken at the top of the
+  request, rather than from the Edge Function's own clock. Three hosts arbitrate
+  a single Realtime deadline — the Edge Function writes `setup_deadline_at`, the
+  Cloud Run sideband evaluates it, and the cleanup sweeper compares it against
+  SQL `now()` — so host skew would silently move the deadline and let a session
+  be swept while the sideband still believed it had time. A failed clock read
+  refuses the request with `clock_unavailable` instead of falling back to the
+  local clock, because a wrong clock is worse than a refused start.
+
+- 2026-08-16: Split the agent's model-facing tool surface out into a stable,
+  versioned contract (`agent_tool_contract.ts`) carrying
+  `AGENT_TOOL_CONTRACT_VERSION` at `1.0.0`. `AGENT_TOOL_DEFINITIONS` is now
+  derived from it, so the model, the runtime's known-tool set, and the
+  gateway's argument validation all read one source of truth. The rule the
+  split enforces: the contract is versioned and moves only when a business
+  capability changes — a migration that renames a column or reshapes a table
+  must not move it, only the tool handler's query. Behaviour, tool names, and
+  parameters are unchanged; this is purely the boundary. A new
+  `agent_tool_contract_test.ts` pins `contractFingerprint()` to
+  `a8624598023a48fc` alongside a full inline snapshot of every tool name,
+  parameter, required flag, and enum, and pins the flat
+  `{type, name, description, parameters}` definition shape the OpenAI Realtime
+  API requires (the nested Chat-Completions `{type, function:{…}}` form is
+  rejected and was an easy regression).
+
+- 2026-08-16: Both agent doors now share one conversation-context loader and
+  the atomic turn allocator. The duplicated history-plus-intake load moved into
+  `supabase/functions/telegram-hatchery-agent/agent_context.ts`, which both the
+  Telegram webhook and the in-app chat function call; the history limit is now
+  one constant instead of a named 40 in one door and a hardcoded 40 in the
+  other. Context is ordered by `conversation_seq` rather than `created_at`, so
+  turns written inside the same millisecond (or finalized out of order by a
+  voice session) still read back in allocation order, and only
+  `completion_status = 'finalized'` turns are replayed to the model — a
+  half-heard Realtime turn is durable evidence but not context. Both doors also
+  stopped scanning rows to guess the next `turn_index`: every durable turn now
+  takes its slot from `chickmark_private.allocate_agent_turn_slot` via the
+  service-role client, persists the returned `conversation_seq`, and records its
+  `source_channel` and `completion_status`. The outbound-reuses-inbound
+  `turn_index` convention is unchanged; the reply passes its inbound index as
+  the allocator's override. Note the RPC lives in `chickmark_private`, which the
+  project's PostgREST configuration must expose before either door can reach it.
+
+- 2026-08-16: Added the Pip Realtime V1 shared persistence layer
+  (`20260816120000_pip_realtime_v1_persistence.sql`, defined but **not yet
+  applied to production**). It adds `conversation_seq` — a per-conversation
+  chronological key across both directions that never resets on a context-epoch
+  bump — alongside the existing `turn_index`, whose per-(epoch, direction)
+  meaning is deliberately unchanged. Turn allocation moves into
+  `chickmark_private.allocate_agent_turn_slot`, which locks the conversation row
+  and hands out both keys from stored counters, replacing the client-side
+  "max over the newest 40 rows" scans in the two Edge Functions. Counters are
+  authoritative rather than derived from `MAX()`, because two allocations taken
+  before either row is inserted must still get distinct indexes — the first
+  version of the allocator failed exactly that case. `agent_tool_events`
+  gains a nullable `conversation_turn_id` (its UNIQUE constraint becomes a
+  partial index) so a Realtime tool call that fires before its transcript
+  finalizes can be recorded without fabricating a placeholder turn; because the
+  evidence row is immutable, the late turn link lives on the new mutable
+  `agent_tool_call_claims` ledger instead. Also adds conversation summaries,
+  owner-private memories, and the Realtime operational tables — sessions, calls,
+  a per-(session, UTC day) usage ledger, start attempts and a kill switch — all
+  on `timestamptz`, all server-only and deliberately unregistered in the sync
+  layer so they never reach SQLite.
+
+- 2026-08-16: Reconciled the Supabase migration ledger with the repository,
+  which had diverged in both directions: of 22 local files and 32 deployed
+  versions, only 5 matched. Thirteen files were renamed onto the versions they
+  actually ran as, each justified by a normalized-hash comparison against the
+  ledger's stored SQL rather than by assumption; the three that did not match
+  exactly were resolved individually (a `begin;`/`commit;` wrapper the CLI
+  strips, a CHECK whose effect was verified present in production, and a
+  `shell_temp` column that exists only in the cloud copy). Fourteen
+  production-only migrations — including the entire organizations/account-type
+  stack, whose SQL existed nowhere in the repo — were recovered verbatim from
+  `supabase_migrations.schema_migrations.statements`. Two applied migrations
+  that had no ledger row were repaired into it, ledger-only, with no DDL. The
+  repo and production now agree on 33 of 35 versions. Recovering
+  `20260727214044_align_flocks_performance_columns.sql` also removed a latent
+  lie: the local migration replay had been silently depending on the *unapplied*
+  `0017` to supply `flocks.sector_key`.
+
+- 2026-08-16: Added `supabase/migrations_unapplied/` and
+  `supabase/migrations_archive/` for migrations that must not replay. `0009` and
+  `0017` are genuinely unapplied; `20260418043712_create_hatchaudit_schema` is
+  the pre-reset schema that `20260605115351` drops, and it cannot replay from
+  empty because it forward-references `customers`.
+
+- 2026-08-16: Added `20260816090000_profiles_username_column.sql` (**not yet
+  applied**) for a live production defect: `handle_new_auth_user()` still
+  carries the legacy branch from the never-applied `0009`, inserting a
+  `username` column that does not exist. Since the client sends no
+  `account_type`, every self-serve signup falls into that branch and raises
+  `42703`, aborting the `auth.users` insert — and the client masks it with
+  "Account created locally." `profiles` holds 2 rows, both `internal`; no
+  self-serve signup has ever succeeded. Admin → Users is also broken, since
+  `admin_repository.dart` selects `username`. The fix adds only the column,
+  its partial unique index and its format check, and deliberately does not
+  touch the trigger: applying `0009` wholesale would `create or replace`
+  `handle_new_auth_user()` and delete the account-type routing added by
+  `20260813172732`.
+
+- 2026-08-16: Fixed 25 failing tests. Twenty-four shared one cause — the
+  mocktail stubs for `pullFromSupabase` never listed
+  `upsertBmkOperationalStandard`, so no stub matched and the unstubbed call
+  returned null. The twenty-fifth was an untranslated `Replay` tooltip.
+
+- 2026-08-16: Brought `docs/DATABASE_SPEC.md` back in line with the code. It had
+  drifted badly: it claimed schema version 47 (actual 59), documented only 21 of
+  the 61 tables, still listed the removed `egg_storage.shellTemp`, and published
+  a scope-support table that no longer matched `PanelSampleSchema.allowedLayers`
+  for any panel. The spec now covers the farm hierarchy, broiler daily records
+  and objectives, performance monitoring, diagnostic visits, both agent
+  generations, and the real push/pull ordering and pull-only/immutable table
+  rules, and it records the panel column reconciliation that happens on every
+  database open.
+
+- 2026-08-16: Fixed app-channel staff links never reaching the local database,
+  which broke the whole agent conversation pull. `telegram_staff_links` was
+  created when Telegram was the only channel, so `telegramUserId` was
+  `NOT NULL UNIQUE`; the cloud row for an in-app staff member carries no
+  Telegram identity, and the pull's `INSERT OR IGNORE` dropped it without an
+  error. Every `agent_conversations` row pointing at that link then failed its
+  foreign key, aborting the conversation, turn, and tool-event pull on every
+  sync cycle. Schema version 59 rebuilds the table with a nullable
+  `telegramUserId`, a `channel` column, an `appUserId`, and partial unique
+  indexes per identity. Pull now isolates row failures instead of discarding
+  the rest of the table, and logs a row the local schema silently rejected.
+
+- 2026-08-14: Pip's chat bubbles now render markdown (bold, numbered/bulleted
+  lists) via `gpt_markdown` instead of showing raw syntax characters, and each
+  bubble's text direction is detected per message from its own first
+  strong-direction character instead of following the screen's locale, so an
+  Arabic reply is right-to-left even in an English-locale screen and vice
+  versa.
+- 2026-08-14: Stopped the agent from leaking its internal reasoning ("We need
+  to interpret the user's request…") into chat replies: the prompt now forbids
+  outputting planning/deliberation text, and the per-call output token cap was
+  raised from 1200 to 2400 so reasoning-heavy models no longer get truncated
+  mid-reply.
+- 2026-08-14: The agent now understands breed names spoken or typed in Arabic
+  script (روس, كوب/كاب, هبرد): it transliterates them to the Latin breed name
+  before the benchmark lookup, and when a name still misses it suggests the
+  closest covered breed as a "do you mean Cobb 500?" question instead of
+  claiming the system has no data for that breed.
 - 2026-08-14: Improved voice reply quality and added playback controls.
   Server-side TTS moved from `tts-1`/voice `alloy` to `gpt-4o-mini-tts`/voice
   `ash`, with Egyptian Arabic pronunciation instructions for `ar`/`mixed`

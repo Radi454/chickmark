@@ -8,6 +8,7 @@ import {
 import {
   type AgentIntakeContextResolver,
   createAgentIntakeToolHandlers,
+  flattenAliases,
 } from './agent_intake_tools.ts'
 import type { AgentScope, AgentToolResult } from './agent_protocol.ts'
 import { executeAgentTool } from './agent_tools.ts'
@@ -76,10 +77,14 @@ function harness() {
     createId: () => `generated-${++id}`,
   })
 
+  /**
+   * `turnIndex: null` reproduces the REALTIME door, which omits the turn
+   * anchor by construction — see `pip-realtime-tool-broker/index.ts`.
+   */
   async function call(
     name: string,
     args: Record<string, unknown>,
-    turnIndex: number,
+    turnIndex: number | null,
   ): Promise<AgentToolResult> {
     return executeAgentTool(
       {
@@ -93,8 +98,10 @@ function harness() {
         activeVisitId:
           (await store.loadConversation(conversation.id))?.activeVisitId ??
             null,
-        conversationTurnId: `turn-${turnIndex}`,
-        conversationTurnIndex: turnIndex,
+        ...(turnIndex === null ? {} : {
+          conversationTurnId: `turn-${turnIndex}`,
+          conversationTurnIndex: turnIndex,
+        }),
         evidence: { record: () => undefined },
         handlers,
       },
@@ -130,11 +137,19 @@ Deno.test('station catalog is resolved from the authorized flock sector', async 
   const pasgar = stations.find((station) =>
     station.schemaKey === 'chicks.pasgar'
   )
-  assertEquals(pasgar?.aliases, {
-    en: ['pasgar', 'chick quality score'],
-    ar: ['باسجار', 'جودة الكتكوت', 'جودة الكتاكيت'],
-  })
+  // Station-level aliases are flattened + deduplicated the same way field
+  // aliases are: none of these repeat `names.en`/`names.ar`
+  // ("Chick Quality — Pasgar" / "جودة الكتاكيت — باسجار"), so all five
+  // survive.
+  assertEquals(pasgar?.aliases, [
+    'pasgar',
+    'chick quality score',
+    'باسجار',
+    'جودة الكتكوت',
+    'جودة الكتاكيت',
+  ])
   assertEquals(pasgar?.allowedLayers, ['pool', 'setter_hatcher'])
+  assert(!('moduleKey' in (pasgar ?? {})))
   assertEquals(
     await test.call(
       'list_applicable_stations',
@@ -155,6 +170,69 @@ Deno.test('station catalog is resolved from the authorized flock sector', async 
         },
       },
     },
+  )
+})
+
+Deno.test('station schema is projected without moduleKey, with aliases flattened and deduplicated, and validation/explicitZero retained where they carry signal', async () => {
+  const test = harness()
+  await test.store.createConversation(test.conversation)
+
+  const result = await test.call(
+    'load_station_schema',
+    { schemaKey: 'chicks.pasgar', schemaVersion: 1 },
+    1,
+  )
+  assert(result.ok)
+  const data = result.data as Record<string, unknown>
+  assertEquals(data.schemaKey, 'chicks.pasgar')
+  assertEquals(data.stationKey, 'chicks')
+  assert(!('moduleKey' in data))
+
+  const fields = data.fields as Array<Record<string, unknown>>
+  const sampleSize = fields.find((field) =>
+    field.fieldKey === 'pasgarSampleSize'
+  )!
+  assertEquals(sampleSize.names, { en: 'Sample size', ar: 'حجم العينة' })
+  // "sample size" and "حجم العينة" are dropped: they only repeat the field's
+  // own names, so keeping them would teach the model nothing new.
+  assertEquals(sampleSize.aliases, [
+    'sample',
+    'sample number',
+    'العينة',
+    'عدد العينة',
+  ])
+  // `validation` is retained, exactly as the registry has it, because
+  // NATURAL_DATA_ENTRY (agent_prompt.ts) instructs the model to use it
+  // instead of inventing limits.
+  assertEquals(sampleSize.validation, { min: 1, max: 500 })
+  // The registry has `explicitZero: false` for this field, and the key is
+  // omitted entirely rather than shipping a `false` the model gains
+  // nothing from seeing.
+  assert(!('explicitZero' in sampleSize))
+
+  // pasgarReflexesCount is `explicitZero: true` in the registry — the one
+  // case worth spending a token on, since it tells the model an explicit
+  // "zero" answer for this field should be accepted rather than re-asked.
+  const reflexes = fields.find((field) =>
+    field.fieldKey === 'pasgarReflexesCount'
+  )!
+  assertEquals(reflexes.explicitZero, true)
+  assertEquals(reflexes.validation, {
+    min: 0,
+    maxFieldKey: 'pasgarSampleSize',
+  })
+})
+
+Deno.test('flattenAliases tolerates a missing or malformed alias shape without throwing', () => {
+  assertEquals(flattenAliases({}), [])
+  assertEquals(flattenAliases({ names: null, aliases: null }), [])
+  assertEquals(flattenAliases({ names: 'not-a-record', aliases: 42 }), [])
+  assertEquals(
+    flattenAliases({
+      names: { en: 'Sample size' },
+      aliases: { en: 'not-an-array', ar: ['sample', 42, 'العينة'] },
+    }),
+    ['sample', 'العينة'],
   )
 })
 
@@ -554,3 +632,106 @@ function context(): AgentIntakeContext {
     sectorKey: 'breeder',
   }
 }
+
+Deno.test('an intake attempted without a turn anchor refuses with a recovery, not a bare code', async () => {
+  // This is EVERY `propose_intake` on a live voice call: the realtime broker
+  // omits the turn anchor by construction. The refusal has to carry the one
+  // recovery that exists, or the model just calls the tool again until the
+  // turn runs out of budget and the caller hears the same half-sentence
+  // several times over.
+  const test = harness()
+  await test.store.createConversation(test.conversation)
+
+  const result = await test.call(
+    'propose_intake',
+    { customerId: 'customer-a' },
+    null,
+  )
+
+  assertEquals(result.ok, false)
+  assertEquals(result.code, 'turn_context_required')
+  assertEquals(result.data?.retryable, false)
+  const message = result.data?.message as Record<string, string>
+  assert(message.en.length > 0)
+  assert(message.ar.length > 0)
+  // Nothing was written: a refusal must not leave a pending action behind.
+  assertEquals(
+    (await test.store.loadConversation(test.conversation.id))?.pendingAction,
+    null,
+  )
+})
+
+Deno.test('an incomplete machine context names WHICH machine is missing', async () => {
+  // A setter/hatcher station needs both machines. The resolver here returns a
+  // context with only the setter, which is exactly what happens when the user
+  // has named one machine and not the other.
+  const store = new MemoryAgentIntakeStore()
+  const conversation: AgentConversation = {
+    id: 'conversation-sh',
+    staffLinkId: 'staff-a',
+    telegramChatId: 'chat-a',
+    stateVersion: 1,
+    pendingAction: null,
+    activeVisitId: null,
+    createdAt: baseTime.toISOString(),
+    updatedAt: baseTime.toISOString(),
+  }
+  await store.createConversation(conversation)
+  const resolver: AgentIntakeContextResolver = {
+    resolveFlockSector: () => Promise.resolve('breeder'),
+    resolveFlockSectorResolution: () =>
+      Promise.resolve({ status: 'resolved' as const, sectorKey: 'breeder' }),
+    resolve: () =>
+      Promise.resolve({
+        ...context(),
+        layer: 'setter_hatcher',
+        setterIdentity: 'S-1',
+        hatcherIdentity: null,
+      }),
+  }
+  let id = 0
+  const handlers = createAgentIntakeToolHandlers({
+    store,
+    contextResolver: resolver,
+    now: () => baseTime,
+    createId: () => `generated-sh-${++id}`,
+  })
+  const call = (
+    name: string,
+    args: Record<string, unknown>,
+    turnIndex: number,
+  ) =>
+    executeAgentTool({ id: `tool-${turnIndex}-${name}`, name, arguments: args }, {
+      scope,
+      conversationId: conversation.id,
+      activeVisitId: null,
+      conversationTurnId: `turn-${turnIndex}`,
+      conversationTurnIndex: turnIndex,
+      evidence: { record: () => undefined },
+      handlers,
+    })
+
+  const proposal = await call('propose_intake', { customerId: 'customer-a' }, 1)
+  assert(proposal.ok)
+  const result = await call(
+    'start_intake',
+    {
+      pendingActionId: proposal.data!.pendingActionId,
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+      hatcheryId: 'hatchery-a',
+      auditDate: '2026-07-28',
+      layer: 'setter_hatcher',
+      schemaKey: 'chicks.pasgar',
+      schemaVersion: 1,
+      setterIdentity: 'S-1',
+    },
+    2,
+  )
+
+  assertEquals(result.ok, false)
+  assertEquals(result.code, 'context_incomplete')
+  // The model can now ask ONE question instead of re-asking for the whole
+  // machine context, including the half the user already gave it.
+  assertEquals(result.data?.missing, ['hatcherIdentity'])
+})

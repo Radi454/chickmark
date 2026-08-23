@@ -19,21 +19,48 @@ export function normalizeBreedKey(value: string): string {
  * Exact normalized match first, then a UNIQUE prefix match. A prefix matching
  * more than one breed resolves to null so the caller can ask instead of
  * guessing.
+ *
+ * Kept for callers that only need the resolved name; `resolveBreedMatch`
+ * below is the same decision with the AMBIGUOUS case told apart from the
+ * MISSING one.
  */
 export function resolveBreed(
   requested: string,
   vocabulary: readonly string[],
 ): string | null {
+  const match = resolveBreedMatch(requested, vocabulary)
+  return match.status === 'resolved' ? match.breed : null
+}
+
+export type BreedMatch =
+  | { status: 'resolved'; breed: string }
+  | { status: 'ambiguous'; candidates: string[] }
+  | { status: 'unmatched' }
+
+/**
+ * The same ladder, reporting WHICH failure occurred.
+ *
+ * `"Ross"` against `["Ross 308", "Ross 708"]` is not "no such breed" — it is
+ * two breeds. Collapsing both into null made the agent tell the user a breed
+ * it stocks does not exist, when the honest answer ("which of these two?") was
+ * one question away and already computed.
+ */
+export function resolveBreedMatch(
+  requested: string,
+  vocabulary: readonly string[],
+): BreedMatch {
   const key = normalizeBreedKey(requested ?? '')
-  if (!key) return null
+  if (!key) return { status: 'unmatched' }
 
   const exact = vocabulary.find((breed) => normalizeBreedKey(breed) === key)
-  if (exact) return exact
+  if (exact) return { status: 'resolved', breed: exact }
 
   const prefixed = vocabulary.filter((breed) =>
     normalizeBreedKey(breed).startsWith(key)
   )
-  return prefixed.length === 1 ? prefixed[0] : null
+  if (prefixed.length === 1) return { status: 'resolved', breed: prefixed[0] }
+  if (prefixed.length > 1) return { status: 'ambiguous', candidates: prefixed }
+  return { status: 'unmatched' }
 }
 
 /** Week coverage for one resolved breed. Coverage differs per breed. */

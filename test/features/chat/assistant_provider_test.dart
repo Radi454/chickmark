@@ -114,29 +114,32 @@ void main() {
     expect(provider.error, contains('unavailable right now'));
   });
 
-  test('retry re-sends the failed turn under the same clientMessageId', () async {
-    final port = FakeAssistantChatPort(
-      sendError: const AssistantChatException('nope', 'server_error'),
-    );
-    final provider = providerWith(port);
+  test(
+    'retry re-sends the failed turn under the same clientMessageId',
+    () async {
+      final port = FakeAssistantChatPort(
+        sendError: const AssistantChatException('nope', 'server_error'),
+      );
+      final provider = providerWith(port);
 
-    await provider.send('retry me');
-    final failed = provider.messages.single;
-    expect(failed.status, ChatMessageStatus.failed);
+      await provider.send('retry me');
+      final failed = provider.messages.single;
+      expect(failed.status, ChatMessageStatus.failed);
 
-    port.sendError = null;
-    port.nextReply = reply('Recovered.');
-    await provider.retry(failed);
+      port.sendError = null;
+      port.nextReply = reply('Recovered.');
+      await provider.retry(failed);
 
-    expect(provider.messages, hasLength(2));
-    expect(provider.messages.first.status, ChatMessageStatus.sent);
-    expect(provider.messages.last.text, 'Recovered.');
-    expect(provider.error, isNull);
+      expect(provider.messages, hasLength(2));
+      expect(provider.messages.first.status, ChatMessageStatus.sent);
+      expect(provider.messages.last.text, 'Recovered.');
+      expect(provider.error, isNull);
 
-    // Same idempotency key both times — the server must not store two turns.
-    expect(port.sentClientMessageIds, ['cid-1', 'cid-1']);
-    expect(port.sentMessages, ['retry me', 'retry me']);
-  });
+      // Same idempotency key both times — the server must not store two turns.
+      expect(port.sentClientMessageIds, ['cid-1', 'cid-1']);
+      expect(port.sentMessages, ['retry me', 'retry me']);
+    },
+  );
 
   test('clear resets the conversation and empties the list', () async {
     final port = FakeAssistantChatPort(history: twoTurnHistory());
@@ -231,7 +234,10 @@ void main() {
 
   test('startRecording flips isRecording on success', () async {
     final recorder = FakeAssistantAudioRecorder();
-    final provider = voiceProviderWith(FakeAssistantChatPort(), recorder: recorder);
+    final provider = voiceProviderWith(
+      FakeAssistantChatPort(),
+      recorder: recorder,
+    );
 
     await provider.startRecording();
 
@@ -240,48 +246,63 @@ void main() {
     expect(provider.error, isNull);
   });
 
-  test('startRecording surfaces a permission error without recording', () async {
-    final recorder = FakeAssistantAudioRecorder()
-      ..startError = const AssistantAudioException('Microphone access is needed to ask by voice.');
-    final provider = voiceProviderWith(FakeAssistantChatPort(), recorder: recorder);
+  test(
+    'startRecording surfaces a permission error without recording',
+    () async {
+      final recorder = FakeAssistantAudioRecorder()
+        ..startError = const AssistantAudioException(
+          'Microphone access is needed to ask by voice.',
+        );
+      final provider = voiceProviderWith(
+        FakeAssistantChatPort(),
+        recorder: recorder,
+      );
 
-    await provider.startRecording();
+      await provider.startRecording();
 
-    expect(provider.isRecording, isFalse);
-    expect(provider.error, contains('Microphone access'));
-  });
+      expect(provider.isRecording, isFalse);
+      expect(provider.error, contains('Microphone access'));
+    },
+  );
 
-  test('stopRecordingAndSend plays the chime, then sends, then plays the reply', () async {
-    final recorder = FakeAssistantAudioRecorder();
-    final player = FakeAssistantAudioPlayer();
-    final port = FakeAssistantChatPort(
-      nextReply: AssistantChatReply(
-        conversationId: 'conv-1',
-        userTurnId: 'turn-user',
-        replyTurnId: 'turn-reply',
-        reply: 'Hatch was 84%.',
-        createdAt: DateTime.utc(2026, 8, 14, 10),
-        language: 'en',
-        transcript: 'What is the hatch rate?',
-        audioBase64: 'YXVkaW8tcmVwbHk=',
-      ),
-    );
-    final provider = voiceProviderWith(port, recorder: recorder, player: player);
+  test(
+    'stopRecordingAndSend plays the chime, then sends, then plays the reply',
+    () async {
+      final recorder = FakeAssistantAudioRecorder();
+      final player = FakeAssistantAudioPlayer();
+      final port = FakeAssistantChatPort(
+        nextReply: AssistantChatReply(
+          conversationId: 'conv-1',
+          userTurnId: 'turn-user',
+          replyTurnId: 'turn-reply',
+          reply: 'Hatch was 84%.',
+          createdAt: DateTime.utc(2026, 8, 14, 10),
+          language: 'en',
+          transcript: 'What is the hatch rate?',
+          audioBase64: 'YXVkaW8tcmVwbHk=',
+        ),
+      );
+      final provider = voiceProviderWith(
+        port,
+        recorder: recorder,
+        player: player,
+      );
 
-    await provider.startRecording();
-    await provider.stopRecordingAndSend();
+      await provider.startRecording();
+      await provider.stopRecordingAndSend();
 
-    expect(recorder.stopCount, 1);
-    expect(port.sentAudio, ['ZmFrZS1hdWRpbw==']);
-    expect(player.playedAssets, ['audio/filler_chime.wav']);
-    expect(player.playedBase64, ['YXVkaW8tcmVwbHk=']);
-    expect(provider.messages, hasLength(2));
-    expect(provider.messages.first.text, 'What is the hatch rate?');
-    expect(provider.messages.first.role, ChatMessageRole.user);
-    expect(provider.messages.last.text, 'Hatch was 84%.');
-    expect(provider.isAwaitingVoiceReply, isFalse);
-    expect(provider.isSpeaking, isFalse);
-  });
+      expect(recorder.stopCount, 1);
+      expect(port.sentAudio, ['ZmFrZS1hdWRpbw==']);
+      expect(player.playedAssets, ['audio/filler_chime.wav']);
+      expect(player.playedBase64, ['YXVkaW8tcmVwbHk=']);
+      expect(provider.messages, hasLength(2));
+      expect(provider.messages.first.text, 'What is the hatch rate?');
+      expect(provider.messages.first.role, ChatMessageRole.user);
+      expect(provider.messages.last.text, 'Hatch was 84%.');
+      expect(provider.isAwaitingVoiceReply, isFalse);
+      expect(provider.isSpeaking, isFalse);
+    },
+  );
 
   ChatMessage assistantMessageWithAudio({String id = 'reply-1'}) => ChatMessage(
     id: id,
@@ -291,74 +312,92 @@ void main() {
     audioBase64: 'YXVkaW8=',
   );
 
-  test('playMessageAudio plays the message and reports playing state', () async {
-    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
-    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
-    final message = assistantMessageWithAudio();
+  test(
+    'playMessageAudio plays the message and reports playing state',
+    () async {
+      final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+      final provider = voiceProviderWith(
+        FakeAssistantChatPort(),
+        player: player,
+      );
+      final message = assistantMessageWithAudio();
 
-    final playing = provider.playMessageAudio(message);
-    await Future<void>.value();
+      final playing = provider.playMessageAudio(message);
+      await Future<void>.value();
 
-    expect(provider.playingMessageId, message.id);
-    expect(provider.isPaused, isFalse);
-    expect(provider.isSpeaking, isTrue);
-    expect(player.playedBase64, ['YXVkaW8=']);
+      expect(provider.playingMessageId, message.id);
+      expect(provider.isPaused, isFalse);
+      expect(provider.isSpeaking, isTrue);
+      expect(player.playedBase64, ['YXVkaW8=']);
 
-    player.completePlayback();
-    await playing;
+      player.completePlayback();
+      await playing;
 
-    expect(provider.playingMessageId, isNull);
-    expect(provider.isSpeaking, isFalse);
-  });
+      expect(provider.playingMessageId, isNull);
+      expect(provider.isSpeaking, isFalse);
+    },
+  );
 
-  test('pausePlayback pauses without clearing playingMessageId, resume continues', () async {
-    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
-    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
-    final message = assistantMessageWithAudio();
+  test(
+    'pausePlayback pauses without clearing playingMessageId, resume continues',
+    () async {
+      final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+      final provider = voiceProviderWith(
+        FakeAssistantChatPort(),
+        player: player,
+      );
+      final message = assistantMessageWithAudio();
 
-    final playing = provider.playMessageAudio(message);
-    await Future<void>.value();
+      final playing = provider.playMessageAudio(message);
+      await Future<void>.value();
 
-    await provider.pausePlayback();
-    expect(provider.playingMessageId, message.id);
-    expect(provider.isPaused, isTrue);
-    expect(provider.isSpeaking, isFalse);
-    expect(player.pauseCount, 1);
+      await provider.pausePlayback();
+      expect(provider.playingMessageId, message.id);
+      expect(provider.isPaused, isTrue);
+      expect(provider.isSpeaking, isFalse);
+      expect(player.pauseCount, 1);
 
-    await provider.resumePlayback();
-    expect(provider.isPaused, isFalse);
-    expect(provider.isSpeaking, isTrue);
-    expect(player.resumeCount, 1);
+      await provider.resumePlayback();
+      expect(provider.isPaused, isFalse);
+      expect(provider.isSpeaking, isTrue);
+      expect(player.resumeCount, 1);
 
-    player.completePlayback();
-    await playing;
-  });
+      player.completePlayback();
+      await playing;
+    },
+  );
 
-  test('playing a second message stops the first and takes ownership', () async {
-    final player = FakeAssistantAudioPlayer()..manualCompletion = true;
-    final provider = voiceProviderWith(FakeAssistantChatPort(), player: player);
-    final first = assistantMessageWithAudio(id: 'reply-1');
-    final second = assistantMessageWithAudio(id: 'reply-2');
+  test(
+    'playing a second message stops the first and takes ownership',
+    () async {
+      final player = FakeAssistantAudioPlayer()..manualCompletion = true;
+      final provider = voiceProviderWith(
+        FakeAssistantChatPort(),
+        player: player,
+      );
+      final first = assistantMessageWithAudio(id: 'reply-1');
+      final second = assistantMessageWithAudio(id: 'reply-2');
 
-    final firstPlaying = provider.playMessageAudio(first);
-    await Future<void>.value();
-    expect(provider.playingMessageId, 'reply-1');
+      final firstPlaying = provider.playMessageAudio(first);
+      await Future<void>.value();
+      expect(provider.playingMessageId, 'reply-1');
 
-    // A second play call resolves the first's pending future too (matching
-    // the real player's completer-interruption contract).
-    final secondPlaying = provider.playMessageAudio(second);
-    await Future<void>.value();
+      // A second play call resolves the first's pending future too (matching
+      // the real player's completer-interruption contract).
+      final secondPlaying = provider.playMessageAudio(second);
+      await Future<void>.value();
 
-    expect(provider.playingMessageId, 'reply-2');
-    await firstPlaying;
-    // The first call's finally-block must not clobber the second's state —
-    // it is no longer the current owner.
-    expect(provider.playingMessageId, 'reply-2');
+      expect(provider.playingMessageId, 'reply-2');
+      await firstPlaying;
+      // The first call's finally-block must not clobber the second's state —
+      // it is no longer the current owner.
+      expect(provider.playingMessageId, 'reply-2');
 
-    player.completePlayback();
-    await secondPlaying;
-    expect(provider.playingMessageId, isNull);
-  });
+      player.completePlayback();
+      await secondPlaying;
+      expect(provider.playingMessageId, isNull);
+    },
+  );
 
   test('replay restarts an already-finished message', () async {
     final player = FakeAssistantAudioPlayer();
@@ -389,37 +428,44 @@ void main() {
     expect(provider.messages, isEmpty);
   });
 
-  test('a playback failure after a successful send does not surface a send error', () async {
-    final recorder = FakeAssistantAudioRecorder();
-    final player = FakeAssistantAudioPlayer()
-      ..playBase64Error = Exception('no output device');
-    final port = FakeAssistantChatPort(
-      nextReply: AssistantChatReply(
-        conversationId: 'conv-1',
-        userTurnId: 'turn-user',
-        replyTurnId: 'turn-reply',
-        reply: 'Hatch was 84%.',
-        createdAt: DateTime.utc(2026, 8, 14, 10),
-        language: 'en',
-        transcript: 'What is the hatch rate?',
-        audioBase64: 'YXVkaW8tcmVwbHk=',
-      ),
-    );
-    final provider = voiceProviderWith(port, recorder: recorder, player: player);
+  test(
+    'a playback failure after a successful send does not surface a send error',
+    () async {
+      final recorder = FakeAssistantAudioRecorder();
+      final player = FakeAssistantAudioPlayer()
+        ..playBase64Error = Exception('no output device');
+      final port = FakeAssistantChatPort(
+        nextReply: AssistantChatReply(
+          conversationId: 'conv-1',
+          userTurnId: 'turn-user',
+          replyTurnId: 'turn-reply',
+          reply: 'Hatch was 84%.',
+          createdAt: DateTime.utc(2026, 8, 14, 10),
+          language: 'en',
+          transcript: 'What is the hatch rate?',
+          audioBase64: 'YXVkaW8tcmVwbHk=',
+        ),
+      );
+      final provider = voiceProviderWith(
+        port,
+        recorder: recorder,
+        player: player,
+      );
 
-    await provider.startRecording();
-    await provider.stopRecordingAndSend();
+      await provider.startRecording();
+      await provider.stopRecordingAndSend();
 
-    // The send itself succeeded: both turns are delivered and marked sent.
-    expect(provider.messages, hasLength(2));
-    expect(provider.messages.first.status, ChatMessageStatus.sent);
-    expect(provider.messages.first.text, 'What is the hatch rate?');
-    expect(provider.messages.last.text, 'Hatch was 84%.');
-    // A local playback failure must not be reported as a send failure.
-    expect(provider.error, isNull);
-    expect(provider.isAwaitingVoiceReply, isFalse);
-    expect(provider.isSpeaking, isFalse);
-  });
+      // The send itself succeeded: both turns are delivered and marked sent.
+      expect(provider.messages, hasLength(2));
+      expect(provider.messages.first.status, ChatMessageStatus.sent);
+      expect(provider.messages.first.text, 'What is the hatch rate?');
+      expect(provider.messages.last.text, 'Hatch was 84%.');
+      // A local playback failure must not be reported as a send failure.
+      expect(provider.error, isNull);
+      expect(provider.isAwaitingVoiceReply, isFalse);
+      expect(provider.isSpeaking, isFalse);
+    },
+  );
 
   test('stopRecordingAndSend with no clip is a no-op', () async {
     final recorder = FakeAssistantAudioRecorder()..nextClip = null;
@@ -433,21 +479,24 @@ void main() {
     expect(provider.messages, isEmpty);
   });
 
-  test('a failed voice send marks the turn failed and keeps a placeholder', () async {
-    final recorder = FakeAssistantAudioRecorder();
-    final port = FakeAssistantChatPort(
-      sendError: const AssistantChatException(
-        'The assistant is unavailable right now. Try again shortly.',
-        'agent_unavailable',
-      ),
-    );
-    final provider = voiceProviderWith(port, recorder: recorder);
+  test(
+    'a failed voice send marks the turn failed and keeps a placeholder',
+    () async {
+      final recorder = FakeAssistantAudioRecorder();
+      final port = FakeAssistantChatPort(
+        sendError: const AssistantChatException(
+          'The assistant is unavailable right now. Try again shortly.',
+          'agent_unavailable',
+        ),
+      );
+      final provider = voiceProviderWith(port, recorder: recorder);
 
-    await provider.startRecording();
-    await provider.stopRecordingAndSend();
+      await provider.startRecording();
+      await provider.stopRecordingAndSend();
 
-    expect(provider.messages, hasLength(1));
-    expect(provider.messages.single.status, ChatMessageStatus.failed);
-    expect(provider.error, contains('unavailable right now'));
-  });
+      expect(provider.messages, hasLength(1));
+      expect(provider.messages.single.status, ChatMessageStatus.failed);
+      expect(provider.error, contains('unavailable right now'));
+    },
+  );
 }

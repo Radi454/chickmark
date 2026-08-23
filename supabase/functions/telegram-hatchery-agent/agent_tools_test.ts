@@ -371,3 +371,101 @@ Deno.test('tool evidence records optimistic state versions', async () => {
   assertEquals(evidence[0].stateVersionBefore, null)
   assertEquals(evidence[0].stateVersionAfter, 7)
 })
+
+// --- Regression: the model-facing projection must never weaken server-side
+// validation. `executeAgentTool` always validates against the FULL-fidelity
+// `AGENT_TOOL_DEFINITIONS` (mirroring `AGENT_TOOL_CONTRACT`), never against
+// whatever slimmed schema a model was shown. These prove a value the slimmed
+// schema would happily accept is still rejected here.
+
+Deno.test('a customerId far past the contract maxLength is still rejected, even though the model-facing schema drops maxLength', async () => {
+  const context = {
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    evidence: { record: () => undefined },
+    handlers: {
+      get_customer_context: () =>
+        Promise.resolve({ ok: true, code: 'ok', data: {} }),
+    },
+  }
+
+  assertEquals(
+    await executeAgentTool(
+      {
+        id: 'call-oversize-customer-id',
+        name: 'get_customer_context',
+        arguments: { customerId: 'x'.repeat(5000) },
+      },
+      context,
+    ),
+    { ok: false, code: 'invalid_arguments', data: null },
+  )
+})
+
+Deno.test('an empty-string id is still rejected, even though the model-facing schema drops minLength', async () => {
+  const context = {
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    evidence: { record: () => undefined },
+    handlers: {
+      get_customer_context: () =>
+        Promise.resolve({ ok: true, code: 'ok', data: {} }),
+    },
+  }
+
+  assertEquals(
+    await executeAgentTool(
+      {
+        id: 'call-empty-customer-id',
+        name: 'get_customer_context',
+        arguments: { customerId: '' },
+      },
+      context,
+    ),
+    { ok: false, code: 'invalid_arguments', data: null },
+  )
+})
+
+Deno.test('an unknown schemaKey on query_station_records is still rejected server-side, even though its model-facing schema no longer advertises the enum', async () => {
+  const context = {
+    scope,
+    conversationId: 'conversation-a',
+    activeVisitId: null,
+    evidence: { record: () => undefined },
+    handlers: {
+      query_station_records: () =>
+        Promise.resolve({ ok: true, code: 'ok', data: { records: [] } }),
+    },
+  }
+
+  assertEquals(
+    await executeAgentTool(
+      {
+        id: 'call-unknown-schema-key',
+        name: 'query_station_records',
+        arguments: {
+          customerId: 'customer-a',
+          schemaKey: 'not.a.real.station',
+          schemaVersion: 1,
+          fromDate: '2026-08-01',
+          toDate: '2026-08-10',
+        },
+      },
+      context,
+    ),
+    {
+      ok: false,
+      code: 'unsupported_station_schema',
+      data: {
+        message: {
+          en:
+            'This station schema is not supported. Choose a station from the available ChickMark station list.',
+          ar:
+            'مخطط هذه المحطة غير مدعوم. اختر محطة من قائمة محطات ChickMark المتاحة.',
+        },
+      },
+    },
+  )
+})

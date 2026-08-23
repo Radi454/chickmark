@@ -7,7 +7,7 @@ void main() {
 
   setUpAll(() {
     migration = File(
-      'supabase/migrations/0017_performance_monitoring.sql',
+      'supabase/migrations_unapplied/0017_performance_monitoring.sql',
     ).readAsStringSync();
   });
 
