@@ -551,6 +551,32 @@ final List<_PatternTranslator> _patterns = [
     return '${match.group(1)}% من البيض المحضن';
   },
   (value) {
+    final match = RegExp(
+      r'^(Acceptable|Rejected) (\d+) \((\d+\.\d+)%\)$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return '${_ar[match.group(1)] ?? match.group(1)} ${match.group(2)} (${match.group(3)}%)';
+  },
+  (value) {
+    final match = RegExp(r'^(.+)% of eggs inspected$').firstMatch(value);
+    if (match == null) return null;
+    return '${match.group(1)}% من البيض المفحوص';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(.+) count cannot be negative\.$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'لا يمكن أن يكون عدد ${_ar[match.group(1)] ?? match.group(1)} سالبًا.';
+  },
+  (value) {
+    final match = RegExp(
+      r'^(.+) count cannot exceed eggs inspected\.$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return 'لا يمكن أن يتجاوز عدد ${_ar[match.group(1)] ?? match.group(1)} البيض المفحوص.';
+  },
+  (value) {
     final match = RegExp(r'^Total set eggs: (.+)$').firstMatch(value);
     if (match == null) return null;
     return 'إجمالي البيض المحضن: ${match.group(1)}';
@@ -2390,6 +2416,37 @@ const Map<String, String> _ar = {
   'Could not send that message. Please try again.':
       'تعذّر إرسال تلك الرسالة. حاول مرة أخرى.',
   'Voice transcript': 'نص صوتي مكتوب',
+
+  // Egg grading / visual quality
+  'Egg grading / visual quality': 'تصنيف البيض / الجودة المرئية',
+  'Eggs inspected': 'البيض المفحوص',
+  'Eggs rejected': 'البيض المرفوض',
+  'Eggs inspected cannot be negative.':
+      'لا يمكن أن يكون عدد البيض المفحوص سالبًا.',
+  'Eggs rejected cannot be negative.':
+      'لا يمكن أن يكون عدد البيض المرفوض سالبًا.',
+  'Eggs rejected cannot exceed eggs inspected.':
+      'لا يمكن أن يتجاوز عدد البيض المرفوض البيض المفحوص.',
+  'Shell contamination': 'تلوث القشرة',
+  'Shell integrity': 'سلامة القشرة',
+  'Shell quality': 'جودة القشرة',
+  'Shape and size': 'الشكل والحجم',
+  'Other': 'أخرى',
+  'Yolk stained': 'ملطخ بالمح',
+  'Blood stained': 'ملطخ بالدم',
+  'Stained': 'ملطخ',
+  'Hairline crack': 'كسر شعري',
+  'Toe hole': 'ثقب إصبع',
+  'Thin shell': 'قشرة رقيقة',
+  'Wrinkled': 'متجعد',
+  'Ridged': 'ذو نتوءات',
+  'Calcium deposit': 'ترسب كالسيوم',
+  'Membrane': 'غشاء مكشوف',
+  'Round': 'مستدير',
+  'Elongated': 'مستطيل',
+  'Slab sided': 'جانب مسطح',
+  'Small': 'صغير',
+  'Double yolk': 'صفاران',
 
   // Pip conversations list
   'New conversation': 'محادثة جديدة',

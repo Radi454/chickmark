@@ -819,6 +819,15 @@ Quality cards, and station notes.
   JSON so reopening the Egg screen restores the thumbnail, and new tray photo
   captures are also registered as `egg_quality` photo rows with `uv_tray_*`
   field keys so photo sync can upload them.
+- Egg grading / visual quality: an expandable Egg Quality card below the egg
+  weights and Shell UV cards records the number of eggs inspected and rejected,
+  then an occurrence count for each visual defect grouped by category. Its
+  summary updates live with acceptable and rejected counts and percentages.
+  Counts belong to the active Egg Quality sample, so switching House scopes
+  restores that house's independent values. A rejected count or an individual
+  defect count cannot exceed the eggs inspected; multiple defect counts may
+  collectively exceed the sample size because one egg can carry several
+  defects.
 - Upside Down Score: tray entries and overall upside-down average. Fresh or
   empty tray data shows a default Tray 1 editor before the add-tray action.
   Its header uses an inverted egg symbol with the pointed end up. Upside-down

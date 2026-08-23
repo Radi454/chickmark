@@ -1,5 +1,11 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg Quality now has an egg grading section: enter how many eggs
+  were inspected and rejected, then the count for each defect, and see the
+  acceptable and rejected percentages update live. Because one egg can have
+  more than one defect, the defect counts are allowed to add up to more than
+  the number of eggs inspected.
+
 - 2026-08-23: Fixed a B4 review finding (Critical): clearing a sample's
   grading down to nothing, or a whole session having no meaningful egg
   quality data, could delete the sample's `egg_quality` row while its

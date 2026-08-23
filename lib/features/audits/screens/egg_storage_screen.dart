@@ -38,6 +38,7 @@ import '../widgets/photo_button.dart';
 import '../widgets/temperature_unit_selector.dart';
 import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
+import '../widgets/tabs/egg_grading_section.dart';
 import 'audit_context_screen.dart';
 
 typedef EggBmkWeightLookup =
@@ -434,6 +435,22 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         title: 'Egg Shell Quality',
         collapsible: true,
         child: _buildUvTraySection(auditProvider),
+      ),
+      _buildWorkbenchPanel(
+        icon: Icons.fact_check_outlined,
+        title: 'Egg grading / visual quality',
+        collapsible: true,
+        child: EggGradingSection(
+          key: ValueKey('egg-grading-${auditProvider.activeStationSample.id}'),
+          audit: auditProvider.activeDraft,
+          gradingCounts: auditProvider.activeGradingCounts,
+          isReadOnly: auditProvider.isReadOnly,
+          onSampleSizeChanged: (value) =>
+              auditProvider.updateField('esGradingSampleSize', value),
+          onRejectedCountChanged: (value) =>
+              auditProvider.updateField('esGradingRejectedCount', value),
+          onCountsChanged: auditProvider.updateGradingCounts,
+        ),
       ),
       _buildWorkbenchPanel(
         icon: Icons.notes_outlined,
