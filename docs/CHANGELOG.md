@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-08-23: Added the cloud-only Supabase schema for visual egg grading:
+  eight nullable grading summary columns on `egg_quality` and a new
+  `egg_quality_defect_counts` table (RLS enabled, one row per defect code per
+  sample) with a trigger that derives `customer_id` from the parent sample.
+  No local database or client code writes to this yet.
 - 2026-08-23: Egg Storage now shows a greyed-out "Pool" sample-mode bar so it
   is clear it is always one pool, and Egg Quality has a real Pooled /
   Compare by house switch. Switching back to Pooled asks first, and duplicate

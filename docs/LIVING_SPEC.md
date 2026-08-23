@@ -3248,6 +3248,21 @@ snake_case names (`sample_mode`, `scope_type`, `sample_label`, `sample_index`,
 `source_domain`, `action_domain`, `recommendation_target`), added additively
 and nullable so upsert batches from clients that do not yet write these
 columns are unaffected.
+The Supabase `egg_quality` table also carries eight nullable grading summary
+columns — `grading_sample_size`, `grading_rejected_count`,
+`grading_acceptable_count`, `grading_rejected_pct`, `grading_acceptable_pct`,
+`grading_defects_json`, `grading_top_defect_code`, `grading_top_defect_pct` —
+and a companion `egg_quality_defect_counts` table (one row per defect code per
+`egg_quality` sample, unique on `(egg_quality_id, defect_code)`, cascade-deleted
+with its parent) for visual egg grading. Both are cloud-only as of this
+migration: no local SQLite column or table writes into them yet, and no client
+code reads them. RLS on `egg_quality_defect_counts` matches the sibling audit
+panel tables — enabled, with a single `for all to authenticated using (true)
+with check (true))` policy — and a `before insert or update` trigger derives
+`customer_id` from the parent `egg_quality` row when the incoming row omits it,
+and rejects the write if an explicit `customer_id` would cross the parent's
+tenant scope, in the same shape as
+`chickmark_private.validate_hatchery_agent_scope()`.
 Egg, chick, and breakout panel hierarchy can include `house`,
 `setter`, `hatcher`, `trolley`, `tray`, and `position`; `setter_optimizing`
 uses only `setter`, `trolley`, and `tray`; `hatcher_optimizing` uses only
