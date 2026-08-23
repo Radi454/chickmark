@@ -704,14 +704,32 @@ Quality cards, and station notes.
   Its header uses an inverted egg symbol with the pointed end up. Upside-down
   score fields persist on the `egg_storage` row alongside the storage-side Egg
   cards.
+- Sample mode: Egg storage room shows a read-only "Sample mode" bar with a
+  single, permanently-selected `Pool` chip and the note "Egg storage is
+  always measured as one pool." — Egg Storage room fields never gain a
+  comparison scope. Egg Quality shows its own "Sample mode" bar with a real
+  `Pooled` / `Compare by house` `ChoiceChip` pair. Tapping `Compare by house`
+  while pooled is the only way to enter compare mode; it seeds one house
+  sample with the placeholder identity `H`, and once compare mode is active
+  the chip itself is disabled (re-tapping it does nothing) so it cannot be
+  used to add a second house — additional houses are added only through the
+  House scope card's `+` control below it. Tapping `Pooled` while more than
+  one house is recorded shows a confirmation dialog ("Switch to a pooled
+  sample?") naming how many houses will be discarded; the first house is
+  kept and the rest are removed only after the user confirms. With at most
+  one house recorded, switching back to pooled happens immediately with no
+  dialog.
 - Egg Quality Assessment: shows a blue brand-gradient Egg quality card with
   white foreground styling for flock, breed, and BMK age in one equal-width row,
   a dedicated Quality Storage Days entry used for Egg Quality BMK age and BMK
   egg-weight lookup. Egg Quality has no One sample / Multiple samples
-  selector; it uses a single House scope card. House scope shows
-  `Pool` while inactive. Pressing the House scope add control first asks for the
-  House identity, then turns the pooled Egg Quality sample into a named chip
-  such as `H2`; duplicate House identities are rejected before creation. Edited
+  selector; below the Sample mode bar, a House scope card renders only while
+  compare mode is active (it is hidden while pooled). Pressing the House
+  scope add control asks for the House identity, then adds a new named chip
+  such as `H2`; duplicate House identities are rejected before creation, and
+  the same duplicate check runs inline as the identity field for the active
+  house is edited directly — a duplicate value shows an inline error under
+  the field and is not written back to the sample. Edited
   values continue to update the active chip and saved Egg Quality hierarchy.
   House
   identity input keeps its active editing focus while provider state refreshes

@@ -93,6 +93,34 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // The Sample Mode bar's "Compare by house" chip is now the only way to
+  // switch Egg Quality out of pooled: it seeds one placeholder house. This
+  // helper enters compare mode and immediately names that first house via
+  // the inline identity field, so callers land on the same station-sample
+  // count and houseNo values the dialog-based flow used to produce.
+  Future<void> enterCompareModeWithFirstHouse(
+    WidgetTester tester, {
+    required String house,
+  }) async {
+    await tester.ensureVisible(
+      find.widgetWithText(ChoiceChip, 'Compare by house'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Compare by house'));
+    await tester.pumpAndSettle();
+    final houseField = find.byWidgetPredicate(
+      (w) =>
+          w is TextFormField &&
+          (w.key as ValueKey?)?.value.toString().startsWith(
+                'egg-quality-house-',
+              ) ==
+              true,
+    );
+    await tester.ensureVisible(houseField);
+    await tester.enterText(houseField, house);
+    await tester.pump();
+  }
+
   testWidgets('Capture readings launches the reusable capture screen', (
     tester,
   ) async {
@@ -347,8 +375,11 @@ void main() {
       find.byKey(const ValueKey('egg-sample-mode-icon-multiple')),
       findsNothing,
     );
-    expect(find.text('House scope'), findsOneWidget);
+    // The house-chip strip only renders once the station is in compare
+    // mode; while pooled, "Sample mode" bars cover this state instead.
+    expect(find.text('House scope'), findsNothing);
     expect(find.text('Machine scope'), findsNothing);
+    expect(find.text('Sample mode'), findsWidgets);
     expect(find.text('Pool'), findsOneWidget);
     expect(find.text('UV torch inspection by tray'), findsNothing);
     expect(find.text('Optional station comments'), findsNothing);
@@ -388,19 +419,19 @@ void main() {
     expect(find.text('EW'), findsNothing);
     expect(find.byKey(const ValueKey('egg-workbench-mark-EW')), findsNothing);
     expect(find.text('0/100'), findsNothing);
-    expect(find.byTooltip('Add house sample'), findsOneWidget);
+    // While pooled, the house-chip strip (and its "Add house sample"
+    // button) is hidden; the Sample Mode bar's "Compare by house" chip is
+    // the only way to switch into compare mode now.
+    expect(find.byTooltip('Add house sample'), findsNothing);
     expect(find.byTooltip('Add machine sample'), findsNothing);
+
+    await enterCompareModeWithFirstHouse(tester, house: '12');
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Add house sample'), findsOneWidget);
     expect(
       tester.getTopLeft(find.byTooltip('Add house sample')).dy,
       lessThan(tester.getTopLeft(find.text('Egg Weights & Uniformity')).dy),
-    );
-
-    await tester.ensureVisible(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
-    await addNamedScope(
-      tester,
-      tooltip: 'Add house sample',
-      identities: const {'house': '12'},
     );
 
     final h = find.widgetWithText(ChoiceChip, 'H12');
@@ -417,6 +448,8 @@ void main() {
     );
     expect(tester.getTopLeft(addHouse).dy, tester.getTopLeft(removeHouse).dy);
 
+    await tester.ensureVisible(removeHouse);
+    await tester.pumpAndSettle();
     await tester.tap(removeHouse);
     await tester.pumpAndSettle();
 
@@ -740,6 +773,10 @@ void main() {
       listen: false,
     );
 
+    await enterCompareModeWithFirstHouse(tester, house: '12');
+    expect(provider.isCompareMode, isTrue);
+    expect(provider.stationSamples, hasLength(1));
+
     await tester.ensureVisible(find.byTooltip('Add house sample'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add house sample'));
@@ -747,13 +784,6 @@ void main() {
     expect(find.text('Add House scope'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
     await tester.pumpAndSettle();
-    expect(provider.isCompareMode, isFalse);
-
-    await addNamedScope(
-      tester,
-      tooltip: 'Add house sample',
-      identities: const {'house': '12'},
-    );
     expect(provider.stationSamples, hasLength(1));
 
     await tester.ensureVisible(find.byTooltip('Add house sample'));
@@ -783,11 +813,7 @@ void main() {
       tester.element(find.byType(EggStorageScreen)),
       listen: false,
     );
-    await addNamedScope(
-      tester,
-      tooltip: 'Add house sample',
-      identities: const {'house': '12'},
-    );
+    await enterCompareModeWithFirstHouse(tester, house: '12');
     await addNamedScope(
       tester,
       tooltip: 'Add house sample',

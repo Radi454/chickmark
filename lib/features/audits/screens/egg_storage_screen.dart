@@ -400,6 +400,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     AuditProvider auditProvider,
   ) {
     final leftPanels = <Widget>[
+      _buildSampleModeBar(auditProvider, editable: false),
       _buildStorageDaysCard(auditProvider),
       _buildWorkbenchPanel(
         cardKey: _sectionKeys[0],
@@ -978,7 +979,11 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         const SizedBox(height: 12),
         _buildEggQualityStorageDaysField(auditProvider),
         const SizedBox(height: 12),
-        _buildEggSampleControls(auditProvider),
+        _buildSampleModeBar(auditProvider, editable: true),
+        if (auditProvider.isCompareMode) ...[
+          const SizedBox(height: 12),
+          _buildEggSampleControls(auditProvider),
+        ],
         const SizedBox(height: 12),
         _buildEggWeightsPanel(auditProvider),
       ],
@@ -1023,6 +1028,81 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         _applyEggQualityStorageDaysChange(auditProvider, value);
       },
     );
+  }
+
+  Widget _buildSampleModeBar(
+    AuditProvider auditProvider, {
+    required bool editable,
+  }) {
+    final isCompare = editable && auditProvider.isCompareMode;
+    return _buildSampleControlCard(
+      title: 'Sample mode',
+      note: editable ? null : 'Egg storage is always measured as one pool.',
+      child: Row(
+        children: [
+          if (!editable)
+            const ChoiceChip(label: Text('Pool'), selected: true)
+          else ...[
+            ChoiceChip(
+              label: const Text('Pooled'),
+              selected: !isCompare,
+              onSelected: auditProvider.isReadOnly
+                  ? null
+                  : (_) => _requestPooledMode(auditProvider),
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Compare by house'),
+              selected: isCompare,
+              // Only wired while still pooled: this chip's job is to make the
+              // *first* switch into compare mode. Once compare mode is
+              // active, adding more houses must go through the identity
+              // dialog (the "+" button below, via _addEggHouseSample), which
+              // runs the duplicate-house check. Leaving this always-on would
+              // let a second tap call addEggQualityScopeSample() again and
+              // seed another house with the same placeholder houseNo 'H'.
+              onSelected: auditProvider.isReadOnly || isCompare
+                  ? null
+                  : (_) => auditProvider.addEggQualityScopeSample(
+                        StationSampleModel.sampleKindHouse,
+                      ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _requestPooledMode(AuditProvider auditProvider) async {
+    if (!auditProvider.isCompareMode) return;
+    final houseCount = auditProvider.stationSamples
+        .where((s) => s.sampleKind == StationSampleModel.sampleKindHouse)
+        .length;
+    if (houseCount > 1) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Switch to a pooled sample?'),
+          content: Text(
+            '$houseCount house samples are recorded. The first one is kept as '
+            'the pooled sample and the other ${houseCount - 1} will be '
+            'discarded.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Discard and pool'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    auditProvider.setStationSampleMode(StationSampleModel.sampleModePooled);
   }
 
   Widget _buildEggSampleControls(AuditProvider auditProvider) {
@@ -1216,19 +1296,58 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
 
   Widget _buildEggScopeIdentityFields(AuditProvider auditProvider) {
     final sample = auditProvider.activeStationSample;
+    final controller = _eggScopeIdentityController(auditProvider, sample, 'house');
+    final duplicateError =
+        controller.text.trim().isNotEmpty &&
+            _hasDuplicateEggHouseExcludingActive(
+              auditProvider,
+              controller.text.trim(),
+            )
+        ? 'A House scope with this identity already exists.'
+        : null;
     return _buildScopeInputRow([
       TextFormField(
         key: ValueKey('egg-quality-house-${sample.id}'),
-        controller: _eggScopeIdentityController(auditProvider, sample, 'house'),
+        controller: controller,
         focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
         enabled: !auditProvider.isReadOnly,
         textInputAction: TextInputAction.done,
-        decoration: _scopeInputDecoration('House'),
+        decoration: _scopeInputDecoration('House').copyWith(
+          errorText: duplicateError,
+        ),
         onChanged: (value) {
-          auditProvider.updateSampleMetadata({'houseNo': value.trim()});
+          final trimmed = value.trim();
+          final isDuplicate =
+              trimmed.isNotEmpty &&
+              _hasDuplicateEggHouseExcludingActive(auditProvider, trimmed);
+          setState(() {});
+          if (isDuplicate) return;
+          auditProvider.updateSampleMetadata({'houseNo': trimmed});
         },
       ),
     ]);
+  }
+
+  /// Same duplicate check as [_hasDuplicateEggHouse], but excludes the
+  /// currently active sample so re-typing (or re-confirming) a house's own
+  /// existing number is never flagged as a collision with itself.
+  bool _hasDuplicateEggHouseExcludingActive(
+    AuditProvider provider,
+    String house,
+  ) {
+    if (!provider.isEggQualityHouseScopeActive) return false;
+    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
+    final activeId = provider.activeStationSample.id;
+    return provider.stationSamples.any(
+      (sample) =>
+          sample.id != activeId &&
+          sample.sampleKind == StationSampleModel.sampleKindHouse &&
+          normalizeAuditScopeIdentity(
+                sample.houseNo ?? sample.sampleLabel,
+                prefix: 'H',
+              ) ==
+              normalized,
+    );
   }
 
   TextEditingController _eggScopeIdentityController(

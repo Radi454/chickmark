@@ -1,5 +1,9 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg Storage now shows a greyed-out "Pool" sample-mode bar so it
+  is clear it is always one pool, and Egg Quality has a real Pooled /
+  Compare by house switch. Switching back to Pooled asks first, and duplicate
+  house numbers are rejected as they are typed.
 - 2026-08-23: An Egg Quality house sample keeps the house number the auditor
   typed, even when it matches the number the app would have generated, and the
   last remaining house sample no longer silently turns back into a pooled one.
