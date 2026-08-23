@@ -299,6 +299,22 @@ void main() {
         62.3,
         70.4,
       ]);
+      final reopenedHouseTwoUvTrays =
+          jsonDecode(reopened.drafts.first.esUvTrays!) as List;
+      final reopenedHouseThreeUvTrays =
+          jsonDecode(reopened.drafts.last.esUvTrays!) as List;
+      expect(reopenedHouseTwoUvTrays, hasLength(1));
+      expect(reopenedHouseThreeUvTrays, hasLength(1));
+      final reopenedHouseTwoUv = reopenedHouseTwoUvTrays.single as Map;
+      final reopenedHouseThreeUv = reopenedHouseThreeUvTrays.single as Map;
+      expect(reopenedHouseTwoUv['totalEggs'], 203);
+      expect(reopenedHouseTwoUv['cuticleDamage'], 11);
+      expect(reopenedHouseTwoUv['washed'], 13);
+      expect(reopenedHouseTwoUv['dirty'], 17);
+      expect(reopenedHouseThreeUv['totalEggs'], 307);
+      expect(reopenedHouseThreeUv['cuticleDamage'], 19);
+      expect(reopenedHouseThreeUv['washed'], 23);
+      expect(reopenedHouseThreeUv['dirty'], 29);
       expect(reopened.drafts.map((draft) => draft.esGradingSampleSize), [
         13,
         17,
