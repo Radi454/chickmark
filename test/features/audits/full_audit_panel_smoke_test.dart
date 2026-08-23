@@ -16,7 +16,9 @@ import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
+import 'package:hatchaudit/features/audits/logic/egg_station_reconstruction.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
+import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
 import 'package:path/path.dart' as p;
@@ -160,11 +162,172 @@ void main() {
       expect(quality.first, isNot(contains('mode')));
       expect(quality.map((row) => row['scopeType']), ['house', 'house']);
       expect(quality.map((row) => row['sampleIndex']), [1, 2]);
-      expect(
-        quality.map((row) => row['sampleMode']),
-        ['comparison', 'comparison'],
-      );
+      expect(quality.map((row) => row['sampleMode']), [
+        'comparison',
+        'comparison',
+      ]);
       await _expectNoLegacyAuditOrSampleTables();
+    },
+  );
+
+  test(
+    'Egg comparison preserves surviving house identity, measurements, and grading after rename and removal',
+    () async {
+      final provider = _newStationProvider('egg');
+
+      // Enter Egg storage in its pooled scope before opening the separate
+      // per-house Egg quality comparison workflow.
+      _fillEggStationInitial(provider);
+      expect(provider.stationSamples, hasLength(1));
+      expect(provider.isCompareMode, isFalse);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({'houseNo': 'H1', 'houseLabel': 'House 1'});
+      _fillEggHouseOneQualityAndGrading(provider);
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({'houseNo': 'H2', 'houseLabel': 'House 2'});
+      _fillEggHouseTwoQualityAndGrading(provider);
+      final houseTwoId = provider.activeStationSample.id;
+
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.updateSampleMetadata({'houseNo': 'H3', 'houseLabel': 'House 3'});
+      _fillEggHouseThreeQualityAndGrading(provider);
+      final houseThreeId = provider.activeStationSample.id;
+
+      expect(provider.stationSamples, hasLength(3));
+      expect(provider.drafts, hasLength(3));
+      expect(provider.stationSamples.map((sample) => sample.houseNo), [
+        'H1',
+        'H2',
+        'H3',
+      ]);
+      expect(provider.drafts.map((draft) => draft.esEggAvgWeight), [
+        55.5,
+        62.25,
+        70.4,
+      ]);
+      expect(provider.drafts.map((draft) => draft.esGradingSampleSize), [
+        11,
+        13,
+        17,
+      ]);
+      expect(provider.drafts.map((draft) => draft.esGradingRejectedCount), [
+        2,
+        4,
+        6,
+      ]);
+
+      provider.switchSample(1);
+      provider.updateSampleMetadata({
+        'houseNo': 'H2-renamed',
+        'houseLabel': 'House 2 renamed',
+      });
+      provider.switchSample(0);
+      provider.removeActiveEggQualityScopeSample(
+        StationSampleModel.sampleKindHouse,
+      );
+
+      expect(provider.stationSamples, hasLength(2));
+      expect(provider.drafts, hasLength(2));
+      expect(provider.stationSamples.map((sample) => sample.id), [
+        houseTwoId,
+        houseThreeId,
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.houseNo), [
+        'H2-renamed',
+        'H3',
+      ]);
+      expect(provider.drafts.map((draft) => draft.esEggAvgWeight), [
+        62.25,
+        70.4,
+      ]);
+
+      expect(await provider.saveSamplesWithResult(), isTrue);
+      provider.dispose();
+
+      final storageRows = await _rows('egg_storage');
+      expect(storageRows, hasLength(1));
+      expect(storageRows.single['house'], isNull);
+      expect(storageRows.single['storagePeriodDays'], 6);
+
+      final qualityRows = await _rows('egg_quality');
+      expect(qualityRows, hasLength(2));
+      expect(qualityRows.map((row) => row['id']), [houseTwoId, houseThreeId]);
+      expect(qualityRows.map((row) => row['house']), ['H2-renamed', 'H3']);
+      expect(qualityRows.map((row) => row['sampleIndex']), [1, 2]);
+      expect(qualityRows.map((row) => row['uvTrayEggCount']), [203, 307]);
+      expect(qualityRows.map((row) => row['uvCuticleDamageCount']), [11, 19]);
+      expect(qualityRows.map((row) => row['uvWashedCount']), [13, 23]);
+      expect(qualityRows.map((row) => row['uvDirtyCount']), [17, 29]);
+      expect(qualityRows.map((row) => row['eggAvgWeight']), [62.3, 70.4]);
+      expect(qualityRows.map((row) => row['gradingSampleSize']), [13, 17]);
+      expect(qualityRows.map((row) => row['gradingRejectedCount']), [4, 6]);
+      expect(qualityRows.map((row) => row['gradingAcceptableCount']), [9, 11]);
+
+      final defectRows = await _rows('egg_quality_defect_counts');
+      expect(defectRows, hasLength(4));
+      final houseTwoDefects = defectRows
+          .where((row) => row['eggQualityId'] == houseTwoId)
+          .toList();
+      final houseThreeDefects = defectRows
+          .where((row) => row['eggQualityId'] == houseThreeId)
+          .toList();
+      expect(houseTwoDefects, hasLength(2));
+      expect(houseThreeDefects, hasLength(2));
+      expect(
+        {for (final row in houseTwoDefects) row['defectCode']: row['count']},
+        {'wrinkled': 8, 'toe_hole': 10},
+      );
+      expect(
+        {for (final row in houseThreeDefects) row['defectCode']: row['count']},
+        {'calcium_deposit': 12, 'elongated': 15},
+      );
+
+      final reopened = await _reopenedStationProvider('egg');
+      expect(reopened.stationSamples, hasLength(2));
+      expect(reopened.drafts, hasLength(2));
+      expect(reopened.stationSamples.map((sample) => sample.id), [
+        houseTwoId,
+        houseThreeId,
+      ]);
+      expect(reopened.stationSamples.map((sample) => sample.houseNo), [
+        'H2-renamed',
+        'H3',
+      ]);
+      expect(reopened.drafts.map((draft) => draft.esEggAvgWeight), [
+        62.3,
+        70.4,
+      ]);
+      expect(reopened.drafts.map((draft) => draft.esGradingSampleSize), [
+        13,
+        17,
+      ]);
+      expect(reopened.drafts.map((draft) => draft.esGradingRejectedCount), [
+        4,
+        6,
+      ]);
+      final reopenedHouseTwoDefects =
+          jsonDecode(reopened.drafts.first.esGradingDefectsJson!) as List;
+      final reopenedHouseThreeDefects =
+          jsonDecode(reopened.drafts.last.esGradingDefectsJson!) as List;
+      expect(reopenedHouseTwoDefects, hasLength(2));
+      expect(reopenedHouseThreeDefects, hasLength(2));
+      expect(
+        {
+          for (final entry in reopenedHouseTwoDefects)
+            (entry as Map)['code']: entry['count'],
+        },
+        {'wrinkled': 8, 'toe_hole': 10},
+      );
+      expect(
+        {
+          for (final entry in reopenedHouseThreeDefects)
+            (entry as Map)['code']: entry['count'],
+        },
+        {'calcium_deposit': 12, 'elongated': 15},
+      );
+      reopened.dispose();
     },
   );
 
@@ -255,6 +418,23 @@ AuditProvider _newStationProvider(String stationKey) {
 }
 
 Future<AuditProvider> _reopenedStationProvider(String stationKey) async {
+  if (stationKey == 'egg') {
+    final reconstruction = await reopenEggStation(
+      await DatabaseHelper().db,
+      _sessionId,
+      context: _reconstructionContextFor(stationKey),
+    );
+    final provider = AuditProvider(autosaveEnabled: false);
+    provider.initialize(
+      _auditContextFor(stationKey),
+      existingAudits: reconstruction.stationAudits,
+      existingStationSamples: reconstruction.stationSamples,
+      readOnly: false,
+      sessionId: _sessionId,
+      notify: false,
+    );
+    return provider;
+  }
   final rowsByPanel = await _rowsByPanelForStation(stationKey);
   final provider = AuditProvider(autosaveEnabled: false);
   provider.initialize(
@@ -269,6 +449,22 @@ Future<AuditProvider> _reopenedStationProvider(String stationKey) async {
     notify: false,
   );
   return provider;
+}
+
+AuditContextData _reconstructionContextFor(String stationKey) {
+  final context = _auditContextFor(stationKey);
+  return AuditContextData(
+    auditType: context.auditType,
+    customerId: context.customerId,
+    flockId: context.flockId,
+    hatcheryId: context.hatcheryId,
+    sessionId: _sessionId,
+    breed: context.breed,
+    setterId: context.setterId,
+    hatcherId: context.hatcherId,
+    flockAgeWeeks: context.flockAgeWeeks,
+    date: context.date,
+  );
 }
 
 AuditContext _auditContextFor(String stationKey) {
@@ -356,6 +552,57 @@ void _fillEggStationSecondHouse(AuditProvider provider) {
   provider.updateField('esEggCvPct', 0.63);
   provider.updateField('esEggBmkAge', 42);
   provider.updateField('esEggBmkWeight', 62.0);
+}
+
+void _fillEggHouseOneQualityAndGrading(AuditProvider provider) {
+  provider.updateField(
+    'esUvTrays',
+    jsonEncode([
+      {'totalEggs': 101, 'cuticleDamage': 3, 'washed': 5, 'dirty': 7},
+    ]),
+  );
+  provider.updateField('esEggWeights', jsonEncode([55.0, 55.5, 56.0]));
+  provider.updateField('esEggSampleSize', 3);
+  provider.updateField('esEggAvgWeight', 55.5);
+  provider.updateField('esEggUniformityPct', 100.0);
+  provider.updateField('esEggCvPct', 0.91);
+  provider.updateField('esGradingSampleSize', 11);
+  provider.updateField('esGradingRejectedCount', 2);
+  provider.updateGradingCounts({'dirty': 6, 'cracked': 7});
+}
+
+void _fillEggHouseTwoQualityAndGrading(AuditProvider provider) {
+  provider.updateField(
+    'esUvTrays',
+    jsonEncode([
+      {'totalEggs': 203, 'cuticleDamage': 11, 'washed': 13, 'dirty': 17},
+    ]),
+  );
+  provider.updateField('esEggWeights', jsonEncode([62.1, 62.2, 62.3, 62.4]));
+  provider.updateField('esEggSampleSize', 4);
+  provider.updateField('esEggAvgWeight', 62.25);
+  provider.updateField('esEggUniformityPct', 100.0);
+  provider.updateField('esEggCvPct', 0.18);
+  provider.updateField('esGradingSampleSize', 13);
+  provider.updateField('esGradingRejectedCount', 4);
+  provider.updateGradingCounts({'wrinkled': 8, 'toe_hole': 10});
+}
+
+void _fillEggHouseThreeQualityAndGrading(AuditProvider provider) {
+  provider.updateField(
+    'esUvTrays',
+    jsonEncode([
+      {'totalEggs': 307, 'cuticleDamage': 19, 'washed': 23, 'dirty': 29},
+    ]),
+  );
+  provider.updateField('esEggWeights', jsonEncode([70.2, 70.4, 70.6]));
+  provider.updateField('esEggSampleSize', 3);
+  provider.updateField('esEggAvgWeight', 70.4);
+  provider.updateField('esEggUniformityPct', 100.0);
+  provider.updateField('esEggCvPct', 0.29);
+  provider.updateField('esGradingSampleSize', 17);
+  provider.updateField('esGradingRejectedCount', 6);
+  provider.updateGradingCounts({'calcium_deposit': 12, 'elongated': 15});
 }
 
 void _fillChickStationInitial(AuditProvider provider) {
