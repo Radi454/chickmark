@@ -4,16 +4,39 @@ import '../../features/audits/models/egg_grading.dart';
 import '../database/database_helper.dart';
 import 'sync_tombstone_repository.dart';
 
+enum EggGradingRemoteApplyResult {
+  keptLocal,
+  appliedNew,
+  appliedUpdate,
+  appliedUnchanged,
+}
+
+class EggGradingRemoteApply {
+  const EggGradingRemoteApply({
+    required this.result,
+    this.localUpdatedAt,
+    this.remoteUpdatedAt,
+  });
+
+  final EggGradingRemoteApplyResult result;
+  final DateTime? localUpdatedAt;
+  final DateTime? remoteUpdatedAt;
+}
+
 /// Reads and writes per-sample defect counts for visual egg grading.
 ///
 /// One egg may carry several defects, so counts are occurrences, not a
 /// partition of the sample — there is deliberately no
 /// `SUM(counts) <= sampleSize` rule here or anywhere downstream.
 class EggGradingRepository {
-  EggGradingRepository({DatabaseHelper? databaseHelper})
-    : _dbHelper = databaseHelper ?? DatabaseHelper();
+  EggGradingRepository({
+    DatabaseHelper? databaseHelper,
+    Future<void> Function()? beforeRemoteApplyForTesting,
+  }) : _dbHelper = databaseHelper ?? DatabaseHelper(),
+       _beforeRemoteApplyForTesting = beforeRemoteApplyForTesting;
 
   final DatabaseHelper _dbHelper;
+  final Future<void> Function()? _beforeRemoteApplyForTesting;
 
   static const String table = 'egg_quality_defect_counts';
 
@@ -190,10 +213,18 @@ class EggGradingRepository {
   /// a newer cloud schema cannot prevent otherwise-valid count rows from
   /// arriving on an older device.
   Future<void> upsertRemoteRow(Map<String, dynamic> row) async {
+    await applyRemoteRowWithConflictCheck(row);
+  }
+
+  /// Re-reads and conditionally applies a remote grading row in one SQLite
+  /// transaction. The caller must use this result instead of a stale snapshot
+  /// captured before the transaction: a local edit may land while a pull is
+  /// waiting to apply its row.
+  Future<EggGradingRemoteApply> applyRemoteRowWithConflictCheck(
+    Map<String, dynamic> row,
+  ) async {
+    await _beforeRemoteApplyForTesting?.call();
     final db = await _dbHelper.db;
-    final columns = (await db.rawQuery(
-      'PRAGMA table_info($table)',
-    )).map((column) => column['name']?.toString()).whereType<String>().toSet();
     final normalized = <String, dynamic>{
       for (final entry in row.entries)
         _toLocalColumn(entry.key): entry.value is bool
@@ -207,12 +238,59 @@ class EggGradingRepository {
       'lastSyncedAt': DateTime.now().toIso8601String(),
       'syncError': null,
     };
-    final supported = <String, dynamic>{
-      for (final entry in synced.entries)
-        if (columns.contains(entry.key)) entry.key: entry.value,
-    };
-    if (supported['id'] == null) return;
-    await _upsertById(db, table, supported);
+    final id = synced['id']?.toString();
+    if (id == null || id.isEmpty) {
+      return const EggGradingRemoteApply(
+        result: EggGradingRemoteApplyResult.appliedUnchanged,
+      );
+    }
+    return db.transaction((txn) async {
+      final columns = (await txn.rawQuery('PRAGMA table_info($table)'))
+          .map((column) => column['name']?.toString())
+          .whereType<String>()
+          .toSet();
+      final supported = <String, dynamic>{
+        for (final entry in synced.entries)
+          if (columns.contains(entry.key)) entry.key: entry.value,
+      };
+      final localRows = await txn.query(
+        table,
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      final remoteUpdatedAt = _parseUpdatedAt(synced);
+      if (localRows.isEmpty) {
+        await _upsertById(txn, table, supported);
+        return EggGradingRemoteApply(
+          result: EggGradingRemoteApplyResult.appliedNew,
+          remoteUpdatedAt: remoteUpdatedAt,
+        );
+      }
+
+      final localUpdatedAt = _parseUpdatedAt(localRows.single);
+      if (localUpdatedAt != null &&
+          (remoteUpdatedAt == null ||
+              localUpdatedAt.isAfter(remoteUpdatedAt))) {
+        return EggGradingRemoteApply(
+          result: EggGradingRemoteApplyResult.keptLocal,
+          localUpdatedAt: localUpdatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+        );
+      }
+
+      await _upsertById(txn, table, supported);
+      return EggGradingRemoteApply(
+        result:
+            remoteUpdatedAt != null &&
+                (localUpdatedAt == null ||
+                    remoteUpdatedAt.isAfter(localUpdatedAt))
+            ? EggGradingRemoteApplyResult.appliedUpdate
+            : EggGradingRemoteApplyResult.appliedUnchanged,
+        localUpdatedAt: localUpdatedAt,
+        remoteUpdatedAt: remoteUpdatedAt,
+      );
+    });
   }
 
   static String _toLocalColumn(String column) {
@@ -220,6 +298,12 @@ class EggGradingRepository {
       RegExp(r'_([a-zA-Z0-9])'),
       (match) => match.group(1)!.toUpperCase(),
     );
+  }
+
+  static DateTime? _parseUpdatedAt(Map<String, dynamic> row) {
+    final value = row['updatedAt'] ?? row['updated_at'];
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
   }
 
   Future<void> markRowsSynced(Iterable<String> ids) async {

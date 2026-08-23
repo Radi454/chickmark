@@ -188,7 +188,7 @@ void main() {
         },
       );
 
-      final outcome = await service.run(canPush: false);
+      final outcome = await service.run(canPush: false, collectIncoming: true);
       final rows = await (await DatabaseHelper().db).query(
         EggGradingRepository.table,
         where: 'id = ?',
@@ -204,6 +204,84 @@ void main() {
       expect(rows, isNotEmpty);
       expect(rows.single['eggQualityId'], 'grading-egg-quality-pull');
       expect(rows.single['syncStatus'], 'synced');
+      expect(outcome.otherIncomingCount, 1);
+    },
+  );
+
+  test(
+    'keeps a newer dirty grading edit that lands during pull apply',
+    () async {
+      await seedDirtyGrading('pull-race');
+      const rowId = 'grading-egg-quality-pull-race:dirty';
+      final db = await DatabaseHelper().db;
+      await db.update(
+        EggGradingRepository.table,
+        {
+          'count': 1,
+          'updatedAt': '2026-08-23T09:00:00.000Z',
+          'syncStatus': 'synced',
+          'dirtyAt': null,
+        },
+        where: 'id = ?',
+        whereArgs: [rowId],
+      );
+
+      final racingRepository = EggGradingRepository(
+        beforeRemoteApplyForTesting: () async {
+          await EggGradingRepository().replaceCountsForSample(
+            eggQualityId: 'grading-egg-quality-pull-race',
+            sessionId: 'grading-session-pull-race',
+            customerId: 'grading-customer-pull-race',
+            flockId: 'grading-flock-pull-race',
+            hatcheryId: 'grading-hatchery-pull-race',
+            date: '2026-08-23T10:00:00.000Z',
+            scopeType: 'pool',
+            sampleLabel: 'Pool',
+            sampleSize: 100,
+            counts: const {'dirty': 7},
+          );
+          await db.update(
+            EggGradingRepository.table,
+            {
+              'updatedAt': '2026-08-23T11:00:00.000Z',
+              'dirtyAt': '2026-08-23T11:00:00.000Z',
+              'syncStatus': 'pending',
+            },
+            where: 'id = ?',
+            whereArgs: [rowId],
+          );
+        },
+      );
+      final service = harness.buildService(
+        eggGradingRepository: racingRepository,
+        remoteRows: {
+          EggGradingRepository.table: [
+            {
+              'id': rowId,
+              'egg_quality_id': 'grading-egg-quality-pull-race',
+              'session_id': 'grading-session-pull-race',
+              'customer_id': 'grading-customer-pull-race',
+              'date': '2026-08-23T10:00:00.000Z',
+              'defect_code': 'dirty',
+              'count': 4,
+              'created_at': '2026-08-23T09:00:00.000Z',
+              'updated_at': '2026-08-23T10:00:00.000Z',
+            },
+          ],
+        },
+      );
+
+      final outcome = await service.run(canPush: false, collectIncoming: true);
+
+      final row = (await db.query(
+        EggGradingRepository.table,
+        where: 'id = ?',
+        whereArgs: [rowId],
+      )).single;
+      expect(row['count'], 7);
+      expect(row['syncStatus'], 'pending');
+      expect(row['dirtyAt'], isNotNull);
+      expect(outcome.otherIncomingCount, 0);
     },
   );
 

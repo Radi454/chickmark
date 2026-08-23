@@ -869,13 +869,35 @@ class StartupSyncService {
     Map<String, dynamic> remoteRow,
   ) async {
     if (_hasPendingLocalDelete(EggGradingRepository.table, remoteRow)) return;
-    final result = await _upsertWithConflictCheck(
-      EggGradingRepository.table,
+    final applied = await _eggGradingRepository.applyRemoteRowWithConflictCheck(
       remoteRow,
-      getLocal: _eggGradingRepository.getRowById,
-      upsert: _eggGradingRepository.upsertRemoteRow,
     );
-    _countOtherIncoming(result);
+    switch (applied.result) {
+      case EggGradingRemoteApplyResult.keptLocal:
+        final localUpdatedAt = applied.localUpdatedAt;
+        if (localUpdatedAt == null) return;
+        debugPrint(
+          '[SYNC CONFLICT] table=${EggGradingRepository.table} '
+          'id=${_rowId(remoteRow)} local=$localUpdatedAt '
+          'remote=${applied.remoteUpdatedAt} -> keeping local',
+        );
+        await _recordConflict(
+          table: EggGradingRepository.table,
+          rowId: _rowId(remoteRow) ?? '',
+          localUpdatedAt: localUpdatedAt,
+          remoteUpdatedAt: applied.remoteUpdatedAt,
+          winner: 'local',
+        );
+        return;
+      case EggGradingRemoteApplyResult.appliedNew:
+        _countOtherIncoming(_UpsertResult.appliedNew);
+        return;
+      case EggGradingRemoteApplyResult.appliedUpdate:
+        _countOtherIncoming(_UpsertResult.appliedUpdate);
+        return;
+      case EggGradingRemoteApplyResult.appliedUnchanged:
+        return;
+    }
   }
 
   void _countOtherIncoming(_UpsertResult result) {

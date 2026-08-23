@@ -1,6 +1,7 @@
 import 'package:mocktail/mocktail.dart';
 
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
+import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
@@ -139,6 +140,7 @@ late FakeSupabaseService fakeSupabase;
 StartupSyncService buildService({
   Set<String> failUpsertsFor = const {},
   Map<String, List<Map<String, dynamic>>> remoteRows = const {},
+  EggGradingRepository? eggGradingRepository,
   // Accepted for readability at call sites (tests already default to
   // pushing); StartupSyncService.run() defaults canPush to true on its own,
   // so this isn't threaded through separately.
@@ -150,6 +152,7 @@ StartupSyncService buildService({
   );
   return StartupSyncService(
     supabaseService: fakeSupabase,
+    eggGradingRepository: eggGradingRepository,
     photoSyncService: _FakePhotoSyncService(),
   );
 }

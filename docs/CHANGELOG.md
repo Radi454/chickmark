@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-08-23: Fixed an egg-grading pull race that could overwrite a newer
+  local dirty defect count with an older remote snapshot and clear its pending
+  marker. The grading repository now rereads, compares, and conditionally
+  applies remote rows in one SQLite transaction.
+
 - 2026-08-23: Egg grading results now sync to the cloud alongside the rest of
   the audit. Defect-count children upload after their Egg Quality parent, pull
   on every role including pull-only customer devices, and delete before the

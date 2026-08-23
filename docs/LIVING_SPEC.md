@@ -537,10 +537,14 @@ Station save behavior:
   ack stays `pending` instead of being silently marked synced and dropped —
   the same pattern `LabAnalysisRepository.markRowsSynced` uses. A re-save of
   an existing count row also never touches `createdAt`, only `updatedAt`.
-  On cloud pull, `getRowById` / `upsertRemoteRow` conflict-check the row by
-  its deterministic id and safely normalize Supabase snake_case (and boolean
-  values) back to SQLite camelCase before marking the accepted remote row
-  synced; unknown cloud columns are ignored for upgrade compatibility.
+  On cloud pull, remote application rereads and conflict-checks the row by
+  its deterministic id in the same SQLite transaction that conditionally
+  writes the accepted remote row. This means a newer local dirty edit that
+  lands while pull is in progress remains pending instead of being overwritten
+  by the older remote snapshot. The repository safely normalizes Supabase
+  snake_case (and boolean values) back to SQLite camelCase before marking an
+  accepted remote row synced; unknown cloud columns are ignored for upgrade
+  compatibility.
 - Grading is threaded into the draft, save, and reopen paths for every Egg
   Quality sample independently. `AuditModel` carries `esGradingSampleSize`
   (`int?`), `esGradingRejectedCount` (`int?`), and `esGradingDefectsJson`
