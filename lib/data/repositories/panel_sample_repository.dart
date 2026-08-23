@@ -5,6 +5,7 @@ import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../services/panel_aggregate_deriver.dart';
 import '../../services/sync/app_sync_coordinator.dart';
+import 'egg_grading_repository.dart';
 import 'sync_tombstone_repository.dart';
 
 class PanelSampleRepository {
@@ -139,15 +140,10 @@ class PanelSampleRepository {
         where: 'sessionId = ?',
         whereArgs: [sessionId],
       );
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
+      await _deleteRowsByIdWithTombstones(
         txn,
         definition.tableName,
         rows.map((row) => row['id']),
-      );
-      await txn.delete(
-        definition.tableName,
-        where: 'sessionId = ?',
-        whereArgs: [sessionId],
       );
     });
   }
@@ -167,15 +163,10 @@ class PanelSampleRepository {
         where: _hierarchyRowsWhereForColumns(hierarchyColumns),
         whereArgs: [sessionId],
       );
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
+      await _deleteRowsByIdWithTombstones(
         txn,
         definition.tableName,
         rows.map((row) => row['id']),
-      );
-      await txn.delete(
-        definition.tableName,
-        where: _hierarchyRowsWhereForColumns(hierarchyColumns),
-        whereArgs: [sessionId],
       );
     });
   }
@@ -195,13 +186,18 @@ class PanelSampleRepository {
     await database.transaction<void>((txn) async {
       final columns = await _tableColumns(txn, definition.tableName);
       final hierarchyColumns = _hierarchyColumnsForTable(columns);
-      final keepHierarchyKeys = keepHierarchyRows
-          .map((row) => _hierarchyKey(row, hierarchyColumns))
-          .toSet();
+      final isIdKeyed = idKeyedPanelTables.contains(definition.tableName);
+      final keepHierarchyKeys = isIdKeyed
+          ? const <String>{}
+          : keepHierarchyRows
+                .map((row) => _hierarchyKey(row, hierarchyColumns))
+                .toSet();
       final rows = await txn.query(
         definition.tableName,
         columns: ['id', ...hierarchyColumns],
-        where: _hierarchyRowsWhereForColumns(hierarchyColumns),
+        where: isIdKeyed
+            ? 'sessionId = ?'
+            : _hierarchyRowsWhereForColumns(hierarchyColumns),
         whereArgs: [sessionId],
       );
       final staleIds = <String>[];
@@ -210,23 +206,16 @@ class PanelSampleRepository {
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
-            !keepHierarchyKeys.contains(_hierarchyKey(row, hierarchyColumns))) {
+            (isIdKeyed ||
+                !keepHierarchyKeys.contains(
+                  _hierarchyKey(row, hierarchyColumns),
+                ))) {
           staleIds.add(id);
         }
       }
       if (staleIds.isEmpty) return;
 
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
-        txn,
-        definition.tableName,
-        staleIds,
-      );
-      final placeholders = List.filled(staleIds.length, '?').join(', ');
-      await txn.delete(
-        definition.tableName,
-        where: 'id IN ($placeholders)',
-        whereArgs: staleIds,
-      );
+      await _deleteRowsByIdWithTombstones(txn, definition.tableName, staleIds);
     });
   }
 
@@ -245,9 +234,12 @@ class PanelSampleRepository {
     await database.transaction<void>((txn) async {
       final columns = await _tableColumns(txn, definition.tableName);
       final hierarchyColumns = _hierarchyColumnsForTable(columns);
-      final keepHierarchyKeys = keepHierarchyRows
-          .map((row) => _hierarchyKey(row, hierarchyColumns))
-          .toSet();
+      final isIdKeyed = idKeyedPanelTables.contains(definition.tableName);
+      final keepHierarchyKeys = isIdKeyed
+          ? const <String>{}
+          : keepHierarchyRows
+                .map((row) => _hierarchyKey(row, hierarchyColumns))
+                .toSet();
       final rows = await txn.query(
         definition.tableName,
         columns: ['id', ...hierarchyColumns],
@@ -260,23 +252,16 @@ class PanelSampleRepository {
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
-            !keepHierarchyKeys.contains(_hierarchyKey(row, hierarchyColumns))) {
+            (isIdKeyed ||
+                !keepHierarchyKeys.contains(
+                  _hierarchyKey(row, hierarchyColumns),
+                ))) {
           staleIds.add(id);
         }
       }
       if (staleIds.isEmpty) return;
 
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
-        txn,
-        definition.tableName,
-        staleIds,
-      );
-      final placeholders = List.filled(staleIds.length, '?').join(', ');
-      await txn.delete(
-        definition.tableName,
-        where: 'id IN ($placeholders)',
-        whereArgs: staleIds,
-      );
+      await _deleteRowsByIdWithTombstones(txn, definition.tableName, staleIds);
     });
   }
 
@@ -312,17 +297,7 @@ class PanelSampleRepository {
       }
       if (staleIds.isEmpty) return;
 
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
-        txn,
-        definition.tableName,
-        staleIds,
-      );
-      final placeholders = List.filled(staleIds.length, '?').join(', ');
-      await txn.delete(
-        definition.tableName,
-        where: 'id IN ($placeholders)',
-        whereArgs: staleIds,
-      );
+      await _deleteRowsByIdWithTombstones(txn, definition.tableName, staleIds);
     });
   }
 
@@ -330,12 +305,7 @@ class PanelSampleRepository {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
     await database.transaction<void>((txn) async {
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
-        txn,
-        definition.tableName,
-        [id],
-      );
-      await txn.delete(definition.tableName, where: 'id = ?', whereArgs: [id]);
+      await _deleteRowsByIdWithTombstones(txn, definition.tableName, [id]);
     });
   }
 
@@ -430,8 +400,8 @@ class PanelSampleRepository {
   Future<List<Map<String, dynamic>>> getDirtyRows(String tableName) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
-    _dirtyReadCutoffByTable[definition.tableName] =
-        DateTime.now().toIso8601String();
+    _dirtyReadCutoffByTable[definition.tableName] = DateTime.now()
+        .toIso8601String();
     final rows = await database.query(
       definition.tableName,
       where: "syncStatus IN ('pending', 'failed')",
@@ -457,8 +427,7 @@ class PanelSampleRepository {
         'dirtyAt': null,
         'syncError': null,
       },
-      where:
-          'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
+      where: 'id IN ($placeholders) AND (dirtyAt IS NULL OR dirtyAt <= ?)',
       whereArgs: [...idList, cutoff],
     );
   }
@@ -709,6 +678,38 @@ class PanelSampleRepository {
     return rowId.endsWith(marker) || rowId.contains('$marker:');
   }
 
+  Future<void> _deleteRowsByIdWithTombstones(
+    DatabaseExecutor executor,
+    String tableName,
+    Iterable<Object?> rowIds,
+  ) async {
+    final ids = rowIds
+        .map((id) => id?.toString().trim())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return;
+    if (tableName == 'egg_quality') {
+      await EggGradingRepository.deleteEggQualityParentsWithExecutor(
+        executor,
+        ids,
+      );
+      return;
+    }
+    await SyncTombstoneRepository.queueDeletesWithExecutor(
+      executor,
+      tableName,
+      ids,
+    );
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await executor.delete(
+      tableName,
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
   Future<Map<String, Object?>> _withoutOrphanedPanelHatcheryId(
     DatabaseExecutor executor,
     Map<String, Object?> row,
@@ -768,12 +769,14 @@ class PanelSampleRepository {
   }
 
   /// Orders panel rows by their saved `sampleIndex` when the table has that
-  /// column (every panel table, since v61), falling back to `createdAt` and
-  /// `id` as tiebreakers. Tables without `sampleIndex` (pre-v61 schemas seen
-  /// only in older tests) keep the previous hierarchy-column ordering.
+  /// column (every panel table, since v61), placing legacy null indexes last
+  /// before falling back to `createdAt` and `id` as tiebreakers. Tables without
+  /// `sampleIndex` (pre-v61 schemas seen only in older tests) keep the previous
+  /// hierarchy-column ordering.
   static String panelOrderByForColumns(Set<String> columns) {
     if (columns.contains('sampleIndex')) {
       final orderColumns = [
+        'CASE WHEN sampleIndex IS NULL THEN 1 ELSE 0 END',
         'sampleIndex',
         if (columns.contains('createdAt')) 'createdAt',
         if (columns.contains('id')) 'id',

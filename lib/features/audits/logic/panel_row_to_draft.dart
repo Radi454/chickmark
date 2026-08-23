@@ -34,6 +34,12 @@ void mergePanelRowIntoAuditMap(
       _mergeEggTraySummary(map, {'upsideDown': row['upsideDownCount']});
       break;
     case 'egg_quality':
+      final hasUvEvidence = const [
+        'uvTrayEggCount',
+        'uvCuticleDamageCount',
+        'uvWashedCount',
+        'uvDirtyCount',
+      ].any((column) => (panelRowAsInt(row[column]) ?? 0) > 0);
       copy('esEggQualityStorageDays', 'storagePeriodDays');
       copy('es_uvSampleSize', 'uvTrayEggCount');
       copy('es_uvCuticleDamageCount', 'uvCuticleDamageCount');
@@ -44,7 +50,7 @@ void mergePanelRowIntoAuditMap(
         'cuticleDamage': row['uvCuticleDamageCount'],
         'washed': row['uvWashedCount'],
         'dirty': row['uvDirtyCount'],
-        'qualityTouched': true,
+        if (hasUvEvidence) 'qualityTouched': true,
       });
       copy('esEggWeights', 'eggWeightsJson');
       copy('esEggSampleSize', 'eggSampleSize');

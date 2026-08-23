@@ -111,10 +111,17 @@ class SyncTombstoneRepository {
         if (!await _tableExists(txn, table)) continue;
         final ids = tombstones
             .where((tombstone) => tombstone.tableName == table)
-            .map((tombstone) => tombstone.rowId)
-            .toSet();
-        for (final id in ids) {
-          await deleteRow(txn, table, id);
+            .toList(growable: false);
+        for (final tombstone in ids) {
+          if (await _localRowIsNewer(
+            txn,
+            table,
+            tombstone.rowId,
+            tombstone.deletedAt,
+          )) {
+            continue;
+          }
+          await deleteRow(txn, table, tombstone.rowId);
         }
       }
     });
@@ -158,6 +165,24 @@ class SyncTombstoneRepository {
     }
   }
 
+  /// A local write after a not-yet-synced delete resurrects the deterministic
+  /// row identity. Remove that pending delete in the same transaction as the
+  /// write so a later tombstone push cannot delete the new row remotely.
+  static Future<void> cancelPendingDeleteWithExecutor(
+    DatabaseExecutor executor,
+    String rowTableName,
+    Object? rowId,
+  ) async {
+    final id = rowId?.toString();
+    if (id == null || id.isEmpty) return;
+    final columns = await _SyncTombstoneColumns.forExecutor(executor);
+    await executor.delete(
+      tableName,
+      where: 'id = ? AND ${columns.syncedAtReadExpression} IS NULL',
+      whereArgs: [SyncTombstone.makeId(rowTableName, id)],
+    );
+  }
+
   static Future<void> deleteRow(
     DatabaseExecutor executor,
     String deletedTableName,
@@ -183,6 +208,40 @@ class SyncTombstoneRepository {
       [table],
     );
     return rows.isNotEmpty;
+  }
+
+  static Future<bool> _localRowIsNewer(
+    DatabaseExecutor executor,
+    String rowTableName,
+    String rowId,
+    DateTime deletedAt,
+  ) async {
+    final columns = (await executor.rawQuery(
+      'PRAGMA table_info($rowTableName)',
+    )).map((row) => row['name']?.toString()).whereType<String>().toSet();
+    final timestampColumns = const [
+      'updatedAt',
+      'dirtyAt',
+      'createdAt',
+      'updated_at',
+      'dirty_at',
+      'created_at',
+    ].where(columns.contains).toList(growable: false);
+    if (timestampColumns.isEmpty) return false;
+    final rows = await executor.query(
+      rowTableName,
+      columns: timestampColumns,
+      where: '${idColumnForTable(rowTableName)} = ?',
+      whereArgs: [rowId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    for (final column in timestampColumns) {
+      final value = rows.single[column];
+      final timestamp = value == null ? null : DateTime.tryParse('$value');
+      if (timestamp != null && timestamp.isAfter(deletedAt)) return true;
+    }
+    return false;
   }
 }
 

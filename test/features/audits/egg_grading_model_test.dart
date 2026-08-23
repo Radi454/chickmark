@@ -45,24 +45,35 @@ void main() {
     expect(errors, contains('Dirty count cannot exceed eggs inspected.'));
   });
 
-  test('negative counts, oversized defects and oversized rejects are rejected',
-      () {
-    expect(
-      EggGradingValidation.validate(
-          sampleSize: 100, rejectedCount: 0, counts: {'dirty': -1}),
-      isNotEmpty,
-    );
-    expect(
-      EggGradingValidation.validate(
-          sampleSize: 100, rejectedCount: 0, counts: {'dirty': 101}),
-      isNotEmpty,
-    );
-    expect(
-      EggGradingValidation.validate(
-          sampleSize: 100, rejectedCount: 101, counts: const {}),
-      isNotEmpty,
-    );
-  });
+  test(
+    'negative counts, oversized defects and oversized rejects are rejected',
+    () {
+      expect(
+        EggGradingValidation.validate(
+          sampleSize: 100,
+          rejectedCount: 0,
+          counts: {'dirty': -1},
+        ),
+        isNotEmpty,
+      );
+      expect(
+        EggGradingValidation.validate(
+          sampleSize: 100,
+          rejectedCount: 0,
+          counts: {'dirty': 101},
+        ),
+        isNotEmpty,
+      );
+      expect(
+        EggGradingValidation.validate(
+          sampleSize: 100,
+          rejectedCount: 101,
+          counts: const {},
+        ),
+        isNotEmpty,
+      );
+    },
+  );
 
   test('summary round-trips through JSON', () {
     final summary = EggGradingSummary.fromCounts(
@@ -77,5 +88,39 @@ void main() {
     );
     expect(restored.counts, {'dirty': 2, 'ridged': 1});
     expect(restored.topDefectCode, 'dirty');
+  });
+
+  test(
+    'malformed JSON keeps supplied grading totals and returns no counts',
+    () {
+      final restored = EggGradingSummary.fromJson(
+        '{not-json',
+        sampleSize: 80,
+        rejectedCount: 7,
+      );
+
+      expect(restored.sampleSize, 80);
+      expect(restored.rejectedCount, 7);
+      expect(restored.counts, isEmpty);
+    },
+  );
+
+  test('JSON keeps multiple defect occurrences above the sample size', () {
+    final restored = EggGradingSummary.fromJson(
+      '[{"code":"dirty","count":60},'
+      '{"code":"cracked","count":55}]',
+      sampleSize: 100,
+      rejectedCount: 40,
+    );
+
+    expect(restored.counts, {'dirty': 60, 'cracked': 55});
+    expect(
+      EggGradingValidation.validate(
+        sampleSize: restored.sampleSize,
+        rejectedCount: restored.rejectedCount,
+        counts: restored.counts,
+      ),
+      isEmpty,
+    );
   });
 }

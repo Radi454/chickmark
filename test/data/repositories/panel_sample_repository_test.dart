@@ -414,59 +414,55 @@ void main() {
     },
   );
 
-  test(
-    'deleteHierarchyRowsBySessionIdExcept prunes only stale scoped rows',
-    () async {
-      final panel = PanelRecord(
-        id: 'quality-panel',
-        tableName: 'egg_quality',
-        sessionId: 'session-1',
-        customerId: 'customer-1',
-        flockId: 'flock-1',
-        date: DateTime.utc(2026, 5, 13),
-      );
-      final first = PanelSampleRecord(
-        id: 'quality-sample-1',
-        panelId: panel.id,
-        houseId: 'H1',
-        sampleSize: 100,
-      );
-      final second = PanelSampleRecord(
-        id: 'quality-sample-2',
-        panelId: panel.id,
-        houseId: 'H2',
-        sampleSize: 100,
-      );
-      final pooled = PanelSampleRecord(
-        id: 'quality-sample-pool',
-        panelId: panel.id,
-        sampleSize: 100,
-      );
+  test('id-keyed hierarchy prune keeps only exact persisted ids', () async {
+    final panel = PanelRecord(
+      id: 'quality-panel',
+      tableName: 'egg_quality',
+      sessionId: 'session-1',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: DateTime.utc(2026, 5, 13),
+    );
+    final first = PanelSampleRecord(
+      id: 'quality-sample-1',
+      panelId: panel.id,
+      houseId: 'H1',
+      sampleSize: 100,
+    );
+    final second = PanelSampleRecord(
+      id: 'quality-sample-2',
+      panelId: panel.id,
+      houseId: 'H2',
+      sampleSize: 100,
+    );
+    final pooled = PanelSampleRecord(
+      id: 'quality-sample-pool',
+      panelId: panel.id,
+      sampleSize: 100,
+    );
 
-      await repository.savePanelWithSamples(panel: panel, samples: [first]);
-      await repository.savePanelWithSamples(panel: panel, samples: [second]);
-      await repository.savePanelWithSamples(panel: panel, samples: [pooled]);
+    await repository.savePanelWithSamples(panel: panel, samples: [first]);
+    await repository.savePanelWithSamples(panel: panel, samples: [second]);
+    await repository.savePanelWithSamples(panel: panel, samples: [pooled]);
 
-      await repository.deleteHierarchyRowsBySessionIdExcept(
-        'egg_quality',
-        'session-1',
-        [first.id],
-      );
+    await repository.deleteHierarchyRowsBySessionIdExcept(
+      'egg_quality',
+      'session-1',
+      [first.id],
+    );
 
-      final rows = await db.query('egg_quality', orderBy: 'id ASC');
-      expect(rows.map((row) => row['id']), [
-        'quality-sample-1',
-        'quality-sample-pool',
-      ]);
-      expect(rows.first['house'], 'H1');
-      expect(rows.last['house'], isNull);
+    final rows = await db.query('egg_quality', orderBy: 'id ASC');
+    expect(rows.map((row) => row['id']), ['quality-sample-1']);
+    expect(rows.single['house'], 'H1');
 
-      final tombstones = await db.query('sync_tombstones');
-      expect(tombstones, hasLength(1));
-      expect(tombstones.single['tableName'], 'egg_quality');
-      expect(tombstones.single['rowId'], 'quality-sample-2');
-    },
-  );
+    final tombstones = await db.query('sync_tombstones');
+    expect(tombstones, hasLength(2));
+    expect(tombstones.map((row) => row['tableName']).toSet(), {'egg_quality'});
+    expect(tombstones.map((row) => row['rowId']).toSet(), {
+      'quality-sample-2',
+      'quality-sample-pool',
+    });
+  });
 
   test(
     'savePanelWithSamples works with machine-scoped setter hierarchy only',

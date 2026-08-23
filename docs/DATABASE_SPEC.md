@@ -210,13 +210,13 @@ gets the same envelope, then its own measurement columns appended:
 | `position TEXT` | Optional position identity. | Candled/Residue tray position. |
 | `storagePeriodDays INTEGER` | Storage period context. | Egg storage and breakout BMK calculations. |
 | `bmkAgeWeeks INTEGER` | Rounded BMK age in weeks. | BMK/dashboard filtering and display. |
-| `sampleMode TEXT` | v61: what this row represents (recorded explicitly instead of re-inferred from hierarchy columns on reopen). Nullable, unread as of v61. | Not yet wired to any screen. |
-| `scopeType TEXT` | v61: comparison-row scope identity. Nullable, unread as of v61. | Not yet wired to any screen. |
-| `sampleLabel TEXT` | v61: display label for the sample/row. Nullable, unread as of v61. | Not yet wired to any screen. |
-| `sampleIndex INTEGER` | v61: ordinal position of the sample within its scope. Nullable, unread as of v61. | Not yet wired to any screen. |
-| `sourceDomain TEXT` | v61: which side of the operation owns the measurement. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
-| `actionDomain TEXT` | v61: which side of the operation owns the fix. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
-| `recommendationTarget TEXT` | v61: which side of the operation owns the recommendation. Free text, no fixed vocabulary yet. Nullable, unread as of v61. | Not yet wired to any screen. |
+| `sampleMode TEXT` | v61: explicit pooled/comparison identity, nullable for legacy rows. | Station save writes it and reopen reads it before hierarchy inference. |
+| `scopeType TEXT` | v61: explicit comparison scope identity, nullable for legacy rows. | Station save/reopen maps it to the sample kind and comparison type. |
+| `sampleLabel TEXT` | v61: display label for the sample/row, nullable for legacy rows. | Restored on station reopen, including blank-house comparison rows. |
+| `sampleIndex INTEGER` | v61: ordinal position within the scope, nullable for legacy rows. | Non-null indexes sort first; legacy nulls sort last, then `createdAt`/`id`. |
+| `sourceDomain TEXT` | v61: side of the operation owning the measurement. Nullable. | Egg Storage/Egg Quality saves write `hatchery`; other station flows leave it null. |
+| `actionDomain TEXT` | v61: side of the operation owning the fix. Nullable. | Egg Storage writes `hatchery`; Egg Quality writes `farm`. |
+| `recommendationTarget TEXT` | v61: side owning the recommendation. Nullable. | Egg Storage writes `hatchery`; Egg Quality writes `farm`. |
 | `notes TEXT` | Station-level notes. | Notes field on the station screen. |
 | `createdAt TEXT NOT NULL` | Local creation timestamp. | Draft/station save timestamp. |
 | `updatedAt TEXT NOT NULL` | Conflict resolution and dashboard freshness. | Updated on each station save. |
@@ -248,7 +248,9 @@ row's own `id`, never the hierarchy tuple
 `PanelSampleRepository.idKeyedPanelTables`). A comparison row may legitimately
 have a blank or duplicated `house`; matching on hierarchy made two such rows
 overwrite each other. `_ensurePanelUniqueRowIndexes` drops the index on open
-for any pre-v61 database that still has it.
+for any pre-v61 database that still has it. Stale `egg_quality` pruning also
+uses only persisted keep IDs, including rows whose hierarchy values are blank;
+the hierarchy fallback remains only for hierarchy-keyed panel tables.
 
 ### `PanelRecord`
 
@@ -295,7 +297,10 @@ below) and written back onto the parent for fast dashboard reads:
 `gradingTopDefectCode`, `gradingTopDefectPct`. One egg may carry several
 defects, so there is deliberately no constraint tying the sum of per-defect
 counts to `gradingSampleSize`; `gradingAcceptableCount` is simply
-`gradingSampleSize - gradingRejectedCount`.
+`gradingSampleSize - gradingRejectedCount`. Clearing grading explicitly writes
+null to all eight columns rather than omitting them from an upsert. Save and
+autosave reject a rejected count or individual defect count above the sample
+size, but never reject the sum of defect occurrences.
 
 ### `chick_quality`
 
@@ -432,6 +437,14 @@ upload).
 Local camelCase columns snake_case onto the cloud `egg_quality_defect_counts`
 table 1:1 (`supabase/migrations/20260823100000_egg_grading.sql`), except the
 four local-only sync columns, which the cloud mirror does not carry.
+
+Positive count rows use the deterministic ID
+`<eggQualityId>:<defectCode>`. A local re-add cancels an unsynced tombstone for
+that ID in the write transaction; application of an already-synced tombstone
+keeps a row with a later local timestamp. Every parent deletion path queries,
+tombstones, and explicitly deletes matching defect-count children before it
+tombstones/deletes the `egg_quality` parent, so SQLite cascade cannot erase the
+only evidence needed to remove the cloud child.
 
 ## Scope Support By Panel
 
@@ -740,6 +753,9 @@ before upload, so the cloud schema never sees them.
 All tables are dirty-tracked, including reference tables. `markRowsSynced` is
 guarded by the `dirtyAt` cutoff captured at the last `getDirtyRows` call, so an
 edit made mid-push is not falsely marked synced.
+Remote/synced tombstones are likewise time-aware on local application: a row
+whose `updatedAt`, `dirtyAt`, or `createdAt` is later than `deletedAt` is kept
+as an intentional resurrection.
 
 ### Push order
 

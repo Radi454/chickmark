@@ -163,6 +163,11 @@ class _EggGradingSectionState extends State<EggGradingSection> {
           count: summary.rejectedCount,
           percent: summary.rejectedPct,
         ),
+        if (summary.topDefectCode case final code?)
+          _EggGradingTopDefectChip(
+            defectName: eggDefectTypeForCode(code)?.name ?? code,
+            percent: summary.topDefectPct ?? 0,
+          ),
       ],
     );
   }
@@ -178,6 +183,9 @@ class _EggGradingSectionState extends State<EggGradingSection> {
   int get _rejectedCount => _parseCount(_rejectedCountController.text);
 
   Map<String, int> get _counts => {
+    for (final entry in widget.gradingCounts.entries)
+      if (eggDefectTypeForCode(entry.key) == null && entry.value > 0)
+        entry.key: entry.value,
     for (final entry in _countControllers.entries)
       if (_parseCount(entry.value.text) > 0)
         entry.key: _parseCount(entry.value.text),
@@ -270,6 +278,29 @@ class _EggGradingSummaryChip extends StatelessWidget {
   }
 }
 
+class _EggGradingTopDefectChip extends StatelessWidget {
+  final String defectName;
+  final double percent;
+
+  const _EggGradingTopDefectChip({
+    required this.defectName,
+    required this.percent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Text('Top defect: $defectName ${percent.toStringAsFixed(1)}%'),
+    );
+  }
+}
+
 class _EggDefectCountRow extends StatelessWidget {
   final EggDefectType defect;
   final TextEditingController controller;
@@ -312,13 +343,14 @@ class _EggDefectCountRow extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  if (percent > 0)
-                    Text(
-                      '${percent.toStringAsFixed(1)}% of eggs inspected',
-                      style: AppTextStyles.caption.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
+                  Text(
+                    percent > 0
+                        ? '${percent.toStringAsFixed(1)}% of eggs inspected'
+                        : '-',
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.textSecondary,
                     ),
+                  ),
                 ],
               ),
             ),

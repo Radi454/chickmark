@@ -1,5 +1,18 @@
 # ChickMark Change Log
 
+- 2026-08-23: Closed the final Egg Quality sampling and grading review gaps.
+  Production reopen now overlays defect children by persisted Egg Quality row
+  ID; legacy null indexes sort consistently after explicit indexes; clearing
+  grading nulls every cached summary without inventing UV evidence; malformed
+  mirrors are safe; and invalid per-count grading blocks autosave and station
+  exit while multi-defect occurrence totals remain allowed. Unknown defect
+  codes survive older-client edits, the summary shows a localized top defect
+  and dash percentages in fixed 40x40 rows, and the selected house-comparison
+  chip remains enabled as a no-op. Egg Quality deletion is centralized into a
+  child-first FK-safe transaction for remove, clear, prune, and session delete;
+  exact-ID pruning covers duplicate/blank hierarchy rows, and deterministic
+  defect IDs now survive pending and already-synced tombstone resurrection.
+
 - 2026-08-23: Added the missing Arabic translations for Egg grading defect
   descriptions and the Egg Quality pooled/house-comparison controls.
 

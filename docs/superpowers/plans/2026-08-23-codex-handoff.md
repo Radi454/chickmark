@@ -1,13 +1,13 @@
-# Codex Handoff — Egg Quality Sampling + Egg Grading
+# Historical Codex Handoff — Egg Quality Sampling + Egg Grading
 
-Paste everything below the line into Codex as the opening prompt.
+This document records the handoff context for the completed A1–A7/B1–B7
+implementation. It is not an instruction to repeat those tasks. Use the
+current workspace/repository rather than a machine-specific absolute path.
 
 ---
 
-You are taking over a partially-executed implementation plan in the ChickMark
-Flutter + Supabase hatchery-audit app. Repo root: `/Users/ibrahimradi/Claude/ChickMark`,
-branch `main`. Work through it task by task; do not start until you have read the
-three documents named below.
+This was the takeover context for the ChickMark Flutter + Supabase
+hatchery-audit app on branch `main`.
 
 ## Read these first, in this order
 
@@ -38,26 +38,30 @@ reviewed clean. Egg Quality samples now persist and reopen with stable identity
 string-sniffs house identity; the Sample Mode UI ships with a Compare→Pooled
 confirmation dialog and inline duplicate-house validation.
 
-**Phase B (v62 egg grading) — B1, B2, B3 complete and reviewed clean; B4 in its
-first fix round.**
+**Phase B (v62 egg grading) — COMPLETE.** B1–B7 landed, were reviewed, and the
+consolidated final-fix wave closed the merge-blocking local findings.
 
 - B1 — cloud grading schema, applied live to Supabase.
 - B2 — Dart defect catalogue (18 codes), local tables `egg_defect_types` and
   `egg_quality_defect_counts`, 8 `grading*` columns on `egg_quality`, schema
   version 62.
 - B3 — `EggGradingRepository` (`lib/data/repositories/egg_grading_repository.dart`).
-- B4 — grading wired into the draft, the save path, and reopen. Its review
-  raised one Critical and one Important finding; a fix round was dispatched.
-  **Check the ledger's last B4 lines and `git log` to see whether the fix
-  landed and whether it was re-reviewed.** If the ledger has no
-  `Task B4: complete` line, B4 is unfinished — finish it before starting B5.
+- B4 — grading is wired into drafts, persistence, and production reopen.
+- B5 — grading UI, validation display, localization, top-defect summary, and
+  per-house state are implemented.
+- B6 — grading child sync and child-before-parent tombstone deletion are
+  implemented.
+- B7 — full-station regression coverage is implemented.
 
-**Remaining: B5 (grading UI), B6 (sync the grading child table), B7 (full-station
-regression pass), then a whole-branch final review.**
+**Remaining external gate only:** Supabase migration history must be reconciled
+and verified with explicit human approval. The grading SQL file is local version
+`20260823100000` but was recorded remotely as `20260823052253`; the same audit
+must cover v61 local version `20260823090000`. Do not run migration repair,
+`db push`, DDL, or another cloud mutation from this historical handoff.
 
 ## How to work
 
-For each remaining task, in order:
+The following was the execution discipline used for the now-complete tasks:
 
 1. Read that task's section of the plan file in full. Its code and values are to
    be used verbatim unless you find a genuine defect in them (see below).
@@ -68,6 +72,9 @@ For each remaining task, in order:
    commit** (this is a hard project rule from `CLAUDE.md`). Changelog entries are
    `- YYYY-MM-DD:`, newest at top; never rewrite an existing entry.
 6. Append a `Task <N>: complete (commits <base>..<head>)` line to the ledger.
+
+Do not restart B5–B7 from this document. Consult the current code, living spec,
+changelog, final-review findings, and final-fix report for present state.
 
 ## Hard rules — these are not negotiable
 
@@ -122,29 +129,15 @@ implementer reported the task as done.
    `pool` / `compare`. The persisted `sampleMode` column carries the **first**.
    Convert deliberately at every boundary.
 
-## Carry-forward findings that land on the remaining tasks
+## Findings resolved after this handoff
 
-**B6 has a hard prerequisite, logged during the B3 review:**
-`SyncTombstoneRepository.deleteOrder` does not list `egg_quality_defect_counts`
-(it is not a `PanelSampleSchema` table). `_pushPendingDeletes`
-(`lib/services/supabase/startup_sync_service.dart:656-674`) only issues
-`deleteRows` and `markSynced` for tables in `deleteOrder`, so queued tombstones
-for this table upload to `sync_tombstones` but the **cloud row is never deleted
-and the tombstone is never marked synced** — it re-uploads forever. B6 must
-extend `deleteOrder` **and** drain the tombstones that have already accumulated.
-
-**Also for B6:** the cloud table carries `unique (egg_quality_id, defect_code)`
-while the sync upserts on `id`. If a local row is ever regenerated with a fresh
-`id` for the same pair, the upsert violates that constraint and PostgREST
-rejects the whole batch. B3 makes count-row ids deterministic
-(`'$eggQualityId:$defectCode'`) and never re-mints them — keep it that way.
-
-**For B5:** `lib/features/audits/widgets/sample_mode_controls.dart` is still dead
-code in `lib` and still calls bare `addSample()`. `audit_provider.dart`
-`_houseNoForDraft` is positional, so via that path
-`[H1,H2,H3]` → remove middle → add yields a **duplicate H3**. It is unreachable
-today only because no screen wires that widget. If B5 wires it, route the add
-through the identity prompt / duplicate check instead.
+- B6 registered `egg_quality_defect_counts` in sync push/pull and tombstone
+  delete order, after its parent on push and before its parent on delete.
+- Count row IDs remain deterministic (`'$eggQualityId:$defectCode'`). A local
+  re-add cancels a pending tombstone, and a newer row survives an already-synced
+  older tombstone.
+- B5 did not wire the dead generic sample-mode control. Egg Quality additions
+  continue through the identity prompt and duplicate-house validation.
 
 **A known non-bug, do not "fix" it:** removing a house from the middle of a
 comparison deliberately does **not** renumber the rest — `H3` stays `H3`. That is
@@ -155,22 +148,15 @@ old renumbering were correctly updated.
 `egg_quality` matches on hierarchy equality, so a pooled storage row never joins a
 per-house quality row. Pre-existing, deliberately out of scope, not a drive-by.
 
-## Deferred minor findings
+## Final-review state
 
-The ledger carries roughly twenty `minor (deferred)` lines from the completed
-tasks — small correctness and test-hygiene items that reviewers judged
-non-blocking. **The final whole-branch review should triage that list and decide
-which must be fixed before merge.** Do not silently discard them. Two worth
-knowing early:
-
-- `egg_station_reconstruction.dart:219-221` sorts NULL `sampleIndex` **last**
-  while the SQL `ORDER BY` sorts NULLs **first**. A session mixing pre-v61 and
-  v61 `egg_quality` rows would desync `stationAudits` from `stationSamples` —
-  reintroducing the exact misalignment this plan exists to fix.
-- Applied Supabase migration versions drift from their filenames (an artifact of
-  applying via MCP). A future `supabase db push` would treat the files as
-  unapplied and replay them; `create policy` and `create trigger` are not
-  `IF NOT EXISTS`, so the replay errors mid-file.
+The local final-review findings were triaged and fixed: mixed null-index order
+is consistent, drafts/samples bind by persisted ID, production reopen overlays
+child counts, invalid grading cannot persist or exit, unknown codes survive,
+and Egg Quality deletes are centralized child-first. The migration-version
+drift described above remains an external approval gate; a future `db push`
+must not proceed until history is reconciled and the live schema/policies/
+triggers are verified.
 
 ## Working-tree note
 
@@ -190,7 +176,8 @@ There are also three known-failing tests in `test/features/audits/`
 pre-existing before this plan's Phase B work. They are not yours to fix unless
 B7 scopes them in.
 
-## When all tasks are done
+## Completion record
 
-Run a whole-branch review against the merge base, triage the deferred-minor list
-from the ledger, fix what blocks merge, and report what you left open and why.
+The whole-branch review and consolidated local fix wave are complete. See the
+final-fix report in the matching `.superpowers/sdd/` directory for numbered
+finding dispositions, verification output, and the exact residual cloud gate.

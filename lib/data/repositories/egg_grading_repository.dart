@@ -112,6 +112,11 @@ class EggGradingRepository {
         final defectType = eggDefectTypeForCode(code);
         final existingId = existingIdByCode[code];
         final id = existingId ?? '$eggQualityId:$code';
+        await SyncTombstoneRepository.cancelPendingDeleteWithExecutor(
+          txn,
+          table,
+          id,
+        );
         final row = {
           'id': id,
           'eggQualityId': eggQualityId,
@@ -188,6 +193,55 @@ class EggGradingRepository {
         whereArgs: ids,
       );
     });
+  }
+
+  /// Deletes grading children and then their `egg_quality` parents in one
+  /// transaction owned by the caller. Explicit child deletion is required
+  /// even with `ON DELETE CASCADE`: each child must receive its own sync
+  /// tombstone before the parent disappears.
+  static Future<void> deleteEggQualityParentsWithExecutor(
+    DatabaseExecutor executor,
+    Iterable<Object?> eggQualityIds,
+  ) async {
+    final parentIds = eggQualityIds
+        .map((id) => id?.toString().trim())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (parentIds.isEmpty) return;
+
+    final placeholders = List.filled(parentIds.length, '?').join(', ');
+    if (await _tableExists(executor, table)) {
+      final childRows = await executor.query(
+        table,
+        columns: ['id'],
+        where: 'eggQualityId IN ($placeholders)',
+        whereArgs: parentIds,
+      );
+      final childIds = childRows.map((row) => row['id']).toList();
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        executor,
+        table,
+        childIds,
+      );
+      await executor.delete(
+        table,
+        where: 'eggQualityId IN ($placeholders)',
+        whereArgs: parentIds,
+      );
+    }
+
+    await SyncTombstoneRepository.queueDeletesWithExecutor(
+      executor,
+      'egg_quality',
+      parentIds,
+    );
+    await executor.delete(
+      'egg_quality',
+      where: 'id IN ($placeholders)',
+      whereArgs: parentIds,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getDirtyRows() async {
@@ -304,6 +358,17 @@ class EggGradingRepository {
     final value = row['updatedAt'] ?? row['updated_at'];
     if (value == null) return null;
     return DateTime.tryParse(value.toString());
+  }
+
+  static Future<bool> _tableExists(
+    DatabaseExecutor executor,
+    String tableName,
+  ) async {
+    final rows = await executor.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [tableName],
+    );
+    return rows.isNotEmpty;
   }
 
   Future<void> markRowsSynced(Iterable<String> ids) async {

@@ -453,8 +453,9 @@ Station save behavior:
   (only reachable if a stale hierarchy unique index survives from a pre-v61
   database), the save falls through to the same hierarchy-identity path the
   other panels use rather than silently discarding the row.
-- Every saved panel row now writes its sampling metadata explicitly instead of
-  leaving it to be re-inferred from the hierarchy columns on reopen: the row's
+- Station panel rows written through the audit save coordinator carry their
+  sampling metadata explicitly instead of leaving it to be re-inferred from
+  hierarchy columns on reopen: the row's
   `sampleMode` (`pooled`/`comparison`), `scopeType` (the `SamplingLayer` the
   row is scoped to), `sampleLabel`, and `sampleIndex` are all persisted. Egg
   station rows also record which side of the operation owns the measurement,
@@ -474,9 +475,13 @@ Station save behavior:
   blank `house` (e.g. a not-yet-named house) still reopens as a comparison
   row instead of collapsing into pooled mode, which the old inference-only
   read could not distinguish. `PanelSampleRepository.panelOrderByForColumns`
-  orders rows by `sampleIndex` first (falling back to `createdAt`, then `id`)
-  whenever the table has a `sampleIndex` column; tables without it (pre-v61
-  test schemas only) keep the previous hierarchy-column ordering. The
+  orders non-null `sampleIndex` values first, legacy null indexes last, then
+  falls back to `createdAt` and `id`; the in-memory reconstruction uses the
+  same order for drafts and samples. Tables without `sampleIndex` (pre-v61
+  test schemas only) keep the previous hierarchy-column ordering. Persisted
+  `egg_quality.id` values bind the reopened draft and station sample, including
+  through `legacyAuditId`, so mixed pre-v61/v61 rows cannot pair positionally.
+  The
   reconstruction itself lives in `reconstructStation` (and the Egg-only test
   entry point `reopenEggStation`) in
   `lib/features/audits/logic/egg_station_reconstruction.dart`, extracted from
@@ -504,7 +509,10 @@ Station save behavior:
   `rejectedPct`, `acceptablePct`, and the top defect (by count) from a raw
   counts map, and round-trips its non-zero counts through a JSON array
   (`encodedJson` / `fromJson`) that also carries each defect's resolved name,
-  category, and reject flag for display without a catalogue join. The eight
+  category, and reject flag for display without a catalogue join. Malformed or
+  wrong-shaped JSON is treated as an empty count map while the supplied sample
+  and rejected totals remain available, so one damaged mirror cannot break a
+  station reopen or save. The eight
   derived fields (`gradingSampleSize` through `gradingTopDefectPct`) are
   written back onto the owning `egg_quality` row as a fast dashboard summary;
   see `docs/DATABASE_SPEC.md`'s "Egg Grading Tables" section for the full
@@ -524,7 +532,10 @@ Station save behavior:
   auditor removing a single defect code has no other cloud-side signal, and
   because the table also carries `unique (eggQualityId, defectCode)`, a
   re-minted id on an existing pair would make PostgREST reject the whole sync
-  batch. `pctOfSample` is `count * 100 / sampleSize` (null when
+  batch. Re-adding that deterministic id transactionally cancels an unsynced
+  delete tombstone. If the delete tombstone was already synced or pulled, its
+  local application compares `deletedAt` with the row's local timestamps and
+  keeps a newer resurrection. `pctOfSample` is `count * 100 / sampleSize` (null when
   `sampleSize <= 0`), and `defectCategory`/`isReject` are copied from
   `eggDefectTypeForCode` at write time so a later catalogue edit cannot rewrite
   history. `deleteCountsForSamples` does the same tombstone-then-delete for
@@ -555,9 +566,15 @@ Station save behavior:
   lives on the per-sample draft, switching samples cannot move it). On save,
   `panel_value_builders.dart`'s `eggQualityValues` writes the eight summary
   columns onto the `egg_quality` row from an `EggGradingSummary` built off the
-  draft's three grading fields (skipped entirely when the summary has no
-  data), and `hasMeaningfulEggQualityData` treats a sample with grading data
-  but nothing else as savable. `AuditPanelSaveCoordinator` writes the child
+  draft's three grading fields. When grading is cleared, all eight values are
+  explicitly written as null so an upsert cannot retain an older summary;
+  clearing grading does not synthesize shell-UV `qualityTouched` state.
+  `hasMeaningfulEggQualityData` treats a sample with grading data but nothing
+  else as savable. Before either explicit save or autosave writes anything,
+  every Egg Quality draft is checked with `EggGradingValidation`; any rejected
+  or individual defect count above its sample size returns a failed save and
+  prevents final station exit while leaving the draft editable. There is no
+  total-defect-occurrence ceiling. `AuditPanelSaveCoordinator` writes the child
   `egg_quality_defect_counts` rows immediately after each sample's
   `egg_quality` panel write, via a constructor-injected `EggGradingRepository`
   (defaults to a real instance): `replaceCountsForSample` is called with that
@@ -565,51 +582,32 @@ Station save behavior:
   as of Phase A), its session/customer/flock/hatchery/date, scope type, the
   sample's `houseNo` as `houseKey`, sample label, and the decoded counts —
   called with an empty map when a sample carries no grading data, so any
-  previously-saved counts for that sample are removed. When a sample is
-  deleted outright, `_deletePanelRowsForRemovedSamples` also calls
-  `deleteCountsForSamples` for the removed sample ids (guarded to only run
-  when `egg_quality` is one of the affected tables, so non-Egg station saves
-  never touch the grading repository). On reopen, `mergePanelRowIntoAuditMap`
+  previously-saved counts for that sample are removed. On reopen,
+  `mergePanelRowIntoAuditMap`
   copies the three `esGrading*` draft fields back from the panel row's
   `gradingSampleSize`/`gradingRejectedCount`/`gradingDefectsJson` columns —
   this is the fallback path for a cloud-pulled row whose child rows have not
-  arrived yet — and `reopenEggStation` additionally reads
-  `egg_quality_defect_counts` for the session and, for any sample that has
-  child rows, rebuilds `esGradingDefectsJson` from them instead, since the
-  child rows are the primary source the save path writes and may be more
-  current than the row's own JSON mirror.
-- Every path that removes an `egg_quality` row also removes its grading
-  children through `EggGradingRepository` first, never relying on SQLite's
+  arrived yet. Both the production `_StationFrame` load path and the direct
+  `reopenEggStation` test/data entry point read
+  `egg_quality_defect_counts` for the session and overlay each parent by its
+  persisted `egg_quality.id`; when child rows exist they rebuild
+  `esGradingDefectsJson` and win over a stale panel mirror.
+- Every repository path that removes an `egg_quality` row routes through one
+  transaction that tombstones and deletes its grading children first, then
+  tombstones and deletes the parent. This covers removed samples, station
+  clears, exact-id prunes, direct row deletes, and whole-session deletion and
+  never relies on SQLite's
   `ON DELETE CASCADE` on `egg_quality_defect_counts` — cascade does not queue
   a sync tombstone, so a cascaded child row would go on existing in the cloud
   copy forever, and a still-`pending` child whose cloud parent has already
   been deleted makes PostgREST reject the whole sync batch on an FK
-  violation. This matters beyond the two paths already covered above
-  (`_saveEggGradingForSample`'s empty-map call, `_deletePanelRowsForRemovedSamples`):
-  a sample can also lose its `egg_quality` row while staying otherwise
-  present — its grading is cleared to nothing while the sample itself is not
-  removed. `AuditPanelSaveCoordinator._deleteEggQualityRowsBySessionId`
-  (fires when *no* sample in the session has meaningful quality data) calls
-  `_deleteGradingCountsForSession` first, which reads
-  `EggGradingRepository.countsForSession` for every `eggQualityId` in the
-  session and deletes them all before the parent rows are dropped.
-  `_pruneStalePanelHierarchyRowsForTable` (fires per-table when *some*
-  samples in the session keep meaningful data but others do not — e.g. one
-  house's grading is cleared while a sibling house still has quality data)
-  calls `_deleteGradingCountsForStaleEggQualityRows` when pruning the
-  `egg_quality` table specifically: it mirrors
-  `PanelSampleRepository.deleteHierarchyRowsBySessionIdExcept`'s own
-  stale-id computation (id match, then hierarchy-tuple match) locally so the
-  set of rows it cleans up through the repository is exactly the set that
-  method is about to delete, then deletes those rows' children before the
-  parent-row prune runs. Both helpers must run *before* their corresponding
-  parent-row delete, not after — once the parent is gone, cascade may have
-  already removed the children with no tombstone, leaving nothing left to
-  clean up through the repository.
+  violation. Because `egg_quality` is id-keyed, its stale-row prune uses only
+  the persisted keep-id set; it does not fall back to matching hierarchy
+  tuples and includes explicit comparison rows whose hierarchy text is blank.
 - `AuditSessionScreen` accepts an optional `eggGradingRepository` constructor
   parameter (alongside its existing `panelSampleRepository`), threaded into
-  the per-station `AuditProvider` it builds, so a test can inject a mock
-  repository instead of the coordinator's default real `EggGradingRepository()`.
+  both the per-station `AuditProvider` and production reopen frame it builds,
+  so child-count loading and saving use the same injectable repository.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
@@ -830,7 +828,12 @@ Quality cards, and station notes.
 - Egg grading / visual quality: an expandable Egg Quality card below the egg
   weights and Shell UV cards records the number of eggs inspected and rejected,
   then an occurrence count for each visual defect grouped by category. Its
-  summary updates live with acceptable and rejected counts and percentages.
+  summary updates live with acceptable/rejected counts and percentages plus
+  the localized top-defect name and percentage. Each defect keeps an exact
+  40x40 image slot and shows `-` while its percentage is blank/zero. Defect
+  codes unknown to the installed catalogue are preserved when a known count or
+  the grading totals are edited, so an older client does not tombstone data
+  written by a newer catalogue.
   Its category, defect, description, and sample-mode labels are translated by
   the central Arabic localization catalog when Arabic is selected.
   Counts belong to the active Egg Quality sample, so switching House scopes
@@ -849,9 +852,9 @@ Quality cards, and station notes.
   comparison scope. Egg Quality shows its own "Sample mode" bar with a real
   `Pooled` / `Compare by house` `ChoiceChip` pair. Tapping `Compare by house`
   while pooled is the only way to enter compare mode; it seeds one house
-  sample with the placeholder identity `H`, and once compare mode is active
-  the chip itself is disabled (re-tapping it does nothing) so it cannot be
-  used to add a second house — additional houses are added only through the
+  sample with the placeholder identity `H`. Once compare mode is active the
+  selected chip stays visually enabled, but re-tapping it is a safe no-op so it
+  cannot add a second house — additional houses are added only through the
   House scope card's `+` control below it. Tapping `Pooled` while more than
   one house is recorded shows a confirmation dialog ("Switch to a pooled
   sample?") naming how many houses will be discarded; the first house is
@@ -3377,8 +3380,10 @@ Every panel table includes visit ownership fields, explicit sample hierarchy
 fields for that panel, storage/BMK context fields (`storagePeriodDays`,
 `bmkAgeWeeks`), panel sample/domain metadata fields (`sampleMode`,
 `scopeType`, `sampleLabel`, `sampleIndex`, `sourceDomain`, `actionDomain`,
-`recommendationTarget` — all nullable, unread as of schema v61),
+`recommendationTarget` — all nullable),
 panel-specific measurement and calculated summary fields, and sync fields.
+Station save/reopen reads and writes the sample mode, scope, label, and index;
+Egg station saves also write the three operational-domain fields.
 The seven panel sample/domain metadata columns are also mirrored on every
 Supabase panel table (`egg_storage`, `egg_quality`, `chick_quality`,
 `chick_weights`, `fresh_egg_breakout`, `candled_egg_breakout`,
@@ -3393,9 +3398,10 @@ columns — `grading_sample_size`, `grading_rejected_count`,
 `grading_defects_json`, `grading_top_defect_code`, `grading_top_defect_pct` —
 and a companion `egg_quality_defect_counts` table (one row per defect code per
 `egg_quality` sample, unique on `(egg_quality_id, defect_code)`, cascade-deleted
-with its parent) for visual egg grading. Both are cloud-only as of this
-migration: no local SQLite column or table writes into them yet, and no client
-code reads them. RLS on `egg_quality_defect_counts` was tightened
+with its parent) for visual egg grading. The matching local v62 schema,
+repository, station save/reopen flow, sync path, and grading UI are active; the
+child rows are the primary per-defect source and the parent summaries are the
+dashboard mirror. RLS on `egg_quality_defect_counts` was tightened
 (20260823130000) to match `egg_quality` character-for-character: a
 `..._select` policy for `select` gated on
 `chickmark_private.app_can_read_customer(customer_id)`, and a `..._write`
@@ -3645,7 +3651,9 @@ pulled remote row has an older or invalid `updatedAt`. Local deletes
 create `sync_tombstones`; startup sync uploads those tombstones, deletes remote
 rows child-before-parent (including grading counts before `egg_quality`), marks
 successful tombstones synced, and applies remote tombstones locally so another
-device reload removes stale rows. Customer deletes
+device reload removes stale rows. Tombstone application keeps a row whose local
+`updatedAt`, `dirtyAt`, or `createdAt` is newer than the tombstone's
+`deletedAt`, preserving an intentional remove-then-re-add. Customer deletes
 queue child tombstones for station panel rows, photos, audit sessions, Govee
 captures, flocks, and hatcheries before the customer tombstone, avoiding orphaned
 cloud rows even when local SQLite cascade removes the children immediately.

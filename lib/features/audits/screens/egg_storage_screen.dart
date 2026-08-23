@@ -1071,18 +1071,17 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
             ChoiceChip(
               label: const Text('Compare by house'),
               selected: isCompare,
-              // Only wired while still pooled: this chip's job is to make the
-              // *first* switch into compare mode. Once compare mode is
-              // active, adding more houses must go through the identity
-              // dialog (the "+" button below, via _addEggHouseSample), which
-              // runs the duplicate-house check. Leaving this always-on would
-              // let a second tap call addEggQualityScopeSample() again and
-              // seed another house with the same placeholder houseNo 'H'.
-              onSelected: auditProvider.isReadOnly || isCompare
+              // The selected chip remains visibly enabled, but re-selecting it
+              // is a no-op. Additional houses go through the identity dialog
+              // below, where duplicate house numbers are rejected.
+              onSelected: auditProvider.isReadOnly
                   ? null
-                  : (_) => auditProvider.addEggQualityScopeSample(
+                  : (_) {
+                      if (auditProvider.isCompareMode) return;
+                      auditProvider.addEggQualityScopeSample(
                         StationSampleModel.sampleKindHouse,
-                      ),
+                      );
+                    },
             ),
           ],
         ],
@@ -1313,7 +1312,11 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
 
   Widget _buildEggScopeIdentityFields(AuditProvider auditProvider) {
     final sample = auditProvider.activeStationSample;
-    final controller = _eggScopeIdentityController(auditProvider, sample, 'house');
+    final controller = _eggScopeIdentityController(
+      auditProvider,
+      sample,
+      'house',
+    );
     final duplicateError =
         controller.text.trim().isNotEmpty &&
             _hasDuplicateEggHouseExcludingActive(
@@ -1329,9 +1332,9 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
         enabled: !auditProvider.isReadOnly,
         textInputAction: TextInputAction.done,
-        decoration: _scopeInputDecoration('House').copyWith(
-          errorText: duplicateError,
-        ),
+        decoration: _scopeInputDecoration(
+          'House',
+        ).copyWith(errorText: duplicateError),
         onChanged: (value) {
           final trimmed = value.trim();
           final isDuplicate =

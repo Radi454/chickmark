@@ -289,5 +289,92 @@ void main() {
 
     expect(reopened.stationSamples.single.sampleMode, 'comparison');
     expect(reopened.stationSamples.single.sampleLabel, 'H1');
+    expect(reopened.stationSamples.single.sampleKind, 'house');
+    expect(
+      reopened.stationSamples.single.comparisonType,
+      StationSampleModel.comparisonTypeHouse,
+    );
+    expect(reopened.stationSamples.single.groupKey, isNotEmpty);
+    expect(reopened.stationSamples.single.groupLabel, isNotEmpty);
+    expect(reopened.stationSamples.single.legacyAuditId, 'explicit-1');
+
+    provider.initialize(
+      AuditContext(
+        auditType: 'Egg',
+        customerId: 'customer-egg-db',
+        flockId: 'flock-egg-db',
+        hatcheryId: 'hatchery-egg-db',
+        date: '2026-05-15',
+      ),
+      existingAudits: reopened.stationAudits,
+      existingStationSamples: reopened.stationSamples,
+      currentUser: user,
+      sessionId: 'session-egg-db',
+      notify: false,
+    );
+    expect(provider.activeStationSample.sampleLabel, 'H1');
+    expect(provider.activeStationSample.groupKey, isNotEmpty);
+    expect(provider.activeStationSample.houseNo, isNull);
   });
+
+  test(
+    'mixed legacy and explicit rows use one order and bind by row id',
+    () async {
+      await db.insert('egg_quality', {
+        'id': 'legacy-row',
+        'sessionId': 'session-egg-db',
+        'customerId': 'customer-egg-db',
+        'flockId': 'flock-egg-db',
+        'date': '2026-05-15',
+        'house': 'Legacy house',
+        'eggSampleSize': 91,
+        'createdAt': '2026-05-15T00:00:00.000Z',
+        'updatedAt': '2026-05-15T00:00:00.000Z',
+      });
+      await db.insert('egg_quality', {
+        'id': 'explicit-row',
+        'sessionId': 'session-egg-db',
+        'customerId': 'customer-egg-db',
+        'flockId': 'flock-egg-db',
+        'date': '2026-05-15',
+        'house': '',
+        'sampleMode': 'comparison',
+        'scopeType': 'house',
+        'sampleLabel': 'Explicit blank house',
+        'sampleIndex': 1,
+        'eggSampleSize': 17,
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'updatedAt': '2026-05-16T00:00:00.000Z',
+      });
+
+      final repositoryOrder = await panelSampleRepository.getRowsBySessionId(
+        'egg_quality',
+        'session-egg-db',
+      );
+      final reopened = await reopenEggStation(db, 'session-egg-db');
+
+      expect(repositoryOrder.map((row) => row['id']), [
+        'explicit-row',
+        'legacy-row',
+      ]);
+      expect(reopened.stationSamples.map((sample) => sample.id), [
+        'explicit-row',
+        'legacy-row',
+      ]);
+      expect(reopened.stationSamples.map((sample) => sample.legacyAuditId), [
+        'explicit-row',
+        'legacy-row',
+      ]);
+      expect(reopened.stationAudits.map((draft) => draft.id), [
+        'explicit-row',
+        'legacy-row',
+      ]);
+      expect(reopened.stationAudits.map((draft) => draft.esEggSampleSize), [
+        17,
+        91,
+      ]);
+      expect(reopened.stationSamples.first.sampleLabel, 'Explicit blank house');
+      expect(reopened.stationSamples.first.groupKey, isNotEmpty);
+    },
+  );
 }

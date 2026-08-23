@@ -74,6 +74,10 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
   final Map<String, AuditProvider> _stationAuditProviders = {};
   final Map<String, EggStorageStationController> _eggStorageControllers = {};
   final Set<String> _mountedStationKeys = <String>{};
+  late final PanelSampleRepository _defaultPanelSampleRepository =
+      PanelSampleRepository();
+  late final EggGradingRepository _defaultEggGradingRepository =
+      EggGradingRepository();
   final PanelDashboardRepository _panelDashboardRepository =
       PanelDashboardRepository();
   String? _mountedSessionId;
@@ -465,10 +469,14 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       date: session.date.toIso8601String().split('T')[0],
     );
 
+    final panelSampleRepository =
+        widget.panelSampleRepository ?? _defaultPanelSampleRepository;
+    final eggGradingRepository =
+        widget.eggGradingRepository ?? _defaultEggGradingRepository;
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
       final p = AuditProvider(
-        panelSampleRepository: widget.panelSampleRepository,
-        eggGradingRepository: widget.eggGradingRepository,
+        panelSampleRepository: panelSampleRepository,
+        eggGradingRepository: eggGradingRepository,
       );
       return p;
     });
@@ -480,8 +488,8 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         stationKey: stationKey,
         context: auditContext,
         sessionId: session.id,
-        panelSampleRepository:
-            widget.panelSampleRepository ?? PanelSampleRepository(),
+        panelSampleRepository: panelSampleRepository,
+        eggGradingRepository: eggGradingRepository,
         eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
@@ -1175,6 +1183,7 @@ class _StationFrame extends StatefulWidget {
   final AuditContextData context;
   final String sessionId;
   final PanelSampleRepository panelSampleRepository;
+  final EggGradingRepository eggGradingRepository;
   final EggStorageStationController? eggStorageController;
 
   const _StationFrame({
@@ -1182,6 +1191,7 @@ class _StationFrame extends StatefulWidget {
     required this.context,
     required this.sessionId,
     required this.panelSampleRepository,
+    required this.eggGradingRepository,
     this.eggStorageController,
   });
 
@@ -1214,12 +1224,19 @@ class _StationFrameState extends State<_StationFrame> {
         rowsByPanel[table] = await widget.panelSampleRepository
             .getRowsBySessionId(table, widget.sessionId);
       }
-      final reconstruction = reconstructStation(
+      var reconstruction = reconstructStation(
         stationKey: widget.stationKey,
         sessionId: widget.sessionId,
         context: widget.context,
         rowsByPanel: rowsByPanel,
       );
+      if (widget.stationKey == 'egg') {
+        reconstruction = overlayEggGradingCounts(
+          reconstruction,
+          countsByEggQualityId: await widget.eggGradingRepository
+              .countsForSession(widget.sessionId),
+        );
+      }
       return _StationInitialData(
         stationAudits: reconstruction.stationAudits,
         stationSamples: reconstruction.stationSamples,

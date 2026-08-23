@@ -200,7 +200,18 @@ Map<String, Object?> _eggGradingValues(AuditModel draft) {
     sampleSize: draft.esGradingSampleSize ?? 0,
     rejectedCount: draft.esGradingRejectedCount ?? 0,
   );
-  if (!summary.hasData) return const {};
+  if (!summary.hasData) {
+    return const {
+      'gradingSampleSize': null,
+      'gradingRejectedCount': null,
+      'gradingAcceptableCount': null,
+      'gradingRejectedPct': null,
+      'gradingAcceptablePct': null,
+      'gradingDefectsJson': null,
+      'gradingTopDefectCode': null,
+      'gradingTopDefectPct': null,
+    };
+  }
   return {
     'gradingSampleSize': summary.sampleSize,
     'gradingRejectedCount': summary.rejectedCount,

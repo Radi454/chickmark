@@ -789,6 +789,7 @@ class AuditProvider extends ChangeNotifier {
       final draftsToSave = List<AuditModel>.from(
         isCompareMode ? _drafts : [_drafts.first],
       );
+      if (draftsToSave.any(_hasInvalidEggGrading)) return false;
       final samplesToSave = <int, StationSampleModel?>{};
       for (var i = 0; i < draftsToSave.length; i++) {
         samplesToSave[i] = _sampleForSave(i, draftsToSave[i]);
@@ -861,6 +862,20 @@ class AuditProvider extends ChangeNotifier {
       }
       _notifyListeners();
     }
+  }
+
+  bool _hasInvalidEggGrading(AuditModel draft) {
+    if (draft.auditType != 'Egg') return false;
+    final summary = EggGradingSummary.fromJson(
+      draft.esGradingDefectsJson,
+      sampleSize: draft.esGradingSampleSize ?? 0,
+      rejectedCount: draft.esGradingRejectedCount ?? 0,
+    );
+    return EggGradingValidation.validate(
+      sampleSize: summary.sampleSize,
+      rejectedCount: summary.rejectedCount,
+      counts: summary.counts,
+    ).isNotEmpty;
   }
 
   AuditModel _asStatus(AuditModel audit, String status) {
@@ -1868,7 +1883,9 @@ class AuditProvider extends ChangeNotifier {
   }
 
   bool _sampleHasHierarchy(StationSampleModel sample) {
-    return hasText(sample.houseNo) ||
+    return (sample.sampleMode == StationSampleModel.sampleModeComparison &&
+            sample.sampleKind != StationSampleModel.sampleKindPooled) ||
+        hasText(sample.houseNo) ||
         hasText(sample.houseLabel) ||
         hasText(sample.setterNo) ||
         hasText(sample.hatcherNo);

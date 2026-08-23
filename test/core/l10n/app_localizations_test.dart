@@ -218,6 +218,11 @@ void main() {
       'اكتمال توثيق الصور 75% (3/4)',
     );
     expect(l10n.translate('4 missing measurements'), '4 قياسًا ناقصًا');
+    expect(l10n.translate('Top defect'), 'أكثر العيوب شيوعًا');
+    expect(
+      l10n.translate('Top defect: Dirty 4.0%'),
+      'أكثر العيوب شيوعًا: متسخ 4.0%',
+    );
     expect(l10n.translate('Latest capture 3 h ago'), 'أحدث تسجيل منذ 3 ساعة');
     expect(
       l10n.translate(

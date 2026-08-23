@@ -52,8 +52,9 @@ StationReconstruction reconstructStation({
 /// Reopens the Egg station's saved panel rows for [sessionId] straight from
 /// [db], for use where there is no widget tree (tests) or where the caller
 /// already has an open database handle. Production code reaches
-/// [reconstructStation] via `_StationFrameState._loadInitialData`, which
-/// reads rows through `PanelSampleRepository` instead.
+/// [reconstructStation] and [overlayEggGradingCounts] via
+/// `_StationFrameState._loadInitialData`, which reads rows through
+/// repositories instead.
 Future<StationReconstruction> reopenEggStation(
   Database db,
   String sessionId, {
@@ -85,32 +86,11 @@ Future<StationReconstruction> reopenEggStation(
         ),
     rowsByPanel: rowsByPanel,
   );
-  return _withGradingFromChildRows(db, sessionId, rowsByPanel, reconstruction);
-}
-
-/// Overlays grading data read from `egg_quality_defect_counts` onto the
-/// reconstructed drafts. The panel row's own `esGradingDefectsJson` (copied
-/// in via `mergePanelRowIntoAuditMap`) is the fallback for a cloud-pulled row
-/// whose child rows have not arrived yet; where child rows do exist for a
-/// sample, they win, since they are the primary source the save path writes.
-Future<StationReconstruction> _withGradingFromChildRows(
-  Database db,
-  String sessionId,
-  Map<String, List<Map<String, dynamic>>> rowsByPanel,
-  StationReconstruction reconstruction,
-) async {
-  final qualityRows = _sortedByPanelOrder(
-    rowsByPanel['egg_quality'] ?? const <Map<String, dynamic>>[],
-  );
-  if (qualityRows.isEmpty) return reconstruction;
-
   final defectRows = await db.query(
     'egg_quality_defect_counts',
     where: 'sessionId = ?',
     whereArgs: [sessionId],
   );
-  if (defectRows.isEmpty) return reconstruction;
-
   final countsByEggQualityId = <String, Map<String, int>>{};
   for (final row in defectRows) {
     final eggQualityId = row['eggQualityId']?.toString();
@@ -119,16 +99,24 @@ Future<StationReconstruction> _withGradingFromChildRows(
     if (eggQualityId == null || code == null || count is! int) continue;
     (countsByEggQualityId[eggQualityId] ??= <String, int>{})[code] = count;
   }
+  return overlayEggGradingCounts(
+    reconstruction,
+    countsByEggQualityId: countsByEggQualityId,
+  );
+}
+
+/// Overlays persisted grading child rows onto reconstructed Egg drafts by the
+/// persisted `egg_quality.id`. The panel JSON remains the fallback when no
+/// child rows for a parent have arrived yet.
+StationReconstruction overlayEggGradingCounts(
+  StationReconstruction reconstruction, {
+  required Map<String, Map<String, int>> countsByEggQualityId,
+}) {
   if (countsByEggQualityId.isEmpty) return reconstruction;
 
   final stationAudits = [
-    for (var i = 0; i < reconstruction.stationAudits.length; i++)
-      _withGradingOverride(
-        reconstruction.stationAudits[i],
-        i < qualityRows.length
-            ? countsByEggQualityId[qualityRows[i]['id']?.toString()]
-            : null,
-      ),
+    for (final draft in reconstruction.stationAudits)
+      _withGradingOverride(draft, countsByEggQualityId[draft.id]),
   ];
   return StationReconstruction(
     stationAudits: stationAudits,
@@ -218,8 +206,11 @@ Map<String, dynamic> _auditMapFromPanelRows(
   final mode =
       panelRowAsText(first['sampleMode']) ??
       (_rowHasHierarchy(first) ? 'comparison' : 'pool');
+  final isComparison = mode == StationSampleModel.sampleModeComparison;
   final map = <String, dynamic>{
-    'id': '$sessionId:$stationKey:$sampleIndex',
+    'id': stationKey == 'egg' && records.first.table == 'egg_quality'
+        ? first['id']?.toString() ?? '$sessionId:$stationKey:$sampleIndex'
+        : '$sessionId:$stationKey:$sampleIndex',
     'auditType': context.auditType,
     'customerId': first['customerId'] ?? context.customerId,
     'flockId': first['flockId'] ?? context.flockId,
@@ -229,12 +220,8 @@ Map<String, dynamic> _auditMapFromPanelRows(
     'createdAt': createdAt,
     'updatedAt': updatedAt,
     'sessionId': sessionId,
-    'sampleMode': mode == StationSampleModel.sampleModeComparison
-        ? 'comparison'
-        : 'pool',
-    'compareGroupKey': _rowHasHierarchy(first)
-        ? 'panel-hierarchy-$sessionId'
-        : null,
+    'sampleMode': isComparison ? 'comparison' : 'pool',
+    'compareGroupKey': isComparison ? 'panel-hierarchy-$sessionId' : null,
     'hatchNumber': sampleIndex + 1,
     'notes': first['notes'],
   };
@@ -310,8 +297,9 @@ List<StationSampleModel> _stationSamplesFromPanelRows(
 ) {
   final primaryEntry = _stationSampleSourceRows(stationKey, rowsByPanel);
   if (primaryEntry.value.isEmpty) return const [];
+  final sourceRows = _sortedByPanelOrder(primaryEntry.value);
   return [
-    for (final entry in primaryEntry.value.asMap().entries)
+    for (final entry in sourceRows.asMap().entries)
       _sampleFromPanelRow(
         stationKey,
         sessionId,
@@ -357,8 +345,10 @@ StationSampleModel _sampleFromPanelRow(
       panelRowAsText(row['sampleLabel']) ??
       _sampleLabelForRow(row) ??
       'Sample $sampleIndex';
+  final isComparison = sampleMode == StationSampleModel.sampleModeComparison;
+  final persistedId = row['id']?.toString();
   return StationSampleModel(
-    id: row['id']?.toString() ?? '$sessionId:$table:$sampleIndex',
+    id: persistedId ?? '$sessionId:$table:$sampleIndex',
     auditSessionId: sessionId,
     stationType: stationKey,
     sectorType: _sectorTypeForTable(table),
@@ -369,8 +359,8 @@ StationSampleModel _sampleFromPanelRow(
     sampleLabel: sampleLabel,
     sampleType: _sampleTypeForTable(table),
     breakoutType: _breakoutTypeForTable(table),
-    groupKey: _rowHasHierarchy(row) ? 'panel-hierarchy-$sessionId' : null,
-    groupLabel: _rowHasHierarchy(row) ? 'Hierarchy comparison' : null,
+    groupKey: isComparison ? 'panel-hierarchy-$sessionId' : null,
+    groupLabel: isComparison ? 'Hierarchy comparison' : null,
     houseNo: panelRowAsText(row['house']),
     houseLabel: panelRowAsText(row['house']),
     storageDays: panelRowAsInt(row['storagePeriodDays']),
@@ -380,6 +370,7 @@ StationSampleModel _sampleFromPanelRow(
     setterNo: panelRowAsText(row['setter']),
     hatcherNo: panelRowAsText(row['hatcher']),
     notes: row['notes']?.toString(),
+    legacyAuditId: stationKey == 'egg' ? persistedId : null,
     createdAt: _parseDate(row['createdAt']) ?? DateTime.now(),
     updatedAt: _parseDate(row['updatedAt']) ?? DateTime.now(),
   );

@@ -3,6 +3,7 @@ import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/features/audits/logic/breakout_value_builders.dart';
+import 'package:hatchaudit/features/audits/logic/panel_row_to_draft.dart';
 import 'package:hatchaudit/features/audits/logic/panel_value_builders.dart';
 
 /// Minimal `AuditModel` builder for these tests: only the fields required by
@@ -258,69 +259,66 @@ void main() {
       expect(values['culledChicksAffectedPct'], 0.0);
     });
 
-    test(
-      'fresh/candled/residue breakout tables delegate to the matching '
-      'breakout_value_builders function with flockAgeWeeks/flockEntryDate '
-      'threaded through',
-      () {
-        const flockAgeWeeks = 5;
-        final flockEntryDate = DateTime(2025, 12, 1);
+    test('fresh/candled/residue breakout tables delegate to the matching '
+        'breakout_value_builders function with flockAgeWeeks/flockEntryDate '
+        'threaded through', () {
+      const flockAgeWeeks = 5;
+      final flockEntryDate = DateTime(2025, 12, 1);
 
-        final freshDraft = _audit(
-          'Hatch Analysis & Egg Breakouts',
-          ebBreakoutType: 'fresh',
-        );
-        expect(
-          panelValuesForDraft(
-            'fresh_egg_breakout',
-            freshDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-          freshBreakoutValues(
-            freshDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-        );
+      final freshDraft = _audit(
+        'Hatch Analysis & Egg Breakouts',
+        ebBreakoutType: 'fresh',
+      );
+      expect(
+        panelValuesForDraft(
+          'fresh_egg_breakout',
+          freshDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+        freshBreakoutValues(
+          freshDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+      );
 
-        final candledDraft = _audit(
-          'Hatch Analysis & Egg Breakouts',
-          ebBreakoutType: 'candled',
-        );
-        expect(
-          panelValuesForDraft(
-            'candled_egg_breakout',
-            candledDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-          candledBreakoutValues(
-            candledDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-        );
+      final candledDraft = _audit(
+        'Hatch Analysis & Egg Breakouts',
+        ebBreakoutType: 'candled',
+      );
+      expect(
+        panelValuesForDraft(
+          'candled_egg_breakout',
+          candledDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+        candledBreakoutValues(
+          candledDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+      );
 
-        final residueDraft = _audit(
-          'Hatch Analysis & Egg Breakouts',
-          ebBreakoutType: 'residue',
-        );
-        expect(
-          panelValuesForDraft(
-            'residue_breakout',
-            residueDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-          residueBreakoutValues(
-            residueDraft,
-            flockAgeWeeks: flockAgeWeeks,
-            flockEntryDate: flockEntryDate,
-          ),
-        );
-      },
-    );
+      final residueDraft = _audit(
+        'Hatch Analysis & Egg Breakouts',
+        ebBreakoutType: 'residue',
+      );
+      expect(
+        panelValuesForDraft(
+          'residue_breakout',
+          residueDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+        residueBreakoutValues(
+          residueDraft,
+          flockAgeWeeks: flockAgeWeeks,
+          flockEntryDate: flockEntryDate,
+        ),
+      );
+    });
 
     test('an unknown table resolves to an empty map', () {
       final values = panelValuesForDraft(
@@ -354,6 +352,33 @@ void main() {
       expect(values['uvAffectedCount'], 10);
       expect(values['uvAffectedPct'], 10.0);
     });
+
+    test('empty grading explicitly clears every persisted summary column', () {
+      final values = eggQualityValues(_audit('Egg', esEggSampleSize: 10));
+
+      expect(values, containsPair('gradingSampleSize', null));
+      expect(values, containsPair('gradingRejectedCount', null));
+      expect(values, containsPair('gradingAcceptableCount', null));
+      expect(values, containsPair('gradingRejectedPct', null));
+      expect(values, containsPair('gradingAcceptablePct', null));
+      expect(values, containsPair('gradingDefectsJson', null));
+      expect(values, containsPair('gradingTopDefectCode', null));
+      expect(values, containsPair('gradingTopDefectPct', null));
+    });
+
+    test('reopen only marks shell quality touched when UV evidence exists', () {
+      final map = <String, dynamic>{};
+
+      mergePanelRowIntoAuditMap(map, 'egg_quality', {
+        'uvTrayEggCount': null,
+        'uvCuticleDamageCount': 0,
+        'uvWashedCount': 0,
+        'uvDirtyCount': 0,
+        'eggSampleSize': 10,
+      });
+
+      expect(map['esUvTrays'], isNot(contains('"qualityTouched":true')));
+    });
   });
 
   group('chickWeightValues / chickWeightValuesForSample', () {
@@ -378,27 +403,24 @@ void main() {
       expect(values['avgWeight'], 41.0);
     });
 
-    test(
-      'a comparison sample with no summary falls back to empty values',
-      () {
-        final draft = _audit(
-          'Chicks',
-          chickSampleSize: 7,
-          chickBmkAge: 3,
-          chickBmkWeight: 45.0,
-        );
-        final sample = _sample(
-          resultSummaryJson: '',
-          sampleMode: StationSampleModel.sampleModeComparison,
-        );
-        final values = chickWeightValuesForSample(sample, fallback: draft);
-        expect(values['sampleSize'], isNull);
-        expect(values['weightsJson'], isNull);
-        // Benchmark fields still fall back to the draft.
-        expect(values['bmkAgeWeeks'], 3);
-        expect(values['bmkWeight'], 45.0);
-      },
-    );
+    test('a comparison sample with no summary falls back to empty values', () {
+      final draft = _audit(
+        'Chicks',
+        chickSampleSize: 7,
+        chickBmkAge: 3,
+        chickBmkWeight: 45.0,
+      );
+      final sample = _sample(
+        resultSummaryJson: '',
+        sampleMode: StationSampleModel.sampleModeComparison,
+      );
+      final values = chickWeightValuesForSample(sample, fallback: draft);
+      expect(values['sampleSize'], isNull);
+      expect(values['weightsJson'], isNull);
+      // Benchmark fields still fall back to the draft.
+      expect(values['bmkAgeWeeks'], 3);
+      expect(values['bmkWeight'], 45.0);
+    });
 
     test('a decoded summary resolves weights and sample size', () {
       final draft = _audit('Chicks');

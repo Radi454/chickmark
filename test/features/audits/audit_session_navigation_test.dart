@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_session_model.dart';
@@ -1026,6 +1028,85 @@ void main() {
     );
   });
 
+  testWidgets('invalid Egg grading blocks final station exit', (tester) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel.fromMap(
+      makeAuditSessionRow(
+        id: 'invalid-grading-final-session',
+        selectedStationKeys: ['egg'],
+        stationsCompleted: const [],
+        status: 'in_progress',
+      ),
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      supabaseService: supabase,
+    );
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    ).thenAnswer((_) async {});
+    when(
+      () => sessionRepository.updateSessionProgress(session.id, any()),
+    ).thenAnswer((_) async {});
+    when(() => supabase.syncAuditSession(any())).thenAnswer((_) async {});
+    _stubEmptyPanelPersistence(panelSampleRepository, session.id);
+    await provider.resumeSession(session.id, initialStationIndex: 0);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final stationProvider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+    stationProvider.updateField('esEggSampleSize', 10);
+    stationProvider.updateField('esGradingSampleSize', 10);
+    stationProvider.updateField('esGradingRejectedCount', 11);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('audit-session-next-action')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Could not save station. Try again.'), findsOneWidget);
+    expect(find.text('Continue without completing?'), findsNothing);
+    expect(provider.currentSession?.status, 'in_progress');
+    verifyNever(
+      () => sessionRepository.markStationCompleted(session.id, 'egg'),
+    );
+    verifyNever(
+      () => sessionRepository.updateSessionProgress(session.id, any()),
+    );
+  });
+
   testWidgets('completed review uses next until the final station', (
     tester,
   ) async {
@@ -1399,6 +1480,107 @@ void main() {
     await tester.pump();
 
     expect(find.widgetWithText(TextField, '9'), findsNWidgets(2));
+  });
+
+  testWidgets('production Egg reopen prefers child counts over stale JSON', (
+    tester,
+  ) async {
+    final sessionRepository = MockAuditSessionRepository();
+    final auditRepository = MockAuditRepository();
+    final panelSampleRepository = MockPanelSampleRepository();
+    final eggGradingRepository = MockEggGradingRepository();
+    _stubEmptyGradingPersistence(eggGradingRepository);
+    final activityLog = MockActivityLogRepository();
+    final supabase = MockSupabaseService();
+    final session = AuditSessionModel(
+      id: 'session-egg-child-overlay',
+      customerId: SessionTestFixtures.testCustomerId,
+      flockId: SessionTestFixtures.testFlockId,
+      hatcheryId: SessionTestFixtures.testHatcheryId,
+      date: SessionTestFixtures.testVisitDate,
+      breed: SessionTestFixtures.testBreed,
+      status: 'in_progress',
+      selectedStationKeys: const ['egg'],
+      createdAt: SessionTestFixtures.testCreatedAt,
+      updatedAt: SessionTestFixtures.testUpdatedAt,
+    );
+    final provider = AuditSessionProvider(
+      repository: sessionRepository,
+      activityLogRepository: activityLog,
+      supabaseService: supabase,
+    );
+    when(
+      () => sessionRepository.getSessionById(session.id),
+    ).thenAnswer((_) async => session);
+    when(
+      () => activityLog.log(
+        any(),
+        any(),
+        entityType: any(named: 'entityType'),
+        entityId: any(named: 'entityId'),
+        details: any(named: 'details'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => panelSampleRepository.getRowsBySessionId('egg_storage', session.id),
+    ).thenAnswer((_) async => []);
+    when(
+      () => panelSampleRepository.getRowsBySessionId('egg_quality', session.id),
+    ).thenAnswer(
+      (_) async => [
+        _panelRow(
+          sessionId: session.id,
+          id: 'egg-quality-persisted-id',
+          values: {
+            'sampleMode': 'pooled',
+            'scopeType': 'pool',
+            'sampleIndex': 0,
+            'eggSampleSize': 100,
+            'gradingSampleSize': 100,
+            'gradingRejectedCount': 99,
+            'gradingDefectsJson': jsonEncode([
+              {'code': 'wrinkled', 'count': 99},
+            ]),
+          },
+        ),
+      ],
+    );
+    when(() => eggGradingRepository.countsForSession(session.id)).thenAnswer(
+      (_) async => {
+        'egg-quality-persisted-id': {'dirty': 4},
+      },
+    );
+    await provider.resumeSession(session.id);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider(
+            create: (_) => AuthProvider(supabaseService: supabase),
+          ),
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => GoveeCaptureProvider()),
+        ],
+        child: MaterialApp(
+          home: AuditSessionScreen(
+            auditRepository: auditRepository,
+            panelSampleRepository: panelSampleRepository,
+            eggGradingRepository: eggGradingRepository,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final stationProvider = Provider.of<AuditProvider>(
+      tester.element(find.byType(EggStorageScreen)),
+      listen: false,
+    );
+    expect(stationProvider.activeDraft.id, 'egg-quality-persisted-id');
+    expect(stationProvider.activeGradingCounts, {'dirty': 4});
   });
 
   testWidgets('resumed Chicks station hydrates saved comparison samples', (

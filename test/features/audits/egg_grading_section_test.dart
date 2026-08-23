@@ -104,7 +104,42 @@ void main() {
 
     expect(find.text('Acceptable 88 (88.0%)'), findsOneWidget);
     expect(find.text('Rejected 12 (12.0%)'), findsOneWidget);
+    expect(find.text('Top defect: Dirty 4.0%'), findsOneWidget);
     expect(find.textContaining('Dirty'), findsWidgets);
+  });
+
+  testWidgets('blank defect percentages render as dashes in 40x40 slots', (
+    tester,
+  ) async {
+    await pumpEggGrading(tester);
+    await expandEggGrading(tester);
+
+    expect(find.text('-'), findsNWidgets(18));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SizedBox && widget.width == 40 && widget.height == 40,
+      ),
+      findsNWidgets(18),
+    );
+  });
+
+  testWidgets('editing a known defect preserves an unknown defect code', (
+    tester,
+  ) async {
+    final provider = await pumpEggGrading(tester);
+    provider.updateField('esGradingSampleSize', 100);
+    provider.updateGradingCounts({'dirty': 2, 'future_shell_code': 7});
+    await tester.pump(const Duration(milliseconds: 100));
+    await expandEggGrading(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('egg-grading-count-dirty')),
+      '3',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(provider.activeGradingCounts, {'dirty': 3, 'future_shell_code': 7});
   });
 
   testWidgets('a defect count above the sample size shows an error', (

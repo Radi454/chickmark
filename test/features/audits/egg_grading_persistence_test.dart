@@ -225,7 +225,7 @@ void main() {
       provider.updateField('esGradingRejectedCount', 2);
       provider.updateGradingCounts({'wrinkled': 2});
 
-      await provider.saveSamplesWithResult(tabIndex: 0);
+      expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
 
       final panels = await db.query('egg_quality', orderBy: 'sampleIndex ASC');
       expect(panels.map((r) => r['gradingRejectedCount']), [9, 2]);
@@ -257,7 +257,7 @@ void main() {
     provider.updateField('esGradingSampleSize', 100);
     provider.updateField('esGradingRejectedCount', 2);
     provider.updateGradingCounts({'wrinkled': 2});
-    await provider.saveSamplesWithResult(tabIndex: 0);
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
   }
 
   test('reopen restores grading for every sample', () async {
@@ -294,7 +294,7 @@ void main() {
     provider.removeActiveEggQualityScopeSample(
       StationSampleModel.sampleKindHouse,
     );
-    await provider.saveSamplesWithResult(tabIndex: 0);
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
 
     // orderBy added for determinism: a bare SELECT with no ORDER BY has no
     // guaranteed row order in SQLite, so this asserts only the meaningful
@@ -332,7 +332,7 @@ void main() {
     provider.updateSampleMetadata({'houseNo': 'H2', 'houseLabel': 'House 2'});
     provider.updateField('esEggSampleSize', 5);
 
-    await provider.saveSamplesWithResult(tabIndex: 0);
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
 
     final beforeCounts = await db.query('egg_quality_defect_counts');
     expect(beforeCounts, hasLength(2));
@@ -342,7 +342,7 @@ void main() {
     provider.updateField('esGradingRejectedCount', null);
     provider.updateGradingCounts({});
 
-    await provider.saveSamplesWithResult(tabIndex: 0);
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
 
     final afterCounts = await db.query('egg_quality_defect_counts');
     expect(afterCounts, isEmpty);
@@ -369,7 +369,7 @@ void main() {
     provider.updateField('esGradingSampleSize', 100);
     provider.updateField('esGradingRejectedCount', 9);
     provider.updateGradingCounts({'dirty': 4, 'cracked': 3});
-    await provider.saveSamplesWithResult(tabIndex: 0);
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
 
     final panelRow = (await db.query('egg_quality')).single;
     await db.update(
@@ -397,4 +397,110 @@ void main() {
     );
     expect(restored.counts, {'dirty': 4, 'cracked': 3});
   });
+
+  test('clearing grading persists nulls while keeping egg weights', () async {
+    provider.updateField('esEggWeights', jsonEncode([62.0, 63.0]));
+    provider.updateField('esEggSampleSize', 2);
+    provider.updateField('esEggAvgWeight', 62.5);
+    provider.updateField('esGradingSampleSize', 100);
+    provider.updateField('esGradingRejectedCount', 9);
+    provider.updateGradingCounts({'dirty': 4});
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
+
+    provider.updateField('esGradingSampleSize', null);
+    provider.updateField('esGradingRejectedCount', null);
+    provider.updateGradingCounts({});
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
+
+    final panel = (await db.query('egg_quality')).single;
+    for (final column in const [
+      'gradingSampleSize',
+      'gradingRejectedCount',
+      'gradingAcceptableCount',
+      'gradingRejectedPct',
+      'gradingAcceptablePct',
+      'gradingDefectsJson',
+      'gradingTopDefectCode',
+      'gradingTopDefectPct',
+    ]) {
+      expect(panel[column], isNull, reason: column);
+    }
+    expect(panel['eggWeightsJson'], jsonEncode([62.0, 63.0]));
+    expect(await db.query('egg_quality_defect_counts'), isEmpty);
+
+    final reopened = await reopenEggStation(db, 'session-egg-db');
+    expect(reopened.stationAudits.single.esEggSampleSize, 2);
+    expect(reopened.stationAudits.single.esEggAvgWeight, 62.5);
+    expect(
+      reopened.stationAudits.single.esEggWeights,
+      jsonEncode([62.0, 63.0]),
+    );
+    expect(reopened.stationAudits.single.esGradingSampleSize, isNull);
+    expect(reopened.stationAudits.single.esGradingRejectedCount, isNull);
+    expect(reopened.stationAudits.single.esGradingDefectsJson, isNull);
+  });
+
+  test('explicit save rejects invalid grading without persistence', () async {
+    provider.updateField('esEggSampleSize', 10);
+    provider.updateField('esGradingSampleSize', 10);
+    provider.updateField('esGradingRejectedCount', 11);
+
+    expect(await provider.saveSamplesWithResult(tabIndex: 0), isFalse);
+    expect(provider.activeDraft.esGradingRejectedCount, 11);
+    expect(await db.query('egg_quality'), isEmpty);
+    expect(await db.query('egg_quality_defect_counts'), isEmpty);
+  });
+
+  test(
+    'autosave rejects an invalid defect count without persistence',
+    () async {
+      final autosaveProvider = AuditProvider(
+        panelSampleRepository: panelSampleRepository,
+        activityLogRepository: activityLogRepository,
+        eggGradingRepository: EggGradingRepository(
+          databaseHelper: databaseHelper,
+        ),
+        autosaveEnabled: true,
+        autosaveDebounceDuration: const Duration(milliseconds: 1),
+      );
+      autosaveProvider.initialize(
+        AuditContext(
+          auditType: 'Egg',
+          customerId: 'customer-egg-grading',
+          flockId: 'flock-egg-grading',
+          hatcheryId: 'hatchery-egg-grading',
+          breed: 'Ross 308',
+          flockAgeWeeks: 42,
+          date: '2026-05-15',
+        ),
+        currentUser: user,
+        sessionId: 'session-egg-db',
+        notify: false,
+      );
+      autosaveProvider.updateField('esEggSampleSize', 10);
+      autosaveProvider.updateField('esGradingSampleSize', 10);
+      autosaveProvider.updateGradingCounts({'dirty': 11});
+
+      expect(await autosaveProvider.flushAutosave(), isFalse);
+      expect(autosaveProvider.activeGradingCounts, {'dirty': 11});
+      expect(await db.query('egg_quality'), isEmpty);
+      expect(await db.query('egg_quality_defect_counts'), isEmpty);
+    },
+  );
+
+  test(
+    'multiple defects may exceed the sample when each count is valid',
+    () async {
+      provider.updateField('esGradingSampleSize', 100);
+      provider.updateField('esGradingRejectedCount', 40);
+      provider.updateGradingCounts({'dirty': 60, 'cracked': 55});
+
+      expect(await provider.saveSamplesWithResult(tabIndex: 0), isTrue);
+      final rows = await db.query(
+        'egg_quality_defect_counts',
+        orderBy: 'defectCode ASC',
+      );
+      expect(rows.map((row) => row['count']), [55, 60]);
+    },
+  );
 }

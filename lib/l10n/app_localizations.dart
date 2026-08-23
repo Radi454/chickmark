@@ -305,6 +305,12 @@ final List<_PatternTranslator> _patterns = [
     return '${match.group(1)} · ${match.group(2)} أسبوعًا · تاريخ الإدخال ${match.group(3)}';
   },
   (value) {
+    final match = RegExp(r'^Top defect: (.+) (\d+\.\d+)%$').firstMatch(value);
+    if (match == null) return null;
+    final defectName = match.group(1)!;
+    return '${_ar['Top defect']}: ${_ar[defectName] ?? defectName} ${match.group(2)}%';
+  },
+  (value) {
     final match = RegExp(r'^(.+): (.+)$').firstMatch(value);
     if (match == null) return null;
     if (match.group(1) == 'Affected' || match.group(1) == 'Upside Down') {
@@ -1792,6 +1798,7 @@ const Map<String, String> _ar = {
   'Residue breakout': 'فحص متبقيات الفقس',
   'Excellent': 'ممتاز',
   'Acceptable': 'مقبول',
+  'Top defect': 'أكثر العيوب شيوعًا',
   'Investigate': 'يحتاج فحصًا',
   'Avg': 'المتوسط',
   'Temp': 'الحرارة',

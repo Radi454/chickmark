@@ -6,6 +6,7 @@ import '../database/database_helper.dart';
 import '../models/audit_session_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../../services/sync/app_sync_coordinator.dart';
+import 'egg_grading_repository.dart';
 import 'sync_tombstone_repository.dart';
 
 const _recentSessionOrderBy = 'updatedAt DESC, date DESC, createdAt DESC';
@@ -52,16 +53,23 @@ class AuditSessionRepository {
           where: 'sessionId = ?',
           whereArgs: [id],
         );
-        await SyncTombstoneRepository.queueDeletesWithExecutor(
-          txn,
-          panel.tableName,
-          rows.map((row) => row['id']),
-        );
-        await txn.delete(
-          panel.tableName,
-          where: 'sessionId = ?',
-          whereArgs: [id],
-        );
+        if (panel.tableName == 'egg_quality') {
+          await EggGradingRepository.deleteEggQualityParentsWithExecutor(
+            txn,
+            rows.map((row) => row['id']),
+          );
+        } else {
+          await SyncTombstoneRepository.queueDeletesWithExecutor(
+            txn,
+            panel.tableName,
+            rows.map((row) => row['id']),
+          );
+          await txn.delete(
+            panel.tableName,
+            where: 'sessionId = ?',
+            whereArgs: [id],
+          );
+        }
       }
       final photoRows = await txn.query(
         'photos',

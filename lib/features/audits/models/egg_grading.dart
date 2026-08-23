@@ -216,8 +216,7 @@ class EggGradingSummary {
 
   bool get hasData => sampleSize > 0 || counts.values.any((v) => v > 0);
 
-  double _pct(int value) =>
-      sampleSize <= 0 ? 0 : (value * 100) / sampleSize;
+  double _pct(int value) => sampleSize <= 0 ? 0 : (value * 100) / sampleSize;
 
   String? get encodedJson {
     final positive = {
@@ -259,15 +258,20 @@ class EggGradingSummary {
   }) {
     final counts = <String, int>{};
     if (source != null && source.isNotEmpty) {
-      final decoded = jsonDecode(source);
-      if (decoded is List) {
-        for (final item in decoded) {
-          if (item is! Map) continue;
-          final code = item['code']?.toString();
-          final count = item['count'];
-          if (code == null || count is! num) continue;
-          if (count.toInt() > 0) counts[code] = count.toInt();
+      try {
+        final decoded = jsonDecode(source);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is! Map) continue;
+            final code = item['code']?.toString();
+            final count = item['count'];
+            if (code == null || count is! num) continue;
+            if (count.toInt() > 0) counts[code] = count.toInt();
+          }
         }
+      } on FormatException {
+        // A stale or partially written JSON mirror must not prevent the
+        // station from reopening. Supplied totals remain authoritative.
       }
     }
     return EggGradingSummary(
