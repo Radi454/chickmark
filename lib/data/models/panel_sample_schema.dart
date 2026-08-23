@@ -54,6 +54,18 @@ class PanelSampleDefinition {
 class PanelSampleSchema {
   const PanelSampleSchema._();
 
+  /// Panel tables whose row identity is the row id itself, not the hierarchy
+  /// tuple. `egg_quality` is here because a comparison row may legitimately
+  /// have a blank or duplicated house, and matching on hierarchy makes two
+  /// such rows overwrite each other.
+  ///
+  /// Defined here (rather than on `PanelSampleRepository`, which is where
+  /// callers reference it as `PanelSampleRepository.idKeyedPanelTables`) to
+  /// avoid an import cycle: `database_schema.dart` is a `part of
+  /// database_helper.dart`, and `panel_sample_repository.dart` imports
+  /// `database_helper.dart`.
+  static const Set<String> idKeyedPanelTables = {'egg_quality'};
+
   static const panels = <PanelSampleDefinition>[
     PanelSampleDefinition(
       tableName: 'egg_storage',

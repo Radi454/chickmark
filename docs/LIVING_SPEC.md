@@ -445,6 +445,10 @@ Station save behavior:
   can use `house`, `setter`, `hatcher`, `trolley`, `tray`, and `position`;
   Setter optimizing starts at `setter` and can nest `trolley` then `tray`;
   Hatcher optimizing starts at `hatcher` and can nest `trolley` then `tray`.
+  `egg_quality` is the one exception: as of v61 its row identity is its own
+  row `id`, not the hierarchy tuple, so two comparison rows with a blank or
+  repeated `house` stay separate instead of overwriting each other. It carries
+  no hierarchy unique index and no hierarchy-identity merge/update path.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
@@ -516,11 +520,15 @@ Station save behavior:
 - Reopened panel-row drafts may use synthetic in-memory IDs, but panel saves
   resolve conflicts by the panel row identity (`sessionId`, `house`, `setter`,
   `hatcher`, `trolley`, `tray`, and `position`) so reopened edits update the
-  existing panel row instead of writing legacy audit/sample tables.
+  existing panel row instead of writing legacy audit/sample tables. `egg_quality`
+  is excluded from this hierarchy-identity resolution as of v61; its rows
+  resolve by `id` only (see above).
 - If an existing scoped sample row is later saved with the same hierarchy as an
   existing pooled or differently scoped row, panel persistence merges the save
   into the existing hierarchy row and tombstones the stale row id instead of
-  attempting an `id` update that would violate the unique hierarchy index.
+  attempting an `id` update that would violate the unique hierarchy index. This
+  merge behavior does not apply to `egg_quality`, which has no unique hierarchy
+  index to violate.
 - After current scoped rows save, the provider prunes stale hierarchy rows for
   the same session/table when their row id or explicit hierarchy no longer
   matches the active sample set. Removing a House or Machine scope chip, or

@@ -277,6 +277,14 @@ Future<void> _dropPanelUniqueRowIndexes(DatabaseExecutor db) async {
 Future<void> _ensurePanelUniqueRowIndexes(DatabaseExecutor db) async {
   for (final panel in PanelSampleSchema.panels) {
     if (!await _tableExists(db, panel.tableName)) continue;
+    if (PanelSampleSchema.idKeyedPanelTables.contains(panel.tableName)) {
+      // Pre-v61 databases carry this index; it is what made two comparison
+      // rows with a blank or duplicate house collide.
+      await db.execute(
+        'DROP INDEX IF EXISTS idx_${panel.tableName}_unique_row',
+      );
+      continue;
+    }
     final columns = _columnNames(
       await db.rawQuery('PRAGMA table_info(${panel.tableName})'),
     );
@@ -361,7 +369,8 @@ Future<void> _createPanelTable(
     await db.rawQuery('PRAGMA table_info($tableName)'),
   );
   final uniqueIndexColumns = {'sessionId', ...panel.hierarchyColumnNames};
-  if (columns.containsAll(uniqueIndexColumns)) {
+  if (!PanelSampleSchema.idKeyedPanelTables.contains(tableName) &&
+      columns.containsAll(uniqueIndexColumns)) {
     await db.execute(_panelUniqueRowIndexSql(panel));
   }
 }

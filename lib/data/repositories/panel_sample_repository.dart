@@ -17,6 +17,12 @@ class PanelSampleRepository {
   /// that table; see markRowsSynced.
   final Map<String, String> _dirtyReadCutoffByTable = {};
 
+  /// Panel tables whose row identity is the row id itself, not the hierarchy
+  /// tuple. See `PanelSampleSchema.idKeyedPanelTables` for why the set lives
+  /// there (import-cycle avoidance) and is only re-exposed here.
+  static const Set<String> idKeyedPanelTables =
+      PanelSampleSchema.idKeyedPanelTables;
+
   Future<void> savePanelWithSamples({
     required PanelRecord panel,
     required List<PanelSampleRecord> samples,
@@ -541,6 +547,21 @@ class PanelSampleRepository {
     );
     final rowId = filtered['id'];
     if (rowId == null) return;
+    if (idKeyedPanelTables.contains(table)) {
+      final inserted = await executor.insert(
+        table,
+        filtered,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      if (inserted != 0) return;
+      await executor.update(
+        table,
+        filtered,
+        where: 'id = ?',
+        whereArgs: [rowId],
+      );
+      return;
+    }
     final inserted = await executor.insert(
       table,
       filtered,

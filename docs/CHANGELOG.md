@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Egg Quality panel rows are now identified by their own row id
+  instead of by their house/setter/hatcher values. Two comparison rows with a
+  blank or repeated house no longer overwrite each other.
 - 2026-08-23: The Supabase cloud mirror now has the seven panel sample/domain
   metadata columns (`sample_mode`, `scope_type`, `sample_label`,
   `sample_index`, `source_domain`, `action_domain`, `recommendation_target`)

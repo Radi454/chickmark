@@ -236,9 +236,19 @@ Each panel table has these indexes:
 - `idx_{panel}_dashboard(customerId, flockId, date)`
 - `idx_{panel}_sync(syncStatus)`
 - `idx_{panel}_unique_row(sessionId, IFNULL(<each declared hierarchy column>, ''))`
+  — **except `egg_quality`** (see below).
 
 The unique row index prevents duplicate rows for the same sampled hierarchy
 inside a visit session.
+
+`egg_quality` is id-keyed instead: as of v61 it carries no
+`idx_egg_quality_unique_row` index, and row identity for save/upsert is the
+row's own `id`, never the hierarchy tuple
+(`PanelSampleSchema.idKeyedPanelTables`, referenced by
+`PanelSampleRepository.idKeyedPanelTables`). A comparison row may legitimately
+have a blank or duplicated `house`; matching on hierarchy made two such rows
+overwrite each other. `_ensurePanelUniqueRowIndexes` drops the index on open
+for any pre-v61 database that still has it.
 
 ### `PanelRecord`
 
