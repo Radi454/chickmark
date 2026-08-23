@@ -616,26 +616,37 @@ void main() {
     expect(provider.activeChickWeightSample.houseLabel, 'House 12');
   });
 
-  test('removing egg storage house samples keeps house labels sequential', () {
-    final provider = AuditProvider();
-    provider.initialize(stationContext('Egg'), notify: false);
+  test(
+    'removing an egg storage house sample keeps the surviving houses\' own identity',
+    () {
+      // NOTE: this test previously asserted that surviving houses were
+      // RENUMBERED to stay sequential (H1, H2) after a middle house was
+      // removed. That depended on the now-removed default-value sniffing
+      // in AuditProvider (task A6): an untouched placeholder like 'H3'
+      // was indistinguishable from a real auditor-entered 'H3', so on
+      // removal it got silently renamed to 'H2'. A6 makes the sample own
+      // its house identity once it carries any value, so the surviving
+      // house here keeps being 'H3' rather than being relabeled 'H2'.
+      final provider = AuditProvider();
+      provider.initialize(stationContext('Egg'), notify: false);
 
-    provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
-    provider.addSample();
-    provider.addSample();
-    provider.switchSample(1);
-    provider.removeActiveSample();
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.addSample();
+      provider.addSample();
+      provider.switchSample(1);
+      provider.removeActiveSample();
 
-    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'H1',
-      'H2',
-    ]);
-    expect(provider.stationSamples.map((sample) => sample.houseNo), [
-      'H1',
-      'H2',
-    ]);
-    expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
-  });
+      expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
+        'H1',
+        'H3',
+      ]);
+      expect(provider.stationSamples.map((sample) => sample.houseNo), [
+        'H1',
+        'H3',
+      ]);
+      expect(provider.drafts.map((draft) => draft.hatchNumber), [1, 2]);
+    },
+  );
 
   test(
     'station result probe ignores scope identity and detects chick results',
@@ -716,5 +727,91 @@ void main() {
     );
 
     expect(provider.chickWeightScopeHasEnteredResults(0), isTrue);
+  });
+
+  test('a house named like a generated default is not regenerated', () {
+    // NOTE: deviates from the brief's literal test body. The brief's
+    // original scenario (enter 'H1' at index 1, whose own default is
+    // 'H2') never collided with the old default-sniffing check, so it
+    // passed even against the unfixed provider and did not discriminate
+    // the bug. This scenario instead relies on an index *shift*: the
+    // house entered as 'H2' at index 1 is repositioned to index 0 after
+    // the first house is removed, landing exactly on the string the old
+    // sniffing logic treats as "looks like a default for this slot" even
+    // though it is real auditor-entered data.
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.switchSample(1);
+    provider.updateSampleMetadata({'houseNo': 'H2', 'houseLabel': 'House 2'});
+
+    provider.switchSample(0);
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindHouse,
+    );
+
+    expect(provider.stationSamples, hasLength(1));
+    expect(provider.stationSamples.single.houseNo, 'H2');
+    expect(provider.stationSamples.single.sampleLabel, 'H2');
+  });
+
+  test('removing down to one house row keeps comparison mode', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.switchSample(1);
+    provider.removeActiveEggQualityScopeSample(
+      StationSampleModel.sampleKindHouse,
+    );
+
+    expect(provider.stationSamples, hasLength(1));
+    expect(
+      provider.stationSamples.single.sampleMode,
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(provider.stationSamples.single.sampleKind,
+        StationSampleModel.sampleKindHouse);
+  });
+
+  test(
+    'removing directly via removeActiveSample keeps comparison mode when '
+    'a house row survives',
+    () {
+      // NOTE: not in the brief's literal test list. Added because the
+      // brief also requires fixing removeActiveSample's Egg branch, and
+      // the two tests above only exercise
+      // _removeEggQualityScopeIndexes (via removeActiveEggQualityScopeSample),
+      // whose "keepsEggQualityScope" collapse guard already existed
+      // before this task. Without this test, the removeActiveSample fix
+      // would ship with no coverage that can go red.
+      final provider = AuditProvider();
+      provider.initialize(stationContext('Egg'), notify: false);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+      provider.switchSample(1);
+      provider.removeActiveSample();
+
+      expect(provider.stationSamples, hasLength(1));
+      expect(
+        provider.stationSamples.single.sampleMode,
+        StationSampleModel.sampleModeComparison,
+      );
+    },
+  );
+
+  test('switching houses does not move entered values between rows', () {
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateField('esEggSampleSize', 10);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.updateField('esEggSampleSize', 20);
+    provider.switchSample(0);
+
+    expect(provider.activeDraft.esEggSampleSize, 10);
+    provider.switchSample(1);
+    expect(provider.activeDraft.esEggSampleSize, 20);
   });
 }

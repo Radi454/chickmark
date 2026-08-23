@@ -1,5 +1,11 @@
 # ChickMark Change Log
 
+- 2026-08-23: An Egg Quality house sample keeps the house number the auditor
+  typed, even when it matches the number the app would have generated, and the
+  last remaining house sample no longer silently turns back into a pooled one.
+  A side effect: removing a middle house from a comparison no longer renumbers
+  the surviving houses to stay sequential — each house keeps the identity it
+  was given.
 - 2026-08-23: Reopening an Egg audit now restores each sample's mode, scope,
   label and order from what was saved. Audits saved before this change still
   reopen using the old inference.

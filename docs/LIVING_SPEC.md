@@ -717,7 +717,15 @@ Quality cards, and station notes.
   identity input keeps its active editing focus while provider state refreshes
   and syncs provider-side identity changes back into the field when the user is
   not actively editing that field. Removing a House scope removes that house and
-  returns Egg Quality to the pooled state when no scoped houses remain.
+  returns Egg Quality to the pooled state when no scoped houses remain; a
+  single surviving comparison house stays in comparison mode rather than
+  silently collapsing to pooled. Once a House scope sample carries any
+  entered house identity, the provider owns and keeps that identity verbatim
+  — it is never re-derived by comparing the value against the string a
+  placeholder chip would have generated for that position. A practical
+  consequence: removing a house from the middle of a comparison does not
+  renumber the surviving houses to stay sequential (a house named `H3` stays
+  `H3` even if it is now the second house in the list).
   The expandable Egg Weights &
   Uniformity card contains an ordered row-style weight metric summary and the
   100-egg weight sheet. The metric summary follows

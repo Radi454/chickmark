@@ -456,6 +456,12 @@ void main() {
   test(
     'removing a reindexed egg quality scope deletes its saved row identity',
     () async {
+      // NOTE: this test previously expected the surviving 'H3' house to be
+      // renumbered to 'H2' after the middle house was removed. That relied
+      // on default-value sniffing in AuditProvider that task A6 removed
+      // (a sample's house identity is now owned by the sample once it
+      // carries any value, never re-derived from position). The surviving
+      // house keeps its own 'H3' identity below instead of being relabeled.
       provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
       provider.updateField('esEggWeights', jsonEncode([50.0]));
       provider.updateField('esEggSampleSize', 1);
@@ -484,7 +490,7 @@ void main() {
       expect(await provider.saveSamplesWithResult(), isTrue);
 
       final afterRemoval = await rows('egg_quality');
-      expect(afterRemoval.map((row) => row['house']), ['H1', 'H2']);
+      expect(afterRemoval.map((row) => row['house']), ['H1', 'H3']);
       expect(
         afterRemoval.map((row) => row['id']),
         isNot(contains(removedRowId)),

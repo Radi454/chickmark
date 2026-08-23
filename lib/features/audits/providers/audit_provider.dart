@@ -1104,9 +1104,9 @@ class AuditProvider extends ChangeNotifier {
         retainedSamples.any(
           (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
         );
-    final legacyMode = _drafts.length == 1 && !keepsEggQualityScope
-        ? SampleMode.pool
-        : SampleMode.compare;
+    final legacyMode = keepsEggQualityScope || _drafts.length > 1
+        ? SampleMode.compare
+        : SampleMode.pool;
     if (legacyMode == SampleMode.pool) {
       _eggQualityScopeKind = StationSampleModel.sampleKindHouse;
     }
@@ -1170,7 +1170,11 @@ class AuditProvider extends ChangeNotifier {
     _drafts.removeAt(removedIndex);
     _stationSamples.removeAt(removedIndex);
     _activeHatchIndex = _activeHatchIndex.clamp(0, _drafts.length - 1).toInt();
-    final legacyMode = _drafts.length == 1
+    final keepsEggHouseScope = _context?.auditType == 'Egg' &&
+        _stationSamples.any(
+          (sample) => sample.sampleKind == StationSampleModel.sampleKindHouse,
+        );
+    final legacyMode = _drafts.length == 1 && !keepsEggHouseScope
         ? SampleMode.pool
         : SampleMode.compare;
     final compareGroupKey = legacyMode == SampleMode.compare
@@ -1987,12 +1991,7 @@ class AuditProvider extends ChangeNotifier {
         isComparisonDraft &&
         isMachineSample;
     final keepCustomEggHouseMetadata =
-        keepGeneratedEggHouseMetadata &&
-        !_defaultEggHouseNo(
-          existing.houseNo,
-          index: index,
-          sampleIndex: existing.sampleIndex,
-        );
+        keepGeneratedEggHouseMetadata && hasText(existing.houseNo);
     final keepEnteredMachineHouseMetadata =
         keepGeneratedMachineMetadata && hasText(existing.houseNo);
     final sampleLabel = keepCustomEggHouseMetadata
@@ -2007,16 +2006,12 @@ class AuditProvider extends ChangeNotifier {
         : fresh.houseNo;
     final houseLabel =
         keepCustomEggHouseMetadata || keepEnteredMachineHouseMetadata
-        ? (_defaultEggHouseLabel(
-                existing.houseLabel,
-                index: index,
-                sampleIndex: existing.sampleIndex,
-              )
-              ? _houseScopeLabelForNo(
+        ? (hasText(existing.houseLabel)
+              ? existing.houseLabel
+              : _houseScopeLabelForNo(
                   houseNo: existing.houseNo,
                   fallbackIndex: index + 1,
-                )
-              : existing.houseLabel)
+                ))
         : fresh.houseLabel;
     final next = fresh.copyWith(
       id: existing.id,
@@ -2364,26 +2359,6 @@ class AuditProvider extends ChangeNotifier {
     final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
     if (digits.isNotEmpty) return 'House $digits';
     return raw;
-  }
-
-  bool _defaultEggHouseNo(
-    String? value, {
-    required int index,
-    required int sampleIndex,
-  }) {
-    final trimmed = blankToNull(value);
-    if (trimmed == null) return true;
-    return trimmed == 'H${index + 1}' || trimmed == 'H$sampleIndex';
-  }
-
-  bool _defaultEggHouseLabel(
-    String? value, {
-    required int index,
-    required int sampleIndex,
-  }) {
-    final trimmed = blankToNull(value);
-    if (trimmed == null) return true;
-    return trimmed == 'House ${index + 1}' || trimmed == 'House $sampleIndex';
   }
 
   String? _houseNoForDraft(
