@@ -114,7 +114,7 @@ void main() {
       await _reopenEditAndSave('hatchers', _editHatcher);
 
       await _expectEditedPanelValues();
-      await _expectPoolRowsPerPanel();
+      await _expectPoolRowsPerPanel(afterReopen: true);
       await _expectNoLegacyAuditOrSampleTables();
       await _expectDashboardLoadsFromPanelTables();
     },
@@ -153,9 +153,17 @@ void main() {
       final quality = await _rows('egg_quality');
       expect(quality, hasLength(2));
       expect(quality.map((row) => row['house']), ['H1', 'H2']);
+      // 'mode' was never a real column (see `PanelRecord.mode`, which is
+      // internal bookkeeping never written to a db column). 'scopeType' and
+      // 'sampleIndex' are real v61 columns as of this plan's Phase A and are
+      // now written explicitly on every saved panel row.
       expect(quality.first, isNot(contains('mode')));
-      expect(quality.first, isNot(contains('scopeType')));
-      expect(quality.first, isNot(contains('sampleIndex')));
+      expect(quality.map((row) => row['scopeType']), ['house', 'house']);
+      expect(quality.map((row) => row['sampleIndex']), [1, 2]);
+      expect(
+        quality.map((row) => row['sampleMode']),
+        ['comparison', 'comparison'],
+      );
       await _expectNoLegacyAuditOrSampleTables();
     },
   );
@@ -531,13 +539,61 @@ Future<void> _expectEditedPanelValues() async {
   expect((await _singleRow('hatcher_optimizing'))['meconium'], 'none');
 }
 
-Future<void> _expectPoolRowsPerPanel() async {
+/// Expected `scopeType`/`sampleMode` for each `_poolWorkflowPanels` table's
+/// single saved row, keyed by table name. `sampleIndex` is always `1` for a
+/// lone pool-workflow row regardless of scope, so it isn't varied here.
+///
+/// Most panels stay pool-scoped/pooled throughout this test. Two exceptions:
+///  * `residue_breakout` is built by a separate breakout-specific code path
+///    (`AuditPanelSaveCoordinator._breakoutPanelRowsForTable`) that never
+///    went through this task's `_panelRecordForSamples` metadata merge, so
+///    its `sampleMode` column is never written (stays `null`); its
+///    `scopeType` was already a real column before this task and is
+///    genuinely `tray`-scoped per breakout entry, pool workflow or not.
+///  * `setter_optimizing`/`hatcher_optimizing` always populate their
+///    `setter`/`hatcher` hierarchy column regardless of scope (see
+///    `_panelSampleRecordForStationSample`'s unconditional `usesSetter`/
+///    `usesHatcher` for these two tables). This test file's own reopen
+///    hydration (`_scopeTypeForRow`) derives scope from that hierarchy
+///    column, not from the `scopeType` column, so once a setter/hatcher
+///    panel has been saved, reopened, and re-saved, it looks like a
+///    comparison-mode sample even though the workflow never left "pool" —
+///    a pre-existing quirk of this test's hand-rolled reopen simulation,
+///    unrelated to and not fixed by this task.
+const _expectedPoolWorkflowScope = {
+  'egg_storage': (scopeType: 'pool', sampleMode: 'pooled'),
+  'egg_quality': (scopeType: 'pool', sampleMode: 'pooled'),
+  'chick_quality': (scopeType: 'pool', sampleMode: 'pooled'),
+  'chick_weights': (scopeType: 'pool', sampleMode: 'pooled'),
+  'residue_breakout': (scopeType: 'tray', sampleMode: null),
+  'setter_optimizing': (scopeType: 'pool', sampleMode: 'pooled'),
+  'hatcher_optimizing': (scopeType: 'pool', sampleMode: 'pooled'),
+};
+
+/// Overrides for [_expectedPoolWorkflowScope] once a table has been through
+/// the reopen-edit-resave cycle (see the doc comment above).
+const _expectedPoolWorkflowScopeAfterReopen = {
+  'setter_optimizing': (scopeType: 'setter', sampleMode: 'comparison'),
+  'hatcher_optimizing': (scopeType: 'hatcher', sampleMode: 'comparison'),
+};
+
+Future<void> _expectPoolRowsPerPanel({bool afterReopen = false}) async {
   for (final table in _poolWorkflowPanels) {
     final rows = await _rows(table);
     expect(rows, hasLength(1), reason: table);
+    // 'mode' was never a real column (see `PanelRecord.mode`, internal
+    // bookkeeping never written to a db column). 'scopeType', 'sampleIndex',
+    // and 'sampleMode' are real v61 columns as of this plan's Phase A, now
+    // written explicitly on every saved panel row (see
+    // _expectedPoolWorkflowScope's doc comment for the two exceptions).
     expect(rows.single, isNot(contains('mode')), reason: table);
-    expect(rows.single, isNot(contains('scopeType')), reason: table);
-    expect(rows.single, isNot(contains('sampleIndex')), reason: table);
+    final expected = afterReopen
+        ? (_expectedPoolWorkflowScopeAfterReopen[table] ??
+              _expectedPoolWorkflowScope[table]!)
+        : _expectedPoolWorkflowScope[table]!;
+    expect(rows.single['scopeType'], expected.scopeType, reason: table);
+    expect(rows.single['sampleIndex'], 1, reason: table);
+    expect(rows.single['sampleMode'], expected.sampleMode, reason: table);
   }
   expect(await _rows('fresh_egg_breakout'), isEmpty);
   expect(await _rows('candled_egg_breakout'), isEmpty);

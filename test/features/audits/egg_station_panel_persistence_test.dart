@@ -499,6 +499,13 @@ void main() {
 
   test('saved egg_quality rows carry explicit sample and domain metadata',
       () async {
+    provider.updateField('esEggStorageDays', 9);
+    provider.updateField(
+      'es_estReadingsJson',
+      jsonEncode({'front_top': 19.1}),
+    );
+    provider.updateField('es_estAvg', 19.1);
+    provider.updateField('es_estCv', 0.0);
     provider.updateField('esEggSampleSize', 12);
     // The first call to addEggQualityScopeSample only switches the existing
     // single sample into comparison mode (see AuditProvider
@@ -527,6 +534,7 @@ void main() {
     }
 
     final storage = await db.query('egg_storage');
+    expect(storage, isNotEmpty);
     for (final row in storage) {
       expect(row['sampleMode'], 'pooled');
       expect(row['scopeType'], 'pool');
