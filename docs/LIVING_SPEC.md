@@ -831,6 +831,8 @@ Quality cards, and station notes.
   weights and Shell UV cards records the number of eggs inspected and rejected,
   then an occurrence count for each visual defect grouped by category. Its
   summary updates live with acceptable and rejected counts and percentages.
+  Its category, defect, description, and sample-mode labels are translated by
+  the central Arabic localization catalog when Arabic is selected.
   Counts belong to the active Egg Quality sample, so switching House scopes
   restores that house's independent values. A rejected count or an individual
   defect count cannot exceed the eggs inspected; multiple defect counts may

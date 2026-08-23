@@ -2427,6 +2427,10 @@ const Map<String, String> _ar = {
       'لا يمكن أن يكون عدد البيض المرفوض سالبًا.',
   'Eggs rejected cannot exceed eggs inspected.':
       'لا يمكن أن يتجاوز عدد البيض المرفوض البيض المفحوص.',
+  'Sample mode': 'وضع العينة',
+  'Compare by house': 'مقارنة حسب العنبر',
+  'Switch to a pooled sample?': 'التبديل إلى عينة مجمعة؟',
+  'Discard and pool': 'تجاهل وتحويل إلى تجميع',
   'Shell contamination': 'تلوث القشرة',
   'Shell integrity': 'سلامة القشرة',
   'Shell quality': 'جودة القشرة',
@@ -2447,6 +2451,31 @@ const Map<String, String> _ar = {
   'Slab sided': 'جانب مسطح',
   'Small': 'صغير',
   'Double yolk': 'صفاران',
+  'Faecal or litter contamination on the shell.':
+      'تلوث القشرة بالبراز أو الفرشة.',
+  'Yolk from a broken egg dried onto the shell.':
+      'صفار من بيضة مكسورة جف على القشرة.',
+  'Blood smeared on the shell at lay.': 'دم ملطخ على القشرة عند الوضع.',
+  'Any other surface staining.': 'أي تلطيخ سطحي آخر.',
+  'Visible shell fracture.': 'كسر ظاهر في القشرة.',
+  'Fine crack, usually only visible when candled.':
+      'كسر دقيق لا يظهر غالبًا إلا بالفحص الضوئي.',
+  'Puncture from a hen treading on the egg.':
+      'ثقب من إصبع الدجاجة عند وطء البيضة.',
+  'Translucent, weak shell.': 'قشرة شفافة وضعيفة.',
+  'Corrugated shell surface.': 'سطح قشرة مجعد.',
+  'Raised band or ridge around the shell.': 'شريط أو نتوء مرتفع حول القشرة.',
+  'Chalky calcium lumps on the shell.': 'كتل كالسيوم طباشيرية على القشرة.',
+  'Exposed membrane where shell is missing.': 'غشاء مكشوف في موضع غياب القشرة.',
+  'Round rather than oval; hatches less well.':
+      'بيضة مستديرة بدل الشكل البيضاوي؛ فقسها أقل.',
+  'Abnormally long egg.': 'بيضة طويلة على نحو غير طبيعي.',
+  'Flattened side from pressure before shell set.':
+      'جانب مفلطح بسبب الضغط قبل اكتمال تكوّن القشرة.',
+  'Below the acceptable weight range.': 'أقل من نطاق الوزن المقبول.',
+  'Oversized egg with two yolks.': 'بيضة كبيرة جدًا ذات صفارين.',
+  'Any defect not listed above; use the note field.':
+      'أي عيب غير مذكور أعلاه؛ استخدم حقل الملاحظات.',
 
   // Pip conversations list
   'New conversation': 'محادثة جديدة',
@@ -2488,8 +2517,7 @@ const Map<String, String> _ar = {
       'تعذّر بدء المكالمة المباشرة. حاول مرة أخرى.',
   'The live call was not ready to send audio.':
       'المكالمة المباشرة لم تكن جاهزة لإرسال الصوت.',
-  'The live call was not connected yet.':
-      'لم يتم توصيل المكالمة المباشرة بعد.',
+  'The live call was not connected yet.': 'لم يتم توصيل المكالمة المباشرة بعد.',
   'Could not reach the live voice service. Check your connection.':
       'تعذّر الوصول إلى خدمة المحادثة المباشرة. تحقق من اتصالك.',
   'The live voice service refused the call. Please try again.':
@@ -2502,7 +2530,6 @@ const Map<String, String> _ar = {
       'تعذّر الاتصال بجلسة المحادثة المباشرة. حاول مرة أخرى.',
   'The live voice session dropped.': 'انقطعت جلسة المحادثة المباشرة.',
   'The live voice session failed.': 'فشلت جلسة المحادثة المباشرة.',
-  'The live voice session hit an error.':
-      'حدث خطأ في جلسة المحادثة المباشرة.',
+  'The live voice session hit an error.': 'حدث خطأ في جلسة المحادثة المباشرة.',
   'The live voice call dropped.': 'انقطعت المكالمة الصوتية المباشرة.',
 };

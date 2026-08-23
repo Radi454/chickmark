@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Added the missing Arabic translations for Egg grading defect
+  descriptions and the Egg Quality pooled/house-comparison controls.
+
 - 2026-08-23: Fixed an egg-grading pull race that could overwrite a newer
   local dirty defect count with an older remote snapshot and clear its pending
   marker. The grading repository now rereads, compares, and conditionally
