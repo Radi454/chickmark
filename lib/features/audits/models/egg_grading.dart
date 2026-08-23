@@ -292,14 +292,14 @@ class EggGradingValidation {
     final errors = <String>[];
     if (sampleSize < 0) errors.add('Eggs inspected cannot be negative.');
     if (rejectedCount < 0) errors.add('Eggs rejected cannot be negative.');
-    if (sampleSize > 0 && rejectedCount > sampleSize) {
+    if (rejectedCount > sampleSize) {
       errors.add('Eggs rejected cannot exceed eggs inspected.');
     }
     for (final entry in counts.entries) {
       final name = eggDefectTypeForCode(entry.key)?.name ?? entry.key;
       if (entry.value < 0) {
         errors.add('$name count cannot be negative.');
-      } else if (sampleSize > 0 && entry.value > sampleSize) {
+      } else if (entry.value > sampleSize) {
         errors.add('$name count cannot exceed eggs inspected.');
       }
     }

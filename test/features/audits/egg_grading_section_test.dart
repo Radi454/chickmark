@@ -126,6 +126,39 @@ void main() {
     expect(find.textContaining('cannot exceed eggs inspected'), findsOneWidget);
   });
 
+  testWidgets('clearing inspected eggs validates retained counts', (
+    tester,
+  ) async {
+    await pumpEggGrading(tester);
+    await expandEggGrading(tester);
+    await tester.enterText(
+      find.byKey(const Key('egg-grading-sample-size')),
+      '100',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(find.byKey(const Key('egg-grading-rejected')), '12');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(
+      find.byKey(const Key('egg-grading-count-dirty')),
+      '4',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(
+      find.byKey(const Key('egg-grading-sample-size')),
+      '',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.text('Eggs rejected cannot exceed eggs inspected.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Dirty count cannot exceed eggs inspected.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a defect sum above the sample size is accepted', (tester) async {
     await pumpEggGrading(tester);
     await expandEggGrading(tester);

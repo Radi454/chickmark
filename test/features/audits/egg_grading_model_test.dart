@@ -34,6 +34,17 @@ void main() {
     expect(errors, isEmpty);
   });
 
+  test('retained counts cannot exceed zero inspected eggs', () {
+    final errors = EggGradingValidation.validate(
+      sampleSize: 0,
+      rejectedCount: 12,
+      counts: {'dirty': 4},
+    );
+
+    expect(errors, contains('Eggs rejected cannot exceed eggs inspected.'));
+    expect(errors, contains('Dirty count cannot exceed eggs inspected.'));
+  });
+
   test('negative counts, oversized defects and oversized rejects are rejected',
       () {
     expect(
