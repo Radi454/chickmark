@@ -88,7 +88,7 @@ class PanelSampleRepository {
       definition.tableName,
       where: 'sessionId = ?',
       whereArgs: [sessionId],
-      orderBy: _panelOrderByForColumns(columns),
+      orderBy: panelOrderByForColumns(columns),
     );
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -107,13 +107,13 @@ class PanelSampleRepository {
             definition.tableName,
             where: _hierarchyRowsWhereForColumns(hierarchyColumns),
             whereArgs: [sessionId],
-            orderBy: _panelOrderByForColumns(columns),
+            orderBy: panelOrderByForColumns(columns),
           )
         : await database.query(
             definition.tableName,
             where: _pooledRowsWhereForColumns(hierarchyColumns),
             whereArgs: [sessionId],
-            orderBy: _panelOrderByForColumns(columns),
+            orderBy: panelOrderByForColumns(columns),
           );
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -378,7 +378,7 @@ class PanelSampleRepository {
       definition.tableName,
       where: 'id = ?',
       whereArgs: [panelId],
-      orderBy: _panelOrderByForColumns(columns),
+      orderBy: panelOrderByForColumns(columns),
     );
   }
 
@@ -767,7 +767,19 @@ class PanelSampleRepository {
         .toList(growable: false);
   }
 
-  static String _panelOrderByForColumns(Set<String> columns) {
+  /// Orders panel rows by their saved `sampleIndex` when the table has that
+  /// column (every panel table, since v61), falling back to `createdAt` and
+  /// `id` as tiebreakers. Tables without `sampleIndex` (pre-v61 schemas seen
+  /// only in older tests) keep the previous hierarchy-column ordering.
+  static String panelOrderByForColumns(Set<String> columns) {
+    if (columns.contains('sampleIndex')) {
+      final orderColumns = [
+        'sampleIndex',
+        if (columns.contains('createdAt')) 'createdAt',
+        if (columns.contains('id')) 'id',
+      ];
+      return orderColumns.map((column) => '$column ASC').join(', ');
+    }
     final orderColumns = [
       ..._hierarchyColumnsForTable(columns),
       if (columns.contains('createdAt')) 'createdAt',

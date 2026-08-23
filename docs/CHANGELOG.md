@@ -1,5 +1,8 @@
 # ChickMark Change Log
 
+- 2026-08-23: Reopening an Egg audit now restores each sample's mode, scope,
+  label and order from what was saved. Audits saved before this change still
+  reopen using the old inference.
 - 2026-08-23: Saved egg panel rows now record their sampling mode, scope,
   label, and order, plus which side of the operation owns the measurement,
   the fix, and the recommendation.

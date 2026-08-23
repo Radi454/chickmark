@@ -464,6 +464,24 @@ Station save behavior:
   in the hatchery but caused and fixed at the breeder farm (`sourceDomain`
   `hatchery`, `actionDomain`/`recommendationTarget` `farm`). Other panel tables
   do not yet set these three domain columns.
+- Reopening a station reads that saved metadata back explicitly-first: each
+  row's `sampleMode`, `scopeType`, and `sampleLabel` are taken from the
+  persisted columns when present, and `sampleIndex` orders the row among its
+  siblings. Only when a column is null (rows saved before v61) does the read
+  path fall back to inferring mode from whether the row carries any hierarchy
+  value, scope from which hierarchy columns are populated, and label from the
+  row's position. This means a saved comparison row with an intentionally
+  blank `house` (e.g. a not-yet-named house) still reopens as a comparison
+  row instead of collapsing into pooled mode, which the old inference-only
+  read could not distinguish. `PanelSampleRepository.panelOrderByForColumns`
+  orders rows by `sampleIndex` first (falling back to `createdAt`, then `id`)
+  whenever the table has a `sampleIndex` column; tables without it (pre-v61
+  test schemas only) keep the previous hierarchy-column ordering. The
+  reconstruction itself lives in `reconstructStation` (and the Egg-only test
+  entry point `reopenEggStation`) in
+  `lib/features/audits/logic/egg_station_reconstruction.dart`, extracted from
+  `_StationFrameState` so it can be exercised directly against raw panel rows
+  without a widget tree.
 - Scope hierarchy is nested from broadest to narrowest inside the sampling
   sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
   pair or the station's single machine id), then `trolley`, then `tray`. Visit
