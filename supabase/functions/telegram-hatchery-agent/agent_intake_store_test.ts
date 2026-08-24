@@ -176,6 +176,7 @@ function session(): AgentIntakeSession {
       hatcheryName: 'Hatchery A',
       auditDate: '2026-07-28',
       layer: 'pool',
+      houseIdentity: null,
       setterIdentity: null,
       hatcherIdentity: null,
       sectorKey: 'breeder',

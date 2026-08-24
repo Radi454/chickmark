@@ -15,32 +15,35 @@ void main() {
 
   tearDown(resetAppDatabase);
 
-  test('every panel table carries the sample and domain metadata columns',
-      () async {
-    final db = await DatabaseHelper().db;
-    const expected = {
-      'sampleMode',
-      'scopeType',
-      'sampleLabel',
-      'sampleIndex',
-      'sourceDomain',
-      'actionDomain',
-      'recommendationTarget',
-    };
-    for (final panel in PanelSampleSchema.panels) {
-      final columns = (await db.rawQuery(
-        'PRAGMA table_info(${panel.tableName})',
-      )).map((row) => row['name'] as String).toSet();
-      expect(
-        columns.containsAll(expected),
-        isTrue,
-        reason: '${panel.tableName} is missing ${expected.difference(columns)}',
-      );
-    }
-  });
+  test(
+    'every panel table carries the sample and domain metadata columns',
+    () async {
+      final db = await DatabaseHelper().db;
+      const expected = {
+        'sampleMode',
+        'scopeType',
+        'sampleLabel',
+        'sampleIndex',
+        'sourceDomain',
+        'actionDomain',
+        'recommendationTarget',
+      };
+      for (final panel in PanelSampleSchema.panels) {
+        final columns = (await db.rawQuery(
+          'PRAGMA table_info(${panel.tableName})',
+        )).map((row) => row['name'] as String).toSet();
+        expect(
+          columns.containsAll(expected),
+          isTrue,
+          reason:
+              '${panel.tableName} is missing ${expected.difference(columns)}',
+        );
+      }
+    },
+  );
 
-  test('database version is 63', () async {
+  test('database version is 64', () async {
     final db = await DatabaseHelper().db;
-    expect(await db.getVersion(), 63);
+    expect(await db.getVersion(), 64);
   });
 }

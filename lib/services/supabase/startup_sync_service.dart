@@ -502,10 +502,24 @@ class StartupSyncService {
       pushed += await _pushBatch(
         panel.tableName,
         dirty.length,
-        upload: () => _supabaseService.upsertRowsStrict(
-          panel.tableName,
-          dirty.map(stripSyncMeta).toList(),
-        ),
+        upload: () async {
+          final rows = dirty.map(stripSyncMeta).toList();
+          if (const {
+            'chick_quality',
+            'chick_weights',
+          }.contains(panel.tableName)) {
+            final persisted = await _supabaseService.upsertRowsReturningStrict(
+              panel.tableName,
+              rows,
+            );
+            await _panelSampleRepository.reconcileChickIdentityAssignments(
+              panel.tableName,
+              persisted,
+            );
+          } else {
+            await _supabaseService.upsertRowsStrict(panel.tableName, rows);
+          }
+        },
         markSynced: () =>
             _panelSampleRepository.markRowsSynced(panel.tableName, ids),
         markFailed: (error) =>

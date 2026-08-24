@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../../data/agent/station_adapter.dart';
+import '../../../data/agent/station_registry.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../models/culled_chicks_analysis.dart';
@@ -235,7 +237,7 @@ Map<String, Object?> chickQualityValues(AuditModel draft) {
     draft.culledChicksAnalysisJson,
     totalEggSet: culledChicksTotalEggSet,
   );
-  return {
+  final compatibilityValues = <String, Object?>{
     'pasgarSampleSize': size,
     'pasgarReflexesCount': draft.pasgarReflexes,
     'pasgarBeakCount': draft.pasgarBeak,
@@ -276,17 +278,105 @@ Map<String, Object?> chickQualityValues(AuditModel draft) {
     'culledChicksTopCategory': culledChicksSummary.topCategory,
     'culledChicksTopSubtype': culledChicksSummary.topSubtype,
   };
+  return _registryBackedChickValues(
+    compatibilityValues,
+    registeredFieldValues: {
+      'pasgarSampleSize': size,
+      'pasgarReflexesCount': draft.pasgarReflexes,
+      'pasgarBeakCount': draft.pasgarBeak,
+      'pasgarNavelCount': draft.pasgarNavel,
+      'pasgarBellyCount': draft.pasgarBelly,
+      'pasgarLegCount': draft.pasgarLeg,
+      'pasgarFeatherDevCount': draft.pasgarFeatherDev,
+      'pasgarReflexesPct': pct(draft.pasgarReflexes, size),
+      'pasgarBeakPct': pct(draft.pasgarBeak, size),
+      'pasgarNavelPct': pct(draft.pasgarNavel, size),
+      'pasgarBellyPct': pct(draft.pasgarBelly, size),
+      'pasgarLegPct': pct(draft.pasgarLeg, size),
+      'pasgarFeatherDevPct': pct(draft.pasgarFeatherDev, size),
+      'pasgarFinalScore': draft.pasgarFinalScore,
+      'yfbmEntriesJson': draft.yfbmEntries,
+      'yfbmEntryCount': decodedListLength(draft.yfbmEntries),
+      'yfbmAvgPct': draft.yfbmAvgPct,
+      'yfbmCvPct': draft.yfbmCvPct,
+      'cvtReadingsJson': draft.cvtReadingsJson,
+      'cvtSampleSize': draft.cvtSampleSize,
+      'cvtAvgTemp': draft.cvtAvg,
+      'cvtCvPct': draft.cvtCvPct,
+      'pmSampleSize': draft.pmSampleSize,
+      'pmCollectionPoint': draft.pmCollectionPoint,
+      'pmOmphalitisCount': draft.pmOmphalitisCount,
+      'pmOmphalitisSeverity': draft.pmOmphalitisSeverity,
+      'pmGaseousCecaCount': draft.pmGaseousCecaCount,
+      'pmGaseousCecaSeverity': draft.pmGaseousCecaSeverity,
+      'pmGizzardErosionsCount': draft.pmGizzardErosionsCount,
+      'pmGizzardErosionsSeverity': draft.pmGizzardErosionsSeverity,
+      'pmAirSacCaseationsCount': draft.pmAirSacCaseationsCount,
+      'pmAirSacCaseationsSeverity': draft.pmAirSacCaseationsSeverity,
+      'pmUrolithiasisCount': draft.pmUrolithiasisCount,
+      'pmUrolithiasisSeverity': draft.pmUrolithiasisSeverity,
+      'pmNephritisCount': draft.pmNephritisCount,
+      'pmNephritisSeverity': draft.pmNephritisSeverity,
+      'pmGeneralSepticemiaCount': draft.pmGeneralSepticemiaCount,
+      'pmGeneralSepticemiaSeverity': draft.pmGeneralSepticemiaSeverity,
+      'culledChicksTotalEggSet': culledChicksTotalEggSet,
+      'culledChicksAnalysisJson': culledChicksSummary.encodedJson,
+      'culledChicksAffectedPct': culledChicksSummary.affectedPct,
+      'culledChicksTopCategory': culledChicksSummary.topCategory,
+      'culledChicksTopSubtype': culledChicksSummary.topSubtype,
+    },
+    includeWeights: false,
+  );
 }
 
 Map<String, Object?> chickWeightValues(AuditModel draft) {
+  return _registryBackedChickValues(
+    {'bmkAgeWeeks': draft.chickBmkAge, 'bmkWeight': draft.chickBmkWeight},
+    registeredFieldValues: {
+      'weightsJson': draft.chickWeights,
+      'sampleSize': draft.chickSampleSize,
+      'avgWeight': draft.chickAvgWeight,
+      'uniformityPct': draft.chickUniformityPct,
+      'cvPct': draft.chickCvPct,
+    },
+    includeWeights: true,
+  );
+}
+
+Map<String, Object?> _registryBackedChickValues(
+  Map<String, Object?> compatibilityValues, {
+  required Map<String, Object?> registeredFieldValues,
+  required bool includeWeights,
+}) {
+  final schemas = AgentStationRegistry.schemas.where(
+    (schema) =>
+        schema.schemaKey.startsWith('chicks.') &&
+        (schema.schemaKey == 'chicks.weights') == includeWeights,
+  );
+  final registeredColumns = <String>{};
+  final generatedValues = <String, Object?>{};
+  for (final schema in schemas) {
+    for (final field in schema.fields) {
+      final localColumn = field.persistence['localColumn']?.toString();
+      if (localColumn == null) continue;
+      registeredColumns.add(localColumn);
+    }
+    for (final calculation in schema.calculations) {
+      final localColumn = calculation.persistence['localColumn']?.toString();
+      if (localColumn != null) registeredColumns.add(localColumn);
+    }
+    generatedValues.addAll(
+      AgentStationAdapter.localPersistenceValuesUnchecked(
+        schema,
+        registeredFieldValues,
+        recomputeCalculations: false,
+      ),
+    );
+  }
   return {
-    'weightsJson': draft.chickWeights,
-    'sampleSize': draft.chickSampleSize,
-    'avgWeight': draft.chickAvgWeight,
-    'uniformityPct': draft.chickUniformityPct,
-    'cvPct': draft.chickCvPct,
-    'bmkAgeWeeks': draft.chickBmkAge,
-    'bmkWeight': draft.chickBmkWeight,
+    for (final entry in compatibilityValues.entries)
+      if (!registeredColumns.contains(entry.key)) entry.key: entry.value,
+    ...generatedValues,
   };
 }
 

@@ -4,6 +4,10 @@ import {
   applicableStationSchemas,
   requireStationSchema,
 } from '../_shared/station_registry.generated.ts'
+import {
+  fieldValuesFromLocalRow,
+  localPersistenceValues,
+} from './agent_station_adapter.ts'
 
 Deno.test('Pasgar registry contract keeps explicit sample-bound observations', () => {
   const schema = requireStationSchema('chicks.pasgar', 1)
@@ -40,4 +44,21 @@ Deno.test('breeder catalog returns the registered hatchery modules only', () => 
     true,
   )
   assertEquals(broiler.length, 0)
+})
+
+Deno.test('generated persistence mapping reads and writes local rows bidirectionally', () => {
+  const schema = requireStationSchema('chicks.weights', 1)
+  const values = fieldValuesFromLocalRow(schema, {
+    weightsJson: '[41.0,43.0]',
+    sampleSize: 2,
+  })
+
+  assertEquals(values, { weightsJson: [41, 43] })
+  assertEquals(localPersistenceValues(schema, values), {
+    weightsJson: '[41,43]',
+    sampleSize: 2,
+    avgWeight: 42,
+    uniformityPct: 100,
+    cvPct: 3.4,
+  })
 })

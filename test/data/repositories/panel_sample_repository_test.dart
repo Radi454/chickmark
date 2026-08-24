@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/panel_sample_model.dart';
+import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -12,6 +13,12 @@ Future<void> _createPanelTable(
   String tableName,
   List<String> extraColumns,
 ) async {
+  final isChick = tableName == 'chick_quality' || tableName == 'chick_weights';
+  final identityColumns = isChick
+      ? ', domain TEXT, schemaVersion INTEGER, scopeKey TEXT, replicate INTEGER, '
+            'sampleKey TEXT, source TEXT, captureMethod TEXT, createdBy TEXT, '
+            'deviceId TEXT, sourceRefId TEXT, observedAt TEXT'
+      : '';
   final extra = extraColumns.isEmpty ? '' : ', ${extraColumns.join(', ')}';
   await db.execute('''CREATE TABLE $tableName (
     id TEXT PRIMARY KEY,
@@ -28,6 +35,7 @@ Future<void> _createPanelTable(
     trolley TEXT,
     tray TEXT,
     position TEXT,
+    scopeType TEXT,
     storagePeriodDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
@@ -35,15 +43,22 @@ Future<void> _createPanelTable(
     updatedAt TEXT NOT NULL,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     lastSyncedAt TEXT,
-    syncError TEXT$extra,
+    syncError TEXT$identityColumns$extra,
     FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE,
     FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
   )''');
-  await db.execute(
-    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
-  );
+  if (isChick) {
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_${tableName}_sample_key ON $tableName '
+      '(customerId, sampleKey) WHERE sampleKey IS NOT NULL',
+    );
+  } else {
+    await db.execute(
+      "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+    );
+  }
 }
 
 Future<void> _createMachineScopedPanelTable(
@@ -356,7 +371,7 @@ void main() {
     },
   );
 
-  test('same hierarchy updates the existing row when row ids differ', () async {
+  test('same Chick hierarchy preserves different ids as replicates', () async {
     final panel = PanelRecord(
       id: 'weights-panel',
       tableName: 'chick_weights',
@@ -369,12 +384,14 @@ void main() {
       id: 'weights-sample-1',
       panelId: panel.id,
       houseId: 'House A',
+      scopeType: SamplingLayer.house,
       sampleSize: 80,
     );
     final second = PanelSampleRecord(
       id: 'weights-sample-2',
       panelId: panel.id,
       houseId: 'House A',
+      scopeType: SamplingLayer.house,
       sampleSize: 90,
     );
 
@@ -382,14 +399,17 @@ void main() {
     await repository.savePanelWithSamples(panel: panel, samples: [second]);
 
     final rows = await db.query('chick_weights');
-    expect(rows, hasLength(1));
-    expect(rows.single['id'], 'weights-sample-1');
-    expect(rows.single['house'], 'House A');
-    expect(rows.single['sampleSize'], 90);
+    expect(rows, hasLength(2));
+    expect(rows.map((row) => row['id']).toSet(), {
+      'weights-sample-1',
+      'weights-sample-2',
+    });
+    expect(rows.map((row) => row['replicate']).toSet(), {1, 2});
+    expect(rows.map((row) => row['sampleSize']).toSet(), {80, 90});
   });
 
   test(
-    'moving an existing scoped row to pooled merges into pooled row',
+    'moving an existing scoped id never absorbs or tombstones another id',
     () async {
       final panel = PanelRecord(
         id: 'quality-panel',
@@ -410,6 +430,7 @@ void main() {
         houseId: 'H1',
         setterId: 'S1',
         hatcherId: 'H1',
+        scopeType: SamplingLayer.setterHatcher,
         sampleSize: 50,
       );
 
@@ -424,17 +445,18 @@ void main() {
       );
 
       final rows = await db.query('chick_quality', orderBy: 'id ASC');
-      expect(rows, hasLength(1));
-      expect(rows.single['id'], pooled.id);
-      expect(rows.single['house'], isNull);
-      expect(rows.single['setter'], isNull);
-      expect(rows.single['hatcher'], isNull);
-      expect(rows.single['sampleSize'], 60);
+      expect(rows, hasLength(2));
+      final byId = {for (final row in rows) row['id'] as String: row};
+      expect(byId.keys, {pooled.id, scoped.id});
+      expect(byId[pooled.id]!['sampleSize'], 40);
+      expect(byId[scoped.id]!['sampleSize'], 60);
+      expect(
+        byId[scoped.id]!['sampleKey'],
+        isNot(byId[pooled.id]!['sampleKey']),
+      );
 
       final tombstones = await db.query('sync_tombstones');
-      expect(tombstones, hasLength(1));
-      expect(tombstones.single['tableName'], 'chick_quality');
-      expect(tombstones.single['rowId'], scoped.id);
+      expect(tombstones, isEmpty);
     },
   );
 

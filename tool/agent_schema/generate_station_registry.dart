@@ -97,6 +97,8 @@ void _validateRegistry(Map<String, Object?> registry) {
       throw FormatException('$schemaKey requires input fields');
     }
     final fieldKeys = <String>{};
+    final localColumns = <String>{};
+    final remoteColumns = <String>{};
     for (final rawField in fields) {
       final field = _object(rawField, '$schemaKey field');
       final fieldKey = _text(field['fieldKey'], '$schemaKey fieldKey');
@@ -135,6 +137,12 @@ void _validateRegistry(Map<String, Object?> registry) {
         }
       }
       _persistence(field['persistence'], '$schemaKey.$fieldKey persistence');
+      _claimPersistenceColumns(
+        field['persistence'],
+        '$schemaKey.$fieldKey',
+        localColumns,
+        remoteColumns,
+      );
     }
 
     final completion = _object(station['completion'], '$schemaKey completion');
@@ -220,6 +228,12 @@ void _validateRegistry(Map<String, Object?> registry) {
       _persistence(
         calculation['persistence'],
         '$schemaKey.$fieldKey persistence',
+      );
+      _claimPersistenceColumns(
+        calculation['persistence'],
+        '$schemaKey.$fieldKey',
+        localColumns,
+        remoteColumns,
       );
       availableKeys.add(fieldKey);
     }
@@ -343,6 +357,23 @@ void _persistence(Object? value, String path) {
   final mapping = _object(value, path);
   _text(mapping['localColumn'], '$path.localColumn');
   _text(mapping['remoteColumn'], '$path.remoteColumn');
+}
+
+void _claimPersistenceColumns(
+  Object? value,
+  String path,
+  Set<String> localColumns,
+  Set<String> remoteColumns,
+) {
+  final mapping = _object(value, '$path persistence');
+  final local = _text(mapping['localColumn'], '$path localColumn');
+  final remote = _text(mapping['remoteColumn'], '$path remoteColumn');
+  if (!localColumns.add(local)) {
+    throw FormatException('$path repeats local column $local');
+  }
+  if (!remoteColumns.add(remote)) {
+    throw FormatException('$path repeats remote column $remote');
+  }
 }
 
 Map<String, Object?> _object(Object? value, String path) {

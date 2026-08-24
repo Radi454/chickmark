@@ -145,6 +145,7 @@ void main() {
         any(),
         any(),
         keepHierarchyRows: any(named: 'keepHierarchyRows'),
+        keepSampleKeys: any(named: 'keepSampleKeys'),
       ),
     ).thenAnswer((_) async {});
     when(
@@ -593,6 +594,7 @@ void main() {
           'session-1',
           captureAny(),
           keepHierarchyRows: any(named: 'keepHierarchyRows'),
+          keepSampleKeys: any(named: 'keepSampleKeys'),
         ),
       );
       prune.called(1);
@@ -831,6 +833,7 @@ void main() {
           'session-1',
           captureAny(),
           keepHierarchyRows: any(named: 'keepHierarchyRows'),
+          keepSampleKeys: any(named: 'keepSampleKeys'),
         ),
       );
       prune.called(1);
@@ -935,6 +938,7 @@ void main() {
           'session-1',
           captureAny(),
           keepHierarchyRows: any(named: 'keepHierarchyRows'),
+          keepSampleKeys: any(named: 'keepSampleKeys'),
         ),
       );
       prune.called(1);

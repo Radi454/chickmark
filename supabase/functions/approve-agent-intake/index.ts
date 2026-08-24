@@ -201,7 +201,7 @@ export function serveApproveAgentIntake(
         p_remote_table: prepared.remoteTable,
         p_station_key: prepared.stationKey,
         p_panel_row_id: prepared.panelRowId,
-        p_panel_payload: prepared.panelPayload,
+        p_panel_payload: { ...prepared.panelPayload, created_by: reviewerId },
         p_reviewer_id: reviewerId,
         p_approved_at: approvedAt,
       })

@@ -2,6 +2,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 
 void main() {
+  test('Chick V2 identity and provenance map to cloud snake_case', () {
+    final payload = toSupabaseUpsertPayload('chick_weights', {
+      'sampleKey': 'key-1',
+      'scopeKey': '{"house":"H1"}',
+      'schemaVersion': 1,
+      'captureMethod': 'manual',
+      'createdBy': 'user-1',
+      'deviceId': 'device-1',
+      'sourceRefId': 'ref-1',
+      'observedAt': '2026-08-24T00:00:00Z',
+      'dirtyAt': 'device-only',
+    });
+
+    expect(payload, {
+      'sample_key': 'key-1',
+      'scope_key': '{"house":"H1"}',
+      'schema_version': 1,
+      'capture_method': 'manual',
+      'created_by': 'user-1',
+      'device_id': 'device-1',
+      'source_ref_id': 'ref-1',
+      'observed_at': '2026-08-24T00:00:00Z',
+    });
+  });
+
   test(
     'upsert payload strips local sync metadata before snake case conversion',
     () {

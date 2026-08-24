@@ -17,9 +17,9 @@ void main() {
 
   test('egg_quality carries the grading summary columns', () async {
     final db = await DatabaseHelper().db;
-    final columns = (await db.rawQuery('PRAGMA table_info(egg_quality)'))
-        .map((row) => row['name'] as String)
-        .toSet();
+    final columns = (await db.rawQuery(
+      'PRAGMA table_info(egg_quality)',
+    )).map((row) => row['name'] as String).toSet();
     expect(
       columns.containsAll({
         'gradingSampleSize',
@@ -55,10 +55,7 @@ void main() {
       'name': 'Defect Count Farm',
       'createdAt': '2026-08-23T00:00:00.000Z',
     });
-    await db.insert('flocks', {
-      'id': 'flock-1',
-      'customerId': 'customer-1',
-    });
+    await db.insert('flocks', {'id': 'flock-1', 'customerId': 'customer-1'});
     await db.insert('hatcheries', {
       'id': 'hatchery-1',
       'customerId': 'customer-1',
@@ -97,9 +94,9 @@ void main() {
     );
   });
 
-  test('database version is 63', () async {
+  test('database version is 64', () async {
     final db = await DatabaseHelper().db;
-    expect(await db.getVersion(), 63);
+    expect(await db.getVersion(), 64);
   });
 
   test(
@@ -122,7 +119,8 @@ void main() {
       expect(
         tables,
         {'egg_defect_types', 'egg_quality_defect_counts'},
-        reason: 'both tables must be restored by the repair pass, not just '
+        reason:
+            'both tables must be restored by the repair pass, not just '
             'logged as restored',
       );
 
@@ -162,9 +160,9 @@ void main() {
       // Must not throw out of onOpen.
       db = await DatabaseHelper().db;
 
-      final columns = (await db.rawQuery('PRAGMA table_info(egg_defect_types)'))
-          .map((row) => row['name'] as String)
-          .toSet();
+      final columns = (await db.rawQuery(
+        'PRAGMA table_info(egg_defect_types)',
+      )).map((row) => row['name'] as String).toSet();
       expect(columns, contains('code'));
     },
   );

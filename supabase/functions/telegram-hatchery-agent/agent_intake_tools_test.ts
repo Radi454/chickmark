@@ -55,7 +55,13 @@ function harness() {
         requested.customerId === 'customer-a' &&
           requested.flockId === 'flock-a' &&
           requested.hatcheryId === 'hatchery-a'
-          ? context()
+          ? {
+            ...context(),
+            layer: requested.layer,
+            houseIdentity: requested.houseIdentity,
+            setterIdentity: requested.setterIdentity,
+            hatcherIdentity: requested.hatcherIdentity,
+          }
           : null,
       ),
   } satisfies AgentIntakeContextResolver & {
@@ -701,15 +707,18 @@ Deno.test('an incomplete machine context names WHICH machine is missing', async 
     args: Record<string, unknown>,
     turnIndex: number,
   ) =>
-    executeAgentTool({ id: `tool-${turnIndex}-${name}`, name, arguments: args }, {
-      scope,
-      conversationId: conversation.id,
-      activeVisitId: null,
-      conversationTurnId: `turn-${turnIndex}`,
-      conversationTurnIndex: turnIndex,
-      evidence: { record: () => undefined },
-      handlers,
-    })
+    executeAgentTool(
+      { id: `tool-${turnIndex}-${name}`, name, arguments: args },
+      {
+        scope,
+        conversationId: conversation.id,
+        activeVisitId: null,
+        conversationTurnId: `turn-${turnIndex}`,
+        conversationTurnIndex: turnIndex,
+        evidence: { record: () => undefined },
+        handlers,
+      },
+    )
 
   const proposal = await call('propose_intake', { customerId: 'customer-a' }, 1)
   assert(proposal.ok)
@@ -734,4 +743,48 @@ Deno.test('an incomplete machine context names WHICH machine is missing', async 
   // The model can now ask ONE question instead of re-asking for the whole
   // machine context, including the half the user already gave it.
   assertEquals(result.data?.missing, ['hatcherIdentity'])
+})
+
+Deno.test('a house-scoped weight intake requires and retains the house identity', async () => {
+  const test = harness()
+  await test.store.createConversation(test.conversation)
+  const proposal = await test.call(
+    'propose_intake',
+    { customerId: 'customer-a' },
+    1,
+  )
+  const missing = await test.call(
+    'start_intake',
+    {
+      pendingActionId: proposal.data!.pendingActionId,
+      schemaKey: 'chicks.weights',
+      schemaVersion: 1,
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+      hatcheryId: 'hatchery-a',
+      auditDate: '2026-07-28',
+      layer: 'house',
+    },
+    2,
+  )
+  assertEquals(missing.code, 'context_incomplete')
+  assertEquals(missing.data?.missing, ['houseIdentity'])
+  const started = await test.call(
+    'start_intake',
+    {
+      pendingActionId: proposal.data!.pendingActionId,
+      schemaKey: 'chicks.weights',
+      schemaVersion: 1,
+      customerId: 'customer-a',
+      flockId: 'flock-a',
+      hatcheryId: 'hatchery-a',
+      auditDate: '2026-07-28',
+      layer: 'house',
+      houseIdentity: 'House 1',
+    },
+    3,
+  )
+  assertEquals(started.ok, true)
+  const session = await test.store.loadSession(started.data!.intakeId as string)
+  assertEquals(session?.context.houseIdentity, 'House 1')
 })

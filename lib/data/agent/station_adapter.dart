@@ -88,18 +88,100 @@ abstract final class AgentStationAdapter {
     AgentStationSchema schema,
     Map<String, Object?> values,
   ) {
-    final validation = validate(schema, values);
-    if (!validation.isValid) {
-      throw ArgumentError('Station values are not valid');
+    return _persistenceValues(schema, values, columnKey: 'remoteColumn');
+  }
+
+  static Map<String, Object?> localPersistenceValues(
+    AgentStationSchema schema,
+    Map<String, Object?> values,
+  ) {
+    return _persistenceValues(schema, values, columnKey: 'localColumn');
+  }
+
+  /// Maps already-collected field values without turning Phase 2's
+  /// warning-only registry checks into a persistence blocker.
+  static Map<String, Object?> localPersistenceValuesUnchecked(
+    AgentStationSchema schema,
+    Map<String, Object?> values, {
+    bool recomputeCalculations = true,
+  }) {
+    return _persistenceValues(
+      schema,
+      values,
+      columnKey: 'localColumn',
+      validateValues: false,
+      recomputeCalculations: recomputeCalculations,
+    );
+  }
+
+  static Map<String, Object?> fieldValuesFromLocalRow(
+    AgentStationSchema schema,
+    Map<String, Object?> row,
+  ) {
+    return _fieldValuesFromRow(schema, row, columnKey: 'localColumn');
+  }
+
+  static Map<String, Object?> fieldValuesFromRemoteRow(
+    AgentStationSchema schema,
+    Map<String, Object?> row,
+  ) {
+    return _fieldValuesFromRow(schema, row, columnKey: 'remoteColumn');
+  }
+
+  /// Selects persisted local values using only registry-declared columns while
+  /// preserving their exact storage representation (including JSON spacing).
+  static Map<String, Object?> registeredLocalColumnValues(
+    AgentStationSchema schema,
+    Map<String, Object?> row,
+  ) {
+    final result = <String, Object?>{};
+    for (final field in schema.fields) {
+      final column = _text(field.persistence['localColumn']);
+      if (column != null && row.containsKey(column)) {
+        result[column] = row[column];
+      }
     }
-    final calculated = calculate(schema, values);
+    for (final calculation in schema.calculations) {
+      final column = _text(calculation.persistence['localColumn']);
+      if (column != null && row.containsKey(column)) {
+        result[column] = row[column];
+      }
+    }
+    return result;
+  }
+
+  static Map<String, Object?> _persistenceValues(
+    AgentStationSchema schema,
+    Map<String, Object?> values, {
+    required String columnKey,
+    bool validateValues = true,
+    bool recomputeCalculations = true,
+  }) {
+    if (validateValues) {
+      final validation = validate(schema, values);
+      if (!validation.isValid) {
+        throw ArgumentError('Station values are not valid');
+      }
+    }
+    final calculated = recomputeCalculations
+        ? calculate(schema, values)
+        : {
+            for (final calculation in schema.calculations)
+              if (values.containsKey(calculation.fieldKey))
+                calculation.fieldKey: values[calculation.fieldKey],
+          };
     final result = <String, Object?>{};
     for (final field in schema.fields) {
       if (!values.containsKey(field.fieldKey)) continue;
-      final column = _text(field.persistence['remoteColumn']);
+      final column = _text(field.persistence[columnKey]);
       if (column == null) continue;
       final value = values[field.fieldKey];
       result[column] = switch (field.type) {
+        'number_list' || 'object_list' when value == null => null,
+        // Phase 2 UI drafts still carry JSON-backed lists as encoded strings.
+        // Preserve them exactly while the registry remains the authority for
+        // which field maps to which column.
+        'number_list' || 'object_list' when value is String => value,
         'number_list' || 'object_list' => jsonEncode(value),
         'boolean' when field.persistence['encoding'] == 'integer_boolean' =>
           value == true ? 1 : 0,
@@ -107,13 +189,53 @@ abstract final class AgentStationAdapter {
       };
     }
     for (final calculation in schema.calculations) {
-      final column = _text(calculation.persistence['remoteColumn']);
+      final column = _text(calculation.persistence[columnKey]);
       if (column != null && calculated.containsKey(calculation.fieldKey)) {
         result[column] = calculated[calculation.fieldKey];
       }
     }
     return result;
   }
+
+  static Map<String, Object?> _fieldValuesFromRow(
+    AgentStationSchema schema,
+    Map<String, Object?> row, {
+    required String columnKey,
+  }) {
+    final result = <String, Object?>{};
+    for (final field in schema.fields) {
+      final column = _text(field.persistence[columnKey]);
+      if (column == null || !row.containsKey(column) || row[column] == null) {
+        continue;
+      }
+      result[field.fieldKey] = _decodePersistenceValue(field, row[column]);
+    }
+    for (final calculation in schema.calculations) {
+      final column = _text(calculation.persistence[columnKey]);
+      if (column == null || !row.containsKey(column) || row[column] == null) {
+        continue;
+      }
+      result[calculation.fieldKey] = row[column];
+    }
+    return result;
+  }
+}
+
+Object? _decodePersistenceValue(AgentStationField field, Object? value) {
+  if (field.type == 'boolean' &&
+      field.persistence['encoding'] == 'integer_boolean' &&
+      value is num) {
+    return value != 0;
+  }
+  if ((field.type == 'number_list' || field.type == 'object_list') &&
+      value is String) {
+    try {
+      return jsonDecode(value);
+    } on FormatException {
+      return value;
+    }
+  }
+  return value;
 }
 
 List<AgentStationValueIssue> _validateField(

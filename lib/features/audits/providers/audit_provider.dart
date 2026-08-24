@@ -1594,7 +1594,7 @@ class AuditProvider extends ChangeNotifier {
       index: index,
     );
     return StationSampleModel(
-      id: _uuid.v4(),
+      id: _uuid.v7(),
       auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
       stationType: 'chicks',
       sectorType: StationSampleModel.sectorChickWeights,
@@ -1691,6 +1691,7 @@ class AuditProvider extends ChangeNotifier {
       benchmarkSource: sample.benchmarkSource,
       benchmarkSnapshotJson: sample.benchmarkSnapshotJson,
       resultSummaryJson: sample.resultSummaryJson,
+      sampleKey: sample.sampleKey,
       notes: sample.notes,
       createdAt: sample.createdAt,
       updatedAt: DateTime.now(),
@@ -1934,7 +1935,7 @@ class AuditProvider extends ChangeNotifier {
       eggQualityScopeKind,
     );
     return StationSampleModel(
-      id: _uuid.v4(),
+      id: draft.auditType == 'Chicks' ? _uuid.v7() : _uuid.v4(),
       auditSessionId: _activeSessionId ?? draft.sessionId ?? '',
       legacyAuditId: draft.id,
       stationType: StationSampleMapper.stationTypeForAuditType(draft.auditType),
@@ -2129,6 +2130,7 @@ class AuditProvider extends ChangeNotifier {
               _drafts[index].auditType == 'Hatchers'
           ? fresh.hatcherNo
           : existing.hatcherNo,
+      sampleKey: existing.sampleKey,
       notes: existing.notes,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),

@@ -643,6 +643,43 @@ Station save behavior:
 - Current saves write Egg panels (`egg_storage`, `egg_quality`), Chicks
   panels (`chick_quality`, `chick_weights`), the selected breakout panel,
   Setter optimizing, or Hatcher optimizing.
+- Chick panel rows carry an immutable V2 identity envelope in addition to the
+  compatibility hierarchy columns. `chick_weights` uses domain
+  `chicks.weights`; historical combined `chick_quality` rows use
+  `chicks.legacy_combined`. The envelope records registry schema version,
+  normalized `scopeType`/canonical JSON `scopeKey`, a positive replicate, a
+  base64url canonical `sampleKey`, and source/capture/creator/device/reference/
+  observation-time provenance. New Chick sample row ids are UUIDv7 values and
+  are reused after reload. A different row id at the same scope receives the
+  next replicate; it is never merged, overwritten, pruned, or tombstoned by a
+  hierarchy collision. Existing rows keep their ids and measurements during
+  v64 backfill, and missing legacy hierarchy is represented by explicit JSON
+  null rather than inferred. Reopen reconstructs each quality and weight row
+  by its persisted id, including multiple rows at one scope, so a no-op save
+  retains every id and sample key without creating tombstones. Reconstructed
+  station samples also carry their persisted sample key; if older in-memory
+  state regenerates an id, that key recovers the exact customer row within the
+  same audit session rather than allocating or merging a different sample;
+  sample-key-aware pruning preserves the recovered row.
+- The Supabase mirror has the snake-case form of the same additive identity and
+  provenance columns. Agent-approved Chick intake supplies the registry domain,
+  schema version, normalized scope, and provenance. A database trigger validates
+  or allocates every inserted Chick replicate/sample key under a per-identity
+  transaction lock after the final session is known, including rows from older
+  clients and independently-created offline human samples. A collision keeps
+  both row ids and receives the next replicate; the push response updates the
+  local identity batch before pull. If a new local row took a returned key while
+  the upload was in flight, reconciliation preserves it, moves it to the next
+  free replicate, and leaves it pending for the next push. Updates cannot mutate
+  an existing cloud identity envelope. Human and agent rows at one scope
+  therefore coexist, and house-scoped weight intake retains its collected house
+  identity through approval. These migrations are repository files only and are
+  not applied by the app.
+- `tool/agent_schema/station_registry.json` remains the persistence-metadata
+  authority. Generation rejects duplicate local or remote column claims within
+  a schema. Normal Chick UI save/load and agent intake use those generated field
+  mappings in both directions; adapters also support semantic JSON/list and
+  integer-boolean decoding while compatibility-only columns remain available.
 - Storage-capable stations default blank storage-day values to `0` in drafts
   and station-sample metadata so BMK age calculations can run even when the
   user leaves the storage field untouched.
@@ -682,18 +719,18 @@ Station save behavior:
   can autosave their station panel data by omitting the nullable panel
   `hatcheryId`; the setup attention item remains responsible for surfacing the
   missing hatchery record.
-- Reopened panel-row drafts may use synthetic in-memory IDs, but panel saves
+- Reopened non-Chick panel-row drafts may use synthetic in-memory IDs, but panel saves
   resolve conflicts by the panel row identity (`sessionId`, `house`, `setter`,
   `hatcher`, `trolley`, `tray`, and `position`) so reopened edits update the
   existing panel row instead of writing legacy audit/sample tables. `egg_quality`
-  is excluded from this hierarchy-identity resolution as of v61; its rows
-  resolve by `id` only (see above).
+  and both Chick panel tables are excluded from hierarchy-identity resolution;
+  their rows resolve by persisted `id` only (see above).
 - If an existing scoped sample row is later saved with the same hierarchy as an
   existing pooled or differently scoped row, panel persistence merges the save
   into the existing hierarchy row and tombstones the stale row id instead of
   attempting an `id` update that would violate the unique hierarchy index. This
-  merge behavior does not apply to `egg_quality`, which has no unique hierarchy
-  index to violate.
+  merge behavior does not apply to `egg_quality`, `chick_quality`, or
+  `chick_weights`, which have no unique hierarchy index to violate.
 - After current scoped rows save, the provider prunes stale hierarchy rows for
   the same session/table when their row id or explicit hierarchy no longer
   matches the active sample set. Removing a House or Machine scope chip, or
@@ -2122,7 +2159,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 63. The database file
+The app uses SQLite through `sqflite` at database version 64. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup

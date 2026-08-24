@@ -33,7 +33,7 @@
 import { type AgentToolName } from './agent_protocol.ts'
 import { agentStationRegistry } from '../_shared/station_registry.generated.ts'
 
-export const AGENT_TOOL_CONTRACT_VERSION = '1.2.0'
+export const AGENT_TOOL_CONTRACT_VERSION = '1.3.0'
 
 export const MAX_AGENT_READ_ROWS = 100
 
@@ -319,6 +319,7 @@ export const AGENT_TOOL_CONTRACT: readonly AgentToolContractEntry[] = Object
             'tray',
           ],
         },
+        houseIdentity: idRule,
         setterIdentity: idRule,
         hatcherIdentity: idRule,
       },

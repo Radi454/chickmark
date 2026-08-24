@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_schema.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
 import 'seeds/dashboard_demo_seeds.dart';
@@ -45,7 +46,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 63,
+      version: 64,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -195,6 +196,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 63) {
       await _applyV63Upgrade(db);
+    }
+    if (oldVersion < 64) {
+      await _applyV64Upgrade(db);
     }
   }
 
@@ -1009,6 +1013,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV63UpgradeForTest(Database db) => _applyV63Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV64UpgradeForTest(Database db) => _applyV64Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

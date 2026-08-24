@@ -1,5 +1,29 @@
 # ChickMark Change Log
 
+- 2026-08-24: Added Chick Quality V2 Phase 2 identity and provenance without
+  splitting or rewriting historical combined measurements. SQLite v64 and the
+  migration-only Supabase mirror preserve every Chick row id, deterministically
+  assign duplicate scopes distinct replicates and canonical sample keys, retain
+  explicit nulls for missing legacy hierarchy, and replace hierarchy uniqueness
+  with customer/sample-key uniqueness. New human Chick samples use UUIDv7 row
+  ids; row identity is immutable after persistence; same-scope human and agent
+  samples coexist. Chick provenance, schema/domain, normalized scope, and sample
+  identity sync in both directions. The generated station registry now validates
+  unique local/remote column claims and its adapters decode both persistence
+  directions. Agent approvals emit the same identity envelope and allocate a
+  replicate transactionally only after the final audit session is known. No
+  migration was applied to a live Supabase project. Review hardening makes
+  production Chick save/load consume the generated registry mappings,
+  preserves every quality and weight replicate across reopen/save, repairs
+  duplicate pre-existing cloud envelopes deterministically, makes cloud
+  identity immutable, and reconciles cloud-reallocated offline collisions
+  locally before pull, including a new sample created during the upload. A
+  persisted sample key recovers the original row within its owning audit
+  session when older draft state has a regenerated id, and sample-key-aware
+  pruning preserves that row. Cloud backfill parity tests also cover missing required
+  hierarchy as explicit JSON null. House-scoped agent weight intake now carries
+  its house identity from collection through approval.
+
 - 2026-08-23: Completed Chick Quality Phase 0 and Phase 1 safety work. The
   cloud-schema parity guard now compares against columns read from a PostgreSQL
   instance after all migrations run. Chick CVT stores canonical Fahrenheit

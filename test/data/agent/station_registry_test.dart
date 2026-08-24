@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/utils/calculation_utils.dart';
+import 'package:hatchaudit/data/agent/station_adapter.dart';
 import 'package:hatchaudit/data/agent/station_registry.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 
@@ -41,6 +42,62 @@ void main() {
     expect(
       AgentStationRegistry.schemas.map((schema) => schema.identity).toSet(),
       hasLength(AgentStationRegistry.schemas.length),
+    );
+  });
+
+  test('generated persistence columns are bidirectional and unambiguous', () {
+    for (final schema in AgentStationRegistry.schemas) {
+      final bindings = [
+        ...schema.fields.map(
+          (field) => (
+            fieldKey: field.fieldKey,
+            local: field.persistence['localColumn'],
+            remote: field.persistence['remoteColumn'],
+          ),
+        ),
+        ...schema.calculations.map(
+          (calculation) => (
+            fieldKey: calculation.fieldKey,
+            local: calculation.persistence['localColumn'],
+            remote: calculation.persistence['remoteColumn'],
+          ),
+        ),
+      ];
+      expect(
+        bindings.map((binding) => binding.local).toSet(),
+        hasLength(bindings.length),
+        reason: '${schema.identity} repeats a local column',
+      );
+      expect(
+        bindings.map((binding) => binding.remote).toSet(),
+        hasLength(bindings.length),
+        reason: '${schema.identity} repeats a remote column',
+      );
+    }
+
+    final schema = AgentStationRegistry.require('chicks.weights', 1);
+    final fieldValues = AgentStationAdapter.fieldValuesFromLocalRow(schema, {
+      'weightsJson': '[41.0,43.0]',
+      'sampleSize': 2,
+      'avgWeight': 42.0,
+    });
+
+    expect(fieldValues, {
+      'weightsJson': [41.0, 43.0],
+      'sampleSize': 2,
+      'avgWeight': 42.0,
+    });
+    expect(
+      AgentStationAdapter.localPersistenceValues(schema, {
+        'weightsJson': fieldValues['weightsJson'],
+      }),
+      {
+        'weightsJson': '[41.0,43.0]',
+        'sampleSize': 2,
+        'avgWeight': 42.0,
+        'uniformityPct': 100.0,
+        'cvPct': 3.4,
+      },
     );
   });
 

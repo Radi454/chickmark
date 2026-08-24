@@ -348,6 +348,92 @@ void main() {
   );
 
   test(
+    'Chick same-scope replicas survive production reopen and save unchanged',
+    () async {
+      final provider = _newStationProvider('chicks');
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      provider.updateSampleMetadata({'setterNo': 'S1', 'hatcherNo': 'H1'});
+      provider.updateField('pasgarSampleSize', 20);
+      provider.updateField('pasgarReflexes', 1);
+      provider.addSample();
+      provider.updateSampleMetadata({'setterNo': 'S1', 'hatcherNo': 'H1'});
+      provider.updateField('pasgarSampleSize', 20);
+      provider.updateField('pasgarReflexes', 2);
+
+      provider.setChickWeightSampleMode(
+        StationSampleModel.sampleModeComparison,
+      );
+      provider.updateChickWeightSampleMetadata({'houseNo': 'House A'});
+      provider.updateChickWeightSampleResult(
+        weightsJson: jsonEncode([40.0]),
+        avgWeight: 40,
+        uniformityPct: 100,
+        cvPct: 0,
+      );
+      provider.addChickWeightSample();
+      provider.updateChickWeightSampleMetadata({'houseNo': 'House A'});
+      provider.updateChickWeightSampleResult(
+        weightsJson: jsonEncode([41.0]),
+        avgWeight: 41,
+        uniformityPct: 100,
+        cvPct: 0,
+      );
+      expect(await provider.saveSamplesWithResult(), isTrue);
+      provider.dispose();
+
+      final beforeQuality = await _rows('chick_quality');
+      final beforeWeights = await _rows('chick_weights');
+      expect(beforeQuality, hasLength(2));
+      expect(beforeWeights, hasLength(2));
+
+      final rowsByPanel = await _rowsByPanelForStation('chicks');
+      final reconstruction = reconstructStation(
+        stationKey: 'chicks',
+        sessionId: _sessionId,
+        context: _reconstructionContextFor('chicks'),
+        rowsByPanel: rowsByPanel,
+      );
+      final reopened = AuditProvider(autosaveEnabled: false);
+      reopened.initialize(
+        _auditContextFor('chicks'),
+        existingAudits: reconstruction.stationAudits,
+        // Simulate older in-memory state that regenerated both quality and
+        // weight draft ids while retaining the stable persisted sample key.
+        existingStationSamples: [
+          for (final sample in reconstruction.stationSamples)
+            sample.copyWith(id: 'transient-${sample.id}'),
+        ],
+        readOnly: false,
+        sessionId: _sessionId,
+        notify: false,
+      );
+      expect(reopened.drafts, hasLength(2));
+      expect(reopened.stationSamples, hasLength(2));
+      expect(reopened.chickWeightSamples, hasLength(2));
+      expect(await reopened.saveSamplesWithResult(), isTrue);
+      reopened.dispose();
+
+      expect(
+        (await _rows(
+          'chick_quality',
+        )).map((row) => (row['id'], row['sampleKey'])).toSet(),
+        beforeQuality.map((row) => (row['id'], row['sampleKey'])).toSet(),
+      );
+      expect(
+        (await _rows(
+          'chick_weights',
+        )).map((row) => (row['id'], row['sampleKey'])).toSet(),
+        beforeWeights.map((row) => (row['id'], row['sampleKey'])).toSet(),
+      );
+      final tombstones = await (await DatabaseHelper().db).query(
+        'sync_tombstones',
+        where: "tableName IN ('chick_quality', 'chick_weights')",
+      );
+      expect(tombstones, isEmpty);
+    },
+  );
+
+  test(
     'hard cutover schema exposes no legacy audit or sample tables',
     () async {
       await _saveStation('egg', _fillEggStationInitial);
@@ -452,14 +538,23 @@ Future<AuditProvider> _reopenedStationProvider(String stationKey) async {
     return provider;
   }
   final rowsByPanel = await _rowsByPanelForStation(stationKey);
+  final reconstruction = stationKey == 'chicks'
+      ? reconstructStation(
+          stationKey: stationKey,
+          sessionId: _sessionId,
+          context: _reconstructionContextFor(stationKey),
+          rowsByPanel: rowsByPanel,
+        )
+      : null;
   final provider = AuditProvider(autosaveEnabled: false);
   provider.initialize(
     _auditContextFor(stationKey),
-    existingAudits: _auditDraftsFromPanelRows(stationKey, rowsByPanel),
-    existingStationSamples: _stationSamplesFromPanelRows(
-      stationKey,
-      rowsByPanel,
-    ),
+    existingAudits:
+        reconstruction?.stationAudits ??
+        _auditDraftsFromPanelRows(stationKey, rowsByPanel),
+    existingStationSamples:
+        reconstruction?.stationSamples ??
+        _stationSamplesFromPanelRows(stationKey, rowsByPanel),
     readOnly: false,
     sessionId: _sessionId,
     notify: false,

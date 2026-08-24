@@ -49,6 +49,7 @@ void main() {
     expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
     expect(provider.sampleCount, 1);
     expect(provider.activeStationSample.sampleLabel, 'Sample 1');
+    expect(provider.activeStationSample.id[14], '7');
   });
 
   test('all station contexts default to one pooled sample', () {
@@ -132,6 +133,7 @@ void main() {
     expect(provider.activeDraft.chickStorageDays, 0);
     expect(provider.activeStationSample.storageDays, 0);
     expect(provider.activeStationSample.calculatedBmkAgeDays, 273);
+    expect(provider.chickWeightSamples.single.id[14], '7');
   });
 
   test('blank machine identity is rejected outside pool scope', () {

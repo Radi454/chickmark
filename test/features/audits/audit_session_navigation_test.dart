@@ -1179,6 +1179,7 @@ void main() {
         any(),
         any(),
         keepHierarchyRows: any(named: 'keepHierarchyRows'),
+        keepSampleKeys: any(named: 'keepSampleKeys'),
       ),
     ).thenAnswer((_) async {});
     when(
@@ -2290,6 +2291,7 @@ void _stubEmptyPanelPersistence(
       any(),
       any(),
       keepHierarchyRows: any(named: 'keepHierarchyRows'),
+      keepSampleKeys: any(named: 'keepSampleKeys'),
     ),
   ).thenAnswer((_) async {});
   when(

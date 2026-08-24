@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
+import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../services/panel_aggregate_deriver.dart';
@@ -41,31 +42,33 @@ class PanelSampleRepository {
     final database = await _databaseHelper.db;
     await database.transaction<void>((txn) async {
       if (samples.isEmpty) {
+        final row = _stampDirty(
+          _deriveAndRecord(
+            definition.tableName,
+            await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
+          ),
+        );
         await _upsertById(
           txn,
           definition.tableName,
-          _stampDirty(
-            _deriveAndRecord(
-              definition.tableName,
-              await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
-            ),
-          ),
+          await _prepareChickIdentity(txn, definition.tableName, row),
         );
         return;
       }
       for (final sample in samples) {
+        final row = _stampDirty(
+          _deriveAndRecord(
+            definition.tableName,
+            await _withoutOrphanedPanelHatcheryId(
+              txn,
+              _rowFromLegacySample(panel, sample),
+            ),
+          ),
+        );
         await _upsertById(
           txn,
           definition.tableName,
-          _stampDirty(
-            _deriveAndRecord(
-              definition.tableName,
-              await _withoutOrphanedPanelHatcheryId(
-                txn,
-                _rowFromLegacySample(panel, sample),
-              ),
-            ),
-          ),
+          await _prepareChickIdentity(txn, definition.tableName, row),
         );
       }
     });
@@ -83,7 +86,17 @@ class PanelSampleRepository {
     final values = deriveAggregates
         ? _deriveAndRecord(definition.tableName, row)
         : Map<String, Object?>.of(row);
-    await _upsertById(database, definition.tableName, values);
+    if (definition.identityColumnDefinitions.isEmpty) {
+      await _upsertById(database, definition.tableName, values);
+    } else {
+      await database.transaction<void>((txn) async {
+        await _upsertById(
+          txn,
+          definition.tableName,
+          await _prepareChickIdentity(txn, definition.tableName, values),
+        );
+      });
+    }
     AppSyncCoordinator.nudge();
   }
 
@@ -202,12 +215,17 @@ class PanelSampleRepository {
     String sessionId,
     Iterable<String> keepIds, {
     Iterable<Map<String, Object?>> keepHierarchyRows = const [],
+    Iterable<String> keepSampleKeys = const [],
   }) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
     final keepIdSet = keepIds
         .map((id) => id.trim())
         .where((id) => id.isNotEmpty)
+        .toSet();
+    final keepSampleKeySet = keepSampleKeys
+        .map((key) => key.trim())
+        .where((key) => key.isNotEmpty)
         .toSet();
     await database.transaction<void>((txn) async {
       final columns = await _tableColumns(txn, definition.tableName);
@@ -220,7 +238,11 @@ class PanelSampleRepository {
                 .toSet();
       final rows = await txn.query(
         definition.tableName,
-        columns: ['id', ...hierarchyColumns],
+        columns: [
+          'id',
+          ...hierarchyColumns,
+          if (isIdKeyed && columns.contains('sampleKey')) 'sampleKey',
+        ],
         where: isIdKeyed
             ? 'sessionId = ?'
             : _hierarchyRowsWhereForColumns(hierarchyColumns),
@@ -229,9 +251,11 @@ class PanelSampleRepository {
       final staleIds = <String>[];
       for (final row in rows) {
         final id = row['id']?.toString();
+        final sampleKey = row['sampleKey']?.toString();
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
+            (sampleKey == null || !keepSampleKeySet.contains(sampleKey)) &&
             (isIdKeyed ||
                 !keepHierarchyKeys.contains(
                   _hierarchyKey(row, hierarchyColumns),
@@ -422,6 +446,98 @@ class PanelSampleRepository {
     );
   }
 
+  /// Applies identity ordinals returned by the cloud before the pull pass.
+  /// Cloud insertion may reallocate an offline-colliding replicate; clearing
+  /// all keys in the returned batch first avoids transient local uniqueness
+  /// conflicts while the batch is permuted to its authoritative assignments.
+  Future<void> reconcileChickIdentityAssignments(
+    String tableName,
+    List<Map<String, dynamic>> remoteRows,
+  ) async {
+    if (!const {'chick_quality', 'chick_weights'}.contains(tableName) ||
+        remoteRows.isEmpty) {
+      return;
+    }
+    final assignments = <({String id, int replicate, String sampleKey})>[];
+    for (final remoteRow in remoteRows) {
+      final row = _normalizeRow(remoteRow);
+      final id = _text(row['id']);
+      final replicate = row['replicate'];
+      final sampleKey = _text(row['sampleKey']);
+      if (id == null ||
+          replicate is! int ||
+          replicate < 1 ||
+          sampleKey == null) {
+        throw StateError('$tableName returned an incomplete Chick identity');
+      }
+      assignments.add((id: id, replicate: replicate, sampleKey: sampleKey));
+    }
+    final database = await _databaseHelper.db;
+    await database.transaction((txn) async {
+      final assignmentIds = assignments.map((item) => item.id).toSet();
+      final returnedKeys = assignments
+          .map((item) => item.sampleKey)
+          .toSet()
+          .toList(growable: false);
+      final keyPlaceholders = List.filled(returnedKeys.length, '?').join(', ');
+      final displacedRows = (await txn.query(
+        tableName,
+        where: 'sampleKey IN ($keyPlaceholders)',
+        whereArgs: returnedKeys,
+      )).where((row) => !assignmentIds.contains(_text(row['id']))).toList();
+      final rowsToClear = <String>{
+        ...assignmentIds,
+        for (final row in displacedRows) _text(row['id'])!,
+      };
+      for (final id in rowsToClear) {
+        final changed = await txn.update(
+          tableName,
+          {'sampleKey': null},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (changed != 1) {
+          throw StateError('$tableName cloud identity id is missing: $id');
+        }
+      }
+      for (final assignment in assignments) {
+        await txn.update(
+          tableName,
+          {
+            'replicate': assignment.replicate,
+            'sampleKey': assignment.sampleKey,
+          },
+          where: 'id = ?',
+          whereArgs: [assignment.id],
+        );
+      }
+      // A local sample can be created after the dirty snapshot is uploaded.
+      // If it minted an ordinal the cloud returned for an older row, keep the
+      // new row and move only that still-local identity to the next free
+      // replicate. It remains pending and will be inserted on the next push.
+      for (final displaced in displacedRows) {
+        final prepared = await _prepareChickIdentity(txn, tableName, {
+          ...displaced,
+          'replicate': null,
+          'sampleKey': null,
+        });
+        await txn.update(
+          tableName,
+          {
+            'domain': prepared['domain'],
+            'schemaVersion': prepared['schemaVersion'],
+            'scopeType': prepared['scopeType'],
+            'scopeKey': prepared['scopeKey'],
+            'replicate': prepared['replicate'],
+            'sampleKey': prepared['sampleKey'],
+          },
+          where: 'id = ?',
+          whereArgs: [prepared['id']],
+        );
+      }
+    });
+  }
+
   /// Panel rows awaiting a push (locally edited or last push failed).
   Future<List<Map<String, dynamic>>> getDirtyRows(String tableName) async {
     final definition = PanelSampleSchema.byTable(tableName);
@@ -556,12 +672,10 @@ class PanelSampleRepository {
         whereArgs: [rowId],
       );
       if (updatedById != 0) return;
-      // The insert was ignored (a conflict happened) but no row exists with
-      // this id to update either. This should be unreachable for an
-      // id-keyed table under the current schema (no hierarchy unique index
-      // remains to collide on), but if a stale index somehow lingers, fall
-      // through to the shared hierarchy path below rather than silently
-      // discarding the write.
+      throw StateError(
+        '$table rejected id-keyed row $rowId because another immutable '
+        'identity conflicts with it',
+      );
     }
     final inserted = await executor.insert(
       table,
@@ -681,6 +795,7 @@ class PanelSampleRepository {
     return {
       ...panel.toMap(),
       'id': sample.id,
+      'scopeType': sample.scopeType.dbValue,
       'house': _firstText(sample.houseId, sample.houseName, panel.house),
       'setter': _firstText(sample.setterId, panel.setter),
       'hatcher': _firstText(sample.hatcherId, panel.hatcher),
@@ -692,10 +807,195 @@ class PanelSampleRepository {
       'tray': _firstText(sample.trayLabel, sample.trayId, panel.tray),
       'position': _firstText(sample.position, panel.position),
       'sampleSize': sample.sampleSize,
+      'sampleKey': sample.sampleKey,
       'notes': sample.notes ?? panel.notes,
       'createdAt': sample.createdAt.toUtc().toIso8601String(),
       'updatedAt': sample.updatedAt.toUtc().toIso8601String(),
     };
+  }
+
+  Future<Map<String, Object?>> _prepareChickIdentity(
+    DatabaseExecutor executor,
+    String table,
+    Map<String, Object?> row,
+  ) async {
+    final definition = PanelSampleSchema.byTable(table);
+    if (definition.identityColumnDefinitions.isEmpty) return row;
+    final tableColumns = await _tableColumns(executor, table);
+    if (!tableColumns.containsAll({
+      'domain',
+      'scopeKey',
+      'replicate',
+      'sampleKey',
+    })) {
+      return row;
+    }
+    final rowId = _text(row['id']);
+    final customerId = _text(row['customerId']);
+    final sessionId = _text(row['sessionId']);
+    if (rowId == null || customerId == null || sessionId == null) {
+      throw ArgumentError('$table requires id, customerId, and sessionId');
+    }
+
+    final existing = await executor.query(
+      table,
+      where: 'id = ?',
+      whereArgs: [rowId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty && _text(existing.single['sampleKey']) != null) {
+      final prepared = Map<String, Object?>.from(row);
+      for (final column in definition.identityColumnDefinitions.map(
+        (definition) => definition.split(RegExp(r'\s+')).first,
+      )) {
+        prepared[column] = existing.single[column];
+      }
+      // scopeType predates the V2 column list but is part of the immutable
+      // envelope once a sample key exists.
+      prepared['scopeType'] = existing.single['scopeType'];
+      return prepared;
+    }
+
+    // Reopened drafts normally retain the persisted id. The sample key is a
+    // second stable locator for older/rebuilt draft state whose transient id
+    // was regenerated. Recover the persisted row instead of allocating a
+    // duplicate replicate; customer/sampleKey uniqueness makes this exact.
+    final requestedSampleKey = _text(row['sampleKey']);
+    if (existing.isEmpty && requestedSampleKey != null) {
+      final bySampleKey = await executor.query(
+        table,
+        where: 'customerId = ? AND sessionId = ? AND sampleKey = ?',
+        whereArgs: [customerId, sessionId, requestedSampleKey],
+        limit: 1,
+      );
+      if (bySampleKey.isNotEmpty) {
+        final prepared = Map<String, Object?>.from(row)
+          ..['id'] = bySampleKey.single['id'];
+        for (final column in definition.identityColumnDefinitions.map(
+          (definition) => definition.split(RegExp(r'\s+')).first,
+        )) {
+          prepared[column] = bySampleKey.single[column];
+        }
+        prepared['scopeType'] = bySampleKey.single['scopeType'];
+        return prepared;
+      }
+    }
+
+    final scopeType = _scopeTypeForChickIdentity(table, row);
+    final domain =
+        _text(row['domain']) ??
+        (table == 'chick_weights'
+            ? 'chicks.weights'
+            : 'chicks.legacy_combined');
+    final schemaVersion =
+        row['schemaVersion'] is int && (row['schemaVersion'] as int) > 0
+        ? row['schemaVersion']! as int
+        : 1;
+    final scopeKey =
+        _text(row['scopeKey']) ??
+        ChickSampleIdentity.buildLegacyScopeKey(
+          scopeType: scopeType,
+          house: _text(row['house']),
+          setter: _text(row['setter']),
+          hatcher: _text(row['hatcher']),
+          trolley: _text(row['trolley']),
+          tray: _text(row['tray']),
+          position: _text(row['position']),
+        );
+
+    var replicate = row['replicate'] is int && (row['replicate'] as int) > 0
+        ? row['replicate']! as int
+        : null;
+    var sampleKey = _text(row['sampleKey']);
+    if (replicate != null && sampleKey != null) {
+      final expected = ChickSampleIdentity.buildSampleKey(
+        domain: domain,
+        sessionId: sessionId,
+        scopeType: scopeType,
+        scopeKey: scopeKey,
+        replicate: replicate,
+      );
+      final conflicts = await executor.query(
+        table,
+        columns: ['id'],
+        where: 'customerId = ? AND sampleKey = ? AND id <> ?',
+        whereArgs: [customerId, sampleKey, rowId],
+        limit: 1,
+      );
+      if (sampleKey != expected || conflicts.isNotEmpty) {
+        replicate = null;
+        sampleKey = null;
+      }
+    } else {
+      replicate = null;
+      sampleKey = null;
+    }
+    if (replicate == null) {
+      final maximum = Sqflite.firstIntValue(
+        await executor.rawQuery(
+          '''SELECT MAX(replicate) FROM $table
+             WHERE customerId = ? AND sessionId = ? AND domain = ?
+               AND scopeType = ? AND scopeKey = ?''',
+          [customerId, sessionId, domain, scopeType.dbValue, scopeKey],
+        ),
+      );
+      replicate = (maximum ?? 0) + 1;
+      sampleKey = ChickSampleIdentity.buildSampleKey(
+        domain: domain,
+        sessionId: sessionId,
+        scopeType: scopeType,
+        scopeKey: scopeKey,
+        replicate: replicate,
+      );
+    }
+
+    final isSyncedPull = row['syncStatus'] == 'synced';
+    return {
+      ...row,
+      'domain': domain,
+      'schemaVersion': schemaVersion,
+      'scopeType': scopeType.dbValue,
+      'scopeKey': scopeKey,
+      'replicate': replicate,
+      'sampleKey': sampleKey,
+      'source': _text(row['source']) ?? (isSyncedPull ? 'legacy' : 'human'),
+      'captureMethod':
+          _text(row['captureMethod']) ?? (isSyncedPull ? 'unknown' : 'manual'),
+      'createdBy': row['createdBy'],
+      'deviceId': row['deviceId'],
+      'sourceRefId': row['sourceRefId'],
+      'observedAt': row['observedAt'] ?? row['createdAt'],
+    };
+  }
+
+  SamplingLayer _scopeTypeForChickIdentity(
+    String table,
+    Map<String, Object?> row,
+  ) {
+    final stored = _text(row['scopeType']);
+    if (stored != null) {
+      try {
+        final parsed = SamplingLayer.fromDbValue(stored);
+        if (PanelSampleSchema.byTable(table).allowedLayers.contains(parsed)) {
+          return parsed;
+        }
+      } on ArgumentError {
+        // Infer only from explicit hierarchy below.
+      }
+    }
+    if (table == 'chick_weights') {
+      return _text(row['house']) == null
+          ? SamplingLayer.pool
+          : SamplingLayer.house;
+    }
+    return _text(row['setter']) == null && _text(row['hatcher']) == null
+        ? SamplingLayer.pool
+        : SamplingLayer.setterHatcher;
+  }
+
+  String? _text(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 
   bool _rowIdMatchesSampleId(String rowId, String sampleId) {

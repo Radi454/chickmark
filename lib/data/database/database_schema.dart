@@ -250,6 +250,7 @@ Future<void> ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
     for (final columnDefinition in [
       ...panel.hierarchyColumnDefinitions,
       ..._panelContextColumnDefinitions,
+      ...panel.identityColumnDefinitions,
       ...panel.measurementColumns,
     ]) {
       final columnName = _columnNameFromDefinition(columnDefinition);
@@ -340,6 +341,9 @@ Future<void> _createPanelTable(
       ? ''
       : ',\n    ${panel.measurementColumns.join(',\n    ')}';
   final hierarchyColumns = panel.hierarchyColumnDefinitions.join(',\n    ');
+  final identityColumns = panel.identityColumnDefinitions.isEmpty
+      ? ''
+      : ',\n    ${panel.identityColumnDefinitions.join(',\n    ')}';
   await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
     id TEXT PRIMARY KEY,
     sessionId TEXT NOT NULL,
@@ -350,7 +354,7 @@ Future<void> _createPanelTable(
     breed TEXT,
     flockAgeWeeks INTEGER,
     $hierarchyColumns,
-    ${_panelContextColumnDefinitions.join(',\n    ')},
+    ${_panelContextColumnDefinitions.join(',\n    ')}$identityColumns,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -396,6 +400,12 @@ Future<void> _createPanelQueryIndexesIfSupported(
   if (columns.contains('syncStatus')) {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_${tableName}_sync ON $tableName (syncStatus)',
+    );
+  }
+  if (columns.containsAll({'customerId', 'sampleKey'})) {
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_sample_key '
+      'ON $tableName (customerId, sampleKey) WHERE sampleKey IS NOT NULL',
     );
   }
 }

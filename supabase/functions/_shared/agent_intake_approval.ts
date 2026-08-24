@@ -1,5 +1,6 @@
 import { agentStationRegistry } from './station_registry.generated.ts'
 import { deriveStationAdapter } from '../telegram-hatchery-agent/agent_station_adapter.ts'
+import { buildScopeKey, type ChickScopeType } from './chick_sample_identity.ts'
 
 export interface ApprovalIntakeRow {
   id: string
@@ -15,8 +16,12 @@ export interface ApprovalIntakeRow {
   hatchery_id: string | null
   audit_date: string
   scope: string | null
+  house_identity: string | null
   setter_identity: string | null
   hatcher_identity: string | null
+  trolley_identity: string | null
+  tray_identity: string | null
+  position_identity: string | null
   approved_session_id: string | null
   approved_panel_row_id: string | null
 }
@@ -187,6 +192,42 @@ export function prepareAgentIntakeApproval(input: {
     sync_status: 'synced',
     last_synced_at: approvedAt,
     ...persistence.values,
+  }
+  if (
+    persistence.remoteTable === 'chick_quality' ||
+    persistence.remoteTable === 'chick_weights'
+  ) {
+    const scopeType = intake.scope as ChickScopeType
+    let scopeKey: string
+    try {
+      scopeKey = buildScopeKey(scopeType, {
+        house: intake.house_identity,
+        setter: intake.setter_identity,
+        hatcher: intake.hatcher_identity,
+        trolley: intake.trolley_identity,
+        tray: intake.tray_identity,
+        position: intake.position_identity,
+      })
+    } catch (_) {
+      throw new AgentIntakeApprovalValidationError(
+        'The intake scope identity is incomplete.',
+        'invalid_context',
+      )
+    }
+    Object.assign(panelPayload, {
+      house: intake.house_identity,
+      trolley: intake.trolley_identity,
+      tray: intake.tray_identity,
+      position: intake.position_identity,
+      domain: schema.schemaKey,
+      schema_version: schema.version,
+      scope_type: scopeType,
+      scope_key: scopeKey,
+      source: 'agent',
+      capture_method: 'conversational_agent',
+      source_ref_id: intake.id,
+      observed_at: intake.user_confirmed_at,
+    })
   }
   return {
     intakeId: intake.id,

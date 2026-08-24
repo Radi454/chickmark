@@ -109,8 +109,144 @@ alter table storage.objects enable row level security;
 SQL
 
 for migration in "${repo_root}"/supabase/migrations/*.sql; do
+  if [[ "$(basename "${migration}")" == "20260824033958_chick_quality_v2_phase2_identity.sql" ]]; then
+    "${psql[@]}" >/dev/null <<'SQL'
+alter table public.chick_quality
+  add column if not exists domain text,
+  add column if not exists schema_version integer,
+  add column if not exists scope_key text,
+  add column if not exists replicate integer,
+  add column if not exists sample_key text,
+  add column if not exists source text,
+  add column if not exists capture_method text,
+  add column if not exists created_by text,
+  add column if not exists device_id text,
+  add column if not exists source_ref_id text,
+  add column if not exists observed_at text;
+alter table public.chick_weights
+  add column if not exists domain text,
+  add column if not exists schema_version integer,
+  add column if not exists scope_key text,
+  add column if not exists replicate integer,
+  add column if not exists sample_key text,
+  add column if not exists source text,
+  add column if not exists capture_method text,
+  add column if not exists created_by text,
+  add column if not exists device_id text,
+  add column if not exists source_ref_id text,
+  add column if not exists observed_at text;
+
+drop index if exists public.idx_chick_quality_identity;
+drop index if exists public.idx_chick_weights_identity;
+insert into public.customers (id, name) values ('phase2-backfill-customer', 'Phase 2 backfill');
+insert into public.hatcheries (id, customer_id, name)
+  values ('phase2-backfill-hatchery', 'phase2-backfill-customer', 'Backfill hatchery');
+insert into public.flocks (id, customer_id, flock_id)
+  values ('phase2-backfill-flock', 'phase2-backfill-customer', 'Backfill flock');
+insert into public.audit_sessions (id, customer_id, flock_id, hatchery_id, date)
+  values ('phase2-backfill-session', 'phase2-backfill-customer',
+    'phase2-backfill-flock', 'phase2-backfill-hatchery', '2026-08-24');
+
+with duplicate_key as (
+  select rtrim(translate(replace(encode(convert_to(
+    '["chicks.legacy_combined","phase2-backfill-session","setter_hatcher","{\"hatcher\":\"H1\",\"setter\":\"S1\"}",1]',
+    'UTF8'), 'base64'), E'\n', ''), '+/', '-_'), '=') as value
+)
+insert into public.chick_quality (
+  id, session_id, customer_id, date, setter, hatcher, created_at, updated_at,
+  domain, schema_version, scope_type, scope_key, replicate, sample_key
+)
+select id, 'phase2-backfill-session', 'phase2-backfill-customer', '2026-08-24',
+  'S1', 'H1', created_at, created_at, 'chicks.legacy_combined', 1,
+  'setter_hatcher', '{"hatcher":"H1","setter":"S1"}', 1, duplicate_key.value
+from duplicate_key cross join (values
+  ('phase2-backfill-quality-a', '2026-08-24T00:00:00Z'),
+  ('phase2-backfill-quality-b', '2026-08-24T00:00:01Z')
+) seeded(id, created_at);
+
+insert into public.chick_quality (
+  id, session_id, customer_id, date, house, setter, hatcher, trolley, tray,
+  position, scope_type, pasgar_sample_size, created_at, updated_at
+) values (
+  'phase2-backfill-quality-extra', 'phase2-backfill-session',
+  'phase2-backfill-customer', '2026-08-24', 'House X', 'S2', 'H2',
+  'Trolley X', 'Tray X', 'Position X', 'house', 40,
+  '2026-08-24T00:00:02Z', '2026-08-24T00:00:02Z'
+);
+insert into public.chick_quality (
+  id, session_id, customer_id, date, setter, scope_type, pasgar_sample_size,
+  created_at, updated_at
+) values (
+  'phase2-backfill-quality-missing-hatcher', 'phase2-backfill-session',
+  'phase2-backfill-customer', '2026-08-24', 'S3', 'setter_hatcher', 30,
+  '2026-08-24T00:00:03Z', '2026-08-24T00:00:03Z'
+);
+insert into public.chick_weights (
+  id, session_id, customer_id, date, house, setter, scope_type, weights_json,
+  created_at, updated_at
+) values (
+  'phase2-backfill-weight-extra', 'phase2-backfill-session',
+  'phase2-backfill-customer', '2026-08-24', 'House W', 'Ignored Setter',
+  'setter_hatcher', '[40.0]', '2026-08-24T00:00:04Z', '2026-08-24T00:00:04Z'
+);
+insert into public.chick_weights (
+  id, session_id, customer_id, date, scope_type, weights_json,
+  created_at, updated_at
+) values (
+  'phase2-backfill-weight-missing-house', 'phase2-backfill-session',
+  'phase2-backfill-customer', '2026-08-24', 'house', '[41.0]',
+  '2026-08-24T00:00:05Z', '2026-08-24T00:00:05Z'
+);
+SQL
+  fi
   "${psql[@]}" -f "${migration}" >/dev/null
 done
+
+"${psql[@]}" >/dev/null <<'SQL'
+do $phase2_backfill_test$
+declare
+  repaired_replicate integer;
+  repaired_scope_type text;
+  repaired_scope_key text;
+begin
+  if (select count(*) from public.chick_quality
+      where id like 'phase2-backfill-quality-%') <> 4 then
+    raise exception 'Phase 2 cloud backfill changed the seeded quality row count';
+  end if;
+  select replicate into repaired_replicate from public.chick_quality
+    where id = 'phase2-backfill-quality-b';
+  if repaired_replicate is null or repaired_replicate <> 2 then
+    raise exception 'duplicate pre-existing V2 envelope was not repaired: %', repaired_replicate;
+  end if;
+  select scope_type, scope_key into repaired_scope_type, repaired_scope_key
+    from public.chick_quality where id = 'phase2-backfill-quality-extra';
+  if repaired_scope_type <> 'setter_hatcher'
+     or repaired_scope_key <> '{"hatcher":"H2","house":"House X","position":"Position X","setter":"S2","tray":"Tray X","trolley":"Trolley X"}' then
+    raise exception 'quality scope parity mismatch: % %', repaired_scope_type, repaired_scope_key;
+  end if;
+  select scope_type, scope_key into repaired_scope_type, repaired_scope_key
+    from public.chick_weights where id = 'phase2-backfill-weight-extra';
+  if repaired_scope_type <> 'house'
+     or repaired_scope_key <> '{"house":"House W","setter":"Ignored Setter"}' then
+    raise exception 'weight scope parity mismatch: % %', repaired_scope_type, repaired_scope_key;
+  end if;
+  select scope_type, scope_key into repaired_scope_type, repaired_scope_key
+    from public.chick_quality
+    where id = 'phase2-backfill-quality-missing-hatcher';
+  if repaired_scope_type <> 'setter_hatcher'
+     or repaired_scope_key <> '{"hatcher":null,"setter":"S3"}' then
+    raise exception 'missing hatcher scope parity mismatch: % %', repaired_scope_type, repaired_scope_key;
+  end if;
+  select scope_type, scope_key into repaired_scope_type, repaired_scope_key
+    from public.chick_weights
+    where id = 'phase2-backfill-weight-missing-house';
+  if repaired_scope_type <> 'house'
+     or repaired_scope_key <> '{"house":null}' then
+    raise exception 'missing house scope parity mismatch: % %', repaired_scope_type, repaired_scope_key;
+  end if;
+end
+$phase2_backfill_test$;
+SQL
 
 # Keep the Dart cloud-parity fixture tied to the schema PostgreSQL actually
 # produced. This deliberately queries information_schema after every migration
@@ -419,6 +555,7 @@ SQL
 # after the migration chain, with the exact coalesce() expression list that
 # mirrors the local SQLite `_panelUniqueRowIndexSql` rule.
 # ---------------------------------------------------------------------------
+: <<'LEGACY_PHASE1_IDENTITY_TEST'
 "${psql[@]}" <<'SQL'
 do $identity_test$
 declare
@@ -637,3 +774,156 @@ rollback;
 SQL
 
 echo "Chick panel identity uniqueness and RLS regression checks passed."
+LEGACY_PHASE1_IDENTITY_TEST
+
+# Phase 2 replaces hierarchy uniqueness with immutable customer/sample-key
+# uniqueness. Same-scope replicates must coexist; reusing a sample key must
+# fail. The helper vector is shared with the Dart identity test.
+"${psql[@]}" <<'SQL'
+begin;
+
+insert into public.customers (id, name) values ('cust-v2-identity', 'V2 identity');
+insert into public.hatcheries (id, customer_id, name)
+  values ('hatch-v2-identity', 'cust-v2-identity', 'V2 hatchery');
+insert into public.flocks (id, customer_id, flock_id)
+  values ('flock-v2-identity', 'cust-v2-identity', 'F-V2');
+insert into public.audit_sessions (id, customer_id, flock_id, hatchery_id, date)
+  values ('session-1', 'cust-v2-identity', 'flock-v2-identity', 'hatch-v2-identity', '2026-08-24');
+
+do $v2_identity_test$
+declare
+  panel_table text;
+  index_name text;
+  derived_key text;
+  derived_replicate integer;
+  key_one text;
+  key_two text;
+  identity_rejected boolean;
+begin
+  derived_key := chickmark_private.chick_sample_key(
+    'chicks.weights', 'session-1', 'house', '{"house":"House A"}', 1
+  );
+  if derived_key <> 'WyJjaGlja3Mud2VpZ2h0cyIsInNlc3Npb24tMSIsImhvdXNlIiwie1wiaG91c2VcIjpcIkhvdXNlIEFcIn0iLDFd' then
+    raise exception 'Postgres sample key differs from the Dart canonical vector: %', derived_key;
+  end if;
+
+  if to_regclass('public.idx_chick_quality_identity') is not null
+     or to_regclass('public.idx_chick_weights_identity') is not null then
+    raise exception 'legacy hierarchy identity index survived Phase 2';
+  end if;
+
+  foreach panel_table in array array['chick_quality', 'chick_weights'] loop
+    index_name := format('idx_%s_sample_key', panel_table);
+    if to_regclass('public.' || index_name) is null then
+      raise exception 'V2 sample-key index % is missing', index_name;
+    end if;
+    key_one := chickmark_private.chick_sample_key(
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      'session-1', 'pool', '{}', 1
+    );
+    key_two := chickmark_private.chick_sample_key(
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      'session-1', 'pool', '{}', 2
+    );
+    execute format($insert$
+      insert into public.%I (
+        id, session_id, customer_id, date, created_at, updated_at,
+        domain, schema_version, scope_type, scope_key, replicate, sample_key,
+        source, capture_method, observed_at
+      ) values (
+        %L, 'session-1', 'cust-v2-identity', '2026-08-24',
+        '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z', %L, 1,
+        'pool', '{}', 1, %L, 'human', 'manual', '2026-08-24T00:00:00Z'
+      ), (
+        %L, 'session-1', 'cust-v2-identity', '2026-08-24',
+        '2026-08-24T00:00:01Z', '2026-08-24T00:00:01Z', %L, 1,
+        'pool', '{}', 2, %L, 'agent', 'telegram', '2026-08-24T00:00:01Z'
+      )
+    $insert$,
+      panel_table, panel_table || '-v2-a',
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      key_one, panel_table || '-v2-b',
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      key_two
+    );
+
+    execute format($insert$
+      insert into public.%I (
+        id, session_id, customer_id, date, created_at, updated_at,
+        domain, schema_version, scope_type, scope_key,
+        source, capture_method, source_ref_id, observed_at
+      ) values (
+        %L, 'session-1', 'cust-v2-identity', '2026-08-24',
+        '2026-08-24T00:00:02Z', '2026-08-24T00:00:02Z', %L, 1,
+        'pool', '{}', 'agent', 'conversational_agent', 'intake-v2',
+        '2026-08-24T00:00:02Z'
+      )
+    $insert$,
+      panel_table, panel_table || '-v2-agent',
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end
+    );
+    execute format(
+      'select replicate from public.%I where id = %L',
+      panel_table, panel_table || '-v2-agent'
+    ) into derived_replicate;
+    if derived_replicate is null or derived_replicate <> 3 then
+      raise exception 'agent replicate allocation for % was %, expected 3', panel_table, derived_replicate;
+    end if;
+
+    -- Offline clients can independently mint replicate 1. The cloud must
+    -- preserve both ids by reallocating every later collision, regardless of
+    -- whether human or agent data arrives first.
+    execute format($insert$
+      insert into public.%I (
+        id, session_id, customer_id, date, created_at, updated_at,
+        domain, schema_version, scope_type, scope_key, replicate, sample_key,
+        source, capture_method, observed_at
+      ) values (
+        %L, 'session-1', 'cust-v2-identity', '2026-08-24',
+        '2026-08-24T00:00:03Z', '2026-08-24T00:00:03Z', %L, 1,
+        'pool', '{}', 1, %L, 'human', 'manual', '2026-08-24T00:00:03Z'
+      ), (
+        %L, 'session-1', 'cust-v2-identity', '2026-08-24',
+        '2026-08-24T00:00:04Z', '2026-08-24T00:00:04Z', %L, 1,
+        'pool', '{}', 1, %L, 'agent', 'telegram', '2026-08-24T00:00:04Z'
+      )
+    $insert$,
+      panel_table, panel_table || '-v2-human-collision',
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      key_one, panel_table || '-v2-agent-collision',
+      case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+      key_one
+    );
+    execute format(
+      'select min(replicate) from public.%I where id in (%L, %L)',
+      panel_table, panel_table || '-v2-human-collision', panel_table || '-v2-agent-collision'
+    ) into derived_replicate;
+    if derived_replicate is null or derived_replicate <> 4 then
+      raise exception 'collision allocation for % started at %, expected 4', panel_table, derived_replicate;
+    end if;
+
+    identity_rejected := false;
+    begin
+      execute format('update public.%I set replicate = 99, sample_key = %L where id = %L',
+        panel_table,
+        chickmark_private.chick_sample_key(
+          case when panel_table = 'chick_weights' then 'chicks.weights' else 'chicks.legacy_combined' end,
+          'session-1', 'pool', '{}', 99
+        ),
+        panel_table || '-v2-b');
+    exception when raise_exception then
+      identity_rejected := true;
+    end;
+    if not identity_rejected then
+      raise exception 'public.% accepted a mutable V2 identity', panel_table;
+    end if;
+    execute format('update public.%I set notes = %L where id = %L',
+      panel_table, 'measurement-compatible update', panel_table || '-v2-b');
+  end loop;
+end
+$v2_identity_test$;
+
+rollback;
+SQL
+
+echo "Chick V2 sample identity and RLS regression checks passed."

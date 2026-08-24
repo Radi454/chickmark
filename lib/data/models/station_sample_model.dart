@@ -65,6 +65,7 @@ class StationSampleModel {
   final String? benchmarkSource;
   final String? benchmarkSnapshotJson;
   final String? resultSummaryJson;
+  final String? sampleKey;
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -101,6 +102,7 @@ class StationSampleModel {
     this.benchmarkSource,
     this.benchmarkSnapshotJson,
     this.resultSummaryJson,
+    this.sampleKey,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -143,6 +145,7 @@ class StationSampleModel {
       benchmarkSource: map['benchmarkSource'] as String?,
       benchmarkSnapshotJson: map['benchmarkSnapshotJson'] as String?,
       resultSummaryJson: map['resultSummaryJson'] as String?,
+      sampleKey: map['sampleKey'] as String?,
       notes: map['notes'] as String?,
       createdAt: _parseDate(map['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(map['updatedAt']) ?? DateTime.now(),
@@ -182,6 +185,7 @@ class StationSampleModel {
       'benchmarkSource': benchmarkSource,
       'benchmarkSnapshotJson': benchmarkSnapshotJson,
       'resultSummaryJson': resultSummaryJson,
+      'sampleKey': sampleKey,
       'notes': notes,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -220,6 +224,7 @@ class StationSampleModel {
     String? benchmarkSource,
     String? benchmarkSnapshotJson,
     String? resultSummaryJson,
+    String? sampleKey,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -257,6 +262,7 @@ class StationSampleModel {
       benchmarkSnapshotJson:
           benchmarkSnapshotJson ?? this.benchmarkSnapshotJson,
       resultSummaryJson: resultSummaryJson ?? this.resultSummaryJson,
+      sampleKey: sampleKey ?? this.sampleKey,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

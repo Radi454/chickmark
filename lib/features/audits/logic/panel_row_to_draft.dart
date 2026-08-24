@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../../data/agent/station_adapter.dart';
+import '../../../data/agent/station_registry.dart';
 import '../models/egg_breakout_sample.dart';
 
 /// Panel row -> audit-draft map merging, the read half of panel persistence.
@@ -16,8 +18,13 @@ void mergePanelRowIntoAuditMap(
   String table,
   Map<String, dynamic> row,
 ) {
+  final registryFields = table == 'chick_quality' || table == 'chick_weights'
+      ? _chickRegistryFieldValuesFromRow(table, row)
+      : const <String, Object?>{};
   void copy(String target, String source) {
-    final value = row[source];
+    final value = registryFields.containsKey(source)
+        ? registryFields[source]
+        : row[source];
     if (value != null) map[target] = value;
   }
 
@@ -204,6 +211,36 @@ void mergePanelRowIntoAuditMap(
       copy('ho_transferDay', 'transferDay');
       break;
   }
+}
+
+Map<String, Object?> _chickRegistryFieldValuesFromRow(
+  String table,
+  Map<String, dynamic> row,
+) {
+  final includeWeights = table == 'chick_weights';
+  final values = <String, Object?>{};
+  for (final schema in AgentStationRegistry.schemas.where(
+    (schema) =>
+        schema.schemaKey.startsWith('chicks.') &&
+        (schema.schemaKey == 'chicks.weights') == includeWeights,
+  )) {
+    final decoded = AgentStationAdapter.fieldValuesFromLocalRow(schema, row);
+    for (final field in schema.fields) {
+      if (!decoded.containsKey(field.fieldKey)) continue;
+      final value = decoded[field.fieldKey];
+      values[field.fieldKey] = switch (field.type) {
+        'number_list' ||
+        'object_list' when value is! String => jsonEncode(value),
+        _ => value,
+      };
+    }
+    for (final calculation in schema.calculations) {
+      if (decoded.containsKey(calculation.fieldKey)) {
+        values[calculation.fieldKey] = decoded[calculation.fieldKey];
+      }
+    }
+  }
+  return values;
 }
 
 void _mergeEggTraySummary(

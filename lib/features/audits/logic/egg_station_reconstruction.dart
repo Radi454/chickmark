@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../../data/models/audit_model.dart';
@@ -206,6 +208,13 @@ List<AuditModel> _auditDraftsFromPanelRows(
     rowsByPanel,
   );
   if (eggDrafts != null) return eggDrafts;
+  final chickDrafts = _chickAuditDraftsFromPanelRows(
+    stationKey,
+    sessionId,
+    context,
+    rowsByPanel,
+  );
+  if (chickDrafts != null) return chickDrafts;
 
   final grouped = <int, List<({String table, Map<String, dynamic> row})>>{};
   final groupIndexes = <String, int>{};
@@ -261,7 +270,9 @@ Map<String, dynamic> _auditMapFromPanelRows(
       (_rowHasHierarchy(first) ? 'comparison' : 'pool');
   final isComparison = mode == StationSampleModel.sampleModeComparison;
   final map = <String, dynamic>{
-    'id': stationKey == 'egg' && records.first.table == 'egg_quality'
+    'id':
+        (stationKey == 'egg' && records.first.table == 'egg_quality') ||
+            (stationKey == 'chicks' && records.first.table == 'chick_quality')
         ? first['id']?.toString() ?? '$sessionId:$stationKey:$sampleIndex'
         : '$sessionId:$stationKey:$sampleIndex',
     'auditType': context.auditType,
@@ -283,6 +294,27 @@ Map<String, dynamic> _auditMapFromPanelRows(
     mergePanelRowIntoAuditMap(map, record.table, record.row);
   }
   return map;
+}
+
+List<AuditModel>? _chickAuditDraftsFromPanelRows(
+  String stationKey,
+  String sessionId,
+  AuditContextData context,
+  Map<String, List<Map<String, dynamic>>> rowsByPanel,
+) {
+  if (stationKey != 'chicks') return null;
+  final qualityRows = _sortedByPanelOrder(
+    rowsByPanel['chick_quality'] ?? const <Map<String, dynamic>>[],
+  );
+  if (qualityRows.isEmpty) return null;
+  return [
+    for (final entry in qualityRows.asMap().entries)
+      AuditModel.fromMap(
+        _auditMapFromPanelRows(stationKey, sessionId, context, entry.key, [
+          (table: 'chick_quality', row: entry.value),
+        ]),
+      ),
+  ];
 }
 
 List<AuditModel>? _eggAuditDraftsFromPanelRows(
@@ -348,6 +380,21 @@ List<StationSampleModel> _stationSamplesFromPanelRows(
   String sessionId,
   Map<String, List<Map<String, dynamic>>> rowsByPanel,
 ) {
+  if (stationKey == 'chicks') {
+    return [
+      for (final table in const ['chick_quality', 'chick_weights'])
+        for (final entry in _sortedByPanelOrder(
+          rowsByPanel[table] ?? const <Map<String, dynamic>>[],
+        ).asMap().entries)
+          _sampleFromPanelRow(
+            stationKey,
+            sessionId,
+            table,
+            entry.value,
+            fallbackIndex: entry.key + 1,
+          ),
+    ];
+  }
   final primaryEntry = _stationSampleSourceRows(stationKey, rowsByPanel);
   if (primaryEntry.value.isEmpty) return const [];
   final sourceRows = _sortedByPanelOrder(primaryEntry.value);
@@ -423,10 +470,35 @@ StationSampleModel _sampleFromPanelRow(
     setterNo: panelRowAsText(row['setter']),
     hatcherNo: panelRowAsText(row['hatcher']),
     notes: row['notes']?.toString(),
-    legacyAuditId: stationKey == 'egg' ? persistedId : null,
+    resultSummaryJson: table == 'chick_weights'
+        ? jsonEncode({
+            'auditType': 'Chicks',
+            'sectorType': StationSampleModel.sectorChickWeights,
+            'chickWeights': _decodedJsonList(row['weightsJson']),
+            'chickAvgWeight': row['avgWeight'],
+            'chickUniformityPct': row['uniformityPct'],
+            'chickCvPct': row['cvPct'],
+          })
+        : null,
+    sampleKey: panelRowAsText(row['sampleKey']),
+    legacyAuditId:
+        stationKey == 'egg' ||
+            (stationKey == 'chicks' && table == 'chick_quality')
+        ? persistedId
+        : null,
     createdAt: _parseDate(row['createdAt']) ?? DateTime.now(),
     updatedAt: _parseDate(row['updatedAt']) ?? DateTime.now(),
   );
+}
+
+List<Object?>? _decodedJsonList(Object? value) {
+  if (value is! String || value.isEmpty) return null;
+  try {
+    final decoded = jsonDecode(value);
+    return decoded is List ? decoded : null;
+  } on FormatException {
+    return null;
+  }
 }
 
 String _panelRowIdentityKey(Map<String, dynamic> row) {

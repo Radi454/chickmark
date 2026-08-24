@@ -224,6 +224,7 @@ const EXPECTED_CONTRACT: ContractSnapshotEntry[] = [
       'hatcheryId',
       'auditDate',
       'layer',
+      'houseIdentity',
       'setterIdentity',
       'hatcherIdentity',
     ],
@@ -327,8 +328,8 @@ Deno.test('model-facing tool contract matches the pinned snapshot', () => {
 })
 
 Deno.test('contract fingerprint is pinned', () => {
-  assertEquals(AGENT_TOOL_CONTRACT_VERSION, '1.2.0', DRIFT)
-  assertEquals(contractFingerprint(), 'da3493060f8831cc', DRIFT)
+  assertEquals(AGENT_TOOL_CONTRACT_VERSION, '1.3.0', DRIFT)
+  assertEquals(contractFingerprint(), '77ee6867300c5277', DRIFT)
 })
 
 Deno.test('every contract parameter is a closed object schema', () => {
@@ -515,8 +516,8 @@ Deno.test('modelFacingParameters() leaves AGENT_TOOL_CONTRACT itself untouched',
     before,
     'projecting must never mutate the source contract',
   )
-  assertEquals(AGENT_TOOL_CONTRACT_VERSION, '1.2.0')
-  assertEquals(contractFingerprint(), 'da3493060f8831cc')
+  assertEquals(AGENT_TOOL_CONTRACT_VERSION, '1.3.0')
+  assertEquals(contractFingerprint(), '77ee6867300c5277')
 })
 
 Deno.test('AGENT_TOOL_DEFINITIONS (the validation surface) is unaffected by the model-facing projection', () => {

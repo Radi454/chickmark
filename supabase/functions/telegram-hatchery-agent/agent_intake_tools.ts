@@ -33,6 +33,7 @@ export interface AgentIntakeContextRequest {
   hatcheryId: string
   auditDate: string
   layer: string
+  houseIdentity: string | null
   setterIdentity: string | null
   hatcherIdentity: string | null
 }
@@ -141,6 +142,7 @@ export function createSupabaseAgentIntakeContextResolver(
         hatcheryName,
         auditDate: requested.auditDate,
         layer: requested.layer,
+        houseIdentity: requested.houseIdentity,
         setterIdentity: requested.setterIdentity,
         hatcherIdentity: requested.hatcherIdentity,
         sectorKey,
@@ -303,6 +305,21 @@ async function startIntake(
     !schema.allowedLayers.includes(context.layer)
   ) {
     return { ok: false, code: 'schema_not_applicable', data: null }
+  }
+  if (
+    context.layer === 'house' && !context.houseIdentity
+  ) {
+    return {
+      ok: false,
+      code: 'context_incomplete',
+      data: {
+        missing: ['houseIdentity'],
+        message: {
+          en: 'This station needs the house identity.',
+          ar: 'هذه المحطة تحتاج تعريف العنبر.',
+        },
+      },
+    }
   }
   if (
     context.layer === 'setter_hatcher' &&
@@ -945,6 +962,7 @@ function requestedContext(
     hatcheryId: input.arguments.hatcheryId as string,
     auditDate: input.arguments.auditDate as string,
     layer: input.arguments.layer as string,
+    houseIdentity: optionalText(input.arguments.houseIdentity),
     setterIdentity: optionalText(input.arguments.setterIdentity),
     hatcherIdentity: optionalText(input.arguments.hatcherIdentity),
   }

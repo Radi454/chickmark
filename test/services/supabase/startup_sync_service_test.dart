@@ -302,6 +302,13 @@ void main() {
     when(
       () => supabase.upsertRowsStrict(any(), any()),
     ).thenAnswer((_) async {});
+    when(() => supabase.upsertRowsReturningStrict(any(), any())).thenAnswer((
+      invocation,
+    ) async {
+      return (invocation.positionalArguments[1] as List<Map<String, dynamic>>)
+          .map(Map<String, dynamic>.from)
+          .toList();
+    });
     when(() => supabase.deleteRows(any(), any())).thenAnswer((_) async {});
     when(
       () => activityLog.log(any(), any(), details: any(named: 'details')),
@@ -406,6 +413,55 @@ void main() {
       }
     },
   );
+
+  test('reconciles a cloud-reallocated Chick identity before pull', () async {
+    when(() => panels.getDirtyRows('chick_quality')).thenAnswer(
+      (_) async => [
+        {
+          'id': 'quality-device-b',
+          'sessionId': 'session-1',
+          'customerId': 'customer-1',
+          'date': '2026-08-24',
+          'domain': 'chicks.legacy_combined',
+          'schemaVersion': 1,
+          'scopeType': 'pool',
+          'scopeKey': '{}',
+          'replicate': 1,
+          'sampleKey': 'device-local-replicate-1',
+          'syncStatus': 'pending',
+        },
+      ],
+    );
+    when(
+      () => supabase.upsertRowsReturningStrict('chick_quality', any()),
+    ).thenAnswer(
+      (_) async => [
+        {
+          'id': 'quality-device-b',
+          'replicate': 2,
+          'sample_key': 'cloud-reallocated-replicate-2',
+        },
+      ],
+    );
+    when(
+      () => panels.reconcileChickIdentityAssignments('chick_quality', any()),
+    ).thenAnswer((_) async {});
+
+    await service().run();
+
+    verify(
+      () => panels.reconcileChickIdentityAssignments('chick_quality', [
+        {
+          'id': 'quality-device-b',
+          'replicate': 2,
+          'sample_key': 'cloud-reallocated-replicate-2',
+        },
+      ]),
+    ).called(1);
+    verify(
+      () => panels.markRowsSynced('chick_quality', ['quality-device-b']),
+    ).called(1);
+  });
 
   test('applies remote tombstones before uploading reference rows', () async {
     final events = <String>[];

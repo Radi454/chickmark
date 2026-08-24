@@ -663,6 +663,7 @@ class AuditPanelSaveCoordinator {
   ) async {
     if (pairs.isEmpty) return;
     final keepIds = <String>{};
+    final keepSampleKeys = <String>{};
     final keepHierarchyRows = <Map<String, Object?>>[];
     for (final pair in pairs) {
       final row = _panelHierarchyRowForSample(
@@ -671,6 +672,10 @@ class AuditPanelSaveCoordinator {
         pair.sample,
       );
       keepIds.add(row['id']! as String);
+      final sampleKey = pair.sample.sampleKey?.trim();
+      if (sampleKey != null && sampleKey.isNotEmpty) {
+        keepSampleKeys.add(sampleKey);
+      }
       keepHierarchyRows.add(row);
     }
     await _panelSampleRepository.deleteHierarchyRowsBySessionIdExcept(
@@ -678,6 +683,7 @@ class AuditPanelSaveCoordinator {
       sessionId,
       keepIds,
       keepHierarchyRows: keepHierarchyRows,
+      keepSampleKeys: keepSampleKeys,
     );
   }
 
@@ -997,6 +1003,7 @@ class AuditPanelSaveCoordinator {
       sampleSize: _sampleSizeForPanel(tableName, draft),
       summaryJson: sample.resultSummaryJson,
       rawJson: compactJson(sample.toMap()),
+      sampleKey: sample.sampleKey,
       notes: sample.notes,
       createdAt: sample.createdAt,
       updatedAt: sample.updatedAt,

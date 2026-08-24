@@ -77,33 +77,13 @@ export function deriveStationAdapter(
   schema: AgentStationSchema,
   values: Readonly<Record<string, unknown>>,
 ): DerivedStationAdapter {
-  const validation = validateStationValueSet(schema, values)
-  if (!validation.valid) {
-    throw new Error('Station values are not valid')
-  }
   const calculations = calculateStationValues(schema, values)
-  const payloadValues: Record<string, unknown> = {}
-  for (const field of schema.fields as readonly Record<string, unknown>[]) {
-    const fieldKey = field.fieldKey as string
-    if (!(fieldKey in values)) continue
-    const remoteColumn = text(record(field.persistence).remoteColumn)
-    if (!remoteColumn) continue
-    payloadValues[remoteColumn] = encodePersistenceValue(
-      field,
-      values[fieldKey],
-    )
-  }
-  for (
-    const calculation of schema.calculations as readonly Record<
-      string,
-      unknown
-    >[]
-  ) {
-    const fieldKey = calculation.fieldKey as string
-    const remoteColumn = text(record(calculation.persistence).remoteColumn)
-    if (!remoteColumn || !(fieldKey in calculations)) continue
-    payloadValues[remoteColumn] = calculations[fieldKey]
-  }
+  const payloadValues = persistenceValues(
+    schema,
+    values,
+    calculations,
+    'remoteColumn',
+  )
   return {
     calculations,
     persistence: schema.persistence.map((mapping) => ({
@@ -112,6 +92,64 @@ export function deriveStationAdapter(
       values: structuredClone(payloadValues),
     })),
   }
+}
+
+export function localPersistenceValues(
+  schema: AgentStationSchema,
+  values: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const calculations = calculateStationValues(schema, values)
+  return persistenceValues(
+    schema,
+    values,
+    calculations,
+    'localColumn',
+  )
+}
+
+export function fieldValuesFromLocalRow(
+  schema: AgentStationSchema,
+  row: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const field of schema.fields as readonly Record<string, unknown>[]) {
+    const fieldKey = field.fieldKey as string
+    const column = text(record(field.persistence).localColumn)
+    if (!column || row[column] === null || row[column] === undefined) continue
+    result[fieldKey] = decodePersistenceValue(field, row[column])
+  }
+  return result
+}
+
+function persistenceValues(
+  schema: AgentStationSchema,
+  values: Readonly<Record<string, unknown>>,
+  calculations: Readonly<Record<string, unknown>>,
+  columnKey: 'localColumn' | 'remoteColumn',
+): Record<string, unknown> {
+  const validation = validateStationValueSet(schema, values)
+  if (!validation.valid) throw new Error('Station values are not valid')
+
+  const payloadValues: Record<string, unknown> = {}
+  for (const field of schema.fields as readonly Record<string, unknown>[]) {
+    const fieldKey = field.fieldKey as string
+    if (!(fieldKey in values)) continue
+    const column = text(record(field.persistence)[columnKey])
+    if (!column) continue
+    payloadValues[column] = encodePersistenceValue(field, values[fieldKey])
+  }
+  for (
+    const calculation of schema.calculations as readonly Record<
+      string,
+      unknown
+    >[]
+  ) {
+    const fieldKey = calculation.fieldKey as string
+    const column = text(record(calculation.persistence)[columnKey])
+    if (!column || !(fieldKey in calculations)) continue
+    payloadValues[column] = calculations[fieldKey]
+  }
+  return payloadValues
 }
 
 export function calculateStationValues(
@@ -380,6 +418,28 @@ function encodePersistenceValue(
     field.type === 'boolean' &&
     record(field.persistence).encoding === 'integer_boolean'
   ) return value ? 1 : 0
+  return value
+}
+
+function decodePersistenceValue(
+  field: Record<string, unknown>,
+  value: unknown,
+): unknown {
+  if (
+    field.type === 'boolean' &&
+    record(field.persistence).encoding === 'integer_boolean' &&
+    typeof value === 'number'
+  ) return value !== 0
+  if (
+    (field.type === 'number_list' || field.type === 'object_list') &&
+    typeof value === 'string'
+  ) {
+    try {
+      return JSON.parse(value)
+    } catch (_) {
+      return value
+    }
+  }
   return value
 }
 

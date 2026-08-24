@@ -28,18 +28,34 @@ const kPanelHierarchyColumnDefinitions = [
   'position TEXT',
 ];
 
+const kChickV2IdentityColumnDefinitions = [
+  'domain TEXT',
+  'schemaVersion INTEGER',
+  'scopeKey TEXT',
+  'replicate INTEGER',
+  'sampleKey TEXT',
+  'source TEXT',
+  'captureMethod TEXT',
+  'createdBy TEXT',
+  'deviceId TEXT',
+  'sourceRefId TEXT',
+  'observedAt TEXT',
+];
+
 class PanelSampleDefinition {
   const PanelSampleDefinition({
     required this.tableName,
     required this.allowedLayers,
     required this.measurementColumns,
     this.hierarchyColumnDefinitions = kPanelHierarchyColumnDefinitions,
+    this.identityColumnDefinitions = const [],
   });
 
   final String tableName;
   final List<SamplingLayer> allowedLayers;
   final List<String> measurementColumns;
   final List<String> hierarchyColumnDefinitions;
+  final List<String> identityColumnDefinitions;
 
   List<String> get hierarchyColumnNames => hierarchyColumnDefinitions
       .map((definition) => definition.trim().split(RegExp(r'\s+')).first)
@@ -64,7 +80,11 @@ class PanelSampleSchema {
   /// avoid an import cycle: `database_schema.dart` is a `part of
   /// database_helper.dart`, and `panel_sample_repository.dart` imports
   /// `database_helper.dart`.
-  static const Set<String> idKeyedPanelTables = {'egg_quality'};
+  static const Set<String> idKeyedPanelTables = {
+    'egg_quality',
+    'chick_quality',
+    'chick_weights',
+  };
 
   static const panels = <PanelSampleDefinition>[
     PanelSampleDefinition(
@@ -115,6 +135,7 @@ class PanelSampleSchema {
     PanelSampleDefinition(
       tableName: 'chick_quality',
       allowedLayers: [SamplingLayer.pool, SamplingLayer.setterHatcher],
+      identityColumnDefinitions: kChickV2IdentityColumnDefinitions,
       measurementColumns: [
         'pasgarSampleSize INTEGER',
         'pasgarReflexesCount INTEGER',
@@ -179,6 +200,7 @@ class PanelSampleSchema {
     PanelSampleDefinition(
       tableName: 'chick_weights',
       allowedLayers: [SamplingLayer.pool, SamplingLayer.house],
+      identityColumnDefinitions: kChickV2IdentityColumnDefinitions,
       measurementColumns: [
         'weightsJson TEXT',
         'sampleSize INTEGER',

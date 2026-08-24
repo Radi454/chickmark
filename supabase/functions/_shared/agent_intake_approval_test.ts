@@ -23,6 +23,16 @@ Deno.test('prepares only registry-mapped values for a generic station', () => {
   assertEquals(prepared.panelPayload.avg_weight, 40.3)
   assertEquals(prepared.panelPayload.invented, undefined)
   assertEquals(prepared.panelPayload.session_id, null)
+  assertEquals(prepared.panelPayload.domain, 'chicks.weights')
+  assertEquals(prepared.panelPayload.schema_version, 1)
+  assertEquals(prepared.panelPayload.scope_type, 'house')
+  assertEquals(prepared.panelPayload.scope_key, '{"house":"House 1"}')
+  assertEquals(prepared.panelPayload.source, 'agent')
+  assertEquals(prepared.panelPayload.capture_method, 'conversational_agent')
+  assertEquals(prepared.panelPayload.source_ref_id, 'intake-1')
+  assertEquals(prepared.panelPayload.observed_at, '2026-07-28T12:01:00.000Z')
+  assertEquals(prepared.panelPayload.replicate, undefined)
+  assertEquals(prepared.panelPayload.sample_key, undefined)
 })
 
 Deno.test('rejects stale, unconfirmed, and mismatched schema summaries', () => {
@@ -146,6 +156,10 @@ function weightIntake() {
     hatchery_id: 'hatchery-1',
     audit_date: '2026-07-28',
     scope: 'house',
+    house_identity: 'House 1',
+    trolley_identity: null,
+    tray_identity: null,
+    position_identity: null,
     setter_identity: null,
     hatcher_identity: null,
     approved_session_id: null,

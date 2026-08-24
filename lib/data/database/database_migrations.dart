@@ -666,6 +666,224 @@ Future<void> _applyV63Upgrade(Database db) async {
   await _repairLegacyPanelPhotoReferences(db);
 }
 
+/// v64 gives the two Chick sample tables stable V2 logical identity without
+/// changing their existing row ids or measurement payloads. Legacy duplicates
+/// are retained as deterministic replicates instead of being merged.
+Future<void> _applyV64Upgrade(Database db) async {
+  await ensurePanelSampleSchemaColumns(db);
+  for (final table in const ['chick_quality', 'chick_weights']) {
+    if (!await _tableExists(db, table)) continue;
+    await db.execute('DROP INDEX IF EXISTS idx_${table}_unique_row');
+    await _backfillChickV2Identity(db, table);
+    final missing = Sqflite.firstIntValue(
+      await db.rawQuery(
+        'SELECT COUNT(*) FROM $table WHERE sampleKey IS NULL OR sampleKey = ?',
+        [''],
+      ),
+    );
+    if ((missing ?? 0) != 0) {
+      throw StateError('$table V2 identity backfill left $missing rows blank');
+    }
+    final duplicates = await db.rawQuery('''
+      SELECT customerId, sampleKey, COUNT(*) AS rowCount
+      FROM $table
+      GROUP BY customerId, sampleKey
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    ''');
+    if (duplicates.isNotEmpty) {
+      throw StateError('$table V2 identity backfill produced duplicate keys');
+    }
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sample_key '
+      'ON $table (customerId, sampleKey) WHERE sampleKey IS NOT NULL',
+    );
+  }
+}
+
+Future<void> _backfillChickV2Identity(Database db, String table) async {
+  final rows = await db.query(
+    table,
+    orderBy: 'customerId, sessionId, createdAt, id',
+  );
+  final prepared = <_V64ChickIdentityRow>[];
+  for (final row in rows) {
+    final scopeType = _v64ScopeType(table, row);
+    final scopeKey =
+        _v64Text(row['scopeKey']) ??
+        ChickSampleIdentity.buildLegacyScopeKey(
+          scopeType: scopeType,
+          house: _v64Text(row['house']),
+          setter: _v64Text(row['setter']),
+          hatcher: _v64Text(row['hatcher']),
+          trolley: _v64Text(row['trolley']),
+          tray: _v64Text(row['tray']),
+          position: _v64Text(row['position']),
+        );
+    final domain =
+        _v64Text(row['domain']) ??
+        (table == 'chick_weights'
+            ? 'chicks.weights'
+            : 'chicks.legacy_combined');
+    final schemaVersion =
+        row['schemaVersion'] is int && (row['schemaVersion'] as int) > 0
+        ? row['schemaVersion']! as int
+        : 1;
+    prepared.add(
+      _V64ChickIdentityRow(
+        row: row,
+        customerId: row['customerId']! as String,
+        sessionId: row['sessionId']! as String,
+        domain: domain,
+        schemaVersion: schemaVersion,
+        scopeType: scopeType,
+        scopeKey: scopeKey,
+      ),
+    );
+  }
+
+  final usedReplicates = <String, Set<int>>{};
+  final usedSampleKeys = <String, Set<String>>{};
+  for (final item in prepared) {
+    final replicate = item.row['replicate'];
+    final sampleKey = _v64Text(item.row['sampleKey']);
+    if (replicate is! int || replicate < 1 || sampleKey == null) continue;
+    final expected = ChickSampleIdentity.buildSampleKey(
+      domain: item.domain,
+      sessionId: item.sessionId,
+      scopeType: item.scopeType,
+      scopeKey: item.scopeKey,
+      replicate: replicate,
+    );
+    final group = item.groupKey;
+    final customerKeys = usedSampleKeys.putIfAbsent(
+      item.customerId,
+      () => <String>{},
+    );
+    final groupReplicates = usedReplicates.putIfAbsent(group, () => <int>{});
+    if (sampleKey != expected ||
+        groupReplicates.contains(replicate) ||
+        customerKeys.contains(sampleKey)) {
+      continue;
+    }
+    groupReplicates.add(replicate);
+    customerKeys.add(sampleKey);
+    item.replicate = replicate;
+    item.sampleKey = sampleKey;
+  }
+
+  final dirtyAt = DateTime.now().toUtc().toIso8601String();
+  for (final item in prepared) {
+    final groupReplicates = usedReplicates.putIfAbsent(
+      item.groupKey,
+      () => <int>{},
+    );
+    if (item.replicate == null) {
+      final replicate = groupReplicates.isEmpty
+          ? 1
+          : groupReplicates.reduce((a, b) => a > b ? a : b) + 1;
+      item.replicate = replicate;
+      item.sampleKey = ChickSampleIdentity.buildSampleKey(
+        domain: item.domain,
+        sessionId: item.sessionId,
+        scopeType: item.scopeType,
+        scopeKey: item.scopeKey,
+        replicate: replicate,
+      );
+      groupReplicates.add(replicate);
+      usedSampleKeys
+          .putIfAbsent(item.customerId, () => <String>{})
+          .add(item.sampleKey!);
+    }
+
+    final updates = <String, Object?>{
+      'domain': item.domain,
+      'schemaVersion': item.schemaVersion,
+      'scopeType': item.scopeType.dbValue,
+      'scopeKey': item.scopeKey,
+      'replicate': item.replicate,
+      'sampleKey': item.sampleKey,
+      'source': _v64Text(item.row['source']) ?? 'legacy',
+      'captureMethod': _v64Text(item.row['captureMethod']) ?? 'unknown',
+      'createdBy': item.row['createdBy'],
+      'deviceId': item.row['deviceId'],
+      'sourceRefId': item.row['sourceRefId'],
+      'observedAt':
+          item.row['observedAt'] ??
+          item.row['createdAt'] ??
+          item.row['updatedAt'],
+    };
+    final changed = updates.entries.any(
+      (entry) => item.row[entry.key] != entry.value,
+    );
+    if (!changed) continue;
+    updates.addAll({
+      'syncStatus': 'pending',
+      'dirtyAt': dirtyAt,
+      'syncError': null,
+    });
+    await db.update(
+      table,
+      updates,
+      where: 'id = ?',
+      whereArgs: [item.row['id']],
+    );
+  }
+}
+
+SamplingLayer _v64ScopeType(String table, Map<String, Object?> row) {
+  final stored = _v64Text(row['scopeType']);
+  if (stored != null) {
+    try {
+      final parsed = SamplingLayer.fromDbValue(stored);
+      if (PanelSampleSchema.byTable(table).allowedLayers.contains(parsed)) {
+        return parsed;
+      }
+    } on ArgumentError {
+      // Divergent/unknown legacy metadata is inferred only from explicit
+      // hierarchy columns below; no identifier value is invented.
+    }
+  }
+  if (table == 'chick_weights') {
+    return _v64Text(row['house']) == null
+        ? SamplingLayer.pool
+        : SamplingLayer.house;
+  }
+  return _v64Text(row['setter']) == null && _v64Text(row['hatcher']) == null
+      ? SamplingLayer.pool
+      : SamplingLayer.setterHatcher;
+}
+
+String? _v64Text(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
+class _V64ChickIdentityRow {
+  _V64ChickIdentityRow({
+    required this.row,
+    required this.customerId,
+    required this.sessionId,
+    required this.domain,
+    required this.schemaVersion,
+    required this.scopeType,
+    required this.scopeKey,
+  });
+
+  final Map<String, Object?> row;
+  final String customerId;
+  final String sessionId;
+  final String domain;
+  final int schemaVersion;
+  final SamplingLayer scopeType;
+  final String scopeKey;
+  int? replicate;
+  String? sampleKey;
+
+  String get groupKey =>
+      jsonEncode([customerId, domain, sessionId, scopeType.dbValue, scopeKey]);
+}
+
 Future<void> _canonicalizeTaggedCelsiusChickCvtRows(Database db) async {
   if (!await _tableExists(db, 'chick_quality')) return;
   final rows = await db.query(

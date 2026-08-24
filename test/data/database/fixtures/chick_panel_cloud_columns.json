@@ -86,7 +86,18 @@
         "sample_index",
         "source_domain",
         "action_domain",
-        "recommendation_target"
+        "recommendation_target",
+        "domain",
+        "schema_version",
+        "scope_key",
+        "replicate",
+        "sample_key",
+        "source",
+        "capture_method",
+        "created_by",
+        "device_id",
+        "source_ref_id",
+        "observed_at"
     ],
     "chick_weights": [
         "id",
@@ -123,6 +134,17 @@
         "sample_index",
         "source_domain",
         "action_domain",
-        "recommendation_target"
+        "recommendation_target",
+        "domain",
+        "schema_version",
+        "scope_key",
+        "replicate",
+        "sample_key",
+        "source",
+        "capture_method",
+        "created_by",
+        "device_id",
+        "source_ref_id",
+        "observed_at"
     ]
 }

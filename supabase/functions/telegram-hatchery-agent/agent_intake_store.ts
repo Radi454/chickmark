@@ -47,6 +47,7 @@ export interface AgentIntakeContext {
   hatcheryName: string
   auditDate: string
   layer: string
+  houseIdentity?: string | null
   setterIdentity: string | null
   hatcherIdentity: string | null
   sectorKey: string
@@ -447,6 +448,7 @@ export function sessionFromRemote(
       hatcheryName: requiredText(row.hatchery_name),
       auditDate: requiredText(row.audit_date),
       layer: requiredText(row.scope),
+      houseIdentity: optionalText(row.house_identity),
       setterIdentity: optionalText(row.setter_identity),
       hatcherIdentity: optionalText(row.hatcher_identity),
       sectorKey: optionalText(row.sector_key) ?? 'breeder',
@@ -558,6 +560,7 @@ function sessionToRemote(
     hatchery_name: session.context.hatcheryName,
     audit_date: session.context.auditDate,
     scope: session.context.layer,
+    house_identity: session.context.houseIdentity ?? null,
     setter_identity: session.context.setterIdentity,
     hatcher_identity: session.context.hatcherIdentity,
     working_values_json: session.workingValues,

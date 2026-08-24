@@ -24,6 +24,17 @@ class PanelRecord {
     SamplingLayer? compareLayer,
     String? scopeLabel,
     this.sampleIndex = 0,
+    this.domain,
+    this.schemaVersion,
+    this.scopeKey,
+    this.replicate,
+    this.sampleKey,
+    this.source,
+    this.captureMethod,
+    this.createdBy,
+    this.deviceId,
+    this.sourceRefId,
+    this.observedAt,
     this.groupKey,
     this.groupLabel,
     this.notes,
@@ -71,6 +82,17 @@ class PanelRecord {
   final SamplingLayer scopeType;
   final String scopeLabel;
   final int sampleIndex;
+  final String? domain;
+  final int? schemaVersion;
+  final String? scopeKey;
+  final int? replicate;
+  final String? sampleKey;
+  final String? source;
+  final String? captureMethod;
+  final String? createdBy;
+  final String? deviceId;
+  final String? sourceRefId;
+  final DateTime? observedAt;
   final String? groupKey;
   final String? groupLabel;
   final String? notes;
@@ -104,6 +126,17 @@ class PanelRecord {
       'scopeType': scopeType.dbValue,
       'scopeLabel': scopeLabel,
       'sampleIndex': sampleIndex,
+      'domain': domain,
+      'schemaVersion': schemaVersion,
+      'scopeKey': scopeKey,
+      'replicate': replicate,
+      'sampleKey': sampleKey,
+      'source': source,
+      'captureMethod': captureMethod,
+      'createdBy': createdBy,
+      'deviceId': deviceId,
+      'sourceRefId': sourceRefId,
+      'observedAt': observedAt?.toUtc().toIso8601String(),
       'groupKey': groupKey,
       'groupLabel': groupLabel,
       'notes': notes,
@@ -139,6 +172,17 @@ class PanelRecord {
       'scopeType',
       'scopeLabel',
       'sampleIndex',
+      'domain',
+      'schemaVersion',
+      'scopeKey',
+      'replicate',
+      'sampleKey',
+      'source',
+      'captureMethod',
+      'createdBy',
+      'deviceId',
+      'sourceRefId',
+      'observedAt',
       'groupKey',
       'groupLabel',
       'notes',
@@ -173,6 +217,17 @@ class PanelRecord {
       ),
       scopeLabel: map['scopeLabel'] as String?,
       sampleIndex: map['sampleIndex'] as int? ?? 0,
+      domain: map['domain'] as String?,
+      schemaVersion: map['schemaVersion'] as int?,
+      scopeKey: map['scopeKey'] as String?,
+      replicate: map['replicate'] as int?,
+      sampleKey: map['sampleKey'] as String?,
+      source: map['source'] as String?,
+      captureMethod: map['captureMethod'] as String?,
+      createdBy: map['createdBy'] as String?,
+      deviceId: map['deviceId'] as String?,
+      sourceRefId: map['sourceRefId'] as String?,
+      observedAt: _parseDate(map['observedAt']),
       groupKey: map['groupKey'] as String?,
       groupLabel: map['groupLabel'] as String?,
       notes: map['notes'] as String?,
@@ -224,6 +279,7 @@ class PanelSampleRecord {
     this.unit,
     this.summaryJson,
     this.rawJson,
+    this.sampleKey,
     this.notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -251,6 +307,7 @@ class PanelSampleRecord {
   final String? unit;
   final String? summaryJson;
   final String? rawJson;
+  final String? sampleKey;
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -277,6 +334,7 @@ class PanelSampleRecord {
       'unit': unit,
       'summaryJson': summaryJson,
       'rawJson': rawJson,
+      'sampleKey': sampleKey,
       'notes': notes,
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
@@ -305,6 +363,7 @@ class PanelSampleRecord {
       unit: map['unit'] as String?,
       summaryJson: map['summaryJson'] as String?,
       rawJson: map['rawJson'] as String?,
+      sampleKey: map['sampleKey'] as String?,
       notes: map['notes'] as String?,
       createdAt: DateTime.parse(map['createdAt'] as String),
       updatedAt: DateTime.parse(map['updatedAt'] as String),

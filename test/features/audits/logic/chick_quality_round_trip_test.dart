@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/agent/station_adapter.dart';
+import 'package:hatchaudit/data/agent/station_registry.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/features/audits/logic/panel_row_to_draft.dart';
 import 'package:hatchaudit/features/audits/logic/panel_value_builders.dart';
@@ -84,7 +86,8 @@ AuditModel _fullChickDraft() {
     chickBmkWeight: 42.0,
     // --- YFBM ---
     yfbmPhoto: 'photos/yfbm.jpg',
-    yfbmEntries: '[{"chickWeight":42.0,"yolkWeight":4.2},'
+    yfbmEntries:
+        '[{"chickWeight":42.0,"yolkWeight":4.2},'
         '{"chickWeight":43.0,"yolkWeight":4.4}]',
     yfbmAvgPct: 10.15,
     yfbmCvPct: 3.2,
@@ -125,10 +128,9 @@ AuditModel _fullChickDraft() {
     pmPhotosJson: '["photos/pm-1.jpg"]',
     // --- Culled chicks analysis ---
     culledChicksTotalEggSet: _culledTotalEggSet,
-    culledChicksAnalysisJson: CulledChicksAnalysisCodec.encodeCounts(
-      const {_culledDefectId: 24},
-      totalEggSet: _culledTotalEggSet,
-    ),
+    culledChicksAnalysisJson: CulledChicksAnalysisCodec.encodeCounts(const {
+      _culledDefectId: 24,
+    }, totalEggSet: _culledTotalEggSet),
   );
 }
 
@@ -213,7 +215,8 @@ void main() {
       for (final entry in before.entries) {
         if (!_isChickKey(entry.key) || entry.value == null) continue;
         if (after[entry.key] != entry.value) {
-          mismatched[entry.key] = 'wrote ${entry.value}, '
+          mismatched[entry.key] =
+              'wrote ${entry.value}, '
               'reloaded ${after[entry.key]}';
         }
       }
@@ -279,10 +282,7 @@ void main() {
       expect(reloaded.pmUrolithiasisSeverity, draft.pmUrolithiasisSeverity);
       expect(reloaded.pmNephritisCount, draft.pmNephritisCount);
       expect(reloaded.pmNephritisSeverity, draft.pmNephritisSeverity);
-      expect(
-        reloaded.pmGeneralSepticemiaCount,
-        draft.pmGeneralSepticemiaCount,
-      );
+      expect(reloaded.pmGeneralSepticemiaCount, draft.pmGeneralSepticemiaCount);
       expect(
         reloaded.pmGeneralSepticemiaSeverity,
         draft.pmGeneralSepticemiaSeverity,
@@ -292,10 +292,7 @@ void main() {
       expect(reloaded.pmPhotosJson, draft.pmPhotosJson);
 
       expect(reloaded.culledChicksTotalEggSet, draft.culledChicksTotalEggSet);
-      expect(
-        reloaded.culledChicksAnalysisJson,
-        draft.culledChicksAnalysisJson,
-      );
+      expect(reloaded.culledChicksAnalysisJson, draft.culledChicksAnalysisJson);
       // Derived on write from the analysis JSON, so compare against what the
       // summary produces rather than against a null draft field.
       final summary = CulledChicksAnalysisSummary.fromJson(
@@ -319,6 +316,47 @@ void main() {
   });
 
   group('write columns and read columns agree', () {
+    test('generated registry reverse mappings cover every Chick field', () {
+      for (final schema in AgentStationRegistry.schemas.where(
+        (schema) => schema.schemaKey.startsWith('chicks.'),
+      )) {
+        final row = <String, Object?>{
+          for (final field in schema.fields)
+            field.persistence['localColumn']! as String: switch (field.type) {
+              'integer' => 1,
+              'number' => 1.5,
+              'string' => 'value',
+              'boolean' => 1,
+              'number_list' => '[1.0,2.0]',
+              'object_list' => '[{"value":1}]',
+              _ => null,
+            },
+        };
+        final decoded = AgentStationAdapter.fieldValuesFromLocalRow(
+          schema,
+          row,
+        );
+        for (final field in schema.fields) {
+          expect(
+            decoded,
+            contains(field.fieldKey),
+            reason: '${schema.schemaKey}.${field.fieldKey}',
+          );
+        }
+      }
+    });
+
+    test('generated registry reverse mappings also decode calculations', () {
+      final schema = AgentStationRegistry.schemas.singleWhere(
+        (schema) => schema.schemaKey == 'chicks.pasgar',
+      );
+      final decoded = AgentStationAdapter.fieldValuesFromLocalRow(schema, {
+        'pasgarFinalScore': 9.5,
+      });
+
+      expect(decoded['pasgarFinalScore'], 9.5);
+    });
+
     test('every chick_quality column written is read back', () {
       final written = chickQualityValues(_fullChickDraft()).keys.toSet();
       final read = _columnsReadBack('chick_quality');
@@ -348,10 +386,9 @@ void main() {
       // `bmkAgeWeeks` is a shared panel context column rather than a
       // `chick_weights` measurement column, so it is written and read but is
       // not part of the table's measurement column list.
-      expect(
-        written.difference(_measurementColumnNames('chick_weights')),
-        {'bmkAgeWeeks'},
-      );
+      expect(written.difference(_measurementColumnNames('chick_weights')), {
+        'bmkAgeWeeks',
+      });
       expect(
         _measurementColumnNames('chick_weights').difference(written),
         isEmpty,
