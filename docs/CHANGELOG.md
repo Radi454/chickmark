@@ -1,5 +1,23 @@
 # ChickMark Change Log
 
+- 2026-08-24: Completed the Chick Quality V2 Phase 5 evidence-based cleanup
+  audit without removing compatibility data. A deterministic Dart audit now
+  derives raw and calculated compatibility vocabulary from the canonical
+  station registry, inventories conservative production token mentions and
+  registry-driven persistence consumers, combines them with the persisted-
+  replacement, mixed-client, and lossless-migration evidence gates, and drift-
+  checks a committed review report. The current audit found 951 conservative
+  token mentions and seven heuristically detected registry-driven consumers;
+  the zero-reader gate also fails closed because lexical/heuristic scanning is
+  not a complete call graph. Coverage of every row is unproven and some
+  untouched or malformed legacy rows can still rely on their cache as the only
+  evidence;
+  clients still dual-write and fall back to compatibility values; and no safe
+  local/cloud removal migration is proven. Therefore no Chick parent table or
+  column, hierarchy field, raw JSON/wide cache, derived cache,
+  `chicks.legacy_combined` support, reader, writer, or migration support was
+  removed. No migration was applied to a live Supabase project.
+
 - 2026-08-24: Added Chick Quality V2 Phase 4 normalized raw observations.
   Registry-generated descriptors now define the observation kind, key, unit,
   ordinal, and photo ownership for weights, YFBM, CVT, Pasgar, postmortem, and

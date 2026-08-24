@@ -738,6 +738,23 @@ Station save behavior:
   the app does not apply them to a live project. The observation owner trigger
   validates its private parent through a fixed-search-path privileged function,
   while active RLS still limits authenticated reads and writes by customer.
+- Chick Quality V2 compatibility cleanup is evidence-gated. The repeatable
+  Phase 5 audit derives observation-backed and calculated cache names from the
+  canonical station registry, conservatively scans production Dart and
+  TypeScript token mentions, separately detects registry-driven persistence
+  consumers, and requires four independent proofs before permitting a removal:
+  zero runtime readers/writers, a safe V2 replacement for every persisted row,
+  release from mixed-client backward compatibility, and a lossless local and
+  cloud migration. Token mentions are cleanup blockers rather than claims that
+  every matching line is a Chick reader. The current audit finds both token
+  mentions and heuristically detected registry-driven consumers. Because those
+  searches are not a complete call graph, the zero-reader gate also requires an
+  explicit inventory-completeness proof and fails closed without one. None of
+  the three remaining non-code proofs is complete. Consequently the app retains
+  both Chick parent tables, their hierarchy fields, raw JSON/wide and derived
+  caches, `chicks.legacy_combined`, dual-write/fallback behavior, and their
+  migration support. The committed audit report is drift-checked; cleanup is
+  not inferred from observations being present on only some rows.
 - Storage-capable stations default blank storage-day values to `0` in drafts
   and station-sample metadata so BMK age calculations can run even when the
   user leaves the storage field untouched.
