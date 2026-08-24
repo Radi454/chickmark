@@ -26,7 +26,201 @@ class AgentStationValidation {
   bool get isValid => missing.isEmpty && issues.isEmpty;
 }
 
+enum AgentStationQualityTier { flag, warn, block }
+
+class AgentStationQualityContext {
+  const AgentStationQualityContext({
+    required this.domain,
+    required this.schemaVersion,
+    required this.scopeType,
+    required this.scopeKey,
+    required this.sampleKey,
+  });
+
+  final String domain;
+  final int schemaVersion;
+  final String scopeType;
+  final String scopeKey;
+  final String sampleKey;
+}
+
+class AgentStationQualityFlag {
+  const AgentStationQualityFlag({
+    required this.tier,
+    required this.schemaKey,
+    required this.fieldKey,
+    required this.code,
+    this.itemIndex,
+    this.propertyKey,
+  });
+
+  final AgentStationQualityTier tier;
+  final String schemaKey;
+  final String fieldKey;
+  final String code;
+  final int? itemIndex;
+  final String? propertyKey;
+
+  Map<String, Object?> toJson() => {
+    'tier': tier.name.toUpperCase(),
+    'schemaKey': schemaKey,
+    'fieldKey': fieldKey,
+    'code': code,
+    if (itemIndex != null) 'itemIndex': itemIndex,
+    if (propertyKey != null) 'propertyKey': propertyKey,
+  };
+}
+
+class AgentStationQualityClassification {
+  const AgentStationQualityClassification({
+    required this.status,
+    required this.flags,
+  });
+
+  final String status;
+  final List<AgentStationQualityFlag> flags;
+
+  String get canonicalJson =>
+      jsonEncode([for (final flag in flags) flag.toJson()]);
+}
+
 abstract final class AgentStationAdapter {
+  static AgentStationQualityClassification classifyQuality(
+    AgentStationSchema schema,
+    Map<String, Object?> values, {
+    required AgentStationQualityContext context,
+  }) {
+    final flags = <AgentStationQualityFlag>[];
+    final policy = AgentStationRegistry.qualityClassification;
+
+    void policyFlag(Map<String, Object?> rule, {String fieldKey = r'$sample'}) {
+      flags.add(
+        AgentStationQualityFlag(
+          tier: _qualityTier(rule['tier']),
+          schemaKey: schema.schemaKey,
+          fieldKey: fieldKey,
+          code: rule['code']! as String,
+        ),
+      );
+    }
+
+    final structural = _map(policy['structural']);
+    if (context.domain != schema.schemaKey) {
+      policyFlag(_map(structural['domainMismatch']));
+    }
+    if (context.schemaVersion != schema.version) {
+      policyFlag(_map(structural['schemaVersionMismatch']));
+    }
+    if (!schema.allowedLayers.contains(context.scopeType)) {
+      policyFlag(_map(structural['scopeNotAllowed']));
+    }
+    if (_malformedQualityIdentity(context)) {
+      policyFlag(_map(structural['malformedIdentity']));
+    }
+
+    final calculationKeys = {
+      for (final calculation in schema.calculations) calculation.fieldKey,
+    };
+    final validation = validate(schema, {
+      for (final entry in values.entries)
+        if (!calculationKeys.contains(entry.key)) entry.key: entry.value,
+    });
+    final missingRule = _map(policy['missing']);
+    for (final fieldKey in validation.missing) {
+      policyFlag(missingRule, fieldKey: fieldKey);
+    }
+    final issueTiers = _map(policy['validationIssueTiers']);
+    for (final issue in validation.issues) {
+      final tierName = issueTiers[issue.code]?.toString();
+      if (tierName == null) {
+        throw StateError(
+          'Registry quality policy does not classify ${issue.code}',
+        );
+      }
+      flags.add(
+        AgentStationQualityFlag(
+          tier: _qualityTier(tierName),
+          schemaKey: schema.schemaKey,
+          fieldKey: issue.fieldKey,
+          code: issue.code,
+          itemIndex: issue.itemIndex,
+          propertyKey: issue.propertyKey,
+        ),
+      );
+    }
+    final malformedInputKeys = validation.issues
+        .where(
+          (issue) =>
+              issue.code == 'invalid_type' ||
+              issue.code == 'invalid_item_type' ||
+              issue.code == 'item_required',
+        )
+        .map((issue) => issue.fieldKey)
+        .toSet();
+
+    final missingRawRule = _map(policy['missingRawEvidence']);
+    for (final field in schema.fields) {
+      if (field.type != 'number_list' && field.type != 'object_list') continue;
+      if (values[field.fieldKey] == null &&
+          schema.calculations.any(
+            (calculation) => values.containsKey(calculation.fieldKey),
+          )) {
+        policyFlag(missingRawRule, fieldKey: field.fieldKey);
+      }
+    }
+
+    final mismatchRule = _map(policy['derivedCacheMismatch']);
+    for (final calculation in schema.calculations) {
+      if (!values.containsKey(calculation.fieldKey)) continue;
+      final inputsPresent = calculation.inputFieldKeys.every(
+        (key) => values[key] != null,
+      );
+      if (!inputsPresent ||
+          calculation.inputFieldKeys.any(malformedInputKeys.contains)) {
+        policyFlag(mismatchRule, fieldKey: calculation.fieldKey);
+        continue;
+      }
+      final calculated = _calculate(
+        calculation.kind,
+        calculation.inputFieldKeys.map((key) => values[key]).toList(),
+      );
+      if (!_qualityValuesEqual(values[calculation.fieldKey], calculated)) {
+        policyFlag(mismatchRule, fieldKey: calculation.fieldKey);
+      }
+    }
+
+    final unique = <String, AgentStationQualityFlag>{};
+    for (final flag in flags) {
+      unique[jsonEncode(flag.toJson())] = flag;
+    }
+    final ordered = unique.values.toList()
+      ..sort((left, right) {
+        final tier = left.tier.index.compareTo(right.tier.index);
+        if (tier != 0) return tier;
+        final schema = left.schemaKey.compareTo(right.schemaKey);
+        if (schema != 0) return schema;
+        final field = left.fieldKey.compareTo(right.fieldKey);
+        if (field != 0) return field;
+        final code = left.code.compareTo(right.code);
+        if (code != 0) return code;
+        final item = (left.itemIndex ?? -1).compareTo(right.itemIndex ?? -1);
+        if (item != 0) return item;
+        return (left.propertyKey ?? '').compareTo(right.propertyKey ?? '');
+      });
+    final status =
+        ordered.any((flag) => flag.tier == AgentStationQualityTier.block)
+        ? 'BLOCK'
+        : ordered.any((flag) => flag.tier == AgentStationQualityTier.warn)
+        ? 'WARN'
+        : ordered.isNotEmpty
+        ? 'FLAG'
+        : 'OK';
+    return AgentStationQualityClassification(
+      status: status,
+      flags: List.unmodifiable(ordered),
+    );
+  }
+
   static AgentStationValidation validate(
     AgentStationSchema schema,
     Map<String, Object?> values,
@@ -528,6 +722,40 @@ const _culledDefects = <Object?, (String, String)>{
   'small_weak_small_chick': ('Small/Weak', 'Small chick'),
   'hair_chick_sparse_down': ('Hair Chick', 'Hair chick / sparse down'),
 };
+
+AgentStationQualityTier _qualityTier(Object? value) {
+  return switch (value?.toString()) {
+    'BLOCK' => AgentStationQualityTier.block,
+    'WARN' => AgentStationQualityTier.warn,
+    'FLAG' => AgentStationQualityTier.flag,
+    _ => throw StateError('Unknown registry quality tier: $value'),
+  };
+}
+
+bool _malformedQualityIdentity(AgentStationQualityContext context) {
+  if (context.domain.trim().isEmpty ||
+      context.schemaVersion < 1 ||
+      context.scopeType.trim().isEmpty ||
+      context.sampleKey.trim().isEmpty) {
+    return true;
+  }
+  try {
+    return jsonDecode(context.scopeKey) is! Map;
+  } on FormatException {
+    return true;
+  }
+}
+
+bool _qualityValuesEqual(Object? left, Object? right) {
+  if (left is num && right is num) {
+    return (left.toDouble() - right.toDouble()).abs() < 0.000000001;
+  }
+  try {
+    return jsonEncode(left) == jsonEncode(right);
+  } on JsonUnsupportedObjectError {
+    return left == right;
+  }
+}
 
 Map<String, Object?> _map(Object? value) {
   if (value is! Map) return const {};

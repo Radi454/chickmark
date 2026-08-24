@@ -481,6 +481,8 @@ StationSampleModel _sampleFromPanelRow(
           })
         : null,
     sampleKey: panelRowAsText(row['sampleKey']),
+    qualityStatus: panelRowAsText(row['qualityStatus']),
+    qualityFlags: panelRowAsText(row['qualityFlags']),
     legacyAuditId:
         stationKey == 'egg' ||
             (stationKey == 'chicks' && table == 'chick_quality')

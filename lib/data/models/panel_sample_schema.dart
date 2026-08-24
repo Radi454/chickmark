@@ -42,6 +42,11 @@ const kChickV2IdentityColumnDefinitions = [
   'observedAt TEXT',
 ];
 
+const kChickV2QualityColumnDefinitions = [
+  'qualityStatus TEXT',
+  'qualityFlags TEXT',
+];
+
 class PanelSampleDefinition {
   const PanelSampleDefinition({
     required this.tableName,
@@ -49,6 +54,7 @@ class PanelSampleDefinition {
     required this.measurementColumns,
     this.hierarchyColumnDefinitions = kPanelHierarchyColumnDefinitions,
     this.identityColumnDefinitions = const [],
+    this.qualityColumnDefinitions = const [],
   });
 
   final String tableName;
@@ -56,6 +62,7 @@ class PanelSampleDefinition {
   final List<String> measurementColumns;
   final List<String> hierarchyColumnDefinitions;
   final List<String> identityColumnDefinitions;
+  final List<String> qualityColumnDefinitions;
 
   List<String> get hierarchyColumnNames => hierarchyColumnDefinitions
       .map((definition) => definition.trim().split(RegExp(r'\s+')).first)
@@ -136,6 +143,7 @@ class PanelSampleSchema {
       tableName: 'chick_quality',
       allowedLayers: [SamplingLayer.pool, SamplingLayer.setterHatcher],
       identityColumnDefinitions: kChickV2IdentityColumnDefinitions,
+      qualityColumnDefinitions: kChickV2QualityColumnDefinitions,
       measurementColumns: [
         'pasgarSampleSize INTEGER',
         'pasgarReflexesCount INTEGER',
@@ -201,6 +209,7 @@ class PanelSampleSchema {
       tableName: 'chick_weights',
       allowedLayers: [SamplingLayer.pool, SamplingLayer.house],
       identityColumnDefinitions: kChickV2IdentityColumnDefinitions,
+      qualityColumnDefinitions: kChickV2QualityColumnDefinitions,
       measurementColumns: [
         'weightsJson TEXT',
         'sampleSize INTEGER',

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
@@ -67,6 +69,8 @@ void main() {
       deviceId TEXT,
       sourceRefId TEXT,
       observedAt TEXT,
+      qualityStatus TEXT,
+      qualityFlags TEXT,
       pasgarSampleSize INTEGER,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
@@ -348,6 +352,13 @@ void main() {
       expect(row?['captureMethod'], 'unknown');
       expect(row?['syncStatus'], 'synced');
       expect(row?['sampleKey'], isNotNull);
+      expect(row?['qualityStatus'], 'FLAG');
+      expect(
+        (jsonDecode(row?['qualityFlags']! as String) as List).map(
+          (flag) => (flag as Map)['code'],
+        ),
+        contains('missing_required'),
+      );
     },
   );
 }

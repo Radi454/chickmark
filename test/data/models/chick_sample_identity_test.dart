@@ -151,6 +151,8 @@ void main() {
         deviceId: 'device-1',
         sourceRefId: 'form-1',
         observedAt: observedAt,
+        qualityStatus: 'FLAG',
+        qualityFlags: '[{"tier":"FLAG","code":"missing_raw_evidence"}]',
         createdAt: DateTime.utc(2026, 8, 24, 9),
         updatedAt: DateTime.utc(2026, 8, 24, 9, 31),
       );
@@ -169,6 +171,11 @@ void main() {
       expect(reloaded.deviceId, 'device-1');
       expect(reloaded.sourceRefId, 'form-1');
       expect(reloaded.observedAt, observedAt);
+      expect(reloaded.qualityStatus, 'FLAG');
+      expect(
+        reloaded.qualityFlags,
+        '[{"tier":"FLAG","code":"missing_raw_evidence"}]',
+      );
     },
   );
 }

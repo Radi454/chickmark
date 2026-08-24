@@ -1,5 +1,8 @@
 import { agentStationRegistry } from './station_registry.generated.ts'
-import { deriveStationAdapter } from '../telegram-hatchery-agent/agent_station_adapter.ts'
+import {
+  classifyStationQuality,
+  deriveStationAdapter,
+} from '../telegram-hatchery-agent/agent_station_adapter.ts'
 import { buildScopeKey, type ChickScopeType } from './chick_sample_identity.ts'
 
 export interface ApprovalIntakeRow {
@@ -162,7 +165,9 @@ export function prepareAgentIntakeApproval(input: {
   const values = record(intake.working_values_json)
   let adapter
   try {
-    adapter = deriveStationAdapter(schema, values)
+    adapter = deriveStationAdapter(schema, values, {
+      allowQualityWarnings: true,
+    })
   } catch (_) {
     throw new AgentIntakeApprovalValidationError(
       'The reviewed station values are incomplete or invalid.',
@@ -227,6 +232,30 @@ export function prepareAgentIntakeApproval(input: {
       capture_method: 'conversational_agent',
       source_ref_id: intake.id,
       observed_at: intake.user_confirmed_at,
+    })
+    const quality = classifyStationQuality(
+      schema,
+      { ...values, ...adapter.calculations },
+      {
+        domain: schema.schemaKey,
+        schemaVersion: schema.version,
+        scopeType,
+        scopeKey,
+        // The approval transaction allocates the final replicate/sample key.
+        // A non-empty placeholder lets classification validate every other
+        // structural field without pretending to own that allocation.
+        sampleKey: 'allocated-by-approval-transaction',
+      },
+    )
+    if (quality.status === 'BLOCK') {
+      throw new AgentIntakeApprovalValidationError(
+        'The reviewed station values cannot be stored safely.',
+        'invalid_values',
+      )
+    }
+    Object.assign(panelPayload, {
+      quality_status: quality.status,
+      quality_flags: quality.canonicalJson,
     })
   }
   return {

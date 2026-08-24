@@ -251,6 +251,7 @@ Future<void> ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
       ...panel.hierarchyColumnDefinitions,
       ..._panelContextColumnDefinitions,
       ...panel.identityColumnDefinitions,
+      ...panel.qualityColumnDefinitions,
       ...panel.measurementColumns,
     ]) {
       final columnName = _columnNameFromDefinition(columnDefinition);
@@ -344,6 +345,9 @@ Future<void> _createPanelTable(
   final identityColumns = panel.identityColumnDefinitions.isEmpty
       ? ''
       : ',\n    ${panel.identityColumnDefinitions.join(',\n    ')}';
+  final qualityColumns = panel.qualityColumnDefinitions.isEmpty
+      ? ''
+      : ',\n    ${panel.qualityColumnDefinitions.join(',\n    ')}';
   await db.execute('''CREATE TABLE IF NOT EXISTS $tableName (
     id TEXT PRIMARY KEY,
     sessionId TEXT NOT NULL,
@@ -354,7 +358,7 @@ Future<void> _createPanelTable(
     breed TEXT,
     flockAgeWeeks INTEGER,
     $hierarchyColumns,
-    ${_panelContextColumnDefinitions.join(',\n    ')}$identityColumns,
+    ${_panelContextColumnDefinitions.join(',\n    ')}$identityColumns$qualityColumns,
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,

@@ -33,6 +33,27 @@ Deno.test('prepares only registry-mapped values for a generic station', () => {
   assertEquals(prepared.panelPayload.observed_at, '2026-07-28T12:01:00.000Z')
   assertEquals(prepared.panelPayload.replicate, undefined)
   assertEquals(prepared.panelPayload.sample_key, undefined)
+  assertEquals(prepared.panelPayload.quality_status, 'OK')
+  assertEquals(prepared.panelPayload.quality_flags, '[]')
+})
+
+Deno.test('agent approval persists advisory WARN measurements', () => {
+  const prepared = prepareAgentIntakeApproval({
+    intake: {
+      ...weightIntake(),
+      working_values_json: { weightsJson: [0] },
+    },
+    expectedSummaryVersion: 2,
+    targetSession: null,
+    requestedTargetSessionId: null,
+    panelRowId: 'panel-warn',
+    approvedAt: '2026-07-28T13:00:00.000Z',
+  })
+  assertEquals(prepared.panelPayload.quality_status, 'WARN')
+  assertEquals(
+    String(prepared.panelPayload.quality_flags).includes('item_out_of_range'),
+    true,
+  )
 })
 
 Deno.test('rejects stale, unconfirmed, and mismatched schema summaries', () => {
@@ -86,7 +107,7 @@ Deno.test('rejects invalid values and cross-context target visits', () => {
       prepareAgentIntakeApproval({
         intake: {
           ...weightIntake(),
-          working_values_json: { weightsJson: [0] },
+          working_values_json: { weightsJson: ['not-a-number'] },
         },
         expectedSummaryVersion: 2,
         targetSession: null,

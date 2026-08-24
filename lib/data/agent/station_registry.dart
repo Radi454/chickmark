@@ -174,6 +174,14 @@ class AgentStationSchema {
 }
 
 abstract final class AgentStationRegistry {
+  static final Map<String, Object?> qualityClassification = UnmodifiableMapView(
+    _object(
+      _object(
+        jsonDecode(generatedAgentStationRegistryJson),
+      )['qualityClassification'],
+    ),
+  );
+
   static final Map<String, Object?> calculationParityVectors =
       UnmodifiableMapView(
         _object(

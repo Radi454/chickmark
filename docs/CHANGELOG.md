@@ -1,5 +1,23 @@
 # ChickMark Change Log
 
+- 2026-08-24: Added Chick Quality V2 Phase 3 registry-owned data-quality
+  classification. The canonical station registry now defines stable `BLOCK`,
+  `WARN`, and `FLAG` policy shared by Dart and TypeScript. SQLite v65 and a
+  migration-only Supabase mirror add `qualityStatus`/`qualityFlags` caches to
+  both Chick parent tables without changing measurements or identity. Local
+  repository and agent approval writes recompute canonical flags; caller caches
+  are not trusted. Structural identity/storage failures block, while suspicious
+  measurements and incomplete evidence remain saveable offline and appear in a
+  localized advisory banner, including flags restored after reload. Shared
+  registry parity vectors now pin exact Dart/TypeScript output and generation
+  rejects missing or dead validation-issue policy entries. Malformed legacy
+  values are classified without aborting the v65 upgrade. The cloud trigger
+  invalidates every caller-supplied or stale cache to conservative
+  `legacy_quality_unclassified`; SQLite recomputes exact quality after pull,
+  including old rows that omitted both fields.
+  Sync maps the additive fields in both directions, and no migration was applied
+  to a live Supabase project.
+
 - 2026-08-24: Added Chick Quality V2 Phase 2 identity and provenance without
   splitting or rewriting historical combined measurements. SQLite v64 and the
   migration-only Supabase mirror preserve every Chick row id, deterministically

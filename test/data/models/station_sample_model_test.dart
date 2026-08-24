@@ -39,6 +39,9 @@ void main() {
         benchmarkSource: 'local',
         benchmarkSnapshotJson: '{"ageWeek":40}',
         resultSummaryJson: '{"avgWeight":42.5}',
+        qualityStatus: 'FLAG',
+        qualityFlags:
+            '[{"tier":"FLAG","schemaKey":"chicks.weights","fieldKey":"\$sample","code":"legacy_quality_unclassified"}]',
         notes: 'Sample note',
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -69,6 +72,8 @@ void main() {
       expect(restored.hatcherNo, 'H-1');
       expect(restored.calculatedBmkAgeDays, 280);
       expect(restored.resultSummaryJson, '{"avgWeight":42.5}');
+      expect(restored.qualityStatus, 'FLAG');
+      expect(restored.qualityFlags, sample.qualityFlags);
     });
 
     test('uses safe defaults for minimal sample rows', () {

@@ -17,7 +17,8 @@ Future<void> _createPanelTable(
   final identityColumns = isChick
       ? ', domain TEXT, schemaVersion INTEGER, scopeKey TEXT, replicate INTEGER, '
             'sampleKey TEXT, source TEXT, captureMethod TEXT, createdBy TEXT, '
-            'deviceId TEXT, sourceRefId TEXT, observedAt TEXT'
+            'deviceId TEXT, sourceRefId TEXT, observedAt TEXT, '
+            'qualityStatus TEXT, qualityFlags TEXT'
       : '';
   final extra = extraColumns.isEmpty ? '' : ', ${extraColumns.join(', ')}';
   await db.execute('''CREATE TABLE $tableName (
@@ -138,9 +139,20 @@ void main() {
     ]);
     await _createPanelTable(database, 'chick_quality', const [
       'sampleSize INTEGER',
+      'pasgarSampleSize INTEGER',
+      'pasgarReflexesCount INTEGER',
+      'pasgarBeakCount INTEGER',
+      'pasgarNavelCount INTEGER',
+      'pasgarBellyCount INTEGER',
+      'pasgarLegCount INTEGER',
+      'pasgarFeatherDevCount INTEGER',
     ]);
     await _createPanelTable(database, 'chick_weights', const [
       'sampleSize INTEGER',
+      'weightsJson TEXT',
+      'avgWeight REAL',
+      'uniformityPct REAL',
+      'cvPct REAL',
     ]);
     await database.insert('customers', {'id': 'customer-1'});
     await database.insert('flocks', {
@@ -276,6 +288,52 @@ void main() {
       );
     },
   );
+
+  test('every Chick write recomputes registry quality columns', () async {
+    final base = <String, Object?>{
+      'id': 'quality-recompute-weight',
+      'sessionId': 'session-1',
+      'customerId': 'customer-1',
+      'date': '2026-05-13',
+      'house': 'House A',
+      'scopeType': 'house',
+      'createdAt': '2026-05-13T00:00:00.000Z',
+      'updatedAt': '2026-05-13T00:00:00.000Z',
+    };
+    await repository.upsertRow(
+      tableName: 'chick_weights',
+      row: {
+        ...base,
+        'weightsJson': '[0,201]',
+        'qualityStatus': 'OK',
+        'qualityFlags': '[]',
+      },
+    );
+    var row = (await db.query(
+      'chick_weights',
+      where: 'id = ?',
+      whereArgs: ['quality-recompute-weight'],
+    )).single;
+    expect(row['qualityStatus'], 'WARN');
+    expect(row['qualityFlags'], contains('item_out_of_range'));
+
+    await repository.upsertRow(
+      tableName: 'chick_weights',
+      row: {
+        ...base,
+        'weightsJson': '[40,41]',
+        'qualityStatus': 'BLOCK',
+        'qualityFlags': '[{"code":"spoofed"}]',
+      },
+    );
+    row = (await db.query(
+      'chick_weights',
+      where: 'id = ?',
+      whereArgs: ['quality-recompute-weight'],
+    )).single;
+    expect(row['qualityStatus'], 'OK');
+    expect(row['qualityFlags'], '[]');
+  });
 
   test('savePanelWithSamples writes one row per nested leaf scope', () async {
     final panel = PanelRecord(

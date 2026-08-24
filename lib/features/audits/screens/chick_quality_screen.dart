@@ -160,6 +160,15 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _HeaderCard(contextData: widget.context),
+                            if (auditProvider
+                                    .registryValidationWarnings
+                                    .isNotEmpty ||
+                                auditProvider
+                                    .persistedChickQualityFlags
+                                    .isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              const _ChickQualityAdvisoryBanner(),
+                            ],
                             const SizedBox(height: 16),
                             _buildWorkbench(context, auditProvider, audit),
                           ],
@@ -594,6 +603,44 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       if (trimmed != null && trimmed.isNotEmpty) return trimmed;
     }
     return null;
+  }
+}
+
+class _ChickQualityAdvisoryBanner extends StatelessWidget {
+  const _ChickQualityAdvisoryBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('chick-quality-advisory-banner'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.statusWarningBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: AppColors.statusWarning.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline,
+            color: AppColors.statusWarning,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              context.tr(
+                'Review data quality. Registry checks need attention; save is still allowed.',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

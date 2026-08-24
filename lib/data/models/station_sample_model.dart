@@ -66,6 +66,8 @@ class StationSampleModel {
   final String? benchmarkSnapshotJson;
   final String? resultSummaryJson;
   final String? sampleKey;
+  final String? qualityStatus;
+  final String? qualityFlags;
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -103,6 +105,8 @@ class StationSampleModel {
     this.benchmarkSnapshotJson,
     this.resultSummaryJson,
     this.sampleKey,
+    this.qualityStatus,
+    this.qualityFlags,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -146,6 +150,8 @@ class StationSampleModel {
       benchmarkSnapshotJson: map['benchmarkSnapshotJson'] as String?,
       resultSummaryJson: map['resultSummaryJson'] as String?,
       sampleKey: map['sampleKey'] as String?,
+      qualityStatus: map['qualityStatus'] as String?,
+      qualityFlags: map['qualityFlags'] as String?,
       notes: map['notes'] as String?,
       createdAt: _parseDate(map['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(map['updatedAt']) ?? DateTime.now(),
@@ -186,6 +192,8 @@ class StationSampleModel {
       'benchmarkSnapshotJson': benchmarkSnapshotJson,
       'resultSummaryJson': resultSummaryJson,
       'sampleKey': sampleKey,
+      'qualityStatus': qualityStatus,
+      'qualityFlags': qualityFlags,
       'notes': notes,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -225,6 +233,8 @@ class StationSampleModel {
     String? benchmarkSnapshotJson,
     String? resultSummaryJson,
     String? sampleKey,
+    String? qualityStatus,
+    String? qualityFlags,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -263,6 +273,8 @@ class StationSampleModel {
           benchmarkSnapshotJson ?? this.benchmarkSnapshotJson,
       resultSummaryJson: resultSummaryJson ?? this.resultSummaryJson,
       sampleKey: sampleKey ?? this.sampleKey,
+      qualityStatus: qualityStatus ?? this.qualityStatus,
+      qualityFlags: qualityFlags ?? this.qualityFlags,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

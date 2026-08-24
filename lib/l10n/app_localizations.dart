@@ -1125,6 +1125,8 @@ const Map<String, String> _ar = {
   'Start': 'ابدأ',
   'Open': 'فتح',
   'Review': 'مراجعة',
+  'Review data quality. Registry checks need attention; save is still allowed.':
+      'راجع جودة البيانات. تحتاج فحوصات السجل إلى الانتباه، ولا يزال الحفظ مسموحًا.',
   'Cloud not configured': 'المزامنة السحابية غير مفعلة',
   'Sync & Offline': 'المزامنة والعمل بدون اتصال',
   'Local database ready': 'قاعدة البيانات المحلية جاهزة',
@@ -2524,8 +2526,7 @@ const Map<String, String> _ar = {
       'تعذّر بدء المكالمة المباشرة. حاول مرة أخرى.',
   'The live call was not ready to send audio.':
       'المكالمة المباشرة لم تكن جاهزة لإرسال الصوت.',
-  'The live call was not connected yet.':
-      'لم يتم توصيل المكالمة المباشرة بعد.',
+  'The live call was not connected yet.': 'لم يتم توصيل المكالمة المباشرة بعد.',
   'Could not reach the live voice service. Check your connection.':
       'تعذّر الوصول إلى خدمة المحادثة المباشرة. تحقق من اتصالك.',
   'The live voice service refused the call. Please try again.':
@@ -2538,7 +2539,6 @@ const Map<String, String> _ar = {
       'تعذّر الاتصال بجلسة المحادثة المباشرة. حاول مرة أخرى.',
   'The live voice session dropped.': 'انقطعت جلسة المحادثة المباشرة.',
   'The live voice session failed.': 'فشلت جلسة المحادثة المباشرة.',
-  'The live voice session hit an error.':
-      'حدث خطأ في جلسة المحادثة المباشرة.',
+  'The live voice session hit an error.': 'حدث خطأ في جلسة المحادثة المباشرة.',
   'The live voice call dropped.': 'انقطعت المكالمة الصوتية المباشرة.',
 };

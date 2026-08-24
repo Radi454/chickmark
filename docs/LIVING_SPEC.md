@@ -676,10 +676,26 @@ Station save behavior:
   identity through approval. These migrations are repository files only and are
   not applied by the app.
 - `tool/agent_schema/station_registry.json` remains the persistence-metadata
-  authority. Generation rejects duplicate local or remote column claims within
-  a schema. Normal Chick UI save/load and agent intake use those generated field
-  mappings in both directions; adapters also support semantic JSON/list and
-  integer-boolean decoding while compatibility-only columns remain available.
+  and validation authority. Generation rejects duplicate local or remote column
+  claims, incomplete/dead quality issue mappings, invalid policy tiers, and
+  malformed shared classification parity vectors. Normal Chick UI save/load and agent
+  intake use those generated field mappings and the same quality classifier in
+  both directions; adapters also support semantic JSON/list and integer-boolean
+  decoding while compatibility-only columns remain available.
+- Every Chick parent row stores a registry-recomputed `qualityStatus` and
+  canonical JSON `qualityFlags`. `BLOCK` is reserved for malformed identity,
+  schema, scope, or value types that cannot be stored safely. `WARN` records
+  biologically or operationally suspicious ranges, choices, and dependencies.
+  `FLAG` records incomplete/raw-evidence gaps and derived-cache mismatches.
+  Explicit zero remains distinct from missing. `WARN` and `FLAG` never block an
+  offline save; the Chick workbench shows a localized advisory banner for both
+  current draft warnings and persisted flags restored from saved samples.
+  SQLite v65 backfills existing rows without changing their measurements,
+  identity, provenance, or sync bookkeeping. The migration-only cloud mirror
+  never trusts caller-supplied quality caches: every insert and measurement
+  update receives a conservative `legacy_quality_unclassified` flag. A pulled
+  row is classified exactly from the generated registry when SQLite stores it,
+  including rows from older clients that omit both cache columns.
 - Storage-capable stations default blank storage-day values to `0` in drafts
   and station-sample metadata so BMK age calculations can run even when the
   user leaves the storage field untouched.
@@ -2159,7 +2175,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 64. The database file
+The app uses SQLite through `sqflite` at database version 65. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup

@@ -12,6 +12,8 @@ void main() {
       'deviceId': 'device-1',
       'sourceRefId': 'ref-1',
       'observedAt': '2026-08-24T00:00:00Z',
+      'qualityStatus': 'WARN',
+      'qualityFlags': '[{"tier":"WARN","code":"item_out_of_range"}]',
       'dirtyAt': 'device-only',
     });
 
@@ -24,6 +26,8 @@ void main() {
       'device_id': 'device-1',
       'source_ref_id': 'ref-1',
       'observed_at': '2026-08-24T00:00:00Z',
+      'quality_status': 'WARN',
+      'quality_flags': '[{"tier":"WARN","code":"item_out_of_range"}]',
     });
   });
 

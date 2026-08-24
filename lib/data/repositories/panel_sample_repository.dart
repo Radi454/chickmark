@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../agent/chick_quality_classifier.dart';
 import '../database/database_helper.dart';
 import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_model.dart';
@@ -51,7 +52,7 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          await _prepareChickIdentity(txn, definition.tableName, row),
+          await _prepareAndClassifyChickRow(txn, definition.tableName, row),
         );
         return;
       }
@@ -68,7 +69,7 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          await _prepareChickIdentity(txn, definition.tableName, row),
+          await _prepareAndClassifyChickRow(txn, definition.tableName, row),
         );
       }
     });
@@ -93,7 +94,7 @@ class PanelSampleRepository {
         await _upsertById(
           txn,
           definition.tableName,
-          await _prepareChickIdentity(txn, definition.tableName, values),
+          await _prepareAndClassifyChickRow(txn, definition.tableName, values),
         );
       });
     }
@@ -516,7 +517,7 @@ class PanelSampleRepository {
       // new row and move only that still-local identity to the next free
       // replicate. It remains pending and will be inserted on the next push.
       for (final displaced in displacedRows) {
-        final prepared = await _prepareChickIdentity(txn, tableName, {
+        final prepared = await _prepareAndClassifyChickRow(txn, tableName, {
           ...displaced,
           'replicate': null,
           'sampleKey': null,
@@ -530,6 +531,8 @@ class PanelSampleRepository {
             'scopeKey': prepared['scopeKey'],
             'replicate': prepared['replicate'],
             'sampleKey': prepared['sampleKey'],
+            'qualityStatus': prepared['qualityStatus'],
+            'qualityFlags': prepared['qualityFlags'],
           },
           where: 'id = ?',
           whereArgs: [prepared['id']],
@@ -845,9 +848,7 @@ class PanelSampleRepository {
     );
     if (existing.isNotEmpty && _text(existing.single['sampleKey']) != null) {
       final prepared = Map<String, Object?>.from(row);
-      for (final column in definition.identityColumnDefinitions.map(
-        (definition) => definition.split(RegExp(r'\s+')).first,
-      )) {
+      for (final column in _immutableChickIdentityColumnNames(definition)) {
         prepared[column] = existing.single[column];
       }
       // scopeType predates the V2 column list but is part of the immutable
@@ -871,9 +872,7 @@ class PanelSampleRepository {
       if (bySampleKey.isNotEmpty) {
         final prepared = Map<String, Object?>.from(row)
           ..['id'] = bySampleKey.single['id'];
-        for (final column in definition.identityColumnDefinitions.map(
-          (definition) => definition.split(RegExp(r'\s+')).first,
-        )) {
+        for (final column in _immutableChickIdentityColumnNames(definition)) {
           prepared[column] = bySampleKey.single[column];
         }
         prepared['scopeType'] = bySampleKey.single['scopeType'];
@@ -967,6 +966,28 @@ class PanelSampleRepository {
       'observedAt': row['observedAt'] ?? row['createdAt'],
     };
   }
+
+  Future<Map<String, Object?>> _prepareAndClassifyChickRow(
+    DatabaseExecutor executor,
+    String table,
+    Map<String, Object?> row,
+  ) async {
+    final prepared = await _prepareChickIdentity(executor, table, row);
+    if (table != 'chick_quality' && table != 'chick_weights') return prepared;
+    final classified = ChickQualityClassifier.stampRow(table, prepared);
+    if (classified['qualityStatus'] == 'BLOCK') {
+      throw StateError(
+        '$table has BLOCK quality flags: ${classified['qualityFlags']}',
+      );
+    }
+    return classified;
+  }
+
+  Iterable<String> _immutableChickIdentityColumnNames(
+    PanelSampleDefinition definition,
+  ) => definition.identityColumnDefinitions.map(
+    (item) => item.split(RegExp(r'\s+')).first,
+  );
 
   SamplingLayer _scopeTypeForChickIdentity(
     String table,

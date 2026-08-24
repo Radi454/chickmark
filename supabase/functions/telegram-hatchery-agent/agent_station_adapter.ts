@@ -1,4 +1,7 @@
-import type { AgentStationSchema } from '../_shared/station_registry.generated.ts'
+import {
+  agentStationRegistry,
+  type AgentStationSchema,
+} from '../_shared/station_registry.generated.ts'
 import {
   cvPercent,
   pasgarScore,
@@ -18,6 +21,31 @@ export interface StationValueValidation {
   valid: boolean
   missing: string[]
   issues: StationValueIssue[]
+}
+
+export type StationQualityTier = 'BLOCK' | 'WARN' | 'FLAG'
+
+export interface StationQualityContext {
+  domain: string
+  schemaVersion: number
+  scopeType: string
+  scopeKey: string
+  sampleKey: string
+}
+
+export interface StationQualityFlag {
+  tier: StationQualityTier
+  schemaKey: string
+  fieldKey: string
+  code: string
+  itemIndex?: number
+  propertyKey?: string
+}
+
+export interface StationQualityClassification {
+  status: 'OK' | StationQualityTier
+  flags: StationQualityFlag[]
+  canonicalJson: string
 }
 
 export interface StationPersistencePayload {
@@ -73,9 +101,146 @@ export function validateStationValueSet(
   }
 }
 
+export function classifyStationQuality(
+  schema: AgentStationSchema,
+  values: Readonly<Record<string, unknown>>,
+  context: StationQualityContext,
+): StationQualityClassification {
+  const policy = record(agentStationRegistry.qualityClassification)
+  const structural = record(policy.structural)
+  const flags: StationQualityFlag[] = []
+  const addRule = (
+    ruleValue: unknown,
+    fieldKey = '$sample',
+  ) => {
+    const rule = record(ruleValue)
+    flags.push({
+      tier: qualityTier(rule.tier),
+      schemaKey: schema.schemaKey,
+      fieldKey,
+      code: String(rule.code),
+    })
+  }
+
+  if (context.domain !== schema.schemaKey) addRule(structural.domainMismatch)
+  if (context.schemaVersion !== schema.version) {
+    addRule(structural.schemaVersionMismatch)
+  }
+  if (!schema.allowedLayers.includes(context.scopeType)) {
+    addRule(structural.scopeNotAllowed)
+  }
+  if (malformedQualityIdentity(context)) addRule(structural.malformedIdentity)
+
+  const calculationKeys = new Set(
+    schema.calculations.map((calculation) => String(calculation.fieldKey)),
+  )
+  const validation = validateStationValueSet(
+    schema,
+    Object.fromEntries(
+      Object.entries(values).filter(([key]) => !calculationKeys.has(key)),
+    ),
+  )
+  for (const fieldKey of validation.missing) addRule(policy.missing, fieldKey)
+  const issueTiers = record(policy.validationIssueTiers)
+  for (const issue of validation.issues) {
+    if (!(issue.code in issueTiers)) {
+      throw new Error(
+        `Registry quality policy does not classify ${issue.code}`,
+      )
+    }
+    flags.push({
+      tier: qualityTier(issueTiers[issue.code]),
+      schemaKey: schema.schemaKey,
+      fieldKey: issue.fieldKey,
+      code: issue.code,
+      ...(issue.itemIndex === undefined ? {} : { itemIndex: issue.itemIndex }),
+      ...(issue.propertyKey === undefined
+        ? {}
+        : { propertyKey: issue.propertyKey }),
+    })
+  }
+  const malformedInputKeys = new Set(
+    validation.issues
+      .filter((issue) =>
+        issue.code === 'invalid_type' ||
+        issue.code === 'invalid_item_type' ||
+        issue.code === 'item_required'
+      )
+      .map((issue) => issue.fieldKey),
+  )
+
+  for (const field of schema.fields as readonly Record<string, unknown>[]) {
+    if (field.type !== 'number_list' && field.type !== 'object_list') continue
+    const fieldKey = String(field.fieldKey)
+    if (
+      (values[fieldKey] === null || values[fieldKey] === undefined) &&
+      schema.calculations.some((calculation) =>
+        String(calculation.fieldKey) in values
+      )
+    ) addRule(policy.missingRawEvidence, fieldKey)
+  }
+
+  for (
+    const calculation of schema.calculations as readonly Record<
+      string,
+      unknown
+    >[]
+  ) {
+    const fieldKey = String(calculation.fieldKey)
+    if (!(fieldKey in values)) continue
+    const inputKeys = Array.isArray(calculation.inputFieldKeys)
+      ? calculation.inputFieldKeys.filter((key): key is string =>
+        typeof key === 'string'
+      )
+      : []
+    if (
+      inputKeys.some((key) =>
+        values[key] === null ||
+        values[key] === undefined ||
+        malformedInputKeys.has(key)
+      )
+    ) {
+      addRule(policy.derivedCacheMismatch, fieldKey)
+      continue
+    }
+    const calculated = calculate(
+      String(calculation.kind),
+      inputKeys.map((key) => values[key]),
+    )
+    if (!qualityValuesEqual(values[fieldKey], calculated)) {
+      addRule(policy.derivedCacheMismatch, fieldKey)
+    }
+  }
+
+  const unique = new Map(flags.map((flag) => [JSON.stringify(flag), flag]))
+  const tierOrder: Record<StationQualityTier, number> = {
+    FLAG: 0,
+    WARN: 1,
+    BLOCK: 2,
+  }
+  const ordered = [...unique.values()].sort((left, right) =>
+    tierOrder[left.tier] - tierOrder[right.tier] ||
+    left.schemaKey.localeCompare(right.schemaKey) ||
+    left.fieldKey.localeCompare(right.fieldKey) ||
+    left.code.localeCompare(right.code) ||
+    (left.itemIndex ?? -1) - (right.itemIndex ?? -1) ||
+    (left.propertyKey ?? '').localeCompare(right.propertyKey ?? '')
+  )
+  const status: StationQualityClassification['status'] =
+    ordered.some((flag) => flag.tier === 'BLOCK')
+      ? 'BLOCK'
+      : ordered.some((flag) => flag.tier === 'WARN')
+      ? 'WARN'
+      : ordered.length > 0
+      ? 'FLAG'
+      : 'OK'
+  return { status, flags: ordered, canonicalJson: JSON.stringify(ordered) }
+}
+
 export function deriveStationAdapter(
   schema: AgentStationSchema,
   values: Readonly<Record<string, unknown>>,
+  options: Readonly<{ allowQualityWarnings?: boolean }> = {},
 ): DerivedStationAdapter {
   const calculations = calculateStationValues(schema, values)
   const payloadValues = persistenceValues(
@@ -83,6 +248,7 @@ export function deriveStationAdapter(
     values,
     calculations,
     'remoteColumn',
+    options.allowQualityWarnings !== true,
   )
   return {
     calculations,
@@ -126,9 +292,12 @@ function persistenceValues(
   values: Readonly<Record<string, unknown>>,
   calculations: Readonly<Record<string, unknown>>,
   columnKey: 'localColumn' | 'remoteColumn',
+  validateValues = true,
 ): Record<string, unknown> {
-  const validation = validateStationValueSet(schema, values)
-  if (!validation.valid) throw new Error('Station values are not valid')
+  if (validateValues) {
+    const validation = validateStationValueSet(schema, values)
+    if (!validation.valid) throw new Error('Station values are not valid')
+  }
 
   const payloadValues: Record<string, unknown> = {}
   for (const field of schema.fields as readonly Record<string, unknown>[]) {
@@ -537,6 +706,30 @@ const culledDefects = new Map<string, CulledDefect>([
 
 function positiveNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function qualityTier(value: unknown): StationQualityTier {
+  if (value === 'BLOCK' || value === 'WARN' || value === 'FLAG') return value
+  throw new Error(`Unknown registry quality tier: ${String(value)}`)
+}
+
+function malformedQualityIdentity(context: StationQualityContext): boolean {
+  if (
+    !context.domain.trim() || context.schemaVersion < 1 ||
+    !context.scopeType.trim() || !context.sampleKey.trim()
+  ) return true
+  try {
+    return !isRecord(JSON.parse(context.scopeKey))
+  } catch {
+    return true
+  }
+}
+
+function qualityValuesEqual(left: unknown, right: unknown): boolean {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return Math.abs(left - right) < 0.000000001
+  }
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function record(value: unknown): Record<string, unknown> {

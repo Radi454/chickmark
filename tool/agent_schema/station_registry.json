@@ -1,5 +1,79 @@
 {
   "registryVersion": 1,
+  "qualityClassification": {
+    "statusOrder": ["OK", "FLAG", "WARN", "BLOCK"],
+    "missing": {"tier": "FLAG", "code": "missing_required"},
+    "missingRawEvidence": {"tier": "FLAG", "code": "missing_raw_evidence"},
+    "derivedCacheMismatch": {"tier": "FLAG", "code": "derived_cache_mismatch"},
+    "legacyUnclassified": {"tier": "FLAG", "code": "legacy_quality_unclassified"},
+    "structural": {
+      "domainMismatch": {"tier": "BLOCK", "code": "domain_mismatch"},
+      "schemaVersionMismatch": {"tier": "BLOCK", "code": "schema_version_mismatch"},
+      "scopeNotAllowed": {"tier": "BLOCK", "code": "scope_not_allowed"},
+      "malformedIdentity": {"tier": "BLOCK", "code": "malformed_identity"}
+    },
+    "validationIssueTiers": {
+      "unknown_field": "WARN",
+      "invalid_type": "BLOCK",
+      "zero_not_allowed": "WARN",
+      "below_minimum": "WARN",
+      "above_maximum": "WARN",
+      "above_dynamic_maximum": "WARN",
+      "too_short": "WARN",
+      "too_few_items": "WARN",
+      "too_many_items": "WARN",
+      "item_out_of_range": "WARN",
+      "item_required": "WARN",
+      "unknown_item_property": "WARN",
+      "invalid_item_type": "BLOCK",
+      "item_below_minimum": "WARN",
+      "item_above_maximum": "WARN",
+      "invalid_item_choice": "WARN",
+      "invalid_choice": "WARN"
+    },
+    "parityVectors": [
+      {
+        "schemaKey": "chicks.pasgar",
+        "schemaVersion": 1,
+        "values": {
+          "pasgarSampleSize": 20,
+          "pasgarReflexesCount": 1,
+          "pasgarReflexesPct": 5.0
+        },
+        "context": {
+          "domain": "chicks.pasgar",
+          "schemaVersion": 1,
+          "scopeType": "pool",
+          "scopeKey": "{}",
+          "sampleKey": "stable-key"
+        },
+        "expectedStatus": "FLAG",
+        "expectedFlags": [
+          {"tier":"FLAG","schemaKey":"chicks.pasgar","fieldKey":"pasgarBeakCount","code":"missing_required"},
+          {"tier":"FLAG","schemaKey":"chicks.pasgar","fieldKey":"pasgarBellyCount","code":"missing_required"},
+          {"tier":"FLAG","schemaKey":"chicks.pasgar","fieldKey":"pasgarFeatherDevCount","code":"missing_required"},
+          {"tier":"FLAG","schemaKey":"chicks.pasgar","fieldKey":"pasgarLegCount","code":"missing_required"},
+          {"tier":"FLAG","schemaKey":"chicks.pasgar","fieldKey":"pasgarNavelCount","code":"missing_required"}
+        ]
+      },
+      {
+        "schemaKey": "chicks.weights",
+        "schemaVersion": 1,
+        "values": {"weightsJson": [40]},
+        "context": {
+          "domain": "chicks.weights",
+          "schemaVersion": 1,
+          "scopeType": "setter_hatcher",
+          "scopeKey": "{\"hatcher\":\"H1\",\"setter\":\"S1\"}",
+          "sampleKey": "stable-key"
+        },
+        "expectedStatus": "BLOCK",
+        "expectedFlags": [
+          {"tier":"BLOCK","schemaKey":"chicks.weights","fieldKey":"$sample","code":"scope_not_allowed"}
+        ]
+      }
+    ]
+  },
   "calculationParityVectors": {
     "percentOf": [
       {"count": 3, "total": 40, "expected": 7.5}

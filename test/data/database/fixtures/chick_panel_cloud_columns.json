@@ -97,7 +97,9 @@
         "created_by",
         "device_id",
         "source_ref_id",
-        "observed_at"
+        "observed_at",
+        "quality_status",
+        "quality_flags"
     ],
     "chick_weights": [
         "id",
@@ -145,6 +147,8 @@
         "created_by",
         "device_id",
         "source_ref_id",
-        "observed_at"
+        "observed_at",
+        "quality_status",
+        "quality_flags"
     ]
 }

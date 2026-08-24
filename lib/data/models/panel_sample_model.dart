@@ -35,6 +35,8 @@ class PanelRecord {
     this.deviceId,
     this.sourceRefId,
     this.observedAt,
+    this.qualityStatus,
+    this.qualityFlags,
     this.groupKey,
     this.groupLabel,
     this.notes,
@@ -93,6 +95,8 @@ class PanelRecord {
   final String? deviceId;
   final String? sourceRefId;
   final DateTime? observedAt;
+  final String? qualityStatus;
+  final String? qualityFlags;
   final String? groupKey;
   final String? groupLabel;
   final String? notes;
@@ -137,6 +141,8 @@ class PanelRecord {
       'deviceId': deviceId,
       'sourceRefId': sourceRefId,
       'observedAt': observedAt?.toUtc().toIso8601String(),
+      'qualityStatus': qualityStatus,
+      'qualityFlags': qualityFlags,
       'groupKey': groupKey,
       'groupLabel': groupLabel,
       'notes': notes,
@@ -183,6 +189,8 @@ class PanelRecord {
       'deviceId',
       'sourceRefId',
       'observedAt',
+      'qualityStatus',
+      'qualityFlags',
       'groupKey',
       'groupLabel',
       'notes',
@@ -228,6 +236,8 @@ class PanelRecord {
       deviceId: map['deviceId'] as String?,
       sourceRefId: map['sourceRefId'] as String?,
       observedAt: _parseDate(map['observedAt']),
+      qualityStatus: map['qualityStatus'] as String?,
+      qualityFlags: map['qualityFlags'] as String?,
       groupKey: map['groupKey'] as String?,
       groupLabel: map['groupLabel'] as String?,
       notes: map['notes'] as String?,

@@ -68,6 +68,7 @@ void main() {
     AuditProvider? provider,
     AuditContextData? contextOverride,
     AuditModel? initialAudit,
+    List<StationSampleModel> initialStationSamples = const [],
     ChickBmkWeightLookup? bmkChickWeightLookup,
   }) async {
     await tester.pumpWidget(
@@ -86,6 +87,7 @@ void main() {
           home: ChickQualityScreen(
             context: contextOverride ?? contextData(),
             initialAudit: initialAudit,
+            initialStationSamples: initialStationSamples,
             bmkChickWeightLookup: bmkChickWeightLookup,
           ),
         ),
@@ -153,6 +155,62 @@ void main() {
     expect(find.byType(TabBar), findsNothing);
     expect(find.byType(TabBarView), findsNothing);
     expect(find.text('CHA Environmental'), findsNothing);
+  });
+
+  testWidgets('shows advisory registry quality flags without a save blocker', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      initialAudit: AuditModel(
+        id: 'quality-warning-audit',
+        auditType: 'Chicks',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: DateTime(2026, 4, 27),
+        hatchNumber: 1,
+        status: 'active',
+        createdBy: 'auditor-1',
+        createdAt: DateTime(2026, 4, 27),
+        updatedAt: DateTime(2026, 4, 27),
+        pasgarSampleSize: 40,
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('chick-quality-advisory-banner')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Review'), findsOneWidget);
+    expect(find.textContaining('save is still allowed'), findsOneWidget);
+  });
+
+  testWidgets('shows advisory persisted on a reloaded Chick sample', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 4, 27);
+    await pumpScreen(
+      tester,
+      initialStationSamples: [
+        StationSampleModel(
+          id: 'persisted-quality-flag',
+          auditSessionId: 'session-1',
+          stationType: 'chicks',
+          sectorType: StationSampleModel.sectorChickQuality,
+          sampleIndex: 1,
+          qualityStatus: 'FLAG',
+          qualityFlags:
+              '[{"tier":"FLAG","schemaKey":"chicks.legacy_combined","fieldKey":"\$sample","code":"legacy_quality_unclassified"}]',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const ValueKey('chick-quality-advisory-banner')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Chicks CVT unit selector defaults to Fahrenheit', (

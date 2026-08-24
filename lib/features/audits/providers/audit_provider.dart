@@ -149,6 +149,34 @@ class AuditProvider extends ChangeNotifier {
     return List.unmodifiable(warnings);
   }
 
+  List<Map<String, Object?>> get persistedChickQualityFlags {
+    final flags = <Map<String, Object?>>[];
+    for (final sample in [..._stationSamples, ..._chickWeightSamples]) {
+      final encoded = sample.qualityFlags;
+      if (sample.qualityStatus == 'OK' || encoded == null || encoded.isEmpty) {
+        continue;
+      }
+      try {
+        final decoded = jsonDecode(encoded);
+        if (decoded is List) {
+          flags.addAll(
+            decoded.whereType<Map>().map(
+              (flag) => Map<String, Object?>.from(flag),
+            ),
+          );
+        }
+      } on FormatException {
+        flags.add({
+          'tier': 'FLAG',
+          'schemaKey': 'chicks.unknown',
+          'fieldKey': r'$sample',
+          'code': 'malformed_persisted_quality_flags',
+        });
+      }
+    }
+    return List.unmodifiable(flags);
+  }
+
   bool get isAutosaveCaughtUp =>
       !_isDirty &&
       !_isAutosaving &&

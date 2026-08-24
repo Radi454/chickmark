@@ -48,6 +48,99 @@ void _validateRegistry(Map<String, Object?> registry) {
   if (version is! int || version < 1) {
     throw const FormatException('registryVersion must be a positive integer');
   }
+  final quality = _object(
+    registry['qualityClassification'],
+    'qualityClassification',
+  );
+  final statusOrder = _list(
+    quality['statusOrder'],
+    'qualityClassification.statusOrder',
+  );
+  if (jsonEncode(statusOrder) != jsonEncode(['OK', 'FLAG', 'WARN', 'BLOCK'])) {
+    throw const FormatException(
+      'qualityClassification.statusOrder must be OK, FLAG, WARN, BLOCK',
+    );
+  }
+  for (final entryKey in const [
+    'missing',
+    'missingRawEvidence',
+    'derivedCacheMismatch',
+    'legacyUnclassified',
+  ]) {
+    _validateQualityRule(quality[entryKey], 'qualityClassification.$entryKey');
+  }
+  final structural = _object(
+    quality['structural'],
+    'qualityClassification.structural',
+  );
+  for (final entryKey in const [
+    'domainMismatch',
+    'schemaVersionMismatch',
+    'scopeNotAllowed',
+    'malformedIdentity',
+  ]) {
+    _validateQualityRule(
+      structural[entryKey],
+      'qualityClassification.structural.$entryKey',
+    );
+  }
+  final issueTiers = _object(
+    quality['validationIssueTiers'],
+    'qualityClassification.validationIssueTiers',
+  );
+  if (issueTiers.isEmpty ||
+      issueTiers.values.any(
+        (tier) => tier != 'BLOCK' && tier != 'WARN' && tier != 'FLAG',
+      )) {
+    throw const FormatException(
+      'qualityClassification validation issue tiers must be BLOCK, WARN, or FLAG',
+    );
+  }
+  const emittedIssueCodes = {
+    'unknown_field',
+    'invalid_type',
+    'zero_not_allowed',
+    'below_minimum',
+    'above_maximum',
+    'above_dynamic_maximum',
+    'too_short',
+    'too_few_items',
+    'too_many_items',
+    'item_out_of_range',
+    'item_required',
+    'unknown_item_property',
+    'invalid_item_type',
+    'item_below_minimum',
+    'item_above_maximum',
+    'invalid_item_choice',
+    'invalid_choice',
+  };
+  if (issueTiers.keys.toSet().difference(emittedIssueCodes).isNotEmpty ||
+      emittedIssueCodes.difference(issueTiers.keys.toSet()).isNotEmpty) {
+    throw const FormatException(
+      'qualityClassification.validationIssueTiers must exactly cover emitted issue codes',
+    );
+  }
+  final qualityParity = _list(
+    quality['parityVectors'],
+    'qualityClassification.parityVectors',
+  );
+  if (qualityParity.isEmpty) {
+    throw const FormatException(
+      'qualityClassification.parityVectors must not be empty',
+    );
+  }
+  for (final rawVector in qualityParity) {
+    final vector = _object(rawVector, 'quality parity vector');
+    _text(vector['schemaKey'], 'quality parity schemaKey');
+    if (vector['schemaVersion'] is! int ||
+        vector['expectedStatus'] is! String ||
+        vector['values'] is! Map ||
+        vector['context'] is! Map ||
+        vector['expectedFlags'] is! List) {
+      throw const FormatException('Malformed quality parity vector');
+    }
+  }
   final parity = _object(
     registry['calculationParityVectors'],
     'calculationParityVectors',
@@ -264,6 +357,15 @@ void _validateRegistry(Map<String, Object?> registry) {
       }
     }
   }
+}
+
+void _validateQualityRule(Object? value, String path) {
+  final rule = _object(value, path);
+  final tier = _text(rule['tier'], '$path.tier');
+  if (!const {'BLOCK', 'WARN', 'FLAG'}.contains(tier)) {
+    throw FormatException('$path.tier is not a supported quality tier');
+  }
+  _text(rule['code'], '$path.code');
 }
 
 const _inputTypes = {

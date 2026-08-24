@@ -701,6 +701,29 @@ Future<void> _applyV64Upgrade(Database db) async {
   }
 }
 
+/// v65 persists deterministic registry-owned quality classification for every
+/// existing Chick parent row. Only the two additive quality columns change;
+/// measurements, identity, provenance, and sync bookkeeping are preserved.
+Future<void> _applyV65Upgrade(Database db) async {
+  await ensurePanelSampleSchemaColumns(db);
+  for (final table in const ['chick_quality', 'chick_weights']) {
+    if (!await _tableExists(db, table)) continue;
+    final rows = await db.query(table, orderBy: 'id');
+    for (final row in rows) {
+      final quality = ChickQualityClassifier.classifyRow(table, row);
+      await db.update(
+        table,
+        {
+          'qualityStatus': quality.status,
+          'qualityFlags': quality.canonicalJson,
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+  }
+}
+
 Future<void> _backfillChickV2Identity(Database db, String table) async {
   final rows = await db.query(
     table,

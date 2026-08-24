@@ -45,6 +45,10 @@ void main() {
       'key-weight-1',
       'key-weight-2',
     ]);
+    expect(
+      reconstruction.stationSamples.map((sample) => sample.qualityStatus),
+      everyElement('FLAG'),
+    );
   });
 }
 
@@ -62,6 +66,9 @@ Map<String, dynamic> _row(String id, String domain, int replicate) => {
   'sampleKey': 'key-$id',
   'sampleIndex': replicate,
   'sampleMode': 'comparison',
+  'qualityStatus': 'FLAG',
+  'qualityFlags':
+      '[{"tier":"FLAG","schemaKey":"$domain","fieldKey":"\$sample","code":"legacy_quality_unclassified"}]',
   'createdAt': '2026-08-24T00:00:0${replicate}Z',
   'updatedAt': '2026-08-24T00:00:0${replicate}Z',
 };

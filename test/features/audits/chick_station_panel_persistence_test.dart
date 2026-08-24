@@ -37,6 +37,7 @@ Future<void> _createPanelTable(
     trolley TEXT,
     tray TEXT,
     position TEXT,
+    scopeType TEXT,
     storagePeriodDays INTEGER,
     bmkAgeWeeks INTEGER,
     notes TEXT,
@@ -44,7 +45,9 @@ Future<void> _createPanelTable(
     updatedAt TEXT NOT NULL,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     lastSyncedAt TEXT,
-    syncError TEXT$extra
+    syncError TEXT,
+    ${kChickV2IdentityColumnDefinitions.join(',\n    ')},
+    ${kChickV2QualityColumnDefinitions.join(',\n    ')}$extra
   )''');
   await db.execute(
     "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",

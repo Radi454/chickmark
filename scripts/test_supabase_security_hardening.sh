@@ -927,3 +927,92 @@ rollback;
 SQL
 
 echo "Chick V2 sample identity and RLS regression checks passed."
+
+# Phase 3 adds advisory quality caches without breaking older inserts. The
+# migration trigger conservatively invalidates every caller-supplied cache;
+# local clients recompute exact registry quality after pull.
+"${psql[@]}" <<'SQL'
+begin;
+
+insert into public.customers (id, name)
+values ('cust-v2-quality', 'V2 quality');
+insert into public.hatcheries (id, customer_id, name)
+values ('hatch-v2-quality', 'cust-v2-quality', 'V2 quality hatchery');
+insert into public.flocks (id, customer_id, flock_id)
+values ('flock-v2-quality', 'cust-v2-quality', 'F-quality');
+insert into public.audit_sessions (id, customer_id, flock_id, hatchery_id, date)
+values (
+  'session-v2-quality', 'cust-v2-quality', 'flock-v2-quality',
+  'hatch-v2-quality', '2026-08-24'
+);
+
+insert into public.chick_weights (
+  id, session_id, customer_id, date, house, weights_json,
+  created_at, updated_at, domain, schema_version, scope_type, scope_key,
+  source, capture_method, observed_at
+) values (
+  'quality-old-client', 'session-v2-quality', 'cust-v2-quality',
+  '2026-08-24', 'H1', '[40,41]', '2026-08-24T00:00:00Z',
+  '2026-08-24T00:00:00Z', 'chicks.weights', 1, 'house', '{"house":"H1"}',
+  'legacy', 'unknown', '2026-08-24T00:00:00Z'
+);
+
+insert into public.chick_weights (
+  id, session_id, customer_id, date, house, weights_json,
+  created_at, updated_at, domain, schema_version, scope_type, scope_key,
+  source, capture_method, observed_at, quality_status, quality_flags
+) values (
+  'quality-current-client', 'session-v2-quality', 'cust-v2-quality',
+  '2026-08-24', 'H2', '[42,43]', '2026-08-24T00:00:01Z',
+  '2026-08-24T00:00:01Z', 'chicks.weights', 1, 'house', '{"house":"H2"}',
+  'human', 'manual', '2026-08-24T00:00:01Z', 'OK', '[]'
+);
+
+do $quality_test$
+declare
+  old_status text;
+  old_flags text;
+  current_status text;
+  current_flags text;
+begin
+  select quality_status, quality_flags into old_status, old_flags
+  from public.chick_weights where id = 'quality-old-client';
+  if old_status <> 'FLAG' or old_flags not like '%legacy_quality_unclassified%' then
+    raise exception 'old-client quality fallback mismatch: % %', old_status, old_flags;
+  end if;
+
+  select quality_status, quality_flags into current_status, current_flags
+  from public.chick_weights where id = 'quality-current-client';
+  if current_status <> 'FLAG' or current_flags not like '%legacy_quality_unclassified%' then
+    raise exception 'spoofed current-client quality result was trusted: % %', current_status, current_flags;
+  end if;
+
+  update public.chick_weights
+  set weights_json = '[0,201]'
+  where id = 'quality-current-client';
+  select quality_status, quality_flags into current_status, current_flags
+  from public.chick_weights where id = 'quality-current-client';
+  if current_status <> 'FLAG' or current_flags not like '%legacy_quality_unclassified%' then
+    raise exception 'measurement-only update left a stale quality cache: % %', current_status, current_flags;
+  end if;
+
+  update public.chick_weights
+  set quality_status = 'invented', quality_flags = 'not-json'
+  where id = 'quality-current-client';
+  select quality_status, quality_flags into current_status, current_flags
+  from public.chick_weights where id = 'quality-current-client';
+  if current_status <> 'FLAG' or current_flags not like '%legacy_quality_unclassified%' then
+    raise exception 'malformed quality cache was not normalized: % %', current_status, current_flags;
+  end if;
+
+  if has_function_privilege('anon', 'public.normalize_chick_quality_cache()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.normalize_chick_quality_cache()', 'EXECUTE') then
+    raise exception 'quality normalization helper is publicly executable';
+  end if;
+end
+$quality_test$;
+
+rollback;
+SQL
+
+echo "Chick V2 registry quality classification regression checks passed."
