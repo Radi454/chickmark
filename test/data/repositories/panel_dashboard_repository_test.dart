@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/dashboard/models/dashboard_filter.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -192,6 +193,72 @@ void main() {
       expect((eggTrend.single as dynamic).eggBmkWeight, 63.0);
       expect(hatchAvg?.hatchabilityPct, 86.0);
       expect(ages, contains(40));
+    },
+  );
+
+  test(
+    'Chick dashboard reads observations before corrupt parent caches',
+    () async {
+      final db = await DatabaseHelper().db;
+      await db.insert('customers', {
+        'id': 'customer-observation',
+        'name': 'Observation Customer',
+        'createdAt': '2026-08-24T05:00:00.000Z',
+      });
+      await db.insert('flocks', {
+        'id': 'flock-observation',
+        'customerId': 'customer-observation',
+        'flockId': 'Observation Flock',
+        'entryDate': '2026-01-01',
+      });
+      await db.insert('hatcheries', {
+        'id': 'hatchery-observation',
+        'customerId': 'customer-observation',
+        'name': 'Observation Hatchery',
+        'createdAt': '2026-08-24T05:00:00.000Z',
+      });
+      await db.insert('audit_sessions', {
+        'id': 'session-observation',
+        'customerId': 'customer-observation',
+        'flockId': 'flock-observation',
+        'hatcheryId': 'hatchery-observation',
+        'date': '2026-08-24',
+        'status': 'in_progress',
+        'createdAt': '2026-08-24T05:00:00.000Z',
+        'updatedAt': '2026-08-24T05:00:00.000Z',
+      });
+      await PanelSampleRepository().upsertRow(
+        tableName: 'chick_weights',
+        row: {
+          'id': 'observation-weight',
+          'sessionId': 'session-observation',
+          'customerId': 'customer-observation',
+          'date': '2026-08-24',
+          'domain': 'chicks.weights',
+          'schemaVersion': 1,
+          'scopeType': 'pool',
+          'scopeKey': '{}',
+          'replicate': 1,
+          'sampleKey': 'observation-weight-key',
+          'source': 'human',
+          'captureMethod': 'manual',
+          'observedAt': '2026-08-24T05:00:00.000Z',
+          'weightsJson': '[40,60]',
+          'createdAt': '2026-08-24T05:00:00.000Z',
+          'updatedAt': '2026-08-24T05:00:00.000Z',
+        },
+      );
+      await db.update(
+        'chick_weights',
+        {'weightsJson': '[999]', 'avgWeight': 999.0, 'sampleSize': 1},
+        where: 'id = ?',
+        whereArgs: ['observation-weight'],
+      );
+
+      final trend = await repository.getChickWeightTrend(DashboardFilter());
+      expect(trend, hasLength(1));
+      expect(trend!.single.avgWeightG, 50.0);
+      expect(trend.single.uniformityPct, 0.0);
     },
   );
 

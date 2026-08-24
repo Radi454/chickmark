@@ -122,6 +122,14 @@
         "ar": ["باسجار", "جودة الكتكوت", "جودة الكتاكيت"]
       },
       "allowedLayers": ["pool", "setter_hatcher"],
+      "photoEvidence": {
+        "pasgarReflexesPhoto": "pasgarReflexesCount",
+        "pasgarBeakPhoto": "pasgarBeakCount",
+        "pasgarNavelPhoto": "pasgarNavelCount",
+        "pasgarBellyPhoto": "pasgarBellyCount",
+        "pasgarLegPhoto": "pasgarLegCount",
+        "pasgarFeatherDevPhoto": "pasgarFeatherDevCount"
+      },
       "fields": [
         {
           "fieldKey": "pasgarSampleSize",
@@ -135,6 +143,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"min": 1, "max": 500},
+          "observation": {"kind": "tally", "key": "pasgarSampleSize"},
           "persistence": {
             "localColumn": "pasgarSampleSize",
             "remoteColumn": "pasgar_sample_size"
@@ -152,6 +161,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarReflexesCount"},
           "persistence": {
             "localColumn": "pasgarReflexesCount",
             "remoteColumn": "pasgar_reflexes_count"
@@ -169,6 +179,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarBeakCount"},
           "persistence": {
             "localColumn": "pasgarBeakCount",
             "remoteColumn": "pasgar_beak_count"
@@ -186,6 +197,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarNavelCount"},
           "persistence": {
             "localColumn": "pasgarNavelCount",
             "remoteColumn": "pasgar_navel_count"
@@ -203,6 +215,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarBellyCount"},
           "persistence": {
             "localColumn": "pasgarBellyCount",
             "remoteColumn": "pasgar_belly_count"
@@ -220,6 +233,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarLegCount"},
           "persistence": {
             "localColumn": "pasgarLegCount",
             "remoteColumn": "pasgar_leg_count"
@@ -237,6 +251,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pasgarSampleSize"},
+          "observation": {"kind": "tally", "key": "pasgarFeatherDevCount"},
           "persistence": {
             "localColumn": "pasgarFeatherDevCount",
             "remoteColumn": "pasgar_feather_dev_count"
@@ -694,6 +709,7 @@
       "names": {"en": "Chick Quality — YFBM", "ar": "جودة الكتاكيت — كتلة الصفار"},
       "aliases": {"en": ["yfbm", "yolk free body mass"], "ar": ["كتلة الجسم بدون صفار", "كتلة الصفار"]},
       "allowedLayers": ["pool", "setter_hatcher"],
+      "photoEvidence": {"yfbm_photo": null},
       "fields": [
         {
           "fieldKey": "yfbmEntriesJson",
@@ -716,6 +732,13 @@
                   "maxPropertyKey": "chickWeight"
                 }
               }
+            }
+          },
+          "observation": {
+            "kind": "series",
+            "properties": {
+              "chickWeight": {"key": "yfbm:chickWeight", "valueType": "number"},
+              "yolkWeight": {"key": "yfbm:yolkWeight", "valueType": "number"}
             }
           },
           "persistence": {"localColumn": "yfbmEntriesJson", "remoteColumn": "yfbm_entries_json"}
@@ -758,6 +781,7 @@
       "names": {"en": "Chick Quality — Vent Temperature", "ar": "جودة الكتاكيت — حرارة المخرج"},
       "aliases": {"en": ["cvt", "chick vent temperature"], "ar": ["حرارة مخرج الكتكوت", "حرارة الكتاكيت"]},
       "allowedLayers": ["pool", "setter_hatcher"],
+      "photoEvidence": {"cvt": null},
       "fields": [
         {
           "fieldKey": "cvtReadingsJson",
@@ -768,6 +792,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"minItems": 1, "itemMin": 80, "itemMax": 110},
+          "observation": {"kind": "series", "key": "cvtReadingsJson"},
           "persistence": {"localColumn": "cvtReadingsJson", "remoteColumn": "cvt_readings_json"}
         }
       ],
@@ -808,6 +833,7 @@
       "names": {"en": "Chick Quality — PM Necropsy", "ar": "جودة الكتاكيت — التشريح"},
       "aliases": {"en": ["pm necropsy", "postmortem"], "ar": ["التشريح", "فحص ما بعد النفوق"]},
       "allowedLayers": ["pool", "setter_hatcher"],
+      "photoEvidence": {"pm_photo": null},
       "fields": [
         {
           "fieldKey": "pmSampleSize",
@@ -818,6 +844,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"min": 1, "max": 500},
+          "observation": {"kind": "tally", "key": "pmSampleSize"},
           "persistence": {"localColumn": "pmSampleSize", "remoteColumn": "pm_sample_size"}
         },
         {
@@ -829,6 +856,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"minLength": 1},
+          "observation": {"kind": "ordinal", "key": "pmCollectionPoint"},
           "persistence": {"localColumn": "pmCollectionPoint", "remoteColumn": "pm_collection_point"}
         },
         {
@@ -840,6 +868,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmOmphalitisCount"},
           "persistence": {"localColumn": "pmOmphalitisCount", "remoteColumn": "pm_omphalitis_count"}
         },
         {
@@ -854,6 +883,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmOmphalitisCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmOmphalitisSeverity"},
           "persistence": {"localColumn": "pmOmphalitisSeverity", "remoteColumn": "pm_omphalitis_severity"}
         },
         {
@@ -865,6 +895,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmGaseousCecaCount"},
           "persistence": {"localColumn": "pmGaseousCecaCount", "remoteColumn": "pm_gaseous_ceca_count"}
         },
         {
@@ -879,6 +910,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmGaseousCecaCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmGaseousCecaSeverity"},
           "persistence": {"localColumn": "pmGaseousCecaSeverity", "remoteColumn": "pm_gaseous_ceca_severity"}
         },
         {
@@ -890,6 +922,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmGizzardErosionsCount"},
           "persistence": {"localColumn": "pmGizzardErosionsCount", "remoteColumn": "pm_gizzard_erosions_count"}
         },
         {
@@ -904,6 +937,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmGizzardErosionsCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmGizzardErosionsSeverity"},
           "persistence": {"localColumn": "pmGizzardErosionsSeverity", "remoteColumn": "pm_gizzard_erosions_severity"}
         },
         {
@@ -915,6 +949,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmAirSacCaseationsCount"},
           "persistence": {"localColumn": "pmAirSacCaseationsCount", "remoteColumn": "pm_air_sac_caseations_count"}
         },
         {
@@ -929,6 +964,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmAirSacCaseationsCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmAirSacCaseationsSeverity"},
           "persistence": {"localColumn": "pmAirSacCaseationsSeverity", "remoteColumn": "pm_air_sac_caseations_severity"}
         },
         {
@@ -940,6 +976,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmUrolithiasisCount"},
           "persistence": {"localColumn": "pmUrolithiasisCount", "remoteColumn": "pm_urolithiasis_count"}
         },
         {
@@ -954,6 +991,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmUrolithiasisCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmUrolithiasisSeverity"},
           "persistence": {"localColumn": "pmUrolithiasisSeverity", "remoteColumn": "pm_urolithiasis_severity"}
         },
         {
@@ -965,6 +1003,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmNephritisCount"},
           "persistence": {"localColumn": "pmNephritisCount", "remoteColumn": "pm_nephritis_count"}
         },
         {
@@ -979,6 +1018,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmNephritisCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmNephritisSeverity"},
           "persistence": {"localColumn": "pmNephritisSeverity", "remoteColumn": "pm_nephritis_severity"}
         },
         {
@@ -990,6 +1030,7 @@
           "required": true,
           "explicitZero": true,
           "validation": {"min": 0, "maxFieldKey": "pmSampleSize"},
+          "observation": {"kind": "tally", "key": "pmGeneralSepticemiaCount"},
           "persistence": {"localColumn": "pmGeneralSepticemiaCount", "remoteColumn": "pm_general_septicemia_count"}
         },
         {
@@ -1004,6 +1045,7 @@
             "choices": ["Mild", "Moderate", "Severe"],
             "requiredWhenPositiveFieldKey": "pmGeneralSepticemiaCount"
           },
+          "observation": {"kind": "ordinal", "key": "pmGeneralSepticemiaSeverity"},
           "persistence": {"localColumn": "pmGeneralSepticemiaSeverity", "remoteColumn": "pm_general_septicemia_severity"}
         }
       ],
@@ -1044,6 +1086,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"min": 1, "max": 10000000},
+          "observation": {"kind": "tally", "key": "culledChicksTotalEggSet"},
           "persistence": {"localColumn": "culledChicksTotalEggSet", "remoteColumn": "culled_chicks_total_egg_set"}
         },
         {
@@ -1089,6 +1132,21 @@
                 }
               }
             }
+          },
+          "observation": {
+            "kind": "tally",
+            "keyProperty": "id",
+            "valueProperty": "count",
+            "keyPrefix": "culled:",
+            "presenceKey": "culled:__present",
+            "ignoredProperties": [
+              "category",
+              "subtype",
+              "description",
+              "commonCauses",
+              "sourceRefs",
+              "pct"
+            ]
           },
           "persistence": {"localColumn": "culledChicksAnalysisJson", "remoteColumn": "culled_chicks_analysis_json"}
         }
@@ -1145,6 +1203,7 @@
           "required": true,
           "explicitZero": false,
           "validation": {"minItems": 1, "itemMin": 1, "itemMax": 200},
+          "observation": {"kind": "series", "key": "weightsJson"},
           "persistence": {"localColumn": "weightsJson", "remoteColumn": "weights_json"}
         }
       ],

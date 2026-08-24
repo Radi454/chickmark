@@ -4,6 +4,7 @@ import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/audit_session_repository.dart';
 import '../../data/repositories/bmk_repository.dart';
 import '../../data/repositories/customer_repository.dart';
+import '../../data/repositories/chick_quality_observation_repository.dart';
 import '../../data/repositories/dashboard_action_repository.dart';
 import '../../data/repositories/egg_grading_repository.dart';
 import '../../data/repositories/flock_repository.dart';
@@ -120,6 +121,7 @@ class StartupSyncService {
   final AuditSessionRepository _auditSessionRepository;
   final GoveeCaptureRepository _goveeCaptureRepository;
   final PanelSampleRepository _panelSampleRepository;
+  final ChickQualityObservationRepository _chickObservationRepository;
   final EggGradingRepository _eggGradingRepository;
   final PerformanceSyncRepository _performanceSyncRepository;
   final SyncTombstoneRepository _syncTombstoneRepository;
@@ -147,6 +149,7 @@ class StartupSyncService {
     AuditSessionRepository? auditSessionRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
     PanelSampleRepository? panelSampleRepository,
+    ChickQualityObservationRepository? chickObservationRepository,
     EggGradingRepository? eggGradingRepository,
     PerformanceSyncRepository? performanceSyncRepository,
     SyncTombstoneRepository? syncTombstoneRepository,
@@ -172,6 +175,8 @@ class StartupSyncService {
            goveeCaptureRepository ?? GoveeCaptureRepository(),
        _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
+       _chickObservationRepository =
+           chickObservationRepository ?? ChickQualityObservationRepository(),
        _eggGradingRepository = eggGradingRepository ?? EggGradingRepository(),
        _performanceSyncRepository =
            performanceSyncRepository ?? PerformanceSyncRepository(),
@@ -352,6 +357,9 @@ class StartupSyncService {
 
     progress(0.52, 'Uploading panel rows');
     pushed += await _pushDirtyPanelRows();
+
+    progress(0.53, 'Uploading Chick observations');
+    pushed += await _pushDirtyChickObservations();
 
     // The grading counts are children of `egg_quality`, so their parent panel
     // rows must have reached Supabase before this batch can satisfy its FK.
@@ -545,6 +553,26 @@ class StartupSyncService {
       ),
       markSynced: () => _eggGradingRepository.markRowsSynced(ids),
       markFailed: (error) => _eggGradingRepository.markRowsFailed(ids, error),
+    );
+  }
+
+  Future<int> _pushDirtyChickObservations() async {
+    final dirty = await _chickObservationRepository.getDirtyRows();
+    if (dirty.isEmpty) return 0;
+    final ids = dirty
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList(growable: false);
+    return _pushBatch(
+      ChickQualityObservationRepository.tableName,
+      dirty.length,
+      upload: () => _supabaseService.upsertRowsStrict(
+        ChickQualityObservationRepository.tableName,
+        dirty.map(stripSyncMeta).toList(growable: false),
+      ),
+      markSynced: () => _chickObservationRepository.markRowsSynced(ids),
+      markFailed: (error) =>
+          _chickObservationRepository.markRowsFailed(ids, error),
     );
   }
 
@@ -779,6 +807,7 @@ class StartupSyncService {
       upsertLabAnalysisRow: (table, row) =>
           _upsertLabAnalysisWithConflictCheck(table, row),
       upsertPanelRow: (table, row) => _upsertPanelWithConflictCheck(table, row),
+      upsertChickObservation: _upsertChickObservationWithConflictCheck,
       upsertEggGradingCount: _upsertEggGradingWithConflictCheck,
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
@@ -912,6 +941,20 @@ class StartupSyncService {
       case EggGradingRemoteApplyResult.appliedUnchanged:
         return;
     }
+  }
+
+  Future<void> _upsertChickObservationWithConflictCheck(
+    Map<String, dynamic> remoteRow,
+  ) async {
+    const table = ChickQualityObservationRepository.tableName;
+    if (_hasPendingLocalDelete(table, remoteRow)) return;
+    final result = await _upsertWithConflictCheck(
+      table,
+      remoteRow,
+      getLocal: _chickObservationRepository.getRowById,
+      upsert: _chickObservationRepository.upsertRemoteRow,
+    );
+    _countOtherIncoming(result);
   }
 
   void _countOtherIncoming(_UpsertResult result) {

@@ -7,6 +7,7 @@ class PhotoModel {
   final String panelName;
   final String panelRowId;
   final String fieldKey;
+  final String? observationId;
   final String uploadStatus;
 
   PhotoModel({
@@ -18,6 +19,7 @@ class PhotoModel {
     required this.panelName,
     required this.panelRowId,
     required this.fieldKey,
+    this.observationId,
     this.uploadStatus = 'local',
   });
 
@@ -31,6 +33,7 @@ class PhotoModel {
       panelName: map['panelName'] ?? map['panel_name'] ?? 'unknown_panel',
       panelRowId: map['panelRowId'] ?? map['panel_row_id'],
       fieldKey: map['fieldKey'] ?? map['field_key'] ?? 'evidence',
+      observationId: map['observationId'] ?? map['observation_id'],
       uploadStatus: map['uploadStatus'] ?? map['upload_status'] ?? 'synced',
     );
   }
@@ -45,6 +48,7 @@ class PhotoModel {
       'panelName': panelName,
       'panelRowId': panelRowId,
       'fieldKey': fieldKey,
+      'observationId': observationId,
       'uploadStatus': uploadStatus,
     };
   }

@@ -10,6 +10,7 @@ import '../../features/dashboard/models/egg_storage_models.dart';
 import '../../features/dashboard/models/hatch_analysis_models.dart';
 import '../database/database_helper.dart';
 import '../models/panel_sample_schema.dart';
+import 'panel_sample_repository.dart';
 
 class PanelDashboardRepository {
   PanelDashboardRepository({DatabaseHelper? dbHelper})
@@ -343,18 +344,7 @@ class PanelDashboardRepository {
   Future<List<ChickWeightTrend>?> getChickWeightTrend(
     DashboardFilter filter,
   ) async {
-    final db = await _dbHelper.db;
-    final (:clause, :args) = _where(
-      filter,
-      'chick_weights',
-      bmkColumn: 'bmkAgeWeeks',
-    );
-    final rows = await db.rawQuery('''
-      SELECT date, weightsJson, avgWeight, uniformityPct, cvPct
-      FROM chick_weights
-      $clause
-      ORDER BY date ASC, house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC
-      ''', args);
+    final rows = await _chickRows('chick_weights', filter);
     if (rows.isEmpty) return null;
     final weightsByDate = <String, List<double>>{};
     final summariesByDate = <String, List<Map<String, Object?>>>{};
@@ -386,66 +376,60 @@ class PanelDashboardRepository {
   }
 
   Future<PasgarAvg?> getPasgarAvg(DashboardFilter filter) async {
-    final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_quality');
-    final rows = await db.rawQuery('''
-      SELECT
-        COUNT(pasgarFinalScore) AS rowCount,
-        AVG(pasgarFinalScore) AS score,
-        AVG(pasgarReflexesPct) AS reflexesPct,
-        AVG(pasgarBeakPct) AS beakPct,
-        AVG(pasgarNavelPct) AS navelPct,
-        AVG(pasgarBellyPct) AS bellyPct,
-        AVG(pasgarLegPct) AS legPct,
-        AVG(pasgarFeatherDevPct) AS featherDevPct
-      FROM chick_quality
-      $clause
-      ''', args);
-    if (rows.isEmpty || (rows.first['rowCount'] as int? ?? 0) == 0) {
+    final rows = await _chickRows('chick_quality', filter);
+    final measured = rows
+        .where((row) => row['pasgarFinalScore'] != null)
+        .toList();
+    if (measured.isEmpty) {
       return null;
     }
-    return PasgarAvg.fromMap(rows.first);
+    return PasgarAvg.fromMap({
+      'score': _avg(measured, 'pasgarFinalScore'),
+      'reflexesPct': _avg(measured, 'pasgarReflexesPct'),
+      'beakPct': _avg(measured, 'pasgarBeakPct'),
+      'navelPct': _avg(measured, 'pasgarNavelPct'),
+      'bellyPct': _avg(measured, 'pasgarBellyPct'),
+      'legPct': _avg(measured, 'pasgarLegPct'),
+      'featherDevPct': _avg(measured, 'pasgarFeatherDevPct'),
+    });
   }
 
   Future<CvtAvg?> getCvtAvg(DashboardFilter filter) async {
-    final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_quality');
-    final rows = await db.rawQuery('''
-      SELECT COUNT(cvtAvgTemp) AS rowCount, AVG(cvtAvgTemp) AS avgTempF, AVG(cvtCvPct) AS cvPct
-      FROM chick_quality
-      $clause
-      ''', args);
-    if (rows.isEmpty || (rows.first['rowCount'] as int? ?? 0) == 0) {
+    final rows = await _chickRows('chick_quality', filter);
+    final measured = rows.where((row) => row['cvtAvgTemp'] != null).toList();
+    if (measured.isEmpty) {
       return null;
     }
-    return CvtAvg.fromMap(rows.first);
+    return CvtAvg.fromMap({
+      'avgTempF': _avg(measured, 'cvtAvgTemp'),
+      'cvPct': _avg(measured, 'cvtCvPct'),
+    });
   }
 
   Future<List<YfbmTrend>?> getYfbmTrend(DashboardFilter filter) async {
-    final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_quality');
-    final rows = await db.rawQuery('''
-      SELECT date, AVG(yfbmAvgPct) AS avgPct, AVG(yfbmCvPct) AS cvPct
-      FROM chick_quality
-      $clause
-      GROUP BY date
-      ORDER BY date ASC
-      ''', args);
+    final rows = await _chickRows('chick_quality', filter);
     if (rows.isEmpty) return null;
-    return rows.map(YfbmTrend.fromMap).toList();
+    final byDate = <String, List<Map<String, Object?>>>{};
+    for (final row in rows) {
+      final date = row['date']?.toString();
+      if (date == null || row['yfbmAvgPct'] == null) continue;
+      (byDate[date] ??= []).add(row);
+    }
+    final dates = byDate.keys.toList()..sort();
+    return [
+      for (final date in dates)
+        YfbmTrend.fromMap({
+          'date': date,
+          'avgPct': _avg(byDate[date]!, 'yfbmAvgPct'),
+          'cvPct': _avg(byDate[date]!, 'yfbmCvPct'),
+        }),
+    ];
   }
 
   Future<CulledChicksAnalysisAvg?> getCulledChicksAnalysis(
     DashboardFilter filter,
   ) async {
-    final db = await _dbHelper.db;
-    final (:clause, :args) = _where(filter, 'chick_quality');
-    final rows = await db.rawQuery('''
-      SELECT culledChicksTotalEggSet, culledChicksAnalysisJson
-      FROM chick_quality
-      $clause
-      ORDER BY date ASC, house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC, createdAt ASC
-      ''', args);
+    final rows = await _chickRows('chick_quality', filter);
     if (rows.isEmpty) return null;
 
     var totalEggSet = 0;
@@ -503,6 +487,36 @@ class PanelDashboardRepository {
     );
     if (!summary.hasData) return null;
     return CulledChicksAnalysisAvg.fromSummary(summary);
+  }
+
+  Future<List<Map<String, dynamic>>> _chickRows(
+    String table,
+    DashboardFilter filter,
+  ) async {
+    final rows = await PanelSampleRepository(databaseHelper: _dbHelper)
+        .getDashboardRows(
+          table,
+          customerId: filter.customerId,
+          flockId: filter.flockId,
+        );
+    return rows
+        .where((row) {
+          if (filter.hatcheryId != null &&
+              row['hatcheryId'] != filter.hatcheryId) {
+            return false;
+          }
+          if (filter.bmkAge != null &&
+              row['bmkAgeWeeks'] != filter.bmkAge &&
+              row['flockAgeWeeks'] != filter.bmkAge) {
+            return false;
+          }
+          if (filter.sessionId != null &&
+              row['sessionId'] != filter.sessionId) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
   }
 
   Future<List<EggStorageTrend>?> getEggStorageTrend(

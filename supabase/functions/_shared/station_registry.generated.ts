@@ -261,6 +261,14 @@ export const agentStationRegistry = {
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "pasgarReflexesPhoto": "pasgarReflexesCount",
+        "pasgarBeakPhoto": "pasgarBeakCount",
+        "pasgarNavelPhoto": "pasgarNavelCount",
+        "pasgarBellyPhoto": "pasgarBellyCount",
+        "pasgarLegPhoto": "pasgarLegCount",
+        "pasgarFeatherDevPhoto": "pasgarFeatherDevCount"
+      },
       "fields": [
         {
           "fieldKey": "pasgarSampleSize",
@@ -287,6 +295,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 1,
             "max": 500
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarSampleSize"
           },
           "persistence": {
             "localColumn": "pasgarSampleSize",
@@ -318,6 +330,10 @@ export const agentStationRegistry = {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarReflexesCount"
+          },
           "persistence": {
             "localColumn": "pasgarReflexesCount",
             "remoteColumn": "pasgar_reflexes_count"
@@ -346,6 +362,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarBeakCount"
           },
           "persistence": {
             "localColumn": "pasgarBeakCount",
@@ -376,6 +396,10 @@ export const agentStationRegistry = {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarNavelCount"
+          },
           "persistence": {
             "localColumn": "pasgarNavelCount",
             "remoteColumn": "pasgar_navel_count"
@@ -403,6 +427,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarBellyCount"
           },
           "persistence": {
             "localColumn": "pasgarBellyCount",
@@ -434,6 +462,10 @@ export const agentStationRegistry = {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarLegCount"
+          },
           "persistence": {
             "localColumn": "pasgarLegCount",
             "remoteColumn": "pasgar_leg_count"
@@ -462,6 +494,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarFeatherDevCount"
           },
           "persistence": {
             "localColumn": "pasgarFeatherDevCount",
@@ -1391,6 +1427,9 @@ export const agentStationRegistry = {
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "yfbm_photo": null
+      },
       "fields": [
         {
           "fieldKey": "yfbmEntriesJson",
@@ -1431,6 +1470,19 @@ export const agentStationRegistry = {
                   "min": 0,
                   "maxPropertyKey": "chickWeight"
                 }
+              }
+            }
+          },
+          "observation": {
+            "kind": "series",
+            "properties": {
+              "chickWeight": {
+                "key": "yfbm:chickWeight",
+                "valueType": "number"
+              },
+              "yolkWeight": {
+                "key": "yfbm:yolkWeight",
+                "valueType": "number"
               }
             }
           },
@@ -1529,6 +1581,9 @@ export const agentStationRegistry = {
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "cvt": null
+      },
       "fields": [
         {
           "fieldKey": "cvtReadingsJson",
@@ -1554,6 +1609,10 @@ export const agentStationRegistry = {
             "minItems": 1,
             "itemMin": 80,
             "itemMax": 110
+          },
+          "observation": {
+            "kind": "series",
+            "key": "cvtReadingsJson"
           },
           "persistence": {
             "localColumn": "cvtReadingsJson",
@@ -1650,6 +1709,9 @@ export const agentStationRegistry = {
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "pm_photo": null
+      },
       "fields": [
         {
           "fieldKey": "pmSampleSize",
@@ -1674,6 +1736,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 1,
             "max": 500
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmSampleSize"
           },
           "persistence": {
             "localColumn": "pmSampleSize",
@@ -1703,6 +1769,10 @@ export const agentStationRegistry = {
           "validation": {
             "minLength": 1
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmCollectionPoint"
+          },
           "persistence": {
             "localColumn": "pmCollectionPoint",
             "remoteColumn": "pm_collection_point"
@@ -1729,6 +1799,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmOmphalitisCount"
           },
           "persistence": {
             "localColumn": "pmOmphalitisCount",
@@ -1761,6 +1835,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmOmphalitisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmOmphalitisSeverity"
+          },
           "persistence": {
             "localColumn": "pmOmphalitisSeverity",
             "remoteColumn": "pm_omphalitis_severity"
@@ -1787,6 +1865,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGaseousCecaCount"
           },
           "persistence": {
             "localColumn": "pmGaseousCecaCount",
@@ -1819,6 +1901,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmGaseousCecaCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGaseousCecaSeverity"
+          },
           "persistence": {
             "localColumn": "pmGaseousCecaSeverity",
             "remoteColumn": "pm_gaseous_ceca_severity"
@@ -1845,6 +1931,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGizzardErosionsCount"
           },
           "persistence": {
             "localColumn": "pmGizzardErosionsCount",
@@ -1877,6 +1967,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmGizzardErosionsCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGizzardErosionsSeverity"
+          },
           "persistence": {
             "localColumn": "pmGizzardErosionsSeverity",
             "remoteColumn": "pm_gizzard_erosions_severity"
@@ -1903,6 +1997,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmAirSacCaseationsCount"
           },
           "persistence": {
             "localColumn": "pmAirSacCaseationsCount",
@@ -1935,6 +2033,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmAirSacCaseationsCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmAirSacCaseationsSeverity"
+          },
           "persistence": {
             "localColumn": "pmAirSacCaseationsSeverity",
             "remoteColumn": "pm_air_sac_caseations_severity"
@@ -1962,6 +2064,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmUrolithiasisCount"
           },
           "persistence": {
             "localColumn": "pmUrolithiasisCount",
@@ -1994,6 +2100,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmUrolithiasisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmUrolithiasisSeverity"
+          },
           "persistence": {
             "localColumn": "pmUrolithiasisSeverity",
             "remoteColumn": "pm_urolithiasis_severity"
@@ -2020,6 +2130,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmNephritisCount"
           },
           "persistence": {
             "localColumn": "pmNephritisCount",
@@ -2052,6 +2166,10 @@ export const agentStationRegistry = {
             ],
             "requiredWhenPositiveFieldKey": "pmNephritisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmNephritisSeverity"
+          },
           "persistence": {
             "localColumn": "pmNephritisSeverity",
             "remoteColumn": "pm_nephritis_severity"
@@ -2079,6 +2197,10 @@ export const agentStationRegistry = {
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGeneralSepticemiaCount"
           },
           "persistence": {
             "localColumn": "pmGeneralSepticemiaCount",
@@ -2110,6 +2232,10 @@ export const agentStationRegistry = {
               "Severe"
             ],
             "requiredWhenPositiveFieldKey": "pmGeneralSepticemiaCount"
+          },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGeneralSepticemiaSeverity"
           },
           "persistence": {
             "localColumn": "pmGeneralSepticemiaSeverity",
@@ -2202,6 +2328,10 @@ export const agentStationRegistry = {
             "min": 1,
             "max": 10000000
           },
+          "observation": {
+            "kind": "tally",
+            "key": "culledChicksTotalEggSet"
+          },
           "persistence": {
             "localColumn": "culledChicksTotalEggSet",
             "remoteColumn": "culled_chicks_total_egg_set"
@@ -2265,6 +2395,21 @@ export const agentStationRegistry = {
                 }
               }
             }
+          },
+          "observation": {
+            "kind": "tally",
+            "keyProperty": "id",
+            "valueProperty": "count",
+            "keyPrefix": "culled:",
+            "presenceKey": "culled:__present",
+            "ignoredProperties": [
+              "category",
+              "subtype",
+              "description",
+              "commonCauses",
+              "sourceRefs",
+              "pct"
+            ]
           },
           "persistence": {
             "localColumn": "culledChicksAnalysisJson",
@@ -2388,6 +2533,10 @@ export const agentStationRegistry = {
             "minItems": 1,
             "itemMin": 1,
             "itemMax": 200
+          },
+          "observation": {
+            "kind": "series",
+            "key": "weightsJson"
           },
           "persistence": {
             "localColumn": "weightsJson",

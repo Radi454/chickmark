@@ -696,6 +696,48 @@ Station save behavior:
   update receives a conservative `legacy_quality_unclassified` flag. A pulled
   row is classified exactly from the generated registry when SQLite stores it,
   including rows from older clients that omit both cache columns.
+- SQLite v66 stores Chick weights, YFBM pairs, vent temperatures, Pasgar
+  tallies, postmortem tallies/severity, and culled-chick counts as normalized
+  `chick_quality_observation` children. Observation shape, key, unit, list
+  ordinal, and photo-evidence ownership come only from the generated station
+  registry. Stable observation identity includes sample id and domain, so the
+  same parent id can safely exist in both Chick parent tables without merging
+  or cross-deleting evidence. Observation identity and parent ownership are
+  immutable; value rows require exactly one numeric or text value.
+- Newly touched exact-domain Chick samples replace their observation set and
+  then rebuild the wide/JSON and calculated compatibility caches from the
+  persisted children in one transaction. Reads for reopen, direct row lookup,
+  session reconstruction, dashboard aggregation, and agent queries use
+  observations first. A parent with no observations continues to read its
+  preserved cache, so malformed, incomplete, and untouched legacy evidence is
+  never inferred or discarded. Once a parent owns normalized observations, an
+  update whose observation-bearing values cannot round-trip is rejected and
+  rolled back instead of silently retaining or replacing the old children.
+- Touching a combined legacy Chick row lazily creates deterministic
+  exact-domain helper parents only for domains with losslessly round-trippable
+  raw evidence. Each helper points back with a `legacy-domain:` source
+  reference, is reused on later saves, and is hidden from duplicate UI and
+  agent result lists while its observation-derived values overlay the visible
+  compatibility row. The original combined row and its caches remain for old
+  clients. No bulk split occurs during migration.
+- Unambiguous registry-owned Chick photos move to the exact-domain helper
+  without copying or deleting the file. Observation-specific evidence also
+  stores an optional observation id. Synced rows use a metadata-only pending
+  state so the ownership update reaches Supabase even on web; that update does
+  not replace the remote storage path with a device-local path. Ownership
+  triggers reject cross-sample, cross-session, and wrong-domain links, and
+  deleting an observation clears its optional photo reference without deleting
+  the photo.
+- Observation sync pushes parents before children, pulls parents before
+  children for every role (including pull-only customers), and drains child
+  tombstones before either Chick parent. Dirty cutoffs protect edits made while
+  a push is in flight, logical-id collisions fail for review instead of
+  replacing either row, and parent deletion is domain-scoped when both Chick
+  tables happen to contain the same id. The additive Supabase schema, RLS,
+  ownership triggers, and atomic agent-approval wrapper remain migration files;
+  the app does not apply them to a live project. The observation owner trigger
+  validates its private parent through a fixed-search-path privileged function,
+  while active RLS still limits authenticated reads and writes by customer.
 - Storage-capable stations default blank storage-day values to `0` in drafts
   and station-sample metadata so BMK age calculations can run even when the
   user leaves the storage field untouched.
@@ -2175,7 +2217,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 65. The database file
+The app uses SQLite through `sqflite` at database version 66. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup

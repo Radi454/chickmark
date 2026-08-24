@@ -176,6 +176,7 @@ void main() {
         upsertDashboardAction: any(named: 'upsertDashboardAction'),
         upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
         upsertPanelRow: any(named: 'upsertPanelRow'),
+        upsertChickObservation: any(named: 'upsertChickObservation'),
         upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),

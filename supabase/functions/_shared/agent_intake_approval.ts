@@ -4,6 +4,11 @@ import {
   deriveStationAdapter,
 } from '../telegram-hatchery-agent/agent_station_adapter.ts'
 import { buildScopeKey, type ChickScopeType } from './chick_sample_identity.ts'
+import {
+  canRoundTripChickObservations,
+  type ChickQualityObservation,
+  extractChickObservations,
+} from '../telegram-hatchery-agent/chick_observation_codec.ts'
 
 export interface ApprovalIntakeRow {
   id: string
@@ -47,6 +52,7 @@ export interface PreparedAgentIntakeApproval {
   panelRowId: string
   targetSessionId: string | null
   panelPayload: Readonly<Record<string, unknown>>
+  observations: readonly ChickQualityObservation[]
 }
 
 export class AgentIntakeApprovalValidationError extends Error {
@@ -198,6 +204,7 @@ export function prepareAgentIntakeApproval(input: {
     last_synced_at: approvedAt,
     ...persistence.values,
   }
+  let observations: readonly ChickQualityObservation[] = []
   if (
     persistence.remoteTable === 'chick_quality' ||
     persistence.remoteTable === 'chick_weights'
@@ -257,6 +264,20 @@ export function prepareAgentIntakeApproval(input: {
       quality_status: quality.status,
       quality_flags: quality.canonicalJson,
     })
+    if (canRoundTripChickObservations(schema, values)) {
+      observations = extractChickObservations(
+        schema,
+        {
+          sampleId: panelRowId,
+          customerId: intake.customer_id,
+          sessionId: requestedTargetSessionId ??
+            'allocated-by-approval-transaction',
+          observedAt: intake.user_confirmed_at,
+          source: 'agent',
+        },
+        values,
+      )
+    }
   }
   return {
     intakeId: intake.id,
@@ -268,6 +289,7 @@ export function prepareAgentIntakeApproval(input: {
     panelRowId,
     targetSessionId: requestedTargetSessionId,
     panelPayload,
+    observations,
   }
 }
 

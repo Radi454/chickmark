@@ -114,6 +114,15 @@ Future<Set<String>> dropTablesIntroducedAfterV41(Database db) async {
   final allTables = await tableNamesFor(db);
   final tablesToDrop = allTables.difference(kV41BaselineTables);
   await db.execute('PRAGMA foreign_keys = OFF');
+  for (final trigger in const [
+    'trg_chick_quality_observation_parent_quality_delete',
+    'trg_chick_quality_observation_identity_update',
+    'trg_chick_quality_observation_parent_weights_delete',
+    'trg_photo_observation_owner_insert',
+    'trg_photo_observation_owner_update',
+  ]) {
+    await db.execute('DROP TRIGGER IF EXISTS "$trigger"');
+  }
   for (final table in tablesToDrop) {
     await db.execute('DROP TABLE IF EXISTS "$table"');
   }

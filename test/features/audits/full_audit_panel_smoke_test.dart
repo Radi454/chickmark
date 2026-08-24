@@ -15,6 +15,7 @@ import 'package:hatchaudit/data/repositories/customer_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_dashboard_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/logic/egg_station_reconstruction.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
@@ -1569,6 +1570,9 @@ Future<Map<String, dynamic>> _singleRow(String table) async {
 }
 
 Future<List<Map<String, dynamic>>> _rows(String table) async {
+  if (table == 'chick_quality' || table == 'chick_weights') {
+    return PanelSampleRepository().getRowsBySessionId(table, _sessionId);
+  }
   final db = await DatabaseHelper().db;
   final tableColumns = (await db.rawQuery(
     'PRAGMA table_info($table)',

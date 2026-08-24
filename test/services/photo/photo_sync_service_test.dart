@@ -33,6 +33,9 @@ void main() {
       when(
         () => repo.getByStatus('failed'),
       ).thenAnswer((_) async => [failedPhoto]);
+      when(
+        () => repo.getByStatus('metadata_pending'),
+      ).thenAnswer((_) async => []);
       when(() => supabase.uploadPhoto(failedPhoto)).thenAnswer((_) async {});
       when(
         () => repo.updateStatus(failedPhoto.id, 'synced'),
@@ -64,6 +67,9 @@ void main() {
       when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
       when(() => repo.getByStatus('local')).thenAnswer((_) async => [photo]);
       when(() => repo.getByStatus('failed')).thenAnswer((_) async => []);
+      when(
+        () => repo.getByStatus('metadata_pending'),
+      ).thenAnswer((_) async => []);
       when(() => supabase.uploadPhoto(photo)).thenAnswer((_) async {});
       when(
         () => repo.updateStatus(photo.id, 'synced'),
@@ -111,11 +117,27 @@ void main() {
   );
 
   test(
-    'file sync is skipped when the platform has no native file support',
+    'web sync applies metadata-only rehoming without touching native files',
     () async {
       final repo = _MockPhotoRepository();
       final supabase = _MockSupabaseService();
+      final metadataPhoto = _photo(
+        '/Users/device/photo.jpg',
+        uploadStatus: 'metadata_pending',
+      );
       var directoryRequested = false;
+      when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+      when(() => repo.getByStatus('local')).thenAnswer((_) async => []);
+      when(() => repo.getByStatus('failed')).thenAnswer((_) async => []);
+      when(
+        () => repo.getByStatus('metadata_pending'),
+      ).thenAnswer((_) async => [metadataPhoto]);
+      when(
+        () => supabase.upsertPhotoMetadata(metadataPhoto),
+      ).thenAnswer((_) async {});
+      when(
+        () => repo.updateStatus(metadataPhoto.id, 'synced'),
+      ).thenAnswer((_) async {});
       final service = PhotoSyncService(
         repository: repo,
         supabase: supabase,
@@ -130,9 +152,11 @@ void main() {
       await service.syncPending();
 
       expect(directoryRequested, isFalse);
-      verifyNever(() => supabase.refreshAvailability());
+      verify(() => supabase.refreshAvailability()).called(1);
+      verify(() => supabase.upsertPhotoMetadata(metadataPhoto)).called(1);
+      verify(() => repo.updateStatus(metadataPhoto.id, 'synced')).called(1);
       verifyNever(() => repo.getRemotePhotos());
-      verifyNever(() => repo.getByStatus(any()));
+      verifyNever(() => supabase.uploadPhoto(any()));
     },
   );
 

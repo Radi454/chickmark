@@ -35,6 +35,7 @@ class SupabasePullSummary {
   final int dashboardActions;
   final int labAnalysisRows;
   final int panelRows;
+  final int chickObservations;
   final int eggGradingCounts;
   final int syncTombstones;
 
@@ -51,6 +52,7 @@ class SupabasePullSummary {
     this.dashboardActions = 0,
     this.labAnalysisRows = 0,
     this.panelRows = 0,
+    this.chickObservations = 0,
     this.eggGradingCounts = 0,
     this.syncTombstones = 0,
   });
@@ -68,6 +70,7 @@ class SupabasePullSummary {
       dashboardActions +
       labAnalysisRows +
       panelRows +
+      chickObservations +
       eggGradingCounts +
       syncTombstones;
 
@@ -84,6 +87,7 @@ class SupabasePullSummary {
     int? dashboardActions,
     int? labAnalysisRows,
     int? panelRows,
+    int? chickObservations,
     int? eggGradingCounts,
     int? syncTombstones,
   }) {
@@ -101,6 +105,7 @@ class SupabasePullSummary {
       dashboardActions: dashboardActions ?? this.dashboardActions,
       labAnalysisRows: labAnalysisRows ?? this.labAnalysisRows,
       panelRows: panelRows ?? this.panelRows,
+      chickObservations: chickObservations ?? this.chickObservations,
       eggGradingCounts: eggGradingCounts ?? this.eggGradingCounts,
       syncTombstones: syncTombstones ?? this.syncTombstones,
     );
@@ -114,6 +119,12 @@ Map<String, dynamic> toSupabaseUpsertPayload(
   final safeRow = _stripLocalOnlyColumnsForSupabase(table, row);
   return safeRow.map((key, value) => MapEntry(_supabaseSnakeCase(key), value));
 }
+
+@visibleForTesting
+bool photoMetadataUpdateAcknowledged(
+  Iterable<Map<String, dynamic>> rows,
+  String photoId,
+) => rows.any((row) => row['id'] == photoId);
 
 Map<String, dynamic> _stripLocalOnlyColumnsForSupabase(
   String table,
@@ -649,8 +660,27 @@ class SupabaseService {
       'panelName': photo.panelName,
       'panelRowId': photo.panelRowId,
       'fieldKey': photo.fieldKey,
+      'observationId': photo.observationId,
       'uploadStatus': 'synced',
     });
+  }
+
+  Future<void> upsertPhotoMetadata(PhotoModel photo) async {
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
+    final updated = await _client
+        .from('photos')
+        .update({
+          'panel_name': photo.panelName,
+          'panel_row_id': photo.panelRowId,
+          'observation_id': photo.observationId,
+        })
+        .eq('id', photo.id)
+        .select('id');
+    if (!photoMetadataUpdateAcknowledged(updated, photo.id)) {
+      throw StateError('Remote photo metadata row was not found');
+    }
   }
 
   Future<String?> uploadBmkOperationalSourcePhoto({
@@ -802,6 +832,7 @@ class SupabaseService {
     upsertLabAnalysisRow,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
+    Future<void> Function(Map<String, dynamic>)? upsertChickObservation,
     Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
@@ -909,6 +940,14 @@ class SupabaseService {
           });
         }
         summary = summary.copyWith(panelRows: count);
+      }
+      if (upsertChickObservation != null) {
+        summary = summary.copyWith(
+          chickObservations: await pullTable(
+            'chick_quality_observation',
+            upsertChickObservation,
+          ),
+        );
       }
       if (upsertEggGradingCount != null) {
         summary = summary.copyWith(

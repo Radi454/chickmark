@@ -51,6 +51,9 @@ void main() {
     when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
     when(() => repo.getByStatus('local')).thenAnswer((_) async => [photo]);
     when(() => repo.getByStatus('failed')).thenAnswer((_) async => const []);
+    when(
+      () => repo.getByStatus('metadata_pending'),
+    ).thenAnswer((_) async => const []);
     when(() => repo.updateStatus(any(), any())).thenAnswer((_) async {});
   });
 
@@ -58,14 +61,17 @@ void main() {
     tempDir.deleteSync(recursive: true);
   });
 
-  test('a photo is marked failed, not synced, when upload throws offline',
-      () async {
-    when(() => supabase.uploadPhoto(any()))
-        .thenThrow(StateError('Supabase sync is not available'));
+  test(
+    'a photo is marked failed, not synced, when upload throws offline',
+    () async {
+      when(
+        () => supabase.uploadPhoto(any()),
+      ).thenThrow(StateError('Supabase sync is not available'));
 
-    await service.syncPending();
+      await service.syncPending();
 
-    verify(() => repo.updateStatus('photo-1', 'failed')).called(1);
-    verifyNever(() => repo.updateStatus('photo-1', 'synced'));
-  });
+      verify(() => repo.updateStatus('photo-1', 'failed')).called(1);
+      verifyNever(() => repo.updateStatus('photo-1', 'synced'));
+    },
+  );
 }

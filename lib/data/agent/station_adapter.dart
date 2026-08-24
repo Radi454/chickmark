@@ -271,6 +271,7 @@ abstract final class AgentStationAdapter {
       final inputs = calculation.inputFieldKeys
           .map((key) => available[key])
           .toList(growable: false);
+      if (inputs.any((value) => value == null)) continue;
       final value = _calculate(calculation.kind, inputs);
       calculated[calculation.fieldKey] = value;
       available[calculation.fieldKey] = value;
@@ -630,12 +631,14 @@ Object? _calculate(String kind, List<Object?> inputs) {
     'yfbm_entry_count' => _objectList(inputs[0]).length,
     'yfbm_average_pct' => _average(_yfbmPercentages(inputs[0])),
     'yfbm_cv_pct' => CalculationUtils.cvPercent(_yfbmPercentages(inputs[0])),
-    'culled_affected_pct' => CalculationUtils.percentOf(
-      _objectList(
-        inputs[1],
-      ).fold<num>(0, (sum, item) => sum + (item['count'] as num)),
-      inputs[0] as num,
-    ),
+    'culled_affected_pct' =>
+      (inputs[0] as num) <= 0
+          ? null
+          : _objectList(
+                  inputs[1],
+                ).fold<num>(0, (sum, item) => sum + (item['count'] as num)) /
+                (inputs[0] as num) *
+                100,
     'culled_top_category' => _topCulledDefect(inputs[0])?.$1,
     'culled_top_subtype' => _topCulledDefect(inputs[0])?.$2,
     'fertility_from_infertile' => CalculationUtils.percentOf(

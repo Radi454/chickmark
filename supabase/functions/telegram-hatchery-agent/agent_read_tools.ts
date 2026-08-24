@@ -9,6 +9,12 @@ import type {
   AgentToolResult,
 } from './agent_protocol.ts'
 import { ratioOfSums, sampleWeightedMean } from './agent_metrics.ts'
+import { calculateStationValues } from './agent_station_adapter.ts'
+import {
+  type ChickQualityObservation,
+  overlayReconstructedChickValues,
+  reconstructChickObservationValues,
+} from './chick_observation_codec.ts'
 import { matchByName, strictOperationalKey } from './agent_name_match.ts'
 import { MAX_AGENT_READ_ROWS } from './agent_tool_contract.ts'
 import type { AgentToolHandler } from './agent_tools.ts'
@@ -43,7 +49,9 @@ export interface StationRecordQuery {
   fromDate?: string
   toDate?: string
   limit?: number
+  offset?: number
   recordId?: string
+  chickDomain?: string
 }
 
 export interface AgentReadStore {
@@ -67,6 +75,14 @@ export interface AgentReadStore {
   findStationRecord(
     query: StationRecordQuery,
   ): Promise<Record<string, unknown> | null>
+  queryChickObservations?(
+    sampleIds: readonly string[],
+    customerId: string,
+  ): Promise<readonly Record<string, unknown>[]>
+  queryChickHelpers?(
+    query: StationRecordQuery,
+    legacyIds: readonly string[],
+  ): Promise<readonly Record<string, unknown>[]>
 }
 
 export interface AgentReadToolOptions {
@@ -87,6 +103,7 @@ interface ReadDatabaseQuery {
   select(columns: string): ReadDatabaseQuery
   eq(column: string, value: unknown): ReadDatabaseQuery
   in(column: string, values: readonly unknown[]): ReadDatabaseQuery
+  or(filters: string): ReadDatabaseQuery
   gte(column: string, value: unknown): ReadDatabaseQuery
   lte(column: string, value: unknown): ReadDatabaseQuery
   order(
@@ -95,6 +112,10 @@ interface ReadDatabaseQuery {
   ): ReadDatabaseQuery
   limit(
     count: number,
+  ): Promise<ReadDatabaseResult<Record<string, unknown>[]>>
+  range(
+    from: number,
+    to: number,
   ): Promise<ReadDatabaseResult<Record<string, unknown>[]>>
   maybeSingle(): Promise<ReadDatabaseResult<Record<string, unknown>>>
 }
@@ -183,12 +204,20 @@ export function createSupabaseAgentReadStore(
         builder = builder.in('customer_id', query.allowedCustomerIds)
       }
       if (query.flockId) builder = builder.eq('flock_id', query.flockId)
+      if (query.chickDomain) {
+        builder = builder.or(
+          `domain.eq.${query.chickDomain},domain.eq.chicks.legacy_combined,domain.is.null`,
+        )
+      }
       if (query.fromDate) builder = builder.gte('date', query.fromDate)
       if (query.toDate) builder = builder.lte('date', query.toDate)
       const result = await builder
         .order('date', { ascending: false })
         .order('id', { ascending: false })
-        .limit((query.limit ?? 100) + 1)
+        .range(
+          query.offset ?? 0,
+          (query.offset ?? 0) + (query.limit ?? 100) - 1,
+        )
       throwIfReadError(result)
       return result.data ?? []
     },
@@ -205,6 +234,43 @@ export function createSupabaseAgentReadStore(
         .maybeSingle()
       throwIfReadError(result)
       return result.data
+    },
+    async queryChickObservations(sampleIds, customerId) {
+      if (sampleIds.length === 0) return []
+      const rows: Record<string, unknown>[] = []
+      const pageSize = 1000
+      for (let offset = 0;; offset += pageSize) {
+        const result = await client
+          .from('chick_quality_observation')
+          .select('*')
+          .in('sample_id', sampleIds)
+          .eq('customer_id', customerId)
+          .order('sample_id', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1)
+        throwIfReadError(result)
+        const page = result.data ?? []
+        rows.push(...page)
+        if (page.length < pageSize) break
+      }
+      return rows
+    },
+    async queryChickHelpers(query, legacyIds) {
+      if (!query.customerId || !query.chickDomain || legacyIds.length === 0) {
+        return []
+      }
+      const sourceRefs = legacyIds.map((id) =>
+        `legacy-domain:${id}:${query.chickDomain}`
+      )
+      const result = await client
+        .from(query.table)
+        .select(query.columns.join(', '))
+        .eq('customer_id', query.customerId)
+        .eq('domain', query.chickDomain)
+        .in('source_ref_id', sourceRefs)
+        .limit(sourceRefs.length)
+      throwIfReadError(result)
+      return result.data ?? []
     },
   }
 }
@@ -326,9 +392,12 @@ async function resolveCustomerFlock(
   // same, and only then is telling them apart by a unique flock the only way
   // to answer at all.
   const sameWrittenName = customers.every((customer) =>
-    strictOperationalKey(customer.name) === strictOperationalKey(customers[0].name)
+    strictOperationalKey(customer.name) ===
+      strictOperationalKey(customers[0].name)
   )
-  if (customers.length > 1 && !(customerMatch.tier === 'exact' && sameWrittenName)) {
+  if (
+    customers.length > 1 && !(customerMatch.tier === 'exact' && sameWrittenName)
+  ) {
     return ok({
       status: 'ambiguous_customer',
       customer: null,
@@ -412,7 +481,10 @@ async function resolveCustomerFlock(
       matchedBy: { customer: customerMatch.tier, flock: flockMatch.tier },
       candidates: flockMatch.matches
         .slice(0, RESOLVE_CANDIDATE_LIMIT)
-        .map(({ customer, flock }) => ({ customer, flock: publicFlock(flock) })),
+        .map(({ customer, flock }) => ({
+          customer,
+          flock: publicFlock(flock),
+        })),
     })
   }
   return ok({
@@ -534,7 +606,9 @@ async function getCustomerContext(
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
   const customerId = input.arguments.customerId as string
-  if (!input.scope.allowedCustomerIds.includes(customerId)) return scopeDenied()
+  if (!input.scope.allowedCustomerIds.includes(customerId)) {
+    return scopeDenied()
+  }
   const customer = await store.findCustomer(customerId)
   return customer?.id === customerId
     ? ok({ id: customer.id, name: customer.name })
@@ -546,7 +620,9 @@ async function listCustomerFlocks(
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
   const customerId = input.arguments.customerId as string
-  if (!input.scope.allowedCustomerIds.includes(customerId)) return scopeDenied()
+  if (!input.scope.allowedCustomerIds.includes(customerId)) {
+    return scopeDenied()
+  }
   const limit = (input.arguments.limit as number | undefined) ?? 100
   const rows = (await store.listFlocks(customerId, limit))
     .filter((flock) => flock.customerId === customerId)
@@ -587,7 +663,9 @@ async function listCustomerHatcheries(
   input: AgentToolExecutionInput,
 ): Promise<AgentToolResult> {
   const customerId = input.arguments.customerId as string
-  if (!input.scope.allowedCustomerIds.includes(customerId)) return scopeDenied()
+  if (!input.scope.allowedCustomerIds.includes(customerId)) {
+    return scopeDenied()
+  }
   const limit = (input.arguments.limit as number | undefined) ?? 100
   const rows = (await store.listHatcheries(customerId, limit))
     .filter((hatchery) => hatchery.customerId === customerId)
@@ -609,11 +687,19 @@ async function queryStationRecords(
   const prepared = await prepareStationQuery(store, input)
   if ('result' in prepared) return prepared.result
   const limit = (input.arguments.limit as number | undefined) ?? 100
-  const rows = stableRows(authorizedRows(
-    await store.queryStationRecords({ ...prepared.query, limit }),
+  const rows = await observationFirstRows(
+    store,
+    prepared.schema,
+    stableRows(chickDomainRows(
+      prepared.schema,
+      authorizedRows(
+        await loadRawStationRows(store, prepared, limit),
+        prepared.query.customerId!,
+        prepared.query.flockId,
+      ),
+    )),
     prepared.query.customerId!,
-    prepared.query.flockId,
-  ))
+  )
   const truncated = rows.length > limit
   return ok({
     schemaKey: prepared.schema.schemaKey,
@@ -639,10 +725,18 @@ async function compareStationMetrics(
   }
   const policy = metricPolicy(prepared.schema.schemaKey, measureKey)
   if (!policy) return { ok: false, code: 'unsupported_metric', data: null }
-  const rows = stableRows(authorizedRows(
-    await store.queryStationRecords({ ...prepared.query, limit: 100 }),
+  const rows = (await observationFirstRows(
+    store,
+    prepared.schema,
+    stableRows(chickDomainRows(
+      prepared.schema,
+      authorizedRows(
+        await loadRawStationRows(store, prepared, 100),
+        prepared.query.customerId!,
+        prepared.query.flockId,
+      ),
+    )),
     prepared.query.customerId!,
-    prepared.query.flockId,
   )).slice(0, 100)
   const remoteRows = rows.map((row) => publicStationRow(row, prepared.columns))
 
@@ -676,6 +770,70 @@ async function compareStationMetrics(
     observedRows: aggregate.observedRows,
     sourceQueryAt: now().toISOString(),
   })
+}
+
+async function loadRawStationRows(
+  store: AgentReadStore,
+  prepared: {
+    schema: AgentStationSchema
+    query: StationRecordQuery
+  },
+  logicalLimit: number,
+): Promise<readonly Record<string, unknown>[]> {
+  if (!prepared.schema.schemaKey.startsWith('chicks.')) {
+    return await store.queryStationRecords({
+      ...prepared.query,
+      limit: logicalLimit + 1,
+    })
+  }
+  const pageSize = Math.max(200, logicalLimit * 2)
+  const rows: Record<string, unknown>[] = []
+  const fingerprints = new Set<string>()
+  for (let offset = 0;; offset += pageSize) {
+    const page = await store.queryStationRecords({
+      ...prepared.query,
+      limit: pageSize,
+      offset,
+    })
+    if (page.length === 0) break
+    const fingerprint = page.map((row) => optionalText(row.id) ?? '').join('|')
+    if (fingerprints.has(fingerprint)) {
+      throw new Error('Agent read pagination did not advance')
+    }
+    fingerprints.add(fingerprint)
+    rows.push(...page)
+    const logical = chickDomainRows(
+      prepared.schema,
+      stableRows(authorizedRows(
+        rows,
+        prepared.query.customerId!,
+        prepared.query.flockId,
+      )),
+    )
+    if (logical.length > logicalLimit || page.length < pageSize) break
+  }
+  if (store.queryChickHelpers) {
+    const logical = chickDomainRows(
+      prepared.schema,
+      stableRows(authorizedRows(
+        rows,
+        prepared.query.customerId!,
+        prepared.query.flockId,
+      )),
+    ).slice(0, logicalLimit + 1)
+    const legacyIds = logical
+      .filter((row) =>
+        !optionalText(row.domain) || row.domain === 'chicks.legacy_combined'
+      )
+      .map((row) => optionalText(row.id))
+      .filter((id): id is string => id !== null)
+    const helpers = await store.queryChickHelpers(prepared.query, legacyIds)
+    const existingIds = new Set(rows.map((row) => optionalText(row.id)))
+    rows.push(
+      ...helpers.filter((row) => !existingIds.has(optionalText(row.id))),
+    )
+  }
+  return rows
 }
 
 async function getRecordProvenance(
@@ -777,6 +935,9 @@ async function prepareStationQuery(
       flockId: flockId ?? null,
       fromDate: input.arguments.fromDate as string,
       toDate: input.arguments.toDate as string,
+      chickDomain: schema.schemaKey.startsWith('chicks.')
+        ? schema.schemaKey
+        : undefined,
     },
   }
 }
@@ -795,12 +956,18 @@ function stationColumns(schema: AgentStationSchema): StationColumns {
     ['date', 'date'],
   ])
   const readable = [...schema.read.dimensions, ...schema.read.measures]
+  const remote = new Set(logicalByRemote.keys())
+  if (schema.schemaKey.startsWith('chicks.')) {
+    remote.add('domain')
+    remote.add('source_ref_id')
+  }
   for (const logical of readable) {
-    const remote = remoteColumn(schema, logical)
-    logicalByRemote.set(remote, logical)
+    const column = remoteColumn(schema, logical)
+    remote.add(column)
+    logicalByRemote.set(column, logical)
   }
   return {
-    remote: new Set(logicalByRemote.keys()),
+    remote,
     logicalByRemote,
   }
 }
@@ -815,6 +982,145 @@ function publicStationRow(
       row[remote] ?? null,
     ]),
   )
+}
+
+async function observationFirstRows(
+  store: AgentReadStore,
+  schema: AgentStationSchema,
+  rows: readonly Record<string, unknown>[],
+  customerId: string,
+): Promise<readonly Record<string, unknown>[]> {
+  if (
+    !schema.schemaKey.startsWith('chicks.') || !store.queryChickObservations
+  ) {
+    return rows
+  }
+  const sampleIds = rows.map((row) =>
+    optionalText(row._observation_sample_id) ?? optionalText(row.id)
+  ).filter(
+    (id): id is string => id !== null,
+  )
+  const remote = await store.queryChickObservations(sampleIds, customerId)
+  const bySample = new Map<string, ChickQualityObservation[]>()
+  for (const row of remote) {
+    const observation = observationFromRemote(row)
+    if (!observation || observation.customerId !== customerId) continue
+    const values = bySample.get(observation.sampleId) ?? []
+    values.push(observation)
+    bySample.set(observation.sampleId, values)
+  }
+  return rows.map((row) => {
+    const sampleId = optionalText(row._observation_sample_id) ??
+      optionalText(row.id)
+    const observations = sampleId ? bySample.get(sampleId) : null
+    if (!observations?.length) return row
+    const contextualValues = Object.fromEntries(schema.fields.map((field) => [
+      field.fieldKey,
+      row[(field.persistence as { remoteColumn: string }).remoteColumn],
+    ]))
+    const values = overlayReconstructedChickValues(
+      schema,
+      contextualValues,
+      reconstructChickObservationValues(schema, observations),
+    )
+    let calculated: Readonly<Record<string, unknown>> = {}
+    try {
+      calculated = calculateStationValues(schema, values)
+    } catch (_) {
+      // Partial field-work evidence still replaces raw caches. Derived values
+      // remain absent until all of their inputs exist.
+    }
+    const overlaid = { ...row }
+    for (const rawField of [...schema.fields, ...schema.calculations]) {
+      const field = rawField as Record<string, unknown>
+      const fieldKey = field.fieldKey as string
+      const persistence = field.persistence as Record<string, unknown>
+      const remoteColumn = persistence.remoteColumn as string
+      overlaid[remoteColumn] = null
+      const value = fieldKey in values ? values[fieldKey] : calculated[fieldKey]
+      if (value === undefined) continue
+      overlaid[remoteColumn] = Array.isArray(value)
+        ? JSON.stringify(value)
+        : value
+    }
+    return overlaid
+  })
+}
+
+function chickDomainRows(
+  schema: AgentStationSchema,
+  rows: readonly Record<string, unknown>[],
+): readonly Record<string, unknown>[] {
+  if (!schema.schemaKey.startsWith('chicks.')) return rows
+  const legacyById = new Map<string, Record<string, unknown>>()
+  const helpersByLegacy = new Map<string, Record<string, unknown>>()
+  const standalone: Record<string, unknown>[] = []
+  for (const row of rows) {
+    const domain = optionalText(row.domain)
+    const id = optionalText(row.id)
+    if (!id) continue
+    if (!domain || domain === 'chicks.legacy_combined') {
+      legacyById.set(id, row)
+      continue
+    }
+    if (domain !== schema.schemaKey) continue
+    const sourceRef = optionalText(row.source_ref_id)
+    const prefix = 'legacy-domain:'
+    const suffix = `:${schema.schemaKey}`
+    if (sourceRef?.startsWith(prefix) && sourceRef.endsWith(suffix)) {
+      helpersByLegacy.set(sourceRef.slice(prefix.length, -suffix.length), row)
+    } else {
+      standalone.push(row)
+    }
+  }
+  return [
+    ...[...legacyById].map(([legacyId, row]) => {
+      const helper = helpersByLegacy.get(legacyId)
+      return helper ? { ...row, _observation_sample_id: helper.id } : row
+    }),
+    ...standalone,
+  ]
+}
+
+function observationFromRemote(
+  row: Record<string, unknown>,
+): ChickQualityObservation | null {
+  const id = optionalText(row.id)
+  const sampleId = optionalText(row.sample_id)
+  const customerId = optionalText(row.customer_id)
+  const sessionId = optionalText(row.session_id)
+  const domain = optionalText(row.domain)
+  const kind = optionalText(row.kind)
+  const observationKey = optionalText(row.observation_key)
+  const unit = optionalText(row.unit)
+  const observedAt = optionalText(row.observed_at)
+  const createdAt = optionalText(row.created_at)
+  const updatedAt = optionalText(row.updated_at)
+  if (
+    !id || !sampleId || !customerId || !sessionId || !domain ||
+    !observationKey || !unit || !observedAt || !createdAt || !updatedAt ||
+    (kind !== 'series' && kind !== 'tally' && kind !== 'ordinal')
+  ) return null
+  return {
+    id,
+    sampleId,
+    customerId,
+    sessionId,
+    domain,
+    kind,
+    observationKey,
+    ordinal: typeof row.ordinal === 'number' ? row.ordinal : null,
+    numericValue: typeof row.numeric_value === 'number'
+      ? row.numeric_value
+      : null,
+    textValue: typeof row.text_value === 'string' ? row.text_value : null,
+    unit,
+    qualityFlags: '[]',
+    source: optionalText(row.source),
+    observedAt,
+    createdAt,
+    updatedAt,
+  }
 }
 
 function remoteColumn(schema: AgentStationSchema, logical: string): string {

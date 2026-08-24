@@ -1,5 +1,33 @@
 # ChickMark Change Log
 
+- 2026-08-24: Added Chick Quality V2 Phase 4 normalized raw observations.
+  Registry-generated descriptors now define the observation kind, key, unit,
+  ordinal, and photo ownership for weights, YFBM, CVT, Pasgar, postmortem, and
+  culled analysis. SQLite v66 transactionally persists those children and
+  rebuilds compatibility caches from them; reopen, dashboard, sync-conflict,
+  and agent reads prefer observations while untouched or malformed legacy rows
+  keep their original cache-only fallback. Combined rows lazily create only
+  lossless exact-domain helpers, reuse deterministic source references, remain
+  visible as the single compatibility sample, and are never bulk split.
+  Observation ids and logical uniqueness include domain, preserving same-id
+  rows across both Chick parent tables; collision, owner, tenant, photo, and
+  child-first deletion guards fail safely. Unambiguous photos are rehomed by
+  metadata without copying/deleting evidence or overwriting a remote file path.
+  Parent-before-child push, parent-before-child pull, child-before-parent
+  tombstones, dirty cutoffs, and pull-only devices are covered. Agent approval
+  commits parent and observations atomically. The Supabase migration was tested
+  only in the disposable local security harness and was not applied live.
+  Review hardening rejects and rolls back a malformed update when an existing
+  normalized observation set cannot round-trip, rejects sparse ordinal
+  reconstruction, canonicalizes
+  registry-approved object fields independent of input property order, and
+  treats derived culled percentages as cache-only. Agent reads paginate through
+  paired compatibility rows, metadata-only photo updates require a matching
+  remote row, and the security harness proves the exact rejection reason,
+  complete observation-policy set, and active allowed/denied tenant behavior.
+  The ownership trigger uses a fixed-search-path privileged function so it can
+  validate parents without granting authenticated users broader table access.
+
 - 2026-08-24: Added Chick Quality V2 Phase 3 registry-owned data-quality
   classification. The canonical station registry now defines stable `BLOCK`,
   `WARN`, and `FLAG` policy shared by Dart and TypeScript. SQLite v65 and a

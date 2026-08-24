@@ -7,6 +7,7 @@ import '../models/audit_session_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../../services/sync/app_sync_coordinator.dart';
 import 'egg_grading_repository.dart';
+import 'chick_quality_observation_repository.dart';
 import 'sync_tombstone_repository.dart';
 
 const _recentSessionOrderBy = 'updatedAt DESC, date DESC, createdAt DESC';
@@ -59,6 +60,41 @@ class AuditSessionRepository {
             rows.map((row) => row['id']),
           );
         } else {
+          if (const {
+            'chick_quality',
+            'chick_weights',
+          }.contains(panel.tableName)) {
+            final parentIds = rows
+                .map((row) => row['id']?.toString())
+                .whereType<String>()
+                .toList(growable: false);
+            if (parentIds.isNotEmpty) {
+              final placeholders = List.filled(
+                parentIds.length,
+                '?',
+              ).join(', ');
+              final children = await txn.query(
+                ChickQualityObservationRepository.tableName,
+                columns: ['id'],
+                where: panel.tableName == 'chick_weights'
+                    ? "sampleId IN ($placeholders) AND domain = 'chicks.weights'"
+                    : "sampleId IN ($placeholders) AND domain <> 'chicks.weights'",
+                whereArgs: parentIds,
+              );
+              await SyncTombstoneRepository.queueDeletesWithExecutor(
+                txn,
+                ChickQualityObservationRepository.tableName,
+                children.map((row) => row['id']),
+              );
+              await txn.delete(
+                ChickQualityObservationRepository.tableName,
+                where: panel.tableName == 'chick_weights'
+                    ? "sampleId IN ($placeholders) AND domain = 'chicks.weights'"
+                    : "sampleId IN ($placeholders) AND domain <> 'chicks.weights'",
+                whereArgs: parentIds,
+              );
+            }
+          }
           await SyncTombstoneRepository.queueDeletesWithExecutor(
             txn,
             panel.tableName,

@@ -387,7 +387,7 @@ function calculate(kind: string, inputs: readonly unknown[]): unknown {
         (sum, item) => sum + (item.count as number),
         0,
       )
-      return percentOf(affected, total)
+      return total <= 0 ? null : affected / total * 100
     }
     case 'culled_top_category': {
       const top = topCulledDefect(inputs[0])

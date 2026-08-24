@@ -724,6 +724,140 @@ Future<void> _applyV65Upgrade(Database db) async {
   }
 }
 
+/// v66 adds normalized Chick observations without bulk-splitting combined
+/// quality rows. Exact weight parents can be backfilled losslessly from their
+/// raw list; malformed or absent JSON stays only in its preserved parent cache.
+Future<void> _applyV66Upgrade(Database db) async {
+  if (await _tableExists(db, 'photos')) {
+    await _ensureColumns(db, 'photos', const ['observationId TEXT']);
+  }
+  await _repairDivergentV66ObservationTable(db);
+  await _createChickQualityObservationTable(db);
+  if (!await _tableExists(db, 'chick_weights')) return;
+  final schema = AgentStationRegistry.require('chicks.weights', 1);
+  final rows = await db.query(
+    'chick_weights',
+    where: 'domain = ?',
+    whereArgs: ['chicks.weights'],
+    orderBy: 'id',
+  );
+  for (final row in rows) {
+    final sampleId = _v64Text(row['id']);
+    final customerId = _v64Text(row['customerId']);
+    final sessionId = _v64Text(row['sessionId']);
+    if (sampleId == null || customerId == null || sessionId == null) continue;
+    final values = AgentStationAdapter.fieldValuesFromLocalRow(schema, row);
+    if (values['weightsJson'] is! List) continue;
+    final observedAt = DateTime.tryParse(
+      row['observedAt']?.toString() ?? row['createdAt']?.toString() ?? '',
+    );
+    if (observedAt == null) continue;
+    final observations = ChickObservationCodec.extract(
+      schema: schema,
+      sampleId: sampleId,
+      customerId: customerId,
+      sessionId: sessionId,
+      values: values,
+      observedAt: observedAt,
+      source: _v64Text(row['source']),
+      // The cloud migration deliberately does not infer/backfill biological
+      // evidence. Even a synced legacy parent needs these lossless children
+      // pushed once.
+      syncStatus: 'pending',
+    );
+    for (final observation in observations) {
+      final map = observation.toMap();
+      map['dirtyAt'] = DateTime.now().toUtc().toIso8601String();
+      await db.insert(
+        'chick_quality_observation',
+        map,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+  }
+}
+
+Future<void> _repairDivergentV66ObservationTable(Database db) async {
+  if (!await _tableExists(db, 'chick_quality_observation')) return;
+  final columns = (await db.rawQuery(
+    'PRAGMA table_info(chick_quality_observation)',
+  )).map((row) => row['name']?.toString()).whereType<String>().toSet();
+  const required = {
+    'id',
+    'sampleId',
+    'customerId',
+    'sessionId',
+    'domain',
+    'kind',
+    'observationKey',
+    'ordinal',
+    'numericValue',
+    'textValue',
+    'unit',
+    'qualityFlags',
+    'source',
+    'observedAt',
+    'createdAt',
+    'updatedAt',
+    'syncStatus',
+    'dirtyAt',
+    'lastSyncedAt',
+    'syncError',
+  };
+  final definition = await db.rawQuery(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ['chick_quality_observation'],
+  );
+  final sql = definition.firstOrNull?['sql']?.toString() ?? '';
+  final structurallyComplete =
+      columns.containsAll(required) &&
+      sql.contains("kind IN ('series', 'tally', 'ordinal')") &&
+      sql.contains('(numericValue IS NOT NULL) <> (textValue IS NOT NULL)');
+  if (structurallyComplete) return;
+
+  const quarantine = 'chick_quality_observation_v66_quarantine';
+  if (await _tableExists(db, quarantine)) {
+    throw StateError(
+      'Cannot repair divergent Chick observations: quarantine already exists',
+    );
+  }
+  final legacyRows = await db.query('chick_quality_observation');
+  for (final trigger in const [
+    'trg_chick_quality_observation_owner_insert',
+    'trg_chick_quality_observation_owner_update',
+    'trg_chick_quality_observation_identity_update',
+    'trg_chick_quality_observation_parent_quality_delete',
+    'trg_chick_quality_observation_parent_weights_delete',
+    'trg_chick_quality_observation_photo_unlink',
+    'trg_photo_observation_owner_insert',
+    'trg_photo_observation_owner_update',
+  ]) {
+    await db.execute('DROP TRIGGER IF EXISTS $trigger');
+  }
+  for (final index in const [
+    'idx_chick_quality_observation_logical',
+    'idx_chick_quality_observation_sample',
+    'idx_chick_quality_observation_session',
+    'idx_chick_quality_observation_sync',
+  ]) {
+    await db.execute('DROP INDEX IF EXISTS $index');
+  }
+  await db.execute(
+    'ALTER TABLE chick_quality_observation RENAME TO $quarantine',
+  );
+  await _createChickQualityObservationTable(db);
+  for (final legacy in legacyRows) {
+    if (!required.every(legacy.containsKey)) continue;
+    try {
+      await db.insert('chick_quality_observation', {
+        for (final key in required) key: legacy[key],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    } on DatabaseException {
+      // The original row remains byte-for-byte in the quarantine table.
+    }
+  }
+}
+
 Future<void> _backfillChickV2Identity(Database db, String table) async {
   final rows = await db.query(
     table,

@@ -45,6 +45,7 @@ class AgentStationField {
     required this.explicitZero,
     required Map<String, Object?> validation,
     required Map<String, Object?> persistence,
+    Map<String, Object?>? observation,
   }) : aliases = UnmodifiableMapView(
          aliases.map(
            (language, values) =>
@@ -52,7 +53,10 @@ class AgentStationField {
          ),
        ),
        validation = UnmodifiableMapView(validation),
-       persistence = UnmodifiableMapView(persistence);
+       persistence = UnmodifiableMapView(persistence),
+       observation = observation == null
+           ? null
+           : UnmodifiableMapView(observation);
 
   final String fieldKey;
   final AgentLocalizedText names;
@@ -63,6 +67,7 @@ class AgentStationField {
   final bool explicitZero;
   final Map<String, Object?> validation;
   final Map<String, Object?> persistence;
+  final Map<String, Object?>? observation;
 
   factory AgentStationField.fromJson(Map<String, Object?> json) {
     return AgentStationField(
@@ -75,6 +80,9 @@ class AgentStationField {
       explicitZero: json['explicitZero']! as bool,
       validation: _object(json['validation']),
       persistence: _object(json['persistence']),
+      observation: json['observation'] == null
+          ? null
+          : _object(json['observation']),
     );
   }
 }
@@ -120,6 +128,7 @@ class AgentStationSchema {
     required List<AgentStationCalculation> calculations,
     required List<String> requiredFieldKeys,
     required List<AgentPersistenceMapping> persistence,
+    Map<String, Object?> photoEvidence = const {},
   }) : sectorKeys = List.unmodifiable(sectorKeys),
        aliases = UnmodifiableMapView(
          aliases.map(
@@ -131,7 +140,8 @@ class AgentStationSchema {
        fields = List.unmodifiable(fields),
        calculations = List.unmodifiable(calculations),
        requiredFieldKeys = List.unmodifiable(requiredFieldKeys),
-       persistence = List.unmodifiable(persistence);
+       persistence = List.unmodifiable(persistence),
+       photoEvidence = UnmodifiableMapView(photoEvidence);
 
   final String schemaKey;
   final int version;
@@ -145,6 +155,7 @@ class AgentStationSchema {
   final List<AgentStationCalculation> calculations;
   final List<String> requiredFieldKeys;
   final List<AgentPersistenceMapping> persistence;
+  final Map<String, Object?> photoEvidence;
 
   String get identity => '$schemaKey@$version';
 
@@ -169,6 +180,9 @@ class AgentStationSchema {
       persistence: _objects(
         json['persistence'],
       ).map(AgentPersistenceMapping.fromJson).toList(growable: false),
+      photoEvidence: json['photoEvidence'] == null
+          ? const {}
+          : _object(json['photoEvidence']),
     );
   }
 }

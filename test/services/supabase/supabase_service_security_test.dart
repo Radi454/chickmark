@@ -2,6 +2,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 
 void main() {
+  test('photo metadata acknowledgement requires the requested remote row', () {
+    expect(photoMetadataUpdateAcknowledged(const [], 'photo-1'), isFalse);
+    expect(
+      photoMetadataUpdateAcknowledged(const [
+        {'id': 'another-photo'},
+      ], 'photo-1'),
+      isFalse,
+    );
+    expect(
+      photoMetadataUpdateAcknowledged(const [
+        {'id': 'photo-1'},
+      ], 'photo-1'),
+      isTrue,
+    );
+  });
+
   test('Chick V2 identity and provenance map to cloud snake_case', () {
     final payload = toSupabaseUpsertPayload('chick_weights', {
       'sampleKey': 'key-1',

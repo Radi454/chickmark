@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../agent/chick_observation_codec.dart';
 import '../agent/chick_quality_classifier.dart';
+import '../agent/station_adapter.dart';
+import '../agent/station_registry.dart';
 import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_schema.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
@@ -47,7 +50,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 65,
+      version: 66,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -99,6 +102,7 @@ class DatabaseHelper {
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
+    await _createChickQualityObservationTable(db);
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
     await _createGoveeCaptureTables(db);
@@ -204,6 +208,9 @@ class DatabaseHelper {
     if (oldVersion < 65) {
       await _applyV65Upgrade(db);
     }
+    if (oldVersion < 66) {
+      await _applyV66Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -263,6 +270,7 @@ class DatabaseHelper {
     'agent_intake_visits',
     'egg_defect_types',
     'egg_quality_defect_counts',
+    'chick_quality_observation',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -270,6 +278,28 @@ class DatabaseHelper {
   /// during surgical repair. Existing rows keep their values (NULL for new
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
+    'photos': ['observationId TEXT'],
+    'chick_quality_observation': [
+      'sampleId TEXT NOT NULL',
+      'customerId TEXT NOT NULL',
+      'sessionId TEXT NOT NULL',
+      'domain TEXT NOT NULL',
+      'kind TEXT NOT NULL',
+      'observationKey TEXT NOT NULL',
+      'ordinal INTEGER',
+      'numericValue REAL',
+      'textValue TEXT',
+      'unit TEXT NOT NULL',
+      "qualityFlags TEXT NOT NULL DEFAULT '[]'",
+      'source TEXT',
+      'observedAt TEXT NOT NULL',
+      'createdAt TEXT NOT NULL',
+      'updatedAt TEXT NOT NULL',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
     'farms': ['sectorKey TEXT'],
     'customers': [
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
@@ -722,6 +752,7 @@ class DatabaseHelper {
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
+    await _createChickQualityObservationTable(db);
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
     await _createGoveeCaptureTables(db);
@@ -1021,6 +1052,8 @@ class DatabaseHelper {
   @visibleForTesting
   Future<void> applyV64UpgradeForTest(Database db) => _applyV64Upgrade(db);
   Future<void> applyV65UpgradeForTest(Database db) => _applyV65Upgrade(db);
+
+  Future<void> applyV66UpgradeForTest(Database db) => _applyV66Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

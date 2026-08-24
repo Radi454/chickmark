@@ -14,6 +14,7 @@ import 'package:hatchaudit/data/repositories/activity_log_repository.dart';
 import 'package:hatchaudit/data/repositories/audit_session_repository.dart';
 import 'package:hatchaudit/data/repositories/bmk_repository.dart';
 import 'package:hatchaudit/data/repositories/customer_repository.dart';
+import 'package:hatchaudit/data/repositories/chick_quality_observation_repository.dart';
 import 'package:hatchaudit/data/repositories/dashboard_action_repository.dart';
 import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
@@ -32,6 +33,9 @@ import 'package:hatchaudit/services/supabase/supabase_service.dart';
 class _MockSupabaseService extends Mock implements SupabaseService {}
 
 class _MockCustomerRepository extends Mock implements CustomerRepository {}
+
+class _MockChickQualityObservationRepository extends Mock
+    implements ChickQualityObservationRepository {}
 
 class _MockDashboardActionRepository extends Mock
     implements DashboardActionRepository {}
@@ -72,6 +76,7 @@ class _MockPhotoSyncService extends Mock implements PhotoSyncService {}
 void main() {
   late _MockSupabaseService supabase;
   late _MockCustomerRepository customers;
+  late _MockChickQualityObservationRepository chickObservations;
   late _MockDashboardActionRepository actions;
   late _MockEggGradingRepository eggGrading;
   late _MockFlockRepository flocks;
@@ -100,6 +105,7 @@ void main() {
   setUp(() {
     supabase = _MockSupabaseService();
     customers = _MockCustomerRepository();
+    chickObservations = _MockChickQualityObservationRepository();
     actions = _MockDashboardActionRepository();
     eggGrading = _MockEggGradingRepository();
     flocks = _MockFlockRepository();
@@ -153,6 +159,21 @@ void main() {
     // Per-row dirty-tracking push for reference tables: default to nothing
     // dirty (clean rows are never pushed) unless a test overrides it.
     when(() => customers.getDirtyRows()).thenAnswer((_) async => const []);
+    when(
+      () => chickObservations.getDirtyRows(),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => chickObservations.getRowById(any()),
+    ).thenAnswer((_) async => null);
+    when(
+      () => chickObservations.upsertRemoteRow(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => chickObservations.markRowsSynced(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => chickObservations.markRowsFailed(any(), any()),
+    ).thenAnswer((_) async {});
     when(() => customers.markRowsSynced(any())).thenAnswer((_) async {});
     when(() => customers.markRowsFailed(any(), any())).thenAnswer((_) async {});
     when(
@@ -329,6 +350,7 @@ void main() {
         upsertDashboardAction: any(named: 'upsertDashboardAction'),
         upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
         upsertPanelRow: any(named: 'upsertPanelRow'),
+        upsertChickObservation: any(named: 'upsertChickObservation'),
         upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
@@ -353,6 +375,7 @@ void main() {
     auditSessionRepository: sessions,
     goveeCaptureRepository: govee,
     panelSampleRepository: panels,
+    chickObservationRepository: chickObservations,
     eggGradingRepository: eggGrading,
     performanceSyncRepository: operational,
     syncTombstoneRepository: tombstones,
@@ -548,6 +571,7 @@ void main() {
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
           upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
@@ -585,6 +609,7 @@ void main() {
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
           upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
@@ -664,6 +689,7 @@ void main() {
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
           upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
@@ -708,6 +734,7 @@ void main() {
           upsertDashboardAction: any(named: 'upsertDashboardAction'),
           upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: any(named: 'upsertPanelRow'),
+          upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
@@ -925,6 +952,7 @@ void main() {
           upsertDashboardAction: captureAny(named: 'upsertDashboardAction'),
           upsertLabAnalysisRow: captureAny(named: 'upsertLabAnalysisRow'),
           upsertPanelRow: captureAny(named: 'upsertPanelRow'),
+          upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
           upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
         ),

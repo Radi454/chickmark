@@ -71,11 +71,6 @@ class PhotoSyncService {
   }
 
   Future<void> syncPending() async {
-    // Native File APIs and path_provider's documents directory are not
-    // available in the browser. Web photo persistence needs a browser-backed
-    // implementation rather than the native file queue used here.
-    if (!_fileSyncSupported) return;
-
     final available = await _supabase.refreshAvailability();
     if (!available) return;
 
@@ -83,6 +78,17 @@ class PhotoSyncService {
       ...await _repo.getByStatus('local'),
       ...await _repo.getByStatus('failed'),
     ];
+    for (final photo in await _repo.getByStatus('metadata_pending')) {
+      try {
+        await _supabase.upsertPhotoMetadata(photo);
+        await _repo.updateStatus(photo.id, 'synced');
+      } catch (_) {
+        await _repo.updateStatus(photo.id, 'metadata_pending');
+      }
+    }
+    // Native File APIs are unavailable in the browser, but metadata-only
+    // re-homing above is safe and required there too.
+    if (!_fileSyncSupported) return;
     for (final photo in pending) {
       try {
         final file = File(photo.filePath);

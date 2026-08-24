@@ -50,7 +50,8 @@ Future<void> _createPanelTable(
     ${kChickV2QualityColumnDefinitions.join(',\n    ')}$extra
   )''');
   await db.execute(
-    "CREATE UNIQUE INDEX idx_${tableName}_unique_row ON $tableName (sessionId, IFNULL(house, ''), IFNULL(setter, ''), IFNULL(hatcher, ''), IFNULL(trolley, ''), IFNULL(tray, ''), IFNULL(position, ''))",
+    'CREATE UNIQUE INDEX idx_${tableName}_sample_key ON $tableName '
+    '(customerId, sampleKey) WHERE sampleKey IS NOT NULL',
   );
 }
 
@@ -109,6 +110,50 @@ void main() {
     )) {
       await _createPanelTable(db, panel.tableName, panel.measurementColumns);
     }
+    await db.execute('''CREATE TABLE chick_quality_observation (
+      id TEXT PRIMARY KEY,
+      sampleId TEXT NOT NULL,
+      customerId TEXT NOT NULL,
+      sessionId TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      observationKey TEXT NOT NULL,
+      ordinal INTEGER,
+      numericValue REAL,
+      textValue TEXT,
+      unit TEXT NOT NULL,
+      qualityFlags TEXT NOT NULL DEFAULT '[]',
+      source TEXT,
+      observedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT
+    )''');
+    await db.execute('''CREATE UNIQUE INDEX idx_chick_observation_logical
+      ON chick_quality_observation (
+        sampleId, domain, kind, observationKey, COALESCE(ordinal, -1)
+      )''');
+    await db.execute('''CREATE TABLE photos (
+      id TEXT PRIMARY KEY,
+      sessionId TEXT NOT NULL,
+      panelName TEXT NOT NULL,
+      panelRowId TEXT NOT NULL,
+      fieldKey TEXT NOT NULL,
+      observationId TEXT,
+      uploadStatus TEXT NOT NULL DEFAULT 'local'
+    )''');
+    await db.execute('''CREATE TABLE sync_tombstones (
+      id TEXT PRIMARY KEY,
+      tableName TEXT NOT NULL,
+      rowId TEXT NOT NULL,
+      deletedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      syncedAt TEXT,
+      lastError TEXT
+    )''');
     await db.insert('customers', {'id': 'customer-chicks-db'});
     await db.insert('flocks', {
       'id': 'flock-chicks-db',
@@ -157,13 +202,10 @@ void main() {
     await db.close();
   });
 
-  Future<List<Map<String, Object?>>> rows(String table) {
-    return db.query(
-      table,
-      orderBy:
-          'house ASC, setter ASC, hatcher ASC, trolley ASC, tray ASC, position ASC',
-    );
-  }
+  Future<List<Map<String, Object?>>> rows(String table) async =>
+      panelSampleRepository
+          .getRowsBySessionId(table, 'session-chicks-db')
+          .then((rows) => rows.cast<Map<String, Object?>>());
 
   void fillQualityDraft({
     required int pasgarReflexes,
@@ -295,7 +337,9 @@ void main() {
       expect(quality.map((row) => row['pasgarFinalScore']), [9.8, 9.8]);
 
       expect(quality.map((row) => row['yfbmEntryCount']), [2, 1]);
-      expect(quality.map((row) => row['yfbmAvgPct']), [9.7, 10.2]);
+      // Phase 4 rebuilds this cache from the persisted raw YFBM pairs; the
+      // caller-supplied 9.7 cannot override their canonical 9.8 result.
+      expect(quality.map((row) => row['yfbmAvgPct']), [9.8, 10.2]);
       expect(quality.first['yfbmEntriesJson'], contains('yolkWeight'));
 
       expect(quality.map((row) => row['cvtSampleSize']), [3, 2]);

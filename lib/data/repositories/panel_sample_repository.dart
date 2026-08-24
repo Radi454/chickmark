@@ -1,6 +1,10 @@
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
+import '../agent/chick_observation_codec.dart';
 import '../agent/chick_quality_classifier.dart';
+import '../agent/station_adapter.dart';
+import '../agent/station_registry.dart';
 import '../database/database_helper.dart';
 import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_model.dart';
@@ -9,6 +13,7 @@ import '../services/panel_aggregate_deriver.dart';
 import '../../core/security/safe_debug_log.dart';
 import '../../services/sync/app_sync_coordinator.dart';
 import 'egg_grading_repository.dart';
+import 'chick_quality_observation_repository.dart';
 import 'sync_tombstone_repository.dart';
 
 class PanelSampleRepository {
@@ -49,11 +54,7 @@ class PanelSampleRepository {
             await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
           ),
         );
-        await _upsertById(
-          txn,
-          definition.tableName,
-          await _prepareAndClassifyChickRow(txn, definition.tableName, row),
-        );
+        await _upsertChickAware(txn, definition.tableName, row);
         return;
       }
       for (final sample in samples) {
@@ -66,11 +67,7 @@ class PanelSampleRepository {
             ),
           ),
         );
-        await _upsertById(
-          txn,
-          definition.tableName,
-          await _prepareAndClassifyChickRow(txn, definition.tableName, row),
-        );
+        await _upsertChickAware(txn, definition.tableName, row);
       }
     });
     AppSyncCoordinator.nudge();
@@ -91,11 +88,7 @@ class PanelSampleRepository {
       await _upsertById(database, definition.tableName, values);
     } else {
       await database.transaction<void>((txn) async {
-        await _upsertById(
-          txn,
-          definition.tableName,
-          await _prepareAndClassifyChickRow(txn, definition.tableName, values),
-        );
+        await _upsertChickAware(txn, definition.tableName, values);
       });
     }
     AppSyncCoordinator.nudge();
@@ -131,7 +124,11 @@ class PanelSampleRepository {
       whereArgs: [sessionId],
       orderBy: panelOrderByForColumns(columns),
     );
-    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    return _observationFirstRows(
+      database,
+      definition.tableName,
+      rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getRowsBySessionIdAndMode(
@@ -156,7 +153,11 @@ class PanelSampleRepository {
             whereArgs: [sessionId],
             orderBy: panelOrderByForColumns(columns),
           );
-    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    return _observationFirstRows(
+      database,
+      definition.tableName,
+      rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getComparisonRows(
@@ -243,6 +244,9 @@ class PanelSampleRepository {
           'id',
           ...hierarchyColumns,
           if (isIdKeyed && columns.contains('sampleKey')) 'sampleKey',
+          if (definition.tableName == 'chick_quality' &&
+              columns.contains('sourceRefId'))
+            'sourceRefId',
         ],
         where: isIdKeyed
             ? 'sessionId = ?'
@@ -251,6 +255,7 @@ class PanelSampleRepository {
       );
       final staleIds = <String>[];
       for (final row in rows) {
+        if (_isLegacyDomainHelper(row)) continue;
         final id = row['id']?.toString();
         final sampleKey = row['sampleKey']?.toString();
         if (id != null &&
@@ -293,12 +298,19 @@ class PanelSampleRepository {
                 .toSet();
       final rows = await txn.query(
         definition.tableName,
-        columns: ['id', ...hierarchyColumns],
+        columns: [
+          'id',
+          ...hierarchyColumns,
+          if (definition.tableName == 'chick_quality' &&
+              columns.contains('sourceRefId'))
+            'sourceRefId',
+        ],
         where: 'sessionId = ?',
         whereArgs: [sessionId],
       );
       final staleIds = <String>[];
       for (final row in rows) {
+        if (_isLegacyDomainHelper(row)) continue;
         final id = row['id']?.toString();
         if (id != null &&
             id.isNotEmpty &&
@@ -385,7 +397,11 @@ class PanelSampleRepository {
       orderBy: 'date DESC, updatedAt DESC',
       limit: limit,
     );
-    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    return _observationFirstRows(
+      database,
+      definition.tableName,
+      rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+    );
   }
 
   Future<List<Map<String, Object?>>> getPanelSamples({
@@ -395,11 +411,16 @@ class PanelSampleRepository {
     final definition = PanelSampleSchema.byTable(panelTable);
     final database = await _databaseHelper.db;
     final columns = await _tableColumns(database, definition.tableName);
-    return database.query(
+    final rows = await database.query(
       definition.tableName,
       where: 'id = ?',
       whereArgs: [panelId],
       orderBy: panelOrderByForColumns(columns),
+    );
+    return _observationFirstRows(
+      database,
+      definition.tableName,
+      rows.map((row) => Map<String, dynamic>.from(row)).toList(),
     );
   }
 
@@ -410,7 +431,11 @@ class PanelSampleRepository {
       definition.tableName,
       orderBy: 'createdAt ASC',
     );
-    return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    return _observationFirstRows(
+      database,
+      definition.tableName,
+      rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+    );
   }
 
   @Deprecated('Panel sample child tables were removed.')
@@ -430,7 +455,16 @@ class PanelSampleRepository {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return Map<String, dynamic>.from(rows.first);
+    final raw = Map<String, dynamic>.from(rows.first);
+    if (_isLegacyDomainHelper(raw)) {
+      return _overlayExactObservationRow(database, definition.tableName, raw);
+    }
+    final overlaid = await _observationFirstRows(
+      database,
+      definition.tableName,
+      [Map<String, dynamic>.from(rows.first)],
+    );
+    return overlaid.isEmpty ? null : overlaid.first;
   }
 
   /// Sync-pull write: rows arriving from Supabase are in sync with the cloud,
@@ -662,23 +696,22 @@ class PanelSampleRepository {
     final rowId = filtered['id'];
     if (rowId == null) return;
     if (idKeyedPanelTables.contains(table)) {
-      final inserted = await executor.insert(
+      if (await _rowExistsById(executor, table, rowId)) {
+        final updatedById = await executor.update(
+          table,
+          filtered,
+          where: 'id = ?',
+          whereArgs: [rowId],
+        );
+        if (updatedById != 0) return;
+        throw StateError('$table could not update id-keyed row $rowId');
+      }
+      await executor.insert(
         table,
         filtered,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
+        conflictAlgorithm: ConflictAlgorithm.abort,
       );
-      if (inserted != 0) return;
-      final updatedById = await executor.update(
-        table,
-        filtered,
-        where: 'id = ?',
-        whereArgs: [rowId],
-      );
-      if (updatedById != 0) return;
-      throw StateError(
-        '$table rejected id-keyed row $rowId because another immutable '
-        'identity conflicts with it',
-      );
+      return;
     }
     final inserted = await executor.insert(
       table,
@@ -815,6 +848,351 @@ class PanelSampleRepository {
       'createdAt': sample.createdAt.toUtc().toIso8601String(),
       'updatedAt': sample.updatedAt.toUtc().toIso8601String(),
     };
+  }
+
+  Future<void> _upsertChickAware(
+    DatabaseExecutor executor,
+    String table,
+    Map<String, Object?> row,
+  ) async {
+    final prepared = await _prepareAndClassifyChickRow(executor, table, row);
+    await _upsertById(executor, table, prepared);
+    if (!const {'chick_quality', 'chick_weights'}.contains(table) ||
+        prepared['syncStatus'] == 'synced') {
+      return;
+    }
+    if ((await _tableColumns(
+      executor,
+      ChickQualityObservationRepository.tableName,
+    )).isEmpty) {
+      return;
+    }
+    final domain = _text(prepared['domain']);
+    if (table == 'chick_quality' && domain == 'chicks.legacy_combined') {
+      await _materializeLegacyDomains(executor, prepared);
+      return;
+    }
+    if (domain == null || domain == 'chicks.legacy_combined') return;
+    final schemaVersion = prepared['schemaVersion'];
+    if (schemaVersion is! int) return;
+    final schema = AgentStationRegistry.require(domain, schemaVersion);
+    if (!_hasTouchedObservationField(schema, prepared)) return;
+    await _replaceExactDomainObservations(executor, table, prepared, schema);
+  }
+
+  Future<void> _materializeLegacyDomains(
+    DatabaseExecutor executor,
+    Map<String, Object?> legacyParent,
+  ) async {
+    final legacyId = _text(legacyParent['id']);
+    if (legacyId == null) return;
+    var compatibility = Map<String, Object?>.from(legacyParent);
+    for (final schema in AgentStationRegistry.schemas.where(
+      (candidate) =>
+          candidate.schemaKey.startsWith('chicks.') &&
+          candidate.schemaKey != 'chicks.weights',
+    )) {
+      if (!_hasTouchedObservationField(schema, legacyParent)) continue;
+      final sourceRefId = 'legacy-domain:$legacyId:${schema.schemaKey}';
+      final existing = await executor.query(
+        'chick_quality',
+        columns: ['id'],
+        where: 'domain = ? AND sourceRefId = ?',
+        whereArgs: [schema.schemaKey, sourceRefId],
+        limit: 1,
+      );
+      final domainId = existing.isEmpty
+          ? const Uuid().v5(Namespace.url.value, sourceRefId)
+          : existing.single['id']!.toString();
+      final semanticValues = AgentStationAdapter.fieldValuesFromLocalRow(
+        schema,
+        legacyParent,
+      );
+      final domainRow = Map<String, Object?>.from(legacyParent);
+      for (final definition in PanelSampleSchema.byTable(
+        'chick_quality',
+      ).measurementColumns) {
+        domainRow.remove(definition.split(RegExp(r'\s+')).first);
+      }
+      domainRow
+        ..['id'] = domainId
+        ..['domain'] = schema.schemaKey
+        ..['schemaVersion'] = schema.version
+        ..['replicate'] = null
+        ..['sampleKey'] = null
+        ..['sourceRefId'] = sourceRefId
+        ..remove('qualityStatus')
+        ..remove('qualityFlags')
+        ..addAll(
+          AgentStationAdapter.localPersistenceValuesUnchecked(
+            schema,
+            semanticValues,
+          ),
+        );
+      final preparedDomain = await _prepareAndClassifyChickRow(
+        executor,
+        'chick_quality',
+        domainRow,
+      );
+      await _upsertById(executor, 'chick_quality', preparedDomain);
+      final cache = await _replaceExactDomainObservations(
+        executor,
+        'chick_quality',
+        preparedDomain,
+        schema,
+      );
+      await _rehomeRegistryPhotos(
+        executor,
+        legacyId: legacyId,
+        domainId: domainId,
+        schema: schema,
+      );
+      _clearSchemaCache(compatibility, schema);
+      compatibility.addAll(cache);
+    }
+    compatibility = ChickQualityClassifier.stampRow(
+      'chick_quality',
+      compatibility,
+    );
+    await _upsertById(executor, 'chick_quality', compatibility);
+  }
+
+  Future<void> _rehomeRegistryPhotos(
+    DatabaseExecutor executor, {
+    required String legacyId,
+    required String domainId,
+    required AgentStationSchema schema,
+  }) async {
+    if (schema.photoEvidence.isEmpty) return;
+    for (final entry in schema.photoEvidence.entries) {
+      String? observationId;
+      final fieldKey = entry.value;
+      if (fieldKey is String) {
+        final field = schema.fields.firstWhere(
+          (candidate) => candidate.fieldKey == fieldKey,
+        );
+        final descriptor = field.observation!;
+        if (descriptor['key'] is String) {
+          final candidate = ChickObservationCodec.stableId(
+            domainId,
+            schema.schemaKey,
+            descriptor['kind']! as String,
+            descriptor['key']! as String,
+            null,
+          );
+          final exists = await executor.query(
+            ChickQualityObservationRepository.tableName,
+            columns: ['id'],
+            where: 'id = ?',
+            whereArgs: [candidate],
+            limit: 1,
+          );
+          if (exists.length == 1) observationId = candidate;
+        }
+      }
+      await executor.rawUpdate(
+        "UPDATE photos SET panelRowId = ?, observationId = ?, "
+        "uploadStatus = CASE WHEN uploadStatus = 'synced' "
+        "THEN 'metadata_pending' ELSE uploadStatus END "
+        'WHERE panelName = ? AND panelRowId = ? AND fieldKey = ?',
+        [domainId, observationId, 'chick_quality', legacyId, entry.key],
+      );
+    }
+  }
+
+  Future<Map<String, Object?>> _replaceExactDomainObservations(
+    DatabaseExecutor executor,
+    String table,
+    Map<String, Object?> parent,
+    AgentStationSchema schema,
+  ) async {
+    final sampleId = _text(parent['id'])!;
+    final customerId = _text(parent['customerId'])!;
+    final sessionId = _text(parent['sessionId'])!;
+    final semanticValues = AgentStationAdapter.fieldValuesFromLocalRow(
+      schema,
+      parent,
+    );
+    final observedAt = DateTime.tryParse(
+      parent['observedAt']?.toString() ?? parent['createdAt']?.toString() ?? '',
+    );
+    if (observedAt == null) {
+      throw StateError('$table $sampleId has no valid observation time');
+    }
+    final lossless = ChickObservationCodec.canRoundTrip(schema, semanticValues);
+    if (!lossless) {
+      final existing =
+          await ChickQualityObservationRepository.getForSampleWithExecutor(
+            executor,
+            sampleId,
+            schema.schemaKey,
+          );
+      if (existing.isNotEmpty) {
+        throw StateError(
+          '$table $sampleId update cannot replace normalized observations losslessly',
+        );
+      }
+    }
+    if (lossless) {
+      final observations = ChickObservationCodec.extract(
+        schema: schema,
+        sampleId: sampleId,
+        customerId: customerId,
+        sessionId: sessionId,
+        values: semanticValues,
+        observedAt: observedAt,
+        source: _text(parent['source']),
+      );
+      await ChickQualityObservationRepository.replaceForSampleWithExecutor(
+        executor,
+        sampleId,
+        schema.schemaKey,
+        observations,
+      );
+    }
+    final persisted =
+        await ChickQualityObservationRepository.getForSampleWithExecutor(
+          executor,
+          sampleId,
+          schema.schemaKey,
+        );
+    final reconstructed = persisted.isEmpty
+        ? semanticValues
+        : ChickObservationCodec.overlayReconstructed(
+            schema,
+            semanticValues,
+            ChickObservationCodec.reconstruct(schema, persisted),
+          );
+    final cache = AgentStationAdapter.localPersistenceValuesUnchecked(
+      schema,
+      reconstructed,
+    );
+    final updatedParent = Map<String, Object?>.from(parent);
+    _clearSchemaCache(updatedParent, schema);
+    updatedParent.addAll(cache);
+    final classified = ChickQualityClassifier.stampRow(table, updatedParent);
+    await _upsertById(executor, table, classified);
+    return cache;
+  }
+
+  bool _hasTouchedObservationField(
+    AgentStationSchema schema,
+    Map<String, Object?> row,
+  ) => schema.fields.any((field) {
+    if (field.observation == null) return false;
+    final column = field.persistence['localColumn']?.toString();
+    return column != null && row.containsKey(column) && row[column] != null;
+  });
+
+  void _clearSchemaCache(Map<String, Object?> row, AgentStationSchema schema) {
+    for (final field in schema.fields) {
+      row[field.persistence['localColumn']! as String] = null;
+    }
+    for (final calculation in schema.calculations) {
+      row[calculation.persistence['localColumn']! as String] = null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _observationFirstRows(
+    DatabaseExecutor executor,
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (!const {'chick_quality', 'chick_weights'}.contains(table)) return rows;
+    if (table == 'chick_weights') {
+      final result = <Map<String, dynamic>>[];
+      for (final row in rows) {
+        result.add(await _overlayExactObservationRow(executor, table, row));
+      }
+      return result;
+    }
+    final helpers = <String, List<Map<String, dynamic>>>{};
+    final visible = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final sourceRef = _text(row['sourceRefId']);
+      if (sourceRef != null && sourceRef.startsWith('legacy-domain:')) {
+        final legacyId = sourceRef
+            .substring('legacy-domain:'.length)
+            .split(':chicks.')
+            .first;
+        (helpers[legacyId] ??= []).add(row);
+      } else {
+        visible.add(row);
+      }
+    }
+    final result = <Map<String, dynamic>>[];
+    for (final original in visible) {
+      var row = await _overlayExactObservationRow(executor, table, original);
+      if (_text(row['domain']) == 'chicks.legacy_combined') {
+        for (final helper in helpers[_text(row['id'])] ?? const []) {
+          final domain = _text(helper['domain']);
+          final version = helper['schemaVersion'];
+          if (domain == null || version is! int) continue;
+          final schema = AgentStationRegistry.require(domain, version);
+          final overlaid = await _overlayExactObservationRow(
+            executor,
+            table,
+            helper,
+          );
+          final copy = Map<String, dynamic>.from(row);
+          _clearSchemaCache(copy, schema);
+          for (final field in schema.fields) {
+            final column = field.persistence['localColumn']! as String;
+            copy[column] = overlaid[column];
+          }
+          for (final calculation in schema.calculations) {
+            final column = calculation.persistence['localColumn']! as String;
+            copy[column] = overlaid[column];
+          }
+          row = copy;
+        }
+      }
+      result.add(row);
+    }
+    return result;
+  }
+
+  Future<Map<String, dynamic>> _overlayExactObservationRow(
+    DatabaseExecutor executor,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    final domain = _text(row['domain']);
+    final version = row['schemaVersion'];
+    final sampleId = _text(row['id']);
+    if (domain == null ||
+        domain == 'chicks.legacy_combined' ||
+        version is! int ||
+        sampleId == null) {
+      return row;
+    }
+    if ((await _tableColumns(
+      executor,
+      ChickQualityObservationRepository.tableName,
+    )).isEmpty) {
+      return row;
+    }
+    final observations =
+        await ChickQualityObservationRepository.getForSampleWithExecutor(
+          executor,
+          sampleId,
+          domain,
+        );
+    if (observations.isEmpty) return row;
+    final schema = AgentStationRegistry.require(domain, version);
+    final values = ChickObservationCodec.overlayReconstructed(
+      schema,
+      AgentStationAdapter.fieldValuesFromLocalRow(schema, row),
+      ChickObservationCodec.reconstruct(schema, observations),
+    );
+    final cache = AgentStationAdapter.localPersistenceValuesUnchecked(
+      schema,
+      values,
+    );
+    final result = Map<String, dynamic>.from(row);
+    _clearSchemaCache(result, schema);
+    result.addAll(cache);
+    return result;
   }
 
   Future<Map<String, Object?>> _prepareChickIdentity(
@@ -1044,17 +1422,64 @@ class PanelSampleRepository {
       );
       return;
     }
+    final parentIds = <String>{...ids};
+    if (tableName == 'chick_quality') {
+      final helperRows = await executor.query(
+        tableName,
+        columns: ['id', 'sourceRefId'],
+        where: 'sourceRefId IS NOT NULL',
+      );
+      for (final helper in helperRows) {
+        final sourceRef = _text(helper['sourceRefId']);
+        if (sourceRef == null || !sourceRef.startsWith('legacy-domain:')) {
+          continue;
+        }
+        if (ids.any((id) => sourceRef.startsWith('legacy-domain:$id:'))) {
+          final helperId = _text(helper['id']);
+          if (helperId != null) parentIds.add(helperId);
+        }
+      }
+    }
+    if (const {'chick_quality', 'chick_weights'}.contains(tableName)) {
+      final placeholders = List.filled(parentIds.length, '?').join(', ');
+      final observationRows = await executor.query(
+        ChickQualityObservationRepository.tableName,
+        columns: ['id'],
+        where: tableName == 'chick_weights'
+            ? "sampleId IN ($placeholders) AND domain = 'chicks.weights'"
+            : "sampleId IN ($placeholders) AND domain <> 'chicks.weights'",
+        whereArgs: parentIds.toList(growable: false),
+      );
+      final observationIds = observationRows.map((row) => row['id']);
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        executor,
+        ChickQualityObservationRepository.tableName,
+        observationIds,
+      );
+      await executor.delete(
+        ChickQualityObservationRepository.tableName,
+        where: tableName == 'chick_weights'
+            ? "sampleId IN ($placeholders) AND domain = 'chicks.weights'"
+            : "sampleId IN ($placeholders) AND domain <> 'chicks.weights'",
+        whereArgs: parentIds.toList(growable: false),
+      );
+    }
     await SyncTombstoneRepository.queueDeletesWithExecutor(
       executor,
       tableName,
-      ids,
+      parentIds,
     );
-    final placeholders = List.filled(ids.length, '?').join(', ');
+    final placeholders = List.filled(parentIds.length, '?').join(', ');
     await executor.delete(
       tableName,
       where: 'id IN ($placeholders)',
-      whereArgs: ids,
+      whereArgs: parentIds.toList(growable: false),
     );
+  }
+
+  bool _isLegacyDomainHelper(Map<String, Object?> row) {
+    final sourceRef = _text(row['sourceRefId']);
+    return sourceRef != null && sourceRef.startsWith('legacy-domain:');
   }
 
   Future<Map<String, Object?>> _withoutOrphanedPanelHatcheryId(

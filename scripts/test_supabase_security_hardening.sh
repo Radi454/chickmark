@@ -1016,3 +1016,244 @@ rollback;
 SQL
 
 echo "Chick V2 registry quality classification regression checks passed."
+
+"${psql[@]}" <<'SQL'
+begin;
+
+insert into public.customers (id, name) values ('obs-customer', 'Observation owner');
+insert into public.hatcheries (id, customer_id, name)
+values ('obs-hatchery', 'obs-customer', 'Observation hatchery');
+insert into public.flocks (id, customer_id, flock_id)
+values ('obs-flock', 'obs-customer', 'Observation flock');
+insert into public.audit_sessions (id, customer_id, flock_id, hatchery_id, date)
+values ('obs-session', 'obs-customer', 'obs-flock', 'obs-hatchery', '2026-08-24');
+insert into public.chick_weights (
+  id, session_id, customer_id, date, created_at, updated_at, domain,
+  schema_version, scope_type, scope_key, source, capture_method, observed_at
+) values (
+  'obs-parent', 'obs-session', 'obs-customer', '2026-08-24',
+  '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z', 'chicks.weights', 1,
+  'pool', '{}', 'human', 'manual', '2026-08-24T00:00:00Z'
+);
+insert into public.chick_quality (
+  id, session_id, customer_id, date, created_at, updated_at, domain,
+  schema_version, scope_type, scope_key, source, capture_method, observed_at
+) values (
+  'obs-parent', 'obs-session', 'obs-customer', '2026-08-24',
+  '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z', 'chicks.pasgar', 1,
+  'pool', '{}', 'human', 'manual', '2026-08-24T00:00:00Z'
+);
+insert into public.chick_quality_observation (
+  id, sample_id, customer_id, session_id, domain, kind, observation_key,
+  ordinal, numeric_value, unit, observed_at, created_at, updated_at, sync_status
+) values (
+  'obs-child', 'obs-parent', 'obs-customer', 'obs-session', 'chicks.weights',
+  'series', 'weightsJson', 0, 41, 'grams', '2026-08-24T00:00:00Z',
+  '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z', 'synced'
+);
+insert into public.chick_quality_observation (
+  id, sample_id, customer_id, session_id, domain, kind, observation_key,
+  numeric_value, unit, observed_at, created_at, updated_at, sync_status
+) values (
+  'obs-quality-child', 'obs-parent', 'obs-customer', 'obs-session',
+  'chicks.pasgar', 'tally', 'pasgarSampleSize', 10, 'chicks',
+  '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z',
+  '2026-08-24T00:00:00Z', 'synced'
+);
+
+do $observation_security$
+begin
+  if not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'enforce_chick_observation_owner'
+      and p.prosecdef
+      and coalesce(array_to_string(p.proconfig, ','), '') = 'search_path=""'
+  ) then
+    raise exception 'observation ownership trigger is not safely privileged';
+  end if;
+  begin
+    insert into public.chick_quality_observation (
+      id, sample_id, customer_id, session_id, domain, kind, observation_key,
+      numeric_value, unit, observed_at, created_at, updated_at
+    ) values (
+      'obs-spoof', 'obs-parent', 'other-customer', 'obs-session',
+      'chicks.weights', 'series', 'spoof', 1, 'grams',
+      '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z',
+      '2026-08-24T00:00:00Z'
+    );
+    raise exception 'cross-tenant observation owner was accepted';
+  exception when others then
+    if sqlerrm <> 'Chick observation owner metadata mismatch' then raise; end if;
+  end;
+
+  begin
+    update public.chick_quality_observation
+    set observation_key = 'moved' where id = 'obs-child';
+    raise exception 'observation identity update was accepted';
+  exception when others then
+    if sqlerrm <> 'Chick observation identity is immutable' then raise; end if;
+  end;
+
+  begin
+    insert into public.photos (
+      id, file_path, created_at, session_id, panel_name, panel_row_id, field_key,
+      upload_status, observation_id
+    ) values (
+      'obs-wrong-domain-photo', 'supabase://photos/wrong.jpg',
+      '2026-08-24T00:00:00Z', 'obs-session', 'chick_quality', 'obs-parent',
+      'evidence', 'synced', 'obs-child'
+    );
+    raise exception 'quality photo accepted a weight observation';
+  exception when others then
+    if sqlerrm <> 'Photo observation owner mismatch' then raise; end if;
+  end;
+
+  if (select count(*) from pg_policies where schemaname = 'public'
+      and tablename = 'chick_quality_observation') <> 2 then
+    raise exception 'observation table has unexpected additional policies';
+  end if;
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public'
+      and tablename = 'chick_quality_observation'
+      and policyname = 'chick_quality_observation_select'
+      and cmd = 'SELECT'
+      and roles @> array['authenticated'::name]
+      and coalesce(qual, '') like '%chickmark_private.app_can_read_customer%'
+  ) then
+    raise exception 'observation tenant select policy is missing or unscoped';
+  end if;
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public'
+      and tablename = 'chick_quality_observation'
+      and policyname = 'chick_quality_observation_write'
+      and cmd = 'ALL'
+      and roles @> array['authenticated'::name]
+      and coalesce(qual, '') like '%chickmark_private.app_can_write_customer%'
+      and coalesce(with_check, '') like '%chickmark_private.app_can_write_customer%'
+  ) then
+    raise exception 'observation tenant write policy is missing or unscoped';
+  end if;
+end
+$observation_security$;
+
+insert into public.customers (id, name)
+values ('obs-other-customer', 'Other observation tenant');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000901', 'obs-auditor@example.test'),
+  ('00000000-0000-0000-0000-000000000902', 'obs-denied@example.test');
+update public.profiles set
+  email = 'obs-auditor@example.test', role = 'auditor', status = 'approved',
+  customer_id = null
+where id = '00000000-0000-0000-0000-000000000901';
+update public.profiles set
+  email = 'obs-denied@example.test', role = 'customer', status = 'approved',
+  customer_id = 'obs-other-customer'
+where id = '00000000-0000-0000-0000-000000000902';
+insert into public.auditor_customers (auditor_id, customer_id) values
+  ('00000000-0000-0000-0000-000000000901', 'obs-customer');
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000901',
+  true
+);
+do $observation_rls_allowed$
+begin
+  if (select count(*) from public.chick_quality_observation) <> 2 then
+    raise exception 'allowed observation tenant cannot read its rows';
+  end if;
+  insert into public.chick_quality_observation (
+    id, sample_id, customer_id, session_id, domain, kind, observation_key,
+    ordinal, numeric_value, unit, observed_at, created_at, updated_at
+  ) values (
+    'obs-rls-allowed', 'obs-parent', 'obs-customer', 'obs-session',
+    'chicks.weights', 'series', 'weightsJson', 1, 42, 'grams',
+    '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z',
+    '2026-08-24T00:00:00Z'
+  );
+  update public.chick_quality_observation
+    set numeric_value = 43 where id = 'obs-rls-allowed';
+  if (select numeric_value from public.chick_quality_observation
+      where id = 'obs-rls-allowed') <> 43 then
+    raise exception 'allowed observation tenant cannot write its row';
+  end if;
+end
+$observation_rls_allowed$;
+
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000902',
+  true
+);
+do $observation_rls_denied$
+begin
+  if exists (select 1 from public.chick_quality_observation) then
+    raise exception 'denied observation tenant can read another tenant';
+  end if;
+  begin
+    insert into public.chick_quality_observation (
+      id, sample_id, customer_id, session_id, domain, kind, observation_key,
+      ordinal, numeric_value, unit, observed_at, created_at, updated_at
+    ) values (
+      'obs-rls-denied', 'obs-parent', 'obs-customer', 'obs-session',
+      'chicks.weights', 'series', 'weightsJson', 2, 44, 'grams',
+      '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z',
+      '2026-08-24T00:00:00Z'
+    );
+    raise exception 'denied observation tenant wrote another tenant row';
+  exception when insufficient_privilege then
+    null;
+  end;
+end
+$observation_rls_denied$;
+reset role;
+
+insert into public.photos (
+  id, file_path, created_at, session_id, panel_name, panel_row_id, field_key,
+  upload_status, observation_id
+) values (
+  'obs-photo', 'supabase://photos/obs.jpg', '2026-08-24T00:00:00Z',
+  'obs-session', 'chick_quality', 'obs-parent', 'evidence', 'synced',
+  'obs-quality-child'
+);
+
+delete from public.chick_weights where id = 'obs-parent';
+do $observation_delete$
+begin
+  if exists (select 1 from public.chick_quality_observation where id = 'obs-child') then
+    raise exception 'parent delete left an observation child';
+  end if;
+  if not exists (
+    select 1 from public.chick_quality_observation where id = 'obs-quality-child'
+  ) then
+    raise exception 'weight delete removed same-id quality observation';
+  end if;
+  if (select observation_id from public.photos where id = 'obs-photo')
+      <> 'obs-quality-child' then
+    raise exception 'weight delete unlinked same-id quality photo';
+  end if;
+end
+$observation_delete$;
+
+delete from public.chick_quality where id = 'obs-parent';
+do $quality_observation_delete$
+begin
+  if exists (
+    select 1 from public.chick_quality_observation where id = 'obs-quality-child'
+  ) then
+    raise exception 'quality parent delete left an observation child';
+  end if;
+  if (select observation_id from public.photos where id = 'obs-photo') is not null then
+    raise exception 'observation delete left a dangling photo reference';
+  end if;
+end
+$quality_observation_delete$;
+
+rollback;
+SQL
+
+echo "Chick V2 raw observation security and deletion checks passed."

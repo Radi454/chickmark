@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/photo_model.dart';
@@ -70,7 +71,13 @@ StationReconstruction overlayPanelPhotos(
     final rowId = reconstruction.stationSamples[i].id;
     final map = audit.toMap();
     for (final fieldKey in _pasgarPhotoFieldKeys) {
-      final path = newestPathByRowAndField['$rowId\u0000$fieldKey'];
+      final helperId = const Uuid().v5(
+        Namespace.url.value,
+        'legacy-domain:$rowId:chicks.pasgar',
+      );
+      final path =
+          newestPathByRowAndField['$rowId\u0000$fieldKey'] ??
+          newestPathByRowAndField['$helperId\u0000$fieldKey'];
       if (path != null) map[fieldKey] = path;
     }
     audits.add(AuditModel.fromMap(map));

@@ -4,11 +4,14 @@ import type { AgentScope, AgentToolResult } from './agent_protocol.ts'
 import {
   type AgentCustomerReadRow,
   type AgentFlockReadRow,
+  type AgentReadClient,
   type AgentReadStore,
   createAgentReadToolHandlers,
+  createSupabaseAgentReadStore,
   type StationRecordQuery,
 } from './agent_read_tools.ts'
 import { executeAgentTool } from './agent_tools.ts'
+import { stableChickObservationId } from './chick_observation_codec.ts'
 
 const now = new Date('2026-07-28T12:00:00.000Z')
 const scope = {
@@ -490,6 +493,186 @@ Deno.test('station query uses registry allowlist and truncates deterministically
   assert(!JSON.stringify(result).includes('customer-b'))
 })
 
+Deno.test('Chick station reads hide helpers and prefer their observations', async () => {
+  const store = fixtureStore()
+  store.queryStationRecords = () =>
+    Promise.resolve([
+      {
+        id: 'legacy-1',
+        customer_id: 'customer-a',
+        flock_id: 'flock-a',
+        hatchery_id: 'hatchery-a',
+        date: '2026-07-28',
+        domain: 'chicks.legacy_combined',
+        pasgar_sample_size: 99,
+        pasgar_final_score: 1,
+      },
+      {
+        id: 'helper-1',
+        customer_id: 'customer-a',
+        flock_id: 'flock-a',
+        hatchery_id: 'hatchery-a',
+        date: '2026-07-28',
+        domain: 'chicks.pasgar',
+        source_ref_id: 'legacy-domain:legacy-1:chicks.pasgar',
+      },
+      {
+        id: 'other-domain',
+        customer_id: 'customer-a',
+        flock_id: 'flock-a',
+        hatchery_id: 'hatchery-a',
+        date: '2026-07-28',
+        domain: 'chicks.cvt',
+      },
+    ])
+  const scalar = (key: string, value: number) => ({
+    id: stableChickObservationId(
+      'helper-1',
+      'chicks.pasgar',
+      'tally',
+      key,
+      null,
+    ),
+    sample_id: 'helper-1',
+    customer_id: 'customer-a',
+    session_id: 'session-a',
+    domain: 'chicks.pasgar',
+    kind: 'tally',
+    observation_key: key,
+    ordinal: null,
+    numeric_value: value,
+    text_value: null,
+    unit: 'chicks',
+    observed_at: '2026-07-28T00:00:00Z',
+    created_at: '2026-07-28T00:00:00Z',
+    updated_at: '2026-07-28T00:00:00Z',
+  })
+  store.queryChickObservations = () =>
+    Promise.resolve([
+      scalar('pasgarSampleSize', 10),
+      scalar('pasgarReflexesCount', 0),
+      scalar('pasgarBeakCount', 0),
+      scalar('pasgarNavelCount', 0),
+      scalar('pasgarBellyCount', 0),
+      scalar('pasgarLegCount', 0),
+      scalar('pasgarFeatherDevCount', 0),
+    ])
+
+  const result = await call(store, 'query_station_records', {
+    customerId: 'customer-a',
+    flockId: 'flock-a',
+    schemaKey: 'chicks.pasgar',
+    schemaVersion: 1,
+    fromDate: '2026-01-01',
+    toDate: '2026-07-28',
+    limit: 10,
+  })
+
+  assert(result.ok)
+  const records = result.data!.records as Record<string, unknown>[]
+  assertEquals(records.length, 1)
+  assertEquals(records[0].id, 'legacy-1')
+  assertEquals(records[0].pasgarSampleSize, 10)
+  assertEquals(records[0].pasgarFinalScore, 10)
+})
+
+Deno.test('Chick pagination looks past a full page of paired helper rows', async () => {
+  const store = fixtureStore()
+  const rawRows = Array.from({ length: 100 }, (_, index) => {
+    const id = `legacy-${index.toString().padStart(3, '0')}`
+    return [
+      {
+        id,
+        customer_id: 'customer-a',
+        flock_id: 'flock-a',
+        hatchery_id: 'hatchery-a',
+        date: '2026-07-28',
+        domain: 'chicks.legacy_combined',
+        pasgar_final_score: 9,
+      },
+      {
+        id: `helper-${index.toString().padStart(3, '0')}`,
+        customer_id: 'customer-a',
+        flock_id: 'flock-a',
+        hatchery_id: 'hatchery-a',
+        date: '2026-07-28',
+        domain: 'chicks.pasgar',
+        source_ref_id: `legacy-domain:${id}:chicks.pasgar`,
+      },
+    ]
+  }).flat()
+  rawRows.push({
+    id: 'standalone-after-page',
+    customer_id: 'customer-a',
+    flock_id: 'flock-a',
+    hatchery_id: 'hatchery-a',
+    date: '2026-07-27',
+    domain: 'chicks.pasgar',
+    pasgar_final_score: 8,
+  })
+  store.queryStationRecords = (query) =>
+    Promise.resolve(
+      rawRows.slice(
+        query.offset ?? 0,
+        (query.offset ?? 0) + (query.limit ?? 100),
+      ),
+    )
+
+  const result = await call(store, 'query_station_records', {
+    customerId: 'customer-a',
+    flockId: 'flock-a',
+    schemaKey: 'chicks.pasgar',
+    schemaVersion: 1,
+    fromDate: '2026-01-01',
+    toDate: '2026-07-28',
+    limit: 100,
+  })
+
+  assert(result.ok)
+  assertEquals((result.data!.records as unknown[]).length, 100)
+  assertEquals(result.data!.truncated, true)
+})
+
+Deno.test('Supabase observation reads page past 1000 rows', async () => {
+  const remote = Array.from({ length: 1001 }, (_, ordinal) => ({
+    id: `obs-${ordinal}`,
+    sample_id: 'sample-large',
+  }))
+  const ranges: Array<[number, number]> = []
+  const client = {
+    from: () => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: () => query,
+        or: () => query,
+        gte: () => query,
+        lte: () => query,
+        order: () => query,
+        limit: () => Promise.resolve({ data: [], error: null }),
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        range: (from: number, to: number) => {
+          ranges.push([from, to])
+          return Promise.resolve({
+            data: remote.slice(from, to + 1),
+            error: null,
+          })
+        },
+      }
+      return query
+    },
+  } as unknown as AgentReadClient
+  const store = createSupabaseAgentReadStore(client)
+
+  const observations = await store.queryChickObservations!(
+    ['sample-large'],
+    'customer-a',
+  )
+
+  assertEquals(observations.length, 1001)
+  assertEquals(ranges, [[0, 999], [1000, 1999]])
+})
+
 Deno.test('metric comparison uses sample weighting from allowlisted records', async () => {
   const result = await call(fixtureStore(), 'compare_station_metrics', {
     customerId: 'customer-a',
@@ -592,18 +775,19 @@ function naturalStore(
     { id: 'cust-delta', name: 'Delta Poultry' },
     { id: 'cust-hidden', name: 'Hidden Farm' },
   ]
-  const flocks: Record<string, readonly AgentFlockReadRow[]> = overrides.flocks ?? {
-    'cust-badr': [
-      flockRow('flock-badr', 'cust-badr', 'بدر - 25 Oct 2025 - Avian'),
-      flockRow('flock-salam', 'cust-badr', 'السلام - 1 Jan 2026 - Ross'),
-    ],
-    'cust-delta': [
-      flockRow('flock-delta', 'cust-delta', 'بدر - 4 Mar 2026 - Cobb'),
-    ],
-    'cust-hidden': [
-      flockRow('flock-hidden', 'cust-hidden', 'بدر - 9 Sep 2025 - Ross'),
-    ],
-  }
+  const flocks: Record<string, readonly AgentFlockReadRow[]> =
+    overrides.flocks ?? {
+      'cust-badr': [
+        flockRow('flock-badr', 'cust-badr', 'بدر - 25 Oct 2025 - Avian'),
+        flockRow('flock-salam', 'cust-badr', 'السلام - 1 Jan 2026 - Ross'),
+      ],
+      'cust-delta': [
+        flockRow('flock-delta', 'cust-delta', 'بدر - 4 Mar 2026 - Cobb'),
+      ],
+      'cust-hidden': [
+        flockRow('flock-hidden', 'cust-hidden', 'بدر - 9 Sep 2025 - Ross'),
+      ],
+    }
   return {
     listCustomers: (customerIds) =>
       Promise.resolve(
@@ -637,7 +821,10 @@ Deno.test('THE INCIDENT: the short flock name the user says resolves the decorat
   // Both tiers are reported. The customer was reached by a CONTAINED word
   // (`بدر` inside `مزرعة بدر`) and the flock by its leading word, and the
   // model needs to see the weaker of the two to know whether to confirm.
-  assertEquals(result.data!.matchedBy, { customer: 'contains', flock: 'prefix' })
+  assertEquals(result.data!.matchedBy, {
+    customer: 'contains',
+    flock: 'prefix',
+  })
   assertEquals(
     (result.data!.flock as Record<string, unknown>).id,
     'flock-badr',
@@ -676,8 +863,12 @@ Deno.test('TENANT GUARD: a fuzzy customer match spanning two customers is refuse
   // common flock name would silently select a different operator's records.
   const store = naturalStore({
     flocks: {
-      'cust-badr': [flockRow('flock-badr', 'cust-badr', 'بدر - 25 Oct 2025 - Avian')],
-      'cust-delta': [flockRow('flock-delta', 'cust-delta', 'بدر - 4 Mar 2026 - Cobb')],
+      'cust-badr': [
+        flockRow('flock-badr', 'cust-badr', 'بدر - 25 Oct 2025 - Avian'),
+      ],
+      'cust-delta': [
+        flockRow('flock-delta', 'cust-delta', 'بدر - 4 Mar 2026 - Cobb'),
+      ],
     },
   })
   const ambiguousCustomers: AgentScope = {
@@ -702,7 +893,10 @@ Deno.test('TENANT GUARD: a fuzzy customer match spanning two customers is refuse
   )
   assert(twoMatching.ok)
   assertEquals(twoMatching.data!.status, 'ambiguous_customer')
-  assertEquals(twoMatching.data!.matchedBy, { customer: 'prefix', flock: null })
+  assertEquals(twoMatching.data!.matchedBy, {
+    customer: 'prefix',
+    flock: null,
+  })
   // Refused — and every candidate carries the ID the model needs next.
   // Sorted by display name, so the southern farm leads.
   assertEquals(twoMatching.data!.candidates, [
@@ -800,7 +994,9 @@ Deno.test('a customer roster past the candidate cap is omitted, not silently tru
   const store: AgentReadStore = {
     ...naturalStore(),
     listCustomers: (customerIds) =>
-      Promise.resolve(many.filter((customer) => customerIds.includes(customer.id))),
+      Promise.resolve(
+        many.filter((customer) => customerIds.includes(customer.id)),
+      ),
   }
   const result = await call(store, 'resolve_customer_flock', {
     customerName: 'Nothing Like This',
@@ -841,7 +1037,13 @@ Deno.test('TENANT GUARD: two customers that only LOOK identical after folding ar
     listFlocks: (customerId) =>
       Promise.resolve(
         customerId === 'cust-hani-plain'
-          ? [flockRow('flock-only', 'cust-hani-plain', 'بدر - 25 Oct 2025 - Avian')]
+          ? [
+            flockRow(
+              'flock-only',
+              'cust-hani-plain',
+              'بدر - 25 Oct 2025 - Avian',
+            ),
+          ]
           : [],
       ),
     listHatcheries: () => Promise.resolve([]),

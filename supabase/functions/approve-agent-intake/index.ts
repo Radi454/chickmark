@@ -194,7 +194,7 @@ export function serveApproveAgentIntake(
       return data as ApprovalAuditSessionRow | null
     },
     async commit(prepared, reviewerId, approvedAt) {
-      const { data, error } = await adminClient.rpc('approve_agent_intake', {
+      const { data, error } = await adminClient.rpc('approve_agent_intake_v2', {
         p_intake_id: prepared.intakeId,
         p_expected_summary_version: prepared.summaryVersion,
         p_target_session_id: prepared.targetSessionId,
@@ -204,6 +204,28 @@ export function serveApproveAgentIntake(
         p_panel_payload: { ...prepared.panelPayload, created_by: reviewerId },
         p_reviewer_id: reviewerId,
         p_approved_at: approvedAt,
+        p_observations: prepared.observations.map((item) => ({
+          id: item.id,
+          sample_id: item.sampleId,
+          customer_id: item.customerId,
+          session_id: item.sessionId,
+          domain: item.domain,
+          kind: item.kind,
+          observation_key: item.observationKey,
+          ordinal: item.ordinal,
+          numeric_value: item.numericValue,
+          text_value: item.textValue,
+          unit: item.unit,
+          quality_flags: item.qualityFlags,
+          source: item.source,
+          observed_at: item.observedAt,
+          created_at: item.createdAt,
+          updated_at: item.updatedAt,
+          sync_status: 'synced',
+          dirty_at: null,
+          last_synced_at: approvedAt,
+          sync_error: null,
+        })),
       })
       if (error) throw error
       return singleResult(data)

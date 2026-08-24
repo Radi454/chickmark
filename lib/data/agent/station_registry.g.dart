@@ -238,6 +238,14 @@ const generatedAgentStationRegistryJson = r'''
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "pasgarReflexesPhoto": "pasgarReflexesCount",
+        "pasgarBeakPhoto": "pasgarBeakCount",
+        "pasgarNavelPhoto": "pasgarNavelCount",
+        "pasgarBellyPhoto": "pasgarBellyCount",
+        "pasgarLegPhoto": "pasgarLegCount",
+        "pasgarFeatherDevPhoto": "pasgarFeatherDevCount"
+      },
       "fields": [
         {
           "fieldKey": "pasgarSampleSize",
@@ -264,6 +272,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 1,
             "max": 500
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarSampleSize"
           },
           "persistence": {
             "localColumn": "pasgarSampleSize",
@@ -295,6 +307,10 @@ const generatedAgentStationRegistryJson = r'''
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarReflexesCount"
+          },
           "persistence": {
             "localColumn": "pasgarReflexesCount",
             "remoteColumn": "pasgar_reflexes_count"
@@ -323,6 +339,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarBeakCount"
           },
           "persistence": {
             "localColumn": "pasgarBeakCount",
@@ -353,6 +373,10 @@ const generatedAgentStationRegistryJson = r'''
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarNavelCount"
+          },
           "persistence": {
             "localColumn": "pasgarNavelCount",
             "remoteColumn": "pasgar_navel_count"
@@ -380,6 +404,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarBellyCount"
           },
           "persistence": {
             "localColumn": "pasgarBellyCount",
@@ -411,6 +439,10 @@ const generatedAgentStationRegistryJson = r'''
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
           },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarLegCount"
+          },
           "persistence": {
             "localColumn": "pasgarLegCount",
             "remoteColumn": "pasgar_leg_count"
@@ -439,6 +471,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pasgarSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pasgarFeatherDevCount"
           },
           "persistence": {
             "localColumn": "pasgarFeatherDevCount",
@@ -1368,6 +1404,9 @@ const generatedAgentStationRegistryJson = r'''
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "yfbm_photo": null
+      },
       "fields": [
         {
           "fieldKey": "yfbmEntriesJson",
@@ -1408,6 +1447,19 @@ const generatedAgentStationRegistryJson = r'''
                   "min": 0,
                   "maxPropertyKey": "chickWeight"
                 }
+              }
+            }
+          },
+          "observation": {
+            "kind": "series",
+            "properties": {
+              "chickWeight": {
+                "key": "yfbm:chickWeight",
+                "valueType": "number"
+              },
+              "yolkWeight": {
+                "key": "yfbm:yolkWeight",
+                "valueType": "number"
               }
             }
           },
@@ -1506,6 +1558,9 @@ const generatedAgentStationRegistryJson = r'''
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "cvt": null
+      },
       "fields": [
         {
           "fieldKey": "cvtReadingsJson",
@@ -1531,6 +1586,10 @@ const generatedAgentStationRegistryJson = r'''
             "minItems": 1,
             "itemMin": 80,
             "itemMax": 110
+          },
+          "observation": {
+            "kind": "series",
+            "key": "cvtReadingsJson"
           },
           "persistence": {
             "localColumn": "cvtReadingsJson",
@@ -1627,6 +1686,9 @@ const generatedAgentStationRegistryJson = r'''
         "pool",
         "setter_hatcher"
       ],
+      "photoEvidence": {
+        "pm_photo": null
+      },
       "fields": [
         {
           "fieldKey": "pmSampleSize",
@@ -1651,6 +1713,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 1,
             "max": 500
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmSampleSize"
           },
           "persistence": {
             "localColumn": "pmSampleSize",
@@ -1680,6 +1746,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "minLength": 1
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmCollectionPoint"
+          },
           "persistence": {
             "localColumn": "pmCollectionPoint",
             "remoteColumn": "pm_collection_point"
@@ -1706,6 +1776,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmOmphalitisCount"
           },
           "persistence": {
             "localColumn": "pmOmphalitisCount",
@@ -1738,6 +1812,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmOmphalitisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmOmphalitisSeverity"
+          },
           "persistence": {
             "localColumn": "pmOmphalitisSeverity",
             "remoteColumn": "pm_omphalitis_severity"
@@ -1764,6 +1842,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGaseousCecaCount"
           },
           "persistence": {
             "localColumn": "pmGaseousCecaCount",
@@ -1796,6 +1878,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmGaseousCecaCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGaseousCecaSeverity"
+          },
           "persistence": {
             "localColumn": "pmGaseousCecaSeverity",
             "remoteColumn": "pm_gaseous_ceca_severity"
@@ -1822,6 +1908,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGizzardErosionsCount"
           },
           "persistence": {
             "localColumn": "pmGizzardErosionsCount",
@@ -1854,6 +1944,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmGizzardErosionsCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGizzardErosionsSeverity"
+          },
           "persistence": {
             "localColumn": "pmGizzardErosionsSeverity",
             "remoteColumn": "pm_gizzard_erosions_severity"
@@ -1880,6 +1974,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmAirSacCaseationsCount"
           },
           "persistence": {
             "localColumn": "pmAirSacCaseationsCount",
@@ -1912,6 +2010,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmAirSacCaseationsCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmAirSacCaseationsSeverity"
+          },
           "persistence": {
             "localColumn": "pmAirSacCaseationsSeverity",
             "remoteColumn": "pm_air_sac_caseations_severity"
@@ -1939,6 +2041,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmUrolithiasisCount"
           },
           "persistence": {
             "localColumn": "pmUrolithiasisCount",
@@ -1971,6 +2077,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmUrolithiasisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmUrolithiasisSeverity"
+          },
           "persistence": {
             "localColumn": "pmUrolithiasisSeverity",
             "remoteColumn": "pm_urolithiasis_severity"
@@ -1997,6 +2107,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmNephritisCount"
           },
           "persistence": {
             "localColumn": "pmNephritisCount",
@@ -2029,6 +2143,10 @@ const generatedAgentStationRegistryJson = r'''
             ],
             "requiredWhenPositiveFieldKey": "pmNephritisCount"
           },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmNephritisSeverity"
+          },
           "persistence": {
             "localColumn": "pmNephritisSeverity",
             "remoteColumn": "pm_nephritis_severity"
@@ -2056,6 +2174,10 @@ const generatedAgentStationRegistryJson = r'''
           "validation": {
             "min": 0,
             "maxFieldKey": "pmSampleSize"
+          },
+          "observation": {
+            "kind": "tally",
+            "key": "pmGeneralSepticemiaCount"
           },
           "persistence": {
             "localColumn": "pmGeneralSepticemiaCount",
@@ -2087,6 +2209,10 @@ const generatedAgentStationRegistryJson = r'''
               "Severe"
             ],
             "requiredWhenPositiveFieldKey": "pmGeneralSepticemiaCount"
+          },
+          "observation": {
+            "kind": "ordinal",
+            "key": "pmGeneralSepticemiaSeverity"
           },
           "persistence": {
             "localColumn": "pmGeneralSepticemiaSeverity",
@@ -2179,6 +2305,10 @@ const generatedAgentStationRegistryJson = r'''
             "min": 1,
             "max": 10000000
           },
+          "observation": {
+            "kind": "tally",
+            "key": "culledChicksTotalEggSet"
+          },
           "persistence": {
             "localColumn": "culledChicksTotalEggSet",
             "remoteColumn": "culled_chicks_total_egg_set"
@@ -2242,6 +2372,21 @@ const generatedAgentStationRegistryJson = r'''
                 }
               }
             }
+          },
+          "observation": {
+            "kind": "tally",
+            "keyProperty": "id",
+            "valueProperty": "count",
+            "keyPrefix": "culled:",
+            "presenceKey": "culled:__present",
+            "ignoredProperties": [
+              "category",
+              "subtype",
+              "description",
+              "commonCauses",
+              "sourceRefs",
+              "pct"
+            ]
           },
           "persistence": {
             "localColumn": "culledChicksAnalysisJson",
@@ -2365,6 +2510,10 @@ const generatedAgentStationRegistryJson = r'''
             "minItems": 1,
             "itemMin": 1,
             "itemMax": 200
+          },
+          "observation": {
+            "kind": "series",
+            "key": "weightsJson"
           },
           "persistence": {
             "localColumn": "weightsJson",

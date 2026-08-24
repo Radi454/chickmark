@@ -94,9 +94,9 @@ void main() {
     );
   });
 
-  test('database version is 65', () async {
+  test('database version is 66', () async {
     final db = await DatabaseHelper().db;
-    expect(await db.getVersion(), 65);
+    expect(await db.getVersion(), 66);
   });
 
   test(

@@ -32,6 +32,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
 
   /// Every batch handed to [upsertRowsStrict], keyed by table name.
   final Map<String, List<Map<String, dynamic>>> upserts = {};
+  final List<String> upsertOrder = [];
 
   /// Every remote delete request, keyed by table name.
   final Map<String, List<String>> deletes = {};
@@ -50,7 +51,21 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     if (_failUpsertsFor.contains(table)) {
       throw StateError('simulated upsert failure for $table');
     }
+    upsertOrder.add(table);
     upserts.putIfAbsent(table, () => []).addAll(rows);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> upsertRowsReturningStrict(
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (_failUpsertsFor.contains(table)) {
+      throw StateError('simulated upsert failure for $table');
+    }
+    upsertOrder.add(table);
+    upserts.putIfAbsent(table, () => []).addAll(rows);
+    return rows;
   }
 
   @override
@@ -84,6 +99,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     upsertLabAnalysisRow,
     Future<void> Function(String table, Map<String, dynamic> row)?
     upsertPanelRow,
+    Future<void> Function(Map<String, dynamic>)? upsertChickObservation,
     Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
@@ -102,6 +118,14 @@ class FakeSupabaseService extends Fake implements SupabaseService {
         }
       }
     }
+    var chickObservations = 0;
+    if (upsertChickObservation != null) {
+      for (final row in _remoteRows['chick_quality_observation'] ?? const []) {
+        pulledTables.add('chick_quality_observation');
+        await upsertChickObservation(row);
+        chickObservations++;
+      }
+    }
     var eggGradingCounts = 0;
     if (upsertEggGradingCount != null) {
       for (final row in _remoteRows['egg_quality_defect_counts'] ?? const []) {
@@ -112,6 +136,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     }
     return SupabasePullSummary(
       panelRows: panelRows,
+      chickObservations: chickObservations,
       eggGradingCounts: eggGradingCounts,
     );
   }

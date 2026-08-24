@@ -35,6 +35,9 @@ Deno.test('prepares only registry-mapped values for a generic station', () => {
   assertEquals(prepared.panelPayload.sample_key, undefined)
   assertEquals(prepared.panelPayload.quality_status, 'OK')
   assertEquals(prepared.panelPayload.quality_flags, '[]')
+  assertEquals(prepared.observations.length, 3)
+  assertEquals(prepared.observations[0].sampleId, 'panel-1')
+  assertEquals(prepared.observations[0].numericValue, 39.5)
 })
 
 Deno.test('agent approval persists advisory WARN measurements', () => {
@@ -54,6 +57,42 @@ Deno.test('agent approval persists advisory WARN measurements', () => {
     String(prepared.panelPayload.quality_flags).includes('item_out_of_range'),
     true,
   )
+})
+
+Deno.test('agent approval keeps malformed WARN evidence cache-only', () => {
+  const intake = weightIntake()
+  const values = {
+    culledChicksTotalEggSet: 100,
+    culledChicksAnalysisJson: [{ id: 'small_weak_small_chick' }],
+  }
+  const prepared = prepareAgentIntakeApproval({
+    intake: {
+      ...intake,
+      schema_key: 'chicks.culled_analysis',
+      scope: 'pool',
+      working_values_json: values,
+      summary_snapshot_json: {
+        version: 2,
+        schemaKey: 'chicks.culled_analysis',
+        schemaVersion: 1,
+        values,
+        calculations: {},
+        generatedAt: '2026-07-28T12:00:00.000Z',
+      },
+    },
+    expectedSummaryVersion: 2,
+    targetSession: null,
+    requestedTargetSessionId: null,
+    panelRowId: 'panel-malformed-warn',
+    approvedAt: '2026-07-28T13:00:00.000Z',
+  })
+
+  assertEquals(prepared.panelPayload.quality_status, 'WARN')
+  assertEquals(
+    prepared.panelPayload.culled_chicks_analysis_json,
+    '[{"id":"small_weak_small_chick"}]',
+  )
+  assertEquals(prepared.observations, [])
 })
 
 Deno.test('rejects stale, unconfirmed, and mismatched schema summaries', () => {

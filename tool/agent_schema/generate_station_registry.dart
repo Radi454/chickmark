@@ -192,6 +192,7 @@ void _validateRegistry(Map<String, Object?> registry) {
     final fieldKeys = <String>{};
     final localColumns = <String>{};
     final remoteColumns = <String>{};
+    final observationKeys = <String>{};
     for (final rawField in fields) {
       final field = _object(rawField, '$schemaKey field');
       final fieldKey = _text(field['fieldKey'], '$schemaKey fieldKey');
@@ -229,6 +230,17 @@ void _validateRegistry(Map<String, Object?> registry) {
           );
         }
       }
+      final observation = field['observation'];
+      if (observation != null) {
+        _validateObservation(
+          observation,
+          schemaKey: schemaKey,
+          fieldKey: fieldKey,
+          fieldType: type,
+          validation: validation,
+          observationKeys: observationKeys,
+        );
+      }
       _persistence(field['persistence'], '$schemaKey.$fieldKey persistence');
       _claimPersistenceColumns(
         field['persistence'],
@@ -236,6 +248,31 @@ void _validateRegistry(Map<String, Object?> registry) {
         localColumns,
         remoteColumns,
       );
+    }
+    if (_observationDomains.contains(schemaKey) &&
+        fields.any(
+          (rawField) =>
+              !_object(rawField, '$schemaKey field').containsKey('observation'),
+        )) {
+      throw FormatException(
+        '$schemaKey requires observation metadata for every raw field',
+      );
+    }
+    final photoEvidence = station['photoEvidence'];
+    if (photoEvidence != null) {
+      final mappings = _object(photoEvidence, '$schemaKey photoEvidence');
+      for (final entry in mappings.entries) {
+        if (entry.key.trim().isEmpty) {
+          throw FormatException('$schemaKey has an empty photo evidence key');
+        }
+        final target = entry.value;
+        if (target != null &&
+            (target is! String || !fieldKeys.contains(target))) {
+          throw FormatException(
+            '$schemaKey photo ${entry.key} references unknown field $target',
+          );
+        }
+      }
     }
 
     final completion = _object(station['completion'], '$schemaKey completion');
@@ -359,6 +396,122 @@ void _validateRegistry(Map<String, Object?> registry) {
   }
 }
 
+void _validateObservation(
+  Object? value, {
+  required String schemaKey,
+  required String fieldKey,
+  required String fieldType,
+  required Map<String, Object?> validation,
+  required Set<String> observationKeys,
+}) {
+  final path = '$schemaKey.$fieldKey observation';
+  final observation = _object(value, path);
+  final kind = _text(observation['kind'], '$path.kind');
+  if (!const {'series', 'tally', 'ordinal'}.contains(kind)) {
+    throw FormatException('$path.kind is unsupported');
+  }
+  if (fieldType == 'number_list') {
+    if (kind != 'series') {
+      throw FormatException('$path number_list must use series');
+    }
+    _claimObservationKey(observation['key'], '$path.key', observationKeys);
+    return;
+  }
+  if (fieldType == 'object_list') {
+    final itemSchema = _object(validation['itemSchema'], '$path.itemSchema');
+    final properties = _object(
+      itemSchema['properties'],
+      '$path.itemSchema.properties',
+    );
+    if (observation['properties'] != null) {
+      final descriptors = _object(
+        observation['properties'],
+        '$path.properties',
+      );
+      if (descriptors.isEmpty) {
+        throw FormatException('$path.properties must not be empty');
+      }
+      for (final entry in descriptors.entries) {
+        if (!properties.containsKey(entry.key)) {
+          throw FormatException('$path references unknown item ${entry.key}');
+        }
+        final descriptor = _object(entry.value, '$path.${entry.key}');
+        _claimObservationKey(
+          descriptor['key'],
+          '$path.${entry.key}.key',
+          observationKeys,
+        );
+        final valueType = _text(
+          descriptor['valueType'],
+          '$path.${entry.key}.valueType',
+        );
+        if (!const {'number', 'text'}.contains(valueType)) {
+          throw FormatException('$path.${entry.key}.valueType is unsupported');
+        }
+      }
+      return;
+    }
+    final keyProperty = _text(observation['keyProperty'], '$path.keyProperty');
+    final valueProperty = _text(
+      observation['valueProperty'],
+      '$path.valueProperty',
+    );
+    if (!properties.containsKey(keyProperty) ||
+        !properties.containsKey(valueProperty)) {
+      throw FormatException('$path references an unknown keyed item property');
+    }
+    final ignoredProperties = observation['ignoredProperties'];
+    if (ignoredProperties != null) {
+      final ignored = _list(
+        ignoredProperties,
+        '$path.ignoredProperties',
+      ).map((item) => _text(item, '$path.ignoredProperties item')).toList();
+      if (ignored.toSet().length != ignored.length ||
+          ignored.contains(keyProperty) ||
+          ignored.contains(valueProperty)) {
+        throw FormatException(
+          '$path.ignoredProperties must be unique cache-only properties',
+        );
+      }
+    }
+    _text(observation['keyPrefix'], '$path.keyPrefix');
+    if (observation['presenceKey'] != null) {
+      _claimObservationKey(
+        observation['presenceKey'],
+        '$path.presenceKey',
+        observationKeys,
+      );
+    }
+    return;
+  }
+  final key = _claimObservationKey(
+    observation['key'],
+    '$path.key',
+    observationKeys,
+  );
+  if (key != fieldKey) {
+    throw FormatException('$path scalar key must equal its fieldKey');
+  }
+  if (fieldType == 'string' && kind != 'ordinal') {
+    throw FormatException('$path string fields must use ordinal');
+  }
+  if ((fieldType == 'integer' || fieldType == 'number') && kind != 'tally') {
+    throw FormatException('$path numeric scalar fields must use tally');
+  }
+}
+
+String _claimObservationKey(
+  Object? value,
+  String path,
+  Set<String> observationKeys,
+) {
+  final key = _text(value, path);
+  if (!observationKeys.add(key)) {
+    throw FormatException('$path repeats observation key $key');
+  }
+  return key;
+}
+
 void _validateQualityRule(Object? value, String path) {
   final rule = _object(value, path);
   final tier = _text(rule['tier'], '$path.tier');
@@ -375,6 +528,15 @@ const _inputTypes = {
   'boolean',
   'number_list',
   'object_list',
+};
+
+const _observationDomains = {
+  'chicks.pasgar',
+  'chicks.yfbm',
+  'chicks.cvt',
+  'chicks.postmortem',
+  'chicks.culled_analysis',
+  'chicks.weights',
 };
 
 const _calculationKinds = {

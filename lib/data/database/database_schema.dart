@@ -79,6 +79,7 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     panelName TEXT NOT NULL,
     panelRowId TEXT NOT NULL,
     fieldKey TEXT NOT NULL,
+    observationId TEXT,
     uploadStatus TEXT NOT NULL DEFAULT 'local',
     FOREIGN KEY (sessionId) REFERENCES audit_sessions(id) ON DELETE CASCADE
   )''');
@@ -91,6 +92,168 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     details TEXT,
     timestamp TEXT NOT NULL
   )''');
+}
+
+Future<void> _createChickQualityObservationTable(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS chick_quality_observation (
+    id TEXT PRIMARY KEY,
+    sampleId TEXT NOT NULL,
+    customerId TEXT NOT NULL,
+    sessionId TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('series', 'tally', 'ordinal')),
+    observationKey TEXT NOT NULL CHECK(length(trim(observationKey)) > 0),
+    ordinal INTEGER CHECK(ordinal IS NULL OR ordinal >= 0),
+    numericValue REAL,
+    textValue TEXT,
+    unit TEXT NOT NULL,
+    qualityFlags TEXT NOT NULL DEFAULT '[]',
+    source TEXT,
+    observedAt TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    CHECK((numericValue IS NOT NULL) <> (textValue IS NOT NULL))
+  )''');
+  await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_chick_quality_observation_logical
+    ON chick_quality_observation (
+      sampleId, domain, kind, observationKey, COALESCE(ordinal, -1)
+    )
+  ''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS
+    idx_chick_quality_observation_sample
+    ON chick_quality_observation (sampleId, domain, kind, observationKey, ordinal)
+  ''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS
+    idx_chick_quality_observation_session
+    ON chick_quality_observation (sessionId, customerId, domain)
+  ''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS
+    idx_chick_quality_observation_sync
+    ON chick_quality_observation (syncStatus, dirtyAt)
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_chick_quality_observation_owner_insert
+    BEFORE INSERT ON chick_quality_observation
+    WHEN NOT EXISTS (
+      SELECT 1 FROM chick_weights
+      WHERE id = NEW.sampleId
+        AND NEW.domain = 'chicks.weights'
+        AND domain = NEW.domain
+        AND customerId = NEW.customerId
+        AND sessionId = NEW.sessionId
+      UNION ALL
+      SELECT 1 FROM chick_quality
+      WHERE id = NEW.sampleId
+        AND NEW.domain <> 'chicks.weights'
+        AND domain = NEW.domain
+        AND customerId = NEW.customerId
+        AND sessionId = NEW.sessionId
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Chick observation owner mismatch');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_chick_quality_observation_owner_update
+    BEFORE UPDATE OF sampleId, customerId, sessionId, domain
+    ON chick_quality_observation
+    WHEN NOT EXISTS (
+      SELECT 1 FROM chick_weights
+      WHERE id = NEW.sampleId
+        AND NEW.domain = 'chicks.weights'
+        AND domain = NEW.domain
+        AND customerId = NEW.customerId
+        AND sessionId = NEW.sessionId
+      UNION ALL
+      SELECT 1 FROM chick_quality
+      WHERE id = NEW.sampleId
+        AND NEW.domain <> 'chicks.weights'
+        AND domain = NEW.domain
+        AND customerId = NEW.customerId
+        AND sessionId = NEW.sessionId
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Chick observation owner mismatch');
+    END
+  ''');
+  await db.execute('''CREATE TRIGGER IF NOT EXISTS
+    trg_chick_quality_observation_identity_update
+    BEFORE UPDATE OF id, sampleId, domain, kind, observationKey, ordinal
+    ON chick_quality_observation
+    WHEN OLD.id IS NOT NEW.id
+      OR OLD.sampleId IS NOT NEW.sampleId
+      OR OLD.domain IS NOT NEW.domain
+      OR OLD.kind IS NOT NEW.kind
+      OR OLD.observationKey IS NOT NEW.observationKey
+      OR OLD.ordinal IS NOT NEW.ordinal
+    BEGIN
+      SELECT RAISE(ABORT, 'Chick observation identity is immutable');
+    END
+  ''');
+  if (await _tableExists(db, 'chick_quality')) {
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_chick_quality_observation_parent_quality_delete
+      BEFORE DELETE ON chick_quality
+      BEGIN
+        DELETE FROM chick_quality_observation
+        WHERE sampleId = OLD.id AND domain = OLD.domain;
+      END
+    ''');
+  }
+  if (await _tableExists(db, 'chick_weights')) {
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_chick_quality_observation_parent_weights_delete
+      BEFORE DELETE ON chick_weights
+      BEGIN
+        DELETE FROM chick_quality_observation
+        WHERE sampleId = OLD.id AND domain = 'chicks.weights';
+      END
+    ''');
+  }
+  if (await _tableExists(db, 'photos')) {
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_photo_observation_owner_insert
+      BEFORE INSERT ON photos
+      WHEN NEW.observationId IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM chick_quality_observation o
+        WHERE o.id = NEW.observationId
+          AND o.sampleId = NEW.panelRowId
+          AND o.sessionId = NEW.sessionId
+          AND o.domain != 'chicks.weights'
+          AND NEW.panelName = 'chick_quality'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Photo observation owner mismatch');
+      END
+    ''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_photo_observation_owner_update
+      BEFORE UPDATE OF observationId, panelRowId, sessionId, panelName ON photos
+      WHEN NEW.observationId IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM chick_quality_observation o
+        WHERE o.id = NEW.observationId
+          AND o.sampleId = NEW.panelRowId
+          AND o.sessionId = NEW.sessionId
+          AND o.domain != 'chicks.weights'
+          AND NEW.panelName = 'chick_quality'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Photo observation owner mismatch');
+      END
+    ''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_chick_quality_observation_photo_unlink
+      AFTER DELETE ON chick_quality_observation
+      BEGIN
+        UPDATE photos SET observationId = NULL WHERE observationId = OLD.id;
+      END
+    ''');
+  }
 }
 
 Future<void> _createCleanBmkEggBreakoutTable(DatabaseExecutor db) async {
