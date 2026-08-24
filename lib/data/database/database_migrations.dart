@@ -656,6 +656,170 @@ Future<void> _applyV62Upgrade(Database db) async {
   await ensurePanelSampleSchemaColumns(db);
 }
 
+/// v63 repairs the two Phase 1 canonical-data defects without guessing:
+/// explicitly Celsius-tagged chick CVT payloads become canonical Fahrenheit,
+/// and panel dates that disagree with their parent session inherit that
+/// session's already-correct local calendar date.
+Future<void> _applyV63Upgrade(Database db) async {
+  await _canonicalizeTaggedCelsiusChickCvtRows(db);
+  await _repairPanelDatesFromSessions(db);
+  await _repairLegacyPanelPhotoReferences(db);
+}
+
+Future<void> _canonicalizeTaggedCelsiusChickCvtRows(Database db) async {
+  if (!await _tableExists(db, 'chick_quality')) return;
+  final rows = await db.query(
+    'chick_quality',
+    columns: [
+      'id',
+      'cvtReadingsJson',
+      'cvtTopTemp',
+      'cvtMiddleTemp',
+      'cvtBottomTemp',
+      'cvtAvgTemp',
+    ],
+  );
+  final dirtyAt = DateTime.now().toUtc().toIso8601String();
+  for (final row in rows) {
+    final source = row['cvtReadingsJson'] as String?;
+    if (source == null || source.trim().isEmpty) continue;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(source);
+    } catch (_) {
+      continue;
+    }
+    if (decoded is! Map) continue;
+    final unit = decoded['unit']?.toString().trim().toLowerCase();
+    if (unit != 'c' && unit != '°c' && unit != 'celsius') continue;
+    final rawReadings = decoded['readings'];
+    if (rawReadings is! Map && rawReadings is! List) continue;
+
+    final converted = _convertCelsiusJsonValues(rawReadings);
+    final payload = Map<String, Object?>.from(
+      decoded.map((key, value) => MapEntry(key.toString(), value)),
+    )..['readings'] = converted;
+    final updates = <String, Object?>{
+      'cvtReadingsJson': jsonEncode(payload),
+      'syncStatus': 'pending',
+      'dirtyAt': dirtyAt,
+      'syncError': null,
+    };
+    for (final column in const [
+      'cvtTopTemp',
+      'cvtMiddleTemp',
+      'cvtBottomTemp',
+      'cvtAvgTemp',
+    ]) {
+      final value = row[column];
+      if (value is num) {
+        updates[column] = _celsiusToFahrenheit(value.toDouble());
+      }
+    }
+    await db.update(
+      'chick_quality',
+      updates,
+      where: 'id = ?',
+      whereArgs: [row['id']],
+    );
+  }
+}
+
+Object? _convertCelsiusJsonValues(Object? source) {
+  if (source is Map) {
+    return {
+      for (final entry in source.entries)
+        entry.key.toString(): _convertCelsiusJsonValues(entry.value),
+    };
+  }
+  if (source is List) {
+    return source.map(_convertCelsiusJsonValues).toList();
+  }
+  if (source is num) return _celsiusToFahrenheit(source.toDouble());
+  if (source is String) {
+    final parsed = double.tryParse(source);
+    return parsed == null ? source : _celsiusToFahrenheit(parsed);
+  }
+  return source;
+}
+
+double _celsiusToFahrenheit(double value) => (value * 9 / 5) + 32;
+
+Future<void> _repairPanelDatesFromSessions(Database db) async {
+  if (!await _tableExists(db, 'audit_sessions')) return;
+  final dirtyAt = DateTime.now().toUtc().toIso8601String();
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    await db.rawUpdate(
+      '''
+      UPDATE ${panel.tableName}
+      SET date = (
+            SELECT substr(audit_sessions.date, 1, 10)
+            FROM audit_sessions
+            WHERE audit_sessions.id = ${panel.tableName}.sessionId
+          ),
+          syncStatus = 'pending',
+          dirtyAt = ?,
+          syncError = NULL
+      WHERE EXISTS (
+        SELECT 1
+        FROM audit_sessions
+        WHERE audit_sessions.id = ${panel.tableName}.sessionId
+          AND ${panel.tableName}.date <> substr(audit_sessions.date, 1, 10)
+      )
+    ''',
+      [dirtyAt],
+    );
+  }
+}
+
+Future<void> _repairLegacyPanelPhotoReferences(Database db) async {
+  if (!await _tableExists(db, 'photos')) return;
+  final photos = await db.query(
+    'photos',
+    columns: ['id', 'sessionId', 'panelName', 'panelRowId'],
+  );
+  final knownPanels = {
+    for (final panel in PanelSampleSchema.panels) panel.tableName,
+  };
+  for (final photo in photos) {
+    final panelName = photo['panelName']?.toString();
+    final legacyRowId = photo['panelRowId']?.toString();
+    final sessionId = photo['sessionId']?.toString();
+    if (panelName == null ||
+        legacyRowId == null ||
+        sessionId == null ||
+        !knownPanels.contains(panelName) ||
+        !await _tableExists(db, panelName)) {
+      continue;
+    }
+    final rows = await db.query(
+      panelName,
+      columns: ['id'],
+      where: 'sessionId = ?',
+      whereArgs: [sessionId],
+    );
+    final rowIds = rows.map((row) => row['id']?.toString()).whereType<String>();
+    if (rowIds.contains(legacyRowId)) continue;
+    final candidates = rowIds
+        .where((rowId) => rowId.startsWith('$legacyRowId:'))
+        .toList();
+    if (candidates.length == 1) {
+      await db.update(
+        'photos',
+        {'panelRowId': candidates.single, 'uploadStatus': 'local'},
+        where: 'id = ?',
+        whereArgs: [photo['id']],
+      );
+    } else {
+      debugPrint(
+        'ChickMark v63 left photo ${photo['id']} unchanged: '
+        '${candidates.length} panel rows match $legacyRowId.',
+      );
+    }
+  }
+}
+
 Future<void> _rebuildV56AgentIntegrityTables(Database db) async {
   for (final table in const [
     'agent_conversations',

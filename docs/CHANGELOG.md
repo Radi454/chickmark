@@ -1,5 +1,23 @@
 # ChickMark Change Log
 
+- 2026-08-23: Completed Chick Quality Phase 0 and Phase 1 safety work. The
+  cloud-schema parity guard now compares against columns read from a PostgreSQL
+  instance after all migrations run. Chick CVT stores canonical Fahrenheit
+  values while preserving the selected display unit, and v63 converts only
+  explicitly Celsius-tagged legacy rows. Panel dates now preserve the local
+  calendar day and v63 repairs mismatches from their owning sessions across all
+  nine panel tables. Photo ownership uses stable persisted panel-row ids,
+  unambiguous legacy links are repaired locally and in the migration mirror,
+  and Pasgar thumbnails hydrate from saved photo rows after reopen. Registry
+  validation now reports non-blocking warnings, aggregate quality flags are
+  retained and exposed, and registry checks normalize existing choice casing
+  and ignore display-only JSON metadata across every comparison sample. Blank
+  comparison identities are
+  rejected before they can merge, with the guard respecting Setter-only and
+  Hatcher-only optimization scopes; rejected UI edits visibly restore the
+  saved identity. Culled-chick payloads retain exact counts alongside
+  percentages.
+
 - 2026-08-23: Closed the final Egg Quality sampling and grading review gaps.
   Production reopen now overlays defect children by persisted Egg Quality row
   ID; legacy null indexes sort consistently after explicit indexes; clearing

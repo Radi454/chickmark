@@ -45,7 +45,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 62,
+      version: 63,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -192,6 +192,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 62) {
       await _applyV62Upgrade(db);
+    }
+    if (oldVersion < 63) {
+      await _applyV63Upgrade(db);
     }
   }
 
@@ -1003,6 +1006,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV62UpgradeForTest(Database db) => _applyV62Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV63UpgradeForTest(Database db) => _applyV63Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

@@ -12,6 +12,7 @@ import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/egg_grading_repository.dart';
 import '../../../data/repositories/panel_dashboard_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
+import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
 import '../../customers/screens/visit_detail_screen.dart';
 import '../../dashboard/models/visit_session_summary.dart';
@@ -43,6 +44,7 @@ class AuditSessionScreen extends StatefulWidget {
   final StationSampleRepository? stationSampleRepository;
   final PanelSampleRepository? panelSampleRepository;
   final EggGradingRepository? eggGradingRepository;
+  final PhotoRepository? photoRepository;
 
   const AuditSessionScreen({
     super.key,
@@ -50,6 +52,7 @@ class AuditSessionScreen extends StatefulWidget {
     this.stationSampleRepository,
     this.panelSampleRepository,
     this.eggGradingRepository,
+    this.photoRepository,
   });
 
   @override
@@ -78,6 +81,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
       PanelSampleRepository();
   late final EggGradingRepository _defaultEggGradingRepository =
       EggGradingRepository();
+  late final PhotoRepository _defaultPhotoRepository = PhotoRepository();
   final PanelDashboardRepository _panelDashboardRepository =
       PanelDashboardRepository();
   String? _mountedSessionId;
@@ -473,6 +477,12 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         widget.panelSampleRepository ?? _defaultPanelSampleRepository;
     final eggGradingRepository =
         widget.eggGradingRepository ?? _defaultEggGradingRepository;
+    // A screen supplied with fake persistence must not silently open the real
+    // database. Production uses the default photo repository; tests and other
+    // embedders can opt into photo hydration with an explicit repository.
+    final photoRepository =
+        widget.photoRepository ??
+        (widget.panelSampleRepository == null ? _defaultPhotoRepository : null);
     final stationProvider = _stationAuditProviders.putIfAbsent(stationKey, () {
       final p = AuditProvider(
         panelSampleRepository: panelSampleRepository,
@@ -490,6 +500,7 @@ class _AuditSessionScreenState extends State<AuditSessionScreen> {
         sessionId: session.id,
         panelSampleRepository: panelSampleRepository,
         eggGradingRepository: eggGradingRepository,
+        photoRepository: photoRepository,
         eggStorageController: stationKey == 'egg'
             ? _eggStorageControllers.putIfAbsent(
                 stationKey,
@@ -1184,6 +1195,7 @@ class _StationFrame extends StatefulWidget {
   final String sessionId;
   final PanelSampleRepository panelSampleRepository;
   final EggGradingRepository eggGradingRepository;
+  final PhotoRepository? photoRepository;
   final EggStorageStationController? eggStorageController;
 
   const _StationFrame({
@@ -1192,6 +1204,7 @@ class _StationFrame extends StatefulWidget {
     required this.sessionId,
     required this.panelSampleRepository,
     required this.eggGradingRepository,
+    required this.photoRepository,
     this.eggStorageController,
   });
 
@@ -1230,6 +1243,13 @@ class _StationFrameState extends State<_StationFrame> {
         context: widget.context,
         rowsByPanel: rowsByPanel,
       );
+      final photoRepository = widget.photoRepository;
+      if (photoRepository != null) {
+        reconstruction = overlayPanelPhotos(
+          reconstruction,
+          await photoRepository.getBySessionId(widget.sessionId),
+        );
+      }
       if (widget.stationKey == 'egg') {
         reconstruction = overlayEggGradingCounts(
           reconstruction,

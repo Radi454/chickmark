@@ -42,7 +42,7 @@ void main() {
     () async {
       final db = await DatabaseHelper().db;
 
-      expect(await _userVersion(db), 62);
+      expect(await _userVersion(db), 63);
       expect(
         await _tableNames(db),
         containsAll(const [

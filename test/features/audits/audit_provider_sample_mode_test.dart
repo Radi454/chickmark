@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 
 void main() {
@@ -132,6 +133,101 @@ void main() {
     expect(provider.activeStationSample.storageDays, 0);
     expect(provider.activeStationSample.calculatedBmkAgeDays, 273);
   });
+
+  test('blank machine identity is rejected outside pool scope', () {
+    final provider = AuditProvider();
+    provider.initialize(context(), notify: false);
+    provider.setSampleMode(SampleMode.compare);
+    final before = provider.activeStationSample;
+
+    final accepted = provider.updateSampleMetadata({
+      'setterNo': ' ',
+      'hatcherNo': '',
+    });
+
+    expect(accepted, isFalse);
+    expect(provider.activeStationSample.setterNo, before.setterNo);
+    expect(provider.activeStationSample.hatcherNo, before.hatcherNo);
+  });
+
+  test('single-sided optimizer machine identities remain valid', () {
+    final setterProvider = AuditProvider();
+    setterProvider.initialize(stationContext('Setters'), notify: false);
+    setterProvider.setStationSampleMode(
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(setterProvider.updateSampleMetadata({'setterNo': 'S5'}), isTrue);
+
+    final hatcherProvider = AuditProvider();
+    hatcherProvider.initialize(stationContext('Hatchers'), notify: false);
+    hatcherProvider.setStationSampleMode(
+      StationSampleModel.sampleModeComparison,
+    );
+    expect(hatcherProvider.updateSampleMetadata({'hatcherNo': 'H7'}), isTrue);
+  });
+
+  test('registry warnings include an inactive comparison sample', () {
+    final provider = AuditProvider();
+    provider.initialize(context(), notify: false);
+    provider.setSampleMode(SampleMode.compare);
+    provider.updateField(
+      'cvtReadingsJson',
+      jsonEncode({
+        'unit': '°F',
+        'readings': {'front_top': 104.0},
+      }),
+    );
+    provider.addHatch();
+    provider.updateField(
+      'cvtReadingsJson',
+      jsonEncode({
+        'unit': '°F',
+        'readings': {'front_top': 200.0},
+      }),
+    );
+    provider.switchHatch(0);
+
+    expect(
+      provider.registryValidationWarnings.any(
+        (warning) =>
+            warning.schemaKey == 'chicks.cvt' &&
+            warning.fieldKey == 'cvtReadingsJson' &&
+            warning.code == 'item_out_of_range',
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'a restored blank machine identity blocks save before rows can merge',
+    () async {
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(context(), sessionId: 'session-1', notify: false);
+      final draft = AuditModel.fromMap(
+        provider.activeDraft.toMap()
+          ..['sampleMode'] = SampleMode.compare
+          ..['pasgarSampleSize'] = 40,
+      );
+      final blankSample = provider.activeStationSample.copyWith(
+        legacyAuditId: draft.id,
+        sampleMode: StationSampleModel.sampleModeComparison,
+        sampleKind: StationSampleModel.sampleKindMachine,
+        comparisonType: StationSampleModel.comparisonTypeMachine,
+        setterNo: '',
+        hatcherNo: '',
+      );
+      provider.initialize(
+        context(),
+        existingAudits: [draft],
+        existingStationSamples: [blankSample],
+        readOnly: false,
+        sessionId: 'session-1',
+        notify: false,
+      );
+
+      expect(await provider.saveSamplesWithResult(), isFalse);
+    },
+  );
 
   test('removeActiveHatch keeps compare hatch numbers sequential', () {
     final provider = AuditProvider();
@@ -771,35 +867,34 @@ void main() {
       provider.stationSamples.single.sampleMode,
       StationSampleModel.sampleModeComparison,
     );
-    expect(provider.stationSamples.single.sampleKind,
-        StationSampleModel.sampleKindHouse);
+    expect(
+      provider.stationSamples.single.sampleKind,
+      StationSampleModel.sampleKindHouse,
+    );
   });
 
-  test(
-    'removing directly via removeActiveSample keeps comparison mode when '
-    'a house row survives',
-    () {
-      // NOTE: not in the brief's literal test list. Added because the
-      // brief also requires fixing removeActiveSample's Egg branch, and
-      // the two tests above only exercise
-      // _removeEggQualityScopeIndexes (via removeActiveEggQualityScopeSample),
-      // whose "keepsEggQualityScope" collapse guard already existed
-      // before this task. Without this test, the removeActiveSample fix
-      // would ship with no coverage that can go red.
-      final provider = AuditProvider();
-      provider.initialize(stationContext('Egg'), notify: false);
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-      provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-      provider.switchSample(1);
-      provider.removeActiveSample();
+  test('removing directly via removeActiveSample keeps comparison mode when '
+      'a house row survives', () {
+    // NOTE: not in the brief's literal test list. Added because the
+    // brief also requires fixing removeActiveSample's Egg branch, and
+    // the two tests above only exercise
+    // _removeEggQualityScopeIndexes (via removeActiveEggQualityScopeSample),
+    // whose "keepsEggQualityScope" collapse guard already existed
+    // before this task. Without this test, the removeActiveSample fix
+    // would ship with no coverage that can go red.
+    final provider = AuditProvider();
+    provider.initialize(stationContext('Egg'), notify: false);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
+    provider.switchSample(1);
+    provider.removeActiveSample();
 
-      expect(provider.stationSamples, hasLength(1));
-      expect(
-        provider.stationSamples.single.sampleMode,
-        StationSampleModel.sampleModeComparison,
-      );
-    },
-  );
+    expect(provider.stationSamples, hasLength(1));
+    expect(
+      provider.stationSamples.single.sampleMode,
+      StationSampleModel.sampleModeComparison,
+    );
+  });
 
   test('switching houses does not move entered values between rows', () {
     final provider = AuditProvider();

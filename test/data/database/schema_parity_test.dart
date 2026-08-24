@@ -89,6 +89,7 @@ void main() {
       await helper.applyV60UpgradeForTest(freshDb);
       await helper.applyV61UpgradeForTest(freshDb);
       await helper.applyV62UpgradeForTest(freshDb);
+      await helper.applyV63UpgradeForTest(freshDb);
 
       final upgradedSchema = await normalizedSchema(freshDb);
 

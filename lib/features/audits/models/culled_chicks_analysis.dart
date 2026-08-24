@@ -28,7 +28,7 @@ class CulledChickDefect {
     required this.sources,
   });
 
-  Map<String, Object?> toJson({required double pct}) {
+  Map<String, Object?> toJson({required int count, required double pct}) {
     return {
       'id': id,
       'category': category,
@@ -36,6 +36,7 @@ class CulledChickDefect {
       'description': description,
       'commonCauses': commonCauses,
       'sourceRefs': sources.map((source) => source.toJson()).toList(),
+      'count': count,
       'pct': pct,
     };
   }
@@ -43,9 +44,14 @@ class CulledChickDefect {
 
 class CulledChicksAnalysisEntry {
   final CulledChickDefect defect;
+  final int? count;
   final double pct;
 
-  const CulledChicksAnalysisEntry({required this.defect, required this.pct});
+  const CulledChicksAnalysisEntry({
+    required this.defect,
+    required this.pct,
+    this.count,
+  });
 }
 
 class CulledChicksAnalysisSummary {
@@ -72,7 +78,11 @@ class CulledChicksAnalysisSummary {
   String? get encodedJson {
     if (entries.isEmpty) return null;
     return jsonEncode([
-      for (final entry in entries) entry.defect.toJson(pct: entry.pct),
+      for (final entry in entries)
+        entry.defect.toJson(
+          count: entry.count ?? (entry.pct / 100 * totalEggSet).round(),
+          pct: entry.pct,
+        ),
     ]);
   }
 
@@ -116,6 +126,7 @@ class CulledChicksAnalysisSummary {
       entries.add(
         CulledChicksAnalysisEntry(
           defect: defect,
+          count: count,
           pct: (count / totalEggSet) * 100,
         ),
       );
@@ -197,11 +208,14 @@ class CulledChicksAnalysisCodec {
         final id = map['id']?.toString();
         final defect = id == null ? null : culledChickDefectById(id);
         if (defect == null) continue;
-        final pct = map.containsKey('pct')
-            ? _asDouble(map['pct'])
-            : _pctFromLegacyCount(map['count'], denominator);
+        final count = _asInt(map['count']);
+        final pct = count != null
+            ? _pctFromLegacyCount(count, denominator)
+            : _asDouble(map['pct']);
         if (pct <= 0) continue;
-        entries.add(CulledChicksAnalysisEntry(defect: defect, pct: pct));
+        entries.add(
+          CulledChicksAnalysisEntry(defect: defect, count: count, pct: pct),
+        );
       }
       return entries;
     } catch (_) {
@@ -218,7 +232,9 @@ class CulledChicksAnalysisCodec {
     for (final defect in kCulledChickDefects) {
       final count = countsById[defect.id] ?? 0;
       if (count <= 0) continue;
-      entries.add(defect.toJson(pct: (count / totalEggSet) * 100));
+      entries.add(
+        defect.toJson(count: count, pct: (count / totalEggSet) * 100),
+      );
     }
     if (entries.isEmpty) return null;
     return jsonEncode(entries);
@@ -231,7 +247,7 @@ class CulledChicksAnalysisCodec {
     if (totalEggSet <= 0) return const {};
     final countsById = <String, int>{};
     for (final entry in decode(source, totalEggSet: totalEggSet)) {
-      final count = (entry.pct / 100 * totalEggSet).round();
+      final count = entry.count ?? (entry.pct / 100 * totalEggSet).round();
       if (count <= 0) continue;
       countsById[entry.defect.id] = count;
     }
@@ -242,6 +258,12 @@ class CulledChicksAnalysisCodec {
     if (value == null) return 0;
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString()) ?? 0;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num && value.isFinite) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   static double _pctFromLegacyCount(Object? value, int totalEggSet) {

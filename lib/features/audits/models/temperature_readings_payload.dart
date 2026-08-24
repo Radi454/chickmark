@@ -10,7 +10,27 @@ class TemperatureReadingsPayload {
   });
 
   final TemperatureEntryUnit unit;
+
+  /// Values persisted in the caller's fixed canonical unit. [unit] records
+  /// the entry/display unit so reopening the form restores the user's choice.
   final Map<String, double> readings;
+
+  factory TemperatureReadingsPayload.fromDisplay({
+    required TemperatureEntryUnit unit,
+    required Map<String, double> readings,
+    required TemperatureEntryUnit canonicalUnit,
+  }) {
+    return TemperatureReadingsPayload(
+      unit: unit,
+      readings: {
+        for (final entry in readings.entries)
+          entry.key: unit.toCanonical(
+            entry.value,
+            canonicalUnit: canonicalUnit,
+          ),
+      },
+    );
+  }
 
   factory TemperatureReadingsPayload.decode(
     String? source, {
@@ -51,6 +71,18 @@ class TemperatureReadingsPayload {
   }
 
   int get count => readings.length;
+
+  Map<String, double> forDisplay({
+    required TemperatureEntryUnit canonicalUnit,
+  }) {
+    return {
+      for (final entry in readings.entries)
+        entry.key: unit.fromCanonical(
+          entry.value,
+          canonicalUnit: canonicalUnit,
+        ),
+    };
+  }
 
   static TemperatureEntryUnit? _unitFromValue(Object? value) {
     final normalized = value?.toString().trim().toLowerCase();

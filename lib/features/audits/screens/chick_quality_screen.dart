@@ -1605,7 +1605,10 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
             textInputAction: TextInputAction.next,
             decoration: _scopeInputDecoration('Setter'),
             onChanged: (value) {
-              provider.updateSampleMetadata({'setterNo': value.trim()});
+              final accepted = provider.updateSampleMetadata({
+                'setterNo': value.trim(),
+              });
+              if (!accepted) _restoreIdentityController(sample, 'setter');
             },
           ),
           TextFormField(
@@ -1616,7 +1619,10 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
             textInputAction: TextInputAction.done,
             decoration: _scopeInputDecoration('Hatcher'),
             onChanged: (value) {
-              provider.updateSampleMetadata({'hatcherNo': value.trim()});
+              final accepted = provider.updateSampleMetadata({
+                'hatcherNo': value.trim(),
+              });
+              if (!accepted) _restoreIdentityController(sample, 'hatcher');
             },
           ),
         ]),
@@ -1698,6 +1704,16 @@ class _MachineSampleControlsState extends State<_MachineSampleControls> {
   FocusNode _identityFocusNode(StationSampleModel sample, String field) {
     final key = _identityKey(sample, field);
     return _identityFocusNodes.putIfAbsent(key, FocusNode.new);
+  }
+
+  void _restoreIdentityController(StationSampleModel sample, String field) {
+    final text = _fieldValue(sample, field);
+    final controller = _identityControllers[_identityKey(sample, field)];
+    if (controller == null || controller.text == text) return;
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
   }
 
   void _pruneIdentityFields(List<StationSampleModel> samples) {

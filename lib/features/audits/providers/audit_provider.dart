@@ -27,6 +27,7 @@ import '../models/station_completion_validation.dart';
 import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
 import '../logic/panel_value_builders.dart';
+import '../logic/chick_registry_validation.dart';
 import '../services/audit_panel_save_coordinator.dart';
 import 'package:uuid/uuid.dart';
 
@@ -116,6 +117,38 @@ class AuditProvider extends ChangeNotifier {
   bool get isAutosaving => _isAutosaving;
   DateTime? get lastAutosavedAt => _lastAutosavedAt;
   String? get autosaveError => _autosaveError;
+  Map<String, Set<String>> get panelQualityFlags =>
+      _panelSampleRepository.lastQualityFlagsByTable;
+  List<ChickRegistryWarning> get registryValidationWarnings {
+    if (_drafts.isEmpty || activeDraft.auditType != 'Chicks') return const [];
+    final warnings = <ChickRegistryWarning>[];
+    for (final draft in _drafts) {
+      warnings.addAll(
+        validateChickRegistryDomains(
+          chickQualityValues: panelValuesForDraft(
+            'chick_quality',
+            draft,
+            flockAgeWeeks: _context?.flockAgeWeeks,
+            flockEntryDate: _context?.flockEntryDate,
+          ),
+          chickWeightValues: const {},
+        ),
+      );
+    }
+    for (final sample in _chickWeightSamples) {
+      warnings.addAll(
+        validateChickRegistryDomains(
+          chickQualityValues: const {},
+          chickWeightValues: chickWeightValuesForSample(
+            sample,
+            fallback: activeDraft,
+          ),
+        ),
+      );
+    }
+    return List.unmodifiable(warnings);
+  }
+
   bool get isAutosaveCaughtUp =>
       !_isDirty &&
       !_isAutosaving &&
@@ -503,8 +536,8 @@ class AuditProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateSampleMetadata(Map<String, dynamic> fields) {
-    if (_isReadOnly || _stationSamples.isEmpty) return;
+  bool updateSampleMetadata(Map<String, dynamic> fields) {
+    if (_isReadOnly || _stationSamples.isEmpty) return false;
 
     final now = DateTime.now();
     final draft = activeDraft;
@@ -527,6 +560,15 @@ class AuditProvider extends ChangeNotifier {
             : sample.houseLabel);
     final setterNo = fields['setterNo'] as String? ?? sample.setterNo;
     final hatcherNo = fields['hatcherNo'] as String? ?? sample.hatcherNo;
+    if (_wouldBlankNonPoolIdentity(
+      sample,
+      houseNo: houseNo,
+      houseLabel: houseLabel,
+      setterNo: setterNo,
+      hatcherNo: hatcherNo,
+    )) {
+      return false;
+    }
     final eggProductionDate =
         fields['eggProductionDate'] as DateTime? ?? sample.eggProductionDate;
     final storageDays =
@@ -578,6 +620,29 @@ class AuditProvider extends ChangeNotifier {
     }
     _markDirtyAndScheduleAutosave();
     notifyListeners();
+    return true;
+  }
+
+  bool _wouldBlankNonPoolIdentity(
+    StationSampleModel sample, {
+    required String? houseNo,
+    required String? houseLabel,
+    required String? setterNo,
+    required String? hatcherNo,
+  }) {
+    if (sample.sampleMode != StationSampleModel.sampleModeComparison) {
+      return false;
+    }
+    bool blank(String? value) => value == null || value.trim().isEmpty;
+    return switch (sample.sampleKind) {
+      StationSampleModel.sampleKindHouse => blank(houseNo) && blank(houseLabel),
+      StationSampleModel.sampleKindMachine => switch (sample.sectorType) {
+        StationSampleModel.sectorSetterOptimizing => blank(setterNo),
+        StationSampleModel.sectorHatcherOptimizing => blank(hatcherNo),
+        _ => blank(setterNo) || blank(hatcherNo),
+      },
+      _ => false,
+    };
   }
 
   bool _shouldPreserveEggStoragePatchForMetadata(Map<String, dynamic> fields) {
@@ -786,9 +851,27 @@ class AuditProvider extends ChangeNotifier {
     }
 
     try {
+      final warnings = registryValidationWarnings;
+      if (warnings.isNotEmpty) {
+        safeDebugLog(
+          'Chick registry validation warnings: '
+          '${warnings.map((warning) => '${warning.schemaKey}.${warning.fieldKey}:${warning.code}').join(', ')}',
+        );
+      }
       final draftsToSave = List<AuditModel>.from(
         isCompareMode ? _drafts : [_drafts.first],
       );
+      if (_stationSamples.any(
+        (sample) => _wouldBlankNonPoolIdentity(
+          sample,
+          houseNo: sample.houseNo,
+          houseLabel: sample.houseLabel,
+          setterNo: sample.setterNo,
+          hatcherNo: sample.hatcherNo,
+        ),
+      )) {
+        return false;
+      }
       if (draftsToSave.any(_hasInvalidEggGrading)) return false;
       final samplesToSave = <int, StationSampleModel?>{};
       for (var i = 0; i < draftsToSave.length; i++) {
@@ -883,76 +966,6 @@ class AuditProvider extends ChangeNotifier {
     final map = audit.toMap();
     map['status'] = status;
     return AuditModel.fromMap(map);
-  }
-
-  // PM Necropsy conditional field validation
-  List<String> validatePmConditionalFields() {
-    final errors = <String>[];
-    final a = activeDraft;
-
-    final lesionPairs = <Map<String, dynamic>>[
-      {
-        'label': 'Omphalitis',
-        'count': a.pmOmphalitisCount,
-        'severity': a.pmOmphalitisSeverity,
-      },
-      {
-        'label': 'Gaseous Ceca',
-        'count': a.pmGaseousCecaCount,
-        'severity': a.pmGaseousCecaSeverity,
-      },
-      {
-        'label': 'Gizzard Erosions',
-        'count': a.pmGizzardErosionsCount,
-        'severity': a.pmGizzardErosionsSeverity,
-      },
-      {
-        'label': 'Air Sac Caseations',
-        'count': a.pmAirSacCaseationsCount,
-        'severity': a.pmAirSacCaseationsSeverity,
-      },
-      {
-        'label': 'Urolithiasis (Urate Deposits)',
-        'count': a.pmUrolithiasisCount,
-        'severity': a.pmUrolithiasisSeverity,
-      },
-      {
-        'label': 'Nephritis',
-        'count': a.pmNephritisCount,
-        'severity': a.pmNephritisSeverity,
-      },
-      {
-        'label': 'General Septicemia',
-        'count': a.pmGeneralSepticemiaCount,
-        'severity': a.pmGeneralSepticemiaSeverity,
-      },
-    ];
-
-    for (final pair in lesionPairs) {
-      final label = pair['label'] as String;
-      final count = pair['count'] as int?;
-      final severity = pair['severity'] as String?;
-      if ((count ?? 0) > 0 && (severity == null || severity.isEmpty)) {
-        errors.add('$label requires severity when count > 0');
-      }
-    }
-
-    for (final lesion in decodedMaps(a.pmOtherLesionsJson)) {
-      final name = (lesion['name'] as String? ?? '').trim();
-      final count = asInt(lesion['count']);
-      final severity = (lesion['severity'] as String? ?? '').trim();
-      if ((count ?? 0) > 0) {
-        if (name.isEmpty) {
-          errors.add('Other lesion name is required when count > 0');
-        }
-        if (severity.isEmpty) {
-          final label = name.isEmpty ? 'Other lesion' : name;
-          errors.add('$label requires severity when count > 0');
-        }
-      }
-    }
-
-    return errors;
   }
 
   StationCompletionValidation validateStationCompletion(String stationKey) {

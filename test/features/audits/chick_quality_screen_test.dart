@@ -441,7 +441,7 @@ void main() {
     expect(provider.activeDraft.culledChicksAnalysisJson, contains('"pct"'));
     expect(
       provider.activeDraft.culledChicksAnalysisJson,
-      isNot(contains('"count"')),
+      contains('"count":3'),
     );
     expect(
       provider.activeDraft.culledChicksAffectedPct,
@@ -1165,6 +1165,15 @@ void main() {
     expect(find.text('S9H10'), findsWidgets);
     expect(provider.activeStationSample.setterNo, '9');
     expect(provider.activeStationSample.hatcherNo, '10');
+
+    await tester.enterText(setterField, '');
+    await tester.pump();
+    expect(
+      tester.widget<TextFormField>(setterField).controller?.text,
+      '9',
+      reason: 'a rejected blank identity must not remain visible',
+    );
+    expect(provider.activeStationSample.setterNo, '9');
   });
 
   testWidgets('machine scope can remove the only active sample back to pool', (

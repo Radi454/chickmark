@@ -481,6 +481,12 @@ Station save behavior:
   test schemas only) keep the previous hierarchy-column ordering. Persisted
   `egg_quality.id` values bind the reopened draft and station sample, including
   through `legacyAuditId`, so mixed pre-v61/v61 rows cannot pair positionally.
+  Evidence capture uses the persisted station-sample row id whenever one is
+  available, so photo ownership stays stable when a draft id is regenerated on
+  reopen. Legacy photo references are repaired only when their panel-row prefix
+  identifies exactly one row; ambiguous references remain unchanged and are
+  logged. Reopening Pasgar also overlays its six saved defect-photo paths from
+  the `photos` table onto the reconstructed station values.
   The
   reconstruction itself lives in `reconstructStation` (and the Egg-only test
   entry point `reopenEggStation`) in
@@ -998,9 +1004,13 @@ Vent Temperature reuses the EST-style guided grid workflow with Front/Middle/
 Back by Top/Middle/Bottom points, guided CVT capture, inline camera/native
 camera fallback, manual reading entry, retake, skip, clear reading/photo,
 missing-photo attach, and saved-photo highlighting. CVT uses a 103-105°F /
-39.4-40.6°C target, enters grid readings in °F, persists readings and photos
-locally in `cvtReadingsJson` and `cvtPhotosJson`, and backfills the panel CVT
-average/CV summary fields for dashboards. PM Necropsy captures sample
+39.4-40.6°C target. The °F/°C selector changes entry and display only: readings
+are canonicalized to °F before persistence and aggregate derivation, while the
+stored entry-unit tag restores the selected display unit on reopen. Existing
+rows tagged explicitly as °C are converted to °F by the v63 migration; tagged
+°F and untagged rows are not guessed at or changed. Readings and photos persist
+locally in `cvtReadingsJson` and `cvtPhotosJson`, and the panel CVT average/CV
+summary fields are backfilled for dashboards. PM Necropsy captures sample
 size, collection point, lesion counts with required severity when count is
 positive, custom other lesion rows, suspected cause, and PM photos. The visible
 lesion list is Omphalitis, Gaseous Ceca,
@@ -1027,8 +1037,9 @@ plus the calculated percentage of total egg set for non-zero rows;
 hatchery-guide descriptions, likely causes, and source labels remain in the
 defect catalogue for Dashboard interpretation rather than cluttering the station
 counting workflow. The active `chick_quality` row stores `culledChicksTotalEggSet`
-and encoded defect percentage JSON; defect row counts are not persisted. Derived
-dashboard fields store total affected percentage, top category, and top subtype.
+and encoded defect JSON containing both the exact raw count and its percentage.
+Older percentage-only payloads remain readable. Derived dashboard fields store
+total affected percentage, top category, and top subtype.
 
 The right workbench column contains Chick Weights & Uniformity. Its embedded
 blue flock card shows flock, breed, and BMK age inside one compact translucent
@@ -1639,6 +1650,25 @@ keeps source scope, numerator, denominator, sample count, value, unit/format,
 benchmark context, timestamp, and quality flags while leaving offline panel
 tables unchanged.
 
+Chick Quality and Chick Weights values are also checked against their generated
+station-registry domain rules before save. These checks cover ranges,
+count/denominator relationships, YFBM child-weight bounds, and required PM
+severity choices. Findings are exposed by the audit provider and logged as
+warnings; they never block offline capture. Validation compares choice values
+case-insensitively and projects stored object-list items onto the registry's
+declared properties, avoiding false warnings from display-only JSON metadata;
+all comparison samples are checked, not only the currently selected one.
+Aggregate derivation flags such as
+missing raw values or invalid denominators are likewise retained by the panel
+repository, logged, and exposed to the provider instead of being discarded.
+Comparison samples cannot be saved with a blank house or applicable machine
+identity, because blank identities would otherwise collide in the panel
+uniqueness key. Chick machine samples require Setter and Hatcher, Setter
+optimization requires Setter, and Hatcher optimization requires Hatcher;
+pooled samples remain unrestricted.
+Rejected blank identity edits immediately restore the saved identity in the
+field so the visible text cannot disagree with the value that will be saved.
+
 Legacy database repair is migration-safe: panel query and unique indexes are
 created only when their required columns exist, then rechecked after additive
 panel-column repair. Older partial panel tables therefore open without an index
@@ -2092,7 +2122,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 59. The database file
+The app uses SQLite through `sqflite` at database version 63. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -2116,6 +2146,11 @@ database opens, the app
 checks panel tables against `PanelSampleSchema` and adds any missing
 measurement columns, allowing additive panel fields such as revised PM lesions
 to appear without another destructive reset.
+Version 63 repairs only explicitly Celsius-tagged Chick CVT payloads into the
+canonical Fahrenheit unit, restores all nine panel-table dates from their
+owning session date when they differ, and reconnects legacy photo references
+only where one matching panel row makes the target unambiguous. These repairs
+mark changed local rows pending for normal synchronization.
 Later additive upgrades create dashboard action rows and Lab Analysis tables
 without resetting existing local data. Version 51 adds the persistence
 foundation for poultry customer sectors, farms, houses, multi-house flock

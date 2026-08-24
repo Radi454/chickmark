@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
 import '../services/panel_aggregate_deriver.dart';
+import '../../core/security/safe_debug_log.dart';
 import '../../services/sync/app_sync_coordinator.dart';
 import 'egg_grading_repository.dart';
 import 'sync_tombstone_repository.dart';
@@ -17,6 +18,12 @@ class PanelSampleRepository {
   /// dirtyAt cutoff per table, captured at the last getDirtyRows() call for
   /// that table; see markRowsSynced.
   final Map<String, String> _dirtyReadCutoffByTable = {};
+  final Map<String, Set<String>> _lastQualityFlagsByTable = {};
+
+  Map<String, Set<String>> get lastQualityFlagsByTable => {
+    for (final entry in _lastQualityFlagsByTable.entries)
+      entry.key: Set.unmodifiable(entry.value),
+  };
 
   /// Panel tables whose row identity is the row id itself, not the hierarchy
   /// tuple. See `PanelSampleSchema.idKeyedPanelTables` for why the set lives
@@ -29,6 +36,7 @@ class PanelSampleRepository {
     required List<PanelSampleRecord> samples,
   }) async {
     final definition = PanelSampleSchema.byTable(panel.tableName);
+    _lastQualityFlagsByTable.remove(definition.tableName);
 
     final database = await _databaseHelper.db;
     await database.transaction<void>((txn) async {
@@ -37,10 +45,10 @@ class PanelSampleRepository {
           txn,
           definition.tableName,
           _stampDirty(
-            PanelAggregateDeriver.derive(
+            _deriveAndRecord(
               definition.tableName,
               await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
-            ).row,
+            ),
           ),
         );
         return;
@@ -50,13 +58,13 @@ class PanelSampleRepository {
           txn,
           definition.tableName,
           _stampDirty(
-            PanelAggregateDeriver.derive(
+            _deriveAndRecord(
               definition.tableName,
               await _withoutOrphanedPanelHatcheryId(
                 txn,
                 _rowFromLegacySample(panel, sample),
               ),
-            ).row,
+            ),
           ),
         );
       }
@@ -71,11 +79,29 @@ class PanelSampleRepository {
   }) async {
     final definition = PanelSampleSchema.byTable(tableName);
     final database = await _databaseHelper.db;
+    _lastQualityFlagsByTable.remove(definition.tableName);
     final values = deriveAggregates
-        ? PanelAggregateDeriver.derive(definition.tableName, row).row
+        ? _deriveAndRecord(definition.tableName, row)
         : Map<String, Object?>.of(row);
     await _upsertById(database, definition.tableName, values);
     AppSyncCoordinator.nudge();
+  }
+
+  Map<String, Object?> _deriveAndRecord(
+    String tableName,
+    Map<String, Object?> row,
+  ) {
+    final result = PanelAggregateDeriver.derive(tableName, row);
+    if (result.qualityFlags.isNotEmpty) {
+      (_lastQualityFlagsByTable[tableName] ??= <String>{}).addAll(
+        result.qualityFlags,
+      );
+      safeDebugLog(
+        'Panel aggregate quality warning for $tableName: '
+        '${result.qualityFlags.join(', ')}',
+      );
+    }
+    return result.row;
   }
 
   Future<List<Map<String, dynamic>>> getRowsBySessionId(

@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/photo_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
 import '../models/egg_grading.dart';
@@ -24,6 +25,58 @@ class StationReconstruction {
 
   final List<AuditModel> stationAudits;
   final List<StationSampleModel> stationSamples;
+}
+
+const _pasgarPhotoFieldKeys = {
+  'pasgarReflexesPhoto',
+  'pasgarBeakPhoto',
+  'pasgarNavelPhoto',
+  'pasgarBellyPhoto',
+  'pasgarLegPhoto',
+  'pasgarFeatherDevPhoto',
+};
+
+/// Hydrates photo-backed fields that intentionally have no panel-table
+/// columns. Photos are joined by the persisted station sample id, not the
+/// regenerated draft id, so reopening cannot orphan their thumbnails.
+StationReconstruction overlayPanelPhotos(
+  StationReconstruction reconstruction,
+  Iterable<PhotoModel> photos,
+) {
+  if (reconstruction.stationAudits.isEmpty ||
+      reconstruction.stationSamples.isEmpty) {
+    return reconstruction;
+  }
+  final newestPathByRowAndField = <String, String>{};
+  final sorted = photos.toList()
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  for (final photo in sorted) {
+    if (!_pasgarPhotoFieldKeys.contains(photo.fieldKey)) continue;
+    newestPathByRowAndField.putIfAbsent(
+      '${photo.panelRowId}\u0000${photo.fieldKey}',
+      () => photo.filePath,
+    );
+  }
+
+  final audits = <AuditModel>[];
+  for (var i = 0; i < reconstruction.stationAudits.length; i++) {
+    final audit = reconstruction.stationAudits[i];
+    if (i >= reconstruction.stationSamples.length) {
+      audits.add(audit);
+      continue;
+    }
+    final rowId = reconstruction.stationSamples[i].id;
+    final map = audit.toMap();
+    for (final fieldKey in _pasgarPhotoFieldKeys) {
+      final path = newestPathByRowAndField['$rowId\u0000$fieldKey'];
+      if (path != null) map[fieldKey] = path;
+    }
+    audits.add(AuditModel.fromMap(map));
+  }
+  return StationReconstruction(
+    stationAudits: audits,
+    stationSamples: reconstruction.stationSamples,
+  );
 }
 
 StationReconstruction reconstructStation({

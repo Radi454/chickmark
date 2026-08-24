@@ -16,6 +16,7 @@ import '../../../../services/photo/photo_service.dart';
 import '../../models/est_grid_data.dart';
 import '../../models/temperature_entry_unit.dart';
 import '../../models/temperature_readings_payload.dart';
+import '../../logic/panel_photo_identity.dart';
 import '../../temperature_capture/temperature_capture_config.dart';
 import '../../temperature_capture/temperature_capture_launcher.dart';
 import '../../providers/audit_provider.dart';
@@ -104,7 +105,10 @@ class _CvtTabState extends State<CvtTab> {
       return;
     }
     _cvtUnit = payload.unit;
-    for (final entry in payload.readings.entries) {
+    final displayReadings = payload.forDisplay(
+      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    for (final entry in displayReadings.entries) {
       _controllers[entry.key]?.text = entry.value.toStringAsFixed(1);
     }
   }
@@ -175,8 +179,14 @@ class _CvtTabState extends State<CvtTab> {
   }
 
   void _updateCalculations({bool notify = true}) {
-    final readings = _currentDisplayReadings();
-    final temps = readings.values.toList();
+    final displayReadings = _currentDisplayReadings();
+    final payload = TemperatureReadingsPayload.fromDisplay(
+      unit: _cvtUnit,
+      readings: displayReadings,
+      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+    );
+    final canonicalReadings = payload.readings;
+    final temps = canonicalReadings.values.toList();
     final photos = _currentPhotoPaths();
     final avg = temps.isEmpty ? null : CalculationUtils.average(temps);
     final cv = temps.length > 1 ? CalculationUtils.cvPercent(temps) : 0.0;
@@ -187,19 +197,14 @@ class _CvtTabState extends State<CvtTab> {
 
     update(
       'cvtReadingsJson',
-      readings.isEmpty
-          ? null
-          : TemperatureReadingsPayload(
-              unit: _cvtUnit,
-              readings: readings,
-            ).toJsonString(),
+      displayReadings.isEmpty ? null : payload.toJsonString(),
     );
     update('cvtPhotosJson', photos.isEmpty ? null : jsonEncode(photos));
     update('cvtAvg', avg);
     update('cvtCvPct', temps.isEmpty ? null : cv);
     update('cvtSampleSize', temps.isEmpty ? null : temps.length);
 
-    final representative = _representativeLegacyValues(readings);
+    final representative = _representativeLegacyValues(canonicalReadings);
     update('cvtTopTemp', representative['top']);
     update('cvtMiddleTemp', representative['middle']);
     update('cvtBottomTemp', representative['bottom']);
@@ -430,10 +435,19 @@ class _CvtTabState extends State<CvtTab> {
       photoService: _photoService,
     );
     if (result == null || result.isEmpty || !mounted) return;
-    final draftId = context.read<AuditProvider>().activeDraft.id;
+    final provider = context.read<AuditProvider>();
+    final draftId = provider.activeDraft.id;
     TemperatureCaptureLauncher.apply(result, (key, path, value) {
       _savePoint(key, path, value);
-      if (path.isNotEmpty) unawaited(_saveEvidencePhotoRecord(draftId, path));
+      if (path.isNotEmpty) {
+        unawaited(
+          _saveEvidencePhotoRecord(
+            draftId,
+            provider.activeStationSample.id,
+            path,
+          ),
+        );
+      }
     });
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -449,7 +463,11 @@ class _CvtTabState extends State<CvtTab> {
     _updateCalculations();
   }
 
-  Future<void> _saveEvidencePhotoRecord(String draftId, String path) async {
+  Future<void> _saveEvidencePhotoRecord(
+    String draftId,
+    String stationSampleId,
+    String path,
+  ) async {
     final sessionId = widget.audit.sessionId;
     if (draftId.isEmpty ||
         sessionId == null ||
@@ -465,7 +483,12 @@ class _CvtTabState extends State<CvtTab> {
       createdAt: existing?.createdAt ?? DateTime.now(),
       sessionId: sessionId,
       panelName: 'chick_quality',
-      panelRowId: '$sessionId:chick_quality:$draftId',
+      panelRowId: panelRowIdForPhoto(
+        sessionId: sessionId,
+        panelName: 'chick_quality',
+        draftId: draftId,
+        stationSampleId: stationSampleId,
+      ),
       fieldKey: 'cvt',
       uploadStatus: existing?.uploadStatus ?? 'local',
     );

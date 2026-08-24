@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/features/audits/models/culled_chicks_analysis.dart';
 
 void main() {
-  test('encodes count inputs as egg-set percentages only', () {
+  test('encodes count inputs alongside egg-set percentages', () {
     final encoded = CulledChicksAnalysisCodec.encodeCounts({
       'navel_open_unhealed': 3,
       'navel_string': 2,
@@ -12,7 +12,7 @@ void main() {
 
     expect(encoded, isNotNull);
     expect(encoded, contains('"pct"'));
-    expect(encoded, isNot(contains('"count"')));
+    expect(encoded, contains('"count":3'));
 
     final summary = CulledChicksAnalysisSummary.fromJson(
       encoded,
@@ -30,6 +30,21 @@ void main() {
     );
     expect(summary.topSubtype, 'Open / unhealed navel');
   });
+
+  for (final totalEggSet in [7, 19200, 10000000]) {
+    test('count 3 survives save and reload with total $totalEggSet', () {
+      final encoded = CulledChicksAnalysisCodec.encodeCounts({
+        'navel_open_unhealed': 3,
+      }, totalEggSet: totalEggSet);
+
+      final restored = CulledChicksAnalysisCodec.countsFromPercentages(
+        encoded,
+        totalEggSet: totalEggSet,
+      );
+
+      expect(restored['navel_open_unhealed'], 3);
+    });
+  }
 
   test('short beak is not part of culled chicks analysis persistence', () {
     expect(culledChickDefectById('head_short_beak'), isNull);

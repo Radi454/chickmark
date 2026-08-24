@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/services/panel_aggregate_deriver.dart';
+import 'package:hatchaudit/features/audits/models/temperature_entry_unit.dart';
+import 'package:hatchaudit/features/audits/models/temperature_readings_payload.dart';
 
 void main() {
   test('egg weight cache is always derived from raw readings', () {
@@ -35,5 +37,19 @@ void main() {
 
     expect(result.row['infertilePct'], isNull);
     expect(result.qualityFlags, contains('invalid_denominator'));
+  });
+
+  test('Celsius chick entry derives a canonical Fahrenheit average', () {
+    final payload = TemperatureReadingsPayload.fromDisplay(
+      unit: TemperatureEntryUnit.celsius,
+      readings: const {'front_top': 40.0, 'middle_middle': 39.0},
+      canonicalUnit: TemperatureEntryUnit.fahrenheit,
+    );
+
+    final result = PanelAggregateDeriver.derive('chick_quality', {
+      'cvtReadingsJson': payload.toJsonString(),
+    });
+
+    expect(result.row['cvtAvgTemp'], closeTo(103.1, 0.001));
   });
 }

@@ -323,10 +323,7 @@ void main() {
       expect(quality.first['culledChicksTotalEggSet'], 19200);
       expect(quality.first['culledChicksAnalysisJson'], contains('red_hocks'));
       expect(quality.first['culledChicksAnalysisJson'], contains('"pct"'));
-      expect(
-        quality.first['culledChicksAnalysisJson'],
-        isNot(contains('"count"')),
-      );
+      expect(quality.first['culledChicksAnalysisJson'], contains('"count":3'));
       expect(
         quality.first['culledChicksAffectedPct'],
         closeTo(5 / 19200 * 100, 0.000001),

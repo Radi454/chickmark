@@ -195,10 +195,9 @@ class PanelRecord {
   }
 
   static String _dateOnly(DateTime value) {
-    final utc = value.toUtc();
-    final year = utc.year.toString().padLeft(4, '0');
-    final month = utc.month.toString().padLeft(2, '0');
-    final day = utc.day.toString().padLeft(2, '0');
+    final year = value.year.toString().padLeft(4, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
     return '$year-$month-$day';
   }
 }

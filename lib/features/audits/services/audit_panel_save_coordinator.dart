@@ -15,6 +15,7 @@ import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
 import '../logic/breakout_value_builders.dart';
 import '../logic/panel_value_builders.dart';
+import '../logic/panel_photo_identity.dart';
 import '../models/audit_context.dart';
 import '../models/egg_breakout_sample.dart';
 import '../models/egg_grading.dart';
@@ -977,7 +978,12 @@ class AuditPanelSaveCoordinator {
         scopeType == SamplingLayer.setterHatcher;
     final rowId = PanelSampleRepository.idKeyedPanelTables.contains(tableName)
         ? sample.id
-        : '$panelId:${sample.id}';
+        : panelRowIdForPhoto(
+            sessionId: sample.auditSessionId,
+            panelName: tableName,
+            draftId: draft.id,
+            stationSampleId: sample.id,
+          );
     return PanelSampleRecord(
       id: rowId,
       panelId: panelId,

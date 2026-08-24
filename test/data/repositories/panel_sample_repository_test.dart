@@ -238,6 +238,30 @@ void main() {
     expect(rows.single['sampleSize'], 100);
   });
 
+  test(
+    'aggregate quality flags remain observable after repository save',
+    () async {
+      await repository.upsertRow(
+        tableName: 'chick_quality',
+        row: {
+          'id': 'quality-flag-row',
+          'sessionId': 'session-1',
+          'customerId': 'customer-1',
+          'date': '2026-05-13',
+          'createdAt': '2026-05-13T00:00:00.000',
+          'updatedAt': '2026-05-13T00:00:00.000',
+          'pasgarSampleSize': 0,
+          'pasgarReflexesCount': 1,
+        },
+      );
+
+      expect(
+        repository.lastQualityFlagsByTable['chick_quality'],
+        contains('invalid_denominator'),
+      );
+    },
+  );
+
   test('savePanelWithSamples writes one row per nested leaf scope', () async {
     final panel = PanelRecord(
       id: 'nested-scope-panel',

@@ -7,6 +7,7 @@ import '../../../data/models/photo_model.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../services/photo/photo_service.dart';
 import '../providers/audit_provider.dart';
+import '../logic/panel_photo_identity.dart';
 import 'inline_camera_capture.dart';
 
 class PhotoButton extends StatefulWidget {
@@ -299,7 +300,8 @@ class _PhotoButtonState extends State<PhotoButton> {
 
   _PanelPhotoIdentity? _currentPanelPhotoIdentity() {
     try {
-      final draft = context.read<AuditProvider>().activeDraft;
+      final provider = context.read<AuditProvider>();
+      final draft = provider.activeDraft;
       final sessionId = draft.sessionId;
       final panelName = widget.panelName ?? _defaultPanelName(draft.auditType);
       if (sessionId == null || sessionId.isEmpty || panelName == null) {
@@ -308,7 +310,14 @@ class _PhotoButtonState extends State<PhotoButton> {
       return _PanelPhotoIdentity(
         sessionId: sessionId,
         panelName: panelName,
-        panelRowId: widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        panelRowId:
+            widget.panelRowId ??
+            panelRowIdForPhoto(
+              sessionId: sessionId,
+              panelName: panelName,
+              draftId: draft.id,
+              stationSampleId: provider.activeStationSample.id,
+            ),
         fieldKey: widget.fieldKey ?? 'photo',
       );
     } catch (_) {
@@ -703,7 +712,8 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
 
   _PanelPhotoIdentity? _currentPanelPhotoIdentity() {
     try {
-      final draft = context.read<AuditProvider>().activeDraft;
+      final provider = context.read<AuditProvider>();
+      final draft = provider.activeDraft;
       final sessionId = draft.sessionId;
       final panelName = widget.panelName ?? _defaultPanelName(draft.auditType);
       if (sessionId == null || sessionId.isEmpty || panelName == null) {
@@ -712,7 +722,14 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
       return _PanelPhotoIdentity(
         sessionId: sessionId,
         panelName: panelName,
-        panelRowId: widget.panelRowId ?? '$sessionId:$panelName:${draft.id}',
+        panelRowId:
+            widget.panelRowId ??
+            panelRowIdForPhoto(
+              sessionId: sessionId,
+              panelName: panelName,
+              draftId: draft.id,
+              stationSampleId: provider.activeStationSample.id,
+            ),
         fieldKey: widget.fieldKey ?? 'photo',
       );
     } catch (_) {

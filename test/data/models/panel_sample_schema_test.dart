@@ -3,6 +3,23 @@ import 'package:hatchaudit/data/models/panel_sample_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 
 void main() {
+  test('panel rows preserve their local calendar date', () {
+    final localDate = DateTime(2026, 8, 23);
+    final record = PanelRecord(
+      id: 'row-1',
+      tableName: 'chick_quality',
+      sessionId: 'session-1',
+      customerId: 'customer-1',
+      date: localDate,
+    );
+
+    final expected =
+        '${localDate.year.toString().padLeft(4, '0')}-'
+        '${localDate.month.toString().padLeft(2, '0')}-'
+        '${localDate.day.toString().padLeft(2, '0')}';
+    expect(record.toMap()['date'], expected);
+  });
+
   test('panel schema exposes one storage table per panel', () {
     expect(PanelSampleSchema.panels.length, 9);
     expect(
