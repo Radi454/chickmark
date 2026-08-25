@@ -485,14 +485,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
         .map((weight) => weight!)
         .toList();
 
-    final allWeights = _weightControllers
-        .map((controller) => double.tryParse(controller.text))
-        .toList();
-
     if (weights.isEmpty) {
-      provider.updateChickWeightSampleResult(
-        weightsJson: jsonEncode(allWeights),
-      );
+      provider.updateChickWeightSampleResult(weightsJson: jsonEncode(weights));
       return;
     }
 
@@ -507,7 +501,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     );
 
     provider.updateChickWeightSampleResult(
-      weightsJson: jsonEncode(allWeights),
+      weightsJson: jsonEncode(weights),
       avgWeight: avg,
       uniformityPct: uniformity,
       cvPct: cv,

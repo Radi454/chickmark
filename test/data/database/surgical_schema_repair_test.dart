@@ -270,6 +270,73 @@ void main() {
       );
     });
 
+    test(
+      'duplicate legacy active placements survive repair without blocking open',
+      () async {
+        var db = await DatabaseHelper().db;
+        await db.insert('customers', {
+          'id': 'duplicate-placement-customer',
+          'name': 'Placement Customer',
+          'createdAt': '2026-08-25T00:00:00.000Z',
+        });
+        await db.insert('flocks', {
+          'id': 'duplicate-placement-flock',
+          'customerId': 'duplicate-placement-customer',
+          'flockId': 'F-DUPLICATE',
+          'breed': 'Ross 308',
+          'entryDate': '2026-08-01',
+          'status': 'active',
+        });
+        await db.insert('farms', {
+          'id': 'duplicate-placement-farm',
+          'customerId': 'duplicate-placement-customer',
+          'sectorKey': 'broiler',
+          'name': 'Placement Farm',
+        });
+        await db.insert('houses', {
+          'id': 'duplicate-placement-house',
+          'farmId': 'duplicate-placement-farm',
+          'name': 'House 1',
+        });
+        await db.execute('DROP INDEX idx_active_placement_per_house');
+        for (final id in const [
+          'duplicate-placement-1',
+          'duplicate-placement-2',
+        ]) {
+          await db.insert('flock_placements', {
+            'id': id,
+            'flockId': 'duplicate-placement-flock',
+            'houseId': 'duplicate-placement-house',
+            'placedBirds': 1000,
+            'placedAt': '2026-08-01',
+            'status': 'active',
+          });
+        }
+
+        await DatabaseHelper().close();
+        db = await DatabaseHelper().db;
+
+        expect(
+          await db.query(
+            'flock_placements',
+            where: 'houseId = ?',
+            whereArgs: ['duplicate-placement-house'],
+          ),
+          hasLength(2),
+          reason: 'repair must preserve both ambiguous legacy placements',
+        );
+        expect(
+          await db.rawQuery(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'idx_active_placement_per_house'",
+          ),
+          isEmpty,
+          reason:
+              'the unique index must be deferred until the conflict is resolved',
+        );
+      },
+    );
+
     test('missing index is restored after drop', () async {
       var db = await DatabaseHelper().db;
       await db.execute('DROP INDEX idx_audit_sessions_customer_date');

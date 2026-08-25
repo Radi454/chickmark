@@ -1179,7 +1179,10 @@ egg-weight-style draggable Enter Weights modal sheet and persists each active
 house sample's own weights, sample size, average, uniformity, and CV% into its
 `chick_weights` row. Weight entry changes are staged briefly while the user is
 typing and then committed after a short debounce, or immediately when the sheet
-closes, so the full Chicks station does not rebuild on every keypad tap. New or
+closes, so the full Chicks station does not rebuild on every keypad tap. The
+worksheet keeps 100 visible entry slots, but its persisted raw series contains
+only the numeric readings the operator entered; unused slots are not stored as
+JSON nulls. New or
 blank comparison-house samples do not inherit the previous active house's
 weight grid or calculated metrics.
 Dashboard chick-weight trends do not read those legacy audit fields.
@@ -2249,6 +2252,12 @@ errors during database open as a local development recovery case. The app
 deletes the local `hatchaudit.db` store and retries opening once so a malformed
 browser-backed IndexedDB database does not leave the Flutter app on a blank
 screen. Release builds do not auto-delete the database on open errors.
+Surgical repair also tolerates a preserved legacy database that has multiple
+active flock placements for one house but lacks the partial unique index. It
+does not guess which placement is correct, merge rows, or delete evidence; it
+opens with every row intact and defers that one index until the conflict is
+explicitly resolved. Fresh and conflict-free databases create the index
+normally.
 
 The v41 database cutover is destructive. Upgrading from any older local schema
 drops old app tables, including legacy audit/sample tables, legacy Govee spot
@@ -3578,7 +3587,9 @@ flock; and lab rows belong to a lab group and report.
 For performance monitoring, a customer may enable multiple poultry sectors,
 each farm has exactly one sector, houses belong to farms, and a flock may span
 multiple house placements. A partial unique index prevents two active flock
-placements in one house. One stable Broiler daily record exists per
+placements in one house on fresh and conflict-free databases; repair preserves
+ambiguous legacy rows and defers that index instead of silently choosing a
+winner. One stable Broiler daily record exists per
 placement/date; source corrections are stored as numbered revision rows rather
 than overwriting earlier evidence. Visits, findings, cause assessments,
 corrective actions, and action KPI evaluations use farm-specific tables and do

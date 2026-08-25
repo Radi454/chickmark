@@ -1001,11 +1001,7 @@ Future<void> _createPerformanceMonitoringTables(DatabaseExecutor db) async {
     'CREATE INDEX IF NOT EXISTS idx_flock_placements_flock '
     'ON flock_placements (flockId, status, placedAt)',
   );
-  await db.execute(
-    'CREATE UNIQUE INDEX IF NOT EXISTS idx_active_placement_per_house '
-    'ON flock_placements (houseId) '
-    "WHERE status = 'active' AND endedAt IS NULL",
-  );
+  await _ensureActivePlacementUniqueIndex(db);
 
   await db.execute('''CREATE TABLE IF NOT EXISTS broiler_daily_records (
     id TEXT PRIMARY KEY,
@@ -1550,6 +1546,30 @@ Future<void> _createTelegramStaffLinkIndexes(DatabaseExecutor db) async {
   await db.execute(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_staff_links_app_user '
     'ON telegram_staff_links (appUserId) WHERE appUserId IS NOT NULL',
+  );
+}
+
+Future<void> _ensureActivePlacementUniqueIndex(DatabaseExecutor db) async {
+  final conflicts = await db.rawQuery('''
+    SELECT houseId, COUNT(*) AS activeCount
+    FROM flock_placements
+    WHERE status = 'active' AND endedAt IS NULL
+    GROUP BY houseId
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  ''');
+  if (conflicts.isNotEmpty) {
+    final conflict = conflicts.single;
+    debugPrint(
+      '[DB REPAIR] idx_active_placement_per_house deferred: '
+      'house ${conflict['houseId']} has ${conflict['activeCount']} active placements',
+    );
+    return;
+  }
+  await db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_active_placement_per_house '
+    'ON flock_placements (houseId) '
+    "WHERE status = 'active' AND endedAt IS NULL",
   );
 }
 

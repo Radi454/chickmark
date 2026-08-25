@@ -1024,6 +1024,7 @@ void main() {
 
     expect(provider.activeDraft.chickSampleSize, 1);
     expect(provider.activeDraft.chickAvgWeight, 12.0);
+    expect(jsonDecode(provider.activeDraft.chickWeights!), [12.0]);
   });
 
   testWidgets('chick weight metric summary follows reviewer order', (

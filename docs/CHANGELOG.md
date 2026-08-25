@@ -1,5 +1,16 @@
 # ChickMark Change Log
 
+- 2026-08-25: Prevented web startup from failing when a preserved legacy
+  database contains multiple active flock placements for one house but is
+  missing the corresponding partial unique index. Surgical repair now keeps
+  every ambiguous placement row unchanged and defers only that index until the
+  data conflict is explicitly resolved; healthy and fresh databases still
+  create and enforce the index normally. Added a regression test reproducing
+  the browser startup failure. The Chick Weight worksheet now persists only
+  entered numeric readings instead of encoding its unused grid slots as JSON
+  nulls, so valid partial samples satisfy the registry's numeric-series
+  contract and save normally. No live Supabase changes were made.
+
 - 2026-08-24: Completed the Chick Quality V2 Phase 5 evidence-based cleanup
   audit without removing compatibility data. A deterministic Dart audit now
   derives raw and calculated compatibility vocabulary from the canonical
