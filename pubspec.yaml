@@ -37,13 +37,13 @@ dependencies:
   record: ^7.1.1
   audioplayers: ^6.1.0
   gpt_markdown: ^1.1.8
-  # Realtime voice ("Pip Live"): WebRTC transport to OpenAI Realtime, plus the
-  # HTTP/WebSocket clients the SDP exchange and Cloud Run sideband need. `http`
-  # and `web_socket_channel` were already present transitively; they are
-  # declared here because this feature imports them directly.
-  flutter_webrtc: ^1.6.0
-  http: ^1.2.0
-  web_socket_channel: ^3.0.0
+  # Printable/exportable consolidated breeder daily report (breeder-flock
+  # -performance ticket 19). Nothing already in this app generates a PDF —
+  # only opens/attaches externally-produced ones (see the lab-analysis
+  # report-PDF picker) — so `pdf`/`printing` are the standard Flutter pair
+  # for building a document and handing it to the OS print/share sheet.
+  pdf: ^3.11.1
+  printing: ^5.13.4
 
 dev_dependencies:
   flutter_test:
@@ -63,4 +63,11 @@ flutter:
     - assets/branding/chickmark-agent-avatar.png
     - assets/branding/chickmark-mark-onbrand.png
     - assets/audio/filler_chime.wav
+    - assets/benchmarks/metric_definitions.json
+    - assets/benchmarks/aviagen_ross308_parent_stock_2021_en.json
+    - assets/benchmarks/aviagen_arboracres_plus_parent_stock_2021_en.json
+    - assets/benchmarks/aviagen_indianriver_parent_stock_2021_en.json
+    - assets/benchmarks/hubbard_conventional_edge_parent_stock_2025_en.json
+    - assets/benchmarks/cobb500_fast_feather_parent_stock_2020_en.json
+    - assets/fonts/NotoNaskhArabic-Regular.ttf
     - .env.json

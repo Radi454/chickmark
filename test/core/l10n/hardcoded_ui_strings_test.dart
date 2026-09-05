@@ -80,6 +80,14 @@ void main() {
       'Pasgar',
       'PDF',
       'Ross308',
+      // Breeder-company line names. These are product names printed on the
+      // guides themselves and are never translated — the same reason
+      // 'Ross308' above is exempt.
+      'Ross 308',
+      'Arbor Acres',
+      'Indian River',
+      'Cobb500 FF',
+      'Hubbard EDGE',
       'S',
       'H',
       'T',

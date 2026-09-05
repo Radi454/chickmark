@@ -35,24 +35,6 @@ enum FlockSexProfile {
   }
 }
 
-enum PlacementStatus {
-  active('active'),
-  ended('ended'),
-  transferred('transferred');
-
-  const PlacementStatus(this.storageKey);
-
-  final String storageKey;
-
-  static PlacementStatus fromStorage(String? value) {
-    final normalized = value?.trim().toLowerCase();
-    return values.firstWhere(
-      (status) => status.storageKey == normalized,
-      orElse: () => active,
-    );
-  }
-}
-
 class CustomerSectorModel {
   CustomerSectorModel({
     required this.id,
@@ -133,113 +115,20 @@ class CustomerSectorModel {
   }
 }
 
-class FarmModel {
-  FarmModel({
-    required this.id,
-    required this.customerId,
-    required this.sector,
-    required this.name,
-    this.location,
-    this.notes,
-    this.isActive = true,
-    this.createdBy,
-    this.createdAt,
-    this.updatedAt,
-    this.syncStatus = 'pending',
-    this.dirtyAt,
-    this.lastSyncedAt,
-    this.syncError,
-  }) {
-    _requireText(id, 'id');
-    _requireText(customerId, 'customerId');
-    _requireText(name, 'name');
-  }
-
-  final String id;
-  final String customerId;
-  final PoultrySector sector;
-  final String name;
-  final String? location;
-  final String? notes;
-  final bool isActive;
-  final String? createdBy;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-  final String syncStatus;
-  final DateTime? dirtyAt;
-  final DateTime? lastSyncedAt;
-  final String? syncError;
-
-  factory FarmModel.fromMap(Map<String, dynamic> map) {
-    return FarmModel(
-      id: _string(map['id']),
-      customerId: _string(map['customerId']),
-      sector: PoultrySector.fromStorage(map['sectorKey']?.toString()),
-      name: _string(map['name']),
-      location: map['location']?.toString(),
-      notes: map['notes']?.toString(),
-      isActive: _bool(map['isActive'], fallback: true),
-      createdBy: map['createdBy']?.toString(),
-      createdAt: _date(map['createdAt']),
-      updatedAt: _date(map['updatedAt']),
-      syncStatus: map['syncStatus']?.toString() ?? 'synced',
-      dirtyAt: _date(map['dirtyAt']),
-      lastSyncedAt: _date(map['lastSyncedAt']),
-      syncError: map['syncError']?.toString(),
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'customerId': customerId,
-    'sectorKey': sector.storageKey,
-    'name': name.trim(),
-    'location': location?.trim(),
-    'notes': notes?.trim(),
-    'isActive': isActive ? 1 : 0,
-    'createdBy': createdBy,
-    'createdAt': createdAt?.toUtc().toIso8601String(),
-    'updatedAt': updatedAt?.toUtc().toIso8601String(),
-    'syncStatus': syncStatus,
-    'dirtyAt': dirtyAt?.toUtc().toIso8601String(),
-    'lastSyncedAt': lastSyncedAt?.toUtc().toIso8601String(),
-    'syncError': syncError,
-  };
-
-  FarmModel copyWith({
-    String? name,
-    String? location,
-    String? notes,
-    bool? isActive,
-    DateTime? updatedAt,
-    String? syncStatus,
-  }) {
-    return FarmModel(
-      id: id,
-      customerId: customerId,
-      sector: sector,
-      name: name ?? this.name,
-      location: location ?? this.location,
-      notes: notes ?? this.notes,
-      isActive: isActive ?? this.isActive,
-      createdBy: createdBy,
-      createdAt: createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      syncStatus: syncStatus ?? this.syncStatus,
-      dirtyAt: dirtyAt,
-      lastSyncedAt: lastSyncedAt,
-      syncError: syncError,
-    );
-  }
-}
-
+/// A house belongs to exactly one flock: a farm and a flock are the same
+/// thing in this business, so there is no separate farm to own it and no
+/// per-house placement date. `flocks.entryDate` is the single placement date
+/// for every house in the flock, and [openingFemales]/[openingMales] carry
+/// the opening bird balance a house started with.
 class HouseModel {
   HouseModel({
     required this.id,
-    required this.farmId,
+    required this.flockId,
     required this.name,
     this.code,
     this.capacity,
+    this.openingFemales = 0,
+    this.openingMales = 0,
     this.notes,
     this.isActive = true,
     this.createdBy,
@@ -251,18 +140,34 @@ class HouseModel {
     this.syncError,
   }) {
     _requireText(id, 'id');
-    _requireText(farmId, 'farmId');
+    _requireText(flockId, 'flockId');
     _requireText(name, 'name');
     if (capacity != null && capacity! <= 0) {
       throw ArgumentError.value(capacity, 'capacity', 'Must be positive');
     }
+    if (openingFemales < 0) {
+      throw ArgumentError.value(
+        openingFemales,
+        'openingFemales',
+        'Must not be negative',
+      );
+    }
+    if (openingMales < 0) {
+      throw ArgumentError.value(
+        openingMales,
+        'openingMales',
+        'Must not be negative',
+      );
+    }
   }
 
   final String id;
-  final String farmId;
+  final String flockId;
   final String name;
   final String? code;
   final int? capacity;
+  final int openingFemales;
+  final int openingMales;
   final String? notes;
   final bool isActive;
   final String? createdBy;
@@ -276,10 +181,12 @@ class HouseModel {
   factory HouseModel.fromMap(Map<String, dynamic> map) {
     return HouseModel(
       id: _string(map['id']),
-      farmId: _string(map['farmId']),
+      flockId: _string(map['flockId']),
       name: _string(map['name']),
       code: map['code']?.toString(),
       capacity: _integer(map['capacity']),
+      openingFemales: _integer(map['openingFemales']) ?? 0,
+      openingMales: _integer(map['openingMales']) ?? 0,
       notes: map['notes']?.toString(),
       isActive: _bool(map['isActive'], fallback: true),
       createdBy: map['createdBy']?.toString(),
@@ -294,10 +201,12 @@ class HouseModel {
 
   Map<String, dynamic> toMap() => {
     'id': id,
-    'farmId': farmId,
+    'flockId': flockId,
     'name': name.trim(),
     'code': code?.trim(),
     'capacity': capacity,
+    'openingFemales': openingFemales,
+    'openingMales': openingMales,
     'notes': notes?.trim(),
     'isActive': isActive ? 1 : 0,
     'createdBy': createdBy,
@@ -313,6 +222,8 @@ class HouseModel {
     String? name,
     String? code,
     int? capacity,
+    int? openingFemales,
+    int? openingMales,
     String? notes,
     bool? isActive,
     DateTime? updatedAt,
@@ -320,120 +231,14 @@ class HouseModel {
   }) {
     return HouseModel(
       id: id,
-      farmId: farmId,
+      flockId: flockId,
       name: name ?? this.name,
       code: code ?? this.code,
       capacity: capacity ?? this.capacity,
+      openingFemales: openingFemales ?? this.openingFemales,
+      openingMales: openingMales ?? this.openingMales,
       notes: notes ?? this.notes,
       isActive: isActive ?? this.isActive,
-      createdBy: createdBy,
-      createdAt: createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      syncStatus: syncStatus ?? this.syncStatus,
-      dirtyAt: dirtyAt,
-      lastSyncedAt: lastSyncedAt,
-      syncError: syncError,
-    );
-  }
-}
-
-class FlockPlacementModel {
-  FlockPlacementModel({
-    required this.id,
-    required this.flockId,
-    required this.houseId,
-    required this.placedBirds,
-    required this.placedAt,
-    this.endedAt,
-    this.status = PlacementStatus.active,
-    this.notes,
-    this.createdBy,
-    this.createdAt,
-    this.updatedAt,
-    this.syncStatus = 'pending',
-    this.dirtyAt,
-    this.lastSyncedAt,
-    this.syncError,
-  }) {
-    _requireText(id, 'id');
-    _requireText(flockId, 'flockId');
-    _requireText(houseId, 'houseId');
-    if (placedBirds <= 0) {
-      throw ArgumentError.value(placedBirds, 'placedBirds', 'Must be positive');
-    }
-  }
-
-  final String id;
-  final String flockId;
-  final String houseId;
-  final int placedBirds;
-  final DateTime placedAt;
-  final DateTime? endedAt;
-  final PlacementStatus status;
-  final String? notes;
-  final String? createdBy;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-  final String syncStatus;
-  final DateTime? dirtyAt;
-  final DateTime? lastSyncedAt;
-  final String? syncError;
-
-  factory FlockPlacementModel.fromMap(Map<String, dynamic> map) {
-    return FlockPlacementModel(
-      id: _string(map['id']),
-      flockId: _string(map['flockId']),
-      houseId: _string(map['houseId']),
-      placedBirds: _integer(map['placedBirds']) ?? 0,
-      placedAt:
-          _date(map['placedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
-      endedAt: _date(map['endedAt']),
-      status: PlacementStatus.fromStorage(map['status']?.toString()),
-      notes: map['notes']?.toString(),
-      createdBy: map['createdBy']?.toString(),
-      createdAt: _date(map['createdAt']),
-      updatedAt: _date(map['updatedAt']),
-      syncStatus: map['syncStatus']?.toString() ?? 'synced',
-      dirtyAt: _date(map['dirtyAt']),
-      lastSyncedAt: _date(map['lastSyncedAt']),
-      syncError: map['syncError']?.toString(),
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'flockId': flockId,
-    'houseId': houseId,
-    'placedBirds': placedBirds,
-    'placedAt': placedAt.toUtc().toIso8601String(),
-    'endedAt': endedAt?.toUtc().toIso8601String(),
-    'status': status.storageKey,
-    'notes': notes?.trim(),
-    'createdBy': createdBy,
-    'createdAt': createdAt?.toUtc().toIso8601String(),
-    'updatedAt': updatedAt?.toUtc().toIso8601String(),
-    'syncStatus': syncStatus,
-    'dirtyAt': dirtyAt?.toUtc().toIso8601String(),
-    'lastSyncedAt': lastSyncedAt?.toUtc().toIso8601String(),
-    'syncError': syncError,
-  };
-
-  FlockPlacementModel copyWith({
-    DateTime? endedAt,
-    PlacementStatus? status,
-    String? notes,
-    DateTime? updatedAt,
-    String? syncStatus,
-  }) {
-    return FlockPlacementModel(
-      id: id,
-      flockId: flockId,
-      houseId: houseId,
-      placedBirds: placedBirds,
-      placedAt: placedAt,
-      endedAt: endedAt ?? this.endedAt,
-      status: status ?? this.status,
-      notes: notes ?? this.notes,
       createdBy: createdBy,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

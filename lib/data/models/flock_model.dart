@@ -11,7 +11,6 @@ class FlockModel {
   final String flockId;
   final String breed;
   final DateTime entryDate;
-  final String? farmId;
   final PoultrySector? sector;
   final FlockSexProfile sexProfile;
   final String? targetProfileId;
@@ -27,7 +26,6 @@ class FlockModel {
     required this.flockId,
     required this.breed,
     required this.entryDate,
-    this.farmId,
     this.sector,
     this.sexProfile = FlockSexProfile.asHatched,
     this.targetProfileId,
@@ -48,7 +46,6 @@ class FlockModel {
       flockId: map['flockId'] ?? map['id'],
       breed: map['breed'] ?? 'Unknown',
       entryDate: DateTime.tryParse(map['entryDate'] ?? '') ?? DateTime.now(),
-      farmId: map['farmId']?.toString(),
       sector: _parseSector(map['sectorKey']),
       sexProfile: FlockSexProfile.fromStorage(map['sexProfile']?.toString()),
       targetProfileId: map['targetProfileId']?.toString(),
@@ -70,7 +67,6 @@ class FlockModel {
       'flockId': flockId,
       'breed': breed,
       'entryDate': entryDate.toIso8601String(),
-      'farmId': farmId,
       'sectorKey': sector?.storageKey,
       'sexProfile': sexProfile.storageKey,
       'targetProfileId': targetProfileId,
@@ -87,14 +83,19 @@ class FlockModel {
 
   bool get isSold => status == soldStatus;
 
-  bool get hasReachedDepletionAge =>
-      currentAgeWeeks >= depletionAgeWeeks && depletionAgeWeeks > 0;
+  // Depletion is never forced at a fixed age (breeder-flock-performance
+  // ticket 06, design section 3): `flocks.depletionAgeWeeks` is not read by
+  // this model or anywhere else. Actual depletion is controlled by recorded
+  // `breeder_flock_milestones` partial/final-depletion events — see
+  // `BreederFlockLifecycleService` — not by a flock's age. The
+  // `hasReachedDepletionAge` getter that used to gate this was removed for
+  // that reason; `depletionAgeWeeks` itself stays on this model only
+  // because the column is not yet dropped (scheduled for a later cleanup).
 
-  bool get isAvailableForAudit => !isSold && !hasReachedDepletionAge;
+  bool get isAvailableForAudit => !isSold;
 
   String get availabilityLabel {
     if (isSold) return 'Sold';
-    if (hasReachedDepletionAge) return 'Depleted';
     return 'Active';
   }
 
@@ -104,7 +105,6 @@ class FlockModel {
     String? flockId,
     String? breed,
     DateTime? entryDate,
-    String? farmId,
     PoultrySector? sector,
     FlockSexProfile? sexProfile,
     String? targetProfileId,
@@ -113,7 +113,6 @@ class FlockModel {
     String? status,
     int? depletionAgeWeeks,
     DateTime? soldAt,
-    bool clearFarmId = false,
     bool clearSector = false,
     bool clearTargetProfileId = false,
     bool clearProductionPhase = false,
@@ -125,7 +124,6 @@ class FlockModel {
       flockId: flockId ?? this.flockId,
       breed: breed ?? this.breed,
       entryDate: entryDate ?? this.entryDate,
-      farmId: clearFarmId ? null : farmId ?? this.farmId,
       sector: clearSector ? null : sector ?? this.sector,
       sexProfile: sexProfile ?? this.sexProfile,
       targetProfileId: clearTargetProfileId

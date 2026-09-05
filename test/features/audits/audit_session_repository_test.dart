@@ -17,6 +17,7 @@ class MockDatabaseHelper extends Mock implements DatabaseHelper {}
 class MockTransaction extends Mock implements Transaction {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
     registerFallbackValue(
       AuditSessionModel(

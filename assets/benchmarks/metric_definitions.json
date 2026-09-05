@@ -1,0 +1,202 @@
+{
+  "metrics": [
+    {
+      "code": "body_weight_g",
+      "label": "Body Weight",
+      "unit": "g",
+      "sexScope": "both",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 0
+    },
+    {
+      "code": "daily_feed_intake_g",
+      "label": "Daily Feed Intake",
+      "unit": "g/bird/day",
+      "sexScope": "both",
+      "periodType": "daily",
+      "aggregationMethod": "average",
+      "displayPrecision": 0
+    },
+    {
+      "code": "hen_housed_production_pct",
+      "label": "Hen-Housed Production",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hen_week_production_pct",
+      "label": "Hen-Week Production",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "eggs_per_hen_housed_weekly",
+      "label": "Eggs per Hen-Housed (Weekly)",
+      "unit": "eggs/bird",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "sum",
+      "displayPrecision": 1
+    },
+    {
+      "code": "eggs_per_hen_housed_cumulative",
+      "label": "Eggs per Hen-Housed (Cumulative)",
+      "unit": "eggs/bird",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "cumulative",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatching_eggs_per_hen_housed_weekly",
+      "label": "Hatching Eggs per Hen-Housed (Weekly)",
+      "unit": "eggs/bird",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "sum",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatching_eggs_per_hen_housed_cumulative",
+      "label": "Hatching Eggs per Hen-Housed (Cumulative)",
+      "unit": "eggs/bird",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "cumulative",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatching_egg_utilization_weekly_pct",
+      "label": "Hatching Egg Utilization (Weekly)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatching_egg_utilization_cumulative_pct",
+      "label": "Hatching Egg Utilization (Cumulative)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatchability_all_eggs_weekly_pct",
+      "label": "Hatchability of All Eggs (Weekly)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "hatchability_cumulative_pct",
+      "label": "Hatchability of All Eggs (Cumulative)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "chicks_per_hen_housed_weekly",
+      "label": "Chicks per Hen-Housed (Weekly)",
+      "unit": "chicks/bird",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "sum",
+      "displayPrecision": 1
+    },
+    {
+      "code": "chicks_per_hen_housed_cumulative",
+      "label": "Chicks per Hen-Housed (Cumulative)",
+      "unit": "chicks/bird",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "cumulative",
+      "displayPrecision": 1
+    },
+    {
+      "code": "egg_weight_g",
+      "label": "Egg Weight",
+      "unit": "g",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "egg_mass_g",
+      "label": "Egg Mass",
+      "unit": "g",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "liveability_rearing_pct",
+      "label": "Liveability (Rearing Period)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 0
+    },
+    {
+      "code": "liveability_laying_pct",
+      "label": "Liveability (Laying Period)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 0
+    },
+    {
+      "code": "fertility_weekly_pct",
+      "label": "Fertility (Weekly)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "fertility_cumulative_pct",
+      "label": "Fertility (Cumulative)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    },
+    {
+      "code": "flock_mortality_cumulative_pct",
+      "label": "Flock Mortality (Cumulative)",
+      "unit": "%",
+      "sexScope": "female",
+      "periodType": "cumulative",
+      "aggregationMethod": "average",
+      "displayPrecision": 2
+    },
+    {
+      "code": "chick_weight_g",
+      "label": "Chick Weight",
+      "unit": "g",
+      "sexScope": "female",
+      "periodType": "weekly",
+      "aggregationMethod": "average",
+      "displayPrecision": 1
+    }
+  ]
+}

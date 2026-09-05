@@ -13,12 +13,16 @@ import '../../../data/models/audit_model.dart';
 import '../../../features/dashboard/providers/dashboard_provider.dart';
 import '../../../features/dashboard/models/visit_session_summary.dart';
 import '../../../features/customers/widgets/add_flock_sheet.dart';
+import '../../../features/customers/widgets/breeder_flock_lifecycle_summary.dart';
+import '../../../features/breeder/screens/breeder_flock_overview_screen.dart';
+import '../../../features/breeder/screens/breeder_performance_alerts_screen.dart';
+import '../../../features/breeder/screens/breeder_weighing_session_list_screen.dart';
+import '../../../features/breeder/screens/egg_batch_shipment_list_screen.dart';
 import '../../../features/customers/widgets/flock_management_sheet.dart';
 import '../../../features/customers/widgets/add_hatchery_sheet.dart';
 import '../../../features/customers/widgets/add_customer_sheet.dart';
 import '../../../features/customers/widgets/audit_history_card.dart';
 import '../../../features/customers/widgets/customer_sector_management_sheet.dart';
-import '../../../features/customers/widgets/farm_management_sheet.dart';
 import '../../../features/customers/screens/audit_detail_screen.dart';
 import '../../../features/customers/screens/visit_detail_screen.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -116,7 +120,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         if (sectors.isEmpty)
           _buildEmptyState(
             title: 'No sectors enabled',
-            subtitle: 'Enable Breeder, Broiler, or Layer before adding farms.',
+            subtitle: 'Enable Breeder, Broiler, or Layer before adding flocks.',
             actionLabel: 'Manage sectors',
             icon: Icons.tune_outlined,
             onAction: canEdit
@@ -135,31 +139,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 ),
             ],
           ),
-        const SizedBox(height: 22),
-        _buildTabHeader(
-          title: 'Farm hierarchy',
-          count: provider.farms.length,
-          actionLabel: 'Manage',
-          icon: Icons.account_tree_outlined,
-          onAction: canEdit ? () => _showFarmManagementSheet(context) : null,
-        ),
-        const SizedBox(height: 10),
-        if (provider.farms.isEmpty)
-          Text(context.tr('No farms added'))
-        else
-          for (final farm in provider.farms)
-            Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: const Icon(Icons.agriculture_outlined),
-                title: Text(farm.name),
-                subtitle: Text(context.tr(sectorLabel(farm.sector))),
-                trailing: Text(
-                  '${provider.housesForFarm(farm.id).length} '
-                  '${context.tr('houses')}',
-                ),
-              ),
-            ),
       ],
     );
   }
@@ -586,6 +565,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     final ageWeeks = flock.currentAgeWeeks.toInt();
     final displayAge = ageWeeks < 0 ? 0 : ageWeeks;
     final statusLabel = flock.availabilityLabel;
+    final houseCount = context
+        .watch<CustomersProvider>()
+        .housesForFlock(flock.id)
+        .length;
 
     return Card(
       elevation: 2,
@@ -640,14 +623,43 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               const SizedBox(height: 8),
               _buildFlockDetailRow('Current age', '$displayAge weeks'),
               const SizedBox(height: 8),
+              BreederFlockLifecycleSummary(flock: flock),
+              const SizedBox(height: 8),
               _buildFlockDetailRow(
-                'Depletion age',
-                '${flock.depletionAgeWeeks} weeks',
+                'Houses',
+                '$houseCount',
               ),
               if (flock.isSold && flock.soldAt != null) ...[
                 const SizedBox(height: 8),
                 _buildFlockDetailRow('Sold date', _formatDate(flock.soldAt!)),
               ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _openBreederPerformance(context, flock),
+                    icon: const Icon(Icons.assignment_outlined, size: 18),
+                    label: Text(context.tr('Breeder Performance')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _openBreederWeighing(context, flock),
+                    icon: const Icon(Icons.monitor_weight_outlined, size: 18),
+                    label: Text(context.tr('Weighing Sessions')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _openEggBatchesAndShipments(context, flock),
+                    icon: const Icon(Icons.egg_outlined, size: 18),
+                    label: Text(context.tr('Egg Stock & Shipments')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _openBreederAlerts(context, flock),
+                    icon: const Icon(Icons.notifications_active_outlined, size: 18),
+                    label: Text(context.tr('Alerts')),
+                  ),
+                ],
+              ),
               if (canEdit) ...[
                 const SizedBox(height: 14),
                 _buildFlockActions(flock),
@@ -655,6 +667,42 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _openBreederPerformance(BuildContext context, FlockModel flock) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BreederFlockOverviewScreen(flock: flock),
+      ),
+    );
+  }
+
+  void _openBreederWeighing(BuildContext context, FlockModel flock) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BreederWeighingSessionListScreen(flock: flock),
+      ),
+    );
+  }
+
+  void _openBreederAlerts(BuildContext context, FlockModel flock) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BreederPerformanceAlertsScreen(flock: flock),
+      ),
+    );
+  }
+
+  void _openEggBatchesAndShipments(BuildContext context, FlockModel flock) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EggBatchShipmentListScreen(flock: flock),
       ),
     );
   }
@@ -774,17 +822,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       builder: (_) => ChangeNotifierProvider<CustomersProvider>.value(
         value: context.read<CustomersProvider>(),
         child: CustomerSectorManagementSheet(customerId: _customer.id),
-      ),
-    );
-  }
-
-  void _showFarmManagementSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => ChangeNotifierProvider<CustomersProvider>.value(
-        value: context.read<CustomersProvider>(),
-        child: FarmManagementSheet(customerId: _customer.id),
       ),
     );
   }

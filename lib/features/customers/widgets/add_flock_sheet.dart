@@ -6,6 +6,51 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../providers/customers_provider.dart';
 import '../../../data/models/flock_model.dart';
+import '../../../data/models/poultry_hierarchy_models.dart';
+import '../../../data/models/breeder_isolation_area_model.dart';
+
+/// One house row being edited in the flock-creation flow. A farm and a
+/// flock are the same thing in this business, so house setup is folded into
+/// flock creation rather than a separate farm-management screen: this is
+/// the row's editable draft, converted to a [HouseModel] on save.
+class _HouseDraft {
+  _HouseDraft({this.existingId, String name = '', int females = 0, int males = 0})
+    : nameController = TextEditingController(text: name),
+      femalesController = TextEditingController(
+        text: females == 0 ? '' : females.toString(),
+      ),
+      malesController = TextEditingController(
+        text: males == 0 ? '' : males.toString(),
+      );
+
+  final String? existingId;
+  final TextEditingController nameController;
+  final TextEditingController femalesController;
+  final TextEditingController malesController;
+
+  void dispose() {
+    nameController.dispose();
+    femalesController.dispose();
+    malesController.dispose();
+  }
+}
+
+/// One isolation-area row being edited in the flock-creation flow
+/// (breeder-flock-performance ticket 08). Unlike a house, an isolation area
+/// has no opening bird count of its own — birds only ever arrive there via
+/// an internal transfer recorded on a daily report — so this draft is just
+/// a name.
+class _IsolationAreaDraft {
+  _IsolationAreaDraft({this.existingId, String name = ''})
+    : nameController = TextEditingController(text: name);
+
+  final String? existingId;
+  final TextEditingController nameController;
+
+  void dispose() {
+    nameController.dispose();
+  }
+}
 
 class AddFlockSheet extends StatefulWidget {
   final FlockModel? initialFlock;
@@ -20,11 +65,12 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _flockIdController;
   late final TextEditingController _ageWeeksController;
-  late final TextEditingController _depletionAgeController;
   late String _selectedBreed;
   late DateTime _entryDate;
   late bool _useCurrentAge;
   late bool _isSold;
+  final List<_HouseDraft> _houseDrafts = [];
+  final List<_IsolationAreaDraft> _isolationAreaDrafts = [];
   String? _saveError;
   bool _isSaving = false;
 
@@ -50,23 +96,46 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
           ? ''
           : widget.initialFlock!.currentAgeWeeks.toInt().toString(),
     );
-    _depletionAgeController = TextEditingController(
-      text:
-          (widget.initialFlock?.depletionAgeWeeks ??
-                  FlockModel.defaultDepletionAgeWeeks)
-              .toString(),
-    );
     _selectedBreed = widget.initialFlock?.breed ?? 'Ross308';
     _entryDate = widget.initialFlock?.entryDate ?? DateTime.now();
     _useCurrentAge = widget.initialFlock?.isAgeEstimated ?? false;
     _isSold = widget.initialFlock?.isSold ?? false;
+    final existingFlock = widget.initialFlock;
+    if (existingFlock != null) {
+      final existingHouses = context
+          .read<CustomersProvider>()
+          .housesForFlock(existingFlock.id);
+      for (final house in existingHouses) {
+        _houseDrafts.add(
+          _HouseDraft(
+            existingId: house.id,
+            name: house.name,
+            females: house.openingFemales,
+            males: house.openingMales,
+          ),
+        );
+      }
+      final existingAreas = context
+          .read<CustomersProvider>()
+          .isolationAreasForFlock(existingFlock.id);
+      for (final area in existingAreas) {
+        _isolationAreaDrafts.add(
+          _IsolationAreaDraft(existingId: area.id, name: area.name),
+        );
+      }
+    }
   }
 
   @override
   void dispose() {
     _flockIdController.dispose();
     _ageWeeksController.dispose();
-    _depletionAgeController.dispose();
+    for (final draft in _houseDrafts) {
+      draft.dispose();
+    }
+    for (final draft in _isolationAreaDrafts) {
+      draft.dispose();
+    }
     super.dispose();
   }
 
@@ -101,9 +170,6 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
     }
 
     final enteredAge = int.tryParse(_ageWeeksController.text.trim());
-    final depletionAge =
-        int.tryParse(_depletionAgeController.text.trim()) ??
-        FlockModel.defaultDepletionAgeWeeks;
     final resolvedEntryDate = _useCurrentAge && enteredAge != null
         ? DateTime.now().subtract(Duration(days: enteredAge * 7))
         : _entryDate;
@@ -117,7 +183,14 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
       entryDate: resolvedEntryDate,
       isAgeEstimated: _useCurrentAge,
       status: _isSold ? FlockModel.soldStatus : FlockModel.activeStatus,
-      depletionAgeWeeks: depletionAge,
+      // Carried forward unread and unedited: depletionAgeWeeks is no longer
+      // used by any Breeder Performance behaviour (see FlockModel), so this
+      // sheet neither displays nor lets the user change it. Preserving the
+      // existing value on edit just avoids clobbering it back to the
+      // default ahead of the column's later removal.
+      depletionAgeWeeks:
+          widget.initialFlock?.depletionAgeWeeks ??
+          FlockModel.defaultDepletionAgeWeeks,
       soldAt: _isSold ? existingSoldAt ?? DateTime.now() : null,
     );
 
@@ -127,6 +200,12 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
         await customersProvider.updateFlock(flock);
       } else {
         await customersProvider.addFlock(flock);
+      }
+      for (final house in _housesToSave(flock.id)) {
+        await customersProvider.saveHouse(house);
+      }
+      for (final area in _isolationAreasToSave(flock.id)) {
+        await customersProvider.saveIsolationArea(area);
       }
     } catch (error) {
       // Without this the sheet just sat there on any repository/permission
@@ -141,6 +220,59 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
     }
     if (!mounted) return;
     Navigator.of(context).pop(flock);
+  }
+
+  /// Rows with a blank name are skipped rather than saved as an unnamed
+  /// house.
+  List<HouseModel> _housesToSave(String flockId) {
+    final houses = <HouseModel>[];
+    for (final draft in _houseDrafts) {
+      final name = draft.nameController.text.trim();
+      if (name.isEmpty) continue;
+      houses.add(
+        HouseModel(
+          id: draft.existingId ?? const Uuid().v4(),
+          flockId: flockId,
+          name: name,
+          openingFemales: int.tryParse(draft.femalesController.text.trim()) ?? 0,
+          openingMales: int.tryParse(draft.malesController.text.trim()) ?? 0,
+        ),
+      );
+    }
+    return houses;
+  }
+
+  void _addHouseDraft() {
+    setState(() => _houseDrafts.add(_HouseDraft()));
+  }
+
+  void _removeHouseDraft(int index) {
+    setState(() => _houseDrafts.removeAt(index).dispose());
+  }
+
+  /// Rows with a blank name are skipped, same as [_housesToSave].
+  List<BreederIsolationArea> _isolationAreasToSave(String flockId) {
+    final areas = <BreederIsolationArea>[];
+    for (final draft in _isolationAreaDrafts) {
+      final name = draft.nameController.text.trim();
+      if (name.isEmpty) continue;
+      areas.add(
+        BreederIsolationArea(
+          id: draft.existingId ?? const Uuid().v4(),
+          flockId: flockId,
+          name: name,
+        ),
+      );
+    }
+    return areas;
+  }
+
+  void _addIsolationAreaDraft() {
+    setState(() => _isolationAreaDrafts.add(_IsolationAreaDraft()));
+  }
+
+  void _removeIsolationAreaDraft(int index) {
+    setState(() => _isolationAreaDrafts.removeAt(index).dispose());
   }
 
   String _messageFor(Object error) {
@@ -274,26 +406,6 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                 )
               else
                 _DateFieldButton(date: _entryDate, onTap: _selectDate),
-              const SizedBox(height: AppSizes.spaceMd),
-              TextFormField(
-                controller: _depletionAgeController,
-                decoration: const InputDecoration(
-                  labelText: 'Depletion age weeks *',
-                  hintText: 'Default is 65 weeks',
-                  helperText:
-                      'Flocks at or beyond this age are hidden from new audits.',
-                  prefixIcon: Icon(Icons.hourglass_bottom_outlined),
-                ),
-                keyboardType: TextInputType.number,
-                style: AppTextStyles.body,
-                validator: (value) {
-                  final age = int.tryParse(value?.trim() ?? '');
-                  if (age == null || age < 1 || age > 160) {
-                    return 'Enter depletion age between 1 and 160 weeks';
-                  }
-                  return null;
-                },
-              ),
               const SizedBox(height: AppSizes.spaceLg),
               _ChoiceRow<bool>(
                 label: 'Availability',
@@ -316,13 +428,10 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   });
                 },
               ),
-              if (!_isSold) ...[
-                const SizedBox(height: AppSizes.spaceSm),
-                Text(
-                  'Active flocks are still hidden from new audits once they reach depletion age.',
-                  style: AppTextStyles.caption,
-                ),
-              ],
+              const SizedBox(height: AppSizes.spaceLg),
+              _buildHousesSection(),
+              const SizedBox(height: AppSizes.spaceLg),
+              _buildIsolationAreasSection(),
               if (_saveError != null) ...[
                 const SizedBox(height: AppSizes.spaceLg),
                 Container(
@@ -381,6 +490,169 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A farm and a flock are the same thing in this business, so house setup
+  /// lives inside flock creation instead of a separate farm-management
+  /// screen. Each row is one house with its opening female/male bird count;
+  /// `flocks.entryDate` above is the single placement date for all of them.
+  Widget _buildHousesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Houses',
+          style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: AppSizes.spaceSm),
+        for (var i = 0; i < _houseDrafts.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+            child: _HouseDraftRow(
+              draft: _houseDrafts[i],
+              onRemove: () => _removeHouseDraft(i),
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: _addHouseDraft,
+          icon: const Icon(Icons.add_home_work_outlined),
+          label: Text(_houseDrafts.isEmpty ? 'Add house' : 'Add another house'),
+        ),
+      ],
+    );
+  }
+
+  /// Isolation areas (breeder-flock-performance ticket 08) live alongside
+  /// houses in this same flock-creation flow, for the same reason houses
+  /// do: this is where the flock's locations are managed. Unlike a house, an
+  /// isolation area has no opening bird count — see [_IsolationAreaDraft].
+  Widget _buildIsolationAreasSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Isolation areas',
+          style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: AppSizes.spaceSm),
+        for (var i = 0; i < _isolationAreaDrafts.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSizes.spaceSm),
+            child: _IsolationAreaDraftRow(
+              draft: _isolationAreaDrafts[i],
+              onRemove: () => _removeIsolationAreaDraft(i),
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: _addIsolationAreaDraft,
+          icon: const Icon(Icons.shield_outlined),
+          label: Text(
+            _isolationAreaDrafts.isEmpty
+                ? 'Add isolation area'
+                : 'Add another isolation area',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IsolationAreaDraftRow extends StatelessWidget {
+  const _IsolationAreaDraftRow({required this.draft, required this.onRemove});
+
+  final _IsolationAreaDraft draft;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextFormField(
+              controller: draft.nameController,
+              decoration: const InputDecoration(
+                labelText: 'Isolation area name',
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.close),
+            tooltip: 'Remove isolation area',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HouseDraftRow extends StatelessWidget {
+  const _HouseDraftRow({required this.draft, required this.onRemove});
+
+  final _HouseDraft draft;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSizes.spaceMd),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppSizes.inputRadius),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: draft.nameController,
+                  decoration: const InputDecoration(labelText: 'House name'),
+                ),
+              ),
+              IconButton(
+                onPressed: onRemove,
+                icon: const Icon(Icons.close),
+                tooltip: 'Remove house',
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spaceSm),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: draft.femalesController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Opening females',
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSizes.spaceMd),
+              Expanded(
+                child: TextFormField(
+                  controller: draft.malesController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Opening males',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

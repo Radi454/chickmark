@@ -42,7 +42,7 @@ void main() {
     () async {
       final db = await DatabaseHelper().db;
 
-      expect(await _userVersion(db), 66);
+      expect(await _userVersion(db), 81);
       expect(
         await _tableNames(db),
         containsAll(const [
@@ -148,6 +148,18 @@ void main() {
     'v56 backfill preserves explicit sectors and only assigns safe legacy matches',
     () async {
       final db = await DatabaseHelper().db;
+      // `_applyV56Upgrade`'s legacy sector-classification branch reads a
+      // `farms` table and `flocks.farmId`, both of which v68 removed from
+      // the live schema (see collapse_farm_into_flock_migration_test.dart).
+      // Build the old shape here, scoped to this test only, so v56's
+      // historical logic can still be exercised directly.
+      await db.execute('ALTER TABLE flocks ADD COLUMN farmId TEXT');
+      await db.execute('''CREATE TABLE farms (
+        id TEXT PRIMARY KEY,
+        customerId TEXT,
+        sectorKey TEXT,
+        name TEXT
+      )''');
       const now = '2026-07-30T10:00:00.000Z';
       for (final customerId in const [
         'sector-farm-customer',

@@ -14,13 +14,10 @@
 //
 // -----------------------------------------------------------------------
 // A note on "report vs benchmark" (see the `report_vs_benchmark` scenarios):
-// the voice-only `CHICKMARK_REALTIME_POLICY` carries an explicit
-// "Report vs benchmark routing" section (`REPORT_VS_BENCHMARK` in
-// `agent_prompt.ts`) that draws this distinction in so many words. The TEXT
+// the retired live-voice policy carried an explicit "Report vs benchmark
+// routing" section that drew this distinction in so many words. The TEXT
 // policy this harness actually exercises -- `CHICKMARK_AGENT_POLICY`, built
-// by `buildAgentInstructions` -- does NOT include that section (see the
-// comment directly above `CHICKMARK_REALTIME_POLICY` in `agent_prompt.ts`:
-// "voice-only... adds two voice-only sections"). The typed policy only has
+// by `buildAgentInstructions` -- has no such section. It only has
 // the general `EVIDENCE_AND_SCOPE` audit-history rule and
 // `BENCHMARK_DISCIPLINE`'s "never state a benchmark from memory". So this
 // dimension is a genuinely open question for the text agent: it tests

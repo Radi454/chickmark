@@ -11,9 +11,6 @@ import '../database/database_helper.dart';
 /// Domain repositories remain responsible for validation and business writes.
 /// This adapter only exposes dirty rows, applies filtered cloud rows, and
 /// updates device-local sync metadata in a dependency-safe table order.
-///
-/// The adapter began with performance monitoring and now also covers agent
-/// data that depends on the customer/flock/hatchery master graph.
 class PerformanceSyncRepository {
   PerformanceSyncRepository({DatabaseHelper? databaseHelper})
     : _databaseHelper = databaseHelper ?? DatabaseHelper();
@@ -24,29 +21,41 @@ class PerformanceSyncRepository {
   /// that table (UTC); see markRowsSynced.
   final Map<String, String> _dirtyReadCutoffByTable = {};
 
-  static const preFlockPushOrder = <String>[
-    'customer_sectors',
-    'farms',
-    'houses',
-    'broiler_target_profiles',
-    'broiler_target_rows',
-  ];
+  static const preFlockPushOrder = <String>['customer_sectors'];
 
+  // `houses` carries a FOREIGN KEY on flockId, so it must push after flocks.
+  //
+  // breeder-flock-performance ticket 15 adds `breeder_flock_milestones`,
+  // `breeder_isolation_areas`, `breeder_weighing_sessions`/`_samples`,
+  // `egg_batches`, and `egg_batch_house_sources` here — every breeder/egg
+  // table whose FKs are satisfied once `flocks` and `houses` exist. The
+  // four remaining child tables of the daily-report sync aggregate
+  // (`breeder_bird_movements`, `breeder_feed_entries`,
+  // `breeder_egg_production_entries`, `breeder_egg_inventory_movements`)
+  // are deliberately absent from every list below — see
+  // `breederAggregatePullOnly` and
+  // `lib/services/breeder/breeder_report_sync_service.dart`'s doc comment
+  // for why they push through a dedicated revision-guarded transaction
+  // instead of this generic per-row path. `breeder_daily_reports` itself is
+  // the fifth: also absent here for the same reason.
+  //
+  // Ticket 17 adds `breeder_performance_alerts` here for the same reason as
+  // the ticket 15 tables above: it carries an optional FOREIGN KEY on
+  // `houseId` (and a required one on `flockId`), so it must push after both
+  // `flocks` and `houses` exist. Its `ruleId` FK points at
+  // `breeder_alert_rules`, which needs no push-order entry at all — that
+  // table is seeded reference data (see `breederReferencePullOnly` below),
+  // identical on every device before either table's first row is ever
+  // written, so there is no push-ordering hazard to protect against.
   static const postFlockPushOrder = <String>[
-    'flock_placements',
-    'broiler_daily_records',
-    'broiler_daily_record_revisions',
-    'broiler_daily_events',
-    'daily_record_sources',
-    'performance_alert_rules',
-    'performance_concerns',
-    'farm_visit_sessions',
-    'farm_visit_houses',
-    'visit_investigations',
-    'visit_findings',
-    'cause_assessments',
-    'corrective_actions',
-    'action_kpi_evaluations',
+    'houses',
+    'breeder_flock_milestones',
+    'breeder_isolation_areas',
+    'breeder_weighing_sessions',
+    'breeder_weighing_samples',
+    'egg_batches',
+    'egg_batch_house_sources',
+    'breeder_performance_alerts',
     'telegram_staff_links',
     'agent_settings',
     'agent_submissions',
@@ -60,9 +69,56 @@ class PerformanceSyncRepository {
     'agent_intake_values',
   ];
 
+  /// Pushed only after the daily-report sync aggregate (design section
+  /// 13.1) has landed for this run, because every table here carries an FK
+  /// that can point at a `breeder_daily_reports` or
+  /// `breeder_egg_inventory_movements` row that only exists in the cloud
+  /// once that push has succeeded: `breeder_report_revisions.reportId`,
+  /// `egg_shipments.reportId`/`inventoryMovementId`/`reversalMovementId`.
+  /// `breeder_report_revisions` is commercial audit history (ticket 12) and
+  /// syncs normally, unlike its four aggregate-child siblings.
+  static const postAggregatePushOrder = <String>[
+    'breeder_report_revisions',
+    'egg_shipments',
+    'egg_shipment_batches',
+    'egg_batch_receipts',
+  ];
+
   static const allPushTables = <String>[
     ...preFlockPushOrder,
     ...postFlockPushOrder,
+    ...postAggregatePushOrder,
+  ];
+
+  /// System-defined reference data (breeder-flock-performance tickets 03,
+  /// 10, and 17): seeded locally, read-only client-side, and sync DOWN only —
+  /// absent from every push list above by design, so `_assertPushTable`
+  /// rejects any attempt to push them (design doc section 13: "Client roles
+  /// cannot create, update, or delete published benchmark data").
+  static const breederReferencePullOnly = <String>[
+    'breeder_metric_definitions',
+    'breeder_benchmark_profiles',
+    'breeder_benchmark_values',
+    'breeder_egg_grade_definitions',
+    'breeder_alert_rules',
+  ];
+
+  /// The daily-report sync aggregate's header and four child tables (design
+  /// section 13.1). Push travels through
+  /// `BreederReportAggregateRepository`/`BreederReportSyncService`'s
+  /// dedicated revision-guarded transaction, never this generic per-row
+  /// path — deliberately absent from `allPushTables`. Pull still uses this
+  /// generic per-row path: the race the design calls out ("a stale child
+  /// could land after a winning header") is a push hazard specifically,
+  /// since only a push can silently overwrite another device's already
+  /// -accepted revision; applying an incoming row idempotently on the way
+  /// down carries no such risk.
+  static const breederAggregatePullOnly = <String>[
+    'breeder_daily_reports',
+    'breeder_bird_movements',
+    'breeder_feed_entries',
+    'breeder_egg_production_entries',
+    'breeder_egg_inventory_movements',
   ];
 
   /// Conversation, tool-call, and visit evidence is authored by the Edge
@@ -82,6 +138,8 @@ class PerformanceSyncRepository {
           table != 'agent_intake_turns' &&
           table != 'agent_intake_values',
     ),
+    ...breederReferencePullOnly,
+    ...breederAggregatePullOnly,
     ...serverEvidencePullOrder,
     'agent_intake_sessions',
     'agent_intake_turns',
@@ -92,18 +150,7 @@ class PerformanceSyncRepository {
     allPushTables.reversed,
   );
 
-  static const immutableEvidenceTables = <String>{
-    'broiler_daily_record_revisions',
-    'broiler_daily_events',
-    'daily_record_sources',
-    'agent_tool_events',
-  };
-
-  static const _deviceOnlySourceColumns = <String>{
-    'localPath',
-    'uploadState',
-    'uploadError',
-  };
+  static const immutableEvidenceTables = <String>{'agent_tool_events'};
 
   static const _jsonColumnsByTable = <String, Set<String>>{
     'agent_conversations': {'pendingActionJson'},
@@ -214,9 +261,6 @@ class PerformanceSyncRepository {
   ) {
     _assertPushTable(table);
     final prepared = stripSyncMeta(row);
-    if (table == 'daily_record_sources') {
-      prepared.removeWhere((key, _) => _deviceOnlySourceColumns.contains(key));
-    }
     for (final column in _jsonColumnsByTable[table] ?? const <String>{}) {
       final value = prepared[column];
       if (value is! String) continue;
@@ -252,64 +296,6 @@ class PerformanceSyncRepository {
     return true;
   }
 
-  Future<String?> customerIdForSource(String sourceId) async {
-    final db = await _databaseHelper.db;
-    final rows = await db.rawQuery(
-      '''
-      SELECT f.customerId
-      FROM daily_record_sources s
-      INNER JOIN broiler_daily_record_revisions revision
-        ON revision.id = s.revisionId
-      INNER JOIN broiler_daily_records record
-        ON record.id = revision.recordId
-      INNER JOIN flock_placements placement
-        ON placement.id = record.placementId
-      INNER JOIN flocks f ON f.id = placement.flockId
-      WHERE s.id = ?
-      LIMIT 1
-      ''',
-      [sourceId],
-    );
-    return rows.isEmpty ? null : rows.first['customerId']?.toString();
-  }
-
-  Future<void> updateSourceUpload({
-    required String sourceId,
-    required String remoteStoragePath,
-  }) async {
-    final db = await _databaseHelper.db;
-    final now = DateTime.now().toUtc().toIso8601String();
-    await db.update(
-      'daily_record_sources',
-      {
-        'remoteStoragePath': remoteStoragePath,
-        'uploadState': 'synced',
-        'uploadError': null,
-        'updatedAt': now,
-        'dirtyAt': now,
-        'syncStatus': 'pending',
-        'syncError': null,
-      },
-      where: 'id = ?',
-      whereArgs: [sourceId],
-    );
-  }
-
-  Future<void> markSourceUploadFailed(String sourceId, Object error) async {
-    final db = await _databaseHelper.db;
-    await db.update(
-      'daily_record_sources',
-      {
-        'uploadState': 'failed',
-        'uploadError': error.toString(),
-        'syncStatus': 'failed',
-        'syncError': error.toString(),
-      },
-      where: 'id = ?',
-      whereArgs: [sourceId],
-    );
-  }
-
   Future<void> _markRows(
     String table,
     Iterable<String> ids,
@@ -333,12 +319,7 @@ class PerformanceSyncRepository {
     Map<String, dynamic> row,
   ) {
     final copy = Map<String, dynamic>.from(row);
-    copy.removeWhere(
-      (key, _) =>
-          kSyncMetaColumns.contains(key) ||
-          (table == 'daily_record_sources' &&
-              _deviceOnlySourceColumns.contains(key)),
-    );
+    copy.removeWhere((key, _) => kSyncMetaColumns.contains(key));
     return copy;
   }
 

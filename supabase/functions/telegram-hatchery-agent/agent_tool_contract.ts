@@ -454,11 +454,11 @@ function canonicalize(value: unknown): unknown {
  *     enum stays as a guardrail.
  *
  *   - `query_station_records` and `compare_station_metrics` are called COLD.
- *     The `inference-language` eval scenario
- *     (`services/pip-realtime-sideband/evals/scenarios.ts`) has the user ask
- *     "did hatchability drop because of storage?" and expects both tools to
- *     fire with no prior `list_applicable_stations`/`load_station_schema`
- *     turn, so the model must name a station from speech alone. Measured
+ *     The historical `inference-language` eval scenario (from the retired
+ *     live-voice harness) had the user ask "did hatchability drop because of
+ *     storage?" and expected both tools to fire with no prior
+ *     `list_applicable_stations`/`load_station_schema` turn, so the model
+ *     must name a station from the request alone. Measured
  *     live: dropping the enum from these two saves 262 input tokens per
  *     inference, but one invented key costs a rejected call plus a whole
  *     retry inference (~4,600 tokens), so the enum pays for itself if it

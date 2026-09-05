@@ -283,35 +283,12 @@ const BREAKOUT_TABLES = [
 ] as const
 
 /**
- * Realtime sessions whose evidence is searched for a conversation. A live
- * call can be redialled several times inside one thread (each dial is its own
- * session row), and the option list the user is choosing from may have been
- * produced on an earlier leg.
- */
-const MAX_RECENT_REALTIME_SESSIONS = 20
-
-/**
  * The newest successful result of one of `toolNames`, anywhere in this
- * conversation, across BOTH doors.
- *
- * Two lookups, not one, because the two doors evidence a tool call
- * differently and neither shape can find the other's rows:
- *
- *   * TEXT (`app-hatchery-agent`, Telegram) writes `agent_tool_events` with
- *     `conversation_turn_id` set to the inbound turn.
- *   * REALTIME (`pip-realtime-tool-broker`) writes it with
- *     `conversation_turn_id` NULL ON PURPOSE — a voice transcript may never
- *     finalize, and no placeholder turn is ever fabricated to satisfy a
- *     foreign key. The link back to the conversation runs through
- *     `realtime_session_id` instead.
- *
- * Searching only the turn-linked rows — which is all this did until now —
- * meant `select_audit_option` could never see an option list produced on a
- * live call: it answered `scope_denied` to a user who had just been read the
- * numbered options aloud, and the model's only move was to ask again. Both
- * candidates are scope-rechecked downstream (`selectedAuditFromSnapshot` and
- * `findAudit` both re-derive against `allowedCustomerIds`), so widening the
- * search widens no authority.
+ * conversation. Text doors (`app-hatchery-agent`, Telegram) write
+ * `agent_tool_events` with `conversation_turn_id` set to the inbound turn, so
+ * the search runs through the conversation's turns. The candidate is
+ * scope-rechecked downstream (`selectedAuditFromSnapshot` and `findAudit`
+ * both re-derive against `allowedCustomerIds`).
  */
 async function findLatestSuccessfulToolResult(
   client: AgentAuditClient,
@@ -319,27 +296,13 @@ async function findLatestSuccessfulToolResult(
   contextEpoch: number | null,
   toolNames: readonly AgentToolName[],
 ): Promise<unknown | null> {
-  const [byTurn, byRealtimeSession] = await Promise.all([
-    latestToolResultByTurn(client, conversationId, contextEpoch, toolNames),
-    latestToolResultByRealtimeSession(client, conversationId, contextEpoch, toolNames),
-  ])
-  // PLAIN string comparison, deliberately not `localeCompare`. ICU collation
-  // treats punctuation as variable-weight, so it inverts on timestamps whose
-  // fractional-second parts differ in length:
-  //
-  //   '…T12:34:56+00:00'.localeCompare('…T12:34:56.5+00:00') === 1   // WRONG
-  //   '…T12:34:56+00:00'  <  '…T12:34:56.5+00:00'            === true // right
-  //
-  // `agent_tool_events.created_at` is a TEXT column with nothing enforcing a
-  // single rendering, so the shapes are only uniform by convention. Getting
-  // this backwards means `select_audit_option` resolves position N against
-  // the OLDER list and the model answers confidently about the wrong audit.
-  const newest = [byTurn, byRealtimeSession]
-    .filter((row): row is { resultJson: unknown; createdAt: string } => row !== null)
-    .sort((left, right) =>
-      right.createdAt < left.createdAt ? -1 : right.createdAt > left.createdAt ? 1 : 0
-    )[0]
-  return newest?.resultJson ?? null
+  const byTurn = await latestToolResultByTurn(
+    client,
+    conversationId,
+    contextEpoch,
+    toolNames,
+  )
+  return byTurn?.resultJson ?? null
 }
 
 function scopeToolNames(
@@ -386,44 +349,6 @@ async function latestToolResultByTurn(
       .from('agent_tool_events')
       .select('result_json, created_at')
       .in('conversation_turn_id', turnIds),
-    toolNames,
-  )
-    .eq('status', 'succeeded')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1)
-  throwIfDatabaseError(eventsResult)
-  return toolResultRow(eventsResult.data?.[0])
-}
-
-async function latestToolResultByRealtimeSession(
-  client: AgentAuditClient,
-  conversationId: string,
-  contextEpoch: number | null,
-  toolNames: readonly AgentToolName[],
-): Promise<{ resultJson: unknown; createdAt: string } | null> {
-  let sessionsQuery = client
-    .from('agent_realtime_sessions')
-    .select('id')
-    .eq('conversation_id', conversationId)
-  if (contextEpoch !== null) {
-    sessionsQuery = sessionsQuery.eq('context_epoch', contextEpoch)
-  }
-  const sessionsResult = await sessionsQuery
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(MAX_RECENT_REALTIME_SESSIONS)
-  throwIfDatabaseError(sessionsResult)
-  const sessionIds = (sessionsResult.data ?? [])
-    .map((row) => boundedIdentifier(row.id))
-    .filter((id): id is string => id !== null)
-  if (sessionIds.length === 0) return null
-
-  const eventsResult = await scopeToolNames(
-    client
-      .from('agent_tool_events')
-      .select('result_json, created_at')
-      .in('realtime_session_id', sessionIds),
     toolNames,
   )
     .eq('status', 'succeeded')

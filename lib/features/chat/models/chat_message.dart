@@ -50,9 +50,10 @@ class ChatMessage {
   final String? audioBase64;
 
   /// `"text" | "voice" | null` as classified by the server: `"voice"` marks a
-  /// turn that originated as a realtime call transcript rather than a typed
-  /// or recorded-and-sent message. Null for locally-composed turns not yet
-  /// round-tripped through history.
+  /// historical turn that originated as a live-call transcript (from the
+  /// retired Pip Live feature) rather than a typed or recorded-and-sent
+  /// message. Null for locally-composed turns not yet round-tripped through
+  /// history.
   final String? source;
 
   bool get isUser => role == ChatMessageRole.user;

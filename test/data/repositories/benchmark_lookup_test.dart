@@ -9,6 +9,7 @@ class MockDatabase extends Mock implements Database {}
 class MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('uses nearest benchmark week for calculated BMK days', () async {
     final db = MockDatabase();
     final dbHelper = MockDatabaseHelper();

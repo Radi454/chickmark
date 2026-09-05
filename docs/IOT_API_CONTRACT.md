@@ -14,7 +14,7 @@ that section is self-contained and can be sent on its own).
 | Question | Decision | Why |
 |---|---|---|
 | Where does the API live? | **Supabase Edge Function** `iot-gateway`, deployed `--no-verify-jwt`, internally path-routed | Deploy path, secrets, Postgres proximity and a `--no-verify-jwt` shared-secret precedent all already exist. No new infrastructure. |
-| Cloud Run? | **Not for v1.** Reserved for a future MQTT bridge | Cloud Run is already used for `pip-realtime-sideband`, but only because that needs sticky WebSockets. Plain HTTPS ingest does not. |
+| Cloud Run? | **Not for v1.** Reserved for a future MQTT bridge | ChickMark no longer runs anything on Cloud Run (the retired Pip Live sideband was the only tenant). Plain HTTPS ingest does not need it. |
 | Device auth | **Long-lived device secret → short-lived bearer token** | Simple for ESP32 (plain TLS POST, no request signing), instant revocation, 24 h blast radius. |
 | Request signing (HMAC) | **No** | TLS already protects the wire. Canonicalisation bugs are the single biggest source of firmware integration pain. Not worth it here. |
 | mTLS / client certs | **No** | ESP32 can do it; the PKI operations burden on a small team cannot. |
@@ -100,10 +100,9 @@ revoke applies to future objects. Read access requires
 - Errors are `{ error, code }` with short `snake_case` codes.
 - Admin client is always
   `createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })`.
-- **Precedent for device-style auth already exists**: `pip-realtime-tool-broker`
-  is deployed `--no-verify-jwt` and authenticates a constant-time shared secret
-  in the `x-pip-broker-secret` header, failing closed when the secret is
-  unconfigured. `telegram-hatchery-agent` does the same with
+- **Precedent for device-style auth already exists**: `telegram-hatchery-agent` is
+  deployed `--no-verify-jwt` and authenticates a constant-time shared secret,
+  failing closed when the secret is unconfigured. It does the same with
   `X-Telegram-Bot-Api-Secret-Token` (though with a non-constant-time compare).
 - Idempotency precedent exists: `app-hatchery-agent` namespaces a client-supplied
   id into `app:<clientMessageId>`, stores it on a uniquely-indexed column, and
@@ -146,12 +145,9 @@ There is no server-side rule engine and no push-alerting path.
 
 ### 1.6 Infrastructure
 
-- **Cloud Run is already in use**: `services/pip-realtime-sideband` (Deno,
-  `gcloud run deploy`, `--min-instances=1`, session affinity, Cloud Scheduler
-  hitting `/internal/cleanup`). Precedent exists, but it is there specifically
-  because it holds stateful WebSockets.
-- **No CI.** No `.github/`. Deploys are manual `supabase functions deploy` and
-  `gcloud run deploy`.
+- **No Cloud Run / Google Cloud.** The retired Pip Live sideband was the only
+  Cloud Run tenant; it has been removed and nothing else uses GCP.
+- **No CI.** No `.github/`. Deploys are manual `supabase functions deploy`.
 - A pre-commit hook runs `scripts/check_supabase_secrets.sh` to block key leaks.
 - `scripts/test_supabase_security_hardening.sh` replays every migration against a
   scratch Postgres and asserts RLS invariants — any new migration must pass it.
@@ -215,9 +211,10 @@ Reasons:
 2. It sits next to Postgres. Cloud Run would add a network hop plus egress cost
    for what is a pure write path.
 3. The `--no-verify-jwt` + shared-secret pattern is already proven in production
-   by `pip-realtime-tool-broker`.
+   by `telegram-hatchery-agent`.
 4. HTTPS request/response is all v1 needs. Nothing here requires a persistent
-   connection, which is the only thing Cloud Run buys over Edge Functions.
+   connection, which is the only thing a long-running service would buy over
+   Edge Functions.
 
 **When to revisit:** if per-hub message rate rises above roughly 1 message every
 10 s, or the fleet exceeds a few thousand hubs, or sub-second command latency
@@ -536,8 +533,7 @@ Conventions deliberately **not** followed, with reasons:
 
 - **`timestamptz`, not `text`, for time columns.** These tables are server-only
   and need real time arithmetic (token expiry, command expiry, partition bounds,
-  rollup windows). This matches the precedent already set by the
-  `agent_realtime_*` tables.
+  rollup windows).
 - **`uuid` primary keys.** These rows are minted by the server, never by an
   offline Flutter client, so there is no reason for the `text`-UUID convention.
 - **Not registered in the Flutter sync layer.** The app reads IoT data live from

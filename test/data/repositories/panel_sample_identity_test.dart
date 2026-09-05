@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 class _MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late PanelSampleRepository repository;
 

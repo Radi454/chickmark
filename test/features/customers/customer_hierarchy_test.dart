@@ -35,55 +35,21 @@ void main() {
     }
   });
 
-  test(
-    'customer supports multiple sectors and farms use one enabled sector',
-    () async {
-      await provider.replaceCustomerSectors(
-        'customer-1',
-        PoultrySector.values.toSet(),
-      );
+  test('customer supports multiple sectors independently of hatchery management', () async {
+    await provider.replaceCustomerSectors(
+      'customer-1',
+      PoultrySector.values.toSet(),
+    );
 
-      expect(provider.enabledSectors, PoultrySector.values.toSet());
-      expect(provider.hatcheryManagementEnabled, isTrue);
+    expect(provider.enabledSectors, PoultrySector.values.toSet());
+    expect(provider.hatcheryManagementEnabled, isTrue);
 
-      await provider.saveFarm(
-        FarmModel(
-          id: 'farm-breeder',
-          customerId: 'customer-1',
-          sector: PoultrySector.breeder,
-          name: 'Breeder Farm',
-        ),
-      );
-      await provider.saveFarm(
-        FarmModel(
-          id: 'farm-broiler',
-          customerId: 'customer-1',
-          sector: PoultrySector.broiler,
-          name: 'Broiler Farm',
-        ),
-      );
-      expect(provider.farms.map((farm) => farm.sector).toSet(), {
-        PoultrySector.breeder,
-        PoultrySector.broiler,
-      });
-
-      await provider.replaceCustomerSectors('customer-1', {
-        PoultrySector.broiler,
-      });
-      expect(provider.hatcheryManagementEnabled, isFalse);
-      await expectLater(
-        provider.saveFarm(
-          FarmModel(
-            id: 'farm-layer',
-            customerId: 'customer-1',
-            sector: PoultrySector.layer,
-            name: 'Layer Farm',
-          ),
-        ),
-        throwsA(isA<Exception>()),
-      );
-    },
-  );
+    await provider.replaceCustomerSectors('customer-1', {
+      PoultrySector.broiler,
+    });
+    expect(provider.enabledSectors, {PoultrySector.broiler});
+    expect(provider.hatcheryManagementEnabled, isFalse);
+  });
 
   testWidgets('sector sheet exposes breeder broiler and layer together', (
     tester,

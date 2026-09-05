@@ -12,7 +12,6 @@ export const PIP_MODEL_DEFAULTS = Object.freeze({
   // visual input, so this is a deliberately separate model, not a fallback
   // on the text pair.
   textOpenRouterVision: 'google/gemma-4-31b-it',
-  live: 'gpt-realtime-2.1-mini',
   voiceNoteTranscription: 'gpt-4o-mini-transcribe',
   voiceNoteSpeech: 'gpt-4o-mini-tts',
 })

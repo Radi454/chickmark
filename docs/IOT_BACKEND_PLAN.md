@@ -124,7 +124,7 @@ Acceptance:
 6. `POST /v1/events` and `POST /v1/topology` — including the server-side diff
    that raises `sensor_added` / `sensor_removed` itself.
 7. Rate limiting per hub, in the DB-row-counting style already used by
-   `app-hatchery-agent` and `pip-realtime-session`.
+   `app-hatchery-agent`.
 
 Acceptance: replaying an identical batch twice inserts once; a batch containing
 one foreign `sensor_uid` still stores the good readings and reports the bad one;
@@ -198,7 +198,7 @@ raw rows; dropping an old partition does not touch the rollups.
   function will 500 against a schema that lacks its tables.
 - **Secrets.** No new provider secrets. The function needs only `SUPABASE_URL` and
   `SUPABASE_SERVICE_ROLE_KEY`, both already present.
-- **Logging.** Follow the Cloud Run service's discipline: stable event names and
+- **Logging.** Stable event names and
   scalar fields only. Never log a `device_secret`, a `device_token`, an
   `espnow_pmk`, or a signed download URL.
 - **Tests.** Deno tests colocated as `<module>_test.ts`, with injected fake deps,

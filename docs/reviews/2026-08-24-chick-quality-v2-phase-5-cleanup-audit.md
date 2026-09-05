@@ -10,7 +10,7 @@ This report is generated from the canonical station registry, conservative produ
 
 | Gate | Proven | Evidence |
 | --- | --- | --- |
-| Zero production runtime readers/writers proven | no | 951 conservative token mention(s) and 7 heuristically detected registry-driven consumer(s) found. Inventory completeness: no — The lexical and heuristic scans are conservative aids, not a complete Dart/TypeScript call graph; indirect or aliased registry-driven readers such as panel_row_to_draft.dart require an explicit reviewed inventory before zero readers can be proven. |
+| Zero production runtime readers/writers proven | no | 947 conservative token mention(s) and 7 heuristically detected registry-driven consumer(s) found. Inventory completeness: no — The lexical and heuristic scans are conservative aids, not a complete Dart/TypeScript call graph; indirect or aliased registry-driven readers such as panel_row_to_draft.dart require an explicit reviewed inventory before zero readers can be proven. |
 | Every persisted row has a safe V2 replacement | no | Coverage of every persisted row is unproven; Phase 4 intentionally leaves some untouched or malformed legacy rows without normalized children, so their compatibility caches may still be the only copy of user evidence. |
 | Backward compatibility has been released | no | Current clients dual-write compatibility caches and observation-first reads still fall back to them for mixed-version and legacy data. |
 | A lossless local/cloud removal migration is ready | no | No local or cloud proof shows every retained cache is redundant, and no live Supabase migration is authorized in this work. |
@@ -135,9 +135,9 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 - line 26: `sampleSize`
 - line 29: `sampleSize`
 - line 31: `sampleSize`
-- line 161: `sampleSize`
-- line 162: `sampleSize`
-- line 163: `sampleSize`
+- line 178: `sampleSize`
+- line 179: `sampleSize`
+- line 180: `sampleSize`
 
 ### `lib/core/utils/field_validators.dart`
 
@@ -158,7 +158,7 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/database/database_helper.dart`
 
-- line 462: `cvPct`
+- line 526: `cvPct`
 
 ### `lib/data/database/database_migrations.dart`
 
@@ -172,9 +172,22 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/database/database_schema.dart`
 
-- line 831: `cvPct`
-- line 1077: `uniformityPct`
-- line 1078: `cvPct`
+- line 839: `cvPct`
+- line 2490: `sampleSize`
+- line 2535: `sampleSize`
+- line 2827: `cv_pct`
+- line 2827: `uniformity_pct`
+- line 2839: `cv_pct`
+- line 2839: `uniformity_pct`
+- line 2901: `cv_pct`
+- line 2901: `uniformity_pct`
+
+### `lib/data/database/seeds/breeder_alert_rule_seeds.dart`
+
+- line 83: `uniformity_pct`
+- line 84: `uniformityPct`
+- line 102: `cv_pct`
+- line 103: `cvPct`
 
 ### `lib/data/database/seeds/dashboard_demo_seeds.dart`
 
@@ -427,23 +440,25 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 - line 812: `culledChicksTopCategory`
 - line 813: `culledChicksTopSubtype`
 
-### `lib/data/models/broiler_daily_record_models.dart`
+### `lib/data/models/breeder_alert_models.dart`
 
-- line 214: `uniformityPct`
-- line 215: `cvPct`
-- line 272: `uniformityPct`
-- line 273: `cvPct`
-- line 323: `uniformityPct`
-- line 324: `cvPct`
-- line 343: `uniformityPct`
-- line 425: `uniformityPct`
-- line 426: `cvPct`
-- line 492: `uniformityPct`
-- line 493: `cvPct`
-- line 551: `uniformityPct`
-- line 552: `cvPct`
-- line 612: `uniformityPct`
-- line 613: `cvPct`
+- line 27: `cvPct`
+- line 27: `uniformityPct`
+- line 36: `uniformityPct`
+- line 36: `uniformity_pct`
+- line 37: `cvPct`
+- line 37: `cv_pct`
+- line 43: `uniformityPct`
+- line 44: `cvPct`
+
+### `lib/data/models/breeder_weighing_session_model.dart`
+
+- line 44: `sampleSize`
+- line 64: `sampleSize`
+- line 87: `sampleSize`
+- line 111: `sampleSize`
+- line 129: `sampleSize`
+- line 150: `sampleSize`
 
 ### `lib/data/models/lab_analysis_models.dart`
 
@@ -515,6 +530,11 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 - line 356: `cvtReadingsJson`
 - line 358: `cvtSampleSize`
 - line 360: `cvtCvPct`
+
+### `lib/data/repositories/breeder_weighing_session_repository.dart`
+
+- line 53: `sampleSize`
+- line 65: `sampleSize`
 
 ### `lib/data/repositories/egg_grading_repository.dart`
 
@@ -857,11 +877,11 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/features/audits/screens/chick_quality_screen.dart`
 
-- line 494: `weightsJson`
-- line 510: `weightsJson`
-- line 511: `avgWeight`
-- line 512: `uniformityPct`
-- line 513: `cvPct`
+- line 489: `weightsJson`
+- line 504: `weightsJson`
+- line 505: `avgWeight`
+- line 506: `uniformityPct`
+- line 507: `cvPct`
 
 ### `lib/features/audits/screens/egg_storage_screen.dart`
 
@@ -962,6 +982,18 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 - line 98: `yfbmAvgPct`
 - line 99: `yfbmCvPct`
+
+### `lib/features/breeder/screens/breeder_weighing_session_entry_screen.dart`
+
+- line 87: `sampleSize`
+- line 143: `sampleSize`
+- line 153: `sampleSize`
+- line 177: `sampleSize`
+- line 186: `sampleSize`
+
+### `lib/features/breeder/screens/breeder_weighing_session_list_screen.dart`
+
+- line 125: `sampleSize`
 
 ### `lib/features/customers/screens/audit_detail_screen.dart`
 
@@ -1125,10 +1157,6 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 - line 94: `cvtCvPct`
 
-### `lib/features/dashboard/widgets/sections/lab_analysis_dashboard_section.dart`
-
-- line 182: `cvPct`
-
 ### `lib/features/lab_analysis/providers/lab_analysis_provider.dart`
 
 - line 145: `cvPct`
@@ -1139,77 +1167,45 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 - line 591: `cvPct`
 - line 1799: `cvPct`
 
-### `lib/features/performance/models/broiler_performance_models.dart`
-
-- line 37: `uniformityPct`
-- line 38: `cvPct`
-- line 50: `uniformityPct`
-- line 51: `cvPct`
-- line 63: `uniformityPct`
-- line 64: `cvPct`
-- line 79: `uniformityPct`
-- line 80: `cvPct`
-- line 154: `uniformityPct`
-- line 154: `uniformity_pct`
-- line 155: `cvPct`
-- line 155: `cv_pct`
-
-### `lib/features/performance/providers/performance_provider.dart`
-
-- line 302: `uniformityPct`
-- line 303: `cvPct`
-- line 327: `uniformityPct`
-- line 327: `uniformity_pct`
-
-### `lib/features/performance/services/broiler_kpi_calculator.dart`
-
-- line 73: `uniformityPct`
-- line 74: `cvPct`
-- line 168: `uniformity_pct`
-- line 169: `uniformity_pct`
-- line 170: `uniformityPct`
-- line 174: `cv_pct`
-- line 175: `cv_pct`
-- line 176: `cvPct`
-- line 241: `uniformity_pct`
-- line 242: `cv_pct`
-- line 353: `uniformityPct`
-- line 354: `cvPct`
-- line 464: `cvPct`
-- line 464: `uniformityPct`
-- line 466: `uniformityPct`
-- line 467: `cvPct`
-
-### `lib/features/performance/widgets/house_daily_entry_card.dart`
-
-- line 183: `uniformityPct`
-- line 186: `uniformityPct`
-- line 192: `cvPct`
-- line 195: `cvPct`
-
-### `lib/features/performance/widgets/performance_status_grid.dart`
-
-- line 140: `uniformity_pct`
-- line 158: `uniformity_pct`
-- line 159: `cv_pct`
-
-### `lib/features/performance/widgets/performance_trend_panel.dart`
-
-- line 137: `uniformity_pct`
-
 ### `lib/features/settings/providers/settings_provider.dart`
 
 - line 46: `pasgarSampleSize`
 
 ### `lib/features/settings/screens/settings_screen.dart`
 
-- line 155: `pasgarSampleSize`
+- line 158: `pasgarSampleSize`
+
+### `lib/services/breeder/breeder_alert_revision_hook.dart`
+
+- line 11: `cv_pct`
+- line 11: `uniformity_pct`
+- line 53: `uniformityPct`
+- line 54: `cvPct`
+- line 91: `uniformityPct`
+- line 93: `cvPct`
+
+### `lib/services/breeder/breeder_weighing_service.dart`
+
+- line 77: `uniformityPct`
+- line 84: `cvPct`
+- line 89: `uniformityPct`
+- line 90: `cvPct`
+- line 96: `uniformityPct`
+- line 97: `cvPct`
+- line 174: `uniformityPct`
+- line 175: `cvPct`
+- line 262: `uniformityPct`
+- line 263: `cvPct`
+- line 290: `sampleSize`
+- line 294: `sampleSize`
+- line 295: `sampleSize`
+- line 312: `sampleSize`
 
 ### `supabase/functions/app-hatchery-agent/evals/comparison_scenarios.ts`
 
-- line 908: `pasgarSampleSize`
-- line 909: `pasgarFinalScore`
-- line 992: `pasgarFinalScore`
+- line 909: `pasgarSampleSize`
+- line 910: `pasgarFinalScore`
+- line 993: `pasgarFinalScore`
 
 ### `supabase/functions/telegram-hatchery-agent/agent_metrics.ts`
 
@@ -1221,11 +1217,11 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 ### `supabase/functions/telegram-hatchery-agent/agent_read_tools.ts`
 
 - line 209: `chicks.legacy_combined`
-- line 826: `chicks.legacy_combined`
-- line 1062: `chicks.legacy_combined`
-- line 1166: `pasgarFinalScore`
-- line 1169: `pasgarSampleSize`
-- line 1177: `pasgarSampleSize`
+- line 824: `chicks.legacy_combined`
+- line 1060: `chicks.legacy_combined`
+- line 1164: `pasgarFinalScore`
+- line 1167: `pasgarSampleSize`
+- line 1175: `pasgarSampleSize`
 
 ### `supabase/functions/telegram-hatchery-agent/agent_station_adapter.ts`
 

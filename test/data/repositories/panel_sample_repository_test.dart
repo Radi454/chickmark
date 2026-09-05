@@ -99,6 +99,7 @@ Future<void> _createMachineScopedPanelTable(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late MockDatabaseHelper dbHelper;
   late PanelSampleRepository repository;

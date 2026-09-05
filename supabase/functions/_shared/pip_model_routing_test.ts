@@ -12,7 +12,6 @@ Deno.test('Pip model defaults are pinned by workload', () => {
     textOpenRouter: 'openai/gpt-oss-120b',
     textOpenRouterFallback: 'openai/gpt-oss-20b',
     textOpenRouterVision: 'google/gemma-4-31b-it',
-    live: 'gpt-realtime-2.1-mini',
     voiceNoteTranscription: 'gpt-4o-mini-transcribe',
     voiceNoteSpeech: 'gpt-4o-mini-tts',
   })

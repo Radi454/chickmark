@@ -5,6 +5,7 @@ import '../data/models/customer_model.dart';
 import '../data/models/flock_model.dart';
 import '../data/models/hatchery_model.dart';
 import '../data/models/poultry_hierarchy_models.dart';
+import '../data/models/breeder_isolation_area_model.dart';
 import '../data/models/audit_model.dart';
 import '../data/models/user_model.dart';
 import '../data/repositories/activity_log_repository.dart';
@@ -14,6 +15,7 @@ import '../data/repositories/flock_repository.dart';
 import '../data/repositories/govee_capture_repository.dart';
 import '../data/repositories/hatchery_repository.dart';
 import '../data/repositories/poultry_hierarchy_repository.dart';
+import '../data/repositories/breeder_isolation_area_repository.dart';
 import '../data/repositories/lab_analysis_repository.dart';
 import '../data/repositories/bmk_repository.dart';
 import '../data/repositories/panel_dashboard_repository.dart';
@@ -29,6 +31,8 @@ class CustomersProvider extends ChangeNotifier {
   final HatcheryRepository _hatcheryRepository = HatcheryRepository();
   final PoultryHierarchyRepository _hierarchyRepository =
       PoultryHierarchyRepository();
+  final BreederIsolationAreaRepository _isolationAreaRepository =
+      BreederIsolationAreaRepository();
   final ActivityLogRepository _activityLogRepository = ActivityLogRepository();
   final AuditSessionRepository _sessionRepository = AuditSessionRepository();
   final GoveeCaptureRepository _goveeCaptureRepository =
@@ -56,8 +60,8 @@ class CustomersProvider extends ChangeNotifier {
   List<FlockModel> _flocks = [];
   List<HatcheryModel> _hatcheries = [];
   Set<PoultrySector> _enabledSectors = {};
-  List<FarmModel> _farms = [];
-  Map<String, List<HouseModel>> _housesByFarm = {};
+  Map<String, List<HouseModel>> _housesByFlock = {};
+  Map<String, List<BreederIsolationArea>> _isolationAreasByFlock = {};
   FlockModel? _selectedFlock;
   List<AuditModel> _audits = [];
   bool _isLoading = false;
@@ -103,9 +107,12 @@ class CustomersProvider extends ChangeNotifier {
   List<HatcheryModel> get hatcheries => _hatcheries;
   Set<PoultrySector> get enabledSectors =>
       Set<PoultrySector>.unmodifiable(_enabledSectors);
-  List<FarmModel> get farms => List<FarmModel>.unmodifiable(_farms);
-  List<HouseModel> housesForFarm(String farmId) =>
-      List<HouseModel>.unmodifiable(_housesByFarm[farmId] ?? const []);
+  List<HouseModel> housesForFlock(String flockId) =>
+      List<HouseModel>.unmodifiable(_housesByFlock[flockId] ?? const []);
+  List<BreederIsolationArea> isolationAreasForFlock(String flockId) =>
+      List<BreederIsolationArea>.unmodifiable(
+        _isolationAreasByFlock[flockId] ?? const [],
+      );
   bool get hatcheryManagementEnabled =>
       _enabledSectors.contains(PoultrySector.breeder);
   FlockModel? get selectedFlock => _selectedFlock;
@@ -292,14 +299,6 @@ class CustomersProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveFarm(FarmModel farm) async {
-    _ensureCanEdit();
-    await _hierarchyRepository.saveFarm(farm);
-    await _loadHierarchy(farm.customerId);
-    AppSyncCoordinator.nudge();
-    notifyListeners();
-  }
-
   Future<void> saveHouse(HouseModel house) async {
     _ensureCanEdit();
     await _hierarchyRepository.saveHouse(house);
@@ -307,9 +306,26 @@ class CustomersProvider extends ChangeNotifier {
     if (selectedCustomerId != null) {
       await _loadHierarchy(selectedCustomerId);
     } else {
-      _housesByFarm[house.farmId] = await _hierarchyRepository.listHouses(
-        house.farmId,
+      _housesByFlock[house.flockId] = await _hierarchyRepository.listHouses(
+        house.flockId,
       );
+    }
+    AppSyncCoordinator.nudge();
+    notifyListeners();
+  }
+
+  /// Saves one of a flock's named isolation areas (breeder-flock-performance
+  /// ticket 08). Mirrors [saveHouse]'s reload-and-notify shape; name
+  /// uniqueness within the flock is enforced by the database, not here.
+  Future<void> saveIsolationArea(BreederIsolationArea area) async {
+    _ensureCanEdit();
+    await _isolationAreaRepository.saveArea(area);
+    final selectedCustomerId = _selectedCustomer?.id;
+    if (selectedCustomerId != null) {
+      await _loadHierarchy(selectedCustomerId);
+    } else {
+      _isolationAreasByFlock[area.flockId] = await _isolationAreaRepository
+          .listAreas(area.flockId);
     }
     AppSyncCoordinator.nudge();
     notifyListeners();
@@ -323,12 +339,19 @@ class CustomersProvider extends ChangeNotifier {
         .where((membership) => membership.isActive)
         .map((membership) => membership.sector)
         .toSet();
-    _farms = await _hierarchyRepository.listFarms(customerId);
+    final flocksForCustomer = await _flockRepository.getFlocksByCustomer(
+      customerId,
+    );
     final houses = <String, List<HouseModel>>{};
-    for (final farm in _farms) {
-      houses[farm.id] = await _hierarchyRepository.listHouses(farm.id);
+    final isolationAreas = <String, List<BreederIsolationArea>>{};
+    for (final flock in flocksForCustomer) {
+      houses[flock.id] = await _hierarchyRepository.listHouses(flock.id);
+      isolationAreas[flock.id] = await _isolationAreaRepository.listAreas(
+        flock.id,
+      );
     }
-    _housesByFarm = houses;
+    _housesByFlock = houses;
+    _isolationAreasByFlock = isolationAreas;
   }
 
   Future<void> _loadVisitSessions(String customerId) async {

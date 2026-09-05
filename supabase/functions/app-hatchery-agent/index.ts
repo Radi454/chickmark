@@ -348,9 +348,9 @@ async function handleHistory(params: {
     .eq('conversation_id', params.conversationId)
     .eq('context_epoch', params.contextEpoch)
     // conversation_seq is the allocator-issued, monotonic chronological key.
-    // created_at is a wall clock stamped by whichever runtime (app door vs
-    // realtime sideband) wrote the row, and those clocks can disagree enough
-    // to invert a typed/voice turn pair — conversation_seq cannot.
+    // created_at is a wall clock stamped by whichever runtime wrote the row
+    // (historical voice rows came from a different runtime), and those clocks
+    // can disagree enough to invert a pair — conversation_seq cannot.
     .order('conversation_seq', { ascending: false })
     .order('id', { ascending: false })
     .limit(params.limit)
@@ -944,7 +944,7 @@ async function loadOrCreateConversation(params: {
    * inherent: this lookup is always scoped to the caller's own staffLinkId.
    */
   chatKey: string
-  /** The caller's profile id — mirrors pip-realtime-session's create path. */
+  /** The caller's profile id. */
   ownerProfileId: string
   newId: () => string
   timestamp: string

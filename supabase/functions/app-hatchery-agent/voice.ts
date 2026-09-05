@@ -14,12 +14,12 @@ const TRANSCRIPTION_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions'
 const SPEECH_ENDPOINT = 'https://api.openai.com/v1/audio/speech'
 const STT_MODEL = PIP_MODEL_DEFAULTS.voiceNoteTranscription
 const TTS_MODEL = PIP_MODEL_DEFAULTS.voiceNoteSpeech
-// Matches Pip Live's realtime voice (`realtimeVoice: 'cedar'` in
-// pip-realtime-session/config.ts) so a recorded voice note and a live call
+// `cedar` was chosen to match the (now retired) live-voice feature so a
+// recorded voice note and a live call
 // sound like the SAME assistant. Previously 'ash' (and 'alloy' before that),
 // which made Pip's voice change identity depending on which surface the user
 // happened to be on. Verified against /v1/audio/speech: `cedar` is accepted
-// by gpt-4o-mini-tts, not just by the realtime model.
+// by gpt-4o-mini-tts.
 const TTS_VOICE = 'cedar'
 
 export type ReplyLanguage = 'en' | 'ar' | 'mixed'

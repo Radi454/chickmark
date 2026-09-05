@@ -11,13 +11,13 @@
 // Two things are deliberately NOT the same as the old inline code:
 //
 //   * History is ordered by `conversation_seq`, the never-resetting
-//     chronological key added in 20260816120000_pip_realtime_v1_persistence.sql,
-//     not by `created_at`. Turns written inside the same millisecond, or
-//     finalized out of order by a Realtime session, must still read back in the
-//     order they were allocated.
-//   * Only `completion_status = 'finalized'` turns are loaded. A Realtime turn
-//     that is still `pending` (or was `interrupted` by a barge-in) is durable
-//     evidence but is not model context.
+//     chronological key added in 20260816120000_pip_realtime_v1_persistence.sql
+//     (the migration is historical; the live-voice feature it was named for is
+//     retired), not by `created_at`. Turns written inside the same millisecond
+//     must still read back in the order they were allocated.
+//   * Only `completion_status = 'finalized'` turns are loaded. A historical
+//     turn left `pending` or `interrupted` by the retired live-voice channel
+//     is durable evidence but is not model context.
 //
 // Summaries and memories are later checkpoints; this module stays a loader.
 //

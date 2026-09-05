@@ -25,62 +25,50 @@ void main() {
       syncStatus: 'failed',
       syncError: 'offline',
     );
-    final farm = FarmModel(
-      id: 'farm-1',
-      customerId: 'customer-1',
-      sector: PoultrySector.broiler,
-      name: 'North Farm',
-      location: 'Giza',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    );
+    // A house belongs directly to a flock: a farm and a flock are the same
+    // thing in this business, so there is no separate farm row and no
+    // per-house placement date. Opening female/male counts live on the
+    // house itself.
     final house = HouseModel(
       id: 'house-1',
-      farmId: farm.id,
+      flockId: 'flock-1',
       name: 'House 1',
       code: 'H1',
       capacity: 12000,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    );
-    final placement = FlockPlacementModel(
-      id: 'placement-1',
-      flockId: 'flock-1',
-      houseId: house.id,
-      placedBirds: 11500,
-      placedAt: DateTime.utc(2026, 7, 1),
+      openingFemales: 9500,
+      openingMales: 500,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
 
     expect(CustomerSectorModel.fromMap(sector.toMap()).sector, sector.sector);
     expect(CustomerSectorModel.fromMap(sector.toMap()).syncError, 'offline');
-    expect(FarmModel.fromMap(farm.toMap()).sector, PoultrySector.broiler);
+    expect(HouseModel.fromMap(house.toMap()).flockId, 'flock-1');
     expect(HouseModel.fromMap(house.toMap()).capacity, 12000);
-    expect(
-      FlockPlacementModel.fromMap(placement.toMap()).status,
-      PlacementStatus.active,
-    );
+    expect(HouseModel.fromMap(house.toMap()).openingFemales, 9500);
+    expect(HouseModel.fromMap(house.toMap()).openingMales, 500);
   });
 
-  test('placement rejects an empty flock and non-positive bird count', () {
+  test('house rejects an empty flock id and negative opening counts', () {
     expect(
-      () => FlockPlacementModel(
-        id: 'placement-1',
-        flockId: '',
-        houseId: 'house-1',
-        placedBirds: 100,
-        placedAt: DateTime.utc(2026, 7, 1),
+      () => HouseModel(id: 'house-1', flockId: '', name: 'House 1'),
+      throwsArgumentError,
+    );
+    expect(
+      () => HouseModel(
+        id: 'house-2',
+        flockId: 'flock-1',
+        name: 'House 2',
+        openingFemales: -1,
       ),
       throwsArgumentError,
     );
     expect(
-      () => FlockPlacementModel(
-        id: 'placement-2',
+      () => HouseModel(
+        id: 'house-3',
         flockId: 'flock-1',
-        houseId: 'house-1',
-        placedBirds: 0,
-        placedAt: DateTime.utc(2026, 7, 1),
+        name: 'House 3',
+        openingMales: -1,
       ),
       throwsArgumentError,
     );

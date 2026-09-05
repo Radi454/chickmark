@@ -17,6 +17,7 @@ class _MockDatabaseHelper extends Mock implements DatabaseHelper {}
 /// the Task 3 sync-meta columns so there is no seed-data pollution of the
 /// dirty queries.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late _MockDatabaseHelper dbHelper;
   late CustomerRepository customerRepo;

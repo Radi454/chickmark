@@ -207,7 +207,6 @@ class FlockManagementSheet extends StatelessWidget {
 
   int _statusWeight(FlockModel flock) {
     if (flock.isAvailableForAudit) return 0;
-    if (flock.hasReachedDepletionAge && !flock.isSold) return 1;
     return 2;
   }
 }
@@ -269,10 +268,6 @@ class _ManagedFlockCard extends StatelessWidget {
                 _InfoChip(
                   icon: Icons.calendar_today_outlined,
                   label: '$ageWeeks weeks',
-                ),
-                _InfoChip(
-                  icon: Icons.hourglass_bottom_outlined,
-                  label: 'Depletes ${flock.depletionAgeWeeks}w',
                 ),
               ],
             ),

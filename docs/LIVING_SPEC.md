@@ -15,7 +15,7 @@ This file describes only how the app works today. It is not a history.
 
 ## 1. Last Updated
 
-2026-08-16
+2026-08-27
 
 Mapped from the working tree under `lib/`, covering app bootstrap, navigation,
 audit and station screens, providers, models, repositories, services, and the
@@ -73,8 +73,10 @@ spacing where those tokens already exist, preserving the existing workflows and
 screen hierarchy.
 The add/edit flock bottom sheet uses compact input fields, local pill selectors
 for age source and availability, and quiet helper text while preserving the
-existing flock ID, breed, estimated age, depletion age, and active/sold save
-behavior.
+existing flock ID, breed, estimated age, and active/sold save behavior. It has
+no depletion-age input: `flocks.depletionAgeWeeks` (default 65) is carried
+forward unread and unedited on save, and is not read by any Breeder
+Performance behavior — see section 7's "Breeder flock lifecycle" entry.
 User-facing date labels use left-to-right `dd-MM-yyyy` formatting across Home,
 Audits, Customers, Activity Log, Dashboard Govee charts, and active Govee
 capture surfaces. Internal persistence keys and repository filters that depend
@@ -94,7 +96,51 @@ fallbacks, and the Home last-audit KPI reserves a two-line value area so Arabic
 dates are not truncated. A source audit test rejects untranslated static UI
 copy while allowing approved product names and measurement abbreviations.
 
-The BMK reference tab presents benchmark data as compact dashboard sections.
+The BMK screen is split into two sector tabs, `Hatchery` and `Breeder Farm`.
+`Hatchery` is the default and holds the breed, egg-breakout, and operational
+benchmark sections described below. `Breeder Farm` (`BreederBmkSectorView`) is
+laid out the same way: a line selector, an age control, and cards of metric
+tiles, read without leaving the tab. Its data loads lazily, only once the tab
+is first opened.
+
+Both sectors render their selector pills, age dropdowns, sector cards and
+metric tiles from one implementation,
+`lib/features/bmk/widgets/bmk_reference_widgets.dart`, so the two cannot drift
+apart.
+
+The Breeder Farm sector has four cards. `Breeder Benchmarks` carries the line
+pills (short labels — the guides' own names are too long for one pill line, and
+truncation would make the two Cobb variants indistinguishable), a Female/Male
+toggle, an age dropdown, and headline tiles for body weight, daily feed intake,
+hen-week production, egg weight, cumulative eggs per hen-housed, and cumulative
+hatchability. `Production BMK` has a Weekly/Cumulative toggle over the egg,
+hatching-egg, utilization, hatchability and chick series. `Liveability &
+Fertility` carries liveability, fertility, cumulative flock mortality and chick
+weight. `Source` names the company, guide version and publication date, opens
+the source document, and pushes `BreederBenchmarkDetailScreen` for the full
+per-age tables.
+
+The sector adapts to what each guide actually publishes. The age dropdown lists
+only the weeks that profile covers and opens on the first week with published
+production rather than on day-old; the Female/Male toggle is hidden entirely
+for a profile with no male table (Hubbard).
+
+The Female/Male toggle applies to every tile, with no exceptions. Only body
+weight and daily feed intake are published for males; production, egg, hatch,
+liveability and fertility all describe the hen. With Male selected those tiles
+read as a dash rather than repeating the hen's figure under a Male heading. Metric tile labels come from the
+imported guides, not from app copy, and the Production card strips the
+`(Weekly)`/`(Cumulative)` suffix its own toggle already states.
+
+Benchmarks the source guide does not publish render as an em dash in a muted
+colour, never as `0`. Breeder values are stored nullable, so a missing value is
+genuinely absent. The hatchery `bmk_breeds` columns cannot express "no value" —
+they default to `0.0` — so a stored zero in the breed reference grid is treated
+as "not published at this age"; none of those six metrics has a legitimate zero
+target. This applies to the breed reference tiles only, not to the egg-breakout
+percentages (where zero is a real reading) or to the admin editors.
+
+The BMK Hatchery tab presents benchmark data as compact dashboard sections.
 Approved internal users see a small Reference/Admin mode toolbar above the
 content. The Reference view uses custom selector bars for breed and a text-only
 Fresh/Candled/Residue breakout type selector, labeled age dropdown controls, and
@@ -242,7 +288,7 @@ users; `UserRepository.upsertUser()` strips any in-memory access token before
 the SQL write for non-local accounts, and `cacheToken()` writes the real
 token only to `SecureTokenStore`.
 
-The main shell has eleven destinations for approved admins:
+The main shell has ten destinations for approved admins:
 
 - Home
 - Dashboard
@@ -251,12 +297,11 @@ The main shell has eleven destinations for approved admins:
 - Govee Records
 - Lab Analysis
 - BMK
-- Performance
 - Agent
 - Pip
 - Settings
 
-Approved auditors receive the same destination set except Agent, leaving ten
+Approved auditors receive the same destination set except Agent, leaving nine
 auditor destinations. Agent Monitor is restricted to approved admins because
 its remote tables use admin-only RLS.
 
@@ -289,13 +334,12 @@ conversation refreshes the list so its new preview/title/ordering shows
 immediately.
 
 `AssistantChatScreen` is one persistent conversation thread with the same
-hatchery agent that serves Telegram, by text or by voice; Live (see 7.af) is a
-mode reachable from inside that same thread rather than a separate
-destination. It shows the conversation oldest-first, a multiline input with
+hatchery agent that serves Telegram, by text or by recorded voice note. It shows the conversation oldest-first, a multiline input with
 send and mic buttons, a thinking indicator while a reply is outstanding, an
 empty state before the first message, and an error banner with a retry action.
-A turn whose `source` is `'voice'` (a finalized Realtime call transcript,
-distinct from the mic button's own request/response recording) renders with a
+A turn whose `source` is `'voice'` (a historical live-call transcript from the
+retired Pip Live channel, distinct from the mic button's own request/response
+recording) renders with a
 small mic glyph and a distinct bubble tint instead of the plain role-based
 styling. While the shared network monitor reports offline the input is
 disabled behind a short notice, because the conversation runs entirely against
@@ -309,20 +353,14 @@ created per pushed conversation route rather than with the root providers, so
 it exists only while that conversation's screen is on the stack.
 
 `conversationKey` identifies which conversation a screen shows: `'app'` is the
-legacy single-thread key (still what a Pip Live call started with no
-conversation context binds to) and `'app:'+uuid-v4` keys any other
+legacy single-thread key and `'app:'+uuid-v4` keys any other
 conversation; the key is carried through `AssistantChatScreen`,
 `AssistantProvider`, `AssistantChatService`/`AssistantChatPort` (every
 call — `sendMessage`, `sendVoice`, `loadHistory`, `resetConversation` — takes
-it, defaulting to `defaultConversationKey`), `RealtimeVoiceController.start`,
-and `RealtimeVoiceScreen`, and is opaque to the client: it never determines
-which conversation's turns are loaded on its own (the provider/service call
-does), it is just the label passed through to identify the request. While a
-live call for a conversation is active, `AssistantChatScreen` listens for that
-call reaching `idle` and, if the call belonged to its own `conversationKey`,
-reloads history exactly once — this is how a call's persisted transcript
-(written server-side by the sideband) appears in the visible thread without
-the user leaving and reopening the conversation.
+it, defaulting to `defaultConversationKey`), and is opaque to the client: it
+never determines which conversation's turns are loaded on its own (the
+provider/service call does), it is just the label passed through to identify
+the request.
 
 The shell uses a drawer on narrow layouts and a navigation rail at widths of
 900px or greater. It lazily builds tabs, keeps a tab history stack for shell
@@ -386,7 +424,8 @@ The current New Audit button on Home opens `AuditContextScreen` without an
 - Select hatchery for that customer using the hatchery card with the warehouse
   icon.
 - Select an audit-available flock using the flock card with the chick icon.
-  Flocks are unavailable when sold or past their depletion age.
+  Flocks are unavailable only when sold; there is no age-based depletion
+  cutoff (see section 7's "Breeder flock lifecycle" entry).
 - Continue to station selection.
 - Select one or more stations from the five supported station keys and arrange
   their visit order. The Chicks station uses the shared chick icon in both the
@@ -1673,7 +1712,12 @@ the capture scope can still be corrected before recording.
 Dashboard has a cascade filter for Customer, Hatchery, and Flock. The filter card is part
 of the dashboard's scrolling content rather than a frozen section above it. On
 phone-width layouts the filter stacks the controls and constrains dropdown
-labels with ellipsis so selected names do not overflow. A customer plus
+labels with ellipsis so selected names do not overflow. The Customer control is
+a searchable dropdown: tapping it clears the shown name and focuses an empty
+text field so typing starts a fresh query, typing filters the customer list by
+case-insensitive substring, and closing the menu without picking anything
+restores the selected customer's name. Touching anywhere else on the dashboard,
+or dragging the dashboard list, dismisses the keyboard. A customer plus
 hatchery is required for operational station analysis. `All customers`, a
 customer with no hatchery selected, and cleared filters show a portfolio summary
 only; detailed station comparisons, alerts, and corrective actions are blocked
@@ -1711,24 +1755,16 @@ sector data mounted, and the Dashboard owns one stable scroll controller, so a
 long Lab Analysis sector cannot temporarily collapse and clamp the reader into
 a different sector while fresh data is queried.
 
-An operational scope starts with a quality strip and a cross-station `What
-needs attention` section. Quality chips show latest observation age, last sync,
-station completion, source-row and sample counts, missing-measurement coverage,
-photo evidence coverage, pending/failed sync, and raw-versus-cache drift. Govee
-shows capture/readings totals and the latest capture age. Readings older than
-seven days are historical and excluded from active alarm triage; readings from
-48 hours through seven days are aging, while future-dated readings are invalid.
-Panel and Govee load failures remain visible within their affected section.
-
-The attention section consolidates critical/watch findings across audit
-stations and Govee, ranks them by severity, persistence, freshness, and data
-confidence, and keeps source identifiers for the station, metric, session, and
-panel row. `View source` expands and scrolls to the exact available sector (or
-its station fallback). Findings can create persistent corrective actions with
-priority, owner, status, due date, first/last observed timestamps, notes,
-resolution metadata, and sync state. Actions support open, in-progress,
-resolved, and reopened states and synchronize through Supabase like other
-offline-first records.
+An operational scope no longer opens with a top-level quality strip or a
+cross-station `What needs attention` section; both were removed from the
+Dashboard. The same quality chips still render inside each scope sector card
+(latest observation age, last sync, station completion, source-row and sample
+counts, missing-measurement coverage, photo evidence coverage, pending/failed
+sync, and raw-versus-cache drift). Govee shows capture/readings totals and the
+latest capture age. Readings older than seven days are historical and excluded
+from active alarm triage; readings from 48 hours through seven days are aging,
+while future-dated readings are invalid. Panel and Govee load failures remain
+visible within their affected section.
 
 Each rebuilt dashboard comparison sector has its own BMK-age selector. The
 default `All BMK Ages` table keeps every recorded age as a separate column and
@@ -1889,11 +1925,9 @@ analyte has at least two canonical report dates, the sector adds a longitudinal
 panel with selectable GMT, CV%, and positivity lines, house range shading,
 latest-snapshot metrics, change callouts, and a house-by-date GMT/CV heatmap.
 Pooled repeat plates remain visible as a separate dashed series but are excluded
-from canonical house averages and row-level trend weighting. The sector then
-shows the latest saved result groups with compact per-test metrics: ELISA
-GMT/CV/positive rate, PCR positive count and minimum Ct, HI GM/protected
-percentage, bacterial-culture positive/negative counts, and sensitivity S/I/R
-counts. It remains visible with all-customer
+from canonical house averages and row-level trend weighting. The sector shows
+no per-group finding cards; detailed result groups are read on the Lab Analysis
+screen itself. It remains visible with all-customer
 or no-hatchery filters so breeder-farm lab results can be reviewed without
 entering an operational hatchery scope. Dashboard Lab Analysis loading retains
 up to 120 recent result groups so multi-date house trends are not truncated by
@@ -1910,7 +1944,11 @@ The implemented hierarchy is:
 - `customers`: top-level customer records.
 - `hatcheries`: customer-owned hatchery/location records.
 - `flocks`: customer-owned flocks with breed, entry date, estimated-age flag,
-  active/sold status, depletion age, and sold date.
+  active/sold status, a legacy unused `depletionAgeWeeks` column, and sold
+  date.
+- `breeder_flock_milestones`: dated operational events per flock (grading,
+  physical transfer, light stimulation, first egg, 5%/50%/peak production,
+  and partial/start-of/final depletion), one row per (flockId, eventType).
 - `audit_sessions`: visit-level orchestration for a selected customer,
   hatchery, flock, date, station order, station completion, optional findings,
   optional scorecards, notes, creator, and completion timestamp.
@@ -2113,8 +2151,8 @@ the `conversationKey` it is constructed with (default `'app'`, the legacy
 thread): an ordered `ChatMessage` list, an `AssistantLoadState` of
 uninitialized, loading, loaded, or error, and the send/retry/clear actions. A
 `ChatMessage` carries its role (`user` or `assistant`), a `source` (`'text'`
-or `'voice'`, exposed as `isVoice` — `'voice'` marks a turn that came from a
-finalized Pip Live call transcript rather than the mic button's own
+or `'voice'`, exposed as `isVoice` — `'voice'` marks a historical turn that
+came from the retired Pip Live call channel rather than the mic button's own
 recorded-clip round trip) and, for outgoing messages, a `sending`, `sent`, or
 `failed` status. Sending appends the user message optimistically before the request
 returns; a failed send keeps the message visible in `failed` state and `retry`
@@ -2237,7 +2275,7 @@ error outcomes so default field values are never interpreted as loaded data.
 
 ## 7. Persistence Summary
 
-The app uses SQLite through `sqflite` at database version 66. The database file
+The app uses SQLite through `sqflite` at database version 69. The database file
 is `hatchaudit.db`. Foreign keys are disabled during create/upgrade callbacks
 so the destructive v41 reset can drop legacy foreign-key tables, then enabled
 again when the database opens for normal app use. Web startup
@@ -2274,15 +2312,1464 @@ only where one matching panel row makes the target unambiguous. These repairs
 mark changed local rows pending for normal synchronization.
 Later additive upgrades create dashboard action rows and Lab Analysis tables
 without resetting existing local data. Version 51 adds the persistence
-foundation for poultry customer sectors, farms, houses, multi-house flock
-placements, revision-safe Broiler daily evidence, versioned Broiler objectives,
-operational concern state, diagnostic farm visits, probable-cause assessments,
-corrective actions, and KPI-based effectiveness evaluations. Existing flock
-rows remain valid: only flocks already linked to a hatchery audit are safely
-backfilled as Breeder; other legacy flock sectors remain unset for later user
-classification.
+foundation for poultry customer sectors, farms, houses, and multi-house flock
+placements. Existing flock rows remain valid: only flocks already linked to a
+hatchery audit are safely backfilled as Breeder; other legacy flock sectors
+remain unset for later user classification. Version 51 also added a Broiler
+Performance and farm-visit/investigation/corrective-action feature (daily
+records, target profiles, alert rules, concerns, visits, investigations,
+cause assessments, corrective actions, and KPI evaluations); version 67
+removes that feature and its fifteen tables outright. Breeder flock performance
+uses its own daily reports, benchmarks, weighing, egg inventory, shipments,
+and alerts.
 
-Version 52 adds the Telegram hatchery-agent data foundation. Local SQLite now
+Version 68 collapses Farm into Flock: a farm and a flock are the same thing
+in this business, so `farms` and `flock_placements` are dropped outright and
+`flocks.farmId` is removed via a table rebuild (SQLite cannot drop a column on
+an old on-disk file directly). `houses.farmId` becomes `houses.flockId` in the
+same rebuild, with the pre-existing unique indexes on house name/code moved
+from `(farmId, name)`/`(farmId, code)` to `(flockId, name)`/`(flockId, code)`.
+For every pre-existing house, the upgrade looks up its single *active*
+`flock_placements` row (`status = 'active'`, `endedAt IS NULL`) to learn which
+flock it belongs to and how many birds it opened with; because the old
+`placedBirds` column never split that count by sex, the whole count is
+assigned to `openingFemales` for an as-hatched or female flock and to
+`openingMales` for a male flock. A house with no active placement, or whose
+placement points at a flock row that no longer exists, is deleted rather than
+assigned an invented flock — acceptable while the feature is still in local
+testing — and both the backfilled and deleted counts are logged via
+`debugPrint` for post-upgrade audit. `customer_sectors` is untouched.
+
+Version 69 adds the official breeder benchmark foundation:
+`breeder_metric_definitions` (stable metric code, label, unit, sex scope,
+period type, aggregation method, display precision),
+`breeder_benchmark_profiles` (company, breed, product, guide version,
+publication date, source URL, effective age range, lifecycle coverage, and a
+`draft`/`active`/`archived` state), and `breeder_benchmark_values` (one target
+per profile, metric, age, and sex, with `ageDays`, `ageWeek`, an optional
+`productionWeek`, `periodType`, `targetValue`, and optional `lowerBound`/
+`upperBound`; unit is inherited from the metric definition, not duplicated on
+the value row). A profile that has left the `draft` state is immutable at the
+database level: SQLite triggers reject any UPDATE or DELETE on a non-draft
+`breeder_benchmark_profiles` row, and any INSERT, UPDATE, or DELETE on a
+`breeder_benchmark_values` row whose profile is not `draft`.
+
+Benchmark data enters the system only through checked-in asset files under
+`assets/benchmarks/` — never Dart constants and never a client write.
+`assets/benchmarks/metric_definitions.json` holds the shared metric catalogue;
+each official guide is its own profile file (for example
+`assets/benchmarks/aviagen_ross308_parent_stock_2021_en.json`), containing the
+profile's metadata and its full list of values as flat rows. On fresh install
+and on every `_onUpgrade`/`onOpen` pass,
+`lib/data/database/seeds/breeder_benchmark_seeds.dart`'s
+`importBreederBenchmarks` loads these files: metric definitions are inserted
+once per code (existing codes are left alone), and each profile is looked up
+by its `profileKey` — if already present the import is a no-op (published
+profiles are immutable anyway), otherwise the profile is inserted as `draft`,
+its values are inserted, and then a single UPDATE publishes it to `active`.
+This keeps import idempotent and safe to re-run on every app open.
+
+Five profiles are checked in, one per breeder line used in this market:
+Aviagen Ross 308, Arbor Acres Plus, and Indian River (Performance Objectives
+2021 EN); Hubbard Conventional / EDGE (Parent Stock Performance Objectives
+V-2025-06); and Cobb500 Fast Feather (Breeder Management Supplement, with
+male targets from the Cobb Male Management Supplement — Cobb publishes its
+male line in a separate document). Cobb500 Slow Feather was imported
+alongside Fast Feather and then retired: the flock the app is used against
+runs the Fast Feather line, and carrying both only invites comparing a flock
+against the wrong one. Because published profiles are immutable at the
+database level, that retirement is a schema migration (v81), which drops the
+benchmark delete guards, removes the profile and its values, and recreates
+the guards from `createBreederBenchmarkTables`. The metric catalogue holds 22
+metrics: the 18 the Aviagen guides
+publish, plus weekly and cumulative fertility, cumulative flock mortality,
+and chick weight, which only the Cobb supplement publishes. Coverage is not
+uniform, and nothing is inferred to fill a gap: Hubbard EDGE publishes no
+male table, no liveability, and no egg mass, and its feed data stops at week
+24; Cobb publishes no hen-housed production column and no egg mass, and its
+publication date is left null because the document prints only a print code.
+No document publishes uniformity, CV, water intake, or water-to-feed ratio.
+Cobb's Table 2 and Table 6 are excluded because Cobb itself labels them
+examples not intended to be followed.
+
+The Ross 308 Parent Stock (2021 EN) profile covers female
+and male body weight, daily feed intake, hen-housed production
+("Hen-Housed (%)") and hen-week production ("Hen-Week (%)*", footnoted by
+the source as based on an assumed 8%/0.2%-per-week mortality curve —
+transcribed verbatim as `hen_week_production_pct`, not relabeled as a
+"hen-day" figure the source document does not use for this column), weekly
+and cumulative eggs and hatching eggs per hen-housed, hatching egg
+utilization, hatchability of all eggs, weekly and cumulative chicks, egg
+weight, egg mass, and rearing/laying liveability — all transcribed directly
+from the published PDF with no interpolation; the out-of-season female
+body-weight/feeding variant in the same source document was intentionally
+left out of that profile, as it is for Arbor Acres Plus and Indian River.
+Every metric's exact source table and column heading is recorded in each
+profile asset file's `metricProvenance` map, so a value can always be traced
+back to the PDF cell it came from.
+
+`lib/data/repositories/breeder_benchmark_repository.dart` is the only app
+entry point to these tables and is read-only by design: it lists profiles,
+looks up metric definitions, and returns a profile's values, with no write or
+edit method anywhere. These benchmarks are reachable two ways: the BMK screen's
+`Breeder Farm` sector (`BreederBmkSectorView`, described above), and Settings →
+Reference → "Official Benchmarks", which lists the published profiles
+(`BreederBenchmarkProfilesView` wrapped in `BreederBenchmarkListScreen`). Both
+lead to `BreederBenchmarkDetailScreen`: source, guide version, publication
+date, effective ages, and every value grouped by metric. All of these surfaces
+are read-only with no edit affordance.
+
+Cloud parity is generated, not hand-typed:
+`tool/gen_breeder_benchmark_seed_sql.dart` emits the seed SQL for a set of
+asset files, and
+`test/data/database/breeder_benchmark_cloud_parity_test.dart` fails if an
+asset file is missing from `pubspec.yaml`, from the importer's path list, or
+from the checked-in seed SQL, or if the seeded row count for any profile
+stops matching its asset file.
+
+The matching Supabase seed lives in
+`supabase/migrations_unapplied/0011_breeder_benchmark_foundation.sql`
+(unapplied — see that directory's README), generated from the same asset
+files so cloud and local hold identical values; its RLS policies grant
+`select` only to `authenticated`, and matching Postgres triggers enforce the
+same published-profile immutability rule as the local SQLite triggers.
+
+The Ross 308 Parent Stock (2021 EN) profile above remains the only checked-in
+benchmark profile as of this writing. The two other guides named in the
+design spec's section 4.2 source list — the Cobb Breeder Management Guide
+(`https://www.cobbgenetics.com/assets/Cobb-Files/80a75d5bbe/Breeder-Management-Guide.pdf`,
+160 pages) and the Aviagen Ross Parent Stock Production Pocket Guide 2024 EN
+(`https://aa-intl.aviagen.com/assets/Tech_Center/Ross_PS/Ross_PS_PocketGuide_Production_2024-EN.pdf`,
+90 pages) — were fetched and read in full with `pdftotext -layout`, page by
+page, including a digit-density scan of every page to find any table missed
+by a keyword search. Neither publishes an age-indexed official performance
+-objective table (body weight, feed, egg production, hatchability, and so on
+by week) of the kind the Ross 308 Performance Objectives document supplies:
+both are husbandry/management-practice manuals. Their numeric content is
+either equipment/environmental specification (feeder space, ventilation
+rates, water flow) unrelated to `breeder_metric_definitions`, or is
+explicitly labelled by the source itself as an "example," an "estimate," or
+a "worldwide average" scenario (e.g. Cobb's female feed-vs-production-percent
+spreadsheet template, or its Cobb Fast Feather × MV male "example" fertility
+/hatch table) rather than an official company performance standard — the
+Cobb guide even says outright that "the standards are only a guide and use
+the Cobb 500 Fast Feather in closed housing as an example," and separately
+references "the Cobb bodyweight profile that is specific for the breed" as
+an external resource this document does not itself contain. Per the
+project's no-invention rule for benchmark data, no profile asset was created
+for either guide; loading them remains open until a document that actually
+publishes Cobb's and Aviagen's official age-indexed production targets (for
+example, a "Cobb500 Broiler Breeder Performance & Nutrition Supplement")
+is identified and supplied.
+
+Version 70 adds `breeder_flock_milestones`: `id`, `flockId`, `eventType`
+(restricted by a CHECK to `grading`, `physical_transfer`,
+`light_stimulation`, `first_egg`, `five_percent_production`,
+`fifty_percent_production`, `peak_production`, `partial_depletion`,
+`start_of_depletion`, `final_depletion`), `eventDate`, `notes`, and the
+standard sync columns. A unique index on `(flockId, eventType)` means
+recording the same event type again corrects that row's date instead of
+appending a duplicate — `breeder_flock_lifecycle_service.dart`'s
+milestone-aligned comparison axis treats "the recorded 5%-production
+milestone" for a flock as unambiguous because of this constraint.
+`lib/data/repositories/breeder_flock_milestone_repository.dart` provides
+CRUD plus the same dirty-tracking method shape (`getDirtyRows`/
+`markRowsSynced`/`markRowsFailed`) other per-row-synced tables use, though
+this table is not yet wired into `StartupSyncService`'s push/pull list.
+
+**Breeder flock lifecycle** (`lib/services/breeder/breeder_flock_lifecycle_service.dart`)
+is the single place total age, official production week, and the
+comparison-axis calculation live; every screen and future ticket (daily
+report, weighing, alerts) goes through it rather than re-deriving these:
+
+- Total age (`ageSummary`) always comes from `flocks.entryDate` via the
+  existing `HatchDateUtils.flockAgeDays`/`flockAgeWeeks` — never a second age
+  calculator.
+- Production week (`officialProductionWeek`) is read directly from the
+  active benchmark profile's `breeder_benchmark_values.productionWeek`
+  column for the flock's breed and current age in weeks — never derived by
+  arithmetic, and never from a manually entered production-start date,
+  physical transfer, or first-egg date. The flock's breed (e.g. `Ross308`)
+  is matched against a profile's breed (e.g. `Ross 308`) by normalizing
+  case, spaces, and hyphens on both sides. Before the profile's official
+  production range begins, `productionWeek` is null and the flock is
+  pre-production.
+- The comparison axis (`comparisonAxes`) is always available on the default
+  official (age-based) mapping. When the flock has a recorded
+  `five_percent_production` milestone whose flock-age at that date differs
+  from the profile's official production-start age (the age of the guide's
+  first production week) by strictly more than one week, a second
+  milestone-aligned axis is also returned, shifting the guide's age lookup
+  by that difference; it is never a silent replacement for the official
+  axis — both are returned side by side. Every `ProductionWeekResult`
+  records which axis (`official` or `milestoneAligned`, with its
+  `offsetWeeks`) and which benchmark profile (including `guideVersion`)
+  produced it.
+- Depletion is never forced at a fixed age. `flocks.depletionAgeWeeks`
+  (default 65) is not read anywhere in this feature; `FlockModel` no longer
+  has a `hasReachedDepletionAge` getter, `isAvailableForAudit` only checks
+  sold status, and the add/edit flock sheet has no depletion-age input. The
+  column itself is not yet dropped (scheduled for a later cleanup) and is
+  still round-tripped unread by `FlockModel.toMap`/`fromMap` and carried
+  forward unedited by the add/edit flock sheet on save.
+
+On the customer detail screen, each flock card shows total age (days and
+weeks), the official production week or a "Pre-production" label, and — only
+when the milestone-aligned axis is offered — that axis's production week
+alongside the official one
+(`lib/features/customers/widgets/breeder_flock_lifecycle_summary.dart`). Each
+flock card also has a "Breeder Performance" button
+(`lib/features/customers/screens/customer_detail_screen.dart`) that opens
+`BreederFlockOverviewScreen` for that flock — the Breeder Performance entry
+point that replaced the old Broiler Performance navigation removed in ticket
+01 (the button opened the daily-report list directly until ticket 18 added
+the Overview screen described below).
+
+**Breeder daily report — header and bird movements** (version 71,
+`lib/data/database/database_schema.dart`'s `createBreederDailyReportTables`,
+extended to version 72 for isolation areas and version 73 for feed entries
+and `lightHours`) started as the first vertical slice of the daily report —
+the header plus bird movements only — and now also covers feed. Eggs and
+inventory are later tickets and add no columns or tables here.
+
+- `breeder_daily_reports` is one header row per flock and calendar date
+  (`UNIQUE (flockId, reportDate)`, `reportDate` stored as a `YYYY-MM-DD`
+  key): `insideTemperature`, `outsideTemperature`, `lightHours` (version 73,
+  a plain hour count with no per-sector unit to label), `notes`, `state`
+  (`draft`/`submitted`/`approved`, CHECK-constrained), `revision`
+  (optimistic-concurrency counter for ticket 15; this ticket only sets it to
+  1 on create and increments it on each state transition),
+  `createdBy`/`submittedBy`/`submittedAt`/`approvedBy`/`approvedAt`, and the
+  standard sync columns. Age, production week, and breed are never stored —
+  always derived for display via `BreederFlockLifecycleService` and
+  `flocks.breed`. A missing calendar day is simply absent from this table;
+  nothing ever auto-creates a zero-value report for it. Version 73's
+  migration adds `lightHours` via a plain `ALTER TABLE ADD COLUMN` (no
+  shadow-table rebuild needed, unlike version 72's `breeder_bird_movements`
+  reshape, since a new nullable column with no CHECK constraint is exactly
+  what SQLite's `ALTER TABLE ADD COLUMN` supports directly).
+- `breeder_isolation_areas` (version 72) holds a flock's named isolation
+  areas: `id`, `flockId`, `name`, `notes`, `isActive`, and the standard sync
+  columns. An isolation area belongs to exactly one flock
+  (`FOREIGN KEY (flockId)`), and its name is unique within that flock,
+  case-insensitively (`UNIQUE (flockId, name COLLATE NOCASE)`). Unlike a
+  house, an isolation area has no opening bird count of its own — birds
+  only ever arrive there via an internal transfer recorded on a daily
+  report, so a location with no movement recorded yet has a balance of 0,
+  never a fallback to some other count.
+- `breeder_bird_movements` is a child ledger row per report, location, and
+  sex: `opening`, `mortality`, `culls`, `sale`, `kitchenRemoval` (female
+  only), `euthanasia` (male only), `transferIn`, `transferOut`, and
+  `closing`. `opening`/`closing` are derived and persisted by
+  `BreederBirdLedgerService`, never typed directly by a user. A movement's
+  location is either a house (`houseId`) or a named isolation area
+  (`isolationAreaId`, version 72) — exactly one, never both, never neither,
+  enforced by a CHECK constraint — with separate unique indexes
+  (`UNIQUE (reportId, houseId, sex)` and
+  `UNIQUE (reportId, isolationAreaId, sex)`). Two further CHECK constraints
+  make the row's own consistency impossible to violate at the database
+  level: `closing = opening - mortality - culls - sale - kitchenRemoval -
+  euthanasia + transferIn - transferOut`, and `(sex = 'female' AND
+  euthanasia = 0) OR (sex = 'male' AND kitchenRemoval = 0)`. A pair of
+  triggers (`trg_breeder_bird_movements_location_scope_insert`/`_update`)
+  enforces that whichever location a movement names belongs to the same
+  flock as its report — the one cross-table invariant no CHECK constraint
+  alone can express — aborting the insert/update otherwise. Moving birds
+  between a house and an isolation area (either direction) is recorded as
+  two ordinary movement rows (a `transferOut` on one location and the
+  matching `transferIn` on the other) and validated exactly like a
+  house-to-house transfer; it decreases one location's count and increases
+  the other's without changing the flock's total physically-live count.
+  Mortality, culls, sale, kitchen removal, and euthanasia are permanent
+  removals wherever they are recorded — inside isolation they reduce the
+  flock total exactly as they would in a house. Version 72's migration
+  rebuilds a pre-existing `breeder_bird_movements` table in place (SQLite
+  cannot relax a NOT NULL column or add a multi-column CHECK via
+  `ALTER TABLE`), carrying every existing row forward as a house movement
+  with `isolationAreaId = NULL`.
+- `breeder_feed_entries` (version 73) is a child row per report, location,
+  and sex, mirroring `breeder_bird_movements`' location shape: `sex`
+  (`female`/`male`, CHECK-constrained) and `feedKg` (`CHECK (feedKg >= 0)`),
+  plus the standard sync columns. Its location is a house (`houseId`) or a
+  named isolation area (`isolationAreaId`) — exactly one, never both, never
+  neither (CHECK constraint), with the same separate unique indexes
+  (`UNIQUE (reportId, houseId, sex)` / `UNIQUE (reportId, isolationAreaId,
+  sex)`) and the same pair of location-scope triggers
+  (`trg_breeder_feed_entries_location_scope_insert`/`_update`) proving
+  whichever location a row names belongs to the report's flock. Feed is
+  entered in kilograms — the only stored input; grams-per-bird is always
+  derived, never stored here and never independently editable.
+
+`BreederBirdLedgerService`
+(`lib/services/breeder/breeder_bird_ledger_service.dart`) is the single
+tested home for this ticket's formulas and lifecycle, reused by entry,
+review, and (later) alerts and export:
+
+- `closingBirds` computes `closing = opening - permanent removals +/-
+  transfers`, rejecting any negative input field and any resulting negative
+  closing balance (`BreederLedgerValidationError`) rather than clamping to
+  zero.
+- `validateTransferBalance` sums `transferIn`/`transferOut` per sex across a
+  report's movement rows and rejects a mismatch — internal transfers must
+  balance across their two legs. House-by-house entry records each house's
+  own transfer fields independently (a transfer out of house A and the
+  matching transfer into house B are two separate form entries), so this is
+  what catches the two legs disagreeing; `submit` runs it automatically
+  before a report can leave Draft.
+- `openingBalanceFor` derives a house/sex's opening balance from the
+  previous calendar day's closing balance for that flock/house/sex, or from
+  the house's own `openingFemales`/`openingMales` on the first day — never
+  from free typing. `isolationOpeningBalanceFor` (version 72) is the
+  isolation-area counterpart: previous closing balance, or 0 when none
+  exists yet (an isolation area has no opening-count field to fall back
+  to).
+- `houseBalance`/`flockBalance` report the live balance for females and
+  males, separately, at house and flock level, from movements plus house
+  opening counts — never directly editable. `flockBalance` only ever sums
+  houses; it can never include isolation birds by construction (design doc
+  section 7.1: house-scope denominators exclude isolation). `isolationAreaBalance`/
+  `isolationFlockBalance` (version 72) are the isolation-only counterparts,
+  reported on their own rows. `flockTotalBalance` is the *only* place the
+  two are added together, for the flock's total physically-live count
+  (houses + isolation) — a caller that needs a house-scope-only denominator
+  calls `flockBalance`/`houseBalance` directly and never this method, so
+  the three figures (live in houses, live in isolation, total physically
+  live) are never silently merged. All three are reported separately for
+  females and males.
+- `submit`/`approve` implement this ticket's slice of the design's
+  Draft -> Submitted -> Approved -> Revised -> Approved state machine
+  (`Revised` and `Sync Conflict` are later tickets and are not modelled
+  yet). `submit` requires Draft and a balanced transfer set; `approve`
+  requires Submitted and an actor role in `BreederApprovalRole.permitted`
+  (`production_manager` or `admin`). This client-side check is mirrored in
+  the cloud by ticket 16: see "Customer-scoped access and role-gated
+  approval" below.
+- `updateHeader` (version 73) persists an edit to
+  `insideTemperature`/`outsideTemperature`/`lightHours`/`notes`. Only a
+  Draft report's header may be edited (`BreederReportStateError` otherwise —
+  "Draft reports can be edited normally", design section 5.3; any later
+  correction is a revision, out of scope until ticket 12); `lightHours`
+  outside `0..24` is a `BreederLedgerValidationError`, never silently
+  clamped.
+- `recordFeedEntry`/`feedGramsPerBird` (version 73) are the feed
+  counterpart of `recordMovement`/`closingBirds`: `recordFeedEntry` persists
+  one location/sex's kilograms (rejecting a negative value exactly like a
+  movement's negative field), and `feedGramsPerBird` is the pure formula
+  `feed kilograms * 1000 / closing live birds`, reusing
+  `CalculationUtils.divideOrNull` (added this ticket, generalizing
+  `percentOf`'s "non-positive-or-missing-denominator yields null" rule for
+  non-percentage divisions) so a zero, negative, or missing denominator
+  yields a blank display value, never `0`, never an error.
+  `feedGramsPerBird`'s denominator is deliberately the exact report row's
+  own `BreederBirdMovement.closing` for that location and sex — not
+  `houseBalance`/`isolationAreaBalance`, which look *backward* to the most
+  recent report strictly *before* a given date and would silently divide by
+  yesterday's count. A house movement's `closing` can never include
+  isolation birds by construction (a house row and an isolation row are
+  always separate movements), so this satisfies the design's "house-scope
+  denominators exclude isolation" rule without any additional balance
+  lookup; isolation feed divides by that isolation movement's own
+  `closing`, on its own row, never folded into a house figure.
+
+`lib/data/repositories/breeder_daily_report_repository.dart`,
+`breeder_bird_movement_repository.dart`,
+`breeder_isolation_area_repository.dart` (version 72), and
+`breeder_feed_entry_repository.dart` (version 73) provide CRUD plus the same
+dirty-tracking method shape other per-row-synced tables use, though none of
+the four tables is yet wired into `StartupSyncService`'s push/pull list.
+`breeder_bird_movement_repository.dart` and `breeder_feed_entry_repository.dart`
+each keep house lookups (`getByReportHouseSex`/...) and isolation-area
+lookups (`getByReportIsolationAreaSex`/...) as distinctly-named methods
+rather than one method taking "either" id, so a caller cannot accidentally
+be handed the wrong kind of row.
+
+The UI (`lib/features/breeder/screens/breeder_daily_report_list_screen.dart`,
+`breeder_daily_report_entry_screen.dart`,
+`breeder_daily_report_review_screen.dart`) is house-by-house entry — each
+house or isolation area (version 72) is its own `ExpansionTile` with
+independent female/male movement fields, isolation areas carrying an
+"Isolation" chip — followed by a consolidated review screen that renders
+every house and isolation area as one table per sex, matching the paper
+report, with "Back to edit", "Submit", and (role-gated) "Approve" actions.
+The review screen uses a `SingleChildScrollView`/`Column`, not a
+`ListView`, because a `ListView`'s lazy `SliverList` only builds children
+near the viewport and would silently drop the actions row off-screen below
+the tables. A flock's isolation areas are created and named from the same
+add/edit flock sheet that already folds in house setup
+(`lib/features/customers/widgets/add_flock_sheet.dart`) — an "Isolation
+areas" section alongside "Houses", each row just a name (no opening bird
+count, since isolation areas always start empty).
+
+The entry screen (version 73) also carries a "Report header" card above the
+location list — inside/outside temperature (each labelled with its own
+`°C` suffix, following the repo's existing per-sector, per-field temperature
+convention rather than a single global unit setting — the same convention
+`EstGridWidget`'s `unitSuffix` and the setter/hatcher screens' hardcoded
+`°F` labels already use elsewhere in the app), light hours, and notes —
+wired to `updateHeader`; this is the
+first entry UI those two ticket-07 temperature fields ever had; earlier the
+data model supported them but nothing let a user type into them. Each
+sex section inside a location's `ExpansionTile` gained a "Feed (kg)" field
+next to the existing movement fields and a read-only "Feed (g/bird)" field
+(no controller, never typed into) showing `feedGramsPerBird`'s result or a
+blank dash. The review screen's two per-sex tables (female/male) each
+gained "Feed (kg)" and "Feed (g/bird)" columns alongside the existing
+movement columns, with the same blank-dash treatment for an empty
+denominator, and the header card shows light hours next to the
+now-explicitly-`(°C)`-labelled temperatures.
+
+**Breeder egg production and the grade partition** (version 74) adds the
+daily report's egg section, gated so it only appears once
+`BreederFlockLifecycleService.hasEnteredProductionRange` (a thin wrapper
+around `officialProductionWeek` — `!result.isPreProduction`) says the flock
+has entered the active benchmark profile's official production range;
+before that the entry and review screens show no egg fields at all, exactly
+as during rearing.
+
+- `breeder_egg_grade_definitions` holds the six system-defined egg grades
+  (`first_grade`, `second_grade`, `sort_reject`, `double_yolk`, `cracked`,
+  `damaged` — never UI-only strings): `id`, `code` (`UNIQUE`), `name`,
+  `priority` (`CHECK (priority > 0)`), `isActive`, and the standard sync
+  columns. Grades are a strict partition — mutually exclusive and
+  collectively exhaustive — so an egg matching more than one description
+  (a cracked double-yolk egg is both) is counted under the single
+  highest-priority grade it matches; lower `priority` numbers are higher
+  priority. `priority` must be unique within the active grade set (design
+  section 12 invariant), enforced by a partial unique index
+  (`idx_breeder_egg_grade_definitions_active_priority ON
+  breeder_egg_grade_definitions (priority) WHERE isActive = 1`) so a
+  retired grade's old priority can be reused. Seeded by
+  `seedBreederEggGradeDefinitions`
+  (`lib/data/database/seeds/breeder_egg_grade_definition_seeds.dart`),
+  re-run idempotently on every database open exactly like
+  `seedEggDefectTypes`/`importBreederBenchmarks`. The seeded priority order
+  — 1 damaged, 2 cracked, 3 double yolk, 4 sort/reject, 5 second grade, 6
+  first grade — is a judgment call not specified by the design doc: the
+  most severe physical defect wins over a merely cosmetic/biological trait,
+  and "first grade" is the lowest-priority catch-all default.
+- `breeder_egg_production_entries` is a child row per report, location, and
+  grade, mirroring `breeder_feed_entries`' location shape: `gradeId`
+  (`FOREIGN KEY` to `breeder_egg_grade_definitions`), `count`
+  (`CHECK (count >= 0)`), and `eggWeightGrams`
+  (`CHECK (eggWeightGrams IS NULL OR eggWeightGrams > 0)`), plus the
+  standard sync columns. Its location is a house (`houseId`) or a named
+  isolation area (`isolationAreaId`) — exactly one, never both, never
+  neither (CHECK constraint), with the same separate unique indexes
+  (`UNIQUE (reportId, houseId, gradeId)` /
+  `UNIQUE (reportId, isolationAreaId, gradeId)`) and the same pair of
+  location-scope triggers
+  (`trg_breeder_egg_production_entries_location_scope_insert`/`_update`)
+  proving whichever location a row names belongs to the report's flock.
+  `eggWeightGrams` is a location-level value (the paper form records one
+  egg weight per house, not per grade) deliberately duplicated across every
+  grade row of the same (report, location) rather than held in a separate
+  table, since design section 12 lists only this one production-entry
+  table; `BreederEggProductionService.recordEggWeight` is the sole writer
+  and keeps every sibling row identical. Per-house lighting hours from the
+  paper form are deliberately *not* added here — `breeder_daily_reports
+  .lightHours` (version 73) already covers lighting at header level, and
+  ticket 10 does not duplicate it.
+
+`BreederEggProductionService`
+(`lib/services/breeder/breeder_egg_production_service.dart`) is the single
+tested home for the grade-partition and egg-production formulas:
+
+- `resolveHighestPriorityGrade` takes every grade an egg's physical
+  description matches and returns the one with the lowest `priority`
+  number — throwing `BreederEggProductionValidationError` on an empty
+  candidate list, since the partition is exhaustive and every egg must
+  match at least one grade. `validateUniqueActivePriorities` is a
+  defensive in-memory check mirroring the database's partial unique index.
+- `totalEggs` sums every grade count (`total eggs = sum of all egg-grade
+  counts`, design section 7) — never independently typed — rejecting a
+  negative count. `eggGradePercent` (`grade count / total eggs * 100`) and
+  `dailyProductionPercent`/`isolationProductionPercent`
+  (`total eggs / closing live females * 100`) all reuse
+  `CalculationUtils.percentOf`, so a zero, negative, or missing denominator
+  yields a blank value, never `0`, never an error (design section 7.2).
+- `closingFemalesHouseScope`/`closingFemalesIsolationScope` sum a report's
+  own recorded `BreederBirdMovement.closing` for females across house
+  rows or isolation rows respectively — the same "this report's own
+  closing balance, not a backward-looking ledger lookup" approach ticket
+  09 established for feed. Isolation females are excluded from the
+  house-scope denominator and isolation-collected eggs are excluded from
+  the house-scope numerator, so the two stay scoped together; isolation
+  production, when recorded, is reported on its own row via
+  `isolationProductionPercent`, never folded into the house figure.
+- `recordGradeCount`/`recordEggWeight`/`initializeEntriesForLocation`
+  persist entries through `BreederEggProductionEntryRepository`, mirroring
+  `BreederBirdLedgerService.recordMovement`'s location-XOR validation and
+  non-negative-input rejection (`BreederEggProductionValidationError`).
+  `initializeEntriesForLocation` lazily creates a zero-count row per active
+  grade for a location, the same lazy-initialization pattern the entry
+  screen already uses for movements and feed, so `recordEggWeight` always
+  has rows to attach the location's weight to.
+
+`breeder_daily_reports` gains three nullable columns at version 74:
+`eggProductionDenominatorFemales`, `benchmarkProfileVersionAtApproval`, and
+`comparisonAxisAtApproval` — the approval-time snapshot design section 7.1
+requires ("The denominator actually used is retained in the approved
+report snapshot for auditability, together with the benchmark profile
+version and comparison axis"). `BreederBirdLedgerService.approve` accepts
+all three as optional parameters and persists them via
+`BreederDailyReportRepository.applyTransition` without computing them
+itself — the review screen computes the denominator
+(`BreederEggProductionService.closingFemalesHouseScope` over the report's
+movements), the profile version
+(`BreederFlockLifecycleService.comparisonAxes(flock).profile.guideVersion`),
+and the axis description (`ComparisonAxis.toString()`) only when the flock
+has entered egg production, and passes them through. All three stay null
+for a report approved before egg production began.
+
+The entry screen (`breeder_daily_report_entry_screen.dart`) adds an "Egg
+production" subsection to each location's `ExpansionTile`, visible only
+when `hasEnteredProductionRange` is true: one count field per active grade
+(labelled with the grade's name, never a hardcoded UI string), a read-only
+calculated "Total eggs" field, a read-only calculated "Production %"
+field, and an editable "Egg weight (g)" field shared across the location's
+grades. A fixed caption states the partition rule ("Every egg counts once,
+under the highest-priority grade it matches ... Grade counts always sum to
+total eggs") so the review screen's "grades must sum to total" validation
+is never a surprise. The review screen adds an "Egg production" table (one
+row per house/isolation area, one count+percent column pair per grade,
+plus total eggs, production percent, and egg weight) and an "About this
+comparison" card stating that official hen-week and hen-housed production
+targets use a different denominator than this local, closing-live-females
+figure, and that hen-week assumes 8% cumulative in-lay mortality (the Ross
+308 profile's own `metricProvenance` footnote) — this text deliberately
+never says "hen-day", since the imported profile has no column by that
+name (see `assets/benchmarks/aviagen_ross308_parent_stock_2021_en.json`'s
+`metricProvenance.hen_week_production_pct`).
+
+**Breeder egg-inventory ledger** (version 75) adds a flock-level egg-stock
+ledger by grade, gated on the same `hasEnteredProductionRange` flag as the
+egg-production section (ticket 10) — the inventory section appears in the
+entry and review screens exactly when the egg-production section does, and
+disappears together with it.
+
+- `breeder_egg_inventory_movements` records one ledger row per (report,
+  grade, movement kind): `id`, `reportId` (`FOREIGN KEY` to
+  `breeder_daily_reports`, `ON DELETE CASCADE`), `gradeId` (`FOREIGN KEY`
+  to `breeder_egg_grade_definitions`), `kind` (`CHECK IN
+  ('hatchery_dispatch', 'sale', 'kitchen', 'gift', 'adjustment')`),
+  `quantity` (`CHECK (quantity >= 0)` — never signed; direction is carried
+  by `kind`/`adjustmentDirection`, never by a negative quantity),
+  `adjustmentDirection` (`'increase'`/`'decrease'`, required exactly when
+  `kind = 'adjustment'`, `NULL` otherwise — enforced by a `CHECK`),
+  `reason`, `actorUserId`, `occurredAt`, and `reversedMovementId` (a
+  self-`FOREIGN KEY`), plus the standard sync columns. `reason`,
+  `actorUserId`, and `occurredAt` are required (non-empty/non-null) exactly
+  when `kind = 'adjustment'` or `reversedMovementId IS NOT NULL` — both
+  enforced by `CHECK` constraints, matching design section 14's "Adjustments
+  require a reason, an actor, and a time". Unlike
+  `breeder_bird_movements`/`breeder_feed_entries`/
+  `breeder_egg_production_entries`, a row here names no house or isolation
+  area at all — inventory is tracked at the whole-flock level (design
+  section 5.2 has no per-location column for it) — so this table carries no
+  trigger referencing `houses` and needed no entry in the v68
+  houses-rebuild trigger-drop list. A partial unique index
+  (`idx_breeder_egg_inventory_movements_unique ON
+  breeder_egg_inventory_movements (reportId, gradeId, kind) WHERE kind <>
+  'adjustment' AND reversedMovementId IS NULL`) allows exactly one
+  editable, non-adjustment, non-reversal row per (report, grade, kind) —
+  the upsert-while-Draft slot for dispatched/sold/kitchen/gifts. Adjustments
+  and reversals are excluded from that index since both are always
+  appended as new rows, never overwritten (design section 8's append-only
+  ledger: "Correction or cancellation after approval uses a documented
+  reversing movement rather than destructive deletion").
+- Judgment call: "today's production" is never itself a persisted ledger
+  row, even though the ticket names "production in" alongside the other
+  five movement kinds. `BreederEggInventoryService` derives it live from
+  `breeder_egg_production_entries` (ticket 10) every time a balance is
+  computed instead, since the ticket explicitly says not to re-enter or
+  duplicate that data — a cached `production_in` row could drift from its
+  source, whereas a live derivation cannot. `kind` therefore lists only the
+  five kinds that are genuinely outward-or-adjusting.
+
+`BreederEggInventoryService`
+(`lib/services/breeder/breeder_egg_inventory_service.dart`) is the single
+tested home for the ledger arithmetic (design section 7):
+
+- `availableBalance = previousBalance + todaysProduction` and
+  `closingBalance = availableBalance - dispatched - sold - kitchen - gifts
+  + netAdjustment` are pure static methods, rejecting any negative input
+  and rejecting (not clamping) a closing balance that would go negative
+  (`BreederEggInventoryValidationError`) — design section 14: "Closing
+  balance can never go negative... you cannot dispatch, sell, give away, or
+  eat more eggs of a grade than are available."
+- `previousBalance(flockId, gradeId, reportDate)` sums every prior report's
+  production (`BreederEggProductionEntryRepository
+  .sumCountForFlockGradeBeforeDate`) plus every prior report's signed
+  ledger movements (`BreederEggInventoryMovementRepository
+  .getForFlockGradeBeforeDate`, both scoped to `reportDate <` the report in
+  question) — a flat sum rather than a recursive "yesterday's closing"
+  lookup, since a ledger's balance at any point is simply everything
+  before it. `todaysProduction(reportId, gradeId)` sums the report's own
+  egg-production entries for that grade across every location (house and
+  isolation alike — inventory tracks physical stock, not house-scope
+  performance ratios).
+- `BreederEggInventoryMovement.signedEffect` is the one place a movement's
+  net effect on the balance is computed: `-quantity` for a plain
+  dispatch/sale/kitchen/gift, `+/-quantity` for an adjustment per
+  `adjustmentDirection`, and the *opposite* sign of whichever of those it
+  would otherwise be when `reversedMovementId` is set — so a reversed
+  dispatch correctly hands the quantity back rather than leaving the
+  closing balance silently unaffected.
+- `recordMovement` upserts one of the four plain kinds for a Draft report
+  only, throwing `BreederEggInventoryStateError` once the report has left
+  Draft (append-only: from Submitted onward, only `reverseMovement`
+  corrects a historical row). Both `recordMovement` and `recordAdjustment`
+  re-validate the whole set of that report/grade's movements-with-the-
+  candidate-applied before persisting, so an over-dispatch or an
+  over-sale is rejected at entry time, not just at approval.
+- `reverseMovement(movementId, reason, actorUserId, occurredAt)` always
+  appends a new row referencing the original via `reversedMovementId` —
+  the original row is never mutated or deleted, and this is the only
+  correction path once a report has left Draft (design section 8).
+- `validateBalancesForApproval(report)` recomputes every active grade's
+  closing balance and throws `BreederEggInventoryValidationError` if any
+  is negative. This is the actual approval-time balance gate design
+  section 14 names ("a report whose inventory does not balance cannot be
+  approved") — distinct from `recordMovement`'s entry-time check, because
+  a production count edited *after* a dispatch was recorded against it can
+  make the ledger stop balancing without any single movement write ever
+  having been invalid at the time it was made.
+
+`BreederBirdLedgerService.approve` (unchanged public signature) now takes
+an optional `eggInventoryService` constructor parameter (defaulting to a
+real `BreederEggInventoryService`) and calls
+`validateBalancesForApproval` unconditionally before transitioning a
+report to Approved — the single approval gate, never a second, parallel
+mechanism. A pre-production report (no grades touched yet) passes
+trivially, since every active grade's production and movements are zero.
+
+The entry screen adds an "Egg inventory" card below the location list
+(flock-level, not nested inside a location's `ExpansionTile`, since
+inventory has no house/isolation split): one row per active grade showing
+read-only previous balance, today's production, and available balance,
+editable dispatched/sold/kitchen/gifts fields, a read-only closing
+balance, and an "Adjustment" button opening a dialog that collects a
+direction, quantity, and (required) reason before calling
+`recordAdjustment` with the signed-in user and `DateTime.now()`. The
+review screen adds a matching read-only "Egg inventory" table. Derived
+balances never have a `TextEditingController` anywhere in either screen.
+
+**Breeder post-approval revisions and incomplete-data reporting** (version
+76) adds a permanent audit trail for corrections made to an already-Approved
+daily report, plus a shared period-completeness service weekly/cumulative
+figures (and future alerts/overview tickets) build on.
+
+- `breeder_report_revisions` is an append-only audit table: `id`, `reportId`
+  (`FOREIGN KEY` to `breeder_daily_reports`, `ON DELETE CASCADE`),
+  `tableName`/`rowId`/`fieldName` (what changed — the report's own id for a
+  header field, a child row's id for a corrected child-table field),
+  `oldValue`/`newValue` (plain text), `reason` and `actorUserId` (both
+  `CHECK (<> '')`, i.e. required), `revisionAfter` (`CHECK (>= 1)` — the
+  report's own `revision` counter value *after* the correction that wrote
+  this row), `changedAt`, and the standard sync columns. Unlike
+  `breeder_benchmark_profiles`/`breeder_benchmark_values` (version 68/69's
+  "immutable once published" triggers, which stay mutable while `state =
+  'draft'`), a revision row has no draft state to begin in — it only ever
+  exists as the direct result of a correction — so
+  `trg_breeder_report_revisions_immutable_update`/`_delete` block every
+  UPDATE and DELETE unconditionally, with no `WHEN` guard. This table names
+  no house or isolation area and its triggers reference only itself, so —
+  like version 75's `breeder_egg_inventory_movements` — it needed no entry
+  in the v68 houses-rebuild trigger-drop list.
+- One row is written per changed field, not per correction action, so a
+  single correction touching three fields writes three rows, all sharing
+  one `revisionAfter`. A correction that changes nothing writes no rows at
+  all and leaves the counter untouched — a same-value resubmission is not a
+  correction.
+
+`BreederReportRevisionService`
+(`lib/services/breeder/breeder_report_revision_service.dart`) is the single
+tested home for this diff-and-log engine: `recordCorrection` takes an old
+and a new `Map<String, dynamic>`, a reason, and an actor, diffs them field
+by field (via `toString()` comparison), writes one immutable row per
+changed field through `BreederReportRevisionRepository` (an insert-and-
+read-only repository — no update/delete method exists to call, matching
+the schema's own immutability), bumps the report's `revision` counter
+exactly once via a new `BreederDailyReportRepository.bumpRevision` (which,
+unlike `applyTransition`, never touches `state`), and returns the updated
+report. `requireReason` is exposed statically so a caller can validate a
+reason before it even opens a confirmation UI.
+
+`BreederBirdLedgerService` gains a `revisionService` constructor parameter
+and five correction methods, all Approved-only (throwing
+`BreederReportStateError` for anything else) and all requiring a reason and
+an actor before touching any repository — validation runs first, so a
+rejected correction (missing reason, bad actor, a domain-rule violation)
+never mutates data and then throws second:
+
+- `correctHeader` — the header's temperature/light-hours/notes, unchanged
+  from the original ticket-12 slice. `updateHeader` remains the separate
+  Draft-only, no-history edit path (design section 5.3: "Draft reports edit
+  normally with no revision history").
+- `correctMovement` — the actually-common case (design section 5.2:
+  mortality, culls/sorts, sale, kitchen removal/euthanasia, transfers).
+  `opening` is never correctable here — it derives from the previous day's
+  ledger, not this report — and `closing` is always recomputed via
+  `closingBirds`, so a mortality/culls/etc. correction can itself write a
+  second revision row for `closing` alongside whichever field the user
+  actually typed. [validateTransferBalance] is re-run across the whole
+  report's movements with the correction applied before anything is
+  persisted, so a correction that would unbalance a transfer is rejected
+  the same way [submit] already rejects one.
+- `correctFeedEntry` — `feedKg`; grams-per-bird is never stored, so it
+  updates automatically wherever it is displayed.
+- `correctEggProductionEntry` — a grade `count`. Total eggs, grade percent,
+  and production percent are always derived live from
+  `breeder_egg_production_entries`, so correcting a count flows through to
+  all three with no separate "totals" row to keep in sync. Because
+  today's production also feeds the egg-inventory ledger's available
+  balance, this method calls the new
+  `BreederEggInventoryService.validateProductionOverrideForGrade` BEFORE
+  persisting — simulating the grade's total production with the correction
+  applied — and rejects (writing nothing) a correction that would drive
+  that grade's closing inventory balance negative.
+- `correctEggInventoryMovement` — routes through the new
+  `BreederEggInventoryService.correctMovement`, which never mutates the
+  original row: it appends a documented reversal (quantity/kind identical
+  to the original, `reversedMovementId` set) followed by a brand-new row
+  carrying the corrected quantity, validating the resulting balance before
+  writing either row (design section 8: "Correction or cancellation after
+  approval uses a documented reversing movement rather than destructive
+  deletion" — reusing ticket 11's `reverseMovement` machinery rather than a
+  second correction mechanism). The revision entry's `rowId` names the
+  *original* movement's id even though the ledger itself gains two new
+  rows — the row identity a reader corrected, not the rows physically
+  written.
+
+  Ticket 11's `idx_breeder_egg_inventory_movements_unique` partial index
+  (one non-adjustment, non-reversal row per report/grade/kind — the
+  upsert-while-Draft slot) is widened at version 76 with an
+  `AND reason IS NULL` clause: a Draft-time entry never sets `reason`, but
+  a correction's new row always does (the correction's own reason), so the
+  widened index lets the corrected row coexist with its never-mutated,
+  reason-less original without a collision. `_applyV76Upgrade` drops the
+  old index by name before recreating it, so an already-upgraded local
+  database also picks up the fix.
+
+The review screen (`breeder_daily_report_review_screen.dart`) adds two
+actions once a report `isApproved`: "Correct report" opens a reason-first
+dialog (`_CorrectionDialog`) whose first field picks WHAT is being
+corrected — header, bird movement, feed entry, egg-production count, or
+egg-inventory movement (the egg options only offered when the report
+`hasEggSection`) — and whose form below it changes to match, prefilled
+from the picked row's current values. The Save button stays disabled until
+the reason field is non-blank and (for every non-header target) a specific
+row has been picked — the UI half of "require a reason before an approved
+report can be corrected" (the service layer enforces the same rule
+regardless of what any UI does). "Revision history" opens a read-only list
+(`_RevisionHistoryDialog`) of every correction ever made: field, old value,
+new value, actor, time, and reason, oldest first.
+
+Because a correction updates the same mutable report row in place (rather
+than creating a new report row per revision), "current calculations always
+use the latest approved revision" (design section 5.3) falls out of the
+existing single-row model for free — any reader of `breeder_daily_reports`
+already sees the latest values; the revision table exists purely as the
+audit trail of how it got there, never as an alternate calculation source.
+
+`BreederReportPeriodService`
+(`lib/services/breeder/breeder_report_period_service.dart`) is the shared
+implementation ticket 12's own text asks for so alerts (ticket 17) and the
+overview (ticket 18) do not each re-derive completeness:
+
+- `completenessFor`/`weeklyCompleteness` walk every calendar date in a
+  requested range and classify each as recorded or missing.
+  **Judgment call**: "recorded" means an *Approved* report exists for that
+  date — a Draft or Submitted report does not count, since design section
+  5.3 already establishes only approved data as authoritative for
+  calculations, and an unapproved report can still change with no revision
+  trail at all. The result (`BreederPeriodCompleteness`) exposes
+  `recordedDayCount`, `missingDayCount`, `totalDayCount`, `missingDates`,
+  and an `incompleteDataLabel` getter that is `null` for a complete period
+  and otherwise reads e.g. `"Incomplete Data (3 of 7 days recorded, 4
+  missing)"` (design section 12/14: "Weekly and cumulative output
+  identifies missing dates and is labelled incomplete, with recorded and
+  missing day counts").
+- `averageOverPeriod`/`sumOverPeriod` operate only on the values a caller
+  actually has for recorded days — a missing day simply has no entry in the
+  list passed in, never a `0` — returning `null` (never `0`) when nothing
+  is present, matching `CalculationUtils.divideOrNull`'s "blank, never
+  zero" convention.
+- `compareToBenchmark` packages an actual value, a benchmark value, and the
+  `BreederPeriodCompleteness` that produced the actual value into a
+  `BreederBenchmarkPeriodComparison`, whose `partialDataWarning` getter is
+  non-null exactly when the underlying period is incomplete (design section
+  14: "Partial results may be compared with the official benchmark only
+  with a visible partial-data warning") — a caller cannot render the
+  comparison without also having the warning available.
+
+`lib/features/breeder/widgets/breeder_incomplete_data_label.dart` provides
+`BreederIncompleteDataLabel` (renders the `Incomplete Data` banner with
+recorded/missing counts, or nothing for a complete period) and
+`BreederPartialDataWarning` (renders `compareToBenchmark`'s warning, or
+nothing when not partial) as shared widgets — no weekly/cumulative screen
+exists yet (that is ticket 18's "overview" scope), so these ship
+unattached, ready for tickets 17/18 to place prominently rather than as a
+footnote.
+
+**Breeder weighing and uniformity sessions** (version 77) adds a periodic
+weighing workflow, kept deliberately separate from the daily report (design
+doc section 5.1: "Periodic weight and uniformity entry is a separate
+workflow linked to flock, house, sex, and date").
+
+- `breeder_weighing_sessions`: `id`, `flockId` (`FOREIGN KEY` to `flocks`,
+  `ON DELETE CASCADE`), `houseId` (required — a session always names a
+  house, never an isolation area, unlike the daily-report child tables),
+  `sessionDate`, `sex` (`CHECK IN ('female','male')`), `method` (free
+  text, `CHECK (<> '')` — the design doc does not publish a closed set of
+  weighing methods, so the entry UI offers a documented suggestion list
+  rather than a rejecting enum), `sampleSize` (`CHECK (> 0)`), `notes`,
+  three `derived*` cache columns (`derivedMeanWeightG`,
+  `derivedUniformityPct`, `derivedCvPct`), four `comparison*` columns
+  preserving the exact benchmark profile and axis used
+  (`comparisonProfileId`, `comparisonProfileGuideVersion` — a denormalized
+  snapshot of the profile's `guideVersion` at comparison time,
+  `comparisonAxisKind`, `comparisonAxisOffsetWeeks`,
+  `comparisonTargetWeightG`), and the standard sync columns. A session's
+  house must belong to its flock — enforced by
+  `trg_breeder_weighing_sessions_house_scope_insert`/`_update`, the
+  single-house counterpart of the location-scope trigger pattern versions
+  71/73/74 established for `breeder_bird_movements`/
+  `breeder_feed_entries`/`breeder_egg_production_entries` — so, like those
+  three tables, its trigger names are added to the version-68
+  houses-rebuild trigger-drop list (`_rebuildV68HousesTableAndBackfill`'s
+  `hasBreederWeighingSessionGuards` check) in `database_migrations.dart`.
+- `breeder_weighing_samples`: `id`, `sessionId` (`FOREIGN KEY` to
+  `breeder_weighing_sessions`, `ON DELETE CASCADE`), `weightGrams`
+  (`CHECK (>= 0)`), and the standard sync columns. A session with zero
+  sample rows is a valid "summary only" session (design section 9:
+  "optionally records individual bird weights"); the derived columns stay
+  `NULL` rather than `0` for it.
+
+`BreederWeighingService`
+(`lib/services/breeder/breeder_weighing_service.dart`) is the single tested
+home for the derived-figure and benchmark-comparison arithmetic:
+
+- `deriveFigures` computes mean weight, uniformity, and coefficient of
+  variation from a list of sample weights, reusing
+  `CalculationUtils.average`/`stdDev`/`roundTo` rather than a second
+  statistical convention (design section 9). **Uniformity definition
+  (judgment call, not fixed by the design doc):** the percentage of
+  samples within +/-`BreederWeighingService.weightUniformityWindow`
+  (`0.10`, a named constant) of the *sample* mean — the same +/-10%-of-mean
+  window `panel_aggregate_deriver.dart` and `station_adapter.dart` already
+  use for chick/egg weight uniformity, reused here so "uniformity" means
+  the same thing everywhere in the app. **Deliberate deviation from
+  `CalculationUtils.cvPercent`:** that helper returns `0.0` for fewer than
+  two samples or a zero mean, which conflicts with this feature's
+  blank-not-zero convention (design section 7.2). `deriveFigures` instead
+  computes CV directly from `CalculationUtils.stdDev`/`average` (identical
+  formula: sample stdDev / mean * 100) and returns `null` in exactly those
+  cases, rather than changing `cvPercent`'s existing behaviour, which other
+  features still rely on. A single sample is 100% uniform (its own value
+  is trivially its own mean) but has a `null` CV (sample standard deviation
+  is undefined for `n = 1`). An empty sample list returns every figure as
+  `null`, never `0`.
+- `officialWeightTarget` looks up the Ross 308 `body_weight_g` benchmark
+  value (ticket 03) for the flock's breed, the session's `sex`, and the
+  flock's age at `sessionDate` (not "now"), via
+  `BreederBenchmarkRepository`. **Judgment call:** unlike the daily
+  report's production-week lookup, this always uses the official
+  (age-based) comparison axis rather than the milestone-aligned axis
+  `BreederFlockLifecycleService.comparisonAxes` can offer — body weight is
+  keyed to a session's own recorded date, not to the 5%-production
+  milestone the milestone axis exists to correct schedule drift against.
+  `targetWeightG` is `null` (no target, not a missing profile) exactly
+  when the guide has no matching row for that age/sex — most visibly, the
+  Ross 308 source publishes no uniformity or CV target at all (ticket 03),
+  so uniformity/CV are always shown without a target in the UI, while mean
+  weight is compared against one whenever the guide has a row for that
+  age/sex.
+- `computeAndSaveDerived` is the only writer of the session's
+  `derived*`/`comparison*` columns: it reads the session's current sample
+  rows, derives figures, looks up the comparison, and persists both,
+  overwriting whatever was stored before (there is no separate revision
+  history for weighing comparisons the way approved daily reports have
+  one — re-running the comparison, e.g. after a benchmark re-import, simply
+  produces a fresher snapshot). `createSession` and `updateSamples` are the
+  two entry points that end by calling it; both validate a non-negative
+  weight and (for `createSession`) a positive `sampleSize` and a female/male
+  `sex` before writing anything.
+
+`lib/features/breeder/screens/breeder_weighing_session_list_screen.dart` and
+`breeder_weighing_session_entry_screen.dart` provide the workflow UI,
+reachable from a flock's detail screen via a new "Weighing Sessions" button
+alongside the existing "Breeder Performance" one
+(`customer_detail_screen.dart`). The entry screen creates/edits a session
+(house, sex, date, method, sample size), lets individual weights be added
+or removed as separate rows, and — once a session has been saved — shows
+the derived mean/uniformity/CV next to the official target (mean weight
+only; uniformity/CV are always labelled "No official target published").
+
+**Egg batches, hatchery-dispatch shipments, and receipts** (version 78)
+adds a formal workflow for what a flock actually ships to a customer's
+hatchery, built on top of ticket 11's egg-inventory ledger rather than a
+second one (design doc section 8: "Approving a hatchery dispatch produces
+the corresponding inventory movement... The system cannot dispatch more
+than the available grade balance"). Hatchery *results* — setter, hatcher,
+fertility, hatchability, chick count, chick quality, breakout — are
+explicitly out of scope for this version; no result-link placeholder
+tables, columns, or code exist yet.
+
+- `egg_batches`: `id`, `flockId` (`FOREIGN KEY` to `flocks`, `ON DELETE
+  CASCADE`), `collectionDate`, `gradeId` (`FOREIGN KEY` to
+  `breeder_egg_grade_definitions`), `eggCount` (`CHECK (>= 0)`), `notes`,
+  and the standard sync columns, unique on `(flockId, collectionDate,
+  gradeId)`. **Judgment call:** the design text describes a batch as "a
+  flock's egg production for a collection date" without mentioning a
+  grade, but this table gives every batch its own single grade — ticket
+  11's ledger is strictly per-grade, and the acceptance criterion "cannot
+  dispatch more than the available grade balance" is only well-defined if
+  a batch's stock is itself grade-scoped. A batch is a distinct record
+  from `breeder_egg_production_entries` (ticket 10) — it is not required
+  to reconcile against a report's actual production count; it exists
+  purely to give hatchery dispatch a collection-dated stock unit to
+  reference.
+- `egg_batch_house_sources`: `id`, `batchId` (`FOREIGN KEY` to
+  `egg_batches`, `ON DELETE CASCADE`), `houseId` (`FOREIGN KEY` to
+  `houses`), `eggCount` (`CHECK (>= 0)`), and the standard sync columns,
+  unique on `(batchId, houseId)`. Optional — a batch may have zero, some,
+  or all of its houses represented; `EggBatchDispatchService.createBatch`
+  rejects a house breakdown that sums to more than the batch's own
+  `eggCount`. A source's house must belong to its batch's flock, enforced
+  by `trg_egg_batch_house_sources_house_scope_insert`/`_update` — so, like
+  `breeder_bird_movements`/`breeder_feed_entries`/
+  `breeder_egg_production_entries`/`breeder_weighing_sessions` before it,
+  this trigger's names are added to the version-68 houses-rebuild
+  trigger-drop list (`_rebuildV68HousesTableAndBackfill`'s
+  `hasEggBatchHouseSourceGuards` check) in `database_migrations.dart`.
+- `egg_shipments`: `id`, `flockId` (`FOREIGN KEY` to `flocks`, `ON DELETE
+  CASCADE`), `hatcheryId` (`FOREIGN KEY` to `hatcheries`), `gradeId`
+  (`FOREIGN KEY` to `breeder_egg_grade_definitions`), `shipmentDate`,
+  `status` (`CHECK IN ('draft', 'approved', 'cancelled')`), `notes`,
+  `reportId` (`FOREIGN KEY` to `breeder_daily_reports`, nullable —
+  populated only at approval), `inventoryMovementId`/
+  `reversalMovementId` (both `FOREIGN KEY` to
+  `breeder_egg_inventory_movements`), `approvedBy`/`approvedAt`,
+  `cancelledBy`/`cancelledAt`/`cancelReason`, and the standard sync
+  columns. `CHECK` constraints require `reportId`/`inventoryMovementId`/
+  `approvedBy`/`approvedAt` whenever `status = 'approved'`, and
+  `reversalMovementId`/`cancelledBy`/`cancelledAt`/`cancelReason` whenever
+  `status = 'cancelled'`. **Judgment call:** a shipment carries a single
+  `gradeId`, and every batch attached to it must share that grade
+  (`EggBatchDispatchService`, not a `CHECK`, since it is cross-table) —
+  this is what makes "one dispatch, one ledger movement" well-defined,
+  since a multi-grade shipment would need one movement per grade rather
+  than one for the whole shipment. **Judgment call, forced by ticket 11's
+  frozen schema:** `breeder_egg_inventory_movements.reportId` is `NOT
+  NULL`, so a dispatch's ledger movement must belong to some
+  `breeder_daily_reports` row. Rather than auto-creating one for the
+  shipment's date (design section 14 forbids auto-creating zero days),
+  approving a shipment requires the flock to already have a daily report
+  for `shipmentDate`; `EggBatchDispatchService.approveShipment` raises a
+  clear validation error naming the missing date otherwise.
+- `egg_shipment_batches`: `id`, `shipmentId` (`FOREIGN KEY` to
+  `egg_shipments`, `ON DELETE CASCADE`), `batchId` (`FOREIGN KEY` to
+  `egg_batches`), `quantity` (`CHECK (>= 0)`), and the standard sync
+  columns, unique on `(shipmentId, batchId)`. How much of a batch this
+  line carries is capped at what the batch has left undispatched across
+  every non-cancelled shipment referencing it
+  (`EggBatchDispatchService.remainingForBatch`) — a cross-row invariant no
+  `CHECK` can express, so it is enforced in the service.
+- `egg_batch_receipts`: `id`, `shipmentBatchId` (`FOREIGN KEY` to
+  `egg_shipment_batches`, `ON DELETE CASCADE`, unique — one receipt per
+  line), `receivedQuantity` (`CHECK (>= 0)`), `variance` (signed — no
+  `CHECK`, since a shortfall is legitimately negative), `recordedBy`,
+  `recordedAt`, `notes`, and the standard sync columns. `variance` is
+  always `receivedQuantity` minus the line's dispatched `quantity`; a
+  receipt is upsertable (correcting what the hatchery reported), but never
+  touches the shipment line's own `quantity` (design section 8: a
+  variance is recorded, not silently reconciled into the dispatched
+  figure).
+
+`EggBatchDispatchService`
+(`lib/services/breeder/egg_batch_dispatch_service.dart`) is the single
+tested home for batch/shipment/receipt creation and the rules above:
+
+- `createBatch` validates non-negative quantities and the per-house sum
+  cap before inserting the batch and its optional source rows.
+- `createShipment` validates that the hatchery belongs to the same
+  customer as the flock (design section 12: "customer ownership
+  traceable for every operational row") before creating a Draft shipment.
+- `addBatchToShipment`/`removeShipmentLine` are only valid while a
+  shipment is Draft; adding a line validates the batch's flock and grade
+  match the shipment's, and that the quantity does not exceed what the
+  batch has left undispatched.
+- `approveShipment` sums a Draft shipment's lines, looks up the flock's
+  daily report for the shipment date, and calls the new
+  `BreederEggInventoryService.recordHatcheryDispatch` (ticket 11) to post
+  exactly one `hatchery_dispatch` movement for the total — reusing that
+  service's existing `previousBalance`/`todaysProduction`/
+  `availableBalance`/`closingBalance` arithmetic rather than a second
+  implementation, so an over-dispatch beyond the flock's real available
+  grade balance is rejected with the same
+  `BreederEggInventoryValidationError` ticket 11 already raises for every
+  other movement kind. `recordHatcheryDispatch` always appends a new
+  ledger row (`BreederEggInventoryMovementRepository.insertAppend`) rather
+  than upserting — unlike the four plain movement kinds a daily report
+  edits directly (which upsert one editable row per report/grade/kind
+  while Draft), a shipment's dispatch must never silently replace another
+  shipment's already-recorded dispatch for the same report and grade.
+  This required widening `BreederEggInventoryService`'s private
+  `_assertWouldNotGoNegative` balance check with an `appendOnly` flag: the
+  existing "replace this kind's one editable row" simulation used for a
+  report's own dispatched/sold/kitchen/gift fields would otherwise
+  silently discount every prior shipment's dispatch for the same
+  (report, grade) when validating a new one.
+- `cancelShipment` — the only correction path for an approved shipment —
+  calls `BreederEggInventoryService.reverseMovement` (ticket 11) to append
+  a documented reversal referencing the original movement, then marks the
+  shipment Cancelled with the reversal's id, actor, time, and reason.
+  Neither the shipment row nor its ledger movements are ever deleted
+  (design section 8).
+- `recordReceipt` computes and persists the signed variance against the
+  shipment line's dispatched quantity, which it never mutates.
+
+`lib/features/breeder/screens/egg_batch_shipment_list_screen.dart`,
+`egg_batch_entry_screen.dart`, `egg_shipment_entry_screen.dart`, and
+`egg_shipment_detail_screen.dart` provide the workflow UI, reachable from a
+flock's detail screen via a new "Egg Stock & Shipments" button alongside
+"Breeder Performance" and "Weighing Sessions"
+(`customer_detail_screen.dart`). The list screen has separate Batches and
+Shipments tabs; the detail screen shows a shipment's lines, lets Draft
+lines be added/removed, approves or cancels the shipment, and — once
+approved — offers a "Record receipt" action per line that shows the
+resulting variance inline.
+
+**Breeder daily report sync aggregate and conflict resolution** (version 79,
+breeder-flock-performance ticket 15, design doc section 5.3 and 13.1) closes
+every remaining sync gap tickets 01-14 left behind: every breeder/egg table
+now has a Supabase migration (`supabase/migrations_unapplied/0012_breeder_flock_sync_registration.sql`,
+`0013_breeder_daily_report_aggregate_push.sql` — both deferred, not applied)
+and is registered for sync, in FK-safe order.
+
+- Ordinary per-row tables — `houses`, `breeder_flock_milestones`,
+  `breeder_isolation_areas`, `breeder_weighing_sessions`/`_samples`,
+  `egg_batches`, `egg_batch_house_sources` (all in
+  `PerformanceSyncRepository.postFlockPushOrder`, since they only depend on
+  `flocks`/`houses`), and `breeder_report_revisions`/`egg_shipments`/
+  `egg_shipment_batches`/`egg_batch_receipts` (in the new
+  `postAggregatePushOrder`, since their FKs point at rows the daily-report
+  aggregate below creates) — push and pull through the existing generic
+  per-row path exactly like every other operational table.
+- `breeder_metric_definitions`, `breeder_benchmark_profiles`,
+  `breeder_benchmark_values`, and `breeder_egg_grade_definitions`
+  (`PerformanceSyncRepository.breederReferencePullOnly`) sync DOWN only —
+  absent from every push list, so `PerformanceSyncRepository`'s
+  `_assertPushTable` throws if anything ever tries to push them, keeping
+  ticket 03's local immutability true across sync too.
+- `breeder_daily_reports` and its four child tables
+  (`breeder_bird_movements`, `breeder_feed_entries`,
+  `breeder_egg_production_entries`, `breeder_egg_inventory_movements` —
+  `PerformanceSyncRepository.breederAggregatePullOnly`) are the sync
+  aggregate design section 13.1 describes: "a header plus ... pushed as one
+  aggregate ... a child row is never individually dirty-pushed." They pull
+  through the ordinary generic per-row path (no race there — only a push
+  can silently overwrite an already-accepted revision) but are absent from
+  every push list; pushing them is `BreederReportSyncService`'s job
+  instead.
+
+`BreederReportAggregateRepository` finds every report whose header or any
+child row is dirty and not already `Sync Conflict`
+(`reportIdsNeedingPush`), and builds a full snapshot of the header plus
+EVERY current child row for that report (not just the dirty ones —
+`buildSnapshot`), because the cloud replaces the whole child set in one
+transaction and a partial payload would drop rows the cloud has never
+seen. `BreederReportSyncService.pushReport` sends that snapshot through
+`SupabaseService.pushBreederDailyReportAggregate`, which calls the
+`push_breeder_daily_report_aggregate(payload, base_revision)` Postgres
+function (0013).
+
+The optimistic-concurrency check is gated on a dedicated cloud-only
+`sync_token` column on `breeder_daily_reports` (added by 0012) — NEVER on
+`revision`. The two counters must stay separate: `revision` (ticket 12) is
+the user-facing audit counter, meaningful in the revision-history UI, and
+only ever moves on a state transition or a post-approval correction.
+`sync_token` is an opaque counter the RPC itself advances by exactly one on
+every successful aggregate push, transition or not. This distinction is
+load-bearing, not cosmetic: two devices can hold a report at the same
+`revision` (neither has transitioned or corrected it) while each editing a
+different child row offline; both would then present the same
+`base_revision` under a revision-gated check, both would "match", and the
+second device's delete-then-reinsert would silently destroy the first
+device's already-accepted children with no conflict ever raised — exactly
+the failure mode design section 13 and acceptance criterion 8 forbid, and
+exactly the defect a code-review pass caught in this ticket's first draft
+(the RPC was comparing against `revision`, which a plain child edit never
+advances). Gating on `sync_token` instead closes it: the winning push
+immediately advances the stored token, so the loser's now-stale token can
+never match again even though its `revision` still would have.
+
+The local-only `lastSyncedRevision` column (despite its name) tracks the
+cloud's `sync_token`, not this table's own `revision` — it is sent as
+`base_revision` and, on success, overwritten with the new `sync_token` the
+RPC returns. If the cloud's current `sync_token` no longer equals
+`base_revision`, the function writes nothing and returns the cloud's
+current full aggregate (including its `sync_token`) instead — this is what
+stops a stale child from landing after a winning header. On success,
+`BreederReportAggregateRepository.markSynced` marks the header and every
+snapshotted child row synced, cutoff-guarded exactly like
+`PerformanceSyncRepository.markRowsSynced` but re-implemented here
+(deliberately not delegated to it, since these five tables are absent from
+its lists) using LOCAL time to match the breeder repositories'
+`_nowStamp()` convention, not the UTC cutoff `PerformanceSyncRepository`
+uses for everything else.
+
+On a rejected push, `BreederReportSyncService` records both the local
+payload it tried to send and the cloud's current aggregate as one row in
+the EXISTING `sync_conflicts` table (`SyncConflictRepository.recordConflictWithPayload`,
+new `localDataJson`/`remoteDataJson` columns added by local migration v79
+— no new conflict store), and calls
+`BreederDailyReportRepository.enterConflict`, which sets
+`state = 'sync_conflict'` (a fourth value added to the CHECK constraint by
+v79) and `previousState` to whatever state the report held. `sync_conflict`
+is reachable from `draft`/`submitted`/`approved` and blocks both
+`BreederBirdLedgerService.submit` (requires `isDraft`) and `.approve`
+(requires `isSubmitted`) for free, since neither check passes while the
+state is `sync_conflict` — both methods also raise a conflict-specific
+error message rather than the generic state-mismatch one.
+`BreederReportConflictService.resolve` (backing
+`BreederReportConflictResolutionScreen`, reachable from a banner on
+`BreederDailyReportReviewScreen` whenever `report.isSyncConflict`) lets a
+production manager keep the local version (adopts the cloud's `sync_token`
+as the new `lastSyncedRevision` — never touching `revision` — and re-marks
+the aggregate dirty so the next sync retries and wins) or the cloud version
+(overwrites the local header and replaces the local child rows with the
+cloud's, already marked synced, adopting both the cloud's `revision` and
+its `sync_token`) — a merge is simply choosing "keep local" after
+hand-editing the restored Draft's rows to match what should be true.
+Either way, resolution restores `state` to `previousState` and clears it,
+and marks the conflict reviewed; neither path ever advances `revision` as
+a side effect, since resolving a sync conflict is neither a state
+transition nor a post-approval correction.
+
+**Customer-scoped access and role-gated approval** (breeder-flock-performance
+ticket 16, design doc sections 5.3 and 13) makes `production_manager` a real,
+assignable `profiles.role` value and enforces both flock/customer isolation
+and the approval-role gate in the cloud, not only client-side. The change
+lives entirely in an unapplied migration,
+`supabase/migrations_unapplied/0014_breeder_customer_scope_and_approval_role.sql`
+(apply after 0011-0013; see that directory's README) — nothing here is live
+against the Supabase project yet.
+
+- `profiles_role_check` now allows `production_manager` alongside
+  `admin`/`auditor`/`customer`/`personal`. The admin "User Access" screen
+  (`AdminUsersScreen`) can assign it: picking "Production manager" in the
+  role dropdown shows the same customer-assignment picker `auditor` uses
+  (`_scopedByAssignment`), backed by the same `auditor_customers` table —
+  `production_manager` is scoped to customers exactly like `auditor` is,
+  reusing the existing assignment mechanism rather than inventing a second
+  one. `chickmark_private.app_can_read_customer`/`app_can_write_customer`
+  (redefined, same signatures, so `flocks`/`houses`/every 0012 table picks
+  this up automatically) treat `production_manager` as an `auditor`-shaped
+  role for scoping purposes; `customer` stays read-only, unchanged.
+- `chickmark_private.app_can_approve_breeder_report()` is the cloud half of
+  the enumerated approval-role set design section 5.3 requires: it allows
+  exactly `admin` and `production_manager`, the same two values as client-side
+  `BreederApprovalRole.permitted` in
+  `lib/services/breeder/breeder_bird_ledger_service.dart`. The two lists must
+  be kept in sync by hand — there is no shared codegen across Dart and SQL —
+  and `test/security/breeder_approval_rls_test.dart` asserts they still match
+  literally.
+- A `BEFORE INSERT OR UPDATE` trigger on `breeder_daily_reports`
+  (`enforce_breeder_report_approval_role`) calls that function whenever a row
+  is about to land in `state = 'approved'` from any other state, and raises
+  `42501` if the calling actor's role does not permit it. This is a trigger
+  rather than an RLS `WITH CHECK` clause because RLS cannot compare `OLD` and
+  `NEW` state in one expression, and because it is the only mechanism that
+  also covers `push_breeder_daily_report_aggregate` (0013): that function is
+  `SECURITY DEFINER` and bypasses RLS by design, but its
+  `INSERT ... ON CONFLICT DO UPDATE` still fires the same `BEFORE UPDATE`
+  trigger for the conflicting-row branch, so a modified or offline client
+  cannot reach `approved` through the aggregate RPC any more than through a
+  direct row write, regardless of what role check the client itself performs
+  or skips.
+- `breeder_metric_definitions`, `breeder_benchmark_profiles`,
+  `breeder_benchmark_values`, and `breeder_egg_grade_definitions` (already
+  read-only-by-omission under 0011/0012's RLS — no write policy exists for
+  any of them) now also have `INSERT`/`UPDATE`/`DELETE` explicitly revoked
+  from `authenticated`/`anon`, so a hand-crafted request is refused at the
+  privilege-check level even before RLS is evaluated.
+- Every breeder/egg table 0012 created was already flock-scoped (and thus
+  customer-scoped, via `flocks.customer_id`) through
+  `chickmark_private.app_can_read_flock`/`app_can_write_flock`; this ticket
+  did not need to add that, only verify it (see the "every breeder/egg table
+  is flock-and-thus-customer scoped" test group) and close the approval-role
+  gap those helpers do not cover.
+
+None of this is applied to the live Supabase project, and none of the tests
+above execute against a real database — they are static assertions against
+the migration SQL's text (contains/regex checks that a future edit removing
+a `with check`, widening a role list, or dropping the trigger would fail),
+not a live round trip. No SQLite schema change was needed for this ticket:
+`users.role` (local) is a plain unconstrained `TEXT` column, so it already
+accepts `production_manager` with no migration; local database version stays
+79.
+
+**Breeder performance alerts** (version 80, breeder-flock-performance
+ticket 17, design doc sections 10 and 12) adds `breeder_alert_rules` and
+`breeder_performance_alerts`, and turns a metric observation into a Watch or
+Critical alert without ever re-introducing the visit/investigation/cause
+-assessment/corrective-action machinery ticket 01 deliberately removed.
+
+- `breeder_alert_rules` is system-wide reference data — seeded by
+  `seedBreederAlertRules` (`lib/data/database/seeds/breeder_alert_rule_seeds.dart`)
+  with fixed, human-readable ids, read-only client-side, sync-down-only
+  exactly like `breeder_benchmark_profiles`. Each row is keyed by
+  (`metricCode`, `scope`, `periodType`, `direction`) — enforced unique — and
+  carries a Watch and a Critical deviation threshold, how many consecutive
+  qualifying observations are required before the rule may act at all, and
+  `usesOfficialBound`: true only for the one seeded rule
+  (`liveability_rearing_pct`) where Ross 308 itself publishes a bound (95%
+  cumulative rearing liveability); false for every other rule, including
+  `uniformity_pct`/`cv_pct`, which the guide gives no target for at all.
+  `metricCode` is a fixed five-value vocabulary
+  (`BreederAlertMetric`: `body_weight_g`, `hen_week_production_pct`,
+  `liveability_rearing_pct`, `uniformity_pct`, `cv_pct`) rather than a
+  foreign key to `breeder_metric_definitions`, since the last two are
+  derived entirely by `BreederWeighingService` and have no row in that
+  officially-sourced table.
+- `breeder_performance_alerts` records one deviation against a customer,
+  flock, optional house, metric, and period: the actual value, whatever the
+  guide published for comparison (`officialTargetValue`/
+  `officialLowerBound`/`officialUpperBound`), `thresholdIsOfficial` (design
+  section 10's central rule: true only when the cited number is genuinely
+  official — a Watch alert under the `liveability_rearing_pct` rule is
+  never official, even though that rule's Critical alert is), the deviation,
+  severity, which benchmark profile version and ticket 06 comparison axis
+  produced the comparison, a comma-joined `evidenceReportDatesJson` of the
+  approved report dates behind the observation (not a foreign key — see the
+  code comment on why it must not gate this table's push order the way the
+  daily-report aggregate's real children do), and a `new`/`seen`/`closed`
+  lifecycle state. A partial unique index
+  (`idx_breeder_performance_alerts_open_unique`, `WHERE state <> 'closed'`,
+  columns wrapped in `COALESCE(..., '')`) enforces "at most one open alert
+  per customer/flock/house/metric/period" at the schema level: a repeat
+  evaluation updates the existing open row's actual value, deviation, and
+  severity instead of inserting a second one, and a closed alert never
+  blocks a fresh open one for the same key. An optional `houseId` carries
+  its own house-scope guard trigger
+  (`trg_breeder_performance_alerts_house_scope_*`, firing only when
+  `houseId IS NOT NULL`) requiring the house belong to the alert's own
+  flock — like ticket 13's `breeder_weighing_sessions`, this trigger
+  references `houses` and is added to the v68 houses-rebuild trigger-drop
+  list; `breeder_alert_rules` names no house at all and needs no such entry.
+- `BreederAlertEvaluationService`
+  (`lib/services/breeder/breeder_alert_evaluation_service.dart`) is a pure
+  evaluator: given an already-computed actual value, whatever the guide
+  published, a `BreederReportPeriodService` completeness answer (reused,
+  never re-derived), and how many consecutive qualifying observations the
+  caller has already counted, it classifies severity, dedupes against any
+  open alert, and returns which of `created`/`updated`/`noDeviation`/
+  `belowConsecutiveThreshold`/`skippedIncompletePeriod` happened.
+  **Incomplete-period rule**: an alert is never created, updated, or closed
+  off a period unless `completeness.isComplete` is true — a period missing
+  even one day's approved report is left exactly as it was, whatever the
+  potential severity would have been, since firing (or clearing) an alert
+  from data known to be incomplete risks a false Critical from a period
+  that has simply not finished being reported yet, with no partial-data
+  caveat visible on the alert itself the way a comparison screen's is.
+  **Consecutive-observation rule**: read literally together, design section
+  10's "an alert fires only after N qualifying observations" and "a single
+  bad day must not trip a Critical alert if the rule requires three" mean N
+  gates the alert's existence outright — no row, not even at Watch, exists
+  before the Nth consecutive qualifying observation; severity from the Nth
+  observation onward is judged purely by that observation's magnitude, not
+  by how many produced it. The service never persists this count itself
+  (doing so would need a state outside the fixed `new`/`seen`/`closed`
+  vocabulary); the caller supplies `consecutiveQualifyingObservations`.
+- Revising an approved report recomputes affected alerts through one hook,
+  not a second mechanism: `BreederReportRevisionService.recordCorrection`
+  takes an optional `onApprovedReportRevised(report, reason)` callback,
+  invoked once per successful correction (never for a no-op). Production
+  wiring is `BreederBirdLedgerService`'s default construction, which passes
+  `defaultBreederAlertRevisionHook`
+  (`lib/services/breeder/breeder_alert_revision_hook.dart`). That hook calls
+  `BreederAlertEvaluationService.recomputeAffectedByRevision`, which finds
+  every open alert whose evidence includes the revised date and, per alert,
+  calls a caller-supplied `reevaluate` function: returning `.cleared()`
+  closes the alert with a system reason recording the clearing revision
+  (`Cleared by a revision to the YYYY-MM-DD report: <reason>`) — never
+  deleted; returning `.holds(...)` updates the observation in place exactly
+  like a normal repeat evaluation. `defaultBreederAlertRevisionHook` fully
+  recomputes the three metrics `BreederWeighingService` already stores as
+  derived session figures (`body_weight_g`, `uniformity_pct`, `cv_pct`);
+  for `hen_week_production_pct`/`liveability_rearing_pct` it deliberately
+  leaves the alert untouched rather than guess at a formula, pending a
+  follow-up ticket giving those aggregations a ready-made "value for
+  period" entry point the way `BreederReportPeriodService` already gives
+  completeness.
+- `BreederPerformanceAlertsScreen`
+  (`lib/features/breeder/screens/breeder_performance_alerts_screen.dart`,
+  reached from the flock detail card's new "Alerts" button in
+  `CustomerDetailScreen`) lists a flock's alerts with actual value, official
+  target, deviation, guide version, comparison axis, and an explicit
+  official-vs-app-owned label, plus Acknowledge (`new` → `seen`) and Close
+  (any open state → `closed`, with a required reason) actions. It creates
+  no visit, investigation, cause assessment, or corrective action.
+- `breeder_alert_rules`/`breeder_performance_alerts` are registered in
+  `PerformanceSyncRepository`: the former in `breederReferencePullOnly`
+  (seeded, sync-down-only, alongside the other benchmark reference tables);
+  the latter in `postFlockPushOrder` (after `houses`, for its optional
+  `houseId` foreign key) — its `ruleId` foreign key needs no push-order
+  entry, since `breeder_alert_rules` is identical on every device before
+  either table's first row exists.
+
+**Breeder flock overview** (breeder-flock-performance ticket 18, design doc
+section 11) adds `BreederFlockOverviewScreen`
+(`lib/features/breeder/screens/breeder_flock_overview_screen.dart`) as the
+Overview tab of a flock's Breeder Performance area — the landing point the
+customer detail screen's "Breeder Performance" button now opens, in place of
+going straight to the daily-report list. No new table and no schema
+migration were needed: every figure the screen shows is composed, never
+recomputed, from the domain services tickets 06-17 already built.
+
+- `BreederFlockOverviewService`
+  (`lib/services/breeder/breeder_flock_overview_service.dart`) is the one
+  composition point. It loads, for a flock and a trailing period (default:
+  the last 7 days ending today, not a calendar-aligned week): current live
+  bird counts as of now (houses, isolation, and the flock total, from
+  `BreederBirdLedgerService.flockBalance`/`isolationFlockBalance`/
+  `flockTotalBalance` — the last of which is still the only place houses and
+  isolation are summed); the period's data completeness
+  (`BreederReportPeriodService.completenessFor`); production, feed, and
+  mortality totals/averages summed or averaged over the period's approved
+  reports (reusing `BreederEggProductionService.dailyProductionPercent`/
+  `closingFemalesHouseScope` and `BreederBirdLedgerService.feedGramsPerBird`
+  per recorded day, then `BreederReportPeriodService.averageOverPeriod`/
+  `sumOverPeriod`'s own "aggregate only what is present" rule — a day with
+  no approved report contributes nothing, never a zero); the hen-week
+  production-percent benchmark comparison at the flock's current official
+  production week (`BreederFlockLifecycleService.comparisonAxes`,
+  packaged via `BreederReportPeriodService.compareToBenchmark` so the
+  partial-data warning can never be shown separately from the number it
+  qualifies); current egg stock by grade
+  (`BreederEggInventoryService.previousBalance` as of tomorrow — the same
+  "as of now" cutoff convention `BreederBirdLedgerService.houseBalance`
+  already uses, not a new balance formula); each sex's latest weighing
+  session and its official-weight comparison
+  (`BreederWeighingService.officialWeightTarget`); and every open alert for
+  the flock (`BreederPerformanceAlertRepository.listForFlock(openOnly:
+  true)`). A pre-production flock's `ProductionWeekResult.isPreProduction`
+  is read straight off `BreederFlockLifecycleService` and drives the screen
+  showing "Pre-production" rather than an invented production week or a
+  null-labelled one.
+- The production-percent metric is labelled "Hen-Week Production"
+  everywhere on the screen — never "hen-day" — per
+  `metricProvenance.hen_week_production_pct` in
+  `assets/benchmarks/aviagen_ross308_parent_stock_2021_en.json`, which
+  records that Ross 308 publishes no "Hen-Day" heading for this table at
+  all and that "Hen-Week (%)" is the verbatim source column this app's
+  `hen_week_production_pct` metric mirrors.
+- Every ratio the screen shows follows the feature-wide blank-not-zero
+  convention: a null `CalculationUtils.percentOf`/`divideOrNull` result (or
+  an aggregate with nothing to average) renders as an em dash, never `0`
+  and never an error. `BreederIncompleteDataLabel` and
+  `BreederPartialDataWarning` (ticket 12's widgets, built but never placed
+  on a screen until now) render the period's completeness and the
+  production comparison's partial-data warning; the screen additionally
+  shows the recorded/missing day counts in its own always-visible "Data
+  completeness" card, not only inside the incomplete-data banner, so
+  completeness reads as a headline figure rather than a footnote even on a
+  fully-recorded period.
+- Official targets and alert thresholds stay visibly distinct: the
+  production and weighing comparisons show an "Official target" figure
+  sourced from the benchmark profile, alongside that profile's
+  `guideVersion` and comparison axis; the open-alerts list reuses
+  `BreederPerformanceAlertsScreen`'s own "Official guide limit"/"App-defined
+  threshold" labelling (keyed off each alert's `thresholdIsOfficial`) rather
+  than inventing a second label for the same distinction. Tapping "View all
+  alerts" opens `BreederPerformanceAlertsScreen` for the flock.
+- `BreederFlockOverviewScreen` takes an optional `now` override purely for
+  test determinism (production callers never pass it, matching every other
+  breeder screen's `now`-parameterized services) and an optional
+  `alertRepository` forwarded to the "View all alerts" navigation target, so
+  a widget test can inject the same fake repository the rest of the
+  screen's data came from.
+
+**Printable/exportable consolidated daily report** (breeder-flock
+-performance ticket 19, design doc sections 5.2, 5.2.1, 5.3, and 11): the
+consolidated review table is also the print/export document, laid out
+correctly in Arabic right-to-left as well as English. No new table and no
+schema migration — this is a presentation/export ticket over the data
+tickets 07-18 already built.
+
+- `lib/features/breeder/services/breeder_report_composition.dart`
+  (`buildBreederReportComposition`) is the one composition point both the
+  on-screen review tables and the printed PDF render from, so they can
+  never drift apart (design section 5.3: "the consolidated review table is
+  the same view used for printing and export"). It returns a
+  `BreederReportComposition`: the header as label/value pairs (date, day,
+  breed, calculated total age, official production week, inside/outside
+  temperature, light hours, notes), the report's state label and current
+  `revision` number, and one `BreederReportTable` each for female
+  movements, male movements, egg production, and egg inventory (the last
+  two `null` before the flock has entered production, matching every other
+  egg-section gate in this feature). `BreederDailyReportReviewScreen`'s own
+  `_buildTable`/`_buildEggTable`/`_buildInventoryTable` methods were
+  refactored to render this composition's already-formatted cells rather
+  than computing their own, closing the gap that would otherwise let the
+  screen and the printed document silently diverge over time.
+- Every derived cell is formatted through `BreederReportMetricFormatter`,
+  which looks up `breeder_metric_definitions.displayPrecision` (ticket 03)
+  by metric code rather than hard-coding a decimal-places literal: feed
+  grams-per-bird uses `daily_feed_intake_g` (precision 0), egg weight uses
+  `egg_weight_g` (precision 1). Egg-grade percent and this report's own
+  house-scope production percent have no dedicated official metric of
+  their own (both are paper-report-specific ratios, not Aviagen metrics),
+  so they borrow `hen_week_production_pct`'s precision (1) for display
+  only — a judgment call, not an equivalence claim: the printed label
+  stays "Production %", never "Hen-Week %", because design section 7.3
+  documents that this local figure divides by closing live females in
+  production houses, a different denominator than the official hen-week
+  metric. Every missing or zero-denominator value renders `—`, never a
+  printed `0` (design section 7.2/14) — a printed `0` where there was no
+  data would misstate a document people file.
+- The header gains a "Day" (weekday name, e.g. "Monday") field, completing
+  design section 5.2's header list; `HatchDateUtils.weekdayName` is a plain
+  lookup table (`DateTime.weekday` 1..7), not an `intl` dependency, matching
+  this app's existing hand-rolled `lib/l10n/app_localizations.dart`
+  translation convention rather than introducing locale-data loading. An
+  Approved report's header additionally shows its approval state and
+  current `revision` number; this is always the *latest* approved revision
+  because a post-approval correction (ticket 12) mutates the header/child
+  rows in place and bumps `revision` rather than appending a new snapshot
+  row, and the review screen's print action re-reads the report from the
+  repository immediately before composing, so printing right after an
+  approval or correction never shows a stale in-memory value.
+- `lib/features/breeder/services/breeder_report_pdf_export.dart`
+  (`BreederReportPdfExport`) renders a composition to PDF and opens the OS
+  print/share sheet via `Printing.layoutPdf`, which itself offers "Save as
+  PDF"/share on every supported platform — covering both "printable" and
+  "exportable" from one action. Nothing already in this app generates a
+  PDF (the lab-analysis screen only attaches/opens externally-produced
+  ones), so this adds the `pdf`/`printing` packages rather than a bespoke
+  renderer — the standard Flutter pair for building a document and handing
+  it to the platform print sheet.
+- RTL correctness is handled at the table-spec level, not by mirroring
+  rendered text: `BreederReportTable.columnsFor`/`rowsFor` reverse column
+  *order* for RTL while leaving every cell's string untouched — a header
+  still lines up with its column after the reversal (`columnsFor(rtl:
+  true)[i]` always still names `rowsFor(rtl: true)[r][i]`), and a numeric
+  string like `15` is never corrupted into a reversed-character string the
+  way naive text-mirroring would. The PDF wraps its content in
+  `pw.Directionality` for genuine right-to-left text flow and alignment.
+  Arabic text needs a font with Arabic glyphs — the PDF core fonts
+  (Helvetica) have none — so `assets/fonts/NotoNaskhArabic-Regular.ttf`
+  (SIL Open Font License) ships as a bundled `fontFallback`, keeping
+  printing fully offline rather than depending on a runtime Google-Fonts
+  download, consistent with this app's offline-first design.
+- A "Print / Export" button is offered on the review screen's action row in
+  every report state (Draft, Submitted, Approved, Sync Conflict) — a farm
+  may want a printed copy of the familiar paper-report table before
+  approval reaches it, and printing itself changes nothing about the
+  report's state or data.
+
 stores Telegram staff links with `pending`, `allowed`, and `revoked` states;
 new staff links default to `pending` unless an admin explicitly allows them.
 It also stores one agent-settings row, original submission metadata, bilingual follow-up
@@ -2481,8 +3968,8 @@ digest over the canonicalised contract, and `agent_tool_contract_test.ts` pins
 both that fingerprint and a full inline snapshot of every tool name, parameter,
 required flag, and enum, so any drift fails the build until the version is
 deliberately bumped. The same test pins the flat tool-definition shape
-(`{type, name, description, parameters}`) that the OpenAI Realtime API
-requires, rather than the nested Chat-Completions `{type, function:{…}}` form.
+(`{type, name, description, parameters}`) rather than the nested
+Chat-Completions `{type, function:{…}}` form.
 
 Customer-data tools can now return the enforced customer's identity, flock
 list, flock status/breed/sector/entry date, and an exact age calculated for the
@@ -2560,14 +4047,10 @@ numbered reply calls `select_audit_option` with only a one-based position from
 confirmation question, an affirmative reply selects position 1. The server
 uses the injected conversation ID to load that conversation's latest
 successful audit-list snapshot, so a newly inserted audit cannot remap an
-already displayed number. That lookup searches BOTH doors' evidence, because
-the two record a tool call differently: the text doors write
-`agent_tool_events.conversation_turn_id`, while the realtime broker writes it
-NULL by design and links back through `realtime_session_id`, so the snapshot is
-found through `agent_realtime_sessions.conversation_id` as well and the newer of
-the two wins. Both sides are filtered by the conversation's CURRENT
-`context_epoch`, so a cleared conversation cannot serve the user the list they
-threw away; the turn side is ordered by `conversation_seq` rather than
+already displayed number. That lookup searches the conversation's turn-linked
+evidence (`agent_tool_events.conversation_turn_id`), filtered by the
+conversation's CURRENT `context_epoch`, so a cleared conversation cannot serve
+the user the list they threw away; it is ordered by `conversation_seq` rather than
 `created_at`, which is the same rule the history loader follows and for the
 same reason. The cross-door "newer wins" comparison is a plain string
 comparison, deliberately not `localeCompare` — ICU collation treats punctuation
@@ -2650,8 +4133,8 @@ more known keys are supplied, a resolved lookup returns a shaped payload —
 for fields in request order (deduplicated), and `context` carries the
 complete row for the model's own understanding, not for reciting. An
 unrecognized or empty `metrics` string (or the argument omitted entirely)
-falls back to the original flat `{ ...row }` shape unchanged. This exists so
-the realtime voice channel can ask for exactly the metric it needs instead of
+falls back to the original flat `{ ...row }` shape unchanged. This lets a
+caller ask for exactly the metric it needs instead of
 receiving every metric on every lookup; the miss paths (`breed_not_found`,
 `week_out_of_range`) are unaffected by `metrics`.
 
@@ -2733,33 +4216,6 @@ through: `availableBreeds` on `breed_not_found`, and `breed` plus
 own "say what is covered and ask" prompt rule straight from an auto-attached
 block, with no second tool call.
 
-The voice policy (`CHICKMARK_REALTIME_POLICY` only — the typed policy is
-unchanged) additionally carries a "Report vs benchmark routing" block. It
-exists because a live call asked for the last breakout REPORT
-("إيه آخر تقرير break out موجود عندك؟") and was answered from the published
-standard. The block draws exactly one distinction — a published STANDARD
-versus a recorded AUDIT REPORT — and states that nothing else about tool
-choice changes. The decision is made silently from the user's wording: the
-model must never ask the user which of the two they meant, nor offer them as
-options. Ambiguous wording DEFAULTS to the standard, and a question that
-gives a flock age in weeks or names no customer is a standard question
-answered without asking who the customer is. Only wording that actually names
-recorded data (آخر تقرير، آخر breakout، آخر audit، التقرير بتاع العميل،
-النتيجة بتاعتنا، السجل) routes to `resolve_customer_flock`,
-`list_customer_audits`, `select_audit_option`, `get_audit_summary`,
-`get_selected_audit_breakouts` and `compare_selected_audit_to_benchmark`; a
-report request is never answered from a benchmark tool, and when no customer
-is resolved the model asks exactly one short question and calls no benchmark
-tool that turn. Arguments are never carried forward from an earlier benchmark
-turn into a report request. The block also records that the egg-breakout
-standard is age-only, so the model must not ask which breed before calling
-`get_egg_breakout_benchmark`, and that questions which are neither a standard
-nor an audit report (flock counts, customer and flock contexts, hatcheries,
-station records) keep their existing tools. Each of those last constraints was
-added after live canaries caught the model demanding a breed for the
-breed-less table, asking "لأي عميل؟" for plain standard questions, and asking
-the user out loud whether they meant a standard or a report.
-
 The agent's system prompt (`CHICKMARK_AGENT_POLICY` in
 `supabase/functions/telegram-hatchery-agent/agent_prompt.ts`) carries a
 "Benchmark discipline" rules block: benchmark figures may only come from
@@ -2789,8 +4245,7 @@ message channel. The Responses provider caps each model call at
 `max_output_tokens: 2400` (raised from 1200, which reasoning models could
 exhaust mid-answer, truncating the reply).
 
-`CHICKMARK_AGENT_POLICY` (Telegram and typed Pip only — NOT
-`CHICKMARK_REALTIME_POLICY`, which is parked) also carries a "Grounding
+`CHICKMARK_AGENT_POLICY` (Telegram and typed Pip) also carries a "Grounding
 guard" block, added at `CHICKMARK_AGENT_POLICY_VERSION` 1.2.0: a value that
 belongs to a specific flock, hatchery, farm, user, session, production
 record, metric, or other database state must come from an appropriate tool
@@ -2817,10 +4272,8 @@ fallback ladder described below. `google/gemma-4-31b-it` (the same model,
 paid tier) was kept on as a separate, dedicated VISION model rather than
 retired, because `openai/gpt-oss-120b`/`-20b` are text->text only and cannot
 accept image or video input — see "Vision routing" below.
-Unlike
-the Pip Realtime harness it is modeled on
-(`services/pip-realtime-sideband/evals/`), it drives the REST
-`/v1/responses` endpoint rather than a WebSocket, because that is what this
+It drives the REST
+`/v1/responses` endpoint, because that is what this
 agent's provider actually uses, and it imports the real production artefacts
 directly rather than re-declaring them: `AGENT_MODEL_TOOL_DEFINITIONS` from
 `agent_tools.ts`, `buildAgentInstructions` from `agent_prompt.ts`, and a
@@ -2829,14 +4282,13 @@ request body and multi-round tool loop copied field-for-field from
 7-check tool-calling compatibility gate; `run_evals.ts` is an 18-scenario,
 9-dimension scored acceptance suite runnable against any `--model` so two
 candidates get the identical suite, with `--json` output for cross-model
-diffing. Both cost real money against a live provider and are, like the Pip
-Realtime suites, deliberately not part of `deno test`. One dimension,
-`report_vs_benchmark`, is a genuinely open question for this channel rather
-than a check against a documented rule: the explicit "Report vs benchmark
-routing" section (`REPORT_VS_BENCHMARK` in `agent_prompt.ts`) is voice-only
-and is not part of `CHICKMARK_AGENT_POLICY`, the prompt this harness actually
-sends — see the harness's own README for why that matters when reading a
-failure on that dimension.
+diffing. Both cost real money against a live provider and are deliberately not part
+of `deno test`. One dimension, `report_vs_benchmark`, is a genuinely open
+question for this channel rather than a check against a documented rule: an
+explicit "Report vs benchmark routing" section only ever existed on the
+retired live-voice policy and is not part of `CHICKMARK_AGENT_POLICY`, the
+prompt this harness actually sends — see the harness's own README for why
+that matters when reading a failure on that dimension.
 
 The same `evals/` directory also has a separate, on-demand MODEL-VS-MODEL
 COMPARISON suite (`models.ts`, `comparison_scenarios.ts`, `run_comparison.ts`)
@@ -3125,50 +4577,6 @@ with `OPENROUTER_MODEL` or `AI_MODEL`, defaulting to `openai/gpt-oss-120b`
 separate vision route defaulting to `google/gemma-4-31b-it` via
 `OPENROUTER_VISION_MODEL` (optional fallback `OPENROUTER_VISION_FALLBACK_MODEL`,
 unset by default — see "Vision routing" above for why the text fallback is
-never reused for a failed vision call). The router also pins the live default to
-`gpt-realtime-2.1-mini`, recorded-note transcription to
-`gpt-4o-mini-transcribe`, and recorded-note speech to `gpt-4o-mini-tts`.
-Live-call captions (the Realtime session's own input-audio transcription,
-configured by the sideband) default to `gpt-4o-mini-transcribe` as well
-($0.003/min instead of `gpt-live-transcribe`'s $0.017/min); the live call
-itself never touches the standalone `/audio/transcriptions` or `/audio/speech`
-endpoints. The `languages` (plural) and `delay` transcription parameters are
-`gpt-live-transcribe`-only: any other model rejects the entire
-`session.update` with `invalid_value` (provider-named, live, 2026-08-17), so
-`buildSessionUpdate` includes them only for that model. The SINGULAR
-`language` field is different and is supported by the default model too —
-verified accepted for `gpt-4o-mini-transcribe` on a live probe connection
-(`tools/probe_session_knobs.ts`, 2026-08-19), echoed back as `"ar"`.
-`buildSessionUpdate` sends it, set from `PIP_REALTIME_TRANSCRIPTION_LANGUAGE`
-(default `ar`), for every transcription model except `gpt-live-transcribe`
-(which keeps only its own `languages`/`delay` shape); an empty string omits
-the field entirely and is the no-code-deploy rollback knob. The transcription
-prompt (`TRANSCRIPTION_PROMPT` in `src/session_config.ts`) is bilingual —
-Egyptian-Arabic framing and Arabic hatchery terms alongside the original
-English term list — replacing an English-only prompt that, combined with no
-language hint at all, had been biasing the transcriber into hallucinated
-English captions ("Hello, world.", "I'm Elly.", "In Tamil") over Egyptian
-Arabic audio, polluting stored conversation history.
-
-`session.max_output_tokens` caps a single spoken reply; the sideband had never
-set it before, and the provider's own default is unbounded (echoed `"inf"`,
-`tools/probe_session_knobs.ts`, 2026-08-19). It is set from
-`PIP_REALTIME_MAX_OUTPUT_TOKENS` (default `1536`, valid range 200-4096,
-out-of-range values fail startup rather than clamping). The default was
-chosen from measured `response.usage.output_tokens` for every reply size the
-voice policy allows (`tools/probe_output_tokens.ts`, 2026-08-19,
-`gpt-realtime-2.1-mini`, production session payload): a greeting costs 66
-tokens, a single metric 60, two metrics 145, a six-metric breed summary 488,
-and an eleven-metric dump — the shape of a 2026-08-19 incident — 761. The
-largest reply the policy legitimately permits is an EXPLICITLY requested full
-eleven-metric breakout summary, measured on the live canary path at 832 and
-865 tokens. 1536 is roughly 1.8x that, so ordinary variance cannot truncate a
-real answer mid-word (`max_output_tokens` truncation is not graceful; the
-response stops and comes back `incomplete`). It is deliberately not sized to
-cut the 761-token dump — that is cured at its source by the shaped tool
-payload and the report-vs-benchmark routing policy — and exists only as a
-backstop against an unanticipated payload.
-
 Before storing rows, the backend loads existing customers, flocks, and
 hatcheries and compares extracted identity names using Unicode-normalized,
 case-insensitive exact matching with collapsed whitespace. A uniquely matched
@@ -3292,8 +4700,8 @@ client costs nothing server-side until the first `send`. `send`, `history`,
 and `reset` responses all echo `conversationKey` alongside `conversationId` (a
 convenience for a client that only tracks the key), and each `history`
 message additionally carries `source` — `'voice'` when the turn's
-`source_channel` is `'realtime_voice'` (a Pip Live call transcript), `'text'`
-otherwise.
+`source_channel` is `'realtime_voice'` (a historical transcript from the
+retired Pip Live channel), `'text'` otherwise.
 
 A new `conversations` action (`{"action":"conversations"}`, no
 `conversationId`) lists the caller's own conversations — up to `limit`
@@ -3336,9 +4744,7 @@ empty transcript returns `agent_unavailable` rather than `invalid_request`,
 since it is an audio-quality problem, not a malformed request. The stored
 turn's `text` is the transcript, indistinguishable from a typed turn once
 saved. The function then attempts to synthesize the reply via OpenAI TTS
-(`gpt-4o-mini-tts`, voice `cedar` — deliberately the same voice Pip Live uses,
-so Pip does not change vocal identity between a recorded note and a live
-call), steering pronunciation with the model's `instructions` field when the
+(`gpt-4o-mini-tts`, voice `cedar`), steering pronunciation with the model's `instructions` field when the
 reply's detected language is `ar` or `mixed`. Those instructions name Egyptian
 Colloquial Arabic (Cairo) explicitly and rule out Modern Standard Arabic and
 other regional accents, including the Egyptian pronunciation of ج and ق; the
@@ -3498,24 +4904,7 @@ Tables created by the current database helper include:
 - `sync_tombstones`
 - `sync_conflicts`
 - `customer_sectors`
-- `farms`
 - `houses`
-- `flock_placements`
-- `broiler_daily_records`
-- `broiler_daily_record_revisions`
-- `daily_record_sources`
-- `broiler_daily_events`
-- `broiler_target_profiles`
-- `broiler_target_rows`
-- `performance_alert_rules`
-- `performance_concerns`
-- `farm_visit_sessions`
-- `farm_visit_houses`
-- `visit_investigations`
-- `visit_findings`
-- `cause_assessments`
-- `corrective_actions`
-- `action_kpi_evaluations`
 - `telegram_staff_links`
 - `agent_settings`
 - `agent_submissions`
@@ -3584,16 +4973,17 @@ targets a panel row by `panelName`, `panelRowId`, and `fieldKey`; and
 `govee_daily_captures` belongs to a customer and hatchery. Lab Analysis reports
 belong to a customer and flock; lab groups belong to a lab report, customer, and
 flock; and lab rows belong to a lab group and report.
-For performance monitoring, a customer may enable multiple poultry sectors,
-each farm has exactly one sector, houses belong to farms, and a flock may span
-multiple house placements. A partial unique index prevents two active flock
-placements in one house on fresh and conflict-free databases; repair preserves
-ambiguous legacy rows and defers that index instead of silently choosing a
-winner. One stable Broiler daily record exists per
-placement/date; source corrections are stored as numbered revision rows rather
-than overwriting earlier evidence. Visits, findings, cause assessments,
-corrective actions, and action KPI evaluations use farm-specific tables and do
-not overload hatchery `audit_sessions` or `dashboard_actions`.
+A customer may enable multiple poultry sectors. A farm and a flock are the
+same thing in this business — one site, populated on one day, run as one
+production cycle — so there is no separate farm entity: a house belongs
+directly to its flock (`houses.flockId`), a house never spans two flocks, and
+`flocks.entryDate` is the single placement date for every house in the flock.
+Each house carries its own opening female and male bird counts
+(`openingFemales`, `openingMales`, both non-negative). House `name` and `code`
+are unique within a flock (not globally), enforced by partial unique indexes
+scoped to `flockId`. Each production cycle is a new flock record with its own
+houses; repopulating a site after depletion means creating a new flock, and
+the previous flock and all of its history stay untouched.
 Hatchery-agent questions and draft batches belong to one submission, draft rows
 belong to one batch, agent audit events retain their submission and optional row
 links, and final-shaped hatchery daily rows require customer/flock/station/breed
@@ -3624,115 +5014,26 @@ the Edge Function retains service-role access for Telegram ingestion.
 The backend-only `telegram_agent_update_receipts` table records processed
 Telegram answer updates for idempotency and is intentionally excluded from the
 offline app sync graph.
-The hierarchy repository saves active/inactive customer-sector membership,
-sector-filtered farms, farm houses, and flock placements with offline dirty
-metadata. Creating a new Broiler flock and all selected house placements is one
-transaction, so a placement validation or active-house conflict cannot leave a
-partially created flock. Existing legacy flock models continue to load without a
-farm or sector; new performance flocks can retain farm, sector, sex-profile,
-target-profile, and production-phase context.
-Customer detail exposes this hierarchy through a Structure tab. Editors can
-enable Breeder, Broiler, and Layer together, add farms using exactly one of the
-customer's enabled sectors, and add houses beneath each farm. Disabling a
-sector keeps its membership history inactive and prevents new farms from being
-assigned to it. Hatchery management is available only while Breeder is enabled;
-the Hatcheries tab otherwise explains how to enable the required sector. The
-main shell exposes the Broiler Performance workspace to approved staff without
-changing the customer-role Dashboard-and-Settings destination set.
-The Broiler objective catalogue contains versioned day 0-56 as-hatched, male,
-and female profiles for Ross 308 / Ross 308 FF, Indian River / Indian River FF,
-Arbor Acres Plus / Arbor Acres Plus S, Hubbard Efficiency Plus, and Cobb500.
-Every official row retains its source title, publication version, official URL,
-units, and metric-method notes; Ross 308 AP is not included. Source-absent values
-remain null. Hubbard water targets are derived only on its as-hatched profile
-from the published daily feed objective multiplied by 1.70, with that method
-stored on each applicable row. Administrators can clone a profile into an
-inactive custom draft, replace the draft's rows, and activate it as a new
-version. Activation deactivates the previous matching version without changing
-its historical row set, so flocks that reference the older profile remain
-reproducible.
-Broiler daily entry uses one stable record per house placement and logical date,
-with every submission stored as a numbered immutable revision. Corrections add
-a revision and move the stable record's current pointer instead of overwriting
-earlier farm evidence. Each revision can retain reported/entered/reviewed/
-verified provenance, population changes, mortality causes, feed, water,
-weighing samples, environment, health facts, typed operational events, and
-source-document metadata. Validation rejects negative facts, inconsistent
-closing-population arithmetic, corrections without a reason, and verified rows
-without verifier metadata before any transaction is written. The repository
-also exposes the current placement/day value, previous-day value, complete
-revision history, and a house-by-house flock entry grid.
-The pure Broiler KPI calculator derives local-calendar flock age, average live
-birds, daily and cumulative mortality, livability, feed and water per live bird,
-water-to-feed ratio, cumulative feed per placed bird, weight gain, sampled
-uniformity and CV, target deviations, and mortality trend direction. Expected
-cumulative feed is adjusted by each day's actual average live population before
-comparison with actual feed. Actual FCR is labeled estimated and is withheld
-with a specific missing-data reason when live population, current weight,
-placement weight, or cumulative feed is unavailable. EPEF is calculated only
-after cycle completion is explicitly confirmed; unvalidated final-weight and
-final-FCR projections are not produced.
-The Broiler manual quick-entry screen follows Customer → Broiler farm → flock →
-date selection and loads every active house placement together. Each house card
-keeps previous-day and target context read-only while today's draft remains
-separate, then places population, feed, and water before expandable weight,
-environment, events, mortality causes, and source-document sections. Wide
-screens use a two-column house grid and narrow screens use a single list.
-Saving validates each started house independently: valid houses append their
-revision, invalid house drafts remain editable, and a per-house summary reports
-what still needs attention. Corrected entries expose and require a correction
-reason.
-Operational alert rules are separate from genetic objectives. Seeded defaults
-cover sustained weight and mortality deviations plus mortality/population
-mismatches, decreasing cumulative feed, unexplained water changes, repeated
-identical values, implausible weekly weight change, and extended zero mortality.
-Customer rules override the matching global metric rule. Evaluation requires
-the configured number of valid observations, records structured evidence and
-recommended investigation keys, and never treats null data as a performance
-loss. A detected scope/rule/metric combination updates one persistent open or
-monitoring concern instead of creating dashboard duplicates. Resolution and
-dismissal retain explicit user evidence, and a later detection creates a linked
-recurrence.
-The Broiler Performance workspace follows Customer → Broiler farm → flock and
-an explicit date range. It aggregates the current revision from every selected
-flock house into immutable view snapshots and presents Current status, Trends,
-Active concerns, and Audits and corrective actions. Current metrics never
-render missing data as zero; they show the calculator's missing-data reason.
-The context strip distinguishes farm-reported data from its current
-entered/reviewed/verified/corrected state and labels the exact target
-publication. Trend cards use valid daily values from the selected period.
-Changing scope or date range rebuilds the snapshot, and returning from manual
-quick entry refreshes it from SQLite.
-Farm visits use a generated briefing snapshot that freezes the concern ids,
-performance evidence, target/rule versions, and suggested investigations at
-planning time. A visit selects one or more houses and can add manual
-investigations without mutating that original briefing. Investigations retain
-their source-concern link, house/location, origin, lifecycle status, and result.
-Visit findings can store measurements, structured observations, staff
-explanations, and attachment references. Cause assessments link the findings
-back to a concern and retain supporting and conflicting evidence; a newly saved
-assessment remains `suspected` until a user explicitly changes it to
-`probable`, `confirmed`, or `ruled_out`.
-Corrective actions link a performance concern to the originating visit and
-optional cause assessment, with an owner, due date, implementation confirmer,
-completion evidence, and one or more KPI definitions. Each KPI definition
-freezes its baseline window/value, target rule/value, evaluation scope, and
-future evaluation window when the action is issued. Effectiveness uses the
-latest valid in-scope observation only after implementation is confirmed and
-the complete evaluation window is available. It reports effective when the
-target is met, partially effective when the KPI moved toward the target, and
-ineffective when it did not; incomplete or insufficient evidence remains
-explicitly not evaluated with a reason. Calculated results are persisted only
-through an explicit evaluator action.
-The diagnostic visit screen renders the frozen daily briefing as read-only
-evidence, then keeps visit-only investigations, measured findings, staff
-explanations, and attachment counts separate from daily entry. Users can add
-manual investigations and findings, complete investigation results, and
-explicitly change a cause among suspected, probable, confirmed, and ruled out.
-The corrective-action screen supports issuing an owned action with a KPI
-baseline/target/evaluation window, confirming implementation, reviewing
-before/target/after evidence, and explicitly recording the effectiveness
-decision and reason.
+The hierarchy repository saves active/inactive customer-sector membership and
+a flock's houses with offline dirty metadata. Saving a house validates that
+its flock exists; there is no farm to validate against and no separate
+placement table. Existing legacy flock models continue to load without a
+sector.
+Customer detail exposes customer-sector membership through a Structure tab.
+Editors can enable Breeder, Broiler, and Layer together; disabling a sector
+keeps its membership history inactive. Hatchery management is available only
+while Breeder is enabled; the Hatcheries tab otherwise explains how to enable
+the required sector. House setup is not a separate farm-management screen: it
+is folded into flock creation, so adding a flock also adds its houses (each
+with its own opening female/male counts) in the same flow. The Flocks tab
+shows each flock's house count.
+There is no Broiler Performance or farm-visit/investigation/corrective-action
+feature: it was removed in version 67 along with its fifteen tables, and no
+replacement exists yet. Version 68 then collapsed Farm into Flock: the `farms`
+and `flock_placements` tables and `flocks.farmId` are gone, and
+`houses.farmId` became `houses.flockId` with per-house opening female/male
+counts (see the version-68 migration note earlier in this section for
+the backfill).
 
 Repository upserts avoid SQLite `REPLACE` for parent tables with children.
 Customers, flocks, hatcheries, panel rows, pulled Govee captures, dashboard
@@ -3950,25 +5251,6 @@ behaviour — not migration text — against the result:
 
 - `scripts/test_supabase_security_hardening.sh` — RLS, grants and function
   hardening.
-- `scripts/test_pip_realtime_persistence.sh` — the Pip Realtime V1 invariants
-  (atomic turn allocator, evidence with no durable turn, the two claim key
-  shapes, the Realtime operational tables) against empty agent tables.
-- `scripts/test_pip_realtime_backfill.sh` — the same migration set *minus*
-  `20260816120000_pip_realtime_v1_persistence.sql`, seeded with legacy agent
-  rows shaped the way the pre-Realtime code wrote them (no `conversation_seq`,
-  `source_channel` or `completion_status`; outbound turns reusing the inbound
-  `turn_index`; `created_at` disagreeing with insertion order, id order and
-  turn_index order; several context epochs including a conversation reset into
-  an epoch with no turns). That migration is then applied over the data and
-  every backfill is asserted: per-conversation `conversation_seq` unique and
-  contiguous from 1 in `(context_epoch, created_at, id)` order, channel
-  classification from `agent_conversations.telegram_chat_id`, `finalized`
-  completion, `next_conversation_seq = max + 1`, `turn_index` counters seeded
-  from the current epoch only, a fresh `public.allocate_agent_turn_slot`
-  allocation that does not collide with any pre-existing row, `owner_profile_id`
-  set only where the staff link carries an `app_user_id`, and the survival plus
-  continued immutability of pre-existing `agent_tool_events`.
-
 Filename prefixes match the versions recorded in
 production's `supabase_migrations.schema_migrations`, so `supabase migration
 list --linked` is a meaningful comparison.
@@ -3977,9 +5259,11 @@ Two sibling directories deliberately sit outside the replay set:
 
 - `supabase/migrations_unapplied/` — written but never applied to production.
   `0009_customer_usernames.sql` is superseded (its `handle_new_auth_user()`
-  body would overwrite the live account-type routing); `0017_performance_monitoring.sql`
-  is deferred, and cannot apply as written because nine `public.flocks` rows
-  carry a `farm_id` with no `farms` row to reference.
+  body would overwrite the live account-type routing); a farm/flock-collapse
+  migration drops the now-unused `public.flocks.farm_id` column to match the
+  local v68 schema (see section 7, "Persistence Summary", above) —
+  `farms`, `houses`, and `flock_placements` were never created remotely, so
+  nothing else needs dropping there.
 - `supabase/migrations_archive/` — applied in production but not replayable
   from empty. Currently `20260418043712_create_hatchaudit_schema.sql`, the
   pre-reset schema that `20260605115351_reset_and_vertical_slice.sql` drops.
@@ -4022,935 +5306,19 @@ only `completion_status = 'finalized'` rows, replays at most
 the conversation's active `agent_intake_sessions` row when one exists. A failed
 history read fails the turn; a failed intake read only drops the intake.
 
-### 7.z Pip Realtime session control plane
-
-`supabase/functions/pip-realtime-session/` is the authenticated control plane
-for Pip Realtime voice. It carries no audio, runs no agent turn and grants no
-tool authority: it decides whether a voice session may exist, records that
-decision, and hands the client the short-lived credentials to go and build one.
-It is deployed with Supabase JWT verification enabled and re-reads the bearer
-token through its service-role client.
-
-Realtime is OpenAI-only. The function reads `OPENAI_API_KEY` and nothing else —
-never `OPENAI_VOICE_KEY` (that secret belongs to the recorded-voice path in
-`app-hatchery-agent`) and never `OPENROUTER_API_KEY` or the text provider
-resolver, because a Realtime session has no text provider to fall back to. A
-missing key means Realtime reports itself unavailable.
-
-It accepts four actions on `POST /functions/v1/pip-realtime-session`:
-
-- `start` accepts the same optional `conversationId` field as
-  `app-hatchery-agent` (`'app'` or `'app:<uuid v4>'`; missing/null resolves to
-  the legacy `'app'` conversation) — validated first, before any DB work or
-  rate-limit/budget accounting, by `resolveConversationKey`. It then runs, in
-  order: the runtime kill switch, the per-profile start rate limit, identity
-  and scope resolution, the daily budgets, and the one-session invariant. On
-  success it loads or creates that conversation (same lazy-creation shape as
-  the app door) and binds the new session to it — `agent_realtime_sessions.
-  conversation_id`/`context_epoch` — so a live call continues the exact
-  conversation the client opened it from: both the transcript the sideband
-  persists and the conversation-history context it injects (see 7.ab) are
-  scoped to that conversation. It then creates the session and its
-  generation-1 call row, mints an ephemeral OpenAI client secret, and returns
-  the secret, a one-shot binding token, the session and generation ids, the
-  sideband URL and the authoritative deadlines.
-- `register_call` writes `openai_call_id` and `call_registered_at` onto the
-  already-provisioned generation row and advances it to `call_registered`. That
-  is the whole of it: it does not consume the binding token, claim the lease,
-  advance the fencing token, mark the call active, or grant any tool authority.
-- `abort_setup` is the narrow path for a client that created a call but cannot
-  continue. It records the known call id and marks the generation
-  `cleanup_pending` with `hangup_state = 'pending'` so the sweeper hangs it up.
-  It grants nothing, and unlike `register_call` it still works after the setup
-  deadline has passed — a client that blew the deadline is exactly the one that
-  most needs to report its orphaned call id.
-- `end` is user-initiated termination. It marks the session `ending` and the
-  live generation `cleanup_pending`; the OpenAI hangup itself is left to the
-  sweeper, so a user-facing action never blocks on a provider call that can
-  hang. `end_reason` comes from a fixed vocabulary, not client free text.
-
-Authorization is reused, not reinvented: `loadAppProfile`,
-`resolveAppAgentScope`, `ensureAppStaffLink` and `APP_CHANNEL_CHAT_ID` come from
-`app-hatchery-agent/app_agent_scope.ts`, so a Realtime session sees exactly the
-scope typed Pip sees and, via the shared `conversationId` key, can join any of
-the same app staff-link's conversations. From that the
-function derives an `authorization_fingerprint` — SHA-256 over the staff-link
-id, access role, sorted allowed-customer ids, profile role and profile status.
-Conversation id, context epoch and state version are deliberately excluded
-because they churn every turn and would flag a normal conversation as an
-authority change. The fingerprint is stamped on the session and the generation
-at provisioning time and recomputed on `register_call`; a demotion or a revoked
-approval between `start` and `register_call` invalidates the session.
-
-Budgets are enforced as **settled plus in-flight**, because usage settles only
-when a session ends and a caller who never ends one would otherwise never
-accrue anything. The gate sums today's (UTC) `agent_realtime_usage_seconds`
-rows and adds, for every non-terminal session, `max(0, min(now, end of UTC day,
-ready_at + MAX_SESSION_SECONDS) - max(ready_at, start of UTC day))`. A session
-that never reached `authoritative_ready_at` contributes zero; an orphaned row
-left by a crash cannot bill past its own ceiling; a session crossing midnight
-does not charge tomorrow's seconds against today. Exhaustion returns a distinct
-`budget_exhausted` code and is recorded as such on the attempt row.
-
-The start rate limit writes its attempt row *before* counting, so a burst
-cannot each read a stale count, and only attempts still marked `accepted`
-consume the window — a refused start is downgraded to its real outcome and
-never eats a later legitimate one. The one-session invariant is enforced by
-REPLACEMENT: a `start` that finds the caller's own session still non-terminal
-terminalizes it (`ended`/`replaced`), hands its generations to the sweeper as
-`cleanup_pending` (the OpenAI hangup is never dropped), and provisions the
-replacement — per the plan's race table. The partial unique index on
-`agent_realtime_sessions` still decides a genuine concurrent race; only
-SQLSTATE `23505` is treated as "you already have a session", so a genuine
-insert failure surfaces as an error rather than as a plausible-looking
-conflict. Two rapid concurrent starts from one profile may therefore both
-return 200, the later displacing the earlier — the invariant is "exactly one
-live session", never "somebody gets a 409".
-
-Every instant the function persists comes from a single read of the **database**
-clock, `public.realtime_now()`, taken once at the top of the request. Three
-hosts arbitrate one deadline — this function writes `setup_deadline_at`, the
-Cloud Run sideband evaluates it, and the SQL sweeper compares it against
-`now()` — so they must share one clock or skew silently moves the deadline. If
-that read fails the request is refused with `clock_unavailable`; it never falls
-back to the Edge Function's own clock.
-
-The binding token is 256 bits of CSPRNG entropy returned exactly once, in the
-body of a successful `start`. Only its SHA-256 hash reaches
-`agent_realtime_calls`, so no later read of the table — by an operator, a backup
-or a leaked dump — can recover a usable token. Neither the token, the minted
-client secret, nor the standing OpenAI key is ever logged.
-
-Configuration lives in `pip-realtime-session/config.ts` as `PIP_REALTIME_*`
-environment variables: `ENABLED`, `MAX_SESSION_SECONDS` (600),
-`SETUP_DEADLINE_SECONDS` (60), `CLIENT_SECRET_TTL_SECONDS` (30),
-`BIND_TOKEN_TTL_SECONDS` (60), `SESSION_START_LIMIT` (5),
-`SESSION_START_WINDOW_SECONDS` (300), `DAILY_SECONDS_PER_PROFILE` (1800),
-`DAILY_SECONDS_PER_TENANT` (14400), `TENANT_OVERAGE_FACTOR` (1.25),
-`CLOUD_RUN_URL`, `MODEL` (`gpt-realtime-2.1-mini`) and `VOICE` (`cedar`, the warm
-male voice; the rendered Live instructions additionally append a voice-only
-delivery addendum — warm tone, Egyptian colloquial Arabic when the user speaks
-Arabic, short spoken replies — after the shared typed-agent policy, versioned as
-`<policy>+voice.N`). A malformed
-or out-of-range value, or an incoherent combination such as a setup deadline
-longer than the session ceiling, fails fast — it is never silently clamped,
-because a clamped budget is indistinguishable from a working one until it costs
-money. `tenant_id` resolves to `profiles.organization_id`; a caller with no
-organization is subject to the per-profile budget only.
-
-### 7.aa Pip Realtime voice client (Flutter)
-
-**Parked behind a flag.** `FeatureFlags.realtimeEnabled`
-(`lib/core/config/feature_flags.dart`) gates every UI entry point below and
-defaults to **off** (`bool.fromEnvironment('PIP_REALTIME_ENABLED')`, no
-`defaultValue`, so it is `false` unless built with
-`--dart-define=PIP_REALTIME_ENABLED=true`). This is a stabilization-phase
-parking, not a removal: no Realtime source file, service, test or doc was
-deleted, and everything described in this section and in 7.z/7.ab/7.ac still
-works exactly as written once the flag is on. With the flag off, "Pip Live" is
-unreachable from the app:
-- `MainShell` (`lib/features/home/widgets/main_shell.dart`) never constructs a
-  `RealtimeVoiceController` and never provides one into the widget tree, at
-  the shell level or into a pushed conversation route — this is the single
-  choke point everything else follows from. The route guard and the push to
-  `RealtimeVoiceScreen` are therefore unreachable, and the shell's Live body
-  wrapper renders its bare content with no `RealtimeLiveBanner`.
-- `AssistantChatScreen` (`lib/features/chat/screens/assistant_chat_screen.dart`)
-  finds no controller via its nullable `context.watch`, so it shows no live
-  control (`assistant-live`) next to the composer, in addition to an explicit
-  `FeatureFlags.realtimeEnabled` check on the same condition — belt and braces
-  against a stray provider resurrecting the button. The recorded-voice mic
-  button (`assistant-mic`, request/response, unrelated code path) is
-  unaffected and stays fully enabled either way.
-- No Realtime session, WebRTC connection or sideband socket is opened at app
-  launch, on a notification, or anywhere else outside the (now unreachable)
-  entry points above — construction of `RealtimeVoiceController` itself never
-  touched the network before this change either (ports are built lazily), and
-  it is simply never constructed now.
-
-Restore Pip Live by building with `--dart-define=PIP_REALTIME_ENABLED=true`,
-or by flipping `realtimeEnabledDefault` in `feature_flags.dart`. Existing
-Realtime widget tests set `FeatureFlags.realtimeEnabled = true` in `setUp` (and
-reset it in `tearDown`) to keep exercising the full implementation regardless
-of the shipped default; `test/features/chat/realtime_parked_test.dart` asserts
-the opposite — that at the default (off) the UI stays unreachable even with a
-controller injected.
-
-`lib/services/realtime/` and `RealtimeVoiceController`
-(`lib/features/chat/providers/`) are the app's half of Pip Realtime. The
-assistant screen registers the controller alongside `AssistantProvider` under a
-`MultiProvider` and exposes a **separate** live control in the composer
-(`assistant-live`); the existing mic button remains the request/response
-recorded-voice path and is not overloaded. `AssistantChatPort` is untouched — it
-is strictly request/response.
-
-**The invariant.** No microphone audio reaches the remote peer before the
-server declares an authoritative READY. This is *not* implemented with
-`track.enabled`: W3C defines a disabled track as delivering zero-information
-content, not no content, so on Web the browser keeps sending silence at roughly
-40 kbps and `packetsSent` climbs. Instead `WebRtcRealtimeTransport` acquires the
-mic stream but never passes the track to `addTrack`; it adds a `sendrecv` audio
-transceiver with **no** `track:` argument, producing a sender whose track is
-null and which emits zero RTP by specification; SDP is negotiated in that state;
-and transmission begins only when `sender.replaceTrack(micTrack)` runs, which
-swaps the source without renegotiation so nothing touches the wire.
-`stopTransmitting` is `replaceTrack(null)`. `track.enabled` is a secondary UX
-mute only. Verification reads `getStats()` off the *peer connection* filtered to
-`type == 'outbound-rtp'` and `kind == 'audio'` — never `sender.getStats()`,
-which silently returns whole-peer-connection stats when the track is null — and
-`noAudioHasBeenTransmitted` treats "no audio report exists" and "packetsSent is
-0" as equally valid proof, because some stacks emit no report with no track
-attached.
-
-**States.** `idle → requestingPermission → connectingMuted → registeringCall →
-bindingSideband → awaitingAuthoritativeReady → listening ↔ userSpeaking ↔
-thinking ↔ assistantSpeaking → reconnectingMuted → ending → idle/error`.
-`connectingMuted` and `reconnectingMuted` are enforced media states, not
-labels: in them the sender holds a null track.
-
-**Setup order.** `start` on `pip-realtime-session` mints the grant; the SDP
-offer is POSTed to `https://api.openai.com/v1/realtime/calls` with the ephemeral
-client secret (the minted secret already encodes model and voice, so the
-endpoint is a fixed API property and never app config); the `rtc_…` call id is
-parsed out of the `Location` response header and `register_call` is sent
-immediately, before the answer is applied and before the sideband is bound;
-only then does the client bind to Cloud Run with the one-shot binding token and
-wait. Every step re-checks a monotonically increasing attempt generation, so a
-navigation, cancel, logout or dispose mid-setup releases the attempt instead of
-letting the last queued step enable the microphone.
-
-**Sideband wire contract.** The server owns the format; the client conforms to
-it. It is written down once, in `services/pip-realtime-sideband/WIRE_CONTRACT.md`,
-and pinned from both sides by tests that assert the same literal bind frame, so
-a change to one side fails the other side's suite. Every field is snake_case.
-The client's first application frame is
-`{"type":"bind","session_id","generation","access_token","binding_token"}` —
-the Supabase JWT read at bind time (never cached) and the one-shot binding token
-from `start`, in the frame body, never in the URL, never logged. The only
-notices the client parses are `ready` (`session_id`, `generation`), `error`
-(`code`) and `closing` (`reason`); anything else is dropped silently. The
-socket's close code is mapped to a distinct cause and message — 4408 bind
-timeout, 4401 bind rejected, 4409 lease lost, 4400 malformed, 4503 draining,
-4500 internal — and anything else is a normal end of call. A private-range close
-or an `error` notice goes through the ordinary failure path, so it spends the
-one automatic recovery before surfacing. **Captions never travel on this
-socket**: transcript deltas arrive on the WebRTC data channel straight from
-OpenAI.
-
-**READY validation.** Transmission is enabled at most once per generation, only
-while the controller is actually awaiting READY, and only when the frame's
-session id and server generation match the current attempt. A stale, duplicate
-or foreign READY is inert.
-
-**Ending and recovery.** A call that never reached READY is released with
-`abort_setup` (reporting the orphaned call id so the sweeper can hang it up);
-one that ran is released with `end` and a reason from the fixed vocabulary.
-Recovery is allowed exactly once per user-initiated start, always releases the
-previous session first — `start` enforces one live session per profile — and
-always restarts from a fresh, non-transmitting transport that needs its own
-READY. A microphone-permission denial is never auto-retried.
-
-**Mobile background lifecycle.** Flutter/WebRTC remains the sole owner of the
-microphone, peer connection, Realtime grant, SDP, captions, tools and RBAC. On
-Android, after microphone acquisition succeeds and before a Realtime session is
-minted, the controller starts a package-internal foreground service and waits
-for its acknowledgement (up to five seconds). The low-importance ongoing `Pip
-Live` notification includes an `End` action; it asks Dart to take the ordinary
-user-ended teardown path. The service remains active across the one automatic
-recovery and deactivates on stop, terminal error or disposal. On iOS the app
-declares only `UIBackgroundModes: audio`; `flutter_webrtc` configures its own
-Apple audio session to `localAndRemote` before microphone acquisition and
-returns it to `none` after the track stops. Web, macOS, Windows and Linux use a
-safe no-op lifecycle adapter. This does not provide incoming-call, VoIP or
-unrestricted background execution.
-
-**Client event policy.** The data channel delivers tool/function-call events.
-The client never executes them, never relays them to any backend, never logs
-their arguments or results, and drops unrecognised types silently; only the
-Cloud Run sideband executes tools. `classifyClientEvent` maps every event to a
-presentation-only action or to `ignore`, and tool detection short-circuits
-before any other matching.
-
-**Teardown** is `replaceTrack(null)` → data channel close → `track.stop()` →
-Apple audio mode release → `stream.dispose()` → `pc.close()` → `pc.dispose()`. Skipping `track.stop()`
-leaves the iOS microphone indicator lit.
-
-**Audio session contention.** `record`, `audioplayers` and `flutter_webrtc` all
-configure `AVAudioSession` independently, so Realtime has its own transport and
-an active call ORs into the assistant screen's `isVoiceBusy` gate — recorded
-voice, typing and a live call can never run at once.
-
-### 7.ab Pip Realtime sideband service (Cloud Run)
-
-`services/pip-realtime-sideband/` is the Deno service that attaches to a live
-OpenAI Realtime call and owns every authoritative consequence of the
-conversation. It is deployed to Cloud Run and started from `main.ts`;
-`deno test -A` in that directory covers it.
-
-**What it is and is not.** It carries no admission control — only
-`pip-realtime-session` may create a session — and it AUTHORS no tool catalogue:
-the catalogue still arrives whole as configuration. What it does own is WHEN
-each half of that catalogue is sent (see **Staged tool catalogue** below). Its
-job is the Realtime CONTROL path: binding a client connection, holding the lease,
-configuring the provider session, attributing turns, claiming and evidencing tool
-calls, settling usage, and draining cleanly.
-
-**Staged tool catalogue.** A session starts with the CORE catalogue only —
-every tool except the intake write path (`start_intake`,
-`record_station_values`, `get_intake_status`, `create_station_summary`,
-`confirm_station_summary`, `submit_station_for_review`, `pause_intake`,
-`resume_intake`, `cancel_intake`). `partitionToolCatalogue` in
-`src/session_config.ts` splits the configured catalogue by name at runtime
-rather than reading a second env var,
-so the two halves cannot drift from what was deployed, and the partition
-preserves the configured order because a reordered prefix costs an OpenAI
-prompt-cache hit. The staged half is attached by a second `session.update` the
-first time the model ATTEMPTS `propose_intake`, sent before the follow-up
-`response.create` and awaited to its `session.updated` ack under a bounded
-timeout. The gate is attempt-based, not success-based: `propose_intake` is the
-only possible gate (every staged tool requires a `pendingActionId` or
-`intakeId` that only `propose_intake`/`start_intake` can mint, and the realtime
-policy is static so no id can arrive from server context), and gating on
-success would mean the upgrade never fires while the broker's missing turn
-context makes `propose_intake` return `turn_context_required` on this channel.
-That refusal carries `retryable: false` and a bilingual recovery message
-naming the only route that exists — record it in the typed chat — so the model
-answers in one sentence instead of re-calling the tool until the turn runs out
-of budget.
-The upgrade is confirmed, not assumed. A provider that REJECTS a
-`session.update` drops it WHOLE, so an un-acked upgrade may mean the session is
-still running the core catalogue; treating the send itself as durably done
-would strand it there for the rest of the call with no retry and nothing in the
-logs to say so. The session is therefore marked upgraded only once a
-`session.updated` ack is actually observed, a later `propose_intake` may resend
-once, and `MAX_INTAKE_UPGRADE_ATTEMPTS` (2) stops that from becoming an
-unbounded resend loop. The ack-timeout warning carries
-`catalogue_unconfirmed` and `retry_available`, which is what separates "the ack
-was merely slow" from "the update was rejected and this session is still on the
-core catalogue" — only the second is a problem, and they were previously
-indistinguishable. A session never downgrades — the `vad_fallback` resend
-carries whichever catalogue is currently active. Measured live: a first turn
-costs 4,620 input tokens on the core catalogue against 5,909 on the deployed
-full one.
-
-The upgrade is not free, and the trade is deliberately one-sided. OpenAI's
-prompt cache keys on the tools array, so the upgrade costs one cache miss and
-leaves that session on the larger 32-tool prefix (5,243 tokens/turn measured)
-for the rest of the call. Sessions that reach `propose_intake` therefore save
-less than sessions that never do — and while the broker's missing turn context
-makes `propose_intake` fail, they save nothing at all beyond the schema
-slimming. That is accepted because the alternative is paying the full
-catalogue in EVERY session, including the large majority that only ever ask
-questions.
-
-**Binding.** The wire format — bind frame, the three outbound notices, the close
-codes, the ordering rule, and the fact that captions do not flow here — is
-documented in `services/pip-realtime-sideband/WIRE_CONTRACT.md` and pinned by a
-literal shared with the Flutter client's test. Inbound frames are processed
-strictly in arrival order through a per-connection queue: the client sends the
-health frame immediately behind the bind frame without waiting for any ack, and
-processing the bind frame awaits the database, so an un-serialized health frame
-would be inspected while the connection is still unbound and mistaken for a bad
-bind (4400 `bind_frame_required`). A connection that closes while its bind is
-still in flight also aborts the bind at the next checkpoint instead of claiming
-a lease it can never release. Credentials arrive in the FIRST
-WebSocket frame, never in the URL,
-because a query string is written to proxy logs, browser history and Cloud Run
-request logs. The frame carries the Supabase access token and the one-shot
-binding token. The access token is verified locally against the project JWKS
-(ES256) and proves IDENTITY ONLY; approval status and customer scope are
-re-resolved from the database on every bind by
-`src/authorization.ts::resolveBindAuthority`, which mirrors the provisioner's
-`loadAppProfile`/`resolveAppAgentScope` (profiles is the authorization record;
-`customers` / `auditor_customers` give the allow-list; the staff-link id is
-derived as `app-<profileId>`, never queried) and re-derives the authorization
-fingerprint with the SAME canonical-JSON SHA-256 as
-`pip-realtime-session/fingerprint.ts`. The two derivations cannot import each
-other (the Docker image ships only `main.ts` + `src/`), so parity is pinned by
-`test/authorization_parity_test.ts`, which imports the provisioner's real
-source and asserts identical digests — an earlier inline version drifted to a
-legacy `role:customerId` string and every bind failed as
-`bind.fingerprint_changed` → 4401. The binding token is consumed
-atomically, so two clients racing with the same token yield exactly one
-`consumed`. Until binding succeeds the connection may do nothing — no control
-action, no lease claim, no provider traffic. Close codes in the private range
-(4400 malformed, 4401 bind rejected, 4408 bind timeout, 4409 lease lost, 4500
-internal, 4503 draining) let the client distinguish causes. The bind deadline
-(`PIP_REALTIME_BIND_DEADLINE_SECONDS`, 5s, validated to be shorter than the setup
-deadline) starts when the socket is upgraded and is cleared the moment bind
-succeeds: a socket that never binds is sent `{"type":"error","code":
-"bind_timeout"}` and closed 4408, because an upgraded socket holds a Cloud Run
-concurrency slot for its whole life and nothing durable has been claimed at that
-point.
-
-**Lease and fencing.** Exactly one worker may drive a given (session,
-generation). Ownership is `lease_owner` + `lease_expires_at` on
-`agent_realtime_calls`, with a monotonically increasing `fencing_token` bumped on
-every claim. Every authoritative write carries the fence it was issued and the
-database rejects it if a newer owner has moved past — the failure this defends
-against is a worker that is alive but paused (GC, CPU starvation, a stalled
-socket) and does not know it lost the lease. On rejection the stale worker stops:
-it does not retry and does not reclaim.
-
-**Interactions and the tool budget.** The cap is INTERACTION-scoped, not
-generation-scoped: one user utterance plus the entire response chain it provokes,
-including the continuation responses the model produces after each
-`function_call_output`. `PIP_REALTIME_MAX_TOOL_CALLS_PER_INTERACTION` (5) tool
-calls per interaction, fresh budget for the next one. Capping across a whole call
-leg would let one long conversation starve its own later turns. This is the only
-place the Realtime cap is enforced; the text channel's
-`MAX_AGENT_TOOL_CALLS_PER_TURN` is separate and enforced in its own runtime loop.
-
-**Continuations and termination.** The tool budget bounds how many tools RUN;
-it does not bound how many RESPONSES are generated, because a refused call is
-still answered with a `function_call_output` and every answer used to be
-followed by an unconditional `response.create`. A second, separate
-per-interaction budget now bounds the continuations themselves
-(`InteractionTracker#tryConsumeContinuation`), with a limit of the tool cap plus
-two, and answers one of three things:
-
-* `continue` — an ordinary `response.create`; the model may call another tool.
-* `final` — `response.create` carrying `response: { tool_choice: 'none' }`. The
-  provider cannot emit a function call in that response, so it cannot produce
-  another `function_call_output`, so it cannot produce another continuation.
-  This is what terminates the chain deterministically rather than waiting for
-  the model to lose interest. A `tool_limit_reached` refusal force-finalizes
-  immediately, because another tool-calling response is provably useless: the
-  budget it would need is already spent.
-* `suppress` — nothing is sent. Once a final has gone out the interaction is
-  closed to further continuations forever, and the suppression is logged with
-  the interaction id, the disposition and the cap.
-
-Tool events are also SERIALISED. The provider socket delivers frames
-fire-and-forget, so two `response.output_item.done` events from one response
-would otherwise run concurrently, each awaiting its own broker round trip: a
-response carrying `propose_intake` plus another tool could interleave so that
-the other tool's `response.create` went out while `propose_intake` was still in
-flight, and the intake `session.update` landed after it — leaving the model to
-answer a data-entry request with the catalogue it started the call with. A
-promise chain runs `#onOutputItemDone` strictly in arrival order, so outputs are
-submitted, the catalogue is upgraded, and `response.create` is sent in the order
-the frames arrived. Only that one event type is serialised; transcripts, deltas
-and `response.done` still run immediately, so a slow broker call cannot stall
-unrelated work. Telemetry attribution follows the same grain: when one response
-emits several tool calls, all their names belong to the SINGLE follow-up they
-jointly caused and land on one usage row together, and a new user utterance
-clears any names still waiting for a follow-up that a barge-in prevented.
-
-A refused `response.create` is itself recovered. The provider answers a frame
-it rejects with an `error` event and NOTHING ELSE, so on the forced-final path
-the caller would be left in silence at the exact moment they were owed the
-answer, with the interaction already closed to further continuations. Every
-`response.create` therefore carries an `event_id` the provider echoes back,
-and a rejection naming it is handled three ways:
-`conversation_already_has_active_response` is not silence (a response is
-already in flight) and is ignored; a rejected FORCED FINAL is retried once
-without the `tool_choice` override, because answering plainly beats not
-answering and the sticky `finalForced` still refuses everything after it; any
-other rejection sends the client `{type:'error', code:'response_create_rejected'}`
-rather than leaving it staring at dead air.
-
-A call refused for liveness (`rejected_not_live` — the session is stopped, the
-lease is lost, or the generation is no longer this worker's) is still ANSWERED,
-because an unanswered function call wedges the chain whoever owns the session,
-but never continued: driving a response for a session this worker no longer owns
-would be two assistants talking over one caller. The followed-tool name is
-queued for telemetry attribution only when a continuation is actually sent, so a
-suppressed call cannot pin its name onto an unrelated later response. A fresh
-user utterance opens a fresh interaction with a fresh budget.
-
-The text runtime terminates the same way by a different mechanism. When a turn
-spends `MAX_AGENT_TOOL_CALLS_PER_TURN`, the over-limit call is answered
-`tool_limit_reached` rather than executed — every `function_call` in the model
-input needs a matching output or the next provider request is rejected — and the
-runtime then makes exactly ONE more provider call with the catalogue withdrawn
-(`tools: []`) and `tool_choice: 'none'`, so the model has to answer from what it
-already gathered. A provider that emits a function call anyway ends the turn as
-`tool_limit_exceeded` instead of looping. The catalogue is still sent on that
-pass — `tool_choice: 'none'` is what forbids the call, and withdrawing `tools`
-from a request whose input already holds `function_call` items is an unproven
-shape on both providers.
-
-The turn deadline still bounds everything, but it is now SPLIT: a fixed slice
-is reserved for the final pass, so a turn whose tool calls ate the whole budget
-is promoted to its final answer rather than failing as a timeout — running out
-of tool time is itself a reason to answer with what was gathered. For the same
-reason a tool that overruns is reported to the model as `tool_timeout` with a
-recovery and promotes the turn to its final pass, instead of ending it. Each
-awaited operation owns its own `AbortController`: a single shared one meant one
-timeout poisoned every later call, so a slow tool aborted the very request that
-was meant to deliver the answer.
-
-**Tool calls.** `ToolCallCoordinator` takes a REQUIRED, discriminated ownership
-argument (`ToolLedgerOwnership`) naming who writes the durable ledger —
-`agent_tool_call_claims` and `agent_tool_events` — for the calls it runs. There
-is no default, because both tables carry partial unique indexes on
-(`realtime_session_id`, `realtime_generation`, …) and a second writer for one
-call id is a unique violation, not a duplicate row.
-
-In `ledger: 'sideband'` mode the coordinator claims BEFORE executing — the claim
-ledger keyed (session, generation, tool call id) is what makes a redelivered call
-idempotent, and executing first would let a reconnect double-apply a write. The
-argument hash is part of the identity: the same call id with different arguments
-is a conflict, not a redelivery, and is rejected. It never waits for the
-transcript, which finalizes asynchronously and may never finalize at all.
-Evidence rows are written once with `conversation_turn_id = NULL` and the
-interaction id set.
-
-In `ledger: 'broker'` mode — what `main.ts` wires — the coordinator writes
-NEITHER table: `pip-realtime-tool-broker` (7.ac) creates, settles and evidences
-the claim around the tool it executes, and its answer is authoritative, including
-the duplicate it replays from a recorded claim, which arrives as `duplicate:true`
-and is reported as a duplicate disposition. What the coordinator keeps in both
-modes is what is genuinely its own: the per-interaction tool budget, a liveness
-guard that refuses a call outright once the session is stopped, the lease is lost
-or the generation is no longer this worker's, and the guarantee that the model
-always receives a real `function_call_output` — a broker that is unreachable,
-returns 5xx, refuses with 4xx, or answers 200 with an unusable body all produce a
-negative tool result the assistant can say out loud, never an invented success
-and never silence. A tool call left unanswered would wedge the response chain.
-
-A broker that HANGS is bounded too, and separately: `fetch` has no default
-timeout, so an unresponsive broker used to leave the promise unsettled — the
-`function_call_output` was never sent, and because tool events run on a
-serialized chain, every later tool call on the session queued behind it
-forever, leaving the session permanently mute to tool work while still
-reporting healthy. The call is now abandoned after `BROKER_TIMEOUT_MS` and
-reported as `broker_timeout`, kept distinct from `broker_unreachable` because
-the two mean different things: nothing ran, versus something may still be
-running. Retrying is safe either way — the broker owns the claim ledger, so a
-redelivery of the same call id replays rather than re-executes.
-
-The inbound-turn back-fill runs in both modes and is the one claim write the
-sideband keeps when the broker owns the ledger: `inbound_turn_id` has exactly one
-writer (only the sideband learns that the transcript finalized), the broker
-inserts NULL and never touches it, and the link is back-filled on the MUTABLE
-CLAIM, never on the immutable evidence row. No placeholder turn is ever
-fabricated to satisfy a foreign key.
-
-The tool catalogue itself is INJECTED (`src/tools.ts`), not defined here, so the
-voice channel cannot drift from the text channel. `main.ts` builds the registry
-with `brokeredToolRegistry` — the only constructor that pairs
-`pipRealtimeToolBrokerExecutor` with `ledger: 'broker'` — over definitions taken
-from `config.toolDefinitions`. Those definitions, the broker URL and the broker
-secret are all validated at startup and an invalid or absent value crashes the
-revision: a sideband serving an empty catalogue announces READY, carries audio
-and can do nothing. The secret is placed only in the `x-pip-broker-secret`
-request header and is never logged.
-
-Turn detection defaults to `semantic_vad` with `eagerness: low` — verified
-accepted for `gpt-realtime-2.1-mini` on a live probe connection
-(`tools/probe_turn_detection.ts`) — so the model ends the user's turn on
-semantic completion instead of a fixed silence timeout. It is configurable via
-`PIP_REALTIME_TURN_DETECTION` (`semantic_vad` | `server_vad`),
-`PIP_REALTIME_VAD_EAGERNESS` (`low`|`medium`|`high`|`auto`) and, for
-`server_vad` only, `PIP_REALTIME_VAD_SILENCE_MS` (default 800). If the provider
-rejects `turn_detection` before the config is acknowledged, the sideband
-resends the session.update exactly once with `server_vad` forced (logged
-`sideband.vad_fallback`). Both VAD shapes keep `create_response` and
-`interrupt_response` true, so user barge-in cancels the assistant's response
-server-side. Two on-demand conversation-behavior eval suites live in
-`services/pip-realtime-sideband/evals/` (see its README): `run_evals.ts` runs
-scripted Egyptian-Arabic conversations against the real model over the Realtime
-WebSocket in text mode with stubbed tools, asserting word budgets, progressive
-disclosure, benchmark discipline, missing-data honesty, inference hedging, and
-ask-before-acting; `run_canaries.ts` is the small production-path gate that
-sends the EXACT production `session.update` payload (audio output modality,
-reasoning effort, semantic VAD — built by the same `buildSessionUpdate` the
-Sideband uses) and asserts on the audio transcript. The canary suite exists
-because text-mode passing is not evidence about the spoken channel: the
-2026-08-18 production failures (verbose canned greetings, multi-question
-clarification paragraphs) reproduced under audio output while the text suite
-was green. Canaries run first; the large text suite is the regression tail.
-`tools/probe_token_cost.ts` is the third member of that family and answers a
-different question: what the provider actually CHARGES for a given payload. It
-builds the session through the same `buildSessionUpdate`, drives scripted
-turns, and prints `response.usage` per inference, so a token claim is always
-provider-reported rather than inferred from source-file size. It accepts
-`--instructions`/`--tools` overrides so a live Cloud Run revision's own env can
-be measured against the repo's, which is how a before/after is proved. It paces
-itself by default because the account's observed 40k TPM ceiling for
-`gpt-realtime-2.1-mini` is only about eight inferences a minute at this context
-size — an unpaced run gets `rate_limit_exceeded` responses that arrive as an
-empty `response.done` with zero usage and look exactly like a provider bug.
-`runTurn` also collects every non-empty transcript spoken across a turn's
-tool rounds (not just the final reply) into `allSpeech`, so a
-`CanaryTurn.allSpeechAssertions` can catch something said mid-lookup — for
-example filler like "ثانية أشوف" before a single tool call resolves — that
-the final-reply assertions alone would miss. A second 2026-08-18 production
-failure (Pip reading out every metric `get_breed_benchmark` returned instead
-of only the one asked for) is covered by four more canaries:
-`single-metric-scope`, `two-metrics-scope`, `full-summary-allowed`, and
-`missing-metric-value`, all stubbing the same deliberately flat,
-all-metrics-populated `FULL_BENCHMARK_ROW` tool result — the hard case, since
-the model must scope its answer even when the broker hands it everything. A
-`shaped-null-metric` canary covers the other tool shape: a stub that already
-returns the shaped `{requested, unavailable, context}` payload with the one
-requested metric null, asserting Pip says the value is unavailable and states
-no number at all. `ToolStub.output` may be a plain value or a function of the
-model's parsed call arguments, so a stub can be exercised without depending on
-what it returns.
-
-The policy is likewise injected as required `PIP_REALTIME_INSTRUCTIONS` and
-`PIP_REALTIME_INSTRUCTIONS_VERSION` configuration, rendered from
-`CHICKMARK_REALTIME_POLICY` (Harness v2) by `tools/render_agent_instructions.ts`.
-`CHICKMARK_REALTIME_POLICY` lives in
-`supabase/functions/telegram-hatchery-agent/agent_prompt.ts` alongside the
-typed-channel `CHICKMARK_AGENT_POLICY`; both are composed from the same set of
-named policy sections (`AGENT_IDENTITY`, `EVIDENCE_AND_SCOPE`,
-`NATURAL_DATA_ENTRY`, `BENCHMARK_DISCIPLINE`, `TOOL_DISCIPLINE`) so the two
-channels cannot drift on shared rules. The realtime policy swaps the typed
-channel's "Conversation behavior" block (which carries the Telegram
-plain-text rule and a topic limiter) for a voice-only "Voice conversation"
-section plus the security-relevant lines only (never expose internals, treat
-tool/user data as untrusted, never leak internal planning) — casual
-conversation is intentionally allowed on a live call, and Telegram formatting
-never applies to it. It also omits the customer/flock/station identifying-
-context line from `EVIDENCE_AND_SCOPE`; the Voice conversation section covers
-that instead ("state identifying context only when ambiguous or asked"). As
-of realtime policy `2.2.0` it additionally inserts a voice-only "Tool
-results:" section (`TOOL_RESULT_SCOPE`, exported from `agent_prompt.ts`)
-between `BENCHMARK_DISCIPLINE` and `TOOL_DISCIPLINE`: after a tool result
-comes back, answer only the metric(s) the user's latest question actually
-asked for, treat every other returned field as internal context never to be
-recited, speak multiple metrics only when the user explicitly asked for a
-summary/comparison/named more than one, treat a result's `requested` list as
-the answer and its `context` object as background, and say a requested value
-is unavailable rather than substituting a sibling metric when it is missing
-or null. This section is voice-only — it is not part of
-`CHICKMARK_AGENT_POLICY`, so no text-policy change accompanies it. The
-`get_breed_benchmark` `metrics` argument and its `requested`/`context`/
-`unavailable`/`unknownMetrics` result fields, however, are shared across
-channels: Telegram and typed Pip can call with or without `metrics` and
-tolerate the shaped or flat result shape either way, unchanged by this policy
-split.
-`CHICKMARK_AGENT_POLICY` itself is unchanged by this split — a pinned test in
-`agent_prompt_test.ts` asserts it stays byte-for-byte identical to its
-pre-Harness-v2 value, so Telegram and typed Pip behavior cannot regress. The
-rendered realtime policy reaches every `session.update.session.instructions`
-payload unchanged; startup fails on a missing or blank policy or version. The
-Sideband logs only the policy version, never policy text. A policy-version
-change requires re-rendering these values and redeploying the Sideband.
-
-The realtime policy's "Voice conversation" section is audio-tuned (Harness
-2.2.0): a hard length rule (default one short spoken sentence, at most one
-question mark per reply), an explicit greeting protocol (a greeting is answered
-with a matching two-to-four-word greeting, never an offer to help), a
-one-question clarification rule that forbids restating the request and
-enumerating candidate options, a banned list of assistant-service stock
-phrases, a lookup-filler rule ("ثانية أشوف" only when one request genuinely
-chains several lookups, never for a single one, never as a sign-off), and a
-block of literal calibration examples — including two 2.2.0 examples that
-model answering only the requested metric when the tool result carries
-several (production-only and fertility+hatchability-only). The examples are
-load-bearing: on `gpt-realtime-2.1-mini` in audio mode, abstract brevity and
-scope rules alone were not followed reliably — the canary suite only
-stabilised after the example pairs were added.
-
-**Session fingerprinting.** Every `session.update` the Sideband sends is logged
-as `session_config.sent` (sequence number, source
-`initial`/`vad_fallback`/`intake_upgrade`,
-Cloud Run revision from `K_REVISION`, harness version, SHA-256 and length of
-the instructions, model, voice, tool count, turn-detection type, eagerness,
-reasoning effort), and every provider `session.updated` ack as
-`session_config.acked`, which additionally hashes the instructions echoed back
-by the provider and records `instructions_match` — proving not just that the
-config was sent but what the session is actually running. Hash + version +
-length only; policy text never reaches a log line.
-
-**Conversation context injection.** Right after the initial `session.update`
-send — on the same socket, immediately after, so wire ordering is preserved —
-`SidebandSession` best-effort loads the bound conversation's recent finalized
-turns (`store.loadRecentTurns`, scoped to the session's
-`conversationId`/`contextEpoch` and constrained to
-`direction in (inbound, outbound)` and
-`source_channel in (app_text, realtime_voice, telegram)` so a future `system`
-row can never be replayed as speech) and replays them into the
-model as `conversation.item.create` frames (`role: 'user'|'assistant'`,
-`input_text`/`text` content) so a caller resuming a conversation — by text
-after a prior voice call, or by voice after prior typed turns — picks up where
-it left off instead of starting the model cold. Up to the newest
-`CONTEXT_TURN_LIMIT` (12) turns are fetched; each turn's text is tail-truncated
-to `CONTEXT_PER_TURN_CHAR_CAP` (600 characters, keeping the END so the most
-recent content of a long turn survives) and turns are then walked newest-first
-and kept while the running total stays under `CONTEXT_TOTAL_CHAR_CAP` (4000
-characters) — the walk stops at the first turn that would overflow the
-budget, which is exactly "drop the oldest turns first" — before being sent
-oldest-first. Injection participates in readiness as the `contextInjected`
-precondition: READY is withheld until the injection settles, but the store
-fetch is bounded by `CONTEXT_INJECTION_TIMEOUT_MS` (500 ms, overridable as a
-test seam), so a slow or hung fetch delays READY by at most that bound and a
-failure never blocks it — the precondition is marked in a `finally` on
-success, failure, and timeout alike, keeping "history lands before the first
-live utterance" without letting the database gate the call. Any failure (the
-store fetch, or a frame send) is swallowed after a content-free warning log
-(`context_injection.failed`); a success logs only counts
-(`context_injection.sent`: turns fetched vs. sent), never turn text.
-`contextInjectionPromise` exposes the in-flight injection as a test seam
-only. Voice-to-text continuity needed no separate work: the shared context
-loader used by `app-hatchery-agent`'s `send` already reads finalized turns
-channel-blind, so a realtime-voice turn is already visible to the next typed
-turn in the same conversation.
-
-**Turns and usage.** Deltas are never persisted — only finalized text — and an
-interrupted response stores only what was actually said. Failed transcription is
-recorded as `unavailable` rather than being given invented content. Usage settles
-into `agent_realtime_usage_seconds` as one row per (session, UTC date), so a call
-crossing midnight becomes two slices that sum to its true active seconds;
-`usage_settled_at` plus the table's unique key are two independent defences
-against double settlement.
-
-**Token telemetry.** Wall-clock seconds are what the caller is BUDGETED on;
-tokens are what the provider BILLS. They are recorded separately and must not
-be conflated. Every `response.done` is parsed by `src/response_usage.ts` — a
-pure function that never throws and coerces anything missing or non-numeric to
-zero — and written to `agent_realtime_response_usage`, one row per
-(session, response). The row carries total/input/output, cached and derived
-uncached input, the text/audio/image split on both sides, the model, the
-response status, whether the response followed a tool call and which tool it
-was, and the INTERACTION it belonged to — the same key
-`agent_tool_events.realtime_interaction_id` carries, so "how many assistant
-responses did one thing the caller said produce?" is a `group by` rather than a
-log search. It is null only when a response arrived with no preceding
-`response.created` to attribute it. That attribution is read via
-`InteractionTracker#lookupInteractionForResponse`, a PURE lookup that never
-mints an interaction and never touches budget-tracking state — telemetry
-observes attribution, it never creates it. (The tool-budget path uses a
-separate, minting `interactionForResponse`/`noteResponseCreated`, which is
-correct there: a real tool call in flight needs an interaction to attribute
-budget to, even for one the tracker has not seen yet.) A failed or
-rate-limited response arrives with all-zero usage and is recorded anyway,
-because "the provider refused this turn" is the signal that matters most. The
-primary key makes a redelivered `response.done` a no-op rather than a double
-count, and a persistence failure is logged content-free and swallowed —
-telemetry never breaks a live call.
-
-**Failure containment.** One instance holds many concurrent live calls, and
-Deno terminates the process on an unhandled rejection — so a single missing
-`.catch` on a fire-and-forget path drops EVERY call on the instance, not just
-the one that failed. Provider events are dispatched with an explicit `.catch`,
-the lease heartbeat treats a store error as a lost lease (a stale worker stops
-rather than retries, which is this service's rule), and `main.ts` registers a
-process-level `unhandledrejection` guard as the last resort.
-
-Losing the provider socket is likewise not a degradation the session rides out.
-The caller's WebRTC leg to OpenAI is a SEPARATE connection that stays up, so the
-model keeps talking while this service can no longer execute a tool, persist a
-turn, or drive a response — and every frame it tries to send queues into a
-socket that will never open again. The session stops itself and the client is
-failed with `sideband_lost`, so it starts a fresh generation instead of talking
-to a session with no authority behind it.
-
-**Drain and sweep.** Cloud Run's SIGTERM grace is a fixed, non-configurable 10
-seconds. The drain path (`PIP_REALTIME_DRAIN_BUDGET_MS`, 7000) does only what
-must be durable: ONE batched statement marks every generation this worker owns
-`cleanup_pending` and releases the leases, and a close frame is pushed to each
-client so it can fail over immediately. It performs NO OpenAI hangups — each is a
-third-party round trip with no latency guarantee. Those, and every setup that
-stalled past its deadline, are handled by `POST /internal/cleanup`, called by
-Cloud Scheduler on roughly a 60-second cadence and authenticated with Google
-OIDC: both the audience and a service-account allowlist are checked, so a token
-minted for another service cannot be replayed here. The sweep claims each
-generation by compare-and-swap on the fencing token first, so it is safe to run
-concurrently with itself and with a live worker. It terminalizes three kinds of
-generation: one handed over as `cleanup_pending` by a draining worker, a setup
-stalled past `setup_deadline_at`, and — newly enforced — an ACTIVE call past
-`active_expires_at`. The provisioner had always stamped that column from
-`maxSessionSeconds` and nothing ever selected on it, so a live session was
-bounded by nothing but the caller hanging up: every new utterance opens a fresh
-interaction with a fresh tool budget, so an echoing line could drive unbounded
-tool and inference cost with no server-side stop. Each hangup is bounded by its
-own timeout, so one unresponsive provider call cannot stall the whole sweep —
-and the sweep is the only thing that terminalizes anything.
-
-**Logging.** `src/log.ts` accepts only a stable event name plus scalar fields and
-scrubs any key that looks like content (`text`, `transcript`, `arguments`,
-`result`, `output`, …). No audio, transcript, tool argument, tool result, token
-or secret may reach a log line.
-
-**Configuration** is validated at startup in `src/config.ts`; an invalid value
-crashes the revision where the deploy fails loudly, never at the first session.
-Incoherent combinations are rejected too — a heartbeat interval more than half
-the lease would let a single missed beat expire the lease. The
-`openai-beta.realtime-v1` subprotocol is deliberately never sent: it forces the
-retired beta surface and the connection is rejected.
-
-**Attach transport.** The sideband attaches to the live call with `npm:ws`
-over http/1.1, sending a real `Authorization: Bearer` header and no
-subprotocols — and the bearer must be the call's own EPHEMERAL client secret,
-which the provisioner persists on the service-role-only
-`agent_realtime_calls.client_secret` column for exactly this purpose. All of
-this is load-bearing and was learned from two production outages on the same
-socket: the original `openai-insecure-api-key.<KEY>` subprotocol hack is
-ignored by the attach endpoint (HTTP 401 on every bind); Deno's
-header-capable `WebSocketStream` negotiates h2, which the endpoint rejects
-with HTTP 400; and a standard `sk-` key — despite the provider's own
-documentation — is answered with 404 `call_id_not_found` even for a live
-call, while the `ek_` secret attaches and acks `session.update` (proven with
-a real WebRTC call from the macOS integration harness,
-`integration_test/realtime_attach_probe_test.dart`). The secret's TTL is 60s,
-capped at the setup deadline — the only window attach can legally happen in. A connection that fails before ever opening is retried
-twice at ~750ms spacing (`sideband.attach_retry`); a rejected handshake logs
-`sideband.attach_rejected` with the HTTP status and a truncated body so the
-next transport failure names itself. Post-open failures never re-dial. The
-READY gate additionally requires the client's post-bind
-`{"type":"health","webrtc":true,"data_channel":true}` frame, which the Flutter
-client sends once per attempt immediately after a successful bind.
-
-### 7.ac Pip Realtime tool broker (Edge Function)
-
-`supabase/functions/pip-realtime-tool-broker/` is the narrow, authenticated
-internal interface through which the Cloud Run sideband executes ChickMark agent
-tools. It exists so the sideband never forks a second copy of the tool catalogue
-and never needs broad database privileges: the sideband sends ONE tool call, and
-this function executes it through the SAME shared runtime the Telegram and in-app
-doors use (`executeAgentTool` in
-`telegram-hatchery-agent/agent_tools.ts`, with handlers from
-`createUnifiedAgentToolHandlers`).
-
-**Authentication is of the SIDEBAND, not an end user.** A single POST endpoint
-accepts a shared secret in the `x-pip-broker-secret` header, compared in constant
-time against `PIP_REALTIME_BROKER_SECRET`. It FAILS CLOSED: when the variable is
-unset, blank, or shorter than 32 characters the endpoint refuses every request
-with 503 rather than degrading into "no secret configured, so accept anyone".
-Google OIDC was considered and rejected for this direction — a Supabase Edge
-Function has no Google trust anchor, so verifying an ID token would put a JWKS
-fetch on the hot tool path. The two directions are therefore asymmetric on
-purpose: outbound to Supabase is a shared secret, inbound from Cloud Scheduler to
-the sideband is OIDC. The function must be deployed with `--no-verify-jwt`,
-because its caller is a server and presents no end-user JWT.
-
-**Authorization is re-resolved, never trusted.** The request carries the caller's
-authorization fingerprint, but that is treated as a claim. The function loads the
-session row, resolves the owner's CURRENT scope through `loadAppProfile` /
-`resolveAppAgentScope`, and recomputes the fingerprint with the same derivation
-`pip-realtime-session/fingerprint.ts` used at provisioning time. Three values
-must agree — what the caller sent, what was stamped on the session, and what the
-database says now. Any disagreement, or a profile that is no longer approved,
-refuses the call: authorization changed mid-session. The session must be `active`
-and the generation must be both the session's `active_generation` and still in
-`setup_state = 'active'`; a stale or terminal generation executes nothing.
-Argument-level scope (a tool naming a customer outside the allow-list) is refused
-by the shared runtime's own `enforceArgumentScope`, which is not duplicated here.
-
-**Idempotency** uses `agent_tool_call_claims` on the Realtime key shape
-(`realtime_session_id`, `realtime_generation`, `openai_tool_call_id`) plus the
-argument hash, canonicalised identically to the sideband's (`canonicalJson`:
-recursively sorted keys, so a provider reordering the JSON is not mistaken for a
-different call). The same call id with the same hash returns the recorded
-terminal result WITHOUT re-executing and without writing a second evidence row.
-The same call id with a different hash is rejected as a conflict. A mutation that
-ends indeterminate — the tool ran but the outcome could not be recorded — settles
-its claim `indeterminate` and is NEVER auto-replayed: re-running could double
-apply the write and reporting success could report a write that never landed.
-
-**Evidence** is one immutable `agent_tool_events` insert per call. The table's
-trigger raises on UPDATE and DELETE, so the row is written once and never
-corrected. `conversation_turn_id` is NULL (Realtime evidence predates any durable
-turn) and the row carries `realtime_session_id`, `realtime_generation`,
-`realtime_interaction_id`, `argument_hash` and `source_channel =
-'realtime_voice'`. `tool_sequence` is NOT NULL and is allocated from the rows
-already present for that session and generation, re-allocated on collision,
-because a partial unique index enforces it and two brokers must not both believe
-they own the same sequence number.
-
-**The 5-call cap is NOT enforced here.** It is interaction-scoped and lives in
-the sideband's `InteractionTracker`; a second, differently-scoped cap in the
-broker could refuse a call the sideband had already budgeted for. The rule is one
-cap per channel, enforced where the loop that spends it lives.
-
-**Logging** carries identifiers and outcome codes only — never tool arguments,
-results, transcript text or secrets.
-
-### 7.ad Live-voice failure diagnostics
-
-`RealtimeVoiceController` tracks which setup stage is in flight
-(`openMicrophone → createSession → createConnection →
-addSilentAudioTransceiver → openEventChannel → createOffer → exchangeOffer →
-registerCall → acceptAnswer → accessToken → bind`). On failure,
-`errorDetail` carries `stage: ExceptionType: message` (truncated, never
-tokens/SDP/transcripts), survives the single automatic recovery so the
-original cause wins, clears on a fresh start, and renders as a selectable
-monospace line in the chat screen's error banner (`assistant-live-error` /
-`assistant-error-detail`). Diagnostics are always LTR even under an Arabic
-locale.
-
-### 7.ae Answer-SDP handling (terminal newline is load-bearing)
-
-`HttpRealtimeCallSignaling.exchangeOffer` returns OpenAI's answer SDP
-byte-preserved except for one guarantee: the string always ends with a
-newline (appended only if missing — the body is never trimmed). darwin
-libwebrtc (iOS/macOS, `flutter_webrtc`) refuses to parse an SDP whose final
-line is unterminated and surfaces it as `setRemoteDescription: Error
-SessionDescription is NULL.`, while Chrome's parser accepts the same string —
-so a bare `.trim()` on the HTTP body was a full live-voice outage on iOS. A
-non-empty body that does not start with `v=` fails signaling with the body's
-first line quoted (protocol metadata, never user content).
-`integration_test/realtime_sdp_parse_test.dart` pins the parser behaviour
-against a captured production answer; run it with
-`flutter test integration_test/realtime_sdp_parse_test.dart -d macos`
-(macOS shares `flutter_webrtc`'s darwin code and WebRTC framework with iOS).
-
-### 7.af Pip Live conversation surface
-
-Pip Live runs in `RealtimeVoiceScreen` (`pip-live-screen`), a dedicated
-minimal call screen backed by the one shell-owned `RealtimeVoiceController`;
-the screen never creates a second transport, session, audio-level stream, or
-AssistantProvider message. It is reached from inside a conversation's
-`AssistantChatScreen` (the live control in the composer) or reopened by the
-shell-wide banner, and it joins whichever `conversationKey` it was opened
-with — a fresh `autoStart` call binds to that conversation on `start`; once a
-call is already active (banner reopen) the screen never calls `start` again,
-so the key of a running call cannot change mid-call.
-
-**Header.** A minimal row: a chevron-down minimize button
-(`pip-live-minimize`, pops back to the shell — the call stays active), the
-centered label "Pip" plus a subtle one-line state label underneath (Listening
-/ You are speaking / Pip is thinking / Pip is speaking / Reconnecting / Call
-ended / a generic "Connecting securely" fallback while setting up), and a
-balancing spacer so the title stays centered. The state label is deliberately
-omitted in the error state — that message renders under the orb instead, so
-it is never said twice.
-
-**Orb.** `RealtimeVoiceOrb` renders a refined breathing orb reflecting the
-controller's turn state, dimmed to 45% opacity (animated) while
-`reconnectingMuted`, with an error tint/copy path of its own. Its failure
-message and, in the error state, a selectable monospace diagnostic line
-(`pip-live-error-detail`, LTR always — see 7.ad) render centered beneath it,
-followed by a Retry text button (`pip-live-retry`) shown in both the error and
-the muted-reconnect state; during muted reconnect, Retry stops that recovery
-first and starts a fresh, bounded attempt, while an error-state Retry starts
-directly.
-
-**Transcript.** A collapsed-by-default strip (`pip-live-transcript`) shows
-only the latest user turn and the latest assistant turn (each tracked
-independently, not just "the last two by index"), top-faded with a gradient
-mask; tapping the strip, or the dedicated toggle control, expands it into the
-full scrollable caption history (max height 260 vs. 116 collapsed) rendered in
-detected per-line text direction. It renders nothing when there are no
-captions yet. Caption lines accumulate from `.delta` frames; the terminal
-`.done`/`.completed` frame carries the full transcript and REPLACES the open
-line rather than extending it, so a reply never renders twice.
-
-**Controls.** Three circular controls in a row, each a `Semantics` button plus
-a `Tooltip` (no visible text): mute (`pip-live-mute`, 56dp, mic/mic-off,
-filled while muted), End call (`pip-live-end`, 64dp, always filled red), and a
-transcript expand/collapse toggle (`pip-live-transcript-toggle`, 44dp,
-disabled while there are no captions to show). Mute and End are disabled
-whenever the call is not active (`controller.isRealtimeActive` false).
-
-Minimize only returns to the shell, so a call remains active; the active-Live
-composer control and the shell-wide banner reopen the same screen bound to the
-same `conversationKey` the shell is currently tracking. The banner is visible
-across shell tabs and exposes the same stop path as the screen's End control.
-Recorded voice and Live remain mutually exclusive through the existing
-controller/assistant audio-session gates. All production entry points use the
-shell's one guarded route opener, so a near-simultaneous banner and composer
-tap can create at most one Live route. The shell reserves a bottom layout slot
-for the active-call banner rather than overlaying it on compact navigation or
-tab content. Every widget key on this screen is load-bearing for
-`realtime_voice_screen_test.dart` and `assistant_chat_screen_realtime_test.dart`
-and is kept stable across restyles.
+### 7.z Pip Live (retired)
+
+ChickMark no longer has a live voice ("Pip Live") mode. The OpenAI Realtime
+WebRTC client, the Google Cloud Run sideband service, the
+`pip-realtime-session` and `pip-realtime-tool-broker` Edge Functions, the
+Android foreground service, the `PIP_REALTIME_*` configuration, and the
+`agent_realtime_*` tables were removed (see the 2026-09-05 changelog entry and
+migration `20260905164021_drop_pip_realtime_objects.sql`). Nothing in the app
+depends on Google Cloud. The typed and recorded-voice-note assistant
+(`app-hatchery-agent`) and the Telegram agent are unchanged. Historical
+conversation turns written by the old live channel remain readable: their
+`source_channel` is `'realtime_voice'` and the app renders them as voice-source
+turns.
 
 ### 7.ag IoT device gateway (Edge Function `iot-gateway`)
 
@@ -5062,30 +5430,38 @@ row security nor the parent's policies.
   already fetched when exactly one customer matched and the roster is small,
   omitting it entirely rather than truncating past the limit — a silently
   truncated list would read as complete.
-- The model-facing tool catalogue reaches the Cloud Run sideband as
-  configuration (`PIP_REALTIME_TOOL_DEFINITIONS`), rendered from
-  `modelFacingContract()` by
-  `services/pip-realtime-sideband/tools/render_tool_definitions.ts`, because the
-  two deployments cannot import from each other. A contract change therefore
-  needs the value re-rendered and the sideband redeployed; nothing at runtime can
-  tell a stale rendering from a fresh one. When the contract or shared tool
-  sources change, the Supabase edge functions (`pip-realtime-tool-broker`,
-  `telegram-hatchery-agent`, `app-hatchery-agent`) must deploy FIRST — they
-  bundle the shared tool sources directly — and only then should env be
-  re-rendered and the sideband redeployed; Cloud-Run-first exposes a new tool
-  argument to the model while the still-old broker rejects it via
-  `additionalProperties:false`, failing every call to that tool until the edge
-  functions catch up.
-- The Harness v2 realtime policy (`CHICKMARK_REALTIME_POLICY`) reaches Pip
-  Live through the required `PIP_REALTIME_INSTRUCTIONS` and
-  `PIP_REALTIME_INSTRUCTIONS_VERSION` deployment values, rendered by
-  `services/pip-realtime-sideband/tools/render_agent_instructions.ts`. The
-  raw policy text is never logged.
-- `MUTATION_TOOL_NAMES` in `pip-realtime-tool-broker` is hand-maintained because
-  the tool contract carries no mutation flag.
-  `services/pip-realtime-sideband/test/tool_contract_test.ts` enumerates every
-  contract tool, fails when one is unclassified, and compares the classification
-  against the broker's list, so the omission cannot pass silently.
+- `flocks.depletionAgeWeeks` (default 65) is no longer read by any Breeder
+  Performance behavior (see section 7's "Breeder flock lifecycle" entry) but
+  the column has not been dropped yet — that needs its own migration.
+  `FlockModel.toMap`/`fromMap` still round-trip it and the add/edit flock
+  sheet still carries the existing value forward unread/unedited on save,
+  purely so a future drop migration has a stable, unsurprising value to
+  remove.
+- Every breeder/egg table now has a Supabase migration and is registered
+  with `StartupSyncService` (version 79, ticket 15) — see section 7's
+  "Breeder daily report sync aggregate and conflict resolution" entry.
+  There is no longer any breeder/egg table that stays local-only.
+- `BreederWeighingService.officialWeightTarget` always compares on the
+  official (age-based) axis; it does not offer the milestone-aligned axis
+  `BreederFlockLifecycleService.comparisonAxes` can produce for the daily
+  report's production-week lookup. A future ticket that wants
+  milestone-aligned weight comparisons can add it explicitly.
+- `breeder_egg_production_entries.eggWeightGrams` is a location-level value
+  denormalized across every grade row of the same (report, location) —
+  see the section 7 writeup above — rather than living in its own table.
+  This trades a small amount of write-time duplication (one extra update
+  per sibling row when the weight changes) for staying within design
+  section 12's fixed table list; nothing currently depends on egg weight
+  being independently queryable without also loading grade rows.
+- Correction coverage stops at the fields the paper report actually
+  carries per row: `correctMovement` has no path for moving a bird's
+  location (a house/isolation-area or sex change reads as a data-entry
+  mistake serious enough to need a fresh movement row and a manual
+  transfer, not a same-row "correction"), and there is no bulk/batch
+  correction UI — every correction targets exactly one row at a time.
+- No weekly/cumulative screen exists yet to host
+  `BreederIncompleteDataLabel`/`BreederPartialDataWarning` — they ship as
+  unattached, tested widgets for ticket 18's overview screen to place.
 
 
 ## 9. Change Log

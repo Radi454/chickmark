@@ -57,6 +57,47 @@ screens, providers, persistence, dashboards, and tests do not drift.
 - Station-facing CV values generally round to one decimal place.
 - Govee saved summary SD and CV values round to two decimal places.
 
+## Breeder Weighing and Uniformity
+
+`BreederWeighingService` (`lib/services/breeder/breeder_weighing_service.dart`,
+breeder-flock-performance ticket 13) derives a weighing session's mean
+weight, uniformity, and coefficient of variation from its individual sample
+weights, and compares the mean against the Ross 308 body-weight benchmark.
+
+- Mean weight: `CalculationUtils.average`, rounded via `roundTo`. `null`
+  (not `0`) for zero samples.
+- Uniformity: percentage of samples within
+  `+/- BreederWeighingService.weightUniformityWindow` (`0.10`, a named
+  constant — not a magic number) of the *sample* mean, via
+  `CalculationUtils.uniformityPercent(values, mean * 0.9, mean * 1.1)`.
+  This is the same +/-10%-of-mean weight-uniformity window
+  `panel_aggregate_deriver.dart` and `station_adapter.dart`'s
+  `_uniformity10` already use for chick/egg weight uniformity elsewhere in
+  the app — the design doc does not fix a uniformity definition (section
+  9), so this convention was chosen specifically to match those existing
+  call sites rather than invent a new one. `null` for zero samples; a
+  single sample is 100% uniform (trivially within any window of its own
+  value).
+- Coefficient of variation: `sample stdDev / mean * 100` via
+  `CalculationUtils.stdDev(values, sample: true)`, matching this
+  registry's general CV convention above. **Deliberate, documented
+  deviation from `CalculationUtils.cvPercent`:** `cvPercent` returns `0.0`
+  for fewer than two values or a zero mean; `BreederWeighingService`
+  instead returns `null` in those cases (this feature's blank-not-zero
+  convention, design section 7.2) by computing the same formula directly
+  from `stdDev`/`average` rather than calling `cvPercent`. `cvPercent`
+  itself is unchanged — other features that call it keep its `0.0`
+  fallback exactly as before.
+- Benchmark comparison: the Ross 308 `body_weight_g` metric (ticket 03) is
+  looked up for the flock's breed, the session's sex, and the flock's age
+  at the session date, on the official (age-based) comparison axis only
+  (`BreederFlockLifecycleService`, ticket 06). The profile id, its
+  `guideVersion` (a denormalized snapshot, since a profile can later be
+  archived), the axis kind, and any axis offset are all persisted on the
+  session row. Ross 308 publishes no uniformity or CV target at all
+  (ticket 03), so the UI always shows uniformity/CV without a target,
+  never inventing one or comparing against nothing.
+
 ## Hatchability, Fertility, and HOF
 
 - Hatchability: `hatched chicks / total eggs set * 100`.

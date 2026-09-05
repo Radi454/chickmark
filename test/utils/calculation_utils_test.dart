@@ -21,6 +21,25 @@ void main() {
       expect(CalculationUtils.percentOf(-1, 100), isNull);
       expect(CalculationUtils.percentOf(1, 0), isNull);
     });
+    test(
+      'divideOrNull returns null for a missing, zero, or negative '
+      'denominator (breeder-flock-performance ticket 09, design section '
+      '7.2)',
+      () {
+        expect(CalculationUtils.divideOrNull(100, null), isNull);
+        expect(CalculationUtils.divideOrNull(100, 0), isNull);
+        expect(CalculationUtils.divideOrNull(100, -5), isNull);
+        expect(CalculationUtils.divideOrNull(null, 100), isNull);
+      },
+    );
+    test('divideOrNull computes and rounds a normal division', () {
+      // Feed grams per bird: 25 kg * 1000 / 200 birds = 125 g/bird.
+      expect(CalculationUtils.divideOrNull(25 * 1000, 200), 125.0);
+      expect(
+        CalculationUtils.divideOrNull(10, 3, decimalPlaces: 2),
+        closeTo(3.33, 0.001),
+      );
+    });
     test('uniformityPercent all-in-range = 100%', () {
       expect(
         CalculationUtils.uniformityPercent([100, 100, 100], 100, 100),

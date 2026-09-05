@@ -3,6 +3,24 @@ class HatchDateUtils {
     return '${_twoDigits(date.day)}-${_twoDigits(date.month)}-${date.year}';
   }
 
+  /// English weekday name for [date] (`DateTime.weekday` is 1=Monday..
+  /// 7=Sunday). Callers translate the result the same way every other
+  /// on-screen label in this app is translated (`context.tr`) — this app
+  /// deliberately has no `intl` locale-data dependency, so weekday names
+  /// are a plain lookup table like everything else in
+  /// `lib/l10n/app_localizations.dart`, not `DateFormat.EEEE`.
+  static const List<String> weekdayNames = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  static String weekdayName(DateTime date) => weekdayNames[date.weekday - 1];
+
   static String formatDisplayDateKey(String dateKey) {
     final parsed = DateTime.tryParse(dateKey);
     if (parsed == null) return dateKey;

@@ -1,5 +1,1032 @@
 # ChickMark Change Log
 
+- 2026-09-05: Updated the agent guide to SQLite version 81 and corrected the
+  living specification to reflect the implemented breeder performance area
+  following removal of the former Broiler Performance feature.
+
+- 2026-09-05: Removed the Pip Live realtime voice architecture end to end.
+  Deleted the Google Cloud Run sideband service
+  (`services/pip-realtime-sideband`), the `pip-realtime-session` and
+  `pip-realtime-tool-broker` Edge Functions, the Flutter realtime layer
+  (`lib/services/realtime/`, `RealtimeVoiceController`, `RealtimeVoiceScreen`,
+  the Live banner/orb, `FeatureFlags.realtimeEnabled`), the Android
+  `PipRealtimeForegroundService` and its method channel, the realtime-only
+  Android permissions, the `flutter_webrtc`/`http`/`web_socket_channel`
+  dependencies, the realtime integration probes and unit tests, the
+  `test_pip_realtime_*` Postgres scripts, `docs/PIP_REALTIME_DEPLOYMENT.md`
+  and the realtime plans. The chat screen no longer shows a "Talk live"
+  control, the shell no longer hosts a Live banner, and the Arabic phrasebook
+  dropped the Pip Live strings. The Telegram agent's `select_audit_option`
+  evidence lookup now searches turn-linked tool events only (the
+  `agent_realtime_sessions` path is gone); `CHICKMARK_REALTIME_POLICY` and its
+  voice-only prompt sections were removed from `agent_prompt.ts`;
+  `PIP_MODEL_DEFAULTS.live` was dropped; `verify_pip_openai_models.sh` no
+  longer checks `gpt-realtime-2.1-mini`. New forward-only migration
+  `20260905164021_drop_pip_realtime_objects.sql` drops the `agent_realtime_*`
+  tables, `realtime_now()`, and the realtime-only indexes; shared-table columns
+  written by the old channel stay so historical voice turns remain readable.
+  The IoT docs no longer cite Cloud Run precedent. Nothing in ChickMark
+  depends on Google Cloud any more.
+- 2026-08-29: The Dashboard Lab Analysis sector no longer lists the "Recent
+  findings" result cards. It now shows only the counters and the ELISA trend
+  panel; detailed result groups are read on the Lab Analysis screen.
+
+- 2026-08-29: Dashboard Customer search refinements — tapping the field now
+  clears the shown customer name so a search can be typed without deleting it
+  first, and touching elsewhere on the dashboard or scrolling the page closes
+  the keyboard. The name is restored if the menu is closed without picking a
+  customer.
+
+- 2026-08-29: The Dashboard Customer filter is now a searchable dropdown —
+  tapping it opens a keyboard and typing filters the customer list by
+  substring, instead of only scrolling a long menu. Abandoning the menu
+  without a selection restores the previously selected customer name.
+
+- 2026-08-29: The Dashboard no longer shows the top quality-chip strip
+  (updated age, data coverage, source rows, stations, samples, missing
+  measurements, last synced, photo coverage) or the `What needs attention`
+  card. Both were extra detail above the actual sector data. The same quality
+  chips still appear inside each individual scope sector card.
+
+- 2026-08-29: The Breeder Farm sector's Female/Male toggle now applies to
+  every tile. Production, egg, hatch, liveability and fertility metrics were
+  pinned to the female line regardless of the toggle, so selecting Male left
+  the hen's figures on screen under a Male heading. Only body weight and daily
+  feed intake are published for males in any of the five guides; every other
+  metric now reads as a dash under Male, which is what the guides actually
+  say.
+
+- 2026-08-29: Retired the Cobb500 Slow Feather benchmark profile. The flock
+  this app is used against runs the Fast Feather line, and a second Cobb
+  profile only invites comparing a flock against the wrong one. Its asset
+  file, `pubspec.yaml` entry and importer path are gone, so no fresh install
+  loads it, and the not-yet-applied Supabase seed `0016` was regenerated
+  without it. Devices that already imported it (the 2026-08-28 build) are
+  cleaned up by SQLite migration v81: published benchmark profiles are
+  immutable at the database level, so the migration drops the benchmark
+  delete guards, deletes the profile and its values, and recreates the guards
+  from the schema definition. Cobb500 Fast Feather keeps the male series it
+  takes from the Cobb Male Management Supplement, and the 22-metric catalogue
+  is unchanged — the four Cobb-only metrics are published by the Fast Feather
+  supplement too.
+
+- 2026-08-29: Rebuilt the BMK screen's Breeder Farm sector as a dashboard
+  laid out like the Hatchery sector — line pills, a Female/Male toggle, an age
+  dropdown, and cards of metric tiles (Breeder Benchmarks, Production BMK,
+  Liveability & Fertility, Source) — instead of a list that had to be tapped
+  into to read any number. The full per-age tables stay one tap away on the
+  Source card. The age dropdown lists only the weeks a profile covers and
+  opens on the first week with published production; the Female/Male toggle is
+  hidden for profiles with no male table, such as Hubbard. The selector pills,
+  age controls, sector cards and metric tiles both sectors use are now one
+  implementation in `lib/features/bmk/widgets/bmk_reference_widgets.dart`.
+- 2026-08-29: Benchmarks a guide does not publish now render as an em dash
+  instead of a number. Breeder values were already stored nullable. The
+  hatchery `bmk_breeds` columns cannot express "no value" and default to
+  `0.0`, so the breed reference tiles were showing "0%" for hatchability,
+  fertility and HOF at ages the guides do not benchmark them — read as a
+  target of zero. A stored zero in that grid is now treated as "not published
+  at this age"; egg-breakout percentages (where zero is a real reading) and
+  the admin editors are unchanged. Breed-line names were added to the
+  hardcoded-UI-string audit's allowed product terms, alongside `Ross308`.
+
+- 2026-08-28: Loaded the four remaining official breeder benchmark profiles
+  alongside Ross 308 — Aviagen Arbor Acres Plus and Indian River
+  (Performance Objectives 2021 EN), Hubbard Conventional / EDGE (Parent
+  Stock Performance Objectives V-2025-06), and Cobb500 in both its Fast
+  Feather and Slow Feather variants (Breeder Management Supplements, male
+  targets from the Cobb Male Management Supplement). This supersedes the
+  2026-08-27 conclusion that Cobb could not be supported: the Cobb data does
+  exist, in three supplements rather than the Breeder Management Guide that
+  was searched then. The metric catalogue grew from 18 to 22 — weekly and
+  cumulative fertility, cumulative flock mortality, and chick weight are
+  published only by Cobb. Both Cobb variants are imported rather than one
+  being picked, since the schema already keys profiles independently.
+  Nothing was interpolated to fill a gap: Hubbard publishes no male table,
+  no liveability and no egg mass, Cobb publishes no hen-housed production
+  column, and Cobb's publication date stays null because the document prints
+  only a print code. Added `tool/gen_breeder_benchmark_seed_sql.dart`, which
+  generates the Supabase seed SQL from the same asset files the app imports,
+  and used it to write the (still unapplied)
+  `supabase/migrations_unapplied/0016_breeder_benchmark_additional_profiles.sql`.
+  A new parity test fails if an asset file, the importer's path list,
+  `pubspec.yaml`, and the seed SQL ever disagree.
+- 2026-08-28: Split the BMK screen into two sector tabs. `Hatchery` keeps the
+  existing breed, egg-breakout, and operational benchmark sections; a new
+  `Breeder Farm` tab shows the published official breeder benchmark profiles
+  and opens the existing profile detail view. The profile list moved into a
+  shared `BreederBenchmarkProfilesView` so the BMK tab and the Settings →
+  Reference → "Official Benchmarks" screen render the same widget; its list
+  tiles now sit on their own transparent `Material`, which removes a framework
+  assertion that fired whenever that list was shown. Breeder profiles load only
+  once the tab is opened.
+- 2026-08-27: Investigated ticket 04 (load the remaining official benchmark
+  profiles — breeder-flock-performance design doc section 4.2/4.3) and
+  concluded no new profile can honestly be added yet. No schema change
+  (still local database version 80), no importer change, no new
+  `assets/benchmarks/*.json` file. The Cobb Breeder Management Guide and the
+  Aviagen Ross Parent Stock Production Pocket Guide 2024 EN were both
+  downloaded and read page by page with `pdftotext -layout` (Cobb: 160
+  pages; Ross Pocket Guide: 90 pages), including a full digit-density sweep
+  to catch any table a keyword search might miss. Both are husbandry
+  /management-practice manuals, not age-indexed performance-objective
+  tables: their numeric content is either equipment/environmental
+  specification unrelated to `breeder_metric_definitions`, or is explicitly
+  labelled by the source as an "example," an "estimate," or a "worldwide
+  average" scenario rather than an official company standard (see
+  `docs/LIVING_SPEC.md`'s version-69 section for the specific passages
+  quoted). Per the project's rule against inventing or estimating benchmark
+  values, neither guide was turned into a profile. `BreederBenchmarkListScreen`
+  was checked against the ticket's "user can see any loaded profile"
+  requirement and already lists every `active` profile generically (ticket
+  03 built it that way) with no single-profile assumption, so no UI change
+  was needed either. `flutter analyze` and `flutter test` both re-run clean
+  at the ticket-03 baseline (2296 passing; the same 4 pre-existing failures,
+  no new ones).
+
+- 2026-08-27: Printable/exportable consolidated daily report
+  (breeder-flock-performance ticket 19, design doc sections 5.2, 5.2.1, 5.3,
+  and 11). No new table and no schema migration (still local database
+  version 80) — this is a presentation/export ticket over data tickets
+  07-18 already built. Adds
+  `lib/features/breeder/services/breeder_report_composition.dart`
+  (`buildBreederReportComposition`), the single view-model both the
+  on-screen `BreederDailyReportReviewScreen` tables and the new print/export
+  PDF render from, so the two can never drift apart (design section 5.3:
+  "the consolidated review table is the same view used for printing and
+  export") — the review screen's `_buildTable`/`_buildEggTable`/
+  `_buildInventoryTable` methods were refactored to consume this
+  composition's already-formatted cells instead of computing their own.
+  Every derived cell (feed grams/bird, egg-grade percent, this report's own
+  production percent, egg weight) is formatted through
+  `BreederReportMetricFormatter`, which looks up
+  `breeder_metric_definitions.displayPrecision` (ticket 03) by metric code
+  (`daily_feed_intake_g`, `egg_weight_g`) rather than hard-coding decimal
+  places; egg-grade percent and this report's local production percent have
+  no dedicated official metric of their own, so they borrow
+  `hen_week_production_pct`'s precision for display only — the printed
+  label stays "Production %", never "Hen-Week %", since design section 7.3
+  documents that this local figure divides by closing live females in
+  production houses, a different denominator than the official hen-week
+  metric. Every missing/zero-denominator value prints an em dash, never a
+  literal `0`. The header gains a "Day" (weekday name) field alongside the
+  existing date/breed/age/production-week/temperature/light-hours/notes
+  fields, completing design section 5.2's header list; an Approved report's
+  header additionally shows its approval state and current `revision`
+  number, which is always the latest approved revision since a
+  post-approval correction (ticket 12) mutates the header/child rows in
+  place rather than appending a new snapshot.
+  `lib/features/breeder/services/breeder_report_pdf_export.dart`
+  (`BreederReportPdfExport`) renders the composition to PDF and opens the OS
+  print/share sheet via `Printing.layoutPdf` — nothing already in this app
+  generates a PDF (the lab-analysis screen only attaches/opens
+  externally-produced ones), so this adds the `pdf`/`printing` packages,
+  the standard Flutter pair for this, rather than building a bespoke
+  renderer. Arabic text needs a font with Arabic glyphs (the PDF core
+  fonts have none), so `assets/fonts/NotoNaskhArabic-Regular.ttf` (SIL Open
+  Font License) ships as a bundled `fontFallback`, keeping printing fully
+  offline rather than depending on a runtime Google-Fonts download. RTL
+  correctness is handled at the table-spec level, not by mirroring text:
+  `BreederReportTable.columnsFor`/`rowsFor` reverse column *order* for RTL
+  while leaving every cell's string untouched, so a header still lines up
+  with its column after the reversal and a numeric string like `15` is
+  never corrupted into a reversed-character string. A "Print / Export"
+  button is added to the review screen's action row in every report state
+  (Draft/Submitted/Approved/Sync Conflict) — the printed content already
+  correctly reflects `_report`'s current state — and re-reads the report
+  row from the repository immediately before composing, so printing right
+  after an approval or correction never shows a stale in-memory snapshot.
+- 2026-08-27: Flock overview and data completeness
+  (breeder-flock-performance ticket 18, design doc section 11). Adds
+  `BreederFlockOverviewScreen`, the Overview tab and new landing point for a
+  flock's Breeder Performance area — the customer detail screen's "Breeder
+  Performance" button now opens it instead of jumping straight to the
+  daily-report list. No new table and no schema migration (still local
+  database version 80): the screen and its one composition point,
+  `BreederFlockOverviewService`
+  (`lib/services/breeder/breeder_flock_overview_service.dart`), only
+  aggregate figures the tickets 06-17 domain services already compute —
+  current live bird counts (houses, isolation, and flock total, kept as
+  three distinct figures), production/feed/mortality summed or averaged
+  over a trailing period, the hen-week production-percent benchmark
+  comparison (labelled "Hen-Week", never "hen-day", per the Ross 308
+  profile's `metricProvenance`), current egg stock by grade, each sex's
+  latest weighing session with its official-weight comparison, and every
+  open alert. Data completeness (recorded/missing day counts) is shown in
+  its own always-visible card, not only inside ticket 12's
+  `BreederIncompleteDataLabel`/`BreederPartialDataWarning` widgets — built
+  in ticket 12 but placed on a screen for the first time here. Every ratio
+  follows the feature-wide blank-not-zero convention (an em dash, never
+  `0`, for an empty or missing denominator or an unrecorded period), and
+  official benchmark targets are visibly distinct from ticket 17's
+  app-owned alert thresholds (reusing that screen's own
+  "Official guide limit"/"App-defined threshold" labelling) throughout.
+- 2026-08-27: Performance alerts (breeder-flock-performance ticket 17,
+  design doc sections 10 and 12). Local database version 79 -> 80 adds
+  `breeder_alert_rules` (system-wide Watch/Critical deviation rules by
+  metric, scope, period, direction, and required consecutive qualifying
+  observations, seeded with fixed default rows) and
+  `breeder_performance_alerts` (one deviation per customer/flock/optional
+  -house/metric/period, carrying actual value, whatever the guide
+  published for comparison, the deviation, severity, benchmark profile
+  version, ticket 06 comparison axis, evidence report dates, and a
+  `new`/`seen`/`closed` state). A partial unique index enforces "at most
+  one open alert per customer/flock/house/metric/period" at the schema
+  level; a repeat evaluation updates that row instead of inserting a
+  second one. `BreederAlertEvaluationService`
+  (`lib/services/breeder/breeder_alert_evaluation_service.dart`) is the
+  pure evaluator: it never fires, updates, or closes an alert off an
+  incomplete period (reusing `BreederReportPeriodService`'s completeness
+  rather than re-deriving missing days), and a rule's required N
+  consecutive qualifying observations gates the alert's existence outright
+  — no row exists, not even at Watch, before the Nth. The central rule from
+  the design doc is enforced in both the data model and the UI: a
+  `thresholdIsOfficial` flag records whether the cited number is genuinely
+  the breed company's own published figure (true only for
+  `liveability_rearing_pct`'s Critical breach of Ross 308's published 95%
+  bound) or the app's own operational judgement (every other case,
+  including that same rule's Watch buffer, and all of `body_weight_g`/
+  `hen_week_production_pct`/`uniformity_pct`/`cv_pct`, none of which Ross
+  308 publishes a bound for). Revising an approved report recomputes
+  affected alerts through one hook wired into ticket 12's existing
+  correction path — `BreederReportRevisionService.recordCorrection` gained
+  an optional `onApprovedReportRevised` callback, wired by default in
+  `BreederBirdLedgerService` to
+  `defaultBreederAlertRevisionHook` (recomputes `body_weight_g`/
+  `uniformity_pct`/`cv_pct` for real from current weighing-session data;
+  leaves `hen_week_production_pct`/`liveability_rearing_pct` untouched
+  pending a follow-up ticket) — a cleared alert is closed with a system
+  reason recording the revision, never deleted. `breeder_performance_alerts`
+  carries a house-scope guard trigger referencing `houses` (optional
+  `houseId`), added to the v68 houses-rebuild trigger-drop list alongside
+  ticket 13's `breeder_weighing_sessions`; `breeder_alert_rules` names no
+  house and needs no such entry. Both tables are registered in
+  `PerformanceSyncRepository` (`breeder_alert_rules` pull-only reference
+  data; `breeder_performance_alerts` pushed after `houses`).
+  `BreederPerformanceAlertsScreen` (reached from the flock detail card's
+  new "Alerts" button) lists Watch/Critical alerts with acknowledge and
+  close actions. No visit, investigation, cause assessment, or corrective
+  action is created anywhere in this feature — that machinery stays
+  deleted per ticket 01.
+
+- 2026-08-27: Customer-scoped access and role-gated approval
+  (breeder-flock-performance ticket 16, design doc sections 5.3 and 13),
+  carrying over ticket 07's unresolved role problem. `production_manager`
+  is now a real, assignable role: cloud `profiles_role_check` allows it,
+  and the admin "User Access" screen (`AdminUsersScreen`) can assign it,
+  scoped to customers the same way `auditor` already is (reusing
+  `auditor_customers`, no new assignment mechanism). A new
+  `supabase/migrations_unapplied/0014_breeder_customer_scope_and_approval_role.sql`
+  (deferred, NOT applied — apply after 0011-0013) adds
+  `chickmark_private.app_can_approve_breeder_report()`, the single
+  enumerated cloud-side set of roles (`admin`, `production_manager`)
+  permitted to approve a breeder daily report, kept in sync with client-side
+  `BreederApprovalRole.permitted`
+  (`lib/services/breeder/breeder_bird_ledger_service.dart`), and a `BEFORE
+  INSERT OR UPDATE` trigger on `breeder_daily_reports` that rejects a
+  transition into `approved` from a disallowed role — closing the hole
+  0013's aggregate-push RPC left open (it is `SECURITY DEFINER` and bypasses
+  RLS, but not table triggers, so the trigger also gates its `INSERT ...
+  ON CONFLICT DO UPDATE` write path). The same migration also explicitly
+  revokes `INSERT`/`UPDATE`/`DELETE` from `authenticated`/`anon` on the
+  benchmark and egg-grade reference tables as defense in depth alongside
+  0011/0012's existing RLS-by-omission. `test/security/breeder_approval_rls_test.dart`
+  statically asserts the migration SQL's shape — role-list literal equality
+  with the client, presence of the trigger and its OLD/NEW state
+  comparison, absence of a write policy on benchmark tables, and every
+  0012 table's read/write policy calling the flock-scope helpers — but
+  none of it is a live round trip against Postgres, since the migration is
+  not applied. No local schema change: `users.role` is an unconstrained
+  `TEXT` column, so local database version stays 79.
+- 2026-08-27: Registered every remaining breeder/egg table for sync and
+  built the daily-report sync aggregate and conflict resolution
+  (breeder-flock-performance ticket 15, design doc section 5.3 and 13.1),
+  local schema version 79. `houses`, `breeder_flock_milestones`,
+  `breeder_isolation_areas`, `breeder_egg_grade_definitions`,
+  `breeder_weighing_sessions`/`_samples`, `egg_batches`/
+  `egg_batch_house_sources`/`egg_shipments`/`egg_shipment_batches`/
+  `egg_batch_receipts`, and `breeder_report_revisions` are now registered
+  with `StartupSyncService` (`PerformanceSyncRepository.postFlockPushOrder`/
+  `postAggregatePushOrder`; benchmarks and egg-grade definitions sync down
+  only, in `breederReferencePullOnly`), and every one of these tables gets
+  a new (deferred, unapplied) Supabase migration: `supabase/migrations_unapplied/
+  0012_breeder_flock_sync_registration.sql` (tables, flock-scoped RLS via
+  new `chickmark_private.app_can_read_flock`/`app_can_write_flock` helpers)
+  and `0013_breeder_daily_report_aggregate_push.sql` (the aggregate-push
+  Postgres function). `breeder_daily_reports` and its four child tables
+  (`breeder_bird_movements`, `breeder_feed_entries`,
+  `breeder_egg_production_entries`, `breeder_egg_inventory_movements`) are
+  deliberately absent from every push list (`breederAggregatePullOnly`) —
+  they push exclusively through new `BreederReportSyncService`/
+  `BreederReportAggregateRepository`, which send the header plus every
+  current child row in one call to
+  `push_breeder_daily_report_aggregate(payload, base_revision)`. The
+  optimistic-concurrency check is gated on a dedicated cloud-only
+  `sync_token` column (added to `breeder_daily_reports` by 0012), which the
+  RPC advances by exactly one on every successful push — deliberately NOT
+  the `revision` column, which is ticket 12's user-facing audit counter and
+  only moves on a state transition or a post-approval correction. An
+  earlier draft of this ticket gated the check on `revision` itself, which
+  a code-review pass caught as a silent-overwrite hole: two devices editing
+  different child rows of the same report at the same `revision` (neither
+  transitioning nor correcting it) would both present a "matching"
+  `base_revision`, and the second push would silently delete-and-reinsert
+  over the first device's already-accepted children with no conflict ever
+  raised. Local migration v79's `breeder_daily_reports.lastSyncedRevision`
+  (local-only bookkeeping, added to `kSyncMetaColumns`) tracks that cloud
+  `sync_token` — not `revision`, despite the column's name — and is sent as
+  `base_revision`; a mismatch writes nothing and returns the cloud's
+  current aggregate (including its `sync_token`) instead of applying a
+  stale push. v79 also adds `breeder_daily_reports.previousState` and a
+  fourth `state` value, `sync_conflict`, reachable from
+  `draft`/`submitted`/`approved`; `BreederBirdLedgerService.submit`/
+  `.approve` already refuse a report whose state is not exactly
+  `draft`/`submitted`, so a conflicted report is blocked from both for
+  free. A rejected push records both the local and cloud aggregates as one
+  row in the existing `sync_conflicts` table (new `localDataJson`/
+  `remoteDataJson` columns, no new conflict store) via new
+  `BreederReportConflictService`, which a production manager resolves
+  (keep local — adopts the cloud's `sync_token` and re-arms the push,
+  never touching `revision` — or keep remote — adopts the cloud's data,
+  `revision` included, as already synced) from a new
+  `BreederReportConflictResolutionScreen`, reachable from a banner on
+  `BreederDailyReportReviewScreen`. Resolving restores the report's
+  `previousState`; neither resolution path ever advances `revision`, since
+  resolving a conflict is neither a transition nor a correction. New
+  tests: `breeder_report_sync_service_test.dart` (aggregate push atomicity,
+  two same-base-token pushes with different child edits where the first
+  wins and the second is rejected with the winner's rows verified intact,
+  the winner's next push succeeding on the returned token, the
+  stale-child-after-winning-header race, base-revision rejection, the
+  audit `revision` counter never advancing from a sync push, sync
+  bookkeeping stripped from payloads, benchmarks never pushing up, FK-safe
+  ordering) and `breeder_report_conflict_service_test.dart` (conflict
+  blocks submit/approve, resolution restores prior state without moving
+  `revision`, using deliberately distinct revision/sync_token fixture
+  values to prove the two are never conflated).
+- 2026-08-27: Added egg batches, hatchery-dispatch shipments, and
+  receipts (breeder-flock-performance ticket 14, design doc section 8, 12,
+  and 14), version 78. New tables `egg_batches` (a flock's egg production
+  for a collection date, scoped to a single grade), `egg_batch_house_sources`
+  (optional per-house contributions, house-belongs-to-flock enforced by a
+  trigger added to the version-68 houses-rebuild trigger-drop list),
+  `egg_shipments` (a Draft/Approved/Cancelled dispatch of one grade to a
+  customer's hatchery), `egg_shipment_batches` (which batches, and how much
+  of each, a shipment carries), and `egg_batch_receipts` (what the hatchery
+  reported receiving and the signed variance against what was dispatched —
+  the dispatched figure is never adjusted to match a receipt). New
+  `EggBatchDispatchService` is the single tested home for batch/shipment
+  /receipt rules: approving a shipment posts exactly one `hatchery_dispatch`
+  movement through ticket 11's `BreederEggInventoryService.
+  recordHatcheryDispatch` (a new method, reusing that service's existing
+  balance arithmetic so an over-dispatch beyond the flock's real available
+  grade balance is rejected the same way any other ledger movement's would
+  be), always appending rather than upserting so one shipment's dispatch
+  never silently replaces another's for the same report/grade — this
+  required widening the service's private negative-balance check with an
+  `appendOnly` flag. Cancelling an approved shipment calls the existing
+  `reverseMovement` to append a documented reversal; nothing is ever
+  deleted. Judgment call, forced by ticket 11's frozen schema (a movement's
+  `reportId` is `NOT NULL`): a shipment can only be approved for a
+  flock/date that already has a daily report — this feature does not
+  auto-create one, consistent with "missing days are never auto-created as
+  zero days" (design section 14); a clear validation error names the
+  missing date otherwise. Reachable from a flock's detail screen via a new
+  "Egg Stock & Shipments" button (batches/shipments list, batch entry,
+  shipment entry/detail with add-batch, approve, cancel, and per-line
+  receipt actions). No setter/hatcher/fertility/hatchability/chick-count
+  /chick-quality/breakout tables, columns, or code were added — hatchery
+  results remain a later, separately-designed phase (design section 8).
+
+- 2026-08-27: Added periodic weighing and uniformity sessions
+  (breeder-flock-performance ticket 13, design doc section 5.1 and 9),
+  version 77. New tables `breeder_weighing_sessions` (flock, house, date,
+  sex, method, sample size, plus cached derived figures and the exact
+  benchmark comparison used) and `breeder_weighing_samples` (optional
+  individual bird weights, non-negative). Weighing is a workflow separate
+  from the daily report, reachable from a flock's detail screen via a new
+  "Weighing Sessions" button. `BreederWeighingService` derives mean
+  weight, uniformity, and coefficient of variation from a session's
+  samples, reusing `CalculationUtils.average`/`stdDev`/`roundTo` rather
+  than a second statistical convention. Uniformity is defined as the
+  percentage of samples within a named +/-10%-of-mean window
+  (`BreederWeighingService.weightUniformityWindow`), matching the
+  uniformity convention `panel_aggregate_deriver.dart`/`station_adapter
+  .dart` already use elsewhere in the app — a judgment call, since the
+  design doc leaves the definition open. CV is computed directly from
+  `stdDev`/`average` rather than via `CalculationUtils.cvPercent`,
+  because `cvPercent`'s existing `0.0` fallback for <2 samples or a zero
+  mean conflicts with this feature's blank-not-zero convention;
+  `cvPercent` itself is left unchanged for the other features that rely
+  on it. The mean is compared against the Ross 308 `body_weight_g`
+  benchmark for the flock's breed/sex/age (ticket 03 data, via
+  `BreederBenchmarkRepository`), always on the official comparison axis
+  (a judgment call — body weight is keyed to the session's own date, not
+  to the 5%-production milestone the milestone-aligned axis exists to
+  correct for); the exact profile id, its guide version, and the axis are
+  persisted on the session row (design section 3.1). Ross 308 publishes
+  no uniformity or CV target, so those two are always shown without a
+  target rather than compared against an invented one. A weighing
+  session's house is enforced to belong to its flock by a database
+  trigger (`trg_breeder_weighing_sessions_house_scope_insert`/`_update`),
+  which required adding this table to the version-68 houses-rebuild
+  trigger-drop list in `database_migrations.dart` — the same trap that
+  bit tickets 08/09/10's house-referencing tables.
+- 2026-08-27: Extended ticket 12's post-approval correction path from the
+  daily report header to the child tables that actually get corrected in
+  practice (breeder-flock-performance ticket 12 follow-up, design doc
+  section 5.2, 8, and 12): `BreederBirdLedgerService.correctMovement`
+  (mortality, culls/sorts, sale, kitchen removal/euthanasia, transfers —
+  `opening` stays derived and uncorrectable, `closing` is always
+  recomputed and can itself generate a second revision row),
+  `correctFeedEntry` (`feedKg`), `correctEggProductionEntry` (a grade
+  count — flows through to totals/percentages for free since nothing is
+  cached, and is rejected via new
+  `BreederEggInventoryService.validateProductionOverrideForGrade` if it
+  would drive that grade's inventory balance negative), and
+  `correctEggInventoryMovement` (routes through new
+  `BreederEggInventoryService.correctMovement`, which never mutates the
+  original row — it appends a documented reversal plus a new corrected
+  row, validating the resulting balance before writing either). All five
+  correction methods now validate reason/actor/domain rules BEFORE any
+  write, fixing a real bug the extension surfaced: the original
+  `correctHeader` persisted the header change before checking the reason,
+  so a reason-less "correction" could have silently landed with no audit
+  trail. Also fixed: ticket 11's
+  `idx_breeder_egg_inventory_movements_unique` partial index assumed at
+  most one live non-reversal row per (report, grade, kind) ever exists,
+  which collided with the new correction path's "append a corrected row
+  next to the never-mutated original" design — widened at version 76 to
+  `... AND reason IS NULL` (a Draft-entered row never sets one; a
+  correction's new row always does), with `_applyV76Upgrade` dropping and
+  recreating the index by name so an already-upgraded local database picks
+  up the fix too. `correctMovement`/`correctFeedEntry`/
+  `correctEggProductionEntry`/`correctEggInventoryMovement` gained
+  `getById` lookups on their repositories
+  (`BreederBirdMovementRepository`, `BreederFeedEntryRepository`,
+  `BreederEggProductionEntryRepository`) to find the specific row a
+  correction addresses. The review screen's "Correct report" dialog now
+  opens with a "What are you correcting?" picker (header, bird movement,
+  feed entry, egg-production count, or egg-inventory movement, the egg
+  options gated on the report's own `hasEggSection`) instead of only
+  offering header fields, with the form below it changing to match and
+  prefilling from the picked row's current values.
+
+- 2026-08-27: Added post-approval report revisions and incomplete-data
+  reporting (ticket `12-revisions-and-incomplete-data`), extending tickets
+  07-11's services and screens. Migration v76 creates
+  `breeder_report_revisions`: an append-only audit table (`tableName`/
+  `rowId`/`fieldName`, `oldValue`/`newValue`, required `reason` and
+  `actorUserId` via `CHECK (<> '')`, `revisionAfter` tying every row from
+  one correction to the report's post-correction `revision` counter) whose
+  `trg_breeder_report_revisions_immutable_update`/`_delete` triggers block
+  every UPDATE and DELETE unconditionally — a revision row has no draft
+  state to begin in, unlike ticket 03's publish-gated benchmark
+  immutability. This table references no house, so it needed no entry in
+  the v68 houses-rebuild trigger-drop list. New
+  `BreederReportRevisionService`
+  (`lib/services/breeder/breeder_report_revision_service.dart`) diffs an
+  old/new field map and writes one immutable row per changed field,
+  bumping the report's `revision` counter (via a new
+  `BreederDailyReportRepository.bumpRevision`) exactly once per correction
+  regardless of how many fields changed, and writing nothing for a no-op
+  correction. `BreederBirdLedgerService` gains a `correctHeader` method —
+  the Approved-only counterpart to the existing Draft-only `updateHeader`
+  — requiring a reason and an actor and routing the header's temperature/
+  light-hours/notes diff through the revision service; because a
+  correction updates the same mutable report row in place, "current
+  calculations always use the latest approved revision" falls out of the
+  existing single-row model with no separate mechanism needed. The review
+  screen adds "Correct report" (a reason-first dialog whose Save button
+  stays disabled until a reason is entered) and "Revision history" (a
+  read-only list of every correction: field, old value, new value, actor,
+  time, reason) actions, shown only once a report `isApproved`. Judgment
+  call: only the header has a correction path in this ticket; bird
+  movements, feed, egg production, and egg inventory corrections are a
+  documented gap reusing the identical engine when a later ticket needs
+  them. Separately, new `BreederReportPeriodService`
+  (`lib/services/breeder/breeder_report_period_service.dart`) is the
+  shared period-aggregation implementation ticket 12 asks for so alerts
+  (ticket 17) and the overview (ticket 18) do not each re-derive
+  completeness: `completenessFor`/`weeklyCompleteness` classify every
+  calendar date in a range as recorded (an *Approved* report exists — a
+  Draft/Submitted report does not count) or missing, exposing counts and
+  an `incompleteDataLabel` reading e.g. "Incomplete Data (3 of 7 days
+  recorded, 4 missing)"; `averageOverPeriod`/`sumOverPeriod` operate only
+  on values a caller actually has for recorded days, returning `null`
+  (never `0`) for an empty period — a missing day is never imputed,
+  interpolated, carried forward, or zero-filled; `compareToBenchmark`
+  packages an actual value, a benchmark value, and the completeness
+  together into a result whose `partialDataWarning` is non-null exactly
+  when the period is incomplete. New widgets
+  `BreederIncompleteDataLabel`/`BreederPartialDataWarning`
+  (`lib/features/breeder/widgets/breeder_incomplete_data_label.dart`) render
+  those labels prominently, or nothing when the period is complete; no
+  weekly/cumulative screen exists yet to place them (ticket 18's scope), so
+  they ship tested but unattached. Test files hardcoding schema version 75
+  are updated to 76, and `schema_parity_test.dart` now replays the v76
+  upgrade handler.
+
+- 2026-08-27: Added the egg-inventory ledger to the breeder daily report
+  (ticket `11-egg-inventory-ledger`), extending tickets 07-10's services and
+  screens rather than a parallel feature, gated on the same
+  `hasEnteredProductionRange` flag as ticket 10's egg-production section:
+  migration v75 creates `breeder_egg_inventory_movements`, a flock-level (no
+  house/isolation split) append-only ledger by grade with `kind` (`hatchery
+  _dispatch`, `sale`, `kitchen`, `gift`, `adjustment`), non-negative
+  `quantity`, an `adjustmentDirection` required exactly for an adjustment,
+  and `reason`/`actorUserId`/`occurredAt` required for an adjustment or a
+  reversal (`reversedMovementId`) — all via `CHECK` constraints. A partial
+  unique index allows one editable row per (report, grade, kind) for the
+  four plain kinds while a report is Draft; adjustments and reversals are
+  always appended, never overwritten. This table names no house or
+  isolation area, so it needed no entry in the v68 houses-rebuild
+  trigger-drop list. New `BreederEggInventoryService`
+  (`lib/services/breeder/breeder_egg_inventory_service.dart`) is the single
+  tested home for `available balance = previous balance + today's
+  production` and `closing balance = available - dispatched - sold -
+  kitchen - gifts +/- net adjustment` (both reject rather than clamp a
+  resulting negative closing balance); previous balance is a flat sum of
+  every prior report's production and signed ledger movements for that
+  flock/grade, never free-typed; today's production is always derived live
+  from ticket 10's `breeder_egg_production_entries`, never duplicated into
+  a ledger row. `recordMovement` refuses a new entry once a report has left
+  Draft (`BreederEggInventoryStateError`) — from Submitted onward only
+  `reverseMovement` (an appended, signed-inverse row referencing the
+  original via `reversedMovementId`) corrects a historical movement, never
+  in-place mutation or deletion. `BreederBirdLedgerService.approve` now
+  takes an optional `eggInventoryService` and calls
+  `validateBalancesForApproval` unconditionally before any approval — the
+  single approval gate, not a second mechanism — throwing
+  `BreederEggInventoryValidationError` if any active grade's recomputed
+  closing balance would be negative (catches a production count edited
+  after a dispatch was recorded against it, which no single movement write
+  could have caught on its own); a pre-production report passes trivially.
+  The entry screen adds a flock-level "Egg inventory" card (previous
+  balance, today's production, and available balance read-only; dispatched
+  /sold/kitchen/gifts editable; closing balance read-only; an "Adjustment"
+  button opening a dialog that requires a reason before submitting) and the
+  review screen adds a matching read-only table — derived balances never
+  get a `TextEditingController` in either screen. Judgment call: fixed a
+  latent double-submit bug this surfaced — `TextField`'s
+  `onSubmitted`+`onEditingComplete` wiring (shared by every entry field in
+  this screen) can fire both callbacks for one "done" action, which the
+  other fields tolerate because their row already exists from eager
+  lazy-initialization; the inventory ledger has no such eager row, so the
+  entry screen now guards `_applyInventoryChange` against a concurrent
+  duplicate call for the same grade/kind. Extended
+  `BreederEggProductionEntryRepository` with `sumCountForReportAndGrade`/
+  `sumCountForFlockGradeBeforeDate` (breeder-flock-performance ticket 11)
+  rather than a parallel query path. Updated the schema-parity migration
+  chain test and five schema tests that hardcoded database version 74 to
+  75, and extended `test/features/breeder/fake_breeder_repositories.dart`
+  with `FakeBreederEggInventoryMovementRepository` and report-date-aware
+  sums on `FakeBreederEggProductionEntryRepository`.
+
+- 2026-08-27: Added egg production and the grade partition to the breeder
+  daily report (ticket `10-egg-production-and-grades`), gated on the flock
+  entering the benchmark profile's official production range: migration v74
+  creates `breeder_egg_grade_definitions` (six system-defined grades —
+  first grade, second grade, sort/reject, double yolk, cracked, damaged —
+  each with a `priority`, unique within the active set via a partial
+  unique index, seeded and re-seeded idempotently by
+  `seedBreederEggGradeDefinitions`) and `breeder_egg_production_entries`
+  (one row per report/location/grade, mirroring `breeder_feed_entries`'
+  location-XOR shape, `count` non-negative, plus a location-level
+  `eggWeightGrams` duplicated across a location's grade rows), and adds
+  three nullable approval-snapshot columns to `breeder_daily_reports`:
+  `eggProductionDenominatorFemales`, `benchmarkProfileVersionAtApproval`,
+  `comparisonAxisAtApproval`. Grades are a strict partition — every egg
+  counts once, under the highest-priority grade it matches (a cracked
+  double-yolk egg counts as cracked, priority 1, over double yolk, priority
+  3) — so grade counts always sum to calculated total eggs, never
+  independently typed. Added
+  `lib/data/models/breeder_egg_grade_definition_model.dart`,
+  `breeder_egg_production_entry_model.dart`,
+  `lib/data/repositories/breeder_egg_grade_definition_repository.dart`,
+  `breeder_egg_production_entry_repository.dart`, and
+  `lib/data/database/seeds/breeder_egg_grade_definition_seeds.dart`. Added
+  `lib/services/breeder/breeder_egg_production_service.dart`:
+  `resolveHighestPriorityGrade`/`validateUniqueActivePriorities` for the
+  partition rule, `totalEggs`/`eggGradePercent` for the grade arithmetic
+  (both reusing `CalculationUtils.percentOf`, so a zero/negative/missing
+  denominator is blank, never `0`, never an error), and
+  `dailyProductionPercent`/`isolationProductionPercent`/
+  `closingFemalesHouseScope`/`closingFemalesIsolationScope` for the
+  production-percent denominator (the report's own closing live females in
+  production houses, matching ticket 09's "this report's row, not a
+  backward ledger lookup" approach; isolation females and isolation-collected
+  eggs are excluded from the house-scope figures on both sides). Added
+  `BreederFlockLifecycleService.hasEnteredProductionRange` (a thin wrapper
+  around the existing `officialProductionWeek`) so the entry/review screens
+  never re-derive "has the flock started laying" themselves. Extended
+  `BreederBirdLedgerService.approve` with three optional pass-through
+  parameters that persist the egg-approval snapshot without the ledger
+  service computing them itself; the review screen computes the
+  denominator, benchmark profile version (via
+  `BreederFlockLifecycleService.comparisonAxes`), and axis description and
+  passes them through only once the flock has entered production. Extended
+  `breeder_daily_report_entry_screen.dart` with a gated "Egg production"
+  subsection per location (one count field per active grade, a read-only
+  calculated total-eggs field, a read-only calculated production-percent
+  field, and a shared egg-weight field) stating the partition rule inline,
+  and `breeder_daily_report_review_screen.dart` with a consolidated "Egg
+  production" table plus an "About this comparison" card explaining that
+  official hen-week and hen-housed targets use a different denominator than
+  this local figure (hen-week assumes 8% cumulative in-lay mortality per
+  the Ross 308 profile's own `metricProvenance` footnote) — deliberately
+  never labelled "hen-day", since the imported profile has no column by
+  that name. Per the paper form's egg weight and lighting-hours fields:
+  egg weight is new here; lighting hours is *not* duplicated, since ticket
+  09 already put it on the report header. Extended the v68 houses-rebuild
+  migration's trigger drop/recreate list with the two new
+  `trg_breeder_egg_production_entries_location_scope_*` trigger names (the
+  same "no such table: main.houses" trigger-reparse trap ticket 09 hit).
+  Updated `test/features/breeder/fake_breeder_repositories.dart` with
+  `FakeBreederEggGradeDefinitionRepository`,
+  `FakeBreederEggProductionEntryRepository`, and
+  `FakeBreederFlockMilestoneRepository`, and gave
+  `FakeBreederBenchmarkRepository` an `inProduction` toggle backed by a
+  fake Ross-308-breed profile, so widget tests can exercise the "in
+  production" path without touching sqflite. Bumped every hardcoded
+  `73` schema-version assertion in `test/` to `74` and added
+  `applyV74UpgradeForTest` to `schema_parity_test.dart`'s replay chain.
+
+- 2026-08-27: Added feed entries and remaining environment fields to the
+  breeder daily report (ticket `09-feed-and-environment`), extending
+  tickets 07/08's daily-report core rather than building a parallel
+  feature: migration v73 creates `breeder_feed_entries` (one row per
+  report/location/sex, mirroring `breeder_bird_movements`' location shape —
+  a house (`houseId`) or a named isolation area (`isolationAreaId`),
+  exactly one, never both, never neither, CHECK-constrained, with the same
+  pair of location-scope triggers proving the location belongs to the
+  report's flock, and `feedKg` non-negative via `CHECK (feedKg >= 0)`) and
+  adds `breeder_daily_reports.lightHours` via a plain `ALTER TABLE ADD
+  COLUMN` (no shadow-table rebuild needed, unlike v72's movements reshape).
+  Fixed a latent bug the new feed-entry triggers exposed in the v68 houses
+  migration: the guard-set drop/recreate dance around the houses
+  drop-and-rename only listed the `breeder_bird_movements` trigger names,
+  so the new `trg_breeder_feed_entries_location_scope_*` triggers (which
+  also reference `houses`) hit SQLite's "no such table: main.houses"
+  trigger-reparse failure the same way the movement triggers did before
+  that fix landed; both feed-entry trigger names are now included in the
+  drop list in `lib/data/database/database_migrations.dart`.
+  Added `lib/data/models/breeder_feed_entry_model.dart` and
+  `lib/data/repositories/breeder_feed_entry_repository.dart` (same CRUD
+  and dirty-tracking shape as `breeder_bird_movement_repository.dart`).
+  Added `CalculationUtils.divideOrNull` (`lib/core/utils/calculation_utils.dart`),
+  generalizing `percentOf`'s "a non-positive or missing denominator yields
+  `null`, never `0`, never an error" rule for a division that isn't itself
+  a 0-100 percentage. Extended `BreederBirdLedgerService`
+  (`lib/services/breeder/breeder_bird_ledger_service.dart`) with
+  `recordFeedEntry` (persists one location/sex's feed kilograms, rejecting
+  a negative value), the static `feedGramsPerBird` formula (`feed
+  kilograms * 1000 / closing live birds`, reusing `divideOrNull`), and
+  `updateHeader` (persists inside/outside temperature, light hours, and
+  notes on a Draft report only — `BreederReportStateError` otherwise;
+  `lightHours` outside 0-24 is a `BreederLedgerValidationError`).
+  `feedGramsPerBird`'s denominator is deliberately the report's own
+  `BreederBirdMovement.closing` for that exact location and sex — not
+  `houseBalance`/`isolationAreaBalance`, which look backward to the most
+  recent report strictly before a given date and would silently divide by
+  yesterday's count instead of today's; a house movement's `closing` can
+  never include isolation birds by construction, so this satisfies the
+  house-scope-excludes-isolation rule without an extra balance lookup, and
+  isolation feed divides by that isolation movement's own `closing` on its
+  own row, never folded into a house figure. Extended the entry screen
+  (`lib/features/breeder/screens/breeder_daily_report_entry_screen.dart`)
+  with a "Report header" card (inside/outside temperature — the first
+  entry UI those ticket-07 fields ever had, each now labelled with a `°C`
+  suffix per the repo's existing per-sector temperature convention rather
+  than a global unit setting — plus light hours and notes) and, per
+  location/sex, a "Feed (kg)" input alongside a read-only, non-editable
+  "Feed (g/bird)" field. Extended the review screen
+  (`breeder_daily_report_review_screen.dart`) with "Feed (kg)"/"Feed
+  (g/bird)" columns on both per-sex tables and light hours on the header,
+  with a blank dash wherever the denominator is missing, zero, or
+  negative. Updated `test/features/breeder/fake_breeder_repositories.dart`
+  with a `FakeBreederFeedEntryRepository`, and bumped every test asserting
+  the literal schema version from 72 to 73.
+- 2026-08-27: Added named isolation areas for a breeder flock (ticket
+  `08-isolation-areas`), extending ticket 07's daily-report core rather than
+  building a parallel feature: migration v72 creates `breeder_isolation_areas`
+  (one row per flock's named isolation area; `id`, `flockId`, `name`,
+  `notes`, `isActive`, standard sync columns; a flock owns any number of
+  them via `FOREIGN KEY (flockId)`, and each name is unique within its flock
+  case-insensitively via `UNIQUE (flockId, name COLLATE NOCASE)`), and
+  reshapes `breeder_bird_movements` so a movement's location is a house
+  (`houseId`) or an isolation area (`isolationAreaId`) — exactly one, never
+  both, never neither, enforced by a CHECK constraint plus separate unique
+  indexes per location kind — with the pre-existing house-scope triggers
+  replaced by a pair of location-scope triggers
+  (`trg_breeder_bird_movements_location_scope_insert`/`_update`) that check
+  whichever location column is set against the report's flock. Because
+  SQLite cannot relax a NOT NULL column or add a multi-column CHECK via
+  `ALTER TABLE`, the v72 migration rebuilds an existing `breeder_bird_movements`
+  table in place (the same shadow-table-and-swap approach the v68 houses
+  rebuild uses), carrying every pre-v72 row forward as a house movement with
+  `isolationAreaId = NULL`. Added `lib/data/models/breeder_isolation_area_model.dart`
+  and `lib/data/repositories/breeder_isolation_area_repository.dart`, and
+  extended `BreederBirdMovement` (`houseId` now nullable, new
+  `isolationAreaId`, a constructor check rejecting anything but exactly one
+  location set, plus `isHouseMovement`/`isIsolationMovement`/`locationId`)
+  and `BreederBirdMovementRepository` (isolation-area counterparts of the
+  house-scoped lookups, kept as distinctly-named methods —
+  `getByReportIsolationAreaSex`/`previousClosingForIsolationArea` — rather
+  than one method taking "either" id, so a caller cannot be handed the
+  wrong kind of row by accident).
+
+  Extended `BreederBirdLedgerService`: `recordMovement`/`openingBalanceFor`
+  now take an optional `houseId` or `isolationAreaId` (exactly one is
+  required, checked by `_requireExactlyOneLocation`); an isolation area has
+  no opening-count field of its own, so `isolationOpeningBalanceFor`/
+  `isolationAreaBalance` fall back to 0 rather than any other count when no
+  movement has been recorded yet. `flockBalance` is unchanged and, by
+  construction, can never include isolation birds (design doc section 7.1:
+  house-scope denominators exclude isolation). `isolationFlockBalance` is
+  the isolation-only counterpart, and `flockTotalBalance` is the *only*
+  place the two are added together, for the flock's total physically-live
+  count — so the three reported figures (live in production houses, live in
+  isolation, total physically live) can never be silently merged by a
+  caller reaching for the wrong method. A house<->isolation transfer needs
+  no new balancing logic: `validateTransferBalance` already groups only by
+  sex, not by location kind, so it balances a house<->isolation transfer
+  exactly like a house<->house one. Mortality, culls, sale, kitchen
+  removal, and euthanasia reduce the flock total wherever they are
+  recorded — houses and isolation alike — with no special-casing needed,
+  since `closingBirds` is the same formula regardless of location.
+
+  Extended the house-by-house entry screen
+  (`breeder_daily_report_entry_screen.dart`) and the consolidated review
+  screen (`breeder_daily_report_review_screen.dart`) to list isolation
+  areas as their own locations (an `_EntryLocation` wrapper generalizes
+  over houses and isolation areas for entry; isolation rows carry an
+  "Isolation" chip) and their own table rows in review, rather than adding
+  a parallel isolation screen. Isolation areas are created and named from
+  the same add/edit flock sheet that already folds in house setup
+  (`lib/features/customers/widgets/add_flock_sheet.dart`, per ticket 02's
+  precedent of folding house setup into flock creation) — an "Isolation
+  areas" section next to "Houses", each row just a name since an isolation
+  area always starts empty. `CustomersProvider` gained
+  `isolationAreasForFlock`/`saveIsolationArea` mirroring its existing
+  `housesForFlock`/`saveHouse`.
+
+  Judgment calls: isolation areas were given no opening bird count (unlike
+  houses) because birds only ever arrive there via a transfer, never a
+  placement; "exactly one location" is enforced both in the
+  `BreederBirdMovement` constructor (fail fast in Dart) and again by the
+  database CHECK constraint (defense in depth, matching how ticket 07
+  enforced house-belongs-to-flock); and isolation-area sync wiring into
+  `StartupSyncService` is left for a later ticket, matching how ticket 07
+  left `breeder_daily_reports`/`breeder_bird_movements` unwired. Widened
+  test coverage: `breeder_daily_report_schema_test.dart` gained isolation
+  uniqueness/scope/CHECK cases, `breeder_bird_ledger_service_test.dart`
+  gained a full isolation-semantics group (house->isolation and
+  isolation->house transfers, mortality inside isolation, the three
+  figures for females and males independently, cross-flock rejection, and
+  both/neither rejection), and
+  `breeder_daily_report_entry_review_widget_test.dart` gained isolation
+  coverage in both screens via a new `FakeIsolationAreaRepository`. Several
+  schema-version tests that hardcoded `71` as a literal were updated to
+  `72`, and `schema_parity_test.dart`/`schema_helper` gained the matching
+  `applyV72UpgradeForTest` step.
+
+- 2026-08-27: Added the breeder daily-report header and bird-movement ledger
+  (ticket `07-daily-report-core`): migration v71 creates
+  `breeder_daily_reports` (one header row per flock and calendar date via a
+  `UNIQUE (flockId, reportDate)` index; `insideTemperature`,
+  `outsideTemperature`, `notes`, a CHECK-constrained
+  `draft`/`submitted`/`approved` `state`, and a `revision` counter for
+  ticket 15's optimistic concurrency — age, production week, and breed are
+  never stored, always derived via `BreederFlockLifecycleService` and
+  `flocks.breed`) and `breeder_bird_movements` (one child row per report,
+  house, and sex via `UNIQUE (reportId, houseId, sex)`; `opening`,
+  `mortality`, `culls`, `sale`, `kitchenRemoval` (female only), `euthanasia`
+  (male only), `transferIn`, `transferOut`, and `closing`, with two CHECK
+  constraints enforcing `closing = opening - removals + transfers` and the
+  sex-specific-removal rule, plus a pair of triggers enforcing that a
+  movement's house belongs to the same flock as its report). Added
+  `lib/services/breeder/breeder_bird_ledger_service.dart`
+  (`BreederBirdLedgerService`): `closingBirds` computes the closing-balance
+  formula and rejects any negative field or resulting negative balance;
+  `validateTransferBalance` rejects a report whose per-sex
+  `transferIn`/`transferOut` totals disagree across houses;
+  `openingBalanceFor` derives a house/sex's opening balance from the
+  previous calendar day's closing balance, or the house's own
+  `openingFemales`/`openingMales` on the first day; `houseBalance`/
+  `flockBalance` report live balances; `submit`/`approve` implement this
+  ticket's Draft -> Submitted -> Approved slice of the design's state
+  machine, with `approve` gated on `BreederApprovalRole.permitted`
+  (`production_manager` or `admin` — a judgment call, since `users.role`
+  today only stores `admin`/`auditor`/`customer`), enforced client-side
+  only (the Supabase policy is ticket 16). Added
+  `BreederDailyReportRepository` and `BreederBirdMovementRepository` with
+  the standard per-row dirty-tracking methods (not yet wired into
+  `StartupSyncService`). Added the Breeder Performance UI: a daily-report
+  list, a house-by-house entry screen (each house its own `ExpansionTile`
+  with independent female/male fields), and a consolidated review screen
+  presenting every house as one table per sex with "Back to edit",
+  "Submit", and role-gated "Approve" actions — built on a
+  `SingleChildScrollView`/`Column` rather than `ListView`, since a
+  `ListView`'s lazy `SliverList` silently drops far-down children like the
+  actions row. Added a "Breeder Performance" button to each flock card on
+  the customer detail screen as the entry point removed with the old
+  Broiler Performance navigation in ticket 01. Added Arabic translations
+  for the new UI copy, and updated the v68 houses-table rebuild migration
+  to drop and recreate the new house-scope triggers around its
+  DROP/RENAME dance (the same guard-and-restore trick the v68 flocks
+  rebuild already used), since SQLite reparses every trigger referencing a
+  table during an `ALTER TABLE ... RENAME`.
+
+- 2026-08-27: Added flock age, official production week, and the
+  milestone-aligned comparison axis (ticket
+  `06-age-production-week-and-axis`): migration v70 creates
+  `breeder_flock_milestones` (dated operational events — grading, physical
+  transfer, light stimulation, first egg, 5%/50%/peak production, and
+  partial/start-of/final depletion — restricted to that fixed event-type
+  vocabulary by a CHECK constraint, one row per flock/eventType via a unique
+  index so recording the same event again corrects its date instead of
+  duplicating), with the standard sync columns and a new
+  `BreederFlockMilestoneRepository`. Added the single domain service for
+  every breeder-flock-performance calculation,
+  `lib/services/breeder/breeder_flock_lifecycle_service.dart`
+  (`BreederFlockLifecycleService`): total age reuses the existing
+  `HatchDateUtils.flockAgeDays`/`flockAgeWeeks` rather than a second age
+  calculator; official production week is read directly from the active
+  benchmark profile's `breeder_benchmark_values.productionWeek` column for
+  the flock's breed (matched to the profile's breed by normalizing case,
+  spaces, and hyphens, e.g. `Ross308` to `Ross 308`) and current age in
+  weeks, never derived by arithmetic and never from a manually entered
+  production-start date, physical transfer, or first-egg date — before the
+  profile's production range begins it is null and the flock reads as
+  pre-production. The comparison axis is always available on the default
+  official (age-based) mapping; when a flock's recorded
+  `five_percent_production` milestone's flock-age differs from the profile's
+  official production-start age by strictly more than one week, a second
+  milestone-aligned axis is also returned (shifting the guide's age lookup by
+  that difference) alongside the official one, never replacing it, and every
+  result records which axis and which benchmark profile version (including
+  `guideVersion`) produced it. Added two read-only repository lookups to
+  support this: `BreederBenchmarkRepository.getActiveProfileForBreed` and
+  `.getOfficialProductionWeek`/`.getOfficialProductionStartAgeWeek`, all
+  reading the existing tables rather than adding a parallel access path.
+  Depletion is no longer forced at a fixed age: removed `FlockModel
+  .hasReachedDepletionAge` (previously gated `isAvailableForAudit`, which now
+  only checks sold status) and every UI reader of
+  `flocks.depletionAgeWeeks` — the add/edit flock sheet no longer shows a
+  depletion-age field (it carries the existing value forward unread on save)
+  and the customer detail flock card and flock-management chip no longer
+  display it; the column itself is not dropped in this migration and is
+  noted in Known Technical Debt for a later cleanup. Added a new
+  `BreederFlockLifecycleSummary` widget on the customer detail screen's
+  flock card, surfacing total age, official production week or a
+  "Pre-production" label, and the milestone-aligned week when that axis is
+  offered. Added `test/services/breeder/breeder_flock_lifecycle_service_test.dart`
+  and `test/data/repositories/breeder_flock_milestone_repository_test.dart`
+  covering age edge cases, the production-week null/boundary/deeper-into-lay
+  lookups, the one-week axis tolerance (not offered at exactly one week,
+  offered past it), axis/profile-version recording, and milestone
+  record/correct/retrieve behavior.
+
+- 2026-08-27: Added the official breeder benchmark foundation (ticket
+  `03-benchmark-foundation-ross-308`): migration v69 creates
+  `breeder_metric_definitions`, `breeder_benchmark_profiles`, and
+  `breeder_benchmark_values`. Published (non-draft) profiles and their values
+  are immutable at the database level via SQLite triggers — no client can
+  create, edit, or delete a published benchmark. Benchmark data is loaded from
+  checked-in asset files under `assets/benchmarks/` (never Dart constants,
+  never a client write) by the new idempotent importer
+  `lib/data/database/seeds/breeder_benchmark_seeds.dart`, run on fresh
+  install, on the v69 upgrade, and on every app open; re-running it never
+  duplicates or mutates an already-published profile. Added the first
+  profile, transcribed directly from Aviagen's published
+  Ross308-ParentStock-PerformanceObjectives-2021-EN.pdf with no invented or
+  interpolated values: female and male body weight and daily feed intake,
+  hen-housed production ("Hen-Housed (%)") and hen-week production
+  ("Hen-Week (%)*", footnoted by the source as based on an assumed
+  8%/0.2%-per-week mortality curve — stored as `hen_week_production_pct`,
+  matching the published column heading rather than a "hen-day" label the
+  source does not use here), weekly/cumulative eggs and hatching eggs
+  per hen-housed, hatching egg utilization, hatchability of all eggs,
+  weekly/cumulative chicks, egg weight, egg mass, and rearing/laying
+  liveability (812 value rows across 18 metrics); the out-of-season female
+  body-weight/feeding table in the same source document was intentionally
+  left out of this first profile, as were uniformity/CV, water and
+  water-to-feed ratio, male:female ratio, fertility, egg-grade breakdowns,
+  and chick-quality targets, none of which this document publishes. Every
+  metric's source table and exact column heading (plus any qualifying
+  footnote) is recorded per-metric in the profile asset file's
+  `metricProvenance` map. Added a
+  read-only `BreederBenchmarkRepository` and two read-only screens
+  (`BreederBenchmarkListScreen`, `BreederBenchmarkDetailScreen`), reachable
+  from Settings → Reference → "Official Benchmarks", with no edit affordance
+  anywhere. Added the matching (unapplied) Supabase seed migration
+  `supabase/migrations_unapplied/0011_breeder_benchmark_foundation.sql`,
+  generated from the same asset files so cloud and local hold identical
+  values, with `select`-only RLS for `authenticated` and Postgres triggers
+  enforcing the same published-profile immutability. Added the verification
+  fixture `test/data/database/breeder_benchmark_import_test.dart` (row count,
+  metric coverage, unit agreement, hand-checked spot values, monotonic
+  cumulative series, importer idempotence, and immutability enforcement), and
+  gave several existing test suites that create a fresh app database
+  `TestWidgetsFlutterBinding.ensureInitialized()`, now required because
+  `_onCreate` loads benchmark assets via `rootBundle`.
+
+- 2026-08-27: Collapsed Farm into Flock (ticket
+  `02-collapse-farm-into-flock`): a farm and a flock are the same thing in
+  this business, so the app no longer models them as two levels. Migration
+  v68 rebuilds `houses` so it belongs directly to a flock (`houses.farmId`
+  becomes `houses.flockId`, FK `ON DELETE CASCADE`), adds non-negative
+  per-house opening `openingFemales`/`openingMales` bird counts, drops the
+  `farms` and `flock_placements` tables outright, and drops `flocks.farmId`
+  via a table rebuild (SQLite cannot drop a column on an old on-disk file).
+  `flocks.entryDate` is now the single placement date for every house in the
+  flock; house name/code uniqueness moved from being scoped to `farmId` to
+  being scoped to `flockId`. Backfill: each existing house is assigned to the
+  flock and opening bird count from its single *active* `flock_placements`
+  row, splitting the count onto `openingFemales` or `openingMales` by the
+  owning flock's sex profile (the old schema never split it by sex); a house
+  with no resolvable active placement is deleted rather than given an
+  invented flock, since the project is still in local testing. `fresh
+  installs never create `farms`/`flock_placements` either.
+  `customer_sectors` is untouched. Deleted `FarmModel`, `FlockPlacementModel`,
+  `PlacementStatus`, `lib/features/customers/widgets/farm_management_sheet.dart`,
+  and `lib/features/customers/widgets/house_management_sheet.dart`; deleted the
+  farm/placement methods from `PoultryHierarchyRepository`
+  (`listFarms`/`saveFarm`/`listPlacements`/`createPlacement`/`endPlacement`/
+  `createBroilerFlockWithPlacements`/the active-placement conflict machinery)
+  and reshaped `listHouses`/`saveHouse` to work by `flockId`. Removed the
+  farm-management entry point from `CustomerDetailScreen`'s Structure tab.
+  `AddFlockSheet` now lets the user add the flock's houses with their opening
+  female/male counts in the same flow (folding house setup into flock
+  creation, as the design requires), and `CustomerDetailScreen`'s flock cards
+  show a house count. `PerformanceSyncRepository` moved `houses` from
+  `preFlockPushOrder` to `postFlockPushOrder` (it now carries a FK on
+  `flockId` and must push after flocks) and dropped `farms`/`flock_placements`
+  from the sync table lists entirely. Checked the live Supabase project:
+  `farms`, `houses`, and `flock_placements` were never created there, but
+  `public.flocks.farm_id` was, so a deferred (not applied)
+  `supabase/migrations_unapplied/0010_collapse_farm_into_flock.sql` drops it
+  to match. Removed the now-orphaned farm-related Arabic localization entries
+  and added new ones for the house-setup fields in `AddFlockSheet`.
+
+- 2026-08-27: Removed the Broiler Performance feature and the farm-visit /
+  investigation / cause-assessment / corrective-action feature outright
+  (ticket `01-remove-broiler-and-visit-feature`), with no replacement in
+  place yet — a later Breeder Flock Performance feature replaces this area.
+  Migration v67 drops all fifteen tables (`broiler_target_profiles`,
+  `broiler_target_rows`, `broiler_daily_records`,
+  `broiler_daily_record_revisions`, `daily_record_sources`,
+  `broiler_daily_events`, `performance_alert_rules`, `performance_concerns`,
+  `farm_visit_sessions`, `farm_visit_houses`, `visit_investigations`,
+  `visit_findings`, `cause_assessments`, `corrective_actions`,
+  `action_kpi_evaluations`); fresh installs no longer create them either.
+  `customer_sectors`, `farms`, `houses`, `flock_placements`, and `flocks` are
+  untouched. Deleted `lib/features/performance/` in full, the
+  broiler/farm-visit/corrective-action/performance-concern models and
+  repositories, the broiler-target and performance-rule seed files, the
+  `/performance` route and main-shell tab, and the matching localization
+  entries and tests. `PerformanceSyncRepository` (renamed in spirit but not in
+  code — it also carries agent/telegram/hatchery sync ordering) had every
+  dropped-table reference removed from its push/pull/immutable-table lists and
+  lost the now-unused source-upload helper methods. Confirmed via the
+  Supabase project (`list_migrations`, `list_tables`) that
+  `supabase/migrations_unapplied/0017_performance_monitoring.sql` was
+  genuinely unapplied — none of its 19 tables exist remotely and it is not in
+  the applied migration ledger — then deleted the file and its
+  `migrations_unapplied/README.md` entry.
+
+- 2026-08-27: Recorded the third-party licensing review for the Aviagen/Ross
+  and Cobb breeder performance tables (ticket
+  `05-third-party-licensing-check`). Both publishers' posted terms and the
+  copyright notices printed inside their PDFs point toward written
+  permission being required before their tables can be embedded and
+  redistributed in a commercial app; neither publisher's terms clearly
+  address extracted numeric values as distinct from the compiled table
+  itself. See `docs/superpowers/specs/2026-08-27-benchmark-source-licensing.md`
+  for the full findings and the recommended alternatives (seek permission,
+  let customers supply their own targets, or link to the publisher's PDF
+  instead of embedding it). No code or schema changed.
+
+- 2026-08-27: Revised the Breeder Flock Performance design document after a
+  written review found gaps that would have blocked or misdirected
+  implementation. The design now records that a farm and a flock are one and
+  the same thing in this business, so the farm table, the farm identifier on a
+  flock, and the separate placement table are all removed, houses belong
+  directly to a flock, each production cycle is a new flock record, and house
+  setup happens while creating the flock; names the denominator and empty-value
+  behaviour for every ratio and records the known bias against official hen-day
+  targets; defines egg grades as a priority-ordered strict partition; adds a
+  milestone-aligned comparison axis for flocks that run off the official
+  schedule; folds the sync-conflict state into a single report state machine
+  and specifies the daily report as a transactional sync aggregate reusing the
+  existing conflict table; specifies how official benchmark data is
+  transcribed, imported, verified, and mirrored to the cloud, with a
+  third-party licensing check before release; requires role-gated approval
+  enforced in cloud policy; adds alert deduplication and recomputation rules,
+  unit and right-to-left print expectations; and splits delivery into gated
+  phases. No code or schema changed.
+
 - 2026-08-25: Prevented web startup from failing when a preserved legacy
   database contains multiple active flock placements for one house but is
   missing the corresponding partial unique index. Surgical repair now keeps

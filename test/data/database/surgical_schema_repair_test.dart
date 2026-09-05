@@ -141,20 +141,29 @@ void main() {
       expect(rows.first['id'], 's1');
     });
 
-    test('legacy farms gain sectorKey before monitoring indexes', () async {
+    test('legacy house gains flockId-scoped opening counts and indexes', () async {
       var db = await DatabaseHelper().db;
       await db.insert('customers', {
-        'id': 'legacy-farm-customer',
-        'name': 'Preserved Farm Customer',
+        'id': 'legacy-house-customer',
+        'name': 'Preserved House Customer',
         'createdAt': '2026-07-30T00:00:00.000Z',
       });
+      await db.insert('flocks', {
+        'id': 'legacy-house-flock',
+        'customerId': 'legacy-house-customer',
+        'flockId': 'F-LEGACY',
+        'breed': 'Ross 308',
+        'entryDate': '2026-07-01',
+        'status': 'active',
+      });
       await db.execute('PRAGMA foreign_keys = OFF');
-      await db.execute('DROP TABLE farms');
-      await db.execute('''CREATE TABLE farms (
+      await db.execute('DROP TABLE houses');
+      await db.execute('''CREATE TABLE houses (
         id TEXT PRIMARY KEY,
-        customerId TEXT NOT NULL,
+        flockId TEXT NOT NULL,
         name TEXT NOT NULL,
-        location TEXT,
+        code TEXT,
+        capacity INTEGER,
         notes TEXT,
         isActive INTEGER NOT NULL DEFAULT 1,
         createdBy TEXT,
@@ -165,177 +174,32 @@ void main() {
         lastSyncedAt TEXT,
         syncError TEXT
       )''');
-      await db.insert('farms', {
-        'id': 'legacy-farm',
-        'customerId': 'legacy-farm-customer',
+      await db.insert('houses', {
+        'id': 'legacy-house',
+        'flockId': 'legacy-house-flock',
         'name': 'Must Survive',
       });
 
       await DatabaseHelper().close();
       db = await DatabaseHelper().db;
 
-      final columns = await db.rawQuery('PRAGMA table_info(farms)');
-      expect(columns.map((row) => row['name']), contains('sectorKey'));
-      expect(
-        await db.query('farms', where: 'id = ?', whereArgs: ['legacy-farm']),
-        hasLength(1),
-      );
-      expect(
-        await db.rawQuery(
-          "SELECT name FROM sqlite_master "
-          "WHERE type = 'index' AND name = 'idx_farms_customer_sector'",
-        ),
-        isNotEmpty,
-      );
-    });
-
-    test('legacy flock placements gain current indexed columns', () async {
-      var db = await DatabaseHelper().db;
-      await db.insert('customers', {
-        'id': 'legacy-placement-customer',
-        'name': 'Placement Customer',
-        'createdAt': '2026-07-30T00:00:00.000Z',
-      });
-      await db.insert('flocks', {
-        'id': 'legacy-placement-flock',
-        'customerId': 'legacy-placement-customer',
-        'flockId': 'F-LEGACY',
-        'breed': 'Ross 308',
-        'entryDate': '2026-07-01',
-        'status': 'active',
-      });
-      await db.insert('farms', {
-        'id': 'legacy-placement-farm',
-        'customerId': 'legacy-placement-customer',
-        'sectorKey': 'breeder',
-        'name': 'Placement Farm',
-      });
-      await db.insert('houses', {
-        'id': 'legacy-placement-house',
-        'farmId': 'legacy-placement-farm',
-        'name': 'House 1',
-      });
-      await db.execute('PRAGMA foreign_keys = OFF');
-      await db.execute('DROP TABLE flock_placements');
-      await db.execute('''CREATE TABLE flock_placements (
-        id TEXT PRIMARY KEY,
-        flockId TEXT NOT NULL,
-        houseId TEXT NOT NULL,
-        receptionDate TEXT,
-        femalePlaced INTEGER,
-        malePlaced INTEGER,
-        placementCountsKnown INTEGER,
-        cycleStatus TEXT,
-        notes TEXT,
-        createdBy TEXT,
-        createdAt TEXT,
-        updatedAt TEXT,
-        syncStatus TEXT NOT NULL DEFAULT 'pending',
-        dirtyAt TEXT,
-        lastSyncedAt TEXT,
-        syncError TEXT
-      )''');
-      await db.insert('flock_placements', {
-        'id': 'legacy-placement',
-        'flockId': 'legacy-placement-flock',
-        'houseId': 'legacy-placement-house',
-        'receptionDate': '2026-07-01',
-        'femalePlaced': 1000,
-        'malePlaced': 100,
-        'cycleStatus': 'active',
-      });
-
-      await DatabaseHelper().close();
-      db = await DatabaseHelper().db;
-
-      final columns = await db.rawQuery('PRAGMA table_info(flock_placements)');
+      final columns = await db.rawQuery('PRAGMA table_info(houses)');
       expect(
         columns.map((row) => row['name']),
-        containsAll(const ['placedBirds', 'placedAt', 'endedAt', 'status']),
+        containsAll(const ['openingFemales', 'openingMales']),
       );
       expect(
-        await db.query(
-          'flock_placements',
-          where: 'id = ?',
-          whereArgs: ['legacy-placement'],
-        ),
+        await db.query('houses', where: 'id = ?', whereArgs: ['legacy-house']),
         hasLength(1),
       );
       expect(
         await db.rawQuery(
           "SELECT name FROM sqlite_master "
-          "WHERE type = 'index' AND name = 'idx_flock_placements_flock'",
+          "WHERE type = 'index' AND name = 'idx_houses_flock_name'",
         ),
         isNotEmpty,
       );
     });
-
-    test(
-      'duplicate legacy active placements survive repair without blocking open',
-      () async {
-        var db = await DatabaseHelper().db;
-        await db.insert('customers', {
-          'id': 'duplicate-placement-customer',
-          'name': 'Placement Customer',
-          'createdAt': '2026-08-25T00:00:00.000Z',
-        });
-        await db.insert('flocks', {
-          'id': 'duplicate-placement-flock',
-          'customerId': 'duplicate-placement-customer',
-          'flockId': 'F-DUPLICATE',
-          'breed': 'Ross 308',
-          'entryDate': '2026-08-01',
-          'status': 'active',
-        });
-        await db.insert('farms', {
-          'id': 'duplicate-placement-farm',
-          'customerId': 'duplicate-placement-customer',
-          'sectorKey': 'broiler',
-          'name': 'Placement Farm',
-        });
-        await db.insert('houses', {
-          'id': 'duplicate-placement-house',
-          'farmId': 'duplicate-placement-farm',
-          'name': 'House 1',
-        });
-        await db.execute('DROP INDEX idx_active_placement_per_house');
-        for (final id in const [
-          'duplicate-placement-1',
-          'duplicate-placement-2',
-        ]) {
-          await db.insert('flock_placements', {
-            'id': id,
-            'flockId': 'duplicate-placement-flock',
-            'houseId': 'duplicate-placement-house',
-            'placedBirds': 1000,
-            'placedAt': '2026-08-01',
-            'status': 'active',
-          });
-        }
-
-        await DatabaseHelper().close();
-        db = await DatabaseHelper().db;
-
-        expect(
-          await db.query(
-            'flock_placements',
-            where: 'houseId = ?',
-            whereArgs: ['duplicate-placement-house'],
-          ),
-          hasLength(2),
-          reason: 'repair must preserve both ambiguous legacy placements',
-        );
-        expect(
-          await db.rawQuery(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'index' AND name = 'idx_active_placement_per_house'",
-          ),
-          isEmpty,
-          reason:
-              'the unique index must be deferred until the conflict is resolved',
-        );
-      },
-    );
 
     test('missing index is restored after drop', () async {
       var db = await DatabaseHelper().db;

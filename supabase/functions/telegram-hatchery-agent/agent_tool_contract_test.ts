@@ -360,8 +360,8 @@ Deno.test('tool definitions are derived from the contract and stay flat', () => 
       Object.keys(definition).sort(),
       ['description', 'name', 'parameters', 'type'],
       'Tool definitions must stay FLAT — {type, name, description, parameters}. ' +
-        'The nested Chat-Completions form {type, function:{...}} is rejected by ' +
-        'the OpenAI Realtime API, which this shape was verified against.',
+        'The nested Chat-Completions form {type, function:{...}} is not the ' +
+        'Responses-API shape the provider adapters were verified against.',
     )
     assertEquals(definition.type, 'function')
     assertEquals(

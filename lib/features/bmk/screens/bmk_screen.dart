@@ -4,7 +4,6 @@ import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hatchaudit/core/theme/gradient_app_bar.dart';
-import 'package:hatchaudit/core/theme/app_elevation.dart';
 import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/core/constants/app_sizes.dart';
@@ -12,7 +11,10 @@ import 'package:hatchaudit/data/models/bmk_breed_model.dart';
 import 'package:hatchaudit/data/models/bmk_egg_breakout_model.dart';
 import 'package:hatchaudit/data/models/bmk_operational_standard_model.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
+import 'package:hatchaudit/data/repositories/breeder_benchmark_repository.dart';
 import 'package:hatchaudit/features/bmk/providers/bmk_provider.dart';
+import 'package:hatchaudit/features/bmk/widgets/bmk_reference_widgets.dart';
+import 'package:hatchaudit/features/breeder/widgets/breeder_bmk_sector_view.dart';
 import 'package:hatchaudit/services/photo/photo_service.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:hatchaudit/widgets/section_card.dart';
@@ -22,14 +24,21 @@ enum _BmkMode { reference, admin }
 class BmkScreen extends StatefulWidget {
   final PhotoService? photoService;
   final SupabaseService? supabaseService;
+  final BreederBenchmarkRepository? breederBenchmarkRepository;
 
-  const BmkScreen({super.key, this.photoService, this.supabaseService});
+  const BmkScreen({
+    super.key,
+    this.photoService,
+    this.supabaseService,
+    this.breederBenchmarkRepository,
+  });
 
   @override
   State<BmkScreen> createState() => _BmkScreenState();
 }
 
-class _BmkScreenState extends State<BmkScreen> {
+class _BmkScreenState extends State<BmkScreen>
+    with SingleTickerProviderStateMixin {
   final _breedFormKey = GlobalKey<FormState>();
   final _eggBreakoutFormKey = GlobalKey<FormState>();
   final _operationalFormKey = GlobalKey<FormState>();
@@ -66,6 +75,11 @@ class _BmkScreenState extends State<BmkScreen> {
   bool _savingEggBreakout = false;
   bool _savingOperational = false;
 
+  late final TabController _tabController = TabController(
+    length: 2,
+    vsync: this,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -98,6 +112,7 @@ class _BmkScreenState extends State<BmkScreen> {
     _opMaxController.dispose();
     _opTargetController.dispose();
     _opNotesController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -107,80 +122,109 @@ class _BmkScreenState extends State<BmkScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(title: 'BMK', toolbarHeight: isCompact ? 48 : 52),
-      body: Consumer<BmkProvider>(
-        builder: (context, bmk, child) {
-          final user = context.watch<AuthProvider>().user;
-          final canEditStandards =
-              (user?.isApproved ?? false) &&
-              ((user?.isAdmin ?? false) || (user?.isAuditor ?? false));
-          if (!canEditStandards && _mode == _BmkMode.admin) {
-            _mode = _BmkMode.reference;
-          }
-          // Global standards are cloud-writable by admins only
-          // (bmk_operational_global_write). Auditors keep hatchery-scoped
-          // override edits.
-          bmk.setCanEditGlobalStandards(
-            (user?.isApproved ?? false) && (user?.isAdmin ?? false),
-          );
-          _syncAdminControllers(bmk);
-
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
-              isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
-              isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
-              AppSizes.spaceXl,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1180),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (canEditStandards) ...[
-                      _buildModeToolbar(),
-                      SizedBox(
-                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
-                      ),
-                    ],
-                    if (_mode == _BmkMode.reference) ...[
-                      _buildBreedSection(context, bmk),
-                      SizedBox(
-                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
-                      ),
-                      _buildEggBreakoutSection(context, bmk),
-                      SizedBox(
-                        height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
-                      ),
-                      _buildOperationalSection(context, bmk),
-                    ] else ...[
-                      _buildBreedAdminSection(context, bmk),
-                      const SizedBox(height: AppSizes.spaceLg),
-                      _buildEggBreakoutAdminSection(context, bmk),
-                      const SizedBox(height: AppSizes.spaceLg),
-                      _buildOperationalAdminSection(context, bmk),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+      appBar: GradientAppBar(
+        title: 'BMK',
+        toolbarHeight: isCompact ? 48 : 52,
+        bottom: TabBar(
+          key: const ValueKey('bmk-sector-tabs'),
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: 'Hatchery'),
+            Tab(text: 'Breeder Farm'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildHatcherySector(isCompact),
+          BreederBmkSectorView(
+            key: const ValueKey('bmk-breeder-farm-sector'),
+            repository: widget.breederBenchmarkRepository,
+          ),
+        ],
       ),
     );
   }
 
+  /// Hatchery sector: the breed / egg-breakout / operational benchmarks that
+  /// were the whole of this screen before the Breeder Farm tab existed.
+  Widget _buildHatcherySector(bool isCompact) {
+    return Consumer<BmkProvider>(
+      builder: (context, bmk, child) {
+        final user = context.watch<AuthProvider>().user;
+        final canEditStandards =
+            (user?.isApproved ?? false) &&
+            ((user?.isAdmin ?? false) || (user?.isAuditor ?? false));
+        if (!canEditStandards && _mode == _BmkMode.admin) {
+          _mode = _BmkMode.reference;
+        }
+        // Global standards are cloud-writable by admins only
+        // (bmk_operational_global_write). Auditors keep hatchery-scoped
+        // override edits.
+        bmk.setCanEditGlobalStandards(
+          (user?.isApproved ?? false) && (user?.isAdmin ?? false),
+        );
+        _syncAdminControllers(bmk);
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+            isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+            isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+            AppSizes.spaceXl,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1180),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (canEditStandards) ...[
+                    _buildModeToolbar(),
+                    SizedBox(
+                      height: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
+                    ),
+                  ],
+                  if (_mode == _BmkMode.reference) ...[
+                    _buildBreedSection(context, bmk),
+                    SizedBox(
+                      height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+                    ),
+                    _buildEggBreakoutSection(context, bmk),
+                    SizedBox(
+                      height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg,
+                    ),
+                    _buildOperationalSection(context, bmk),
+                  ] else ...[
+                    _buildBreedAdminSection(context, bmk),
+                    const SizedBox(height: AppSizes.spaceLg),
+                    _buildEggBreakoutAdminSection(context, bmk),
+                    const SizedBox(height: AppSizes.spaceLg),
+                    _buildOperationalAdminSection(context, bmk),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildBreedSection(BuildContext context, BmkProvider bmk) {
-    return _BmkSectorCard(
+    return BmkSectorCard(
       title: 'Breed Benchmarks',
       icon: Icons.analytics_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildControlShelf(
+          BmkControlShelf(
             primary: _buildBreedSelectorBar(bmk),
-            secondary: _buildAgeControl(
+            secondary: BmkAgeControl(
               label: 'Reference age',
               value: bmk.breedAges.contains(bmk.selectedBreedAge)
                   ? bmk.selectedBreedAge
@@ -201,32 +245,35 @@ class _BmkScreenState extends State<BmkScreen> {
               child: Text('No data', style: TextStyle(color: Colors.grey)),
             )
           else
-            _buildMetricGrid(
+            BmkMetricGrid(
               key: const ValueKey('bmk-breed-metric-grid'),
               metrics: [
-                _BmkMetric(
+                // `bmk_breeds` stores 0.0 where a breed guide publishes no
+                // value at this age, so a zero here means "not published",
+                // not "the target is zero" — see formatBmkBenchmark.
+                BmkMetric(
                   label: 'Hatchability',
-                  value: '${_formatNumber(bmk.breedRow!.hatchabilityPct)}%',
+                  value: _breedBenchmark(bmk.breedRow!.hatchabilityPct, '%'),
                 ),
-                _BmkMetric(
+                BmkMetric(
                   label: 'Fertility',
-                  value: '${_formatNumber(bmk.breedRow!.fertilityPct)}%',
+                  value: _breedBenchmark(bmk.breedRow!.fertilityPct, '%'),
                 ),
-                _BmkMetric(
+                BmkMetric(
                   label: 'HOF',
-                  value: '${_formatNumber(bmk.breedRow!.hofPct)}%',
+                  value: _breedBenchmark(bmk.breedRow!.hofPct, '%'),
                 ),
-                _BmkMetric(
+                BmkMetric(
                   label: 'Production',
-                  value: '${_formatNumber(bmk.breedRow!.productionPct)}%',
+                  value: _breedBenchmark(bmk.breedRow!.productionPct, '%'),
                 ),
-                _BmkMetric(
+                BmkMetric(
                   label: 'Egg weight',
-                  value: '${_formatNumber(bmk.breedRow!.eggWeightG)} g',
+                  value: _breedBenchmark(bmk.breedRow!.eggWeightG, ' g'),
                 ),
-                _BmkMetric(
+                BmkMetric(
                   label: 'Chick weight',
-                  value: '${_formatNumber(bmk.breedRow!.chickWeightG)} g',
+                  value: _breedBenchmark(bmk.breedRow!.chickWeightG, ' g'),
                 ),
               ],
             ),
@@ -265,7 +312,7 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
-  void _showMetricSourceDialog(BuildContext context, _BmkMetric metric) {
+  void _showMetricSourceDialog(BuildContext context, BmkMetric metric) {
     final hasPhoto = metric.hasSourcePhoto;
     showDialog<void>(
       context: context,
@@ -391,7 +438,7 @@ class _BmkScreenState extends State<BmkScreen> {
   Future<void> _addMetricSourcePhoto(
     BuildContext context,
     BuildContext dialogContext,
-    _BmkMetric metric,
+    BmkMetric metric,
   ) async {
     final metricKey = metric.citationKey;
     if (metricKey == null) return;
@@ -450,7 +497,7 @@ class _BmkScreenState extends State<BmkScreen> {
   Future<void> _deleteMetricSourcePhoto(
     BuildContext context,
     BuildContext dialogContext,
-    _BmkMetric metric,
+    BmkMetric metric,
   ) async {
     final metricKey = metric.citationKey;
     if (metricKey == null) return;
@@ -485,7 +532,7 @@ class _BmkScreenState extends State<BmkScreen> {
     );
   }
 
-  void _showSourcePhotoViewer(BuildContext context, _BmkMetric metric) {
+  void _showSourcePhotoViewer(BuildContext context, BmkMetric metric) {
     final path = metric.sourcePhotoPath;
     final url = metric.sourcePhotoRemotePath;
     Widget image;
@@ -531,40 +578,11 @@ class _BmkScreenState extends State<BmkScreen> {
     required bool selected,
     required VoidCallback onTap,
   }) {
-    return _buildSelectablePill(
+    return BmkSelectablePill(
       label: label,
       icon: icon,
       selected: selected,
       onTap: onTap,
-    );
-  }
-
-  Widget _buildControlShelf({
-    required Widget primary,
-    required Widget secondary,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 680) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              primary,
-              const SizedBox(height: AppSizes.spaceSm),
-              secondary,
-            ],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: primary),
-            const SizedBox(width: AppSizes.spaceMd),
-            secondary,
-          ],
-        );
-      },
     );
   }
 
@@ -589,7 +607,7 @@ class _BmkScreenState extends State<BmkScreen> {
           children: BmkProvider.breeds.map((breed) {
             return SizedBox(
               width: itemWidth,
-              child: _buildSelectablePill(
+              child: BmkSelectablePill(
                 label: breed,
                 icon: bmk.selectedBreed == breed ? Icons.check : null,
                 selected: bmk.selectedBreed == breed,
@@ -599,205 +617,6 @@ class _BmkScreenState extends State<BmkScreen> {
           }).toList(),
         );
       },
-    );
-  }
-
-  Widget _buildAgeControl({
-    required String label,
-    required int? value,
-    required List<int> ages,
-    required ValueChanged<int?> onChanged,
-  }) {
-    final isCompact = MediaQuery.sizeOf(context).width < 520;
-
-    return Container(
-      constraints: BoxConstraints(minHeight: isCompact ? 34 : 44),
-      padding: EdgeInsets.symmetric(
-        horizontal: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
-        vertical: isCompact ? 2 : AppSizes.spaceXs,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.caption.copyWith(
-              fontSize: isCompact ? 11 : null,
-            ),
-          ),
-          const SizedBox(width: AppSizes.spaceSm),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<int>(
-              value: value,
-              isDense: true,
-              icon: const Icon(Icons.keyboard_arrow_down_rounded),
-              style: AppTextStyles.title.copyWith(
-                fontSize: isCompact ? 14 : null,
-              ),
-              items: ages.map((age) {
-                return DropdownMenuItem(value: age, child: Text('${age}w'));
-              }).toList(),
-              onChanged: onChanged,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectablePill({
-    required String label,
-    IconData? icon,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    final isCompact = MediaQuery.sizeOf(context).width < 520;
-    final foreground = selected ? AppColors.textOnPrimary : AppColors.textBody;
-    final borderColor = selected ? AppColors.primary : AppColors.borderDefault;
-    final background = selected ? AppColors.primary : AppColors.surface;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          constraints: BoxConstraints(minHeight: isCompact ? 34 : 44),
-          padding: EdgeInsets.symmetric(
-            horizontal: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
-            vertical: isCompact ? AppSizes.spaceXs : AppSizes.spaceSm,
-          ),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(AppSizes.buttonRadius),
-            border: Border.all(color: borderColor),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: isCompact ? 15 : 18, color: foreground),
-                SizedBox(
-                  width: isCompact ? AppSizes.spaceXs : AppSizes.spaceSm,
-                ),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.title.copyWith(
-                    color: foreground,
-                    fontSize: isCompact ? 13 : null,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricGrid({
-    required Key key,
-    required List<_BmkMetric> metrics,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 820
-            ? 3
-            : width >= 300
-            ? 2
-            : 1;
-        final spacing = width < 520 ? AppSizes.spaceXs : AppSizes.spaceSm;
-        final itemWidth = (width - spacing * (columns - 1)) / columns;
-
-        return Wrap(
-          key: key,
-          spacing: spacing,
-          runSpacing: spacing,
-          children: metrics.map((metric) {
-            return SizedBox(width: itemWidth, child: _buildMetricTile(metric));
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildMetricTile(_BmkMetric metric) {
-    final isCompact = MediaQuery.sizeOf(context).width < 520;
-
-    return Container(
-      constraints: BoxConstraints(minHeight: isCompact ? 54 : 76),
-      padding: EdgeInsets.all(isCompact ? AppSizes.spaceSm : AppSizes.spaceMd),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        metric.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.caption.copyWith(
-                          fontSize: isCompact ? 11 : null,
-                        ),
-                      ),
-                    ),
-                    if (metric.hasCitation) ...[
-                      const SizedBox(width: AppSizes.spaceXs),
-                      SizedBox.square(
-                        dimension: isCompact ? 24 : 28,
-                        child: IconButton(
-                          key: metric.citationKey == null
-                              ? null
-                              : ValueKey('bmk-citation-${metric.citationKey}'),
-                          tooltip: context.tr('Source'),
-                          padding: EdgeInsets.zero,
-                          iconSize: isCompact ? 16 : 18,
-                          icon: const Icon(Icons.format_quote_rounded),
-                          color: AppColors.primary,
-                          onPressed: () =>
-                              _showMetricSourceDialog(context, metric),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                SizedBox(height: isCompact ? 1 : AppSizes.spaceXs),
-                Text(
-                  metric.value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.metricLarge.copyWith(
-                    color: AppColors.primary,
-                    fontSize: isCompact ? 18 : 22,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1167,15 +986,15 @@ class _BmkScreenState extends State<BmkScreen> {
   }
 
   Widget _buildEggBreakoutSection(BuildContext context, BmkProvider bmk) {
-    return _BmkSectorCard(
+    return BmkSectorCard(
       title: 'Egg Breakout BMK',
       icon: Icons.egg_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildControlShelf(
+          BmkControlShelf(
             primary: _buildBreakoutTypeSelector(bmk),
-            secondary: _buildAgeControl(
+            secondary: BmkAgeControl(
               label: 'Benchmark age',
               value: bmk.ebAges.contains(bmk.selectedEbAge)
                   ? bmk.selectedEbAge
@@ -1203,7 +1022,7 @@ class _BmkScreenState extends State<BmkScreen> {
   }
 
   Widget _buildOperationalSection(BuildContext context, BmkProvider bmk) {
-    return _BmkSectorCard(
+    return BmkSectorCard(
       title: 'Operational BMKs',
       icon: Icons.tune_outlined,
       child: bmk.operationalStandards.isEmpty
@@ -1229,10 +1048,11 @@ class _BmkScreenState extends State<BmkScreen> {
       children.add(
         _OperationalCategorySection(
           title: category.label,
-          child: _buildMetricGrid(
+          child: BmkMetricGrid(
             key: ValueKey('bmk-operational-${category.key}-grid'),
+            onCitationTap: (metric) => _showMetricSourceDialog(context, metric),
             metrics: categoryRows.map((row) {
-              return _BmkMetric(
+              return BmkMetric(
                 label: row.metricLabel,
                 value: _formatOperationalValue(row),
                 source: row.source,
@@ -1332,7 +1152,7 @@ class _BmkScreenState extends State<BmkScreen> {
             final selected = bmk.selectedEbType == option.type;
             return SizedBox(
               width: itemWidth,
-              child: _buildSelectablePill(
+              child: BmkSelectablePill(
                 label: option.label,
                 selected: selected,
                 onTap: () => bmk.setEbType(option.type),
@@ -1348,7 +1168,7 @@ class _BmkScreenState extends State<BmkScreen> {
     final eb = bmk.ebRow!;
     final type = bmk.selectedEbType;
 
-    final List<_BmkMetric> metrics;
+    final List<BmkMetric> metrics;
     if (type == EbType.fresh) {
       metrics = [
         _breakoutMetric('Infertile', eb.infertilePct),
@@ -1376,14 +1196,14 @@ class _BmkScreenState extends State<BmkScreen> {
       ];
     }
 
-    return _buildMetricGrid(
+    return BmkMetricGrid(
       key: const ValueKey('bmk-breakout-metric-grid'),
       metrics: metrics,
     );
   }
 
-  _BmkMetric _breakoutMetric(String label, double value) {
-    return _BmkMetric(label: label, value: '${_formatNumber(value)}%');
+  BmkMetric _breakoutMetric(String label, double value) {
+    return BmkMetric(label: label, value: '${_formatNumber(value)}%');
   }
 
   void _syncAdminControllers(BmkProvider bmk) {
@@ -1555,11 +1375,11 @@ class _BmkScreenState extends State<BmkScreen> {
     return double.parse(text);
   }
 
-  String _formatNumber(double? value) {
-    if (value == null) return '';
-    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-    return value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
-  }
+  String _formatNumber(double? value) => formatBmkNumber(value);
+
+  /// Breed reference values, with a stored zero rendered as "not published".
+  String _breedBenchmark(double? value, String unit) =>
+      formatBmkBenchmark(value, unit: unit, treatZeroAsMissing: true);
 
   String _formatOperationalValue(BmkOperationalStandardModel row) {
     final min = row.minValue;
@@ -1618,105 +1438,6 @@ class _BmkScreenState extends State<BmkScreen> {
       }).toList(),
     );
   }
-}
-
-class _BmkSectorCard extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final Widget child;
-
-  const _BmkSectorCard({
-    required this.title,
-    required this.icon,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isCompact = MediaQuery.sizeOf(context).width < 520;
-    final padding = isCompact ? AppSizes.spaceSm : AppSizes.spaceLg;
-    final iconSize = isCompact ? 32.0 : AppSizes.iconContainerSm;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-        border: Border.all(color: AppColors.borderDefault),
-        boxShadow: AppElevation.level1,
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(padding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: iconSize,
-                  height: iconSize,
-                  decoration: BoxDecoration(
-                    color: AppColors.activeBg,
-                    borderRadius: BorderRadius.circular(AppSizes.iconRadius),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: AppColors.primary,
-                    size: isCompact ? 18 : AppSizes.iconSm,
-                  ),
-                ),
-                SizedBox(
-                  width: isCompact ? AppSizes.spaceSm : AppSizes.spaceMd,
-                ),
-                Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.sectionTitle.copyWith(
-                      fontSize: isCompact ? 16 : null,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: isCompact ? AppSizes.spaceSm : AppSizes.spaceLg),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BmkMetric {
-  final String label;
-  final String value;
-  final String? source;
-  final String? sourceUrl;
-  final String? sourcePhotoPath;
-  final String? sourcePhotoRemotePath;
-  final String? notes;
-  final String? citationKey;
-
-  const _BmkMetric({
-    required this.label,
-    required this.value,
-    this.source,
-    this.sourceUrl,
-    this.sourcePhotoPath,
-    this.sourcePhotoRemotePath,
-    this.notes,
-    this.citationKey,
-  });
-
-  bool get hasCitation =>
-      (source ?? '').trim().isNotEmpty ||
-      (sourceUrl ?? '').trim().isNotEmpty ||
-      hasSourcePhoto;
-
-  bool get hasSourcePhoto =>
-      (sourcePhotoPath ?? '').trim().isNotEmpty ||
-      (sourcePhotoRemotePath ?? '').trim().isNotEmpty;
 }
 
 const List<_OperationalCategory> _operationalCategories = [

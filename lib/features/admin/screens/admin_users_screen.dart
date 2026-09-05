@@ -12,10 +12,21 @@ import '../../../data/repositories/admin_repository.dart';
 import '../../../data/repositories/customer_repository.dart';
 
 /// Admin-only screen to manage who can sign in and what they can see.
-/// Set a user's role (admin / auditor / customer), approve or disable them,
-/// and — for auditors — pick which customers they may audit. All writes are
-/// enforced server-side by RLS; this screen only works for an admin account
-/// while online.
+/// Set a user's role (admin / auditor / production manager / customer),
+/// approve or disable them, and — for auditors and production managers —
+/// pick which customers they may access. All writes are enforced
+/// server-side by RLS; this screen only works for an admin account while
+/// online.
+///
+/// `production_manager` is the role breeder-flock-performance ticket 16
+/// makes assignable: it is scoped to customers the same way `auditor` is
+/// (via `auditor_customers`), and it is the role (alongside `admin`) the
+/// cloud lets approve a breeder daily report — see
+/// `chickmark_private.app_can_approve_breeder_report()` in
+/// `supabase/migrations_unapplied/0014_breeder_customer_scope_and_approval_role.sql`
+/// and `BreederApprovalRole.permitted` in
+/// `lib/services/breeder/breeder_bird_ledger_service.dart`. Keep all three
+/// in sync.
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
 
@@ -391,6 +402,7 @@ class _RoleChip extends StatelessWidget {
     final color = switch (role) {
       'admin' => Colors.purple,
       'customer' => Colors.teal,
+      'production_manager' => Colors.orange,
       _ => Colors.blue,
     };
     return Chip(
@@ -450,10 +462,12 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
   bool _loadingAssignments = false;
   bool _saving = false;
 
+  static const Set<String> _scopedByAssignment = {'auditor', 'production_manager'};
+
   @override
   void initState() {
     super.initState();
-    if (_role == 'auditor') _loadAssignments();
+    if (_scopedByAssignment.contains(_role)) _loadAssignments();
   }
 
   Future<void> _loadAssignments() async {
@@ -484,10 +498,10 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
         status: _status,
         customerId: _customerId,
       );
-      // Keep the auditor scope in sync; clear it for non-auditors.
+      // Keep the assignment scope in sync; clear it for roles that don't use it.
       await widget.adminRepo.setAuditorCustomers(
         widget.profile.id,
-        _role == 'auditor' ? _assigned : <String>{},
+        _scopedByAssignment.contains(_role) ? _assigned : <String>{},
       );
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -546,12 +560,16 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
               items: const [
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
                 DropdownMenuItem(value: 'auditor', child: Text('Auditor')),
+                DropdownMenuItem(
+                  value: 'production_manager',
+                  child: Text('Production manager'),
+                ),
                 DropdownMenuItem(value: 'customer', child: Text('Customer')),
               ],
               onChanged: (v) {
                 if (v == null) return;
                 setState(() => _role = v);
-                if (v == 'auditor') _loadAssignments();
+                if (_scopedByAssignment.contains(v)) _loadAssignments();
               },
             ),
             const SizedBox(height: AppSizes.spaceMd),
@@ -567,7 +585,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
             ),
             const SizedBox(height: AppSizes.spaceLg),
             if (_role == 'customer') _buildCustomerPicker(),
-            if (_role == 'auditor') _buildAuditorAssignments(),
+            if (_scopedByAssignment.contains(_role)) _buildAuditorAssignments(),
             if (widget.profile.role == 'customer') ...[
               const SizedBox(height: AppSizes.spaceLg),
               SizedBox(
@@ -621,7 +639,9 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Customers this auditor can access',
+          _role == 'production_manager'
+              ? 'Customers this production manager can access'
+              : 'Customers this auditor can access',
           style: Theme.of(context).textTheme.labelLarge,
         ),
         const SizedBox(height: AppSizes.spaceXs),

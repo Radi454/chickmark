@@ -83,7 +83,7 @@ Be especially careful in `lib/data/database/`, `lib/data/models/`,
 `lib/data/repositories/`, and `lib/services/supabase/`. Bugs here corrupt field
 data that may exist only on one device.
 
-**Schema changes.** The database is at version 57 (`database_helper.dart`).
+**Schema changes.** The database is at version 81 (`database_helper.dart`).
 Changing the schema means updating all of these together, or upgrades break on
 real devices while fresh installs look fine:
 

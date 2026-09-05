@@ -4,11 +4,14 @@ PODS:
     - Flutter
   - flutter_secure_storage (6.0.0):
     - Flutter
+  - printing (1.0.0):
+    - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
+  - printing (from `.symlinks/plugins/printing/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
@@ -17,12 +20,15 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_local_notifications/ios"
   flutter_secure_storage:
     :path: ".symlinks/plugins/flutter_secure_storage/ios"
+  printing:
+    :path: ".symlinks/plugins/printing/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_local_notifications: 395056b3175ba4f08480a7c5de30cd36d69827e4
   flutter_secure_storage: 1ed9476fba7e7a782b22888f956cce43e2c62f13
+  printing: 54ff03f28fe9ba3aa93358afb80a8595a071dd07
 
-PODFILE CHECKSUM: 0bae49a36e5bda5a3e9123d5394b04de33636f51
+PODFILE CHECKSUM: d5aa2bcbe2b6acea1c1651ec0fbd525eb2438835
 
 COCOAPODS: 1.16.2

@@ -100,6 +100,7 @@ Future<void> _createEggQualityDefectCountsTable(Database db) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late _MockDatabaseHelper databaseHelper;
   late _MockActivityLogRepository activityLogRepository;

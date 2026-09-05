@@ -10,6 +10,9 @@ import '../agent/station_registry.dart';
 import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_schema.dart';
 import 'seeds/bmk_seeds.dart' hide kTroubleshootingSeeds;
+import 'seeds/breeder_alert_rule_seeds.dart';
+import 'seeds/breeder_benchmark_seeds.dart';
+import 'seeds/breeder_egg_grade_definition_seeds.dart';
 import 'seeds/dashboard_demo_seeds.dart';
 import 'seeds/dummy_data_seeds.dart';
 import 'seeds/egg_defect_type_seeds.dart';
@@ -50,7 +53,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 66,
+      version: 81,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -66,6 +69,9 @@ class DatabaseHelper {
         await _ensureTelegramStaffLinkIndexes(db);
         await db.execute('PRAGMA foreign_keys = ON');
         await _backfillOperationalBmkSeedSources(db);
+        await importBreederBenchmarks(db);
+        await seedBreederEggGradeDefinitions(db);
+        await seedBreederAlertRules(db);
         if (seedDemoData) await ensureDashboardDemoData(db);
       },
     );
@@ -113,6 +119,23 @@ class DatabaseHelper {
     await _createAgentIntakeTables(db);
     await _createUnifiedAgentHarnessTables(db);
     await createEggGradingTables(db);
+    await createBreederBenchmarkTables(db);
+    await createBreederFlockMilestonesTable(db);
+    await createBreederIsolationAreasTable(db);
+    await createBreederDailyReportTables(db);
+    await createBreederFeedEntriesTable(db);
+    await createBreederEggGradeDefinitionsTable(db);
+    await createBreederEggProductionEntriesTable(db);
+    await createBreederEggInventoryMovementsTable(db);
+    await createBreederReportRevisionsTable(db);
+    await createBreederWeighingSessionsTable(db);
+    await createEggBatchesTable(db);
+    await createEggBatchHouseSourcesTable(db);
+    await createEggShipmentsTable(db);
+    await createEggShipmentBatchesTable(db);
+    await createEggBatchReceiptsTable(db);
+    await createBreederAlertRulesTable(db);
+    await createBreederPerformanceAlertsTable(db);
     await _createOperationalIndexes(db);
     await _createActivityLogIndexes(db);
     // Seed data
@@ -146,6 +169,9 @@ class DatabaseHelper {
     await _backfillOperationalBmkSeedSources(db);
     await _seedTroubleshooting(db);
     await seedEggDefectTypes(db);
+    await importBreederBenchmarks(db);
+    await seedBreederEggGradeDefinitions(db);
+    await seedBreederAlertRules(db);
     await _ensureDummyTestData(db);
   }
 
@@ -211,6 +237,51 @@ class DatabaseHelper {
     if (oldVersion < 66) {
       await _applyV66Upgrade(db);
     }
+    if (oldVersion < 67) {
+      await _applyV67Upgrade(db);
+    }
+    if (oldVersion < 68) {
+      await _applyV68Upgrade(db);
+    }
+    if (oldVersion < 69) {
+      await _applyV69Upgrade(db);
+    }
+    if (oldVersion < 70) {
+      await _applyV70Upgrade(db);
+    }
+    if (oldVersion < 71) {
+      await _applyV71Upgrade(db);
+    }
+    if (oldVersion < 72) {
+      await _applyV72Upgrade(db);
+    }
+    if (oldVersion < 73) {
+      await _applyV73Upgrade(db);
+    }
+    if (oldVersion < 74) {
+      await _applyV74Upgrade(db);
+    }
+    if (oldVersion < 75) {
+      await _applyV75Upgrade(db);
+    }
+    if (oldVersion < 76) {
+      await _applyV76Upgrade(db);
+    }
+    if (oldVersion < 77) {
+      await _applyV77Upgrade(db);
+    }
+    if (oldVersion < 78) {
+      await _applyV78Upgrade(db);
+    }
+    if (oldVersion < 79) {
+      await _applyV79Upgrade(db);
+    }
+    if (oldVersion < 80) {
+      await _applyV80Upgrade(db);
+    }
+    if (oldVersion < 81) {
+      await _applyV81Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -235,24 +306,7 @@ class DatabaseHelper {
     'lab_analysis_groups',
     'lab_analysis_rows',
     'customer_sectors',
-    'farms',
     'houses',
-    'flock_placements',
-    'broiler_daily_records',
-    'broiler_daily_record_revisions',
-    'daily_record_sources',
-    'broiler_daily_events',
-    'broiler_target_profiles',
-    'broiler_target_rows',
-    'performance_alert_rules',
-    'performance_concerns',
-    'farm_visit_sessions',
-    'farm_visit_houses',
-    'visit_investigations',
-    'visit_findings',
-    'cause_assessments',
-    'corrective_actions',
-    'action_kpi_evaluations',
     'telegram_staff_links',
     'agent_settings',
     'agent_submissions',
@@ -271,6 +325,20 @@ class DatabaseHelper {
     'egg_defect_types',
     'egg_quality_defect_counts',
     'chick_quality_observation',
+    'breeder_metric_definitions',
+    'breeder_benchmark_profiles',
+    'breeder_benchmark_values',
+    'breeder_flock_milestones',
+    'breeder_daily_reports',
+    'breeder_bird_movements',
+    'breeder_isolation_areas',
+    'breeder_feed_entries',
+    'breeder_egg_grade_definitions',
+    'breeder_egg_production_entries',
+    'breeder_egg_inventory_movements',
+    'breeder_report_revisions',
+    'breeder_alert_rules',
+    'breeder_performance_alerts',
   ];
 
   /// Expected columns for tables most likely to drift after manual edits or
@@ -300,7 +368,6 @@ class DatabaseHelper {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
-    'farms': ['sectorKey TEXT'],
     'customers': [
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
@@ -308,7 +375,6 @@ class DatabaseHelper {
       'syncError TEXT',
     ],
     'flocks': [
-      'farmId TEXT',
       'sectorKey TEXT',
       "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
       'targetProfileId TEXT',
@@ -327,11 +393,9 @@ class DatabaseHelper {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
-    'flock_placements': [
-      'placedBirds INTEGER',
-      'placedAt TEXT',
-      'endedAt TEXT',
-      "status TEXT NOT NULL DEFAULT 'active'",
+    'houses': [
+      'openingFemales INTEGER NOT NULL DEFAULT 0',
+      'openingMales INTEGER NOT NULL DEFAULT 0',
     ],
     'audit_sessions': [
       'customerId TEXT NOT NULL',
@@ -686,6 +750,23 @@ class DatabaseHelper {
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
+    // Breeder daily report header field added by ticket 09 after the table
+    // itself was already critical (ticket 07); a database whose surgical
+    // repair only ever restored the whole table gains this column via ALTER
+    // if it drifted (e.g. a table that survived an interrupted upgrade).
+    'breeder_daily_reports': [
+      'lightHours REAL',
+      'eggProductionDenominatorFemales INTEGER',
+      'benchmarkProfileVersionAtApproval TEXT',
+      'comparisonAxisAtApproval TEXT',
+      // Sync-conflict bookkeeping (ticket 15) — `state`'s CHECK constraint
+      // widening to include `sync_conflict` still needs the real v79
+      // table-rebuild migration (SQLite cannot ALTER a CHECK constraint);
+      // these two plain columns are repaired here only as the same
+      // drifted-table fallback every other entry in this map provides.
+      'previousState TEXT',
+      'lastSyncedRevision INTEGER NOT NULL DEFAULT 0',
+    ],
     'agent_intake_values': [
       'intakeSessionId TEXT NOT NULL',
       'fieldKey TEXT NOT NULL',
@@ -763,6 +844,23 @@ class DatabaseHelper {
     await _createAgentIntakeTables(db);
     await _createUnifiedAgentHarnessTables(db);
     await createEggGradingTables(db);
+    await createBreederBenchmarkTables(db);
+    await createBreederFlockMilestonesTable(db);
+    await createBreederIsolationAreasTable(db);
+    await createBreederDailyReportTables(db);
+    await createBreederFeedEntriesTable(db);
+    await createBreederEggGradeDefinitionsTable(db);
+    await createBreederEggProductionEntriesTable(db);
+    await createBreederEggInventoryMovementsTable(db);
+    await createBreederReportRevisionsTable(db);
+    await createBreederWeighingSessionsTable(db);
+    await createEggBatchesTable(db);
+    await createEggBatchHouseSourcesTable(db);
+    await createEggShipmentsTable(db);
+    await createEggShipmentBatchesTable(db);
+    await createEggBatchReceiptsTable(db);
+    await createBreederAlertRulesTable(db);
+    await createBreederPerformanceAlertsTable(db);
 
     if (missingTables.isNotEmpty) {
       report.add('tables restored: ${missingTables.join(", ")}');
@@ -1054,6 +1152,50 @@ class DatabaseHelper {
   Future<void> applyV65UpgradeForTest(Database db) => _applyV65Upgrade(db);
 
   Future<void> applyV66UpgradeForTest(Database db) => _applyV66Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV67UpgradeForTest(Database db) => _applyV67Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV68UpgradeForTest(Database db) => _applyV68Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV69UpgradeForTest(Database db) => _applyV69Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV70UpgradeForTest(Database db) => _applyV70Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV71UpgradeForTest(Database db) => _applyV71Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV72UpgradeForTest(Database db) => _applyV72Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV73UpgradeForTest(Database db) => _applyV73Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV74UpgradeForTest(Database db) => _applyV74Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV75UpgradeForTest(Database db) => _applyV75Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV76UpgradeForTest(Database db) => _applyV76Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV77UpgradeForTest(Database db) => _applyV77Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV78UpgradeForTest(Database db) => _applyV78Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV79UpgradeForTest(Database db) => _applyV79Upgrade(db);
+
+  Future<void> applyV80UpgradeForTest(Database db) => _applyV80Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV81UpgradeForTest(Database db) => _applyV81Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

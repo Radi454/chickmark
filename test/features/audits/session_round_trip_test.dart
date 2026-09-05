@@ -70,6 +70,7 @@ List<double> _decodeWeights(String? json) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   // ───────────────────────────────────────────────────────────────────────
   // Save → reload round-trip (in-memory). Detects save/load key mismatches.
   // ───────────────────────────────────────────────────────────────────────

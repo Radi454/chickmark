@@ -1824,7 +1824,7 @@ Deno.test(
 )
 
 // F13: the app door's own conversation-create path must set owner_profile_id,
-// matching pip-realtime-session's create path.
+// so ownership is stamped at creation.
 
 Deno.test('a newly created conversation records owner_profile_id', async () => {
   const harness = createHarness({ authUserId: 'user-customer' })

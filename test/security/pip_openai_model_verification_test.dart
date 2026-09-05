@@ -15,10 +15,9 @@ void main() {
 
   final body = script.readAsStringSync();
 
-  test('checks every model alias Pip Live depends on', () {
+  test('checks every model alias Pip depends on', () {
     for (final alias in const [
       'gpt-5-nano',
-      'gpt-realtime-2.1-mini',
       'gpt-4o-mini-transcribe',
       'gpt-4o-mini-tts',
     ]) {

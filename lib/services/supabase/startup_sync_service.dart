@@ -14,10 +14,12 @@ import '../../data/repositories/lab_analysis_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
 import '../../data/repositories/performance_sync_repository.dart';
 import '../../data/repositories/photo_repository.dart';
+import '../../data/repositories/breeder_report_aggregate_repository.dart';
 import '../../data/repositories/sync_conflict_repository.dart';
 import '../../data/repositories/sync_tombstone_repository.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/incoming_change.dart';
+import '../breeder/breeder_report_sync_service.dart';
 import '../photo/photo_sync_service.dart';
 import 'sync_meta.dart';
 import 'sync_retry_policy.dart';
@@ -126,6 +128,7 @@ class StartupSyncService {
   final PerformanceSyncRepository _performanceSyncRepository;
   final SyncTombstoneRepository _syncTombstoneRepository;
   final SyncConflictRepository _syncConflictRepository;
+  final BreederReportSyncService _breederReportSyncService;
   final PhotoSyncService _photoSyncService;
   final SyncRetryPolicy _retryPolicy;
   final Set<String> _pendingLocalDeleteTargets = {};
@@ -154,6 +157,7 @@ class StartupSyncService {
     PerformanceSyncRepository? performanceSyncRepository,
     SyncTombstoneRepository? syncTombstoneRepository,
     SyncConflictRepository? syncConflictRepository,
+    BreederReportSyncService? breederReportSyncService,
     PhotoSyncService? photoSyncService,
     SyncRetryPolicy? retryPolicy,
   }) : _retryPolicy = retryPolicy ?? SyncRetryPolicy.shared,
@@ -184,6 +188,8 @@ class StartupSyncService {
            syncTombstoneRepository ?? SyncTombstoneRepository(),
        _syncConflictRepository =
            syncConflictRepository ?? SyncConflictRepository(),
+       _breederReportSyncService =
+           breederReportSyncService ?? BreederReportSyncService(),
        _photoSyncService = photoSyncService ?? PhotoSyncService();
 
   Future<SyncOutcome> run({
@@ -350,6 +356,31 @@ class StartupSyncService {
     progress(0.38, 'Uploading operational records');
     pushed += await _pushDirtyOperationalRows(
       PerformanceSyncRepository.postFlockPushOrder,
+    );
+
+    // Daily-report sync aggregate (breeder-flock-performance ticket 15,
+    // design section 13.1): header + all four child tables, pushed through
+    // `BreederReportSyncService`'s own revision-guarded transaction, never
+    // the generic per-row path above. Must run after `postFlockPushOrder`
+    // (children can reference `houses`/`breeder_isolation_areas`, which
+    // that batch just pushed) and before `postAggregatePushOrder` below
+    // (whose tables carry FKs onto the report/inventory-movement rows this
+    // step creates in the cloud).
+    progress(0.40, 'Uploading daily reports');
+    final breederReportResult = await _breederReportSyncService
+        .pushDirtyReportsDetailed();
+    pushed += breederReportResult.pushedRowCount;
+    _conflictsThisRun += breederReportResult.conflictCount;
+    if (breederReportResult.failedReportIds.isNotEmpty) {
+      _recordFailedRows(
+        BreederReportAggregateRepository.headerTable,
+        breederReportResult.failedReportIds.length,
+      );
+    }
+
+    progress(0.41, 'Uploading report revisions and shipments');
+    pushed += await _pushDirtyOperationalRows(
+      PerformanceSyncRepository.postAggregatePushOrder,
     );
 
     progress(0.42, 'Uploading audit sessions');

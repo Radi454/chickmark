@@ -31,7 +31,8 @@
 //
 // -----------------------------------------------------------------------
 // Report vs benchmark caveat (see `scenarios.ts`'s own header for the full
-// version): `REPORT_VS_BENCHMARK` in `agent_prompt.ts` is VOICE-ONLY --
+// version): an explicit report-vs-benchmark routing block only ever existed
+// on the retired live-voice policy --
 // it is not part of `CHICKMARK_AGENT_POLICY`, the prompt `buildAgentInstructions`
 // actually builds and this suite sends. Scenarios tagged with
 // `REPORT_VS_BENCHMARK_CAVEAT` below are testing whether the GENERAL typed
@@ -86,7 +87,7 @@ export type { AssertionOutcome, FunctionCallItem, ToolStub, TurnResult }
 
 const REPORT_VS_BENCHMARK_CAVEAT =
   'Tests whether the GENERAL typed policy (EVIDENCE_AND_SCOPE + BENCHMARK_DISCIPLINE) ' +
-  'is sufficient without the voice-only REPORT_VS_BENCHMARK routing block -- see this ' +
+  'is sufficient without an explicit report-vs-benchmark routing block -- see this ' +
   "file's header and scenarios.ts's. A failure here is genuine signal about the model, " +
   'not a violation of a documented rule for this (text) channel.'
 

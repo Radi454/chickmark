@@ -568,6 +568,31 @@ class SupabaseService {
     );
   }
 
+  /// Calls the `push_breeder_daily_report_aggregate` Postgres function
+  /// (breeder-flock-performance ticket 15, design doc section 13.1;
+  /// unapplied cloud migration
+  /// `supabase/migrations_unapplied/0013_breeder_daily_report_aggregate_push.sql`).
+  /// [payload] carries the report header plus its four child-table row
+  /// lists, already snake_cased and stripped of local sync bookkeeping by
+  /// the caller (`BreederReportSyncService`); [baseRevision] is the
+  /// revision this device last confirmed the cloud held. Returns the
+  /// decoded JSON result: `{'conflict': false}` on success, or
+  /// `{'conflict': true, 'cloud': {...}}` when the cloud's current revision
+  /// no longer matches [baseRevision] — nothing was written in that case.
+  Future<Map<String, dynamic>> pushBreederDailyReportAggregate(
+    Map<String, dynamic> payload, {
+    required int baseRevision,
+  }) async {
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
+    final result = await _client.rpc(
+      'push_breeder_daily_report_aggregate',
+      params: {'payload': payload, 'base_revision': baseRevision},
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
   Future<void> deleteRows(String table, List<String> ids) async {
     final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
     if (rowIds.isEmpty) return;

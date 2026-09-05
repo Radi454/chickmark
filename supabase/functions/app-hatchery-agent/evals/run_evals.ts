@@ -250,7 +250,7 @@ async function runScenarioWithRetry(
       const text = finalText(result)
       // An empty/invalid reply would trivially satisfy maxWords/mustNotMatch,
       // silently misreporting a model failure as a pass. Surface it as its
-      // own row first, same convention as the pip-realtime-sideband harness.
+      // own row first.
       rows.push({
         scenarioId: scenario.id,
         dimension: scenario.dimension,

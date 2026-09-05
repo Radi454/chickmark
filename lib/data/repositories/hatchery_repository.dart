@@ -82,6 +82,16 @@ class HatcheryRepository {
     });
   }
 
+  /// Looked up by [EggBatchDispatchService] (breeder-flock-performance
+  /// ticket 14) to verify a shipment's hatchery belongs to the same
+  /// customer as its flock.
+  Future<HatcheryModel?> getById(String id) async {
+    final db = await dbHelper.db;
+    final rows = await db.query('hatcheries', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    return HatcheryModel.fromMap(rows.first);
+  }
+
   Future<List<HatcheryModel>> getHatcheriesByCustomer(String customerId) async {
     final db = await dbHelper.db;
     final rows = await db.query(

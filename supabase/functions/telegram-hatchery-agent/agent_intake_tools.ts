@@ -777,7 +777,7 @@ async function changeIntakeState(
 // place:
 //   - `validation` (min/max/choices/item schemas) is RETAINED. The
 //     NATURAL_DATA_ENTRY policy in agent_prompt.ts (shared by the text and
-//     realtime voice policies) instructs the model to "use its localized
+//     policy) instructs the model to "use its localized
 //     fields and validation instead of inventing... limits" before it
 //     collects values — dropping the key leaves that instruction pointing
 //     at data the model can no longer see. recordStationValues ->
@@ -1123,17 +1123,13 @@ function stateConflict(): AgentToolResult {
 /**
  * The turn anchor an intake needs is missing.
  *
- * On the TEXT doors this cannot happen: `executeAgentTool` always receives
- * the inbound turn id and index. On the REALTIME door it happens on EVERY
- * call, by construction — `pip-realtime-tool-broker` omits
- * `conversationTurnId` on purpose, because a voice transcript may never
- * finalize and no placeholder turn is ever fabricated to satisfy a foreign
- * key. A pending action expires by turn index, so there is nothing to anchor
- * it to.
+ * On the text doors this cannot happen: `executeAgentTool` always receives
+ * the inbound turn id and index. It is kept as defence in depth for any
+ * caller that omits the anchor (the retired live-voice door did so by
+ * construction). A pending action expires by turn index, so there is nothing
+ * to anchor it to.
  *
- * Fixing that properly is a persistence design change (anchor the pending
- * action on the realtime interaction instead of the turn index) and is NOT
- * done here. What IS done here is refusing in a way the model can act on: a
+ * What IS done here is refusing in a way the model can act on: a
  * null payload told it only "no", which it answered by calling the same tool
  * again until the turn ran out of budget and the caller heard the same
  * half-sentence several times. The message below names the one recovery that

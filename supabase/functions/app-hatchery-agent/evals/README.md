@@ -7,13 +7,11 @@ model. This is **not** part of `deno test` — it costs money (real OpenRouter
 calls) and is meant to be run on demand, typically when deciding on or changing
 the text-agent model.
 
-It is modeled on `services/pip-realtime-sideband/evals/` (read that directory's
-own README for the house style this follows): scenario data separate from the
-runner, one assertion per behavioral claim, a scorecard, and the same "this is
-not `deno test`" discipline. The difference is the transport: the Realtime
-harness drives a WebSocket; this harness drives OpenRouter's `/v1/responses`
-REST endpoint, because that is what the production text agent
-(`agent_provider.ts` / `agent_runtime.ts`) actually uses.
+House style: scenario data separate from the runner, one assertion per
+behavioral claim, a scorecard, and a "this is not `deno test`" discipline.
+This harness drives OpenRouter's `/v1/responses` REST endpoint, because that
+is what the production text agent (`agent_provider.ts` / `agent_runtime.ts`)
+actually uses.
 
 ## What gets exercised — the REAL shape, not a re-declaration
 
@@ -147,12 +145,10 @@ at least two scenarios/cases with explicit, machine-checkable assertions
 
 ### Important caveat on `report_vs_benchmark`
 
-Read `docs/LIVING_SPEC.md`'s "Report vs benchmark routing" section and
-`agent_prompt.ts`'s `REPORT_VS_BENCHMARK` constant before changing these
-scenarios. That section — and the explicit routing rules it describes — is
-**voice-only**: it exists on `CHICKMARK_REALTIME_POLICY` and is explicitly
-documented as NOT present on `CHICKMARK_AGENT_POLICY`, the typed policy
-`buildAgentInstructions` actually builds and that this harness therefore sends.
+An explicit "Report vs benchmark routing" section only ever existed on the
+retired live-voice policy; it is NOT present on `CHICKMARK_AGENT_POLICY`, the
+typed policy `buildAgentInstructions` actually builds and that this harness
+therefore sends.
 The typed policy only carries the general `EVIDENCE_AND_SCOPE` audit-history
 rule ("For an audit-history request, call `list_customer_audits`...") and
 `BENCHMARK_DISCIPLINE`'s "never state a benchmark from memory" — no explicit
@@ -203,8 +199,8 @@ treated as the `architecture` finding described above and is never retried.
 
 1. **RESULTS BY SCENARIO** — every assertion, PASS/FAIL, one line each.
 2. **DETAIL** — the actual reply text for every turn, with failing assertions'
-   detail strings underneath (matching the pip-realtime-sideband convention:
-   read the actual reply before concluding anything from the label alone).
+   detail strings underneath (read the actual reply before concluding
+   anything from the label alone).
 3. **SCORECARD BY DIMENSION** — `passed/total` for each of the nine dimensions,
    so two models' `--json` outputs can be diffed dimension by dimension.
 4. **FINAL** — total assertions passed out of the total scored (the bookkeeping

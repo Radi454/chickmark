@@ -313,9 +313,7 @@ async function listCustomers(
 // single-customer `resolved` result (see below). Below the cap, handing back
 // the roster we already fetched saves the model a whole extra tool round
 // trip for the extremely common "who is X" -> "what flocks does X have"
-// follow-up; on the Realtime voice path a round trip is not free plumbing,
-// it is a full additional model inference plus a spoken silence while it
-// runs. Above the cap we omit the field instead of truncating it, because a
+// follow-up; a round trip is a full additional model inference. Above the cap we omit the field instead of truncating it, because a
 // customer with a roster this large is rare enough that the savings stop
 // paying for the extra bytes on every other single-customer resolution, and
 // a truncated list would look complete to the model and get answered from a

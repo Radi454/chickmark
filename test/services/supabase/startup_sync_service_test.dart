@@ -25,6 +25,7 @@ import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/performance_sync_repository.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
+import 'package:hatchaudit/services/breeder/breeder_report_sync_service.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 import 'package:hatchaudit/services/supabase/sync_retry_policy.dart';
@@ -71,6 +72,9 @@ class _MockPerformanceSyncRepository extends Mock
 class _MockSyncTombstoneRepository extends Mock
     implements SyncTombstoneRepository {}
 
+class _MockBreederReportSyncService extends Mock
+    implements BreederReportSyncService {}
+
 class _MockPhotoSyncService extends Mock implements PhotoSyncService {}
 
 void main() {
@@ -90,6 +94,7 @@ void main() {
   late _MockPanelSampleRepository panels;
   late _MockPerformanceSyncRepository operational;
   late _MockSyncTombstoneRepository tombstones;
+  late _MockBreederReportSyncService breederReportSync;
   late _MockPhotoSyncService photoSync;
   // Retry backoff is process-local state; give every test its own policy and
   // its own controllable clock so one test's failures cannot leak into the next.
@@ -119,6 +124,14 @@ void main() {
     panels = _MockPanelSampleRepository();
     operational = _MockPerformanceSyncRepository();
     tombstones = _MockSyncTombstoneRepository();
+    breederReportSync = _MockBreederReportSyncService();
+    when(() => breederReportSync.pushDirtyReportsDetailed()).thenAnswer(
+      (_) async => const BreederReportSyncRunResult(
+        pushedRowCount: 0,
+        conflictCount: 0,
+        failedReportIds: [],
+      ),
+    );
     photoSync = _MockPhotoSyncService();
     clock = DateTime.utc(2026, 8, 16, 9);
     retryPolicy = SyncRetryPolicy(now: () => clock);
@@ -379,6 +392,7 @@ void main() {
     eggGradingRepository: eggGrading,
     performanceSyncRepository: operational,
     syncTombstoneRepository: tombstones,
+    breederReportSyncService: breederReportSync,
     photoSyncService: photoSync,
     retryPolicy: retryPolicy,
   );
@@ -1039,15 +1053,15 @@ void main() {
   // Push failures must never be reported as a clean sync.
   // ---------------------------------------------------------------------
 
-  /// Makes the operational table `farms` dirty with [rows] rows.
-  void makeFarmsDirty({int rows = 1}) {
-    when(() => operational.getDirtyRows('farms')).thenAnswer(
+  /// Makes the operational table `houses` dirty with [rows] rows.
+  void makeHousesDirty({int rows = 1}) {
+    when(() => operational.getDirtyRows('houses')).thenAnswer(
       (_) async => [
         for (var index = 0; index < rows; index++)
           {
-            'id': 'farm-$index',
+            'id': 'house-$index',
             'customerId': 'customer-1',
-            'name': 'Farm $index',
+            'name': 'House $index',
             'syncStatus': 'pending',
           },
       ],
@@ -1055,30 +1069,30 @@ void main() {
   }
 
   test('a rejected table push is reported as failed, not as a clean sync', () {
-    makeFarmsDirty();
+    makeHousesDirty();
     when(
-      () => supabase.upsertRowsStrict('farms', any()),
-    ).thenThrow(StateError('relation "farms" does not exist'));
+      () => supabase.upsertRowsStrict('houses', any()),
+    ).thenThrow(StateError('relation "houses" does not exist'));
 
     return service().run().then((outcome) {
       expect(outcome.online, isTrue);
       expect(outcome.failed, 1);
-      expect(outcome.failedTables, ['farms']);
+      expect(outcome.failedTables, ['houses']);
       expect(outcome.hasFailures, isTrue);
       expect(outcome.fullySynced, isFalse);
-      expect(outcome.failureSummary, contains('farms'));
+      expect(outcome.failureSummary, contains('houses'));
       expect(outcome.statusMessage, startsWith('Sync incomplete'));
       verify(
-        () => operational.markRowsFailed('farms', ['farm-0'], any()),
+        () => operational.markRowsFailed('houses', ['house-0'], any()),
       ).called(1);
     });
   });
 
   test('other tables in a run with a failing table still succeed', () async {
-    makeFarmsDirty();
+    makeHousesDirty();
     when(
-      () => supabase.upsertRowsStrict('farms', any()),
-    ).thenThrow(StateError('relation "farms" does not exist'));
+      () => supabase.upsertRowsStrict('houses', any()),
+    ).thenThrow(StateError('relation "houses" does not exist'));
     when(() => customers.getDirtyRows()).thenAnswer(
       (_) async => [
         {'id': 'customer-1', 'name': 'Customer 1', 'syncStatus': 'pending'},
@@ -1098,10 +1112,10 @@ void main() {
   test(
     'a run with failures does not finish on the clean "Ready" note',
     () async {
-      makeFarmsDirty(rows: 2);
+      makeHousesDirty(rows: 2);
       when(
-        () => supabase.upsertRowsStrict('farms', any()),
-      ).thenThrow(StateError('relation "farms" does not exist'));
+        () => supabase.upsertRowsStrict('houses', any()),
+      ).thenThrow(StateError('relation "houses" does not exist'));
       final messages = <String>[];
 
       await service().run(
@@ -1162,43 +1176,43 @@ void main() {
   test(
     'a failing table is not re-attempted while inside its backoff',
     () async {
-      makeFarmsDirty();
+      makeHousesDirty();
       when(
-        () => supabase.upsertRowsStrict('farms', any()),
-      ).thenThrow(StateError('relation "farms" does not exist'));
+        () => supabase.upsertRowsStrict('houses', any()),
+      ).thenThrow(StateError('relation "houses" does not exist'));
 
       final first = await service().run();
       final second = await service().run();
 
       // One doomed round-trip, not two — but the failure stays visible.
-      verify(() => supabase.upsertRowsStrict('farms', any())).called(1);
-      verify(() => operational.markRowsFailed('farms', any(), any())).called(1);
+      verify(() => supabase.upsertRowsStrict('houses', any())).called(1);
+      verify(() => operational.markRowsFailed('houses', any(), any())).called(1);
       expect(first.failed, 1);
       expect(second.failed, 1);
-      expect(second.failedTables, ['farms']);
+      expect(second.failedTables, ['houses']);
     },
   );
 
   test('a failing table is re-attempted once its backoff expires', () async {
-    makeFarmsDirty();
+    makeHousesDirty();
     when(
-      () => supabase.upsertRowsStrict('farms', any()),
-    ).thenThrow(StateError('relation "farms" does not exist'));
+      () => supabase.upsertRowsStrict('houses', any()),
+    ).thenThrow(StateError('relation "houses" does not exist'));
 
     await service().run();
     clock = clock.add(SyncRetryPolicy.baseBackoff);
     await service().run();
 
-    verify(() => supabase.upsertRowsStrict('farms', any())).called(2);
+    verify(() => supabase.upsertRowsStrict('houses', any())).called(2);
     // Two consecutive failures → the next window is twice as long.
-    expect(retryPolicy.consecutiveFailures('farms'), 2);
-    expect(retryPolicy.shouldAttempt('farms'), isFalse);
+    expect(retryPolicy.consecutiveFailures('houses'), 2);
+    expect(retryPolicy.shouldAttempt('houses'), isFalse);
   });
 
   test('a successful push clears a table\'s backoff state', () async {
-    makeFarmsDirty();
+    makeHousesDirty();
     var attempt = 0;
-    when(() => supabase.upsertRowsStrict('farms', any())).thenAnswer((_) async {
+    when(() => supabase.upsertRowsStrict('houses', any())).thenAnswer((_) async {
       attempt++;
       if (attempt == 1) throw StateError('transient');
     });
@@ -1210,8 +1224,8 @@ void main() {
     expect(first.failed, 1);
     expect(second.failed, 0);
     expect(second.fullySynced, isTrue);
-    expect(retryPolicy.consecutiveFailures('farms'), 0);
-    expect(retryPolicy.shouldAttempt('farms'), isTrue);
+    expect(retryPolicy.consecutiveFailures('houses'), 0);
+    expect(retryPolicy.shouldAttempt('houses'), isTrue);
   });
 
   test('backoff grows exponentially and is capped', () {
@@ -1230,7 +1244,15 @@ void main() {
     expect(order, contains('egg_storage'));
     expect(order, isNot(contains('audits')));
     expect(order, isNot(contains('sample_records')));
-    expect(order.where((table) => table.endsWith('_samples')), isEmpty);
+    // Panel sample child tables (e.g. `chick_weights`'s own `_samples`
+    // table) use a different deletion mechanism and must never appear here
+    // — but breeder-flock-performance ticket 15's legitimately registered
+    // `breeder_weighing_samples` also happens to end in `_samples`, so this
+    // must check the panel names specifically rather than the suffix.
+    for (final panel in PanelSampleSchema.panels) {
+      expect(order, isNot(contains(panel.sampleTableName)));
+    }
+    expect(order, contains('breeder_weighing_samples'));
     expect(order, isNot(contains('agent_conversations')));
     expect(order, isNot(contains('agent_conversation_turns')));
     expect(order, isNot(contains('agent_tool_events')));

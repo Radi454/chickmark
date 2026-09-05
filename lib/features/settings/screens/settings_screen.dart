@@ -14,6 +14,7 @@ import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/features/admin/screens/admin_users_screen.dart';
 import 'package:hatchaudit/features/settings/screens/activity_log_screen.dart';
+import 'package:hatchaudit/features/breeder/screens/breeder_benchmark_list_screen.dart';
 import 'package:hatchaudit/services/backup/backup_service.dart';
 import 'package:hatchaudit/services/supabase/startup_sync_service.dart';
 
@@ -46,6 +47,8 @@ class SettingsScreen extends StatelessWidget {
                         _buildAdminSection(context),
                         const SizedBox(height: AppSizes.spaceLg),
                       ],
+                      _buildReferenceSection(context),
+                      const SizedBox(height: AppSizes.spaceLg),
                       _buildAppSection(),
                     ],
             ),
@@ -421,6 +424,33 @@ class SettingsScreen extends StatelessWidget {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${parsed.year}-${two(parsed.month)}-${two(parsed.day)} '
         '${two(parsed.hour)}:${two(parsed.minute)}';
+  }
+
+  Widget _buildReferenceSection(BuildContext context) {
+    return SectionCard(
+      title: 'Reference',
+      icon: Icons.menu_book_outlined,
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.query_stats_outlined),
+            title: const Text('Official Benchmarks'),
+            subtitle: const Text(
+              'Published breed-company performance targets',
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const BreederBenchmarkListScreen(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildAppSection() {

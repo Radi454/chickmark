@@ -36,6 +36,7 @@ String supabaseSnakeCase(String key) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dbDir;
   late Map<String, Set<String>> cloudColumns;
 

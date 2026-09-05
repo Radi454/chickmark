@@ -96,6 +96,23 @@ class CalculationUtils {
     return double.parse(value.toStringAsFixed(decimalPlaces));
   }
 
+  /// Divides [numerator] by [denominator], returning `null` when the
+  /// denominator is missing, zero, or negative — the same "blank, never 0,
+  /// never an error" convention [percentOf] already follows for
+  /// non-positive totals, generalized for calculations that are not
+  /// themselves a 0-100 percentage (e.g. breeder feed grams per bird, design
+  /// doc section 7.2: "A zero, negative, or missing denominator yields a
+  /// blank derived value, never `0` and never an error").
+  static double? divideOrNull(
+    num? numerator,
+    num? denominator, {
+    int decimalPlaces = 1,
+  }) {
+    if (numerator == null || denominator == null) return null;
+    if (denominator <= 0) return null;
+    return roundTo((numerator / denominator).toDouble(), decimalPlaces: decimalPlaces);
+  }
+
   /// Returns a shell-temperature zone label for °C readings.
   /// Optimal: 19–21 °C.  Low: <19 °C.  High: >21 °C.
   static String shellTempZone(double tempC) {

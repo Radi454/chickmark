@@ -70,7 +70,16 @@ void main() {
         expect(tables, isNot(contains(table)), reason: table);
       }
       expect(
-        tables.where((table) => table.endsWith('_samples')),
+        tables
+            .where((table) => table.endsWith('_samples'))
+            // `breeder_weighing_samples` (breeder-flock-performance ticket
+            // 13) is a genuinely new, unrelated table that happens to also
+            // end in `_samples` — individual bird weights for a weighing
+            // session, not a legacy panel-cutover child table. The suffix
+            // check below exists to catch the *legacy* sample tables
+            // listed in `_legacyTables`, not to forbid the name pattern
+            // outright.
+            .where((table) => table != 'breeder_weighing_samples'),
         isEmpty,
         reason: 'panel child sample tables are removed in the hard cutover',
       );

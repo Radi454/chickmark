@@ -56,6 +56,7 @@ Future<void> _createPanelTable(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late _MockDatabaseHelper databaseHelper;
   late _MockActivityLogRepository activityLogRepository;

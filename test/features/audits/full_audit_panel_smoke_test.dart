@@ -964,7 +964,13 @@ Future<void> _expectNoLegacyAuditOrSampleTables() async {
     expect(tables, isNot(contains(table)), reason: table);
   }
   expect(
-    tables.where((table) => table.endsWith('_samples')),
+    tables
+        .where((table) => table.endsWith('_samples'))
+        // `breeder_weighing_samples` (breeder-flock-performance ticket 13)
+        // is a genuinely new, unrelated table — individual bird weights
+        // for a weighing session, not a legacy panel-cutover child table.
+        // See the matching note in database_helper_migration_test.dart.
+        .where((table) => table != 'breeder_weighing_samples'),
     isEmpty,
     reason: 'panel child sample tables must not exist after the hard cutover',
   );

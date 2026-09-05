@@ -8,6 +8,7 @@ import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
 import '../../support/test_database.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory tempDir;
   late LabAnalysisRepository repository;
 

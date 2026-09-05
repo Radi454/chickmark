@@ -45,9 +45,9 @@ void main() {
   tearDown(resetAppDatabase);
 
   test(
-    'v41-baseline database upgraded through v66 matches a fresh v66 create',
+    'v41-baseline database upgraded through v80 matches a fresh v80 create',
     () async {
-      // Fresh v66: DatabaseHelper's real _onCreate path, on a database file
+      // Fresh v80: DatabaseHelper's real _onCreate path, on a database file
       // that has never existed before.
       final freshDb = await DatabaseHelper().db;
       final freshSchema = await normalizedSchema(freshDb);
@@ -62,7 +62,7 @@ void main() {
         isNotEmpty,
         reason:
             'sanity check: the v41 baseline must actually differ from a '
-            'fresh v66 database, otherwise this test would vacuously pass',
+            'fresh v69 database, otherwise this test would vacuously pass',
       );
 
       // Replay the real v46..v62 handler chain directly via the
@@ -93,6 +93,20 @@ void main() {
       await helper.applyV64UpgradeForTest(freshDb);
       await helper.applyV65UpgradeForTest(freshDb);
       await helper.applyV66UpgradeForTest(freshDb);
+      await helper.applyV67UpgradeForTest(freshDb);
+      await helper.applyV68UpgradeForTest(freshDb);
+      await helper.applyV69UpgradeForTest(freshDb);
+      await helper.applyV70UpgradeForTest(freshDb);
+      await helper.applyV71UpgradeForTest(freshDb);
+      await helper.applyV72UpgradeForTest(freshDb);
+      await helper.applyV73UpgradeForTest(freshDb);
+      await helper.applyV74UpgradeForTest(freshDb);
+      await helper.applyV75UpgradeForTest(freshDb);
+      await helper.applyV76UpgradeForTest(freshDb);
+      await helper.applyV77UpgradeForTest(freshDb);
+      await helper.applyV78UpgradeForTest(freshDb);
+      await helper.applyV79UpgradeForTest(freshDb);
+      await helper.applyV80UpgradeForTest(freshDb);
 
       final upgradedSchema = await normalizedSchema(freshDb);
 

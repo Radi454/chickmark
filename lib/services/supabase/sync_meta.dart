@@ -9,6 +9,13 @@ const kSyncMetaColumns = <String>{
   'dirtyAt',
   'lastSyncedAt',
   'syncError',
+  // breeder-flock-performance ticket 15: the daily-report sync aggregate's
+  // own local-only optimistic-concurrency bookkeeping (design doc section
+  // 13.1). Neither column exists in the cloud `breeder_daily_reports`
+  // table — see database_schema.dart's `createBreederDailyReportTables` doc
+  // comment for what each one means.
+  'lastSyncedRevision',
+  'previousState',
 };
 
 /// Returns a copy of [row] without the device-local sync bookkeeping columns,

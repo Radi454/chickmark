@@ -1534,3 +1534,1045 @@ Set<String> _columnNames(List<Map<String, Object?>> tableInfo) {
       .whereType<String>()
       .toSet();
 }
+
+/// v67 removes the Broiler Performance and farm-visit feature outright: the
+/// broiler daily-record/target tables, the performance alert/concern tables,
+/// and the farm-visit/investigation/cause-assessment/corrective-action tables.
+/// A later feature replaces this area; nothing here is recreated by a future
+/// migration. Child tables are dropped before the parents they reference so
+/// SQLite's deferred FK checks never see a dangling reference mid-migration.
+/// `customer_sectors`, `farms`, `houses`, `flock_placements`, and `flocks`
+/// are untouched — a later migration reshapes them for the replacement
+/// feature.
+Future<void> _applyV67Upgrade(Database db) async {
+  for (final table in const [
+    'action_kpi_evaluations',
+    'corrective_actions',
+    'cause_assessments',
+    'visit_findings',
+    'visit_investigations',
+    'farm_visit_houses',
+    'farm_visit_sessions',
+    'performance_concerns',
+    'performance_alert_rules',
+    'broiler_daily_events',
+    'daily_record_sources',
+    'broiler_daily_record_revisions',
+    'broiler_daily_records',
+    'broiler_target_rows',
+    'broiler_target_profiles',
+  ]) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+}
+
+/// v68 collapses Farm into Flock: a farm and a flock are the same thing in
+/// this business (see docs/superpowers/specs/2026-08-27-breeder-flock-performance-design.md
+/// section 2.1). `houses.farmId` becomes `houses.flockId`, each house gains
+/// its own opening female/male bird counts (carrying the opening balance
+/// that used to live on a `flock_placements` row), `flocks.entryDate` is the
+/// single placement date for every house in the flock, `flocks.farmId` is
+/// removed, and the `farms` and `flock_placements` tables are dropped
+/// outright. `customer_sectors` is untouched.
+///
+/// Backfill: for each existing house, the flock and opening counts are taken
+/// from its *active* flock_placements row (status='active', endedAt IS
+/// NULL). The source schema never split placedBirds by sex, so the whole
+/// count is assigned to females for an as_hatched or female flock and to
+/// males for a male flock — a reasonable default for a breeder operation
+/// tracked primarily by female counts, applied only during this one-time
+/// backfill. A house with no active placement, or whose placement points at
+/// a flock row that no longer exists, cannot be assigned a flock and is
+/// deleted rather than assigned an invented one — the project is still in
+/// testing and losing that local Performance test data is acceptable. Both
+/// row counts are logged via debugPrint so an upgrade can be audited after
+/// the fact.
+Future<void> _applyV68Upgrade(Database db) async {
+  await _rebuildV68HousesTable(db);
+  await db.execute('DROP TABLE IF EXISTS flock_placements');
+  await db.execute('DROP TABLE IF EXISTS farms');
+  await _rebuildV68FlocksTableDroppingFarmId(db);
+}
+
+Future<void> _rebuildV68HousesTable(Database db) async {
+  if (!await _tableExists(db, 'houses')) return;
+
+  final houseColumns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('houses')"),
+  );
+  if (!houseColumns.contains('farmId')) {
+    // Already reshaped (e.g. surgical repair ran after a partial upgrade).
+    return;
+  }
+
+  final hasPlacements = await _tableExists(db, 'flock_placements');
+  final hasFlocks = await _tableExists(db, 'flocks');
+
+  // houseId -> (flockId, openingFemales, openingMales), derived from each
+  // house's single active placement.
+  final resolved = <String, (String, int, int)>{};
+  if (hasPlacements && hasFlocks) {
+    final rows = await db.rawQuery('''
+      SELECT h.id AS houseId, fp.flockId AS flockId, fp.placedBirds AS placedBirds,
+        f.sexProfile AS sexProfile
+      FROM houses h
+      JOIN flock_placements fp
+        ON fp.houseId = h.id AND fp.status = 'active' AND fp.endedAt IS NULL
+      JOIN flocks f ON f.id = fp.flockId
+    ''');
+    final seenHouses = <String>{};
+    for (final row in rows) {
+      final houseId = row['houseId']?.toString();
+      final flockId = row['flockId']?.toString();
+      if (houseId == null || flockId == null) continue;
+      // A house should have at most one active placement (the pre-v68
+      // unique index enforced this); if data drifted, keep the first match
+      // and ignore the rest rather than double counting.
+      if (!seenHouses.add(houseId)) continue;
+      final placedBirds = _integerFrom(row['placedBirds']) ?? 0;
+      final sexProfile = row['sexProfile']?.toString();
+      final isMaleFlock = sexProfile == 'male';
+      resolved[houseId] = (
+        flockId,
+        isMaleFlock ? 0 : placedBirds,
+        isMaleFlock ? placedBirds : 0,
+      );
+    }
+  }
+
+  final allHouseRows = await db.query('houses');
+  final orphanCount = allHouseRows.length - resolved.length;
+  debugPrint(
+    '[DB MIGRATION v68] houses backfilled from flock_placements: '
+    '${resolved.length}, orphan houses deleted: $orphanCount',
+  );
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+  await db.execute('PRAGMA legacy_alter_table = OFF');
+
+  // On a database that already carries v71's `breeder_bird_movements`
+  // house-scope guards (a fresh install being replayed through this
+  // migration for a test, or a future re-run after v71 has landed),
+  // SQLite reparses every trigger that references `houses` during the
+  // DROP/RENAME dance below, and briefly finds no `houses` table. Drop the
+  // guard set for the duration and recreate it once `houses` exists again
+  // under its final name — the same trick the v68 flocks rebuild already
+  // uses for the unified-agent guard set.
+  final hasBreederMovementGuards = await _tableExists(
+    db,
+    'breeder_bird_movements',
+  );
+  // The version-74 `breeder_egg_production_entries` guards reference
+  // `houses` the same way `breeder_bird_movements`/`breeder_feed_entries`
+  // do and hit the identical "no such table: main.houses" trigger-reparse
+  // failure during the DROP/RENAME dance below if left in place — checked
+  // separately from `hasBreederMovementGuards` since, in principle, this
+  // table's existence is not tied to the movements table's.
+  final hasBreederEggProductionGuards = await _tableExists(
+    db,
+    'breeder_egg_production_entries',
+  );
+  // The version-77 `breeder_weighing_sessions` house-scope guard
+  // (`trg_breeder_weighing_sessions_house_scope_*`) references `houses` the
+  // same way the movement/feed/egg-production guards above do and hits the
+  // identical "no such table: main.houses" trigger-reparse failure during
+  // the DROP/RENAME dance below if left in place, so it is dropped and
+  // recreated alongside them. Checked separately since, like the egg
+  // production guards, this table's existence is not tied to the others'.
+  final hasBreederWeighingSessionGuards = await _tableExists(
+    db,
+    'breeder_weighing_sessions',
+  );
+  // The version-78 `egg_batch_house_sources` house-scope guard
+  // (`trg_egg_batch_house_sources_house_scope_*`) references `houses` the
+  // same way the movement/feed/egg-production/weighing-session guards
+  // above do and hits the identical "no such table: main.houses"
+  // trigger-reparse failure during the DROP/RENAME dance below if left in
+  // place, so it is dropped and recreated alongside them. Checked
+  // separately since, like the others, this table's existence is not tied
+  // to any other table's.
+  final hasEggBatchHouseSourceGuards = await _tableExists(
+    db,
+    'egg_batch_house_sources',
+  );
+  // The version-80 `breeder_performance_alerts` house-scope guard
+  // (`trg_breeder_performance_alerts_house_scope_*`) references `houses`
+  // the same way the movement/feed/egg-production/weighing-session/
+  // egg-batch-house-source guards above do and hits the identical "no such
+  // table: main.houses" trigger-reparse failure during the DROP/RENAME
+  // dance below if left in place, so it is dropped and recreated alongside
+  // them. Checked separately since, like the others, this table's
+  // existence is not tied to any other table's.
+  final hasBreederPerformanceAlertsGuards = await _tableExists(
+    db,
+    'breeder_performance_alerts',
+  );
+  if (hasBreederMovementGuards) {
+    // Both the pre-v72 name (house-scope-only) and the v72+ name
+    // (location-scope, covering isolation areas too) are dropped here: a
+    // fresh install always creates the current (location-scope) triggers,
+    // so replaying this v68 step against a from-scratch schema (as the
+    // migration-chain parity test does) only ever has the new name to
+    // drop, while a genuinely old on-disk database being upgraded through
+    // this step still has the old name. The version-73 `breeder_feed_entries`
+    // guards reference `houses` the same way and hit the identical "no such
+    // table: main.houses" trigger-reparse failure if left in place, so they
+    // are dropped and recreated alongside the movement guards.
+    for (final trigger in const [
+      'trg_breeder_bird_movements_house_scope_insert',
+      'trg_breeder_bird_movements_house_scope_update',
+      'trg_breeder_bird_movements_location_scope_insert',
+      'trg_breeder_bird_movements_location_scope_update',
+      'trg_breeder_feed_entries_location_scope_insert',
+      'trg_breeder_feed_entries_location_scope_update',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+  }
+  if (hasBreederEggProductionGuards) {
+    for (final trigger in const [
+      'trg_breeder_egg_production_entries_location_scope_insert',
+      'trg_breeder_egg_production_entries_location_scope_update',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+  }
+  if (hasBreederWeighingSessionGuards) {
+    for (final trigger in const [
+      'trg_breeder_weighing_sessions_house_scope_insert',
+      'trg_breeder_weighing_sessions_house_scope_update',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+  }
+  if (hasEggBatchHouseSourceGuards) {
+    for (final trigger in const [
+      'trg_egg_batch_house_sources_house_scope_insert',
+      'trg_egg_batch_house_sources_house_scope_update',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+  }
+  if (hasBreederPerformanceAlertsGuards) {
+    for (final trigger in const [
+      'trg_breeder_performance_alerts_house_scope_insert',
+      'trg_breeder_performance_alerts_house_scope_update',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+  }
+
+  try {
+    const shadow = 'houses_v68';
+    await db.execute('DROP TABLE IF EXISTS $shadow');
+    await db.execute('''CREATE TABLE $shadow (
+      id TEXT PRIMARY KEY,
+      flockId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      code TEXT,
+      capacity INTEGER,
+      openingFemales INTEGER NOT NULL DEFAULT 0 CHECK (openingFemales >= 0),
+      openingMales INTEGER NOT NULL DEFAULT 0 CHECK (openingMales >= 0),
+      notes TEXT,
+      isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1)),
+      createdBy TEXT,
+      createdAt TEXT,
+      updatedAt TEXT,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT,
+      FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
+    )''');
+
+    for (final row in allHouseRows) {
+      final houseId = row['id']?.toString();
+      if (houseId == null) continue;
+      final match = resolved[houseId];
+      if (match == null) continue; // orphan: dropped, not carried forward.
+      final (flockId, openingFemales, openingMales) = match;
+      await db.insert(shadow, {
+        'id': houseId,
+        'flockId': flockId,
+        'name': row['name'],
+        'code': row['code'],
+        'capacity': row['capacity'],
+        'openingFemales': openingFemales,
+        'openingMales': openingMales,
+        'notes': row['notes'],
+        'isActive': row['isActive'] ?? 1,
+        'createdBy': row['createdBy'],
+        'createdAt': row['createdAt'],
+        'updatedAt': row['updatedAt'],
+        'syncStatus': row['syncStatus'] ?? 'pending',
+        'dirtyAt': row['dirtyAt'],
+        'lastSyncedAt': row['lastSyncedAt'],
+        'syncError': row['syncError'],
+      });
+    }
+
+    await db.execute('DROP TABLE houses');
+    await db.execute('ALTER TABLE $shadow RENAME TO houses');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_houses_flock_name '
+      'ON houses (flockId, name)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_houses_flock_code '
+      'ON houses (flockId, code) WHERE code IS NOT NULL AND code <> \'\'',
+    );
+
+    final violations = await db.rawQuery('PRAGMA foreign_key_check(houses)');
+    if (violations.isNotEmpty) {
+      throw StateError('v68 houses rebuild found foreign-key violations');
+    }
+
+    // Recreate the guard set dropped above, now that `houses` exists again
+    // under its final name. `createBreederDailyReportTables` is idempotent
+    // (CREATE TABLE/TRIGGER IF NOT EXISTS), so calling it again only
+    // restores what was dropped.
+    if (hasBreederMovementGuards) {
+      await createBreederDailyReportTables(db);
+    }
+    if (hasBreederEggProductionGuards) {
+      await createBreederEggProductionEntriesTable(db);
+    }
+    if (hasBreederWeighingSessionGuards) {
+      await createBreederWeighingSessionsTable(db);
+    }
+    if (hasEggBatchHouseSourceGuards) {
+      await createEggBatchHouseSourcesTable(db);
+    }
+    if (hasBreederPerformanceAlertsGuards) {
+      await createBreederPerformanceAlertsTable(db);
+    }
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
+Future<void> _rebuildV68FlocksTableDroppingFarmId(Database db) async {
+  if (!await _tableExists(db, 'flocks')) return;
+  final columns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('flocks')"),
+  );
+  if (!columns.contains('farmId')) return;
+
+  const carriedColumns = [
+    'id',
+    'customerId',
+    'flockId',
+    'breed',
+    'entryDate',
+    'sectorKey',
+    'sexProfile',
+    'targetProfileId',
+    'productionPhase',
+    'isAgeEstimated',
+    'status',
+    'depletionAgeWeeks',
+    'soldAt',
+    'updatedAt',
+    'syncStatus',
+    'dirtyAt',
+    'lastSyncedAt',
+    'syncError',
+  ];
+  final copied = carriedColumns.where(columns.contains).toList();
+  if (!copied.contains('id')) return;
+  final copiedList = copied.join(', ');
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+  await db.execute('PRAGMA legacy_alter_table = OFF');
+
+  try {
+    // SQLite reparses every trigger during ALTER TABLE, not just the ones
+    // bound to the renamed table. `trg_agent_intake_visit_scope_insert`/
+    // `_update` reference `flocks` in a subquery, which makes the RENAME
+    // fail once the old `flocks` table is dropped mid-rebuild. Drop the
+    // whole unified-agent guard set for the duration and recreate it once
+    // the table graph is whole again (see the v59 telegram_staff_links
+    // rebuild for the same trick).
+    for (final trigger in const [
+      'trg_telegram_staff_links_scope_insert',
+      'trg_telegram_staff_links_scope_update',
+      'trg_agent_intake_visit_scope_insert',
+      'trg_agent_intake_visit_scope_update',
+      'trg_agent_intake_summary_immutable',
+      'trg_agent_tool_events_immutable',
+      'trg_agent_tool_events_delete_immutable',
+    ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+    }
+
+    const shadow = 'flocks_v68';
+    await db.execute('DROP TABLE IF EXISTS $shadow');
+    await db.execute('''CREATE TABLE $shadow (
+      id TEXT PRIMARY KEY,
+      customerId TEXT,
+      flockId TEXT,
+      breed TEXT,
+      entryDate TEXT,
+      sectorKey TEXT,
+      sexProfile TEXT NOT NULL DEFAULT 'as_hatched',
+      targetProfileId TEXT,
+      productionPhase TEXT,
+      isAgeEstimated INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
+      soldAt TEXT,
+      updatedAt TEXT,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT,
+      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+    )''');
+
+    await db.execute('''
+      INSERT INTO $shadow ($copiedList)
+      SELECT $copiedList FROM flocks
+    ''');
+
+    final sourceCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM flocks'),
+    );
+    final shadowCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM $shadow'),
+    );
+    if (sourceCount != shadowCount) {
+      throw StateError('v68 flocks rebuild row-count mismatch');
+    }
+
+    await db.execute('DROP TABLE flocks');
+    await db.execute('ALTER TABLE $shadow RENAME TO flocks');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_flocks_customer '
+      'ON flocks (customerId, status)',
+    );
+
+    final violations = await db.rawQuery('PRAGMA foreign_key_check(flocks)');
+    if (violations.isNotEmpty) {
+      throw StateError('v68 flocks rebuild found foreign-key violations');
+    }
+
+    // Recreate the guard set dropped above, now that `flocks` exists again.
+    // A minimal pre-v68 fixture (as in a targeted migration test) may not
+    // carry the unified-agent tables these triggers guard; skip recreation
+    // rather than fail when that's the case — onOpen's surgical repair
+    // covers a real upgrade regardless.
+    if (await _tableExists(db, 'telegram_staff_links') &&
+        await _tableExists(db, 'agent_intake_visits') &&
+        await _tableExists(db, 'agent_intake_sessions') &&
+        await _tableExists(db, 'agent_tool_events')) {
+      await _createUnifiedAgentHarnessGuards(db);
+    }
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
+int? _integerFrom(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+/// v69 adds the official breeder benchmark foundation (breeder-flock
+/// -performance ticket 03): `breeder_metric_definitions`,
+/// `breeder_benchmark_profiles`, and `breeder_benchmark_values`, then imports
+/// the checked-in asset profiles (see
+/// lib/data/database/seeds/breeder_benchmark_seeds.dart). Import is
+/// idempotent and keyed by profile identity, so re-running an upgrade never
+/// duplicates or mutates an already-published profile.
+Future<void> _applyV69Upgrade(Database db) async {
+  await createBreederBenchmarkTables(db);
+  await importBreederBenchmarks(db);
+}
+
+/// v70 adds `breeder_flock_milestones` (breeder-flock-performance ticket
+/// 06): dated operational events per flock (grading, physical transfer,
+/// light stimulation, first egg, production milestones, and depletion
+/// events). See `createBreederFlockMilestonesTable` in database_schema.dart.
+Future<void> _applyV70Upgrade(Database db) async {
+  await createBreederFlockMilestonesTable(db);
+}
+
+/// v71 adds `breeder_daily_reports` and `breeder_bird_movements`
+/// (breeder-flock-performance ticket 07): the daily report header plus its
+/// bird-movement ledger, the first vertical slice of the daily report. Feed,
+/// eggs, and inventory are later tickets. See
+/// `createBreederDailyReportTables` in database_schema.dart.
+Future<void> _applyV71Upgrade(Database db) async {
+  await createBreederDailyReportTables(db);
+}
+
+/// v72 adds `breeder_isolation_areas` (breeder-flock-performance ticket 08)
+/// and extends `breeder_bird_movements` so a movement's location is either a
+/// house or a named isolation area — exactly one, never both, never
+/// neither. See `createBreederIsolationAreasTable` and the updated
+/// `createBreederDailyReportTables` in database_schema.dart for the final
+/// (fresh-install) shape; [_rebuildBreederBirdMovementsForIsolationAreas]
+/// below reshapes an existing v71 `breeder_bird_movements` table into that
+/// shape in place, since SQLite cannot relax a NOT NULL column or add a
+/// multi-column CHECK via ALTER TABLE.
+Future<void> _applyV72Upgrade(Database db) async {
+  await createBreederIsolationAreasTable(db);
+  await _rebuildBreederBirdMovementsForIsolationAreas(db);
+}
+
+Future<void> _rebuildBreederBirdMovementsForIsolationAreas(Database db) async {
+  final hasTable = await _tableExists(db, 'breeder_bird_movements');
+  if (!hasTable) return; // Fresh install already created the v72 shape.
+
+  final columns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('breeder_bird_movements')"),
+  );
+  if (columns.contains('isolationAreaId')) {
+    return; // Already rebuilt (e.g. surgical repair re-running this).
+  }
+
+  final existingRows = await db.query('breeder_bird_movements');
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+
+  try {
+    // Old (pre-v72) house-scope-only triggers, and any location-scope
+    // triggers from a previous partial run of this migration.
+    await db.execute(
+      'DROP TRIGGER IF EXISTS trg_breeder_bird_movements_house_scope_insert',
+    );
+    await db.execute(
+      'DROP TRIGGER IF EXISTS trg_breeder_bird_movements_house_scope_update',
+    );
+    await db.execute(
+      'DROP TRIGGER IF EXISTS trg_breeder_bird_movements_location_scope_insert',
+    );
+    await db.execute(
+      'DROP TRIGGER IF EXISTS trg_breeder_bird_movements_location_scope_update',
+    );
+
+    const shadow = 'breeder_bird_movements_v72';
+    await db.execute('DROP TABLE IF EXISTS $shadow');
+    await db.execute('''CREATE TABLE $shadow (
+      id TEXT PRIMARY KEY,
+      reportId TEXT NOT NULL,
+      houseId TEXT,
+      isolationAreaId TEXT,
+      sex TEXT NOT NULL CHECK (sex IN ('female', 'male')),
+      opening INTEGER NOT NULL DEFAULT 0 CHECK (opening >= 0),
+      mortality INTEGER NOT NULL DEFAULT 0 CHECK (mortality >= 0),
+      culls INTEGER NOT NULL DEFAULT 0 CHECK (culls >= 0),
+      sale INTEGER NOT NULL DEFAULT 0 CHECK (sale >= 0),
+      kitchenRemoval INTEGER NOT NULL DEFAULT 0 CHECK (kitchenRemoval >= 0),
+      euthanasia INTEGER NOT NULL DEFAULT 0 CHECK (euthanasia >= 0),
+      transferIn INTEGER NOT NULL DEFAULT 0 CHECK (transferIn >= 0),
+      transferOut INTEGER NOT NULL DEFAULT 0 CHECK (transferOut >= 0),
+      closing INTEGER NOT NULL DEFAULT 0 CHECK (closing >= 0),
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT,
+      CHECK (closing = opening - mortality - culls - sale - kitchenRemoval - euthanasia + transferIn - transferOut),
+      CHECK ((sex = 'female' AND euthanasia = 0) OR (sex = 'male' AND kitchenRemoval = 0)),
+      CHECK ((houseId IS NOT NULL AND isolationAreaId IS NULL) OR (houseId IS NULL AND isolationAreaId IS NOT NULL)),
+      FOREIGN KEY (reportId) REFERENCES breeder_daily_reports(id) ON DELETE CASCADE,
+      FOREIGN KEY (houseId) REFERENCES houses(id),
+      FOREIGN KEY (isolationAreaId) REFERENCES breeder_isolation_areas(id)
+    )''');
+
+    // Every pre-v72 row is a house movement (isolation did not exist yet).
+    for (final row in existingRows) {
+      await db.insert(shadow, {...row, 'isolationAreaId': null});
+    }
+
+    final sourceCount = existingRows.length;
+    final shadowCount =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM $shadow'),
+        ) ??
+        0;
+    if (sourceCount != shadowCount) {
+      throw StateError(
+        'v72 breeder_bird_movements rebuild row-count mismatch',
+      );
+    }
+
+    await db.execute('DROP TABLE breeder_bird_movements');
+    await db.execute('ALTER TABLE $shadow RENAME TO breeder_bird_movements');
+
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_breeder_bird_movements_unique '
+      'ON breeder_bird_movements (reportId, houseId, sex)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_breeder_bird_movements_isolation_unique '
+      'ON breeder_bird_movements (reportId, isolationAreaId, sex)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_breeder_bird_movements_report '
+      'ON breeder_bird_movements (reportId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_breeder_bird_movements_house '
+      'ON breeder_bird_movements (houseId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_breeder_bird_movements_isolation '
+      'ON breeder_bird_movements (isolationAreaId)',
+    );
+
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_breeder_bird_movements_location_scope_insert
+      BEFORE INSERT ON breeder_bird_movements
+      WHEN
+        (NEW.houseId IS NOT NULL AND (SELECT flockId FROM houses WHERE id = NEW.houseId) IS NOT
+          (SELECT flockId FROM breeder_daily_reports WHERE id = NEW.reportId))
+        OR
+        (NEW.isolationAreaId IS NOT NULL AND (SELECT flockId FROM breeder_isolation_areas WHERE id = NEW.isolationAreaId) IS NOT
+          (SELECT flockId FROM breeder_daily_reports WHERE id = NEW.reportId))
+      BEGIN
+        SELECT RAISE(ABORT, 'Movement location does not belong to the report flock');
+      END
+    ''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS
+      trg_breeder_bird_movements_location_scope_update
+      BEFORE UPDATE ON breeder_bird_movements
+      WHEN
+        (NEW.houseId IS NOT NULL AND (SELECT flockId FROM houses WHERE id = NEW.houseId) IS NOT
+          (SELECT flockId FROM breeder_daily_reports WHERE id = NEW.reportId))
+        OR
+        (NEW.isolationAreaId IS NOT NULL AND (SELECT flockId FROM breeder_isolation_areas WHERE id = NEW.isolationAreaId) IS NOT
+          (SELECT flockId FROM breeder_daily_reports WHERE id = NEW.reportId))
+      BEGIN
+        SELECT RAISE(ABORT, 'Movement location does not belong to the report flock');
+      END
+    ''');
+
+    final violations = await db.rawQuery(
+      'PRAGMA foreign_key_check(breeder_bird_movements)',
+    );
+    if (violations.isNotEmpty) {
+      throw StateError(
+        'v72 breeder_bird_movements rebuild found foreign-key violations',
+      );
+    }
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
+/// v73 adds `breeder_feed_entries` and `breeder_daily_reports.lightHours`
+/// (breeder-flock-performance ticket 09, design doc section 5.2 and 7.1):
+/// per-house, per-sex feed in kilograms (grams-per-bird is always derived,
+/// never stored — see `BreederBirdLedgerService.feedGramsPerBird`), plus a
+/// light-hours header field alongside the temperatures and notes ticket 07
+/// already added. See `createBreederFeedEntriesTable` in
+/// database_schema.dart for the final (fresh-install) shape.
+///
+/// `lightHours` is a plain nullable column addition — unlike v72's
+/// `breeder_bird_movements` reshape, adding it needs no shadow-table
+/// rebuild, since SQLite's `ALTER TABLE ADD COLUMN` handles a new nullable
+/// column with no CHECK constraint directly.
+Future<void> _applyV73Upgrade(Database db) async {
+  if (await _tableExists(db, 'breeder_daily_reports')) {
+    final columns = _columnNames(
+      await db.rawQuery("PRAGMA table_info('breeder_daily_reports')"),
+    );
+    if (!columns.contains('lightHours')) {
+      await db.execute(
+        'ALTER TABLE breeder_daily_reports ADD COLUMN lightHours REAL',
+      );
+    }
+  }
+  await createBreederFeedEntriesTable(db);
+}
+
+/// v74 adds `breeder_egg_grade_definitions`, `breeder_egg_production_entries`,
+/// and three approval-snapshot columns on `breeder_daily_reports`
+/// (breeder-flock-performance ticket 10, design doc section 5.2, 7, 7.1,
+/// and 12). See `createBreederEggGradeDefinitionsTable` and
+/// `createBreederEggProductionEntriesTable` in database_schema.dart for the
+/// final (fresh-install) shape, and `BreederEggProductionService` for the
+/// grade-priority-resolution and total/percentage arithmetic.
+///
+/// The three new `breeder_daily_reports` columns
+/// (`eggProductionDenominatorFemales`, `benchmarkProfileVersionAtApproval`,
+/// `comparisonAxisAtApproval`) are plain nullable additions — like v73's
+/// `lightHours`, they need no shadow-table rebuild.
+Future<void> _applyV74Upgrade(Database db) async {
+  if (await _tableExists(db, 'breeder_daily_reports')) {
+    final columns = _columnNames(
+      await db.rawQuery("PRAGMA table_info('breeder_daily_reports')"),
+    );
+    if (!columns.contains('eggProductionDenominatorFemales')) {
+      await db.execute(
+        'ALTER TABLE breeder_daily_reports '
+        'ADD COLUMN eggProductionDenominatorFemales INTEGER',
+      );
+    }
+    if (!columns.contains('benchmarkProfileVersionAtApproval')) {
+      await db.execute(
+        'ALTER TABLE breeder_daily_reports '
+        'ADD COLUMN benchmarkProfileVersionAtApproval TEXT',
+      );
+    }
+    if (!columns.contains('comparisonAxisAtApproval')) {
+      await db.execute(
+        'ALTER TABLE breeder_daily_reports '
+        'ADD COLUMN comparisonAxisAtApproval TEXT',
+      );
+    }
+  }
+  await createBreederEggGradeDefinitionsTable(db);
+  await seedBreederEggGradeDefinitions(db);
+  await createBreederEggProductionEntriesTable(db);
+}
+
+/// v75 adds `breeder_egg_inventory_movements` (breeder-flock-performance
+/// ticket 11, design doc section 7, 8, 12, and 14). See
+/// `createBreederEggInventoryMovementsTable` in database_schema.dart for the
+/// final (fresh-install) shape and rationale, and
+/// `BreederEggInventoryService` for the balance arithmetic and
+/// approval-gate validation.
+///
+/// This table names no house or isolation area — inventory is tracked at
+/// the whole-flock level — so, unlike v71/v73/v74's location-scope guard
+/// sets, it needs no entry in the v68 houses-rebuild trigger-drop list: it
+/// carries no trigger that references `houses` at all.
+Future<void> _applyV75Upgrade(Database db) async {
+  await createBreederEggInventoryMovementsTable(db);
+}
+
+/// v76 adds `breeder_report_revisions` (breeder-flock-performance ticket
+/// 12, design doc section 5.3, 12, 13, and 14). See
+/// `createBreederReportRevisionsTable` in database_schema.dart for the
+/// final (fresh-install) shape, immutability triggers, and rationale, and
+/// `BreederReportRevisionService` for how a correction to an approved
+/// report is diffed into one row per changed field.
+///
+/// A brand-new table with no columns added to any existing table — like
+/// v75's `breeder_egg_inventory_movements`, this needs no
+/// `ALTER TABLE ... ADD COLUMN` step and no shadow-table rebuild.
+///
+/// This version also widens `idx_breeder_egg_inventory_movements_unique`
+/// (v75) with an `AND reason IS NULL` clause — see
+/// `createBreederEggInventoryMovementsTable`'s updated doc comment in
+/// database_schema.dart for why: ticket 12's egg-inventory correction path
+/// (`BreederEggInventoryService.correctMovement`) appends a new row
+/// alongside its never-mutated original, and the original v75 index would
+/// otherwise reject that second row as a duplicate (report, grade, kind).
+/// `CREATE INDEX IF NOT EXISTS` never replaces an already-existing index of
+/// the same name, so the stale v75 definition is dropped by name first; a
+/// database that never got past v75 has no such index yet and the DROP is
+/// simply a no-op.
+Future<void> _applyV76Upgrade(Database db) async {
+  await db.execute(
+    'DROP INDEX IF EXISTS idx_breeder_egg_inventory_movements_unique',
+  );
+  await createBreederEggInventoryMovementsTable(db);
+  await createBreederReportRevisionsTable(db);
+}
+
+/// v77 adds `breeder_weighing_sessions` and `breeder_weighing_samples`
+/// (breeder-flock-performance ticket 13, design doc section 5.1 and 9). See
+/// `createBreederWeighingSessionsTable` in database_schema.dart for the
+/// final (fresh-install) shape, the house-scope guard trigger, and
+/// rationale, and `BreederWeighingService` for the derived-figure and
+/// benchmark-comparison arithmetic.
+///
+/// `breeder_weighing_sessions` carries a required `houseId` and its own
+/// house-scope guard trigger referencing `houses`
+/// (`trg_breeder_weighing_sessions_house_scope_*`), so — like v71's
+/// `breeder_bird_movements`, v73's `breeder_feed_entries`, and v74's
+/// `breeder_egg_production_entries` — its trigger names are added to the
+/// v68 houses-rebuild trigger-drop list above
+/// (`_rebuildV68HousesTableAndBackfill`'s `hasBreederWeighingSessionGuards`
+/// check), unlike v75's `breeder_egg_inventory_movements`, which names no
+/// house at all.
+Future<void> _applyV77Upgrade(Database db) async {
+  await createBreederWeighingSessionsTable(db);
+}
+
+/// v78 adds `egg_batches`, `egg_batch_house_sources`, `egg_shipments`,
+/// `egg_shipment_batches`, and `egg_batch_receipts` (breeder-flock
+/// -performance ticket 14, design doc section 8 and 12). See
+/// `createEggBatchesTable`/`createEggBatchHouseSourcesTable`/
+/// `createEggShipmentsTable`/`createEggShipmentBatchesTable`/
+/// `createEggBatchReceiptsTable` in database_schema.dart for the final
+/// (fresh-install) shape and rationale, and `EggBatchDispatchService` for
+/// batch/shipment/receipt creation and how a dispatch posts exactly one
+/// ledger movement through ticket 11's `BreederEggInventoryService`.
+///
+/// `egg_batch_house_sources` carries a house-scope guard trigger
+/// referencing `houses` (`trg_egg_batch_house_sources_house_scope_*`), so —
+/// like v71's `breeder_bird_movements`, v73's `breeder_feed_entries`, v74's
+/// `breeder_egg_production_entries`, and v77's `breeder_weighing_sessions`
+/// — it is added to the v68 houses-rebuild trigger-drop list above
+/// (`_rebuildV68HousesTableAndBackfill`'s `hasEggBatchHouseSourceGuards`
+/// check). The other four new tables in this version name no house or
+/// isolation area at all, matching v75's `breeder_egg_inventory_movements`
+/// and v76's `breeder_report_revisions`.
+Future<void> _applyV78Upgrade(Database db) async {
+  await createEggBatchesTable(db);
+  await createEggBatchHouseSourcesTable(db);
+  await createEggShipmentsTable(db);
+  await createEggShipmentBatchesTable(db);
+  await createEggBatchReceiptsTable(db);
+}
+
+/// v79 (breeder-flock-performance ticket 15, design doc section 5.3 and
+/// 13.1) adds the `Sync Conflict` state and the daily-report aggregate
+/// push's optimistic-concurrency bookkeeping:
+///
+/// - `breeder_daily_reports.state`'s CHECK gains `'sync_conflict'`,
+///   reachable from any of `draft`/`submitted`/`approved` when the report's
+///   aggregate push is rejected by a stale concurrency token.
+/// - `breeder_daily_reports.previousState` records which of those three
+///   states the report held immediately before the conflict, so resolving
+///   it can restore that exact state.
+/// - `breeder_daily_reports.lastSyncedRevision` is local-only bookkeeping
+///   (stripped from cloud payloads exactly like `syncStatus`/`dirtyAt`/
+///   `lastSyncedAt`/`syncError`), sent as the aggregate push's
+///   `base_revision` argument. Despite its name it does NOT track this
+///   table's own `revision` column: it tracks the cloud-only `sync_token`
+///   column (`supabase/migrations_unapplied/0012_...sql`), a counter the
+///   push RPC (`0013_...sql`) advances by one on every successful
+///   aggregate push regardless of whether `revision` changed. The two
+///   must stay separate — `revision` is ticket 12's audit counter and can
+///   be identical across two devices that never transitioned or corrected
+///   the report, so gating concurrency on it would let a second push
+///   silently overwrite a first one's already-accepted children with no
+///   conflict ever raised. Always `0` for both brand-new reports and every
+///   pre-existing report this migration upgrades — no local row, synced or
+///   not, has ever confirmed a `sync_token` from the cloud (this column
+///   does not exist there before this ticket), so `0` is the only honest
+///   value; the first push after upgrading always succeeds regardless,
+///   since the cloud has no row yet for any of these reports either.
+///
+/// SQLite cannot ALTER a CHECK constraint or ALTER COLUMN, so the table is
+/// rebuilt via the same shadow-table-and-rename pattern v72 used for
+/// `breeder_bird_movements` (see `_rebuildV72BirdMovementsTableForIsolation`
+/// above). `breeder_daily_reports` carries no trigger of its own to drop
+/// and re-create.
+///
+/// `sync_conflicts.localDataJson`/`remoteDataJson` need no rebuild — they
+/// carry no CHECK constraint, so a plain `ALTER TABLE ADD COLUMN` suffices.
+Future<void> _applyV79Upgrade(Database db) async {
+  await _rebuildV79BreederDailyReportsTableForSyncConflict(db);
+
+  // `sync_conflicts` is a very old critical table (predates this
+  // migration's chain position by many versions) whose own creation on a
+  // genuinely legacy database is handled by the surgical-repair pass in
+  // `onOpen`, which runs AFTER the whole `_onUpgrade` chain — never by a
+  // numbered `_applyVXXUpgrade`. A synthetic pre-v61 test fixture (or any
+  // real database old enough to have never been surgically repaired) can
+  // therefore legitimately still be missing it at this exact point in the
+  // chain. Skip here in that case; the repair pass's own
+  // `_createSyncConflictTable` call creates it with these columns already
+  // present (database_schema.dart's shared fresh-install definition), so
+  // nothing is lost, only deferred to the same pass that already handles
+  // this table's existence for legacy databases.
+  if (!await _tableExists(db, 'sync_conflicts')) return;
+
+  final conflictColumns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('sync_conflicts')"),
+  );
+  if (!conflictColumns.contains('localDataJson')) {
+    await db.execute(
+      'ALTER TABLE sync_conflicts ADD COLUMN localDataJson TEXT',
+    );
+  }
+  if (!conflictColumns.contains('remoteDataJson')) {
+    await db.execute(
+      'ALTER TABLE sync_conflicts ADD COLUMN remoteDataJson TEXT',
+    );
+  }
+}
+
+Future<void> _rebuildV79BreederDailyReportsTableForSyncConflict(
+  Database db,
+) async {
+  final hasTable = await _tableExists(db, 'breeder_daily_reports');
+  if (!hasTable) return; // Fresh install already created the v79 shape.
+
+  final columns = _columnNames(
+    await db.rawQuery("PRAGMA table_info('breeder_daily_reports')"),
+  );
+  if (columns.contains('lastSyncedRevision')) {
+    return; // Already rebuilt (e.g. surgical repair re-running this).
+  }
+
+  final existingRows = await db.query('breeder_daily_reports');
+
+  final foreignKeysRow = await db.rawQuery('PRAGMA foreign_keys');
+  final restoreForeignKeys = foreignKeysRow.single.values.first == 1;
+  if (restoreForeignKeys) {
+    await db.execute('PRAGMA foreign_keys = OFF');
+  }
+
+  try {
+    const shadow = 'breeder_daily_reports_v79';
+    await db.execute('DROP TABLE IF EXISTS $shadow');
+    await db.execute('''CREATE TABLE $shadow (
+      id TEXT PRIMARY KEY,
+      flockId TEXT NOT NULL,
+      reportDate TEXT NOT NULL,
+      insideTemperature REAL,
+      outsideTemperature REAL,
+      lightHours REAL,
+      notes TEXT,
+      state TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft', 'submitted', 'approved', 'sync_conflict')),
+      previousState TEXT CHECK (previousState IS NULL OR previousState IN ('draft', 'submitted', 'approved')),
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      lastSyncedRevision INTEGER NOT NULL DEFAULT 0,
+      createdBy TEXT,
+      submittedBy TEXT,
+      submittedAt TEXT,
+      approvedBy TEXT,
+      approvedAt TEXT,
+      eggProductionDenominatorFemales INTEGER,
+      benchmarkProfileVersionAtApproval TEXT,
+      comparisonAxisAtApproval TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      dirtyAt TEXT,
+      lastSyncedAt TEXT,
+      syncError TEXT,
+      FOREIGN KEY (flockId) REFERENCES flocks(id) ON DELETE CASCADE
+    )''');
+
+    for (final row in existingRows) {
+      // No pre-existing row, synced or not, has ever confirmed a cloud
+      // `sync_token` — that column does not exist in the cloud until this
+      // ticket's migration is applied — so `0` is the only honest value
+      // here, never `revision` (see this function's header comment for why
+      // the two counters must never be conflated).
+      await db.insert(shadow, {
+        ...row,
+        'previousState': null,
+        'lastSyncedRevision': 0,
+      });
+    }
+
+    final sourceCount = existingRows.length;
+    final shadowCount =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM $shadow'),
+        ) ??
+        0;
+    if (sourceCount != shadowCount) {
+      throw StateError(
+        'v79 breeder_daily_reports rebuild row-count mismatch',
+      );
+    }
+
+    await db.execute('DROP TABLE breeder_daily_reports');
+    await db.execute('ALTER TABLE $shadow RENAME TO breeder_daily_reports');
+
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_breeder_daily_reports_unique '
+      'ON breeder_daily_reports (flockId, reportDate)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_breeder_daily_reports_flock '
+      'ON breeder_daily_reports (flockId)',
+    );
+  } finally {
+    if (restoreForeignKeys) {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
+/// v80 (breeder-flock-performance ticket 17, design doc section 10 and 12)
+/// adds `breeder_alert_rules` and `breeder_performance_alerts`. See
+/// `createBreederAlertRulesTable`/`createBreederPerformanceAlertsTable` in
+/// database_schema.dart for the final (fresh-install) shape and rationale,
+/// `breeder_alert_rule_seeds.dart` for the seeded default rules, and
+/// `BreederAlertEvaluationService` for how a rule turns into an alert.
+///
+/// `breeder_performance_alerts` carries a house-scope guard trigger
+/// referencing `houses` (`trg_breeder_performance_alerts_house_scope_*`),
+/// so — like v71's `breeder_bird_movements`, v73's `breeder_feed_entries`,
+/// v74's `breeder_egg_production_entries`, v77's `breeder_weighing_sessions`,
+/// and v78's `egg_batch_house_sources` — it is added to the v68
+/// houses-rebuild trigger-drop list above (`_rebuildV68HousesTable`'s
+/// `hasBreederPerformanceAlertsGuards` check). `breeder_alert_rules` names
+/// no house or isolation area at all, matching v75's
+/// `breeder_egg_inventory_movements` and v76's `breeder_report_revisions`.
+Future<void> _applyV80Upgrade(Database db) async {
+  await createBreederAlertRulesTable(db);
+  await createBreederPerformanceAlertsTable(db);
+  await seedBreederAlertRules(db);
+}
+/// v81 retires the Cobb500 Slow Feather parent-stock profile. The flock the
+/// app is used against runs the Fast Feather line, and carrying a second Cobb
+/// profile only invites picking the wrong one when comparing a flock.
+///
+/// Retirement, not archival: published benchmark profiles are immutable at
+/// the database level, and `trg_breeder_benchmark_profiles_immutable_update`
+/// rejects even a state change to `archived`. That immutability exists to
+/// stop the *app* from editing reference data — a schema migration is the one
+/// sanctioned place to remove it — so this drops the guards, deletes the
+/// profile and its values, and puts the guards straight back.
+///
+/// Installs that never imported the profile (and every fresh install, which
+/// no longer ships the asset) find nothing to delete and are unaffected.
+Future<void> _applyV81Upgrade(Database db) async {
+  const retiredProfileKey = 'cobb500_slow_feather_parent_stock_2020_en';
+
+  final rows = await db.query(
+    'breeder_benchmark_profiles',
+    columns: ['id'],
+    where: 'profileKey = ?',
+    whereArgs: [retiredProfileKey],
+    limit: 1,
+  );
+  if (rows.isEmpty) return;
+  final profileId = rows.first['id'] as String;
+
+  await db.execute(
+    'DROP TRIGGER IF EXISTS trg_breeder_benchmark_values_immutable_delete',
+  );
+  await db.execute(
+    'DROP TRIGGER IF EXISTS trg_breeder_benchmark_profiles_immutable_delete',
+  );
+  try {
+    await db.delete(
+      'breeder_benchmark_values',
+      where: 'profileId = ?',
+      whereArgs: [profileId],
+    );
+    await db.delete(
+      'breeder_benchmark_profiles',
+      where: 'id = ?',
+      whereArgs: [profileId],
+    );
+  } finally {
+    // Recreated from the schema definition rather than inline, so the guards
+    // can never drift from the fresh-install shape.
+    await createBreederBenchmarkTables(db);
+  }
+}

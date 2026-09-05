@@ -1633,119 +1633,6 @@ Deno.test(
   },
 )
 
-Deno.test('an option list produced on a LIVE CALL is selectable — realtime evidence carries no turn link', async () => {
-  // The realtime broker writes `agent_tool_events` with
-  // `conversation_turn_id` NULL on purpose (a voice transcript may never
-  // finalize). Searching only turn-linked rows meant `select_audit_option`
-  // answered a refusal to a user who had just been read the numbered options
-  // aloud, and the model's only move was to ask again.
-  const client = new FakeAuditClient({
-    agent_conversation_turns: [],
-    agent_realtime_sessions: [
-      {
-        id: 'rt-sess-1',
-        conversation_id: 'conversation-a',
-        created_at: '2026-07-28T11:00:00Z',
-      },
-      {
-        id: 'rt-sess-other',
-        conversation_id: 'conversation-b',
-        created_at: '2026-07-28T12:00:00Z',
-      },
-    ],
-    agent_tool_events: [
-      {
-        id: 'event-voice',
-        conversation_turn_id: null,
-        realtime_session_id: 'rt-sess-1',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-a', ['audit-latest']),
-        created_at: '2026-07-28T11:01:00Z',
-      },
-      {
-        id: 'event-voice-other-thread',
-        conversation_turn_id: null,
-        realtime_session_id: 'rt-sess-other',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-b', ['audit-other']),
-        created_at: '2026-07-28T12:01:00Z',
-      },
-    ],
-    audit_sessions: [
-      remoteAudit('audit-latest'),
-      remoteAudit('audit-other', 'customer-b'),
-    ],
-  })
-  const store = createSupabaseAgentAuditStore(client)
-
-  const selected = await call(store, 'select_audit_option', { position: 1 })
-
-  assertEquals(selected.ok, true)
-  assertEquals(selected.data?.id, 'audit-latest')
-  // Sessions were looked up for THIS conversation only…
-  const sessionQuery = client.queries.find((query) =>
-    query.table === 'agent_realtime_sessions'
-  )
-  assertEquals(sessionQuery?.equals.conversation_id, 'conversation-a')
-  // …and the evidence search was confined to those session ids, so a sibling
-  // thread's live call can never supply this one's options.
-  const realtimeEventQuery = client.queries.find((query) =>
-    query.table === 'agent_tool_events' &&
-    query.included.realtime_session_id !== undefined
-  )
-  assertEquals(
-    [...(realtimeEventQuery?.included.realtime_session_id ?? [])],
-    ['rt-sess-1'],
-  )
-})
-
-Deno.test('the newest option list wins whichever door produced it', async () => {
-  const client = new FakeAuditClient({
-    agent_conversation_turns: [
-      {
-        id: 'turn-a',
-        conversation_id: 'conversation-a',
-        created_at: '2026-07-28T10:00:00Z',
-      },
-    ],
-    agent_realtime_sessions: [
-      {
-        id: 'rt-sess-1',
-        conversation_id: 'conversation-a',
-        created_at: '2026-07-28T11:00:00Z',
-      },
-    ],
-    agent_tool_events: [
-      {
-        id: 'event-typed-older',
-        conversation_turn_id: 'turn-a',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-a', ['audit-old']),
-        created_at: '2026-07-28T10:01:00Z',
-      },
-      {
-        id: 'event-voice-newer',
-        conversation_turn_id: null,
-        realtime_session_id: 'rt-sess-1',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-a', ['audit-latest']),
-        created_at: '2026-07-28T11:01:00Z',
-      },
-    ],
-    audit_sessions: [remoteAudit('audit-old'), remoteAudit('audit-latest')],
-  })
-  const store = createSupabaseAgentAuditStore(client)
-
-  const selected = await call(store, 'select_audit_option', { position: 1 })
-
-  assertEquals(selected.ok, true)
-  assertEquals(selected.data?.id, 'audit-latest')
-})
-
 Deno.test('a cleared conversation cannot select from the list it threw away', async () => {
   // `/new` (and the app's clear control) bumps `context_epoch` precisely so
   // "start over" means it. Reconstructing the pre-reset option list from
@@ -1761,7 +1648,6 @@ Deno.test('a cleared conversation cannot select from the list it threw away', as
         created_at: '2026-07-28T10:00:00Z',
       },
     ],
-    agent_realtime_sessions: [],
     agent_tool_events: [
       {
         id: 'event-old',
@@ -1800,58 +1686,6 @@ Deno.test('a cleared conversation cannot select from the list it threw away', as
   )
   assertEquals(allowed.ok, true)
   assertEquals(allowed.data?.id, 'audit-old')
-})
-
-Deno.test('the newest snapshot is chosen by plain string order, not ICU collation', async () => {
-  // `localeCompare` treats punctuation as variable-weight and inverts on
-  // timestamps whose fractional-second parts differ in length. `created_at`
-  // is a TEXT column with nothing enforcing one rendering, so the shapes are
-  // uniform only by convention — and getting this backwards resolves position
-  // N against the OLDER list.
-  const client = new FakeAuditClient({
-    agent_conversation_turns: [
-      {
-        id: 'turn-a',
-        conversation_id: 'conversation-a',
-        conversation_seq: 1,
-        created_at: '2026-07-28T10:00:00Z',
-      },
-    ],
-    agent_realtime_sessions: [
-      {
-        id: 'rt-sess-1',
-        conversation_id: 'conversation-a',
-        created_at: '2026-07-28T10:00:00Z',
-      },
-    ],
-    agent_tool_events: [
-      {
-        id: 'event-older',
-        conversation_turn_id: 'turn-a',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-a', ['audit-old']),
-        created_at: '2026-07-28T12:34:56+00:00',
-      },
-      {
-        id: 'event-newer',
-        conversation_turn_id: null,
-        realtime_session_id: 'rt-sess-1',
-        tool_name: 'list_customer_audits',
-        status: 'succeeded',
-        result_json: auditListResult('customer-a', ['audit-latest']),
-        // Half a second later. `localeCompare` calls this one OLDER.
-        created_at: '2026-07-28T12:34:56.5+00:00',
-      },
-    ],
-    audit_sessions: [remoteAudit('audit-old'), remoteAudit('audit-latest')],
-  })
-  const store = createSupabaseAgentAuditStore(client)
-
-  const selected = await call(store, 'select_audit_option', { position: 1 })
-
-  assertEquals(selected.ok, true)
-  assertEquals(selected.data?.id, 'audit-latest')
 })
 
 Deno.test('a non-integer position is refused with a real code, never a null-payload denial', async () => {

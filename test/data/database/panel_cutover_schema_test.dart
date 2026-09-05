@@ -91,7 +91,14 @@ void main() {
         );
       }
       expect(
-        tables.where((name) => name.endsWith('_samples')),
+        tables
+            .where((name) => name.endsWith('_samples'))
+            // `breeder_weighing_samples` (breeder-flock-performance ticket
+            // 13) is a genuinely new, unrelated table — individual bird
+            // weights for a weighing session, not a legacy panel-cutover
+            // child table. See the matching note in
+            // database_helper_migration_test.dart.
+            .where((name) => name != 'breeder_weighing_samples'),
         isEmpty,
         reason: 'panel sample child tables are removed in the hard cutover',
       );

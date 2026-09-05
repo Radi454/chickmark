@@ -239,7 +239,7 @@ async function getBreedBenchmark(
   )
   if (resolved.status === 'ok') {
     // Null metrics are also NAMED in an `unavailable` list: a bare JSON null
-    // is not salient enough for the mini realtime model, which otherwise
+    // is not salient enough for a small model, which otherwise
     // fills the gap with a value parroted from its calibration examples.
     const allUnavailable = nullMetricKeys(
       resolved.row,
@@ -317,7 +317,7 @@ async function getEggBreakoutBenchmark(
   )
   if (resolved.status === 'ok') {
     // Null metrics are also NAMED in an `unavailable` list: a bare JSON null
-    // is not salient enough for the mini realtime model, which otherwise
+    // is not salient enough for a small model, which otherwise
     // fills the gap with a value parroted from its calibration examples.
     const allUnavailable = nullMetricKeys(
       resolved.row,

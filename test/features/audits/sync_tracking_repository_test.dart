@@ -18,6 +18,7 @@ class _MockDatabaseHelper extends Mock implements DatabaseHelper {}
 /// on. Tables are built by hand (with the new `dirtyAt` column) so there is no
 /// seed-data pollution of the global dirty queries.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late _MockDatabaseHelper dbHelper;
   late AuditSessionRepository sessionRepo;

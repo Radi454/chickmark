@@ -48,7 +48,7 @@ class _CustomerSectorManagementSheetState
             const SizedBox(height: 6),
             Text(
               context.tr(
-                'A customer can use multiple sectors. Each farm belongs to '
+                'A customer can use multiple sectors. Each flock belongs to '
                 'exactly one enabled sector.',
               ),
             ),

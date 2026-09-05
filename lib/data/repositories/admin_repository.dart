@@ -6,7 +6,7 @@ class AdminProfile {
   final String? email;
   final String? username;
   final String? fullName;
-  final String role; // admin | auditor | customer
+  final String role; // admin | auditor | production_manager | customer
   final String status; // pending | approved | disabled
   final String? customerId; // only meaningful when role == customer
 

@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 class _MockDatabaseHelper extends Mock implements DatabaseHelper {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   late PerformanceSyncRepository repository;
 
@@ -15,25 +16,11 @@ void main() {
   setUp(() async {
     db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
     await db.execute('''
-      CREATE TABLE farms (
+      CREATE TABLE houses (
         id TEXT PRIMARY KEY,
-        customerId TEXT NOT NULL,
-        sectorKey TEXT NOT NULL,
+        flockId TEXT NOT NULL,
         name TEXT NOT NULL,
         updatedAt TEXT,
-        syncStatus TEXT NOT NULL DEFAULT 'pending',
-        dirtyAt TEXT,
-        lastSyncedAt TEXT,
-        syncError TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE broiler_daily_record_revisions (
-        id TEXT PRIMARY KEY,
-        recordId TEXT NOT NULL,
-        revisionNumber INTEGER NOT NULL,
-        dailyMortality INTEGER,
-        createdAt TEXT NOT NULL,
         syncStatus TEXT NOT NULL DEFAULT 'pending',
         dirtyAt TEXT,
         lastSyncedAt TEXT,
@@ -80,26 +67,16 @@ void main() {
   test('push and delete orders preserve every parent dependency', () {
     expect(PerformanceSyncRepository.preFlockPushOrder, [
       'customer_sectors',
-      'farms',
-      'houses',
-      'broiler_target_profiles',
-      'broiler_target_rows',
     ]);
     expect(PerformanceSyncRepository.postFlockPushOrder, [
-      'flock_placements',
-      'broiler_daily_records',
-      'broiler_daily_record_revisions',
-      'broiler_daily_events',
-      'daily_record_sources',
-      'performance_alert_rules',
-      'performance_concerns',
-      'farm_visit_sessions',
-      'farm_visit_houses',
-      'visit_investigations',
-      'visit_findings',
-      'cause_assessments',
-      'corrective_actions',
-      'action_kpi_evaluations',
+      'houses',
+      'breeder_flock_milestones',
+      'breeder_isolation_areas',
+      'breeder_weighing_sessions',
+      'breeder_weighing_samples',
+      'egg_batches',
+      'egg_batch_house_sources',
+      'breeder_performance_alerts',
       'telegram_staff_links',
       'agent_settings',
       'agent_submissions',
@@ -198,92 +175,78 @@ void main() {
   test(
     'normalizes pulled snake_case rows and tracks per-row sync state',
     () async {
-      await db.insert('farms', {
-        'id': 'farm-1',
-        'customerId': 'customer-1',
-        'sectorKey': 'broiler',
+      await db.insert('houses', {
+        'id': 'house-1',
+        'flockId': 'flock-1',
         'name': 'Old name',
         'updatedAt': '2026-07-23T00:00:00.000Z',
         'syncStatus': 'pending',
         'dirtyAt': '2026-07-23T00:00:00.000Z',
       });
 
-      expect(await repository.getDirtyRows('farms'), hasLength(1));
-      await repository.markRowsSynced('farms', ['farm-1']);
-      expect((await db.query('farms')).single['syncStatus'], 'synced');
+      expect(await repository.getDirtyRows('houses'), hasLength(1));
+      await repository.markRowsSynced('houses', ['house-1']);
+      expect((await db.query('houses')).single['syncStatus'], 'synced');
 
-      await repository.upsertRemoteRow('farms', {
-        'id': 'farm-1',
-        'customer_id': 'customer-1',
-        'sector_key': 'broiler',
+      await repository.upsertRemoteRow('houses', {
+        'id': 'house-1',
+        'flock_id': 'flock-1',
         'name': 'Cloud name',
         'updated_at': '2026-07-24T00:00:00.000Z',
         'unexpected_remote_column': 'ignored',
       });
 
-      final row = (await db.query('farms')).single;
-      expect(row['customerId'], 'customer-1');
+      final row = (await db.query('houses')).single;
+      expect(row['flockId'], 'flock-1');
       expect(row['name'], 'Cloud name');
       expect(row['syncStatus'], 'synced');
       expect(row['dirtyAt'], isNull);
     },
   );
 
-  test('immutable daily revisions compare business evidence only', () async {
-    await db.insert('broiler_daily_record_revisions', {
-      'id': 'revision-1',
-      'recordId': 'record-1',
-      'revisionNumber': 1,
-      'dailyMortality': 4,
+  test('immutable tool events compare business evidence only', () async {
+    await db.insert('agent_tool_events', {
+      'id': 'tool-1',
+      'conversationTurnId': 'turn-1',
+      'toolCallId': 'call-1',
+      'toolName': 'record_station_values',
+      'toolSequence': 1,
+      'argumentsJson': '{"pasgarSampleSize":40}',
+      'resultJson': '{"accepted":true}',
+      'status': 'succeeded',
       'createdAt': '2026-07-24T00:00:00.000Z',
-      'syncStatus': 'pending',
-      'dirtyAt': '2026-07-24T00:00:00.000Z',
+      'syncStatus': 'synced',
     });
-    final local = (await db.query('broiler_daily_record_revisions')).single;
+    final local = (await db.query('agent_tool_events')).single;
 
     expect(
-      await repository
-          .isEquivalentRemoteRow('broiler_daily_record_revisions', local, {
-            'id': 'revision-1',
-            'record_id': 'record-1',
-            'revision_number': 1,
-            'daily_mortality': 4,
-            'created_at': '2026-07-24T00:00:00.000Z',
-            'customer_id': 'customer-1',
-          }),
+      await repository.isEquivalentRemoteRow('agent_tool_events', local, {
+        'id': 'tool-1',
+        'conversation_turn_id': 'turn-1',
+        'tool_call_id': 'call-1',
+        'tool_name': 'record_station_values',
+        'tool_sequence': 1,
+        'arguments_json': {'pasgarSampleSize': 40},
+        'result_json': {'accepted': true},
+        'status': 'succeeded',
+        'created_at': '2026-07-24T00:00:00.000Z',
+      }),
       isTrue,
     );
     expect(
-      await repository
-          .isEquivalentRemoteRow('broiler_daily_record_revisions', local, {
-            'id': 'revision-1',
-            'record_id': 'record-1',
-            'revision_number': 1,
-            'daily_mortality': 9,
-            'created_at': '2026-07-24T00:00:00.000Z',
-          }),
+      await repository.isEquivalentRemoteRow('agent_tool_events', local, {
+        'id': 'tool-1',
+        'conversation_turn_id': 'turn-1',
+        'tool_call_id': 'call-1',
+        'tool_name': 'record_station_values',
+        'tool_sequence': 1,
+        'arguments_json': {'pasgarSampleSize': 40},
+        'result_json': {'accepted': false},
+        'status': 'failed',
+        'created_at': '2026-07-24T00:00:00.000Z',
+      }),
       isFalse,
     );
-  });
-
-  test('remote source payload excludes device-only attachment state', () {
-    final payload = repository.prepareRemoteRow('daily_record_sources', {
-      'id': 'source-1',
-      'revisionId': 'revision-1',
-      'sourceKind': 'photo',
-      'localPath': '/private/device/photo.jpg',
-      'remoteStoragePath': 'supabase://photos/performance_sources/c1/a.jpg',
-      'uploadState': 'synced',
-      'uploadError': null,
-      'syncStatus': 'pending',
-      'dirtyAt': '2026-07-24T00:00:00.000Z',
-    });
-
-    expect(payload, isNot(contains('localPath')));
-    expect(payload, isNot(contains('uploadState')));
-    expect(payload, isNot(contains('uploadError')));
-    expect(payload, isNot(contains('syncStatus')));
-    expect(payload['remoteStoragePath'], contains('performance_sources'));
   });
 
   test(
@@ -325,55 +288,53 @@ void main() {
 
   group('mark-synced race protection', () {
     test('a row edited mid-push stays pending after markRowsSynced', () async {
-      await db.insert('farms', {
-        'id': 'farm-race',
-        'customerId': 'customer-1',
-        'sectorKey': 'broiler',
-        'name': 'Farm',
+      await db.insert('houses', {
+        'id': 'house-race',
+        'flockId': 'flock-1',
+        'name': 'House',
         'updatedAt': '2026-07-23T00:00:00.000Z',
         'syncStatus': 'pending',
         'dirtyAt': '2026-07-23T00:00:00.000Z',
       });
-      await repository.getDirtyRows('farms'); // capture cutoff
+      await repository.getDirtyRows('houses'); // capture cutoff
       await Future<void>.delayed(const Duration(milliseconds: 5));
-      // mid-push edit: whatever domain repo owns 'farms' would stamp dirtyAt
+      // mid-push edit: whatever domain repo owns 'houses' would stamp dirtyAt
       // the same way performance_sync_repository does (UTC ISO8601).
       await db.update(
-        'farms',
+        'houses',
         {
-          'name': 'Farm edited',
+          'name': 'House edited',
           'syncStatus': 'pending',
           'dirtyAt': DateTime.now().toUtc().toIso8601String(),
         },
         where: 'id = ?',
-        whereArgs: ['farm-race'],
+        whereArgs: ['house-race'],
       );
-      await repository.markRowsSynced('farms', ['farm-race']);
+      await repository.markRowsSynced('houses', ['house-race']);
       final row = (await db.query(
-        'farms',
+        'houses',
         where: 'id = ?',
-        whereArgs: ['farm-race'],
+        whereArgs: ['house-race'],
       )).single;
       expect(row['syncStatus'], 'pending');
       expect(row['dirtyAt'], isNotNull);
     });
 
     test('an unedited row is cleared by markRowsSynced', () async {
-      await db.insert('farms', {
-        'id': 'farm-race-2',
-        'customerId': 'customer-1',
-        'sectorKey': 'broiler',
-        'name': 'Farm',
+      await db.insert('houses', {
+        'id': 'house-race-2',
+        'flockId': 'flock-1',
+        'name': 'House',
         'updatedAt': '2026-07-23T00:00:00.000Z',
         'syncStatus': 'pending',
         'dirtyAt': '2026-07-23T00:00:00.000Z',
       });
-      await repository.getDirtyRows('farms');
-      await repository.markRowsSynced('farms', ['farm-race-2']);
+      await repository.getDirtyRows('houses');
+      await repository.markRowsSynced('houses', ['house-race-2']);
       final row = (await db.query(
-        'farms',
+        'houses',
         where: 'id = ?',
-        whereArgs: ['farm-race-2'],
+        whereArgs: ['house-race-2'],
       )).single;
       expect(row['syncStatus'], 'synced');
     });

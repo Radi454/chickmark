@@ -9,18 +9,16 @@ import 'package:hatchaudit/core/theme/app_text_styles.dart';
 import 'package:hatchaudit/core/utils/date_utils.dart';
 import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/features/dashboard/providers/dashboard_provider.dart';
-import 'package:hatchaudit/features/dashboard/models/dashboard_intelligence_models.dart';
 import 'package:hatchaudit/features/dashboard/providers/scope_comparison_provider.dart';
 import 'package:hatchaudit/features/dashboard/widgets/scope/scope_insights_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/govee_environmental_readings_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/sections/lab_analysis_dashboard_section.dart';
 import 'package:hatchaudit/features/dashboard/widgets/dashboard_portfolio_summary.dart';
-import 'package:hatchaudit/features/dashboard/widgets/dashboard_quality_strip.dart';
-import 'package:hatchaudit/features/dashboard/widgets/dashboard_attention_section.dart';
 import 'package:hatchaudit/features/dashboard/scope/scope_config.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/features/settings/providers/settings_provider.dart';
 import 'package:hatchaudit/widgets/app_card.dart';
+import 'package:hatchaudit/widgets/searchable_dropdown_field.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -129,7 +127,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
         return Scaffold(
           appBar: const GradientAppBar(title: 'Dashboard'),
-          body: _buildContent(context, provider),
+          // Touching anywhere outside a focused filter dismisses the keyboard.
+          // A raw Listener is used instead of GestureDetector so it never
+          // competes with the list's scroll gestures.
+          body: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              final focus = FocusScope.of(context);
+              if (focus.hasFocus) focus.unfocus();
+            },
+            child: _buildContent(context, provider),
+          ),
         );
       },
     );
@@ -274,16 +282,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ...provider.customers.map((c) => (value: c.id, label: c.name)),
     ];
 
-    return DropdownButtonFormField<String>(
-      initialValue: provider.selectedCustomerId,
-      isExpanded: true,
-      decoration: _filterDecoration(context, 'Customer'),
-      selectedItemBuilder: (context) => [
-        for (final entry in entries) _menuText(entry.label),
-      ],
-      items: [
+    return SearchableDropdownField<String>(
+      label: 'Customer',
+      hintText: 'Search customers',
+      value: provider.selectedCustomerId,
+      options: [
         for (final entry in entries)
-          DropdownMenuItem(value: entry.value, child: _menuText(entry.label)),
+          SearchableDropdownOption(value: entry.value, label: entry.label),
       ],
       onChanged: provider.setCustomer,
     );
@@ -388,38 +393,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _goveeExpanded = !_goveeExpanded);
   }
 
-  void _openDashboardSource(DashboardFinding finding) {
-    final station = finding.station;
-    final isGovee = station == 'Govee Environmental Readings';
-    setState(() {
-      if (isGovee) {
-        _goveeExpanded = true;
-      } else {
-        _collapsedScopeStations.remove(station);
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final target = isGovee
-          ? _goveeKey.currentContext
-          : _sectorKeys[finding.sectorId]?.currentContext ??
-                _stationKeys[station]?.currentContext;
-      if (target != null) {
-        Scrollable.ensureVisible(
-          target,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOut,
-          alignment: 0.05,
-        );
-      }
-    });
-  }
-
   Widget _buildContent(BuildContext context, DashboardProvider provider) {
     if (provider.isLoading) {
       return ListView(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.symmetric(
           horizontal: AppSizes.spaceSm,
           vertical: AppSizes.spaceMd,
@@ -506,10 +485,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               customerSelected: provider.selectedCustomerId != null,
             ),
           ] else ...[
-            const DashboardQualityStrip(),
-            const SizedBox(height: AppSizes.spaceLg),
-            DashboardAttentionSection(onOpenSource: _openDashboardSource),
-            const SizedBox(height: AppSizes.spaceLg),
             // Egg Storage & Egg Quality are presented by the Scopes section below
             // (same station card as every other audit station). The legacy bespoke
             // EggStorageSection / EggQualitySection cards were dropped to avoid

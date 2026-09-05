@@ -1,4 +1,5 @@
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../database/database_helper.dart';
 
@@ -13,6 +14,14 @@ class SyncConflict {
   final DateTime? reviewedAt;
   final String? reviewedBy;
 
+  /// Full serialized local/remote payloads (breeder-flock-performance
+  /// ticket 15, design doc section 13.1) — populated only for a
+  /// daily-report aggregate push conflict; null for every other conflict
+  /// this table records (a plain last-write-wins row keeps only the two
+  /// timestamps and [winner]).
+  final String? localDataJson;
+  final String? remoteDataJson;
+
   const SyncConflict({
     required this.id,
     required this.tableName,
@@ -23,7 +32,11 @@ class SyncConflict {
     required this.detectedAt,
     this.reviewedAt,
     this.reviewedBy,
+    this.localDataJson,
+    this.remoteDataJson,
   });
+
+  bool get isReviewed => reviewedAt != null;
 
   factory SyncConflict.fromMap(Map<String, Object?> row) {
     return SyncConflict(
@@ -36,6 +49,8 @@ class SyncConflict {
       detectedAt: _parseDate(row['detectedAt']) ?? DateTime.now(),
       reviewedAt: _parseDate(row['reviewedAt']),
       reviewedBy: row['reviewedBy'] as String?,
+      localDataJson: row['localDataJson'] as String?,
+      remoteDataJson: row['remoteDataJson'] as String?,
     );
   }
 
@@ -49,6 +64,8 @@ class SyncConflict {
     'detectedAt': detectedAt.toIso8601String(),
     'reviewedAt': reviewedAt?.toIso8601String(),
     'reviewedBy': reviewedBy,
+    'localDataJson': localDataJson,
+    'remoteDataJson': remoteDataJson,
   };
 
   static DateTime? _parseDate(Object? value) {
@@ -104,6 +121,62 @@ class SyncConflictRepository {
       conflict.toMap(),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+  }
+
+  /// Records an aggregate-push conflict (breeder-flock-performance ticket
+  /// 15) with both full serialized versions attached, and returns the
+  /// conflict's id. Unlike [recordConflict] (last-write-wins on a single
+  /// pulled row), this always inserts a fresh row rather than
+  /// `INSERT OR IGNORE`-deduplicating by `(table, rowId, remoteUpdatedAt)`
+  /// — a rejected push and the next rejected push for the same report can
+  /// legitimately share a `remoteUpdatedAt` if the cloud did not change in
+  /// between, and each attempt is its own reviewable event.
+  Future<String> recordConflictWithPayload({
+    required String table,
+    required String rowId,
+    required DateTime? localUpdatedAt,
+    required DateTime? remoteUpdatedAt,
+    required String localDataJson,
+    required String remoteDataJson,
+  }) async {
+    final db = await _dbHelper.db;
+    final id = const Uuid().v4();
+    await db.insert(
+      tableName,
+      SyncConflict(
+        id: id,
+        tableName: table,
+        rowId: rowId,
+        localUpdatedAt: localUpdatedAt,
+        remoteUpdatedAt: remoteUpdatedAt,
+        winner: 'conflict',
+        detectedAt: DateTime.now(),
+        localDataJson: localDataJson,
+        remoteDataJson: remoteDataJson,
+      ).toMap(),
+    );
+    return id;
+  }
+
+  /// The most recent unresolved conflict for [table]/[rowId], or null.
+  Future<SyncConflict?> getOpenConflictFor(String table, String rowId) async {
+    final db = await _dbHelper.db;
+    final rows = await db.query(
+      tableName,
+      where: 'tableName = ? AND rowId = ? AND reviewedAt IS NULL',
+      whereArgs: [table, rowId],
+      orderBy: 'detectedAt DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return SyncConflict.fromMap(Map.from(rows.first));
+  }
+
+  Future<SyncConflict?> getById(String id) async {
+    final db = await _dbHelper.db;
+    final rows = await db.query(tableName, where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return SyncConflict.fromMap(Map.from(rows.first));
   }
 
   Future<int> getOpenCount() async {

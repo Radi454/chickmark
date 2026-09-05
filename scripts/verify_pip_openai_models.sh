@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Preflight for a Pip Realtime OpenAI account: confirms the exact model
-# aliases the app depends on are actually visible to this account BEFORE any
-# switch (key rotation, new project, new org) ships. A silently-missing alias
-# otherwise only surfaces later, as a live call failing for a real user.
+# Preflight for the Pip (text + voice-note) OpenAI account: confirms the exact
+# model aliases the app depends on are actually visible to this account BEFORE
+# any switch (key rotation, new project, new org) ships. A silently-missing
+# alias otherwise only surfaces later, as a failed reply for a real user.
 #
-# Checks, in order: gpt-5-nano, gpt-realtime-2.1-mini,
-# gpt-4o-mini-transcribe, gpt-4o-mini-tts — via GET
+# Checks, in order: gpt-5-nano, gpt-4o-mini-transcribe, gpt-4o-mini-tts — via GET
 # https://api.openai.com/v1/models/<id>. Stops at the first alias that is not
 # available and exits nonzero.
 #
@@ -19,10 +18,9 @@ if [[ -z "${OPENAI_API_KEY:-}" ]]; then
   exit 64
 fi
 
-# The exact aliases Pip Live depends on, checked in this order.
+# The exact aliases Pip depends on, checked in this order.
 model_aliases=(
   "gpt-5-nano"
-  "gpt-realtime-2.1-mini"
   "gpt-4o-mini-transcribe"
   "gpt-4o-mini-tts"
 )

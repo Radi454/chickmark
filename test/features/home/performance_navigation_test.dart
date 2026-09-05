@@ -38,7 +38,6 @@ void main() {
       'govee',
       'lab_analysis',
       'bmk',
-      'performance',
       'agent',
       'assistant',
       'settings',
@@ -51,7 +50,6 @@ void main() {
       'govee',
       'lab_analysis',
       'bmk',
-      'performance',
       'assistant',
       'settings',
     ]);

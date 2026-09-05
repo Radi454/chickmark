@@ -507,8 +507,8 @@ export interface TurnResult {
   readonly usage: RoundUsage
 }
 
-/** The text shown to the user for a turn: same convention as the pip-realtime
- * harness -- the LAST round's message text is the final answer. */
+/** The text shown to the user for a turn: the LAST round's message text is
+ * the final answer. */
 export function finalText(result: TurnResult): string {
   return result.finalReply
 }

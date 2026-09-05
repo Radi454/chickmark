@@ -84,8 +84,8 @@ function harness() {
   })
 
   /**
-   * `turnIndex: null` reproduces the REALTIME door, which omits the turn
-   * anchor by construction — see `pip-realtime-tool-broker/index.ts`.
+   * `turnIndex: null` reproduces a caller that omits the turn anchor (the
+   * retired live-voice door did so by construction).
    */
   async function call(
     name: string,
@@ -640,8 +640,8 @@ function context(): AgentIntakeContext {
 }
 
 Deno.test('an intake attempted without a turn anchor refuses with a recovery, not a bare code', async () => {
-  // This is EVERY `propose_intake` on a live voice call: the realtime broker
-  // omits the turn anchor by construction. The refusal has to carry the one
+  // A caller that omits the turn anchor (the retired live-voice door did so
+  // by construction). The refusal has to carry the one
   // recovery that exists, or the model just calls the tool again until the
   // turn runs out of budget and the caller hears the same half-sentence
   // several times over.
