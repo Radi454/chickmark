@@ -15,7 +15,7 @@ This file describes only how the app works today. It is not a history.
 
 ## 1. Last Updated
 
-2026-08-27
+2026-09-22
 
 Mapped from the working tree under `lib/`, covering app bootstrap, navigation,
 audit and station screens, providers, models, repositories, services, and the
@@ -195,6 +195,11 @@ Chrome extension. Debug web mode is still available by setting
 `WEB_BUILD_MODE=debug`. Local preview runs currently enable the temporary auth
 bypass by default for developer convenience; production build targets cannot
 activate that bypass.
+The production web app is deployed from `main` to GitHub Pages at
+`https://radi454.github.io/chickmark/`. GitHub Actions builds the release app
+with `/chickmark/` as its base path and supplies only the Supabase URL and
+public anonymous key from repository secrets. The deployment does not compile
+the local OpenRouter key or the development auth bypass into the browser app.
 Local macOS development uses `make run-macos` for a debug desktop run and
 `make build-macos` for a packaged desktop build; both use the same ignored
 `.env` Supabase credentials as the mobile run/build shortcuts. Direct

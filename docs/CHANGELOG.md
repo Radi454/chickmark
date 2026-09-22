@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-09-22: Added automated GitHub Pages deployment for the Flutter web app.
+  Pushes to `main` build the release app for the `/chickmark/` project path
+  using Supabase public client configuration stored as GitHub secrets, then
+  publish the generated `build/web` artifact through GitHub Actions.
+
 - 2026-09-05: Updated the agent guide to SQLite version 81 and corrected the
   living specification to reflect the implemented breeder performance area
   following removal of the former Broiler Performance feature.
