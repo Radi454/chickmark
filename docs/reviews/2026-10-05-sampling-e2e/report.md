@@ -148,3 +148,56 @@ A focused 127-test run passed, covering fresh and upgraded SQLite schema v83, ca
 A subsequent 45-test startup-sync run passed after tombstone upload isolation: a rejected event remains failed and is never used for target deletion, while the accepted QA event proceeds and is acknowledged. Missing remote targets still require safe reconciliation; no security policies were weakened and rejected events were not silently acknowledged.
 
 Release web build passed for the catalog update. Final startup-sync regression run passed all 45 tests, including the final negative acknowledgment assertions. Analyzer reports only the two existing environment-loader/photo-service warnings.
+
+## Deployment handoff — a5024ea
+
+Task: sampling-ui-e2e-20261005 / registered-machine-dropdowns. Commit a5024ea is pushed to main. The release build passed; 127 combined focused tests passed, followed by all 45 startup-sync tests after the deletion isolation change. The applied Supabase tombstone-scope migration passed its transactional SQL check with rollback. Two pre-existing analyzer warnings remain.
+
+Pages run [37365108360](https://github.com/Radi454/chickmark/actions/runs/37365108360) is queued without an assigned runner. [GitHub Status](https://www.githubstatus.com/) reports an active Actions incident delaying hosted-runner assignment (2026-10-05 19:15 UTC update). The open live app therefore still runs ab19495. New catalog UI registration, real cloud convergence, photo upload/deletion, and approved whole-visit/flock/hatchery cleanup remain pending; QA records have been preserved. No claim of completed live E2E or human acceptance is made.
+
+Files in the implementation commit:
+
+- `AGENTS.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVING_SPEC.md`
+- `docs/plans/2026-10-05-machine-capacity-dropdowns.md`
+- `docs/reviews/2026-10-05-sampling-e2e/18-tray-a-preserved.png`
+- `docs/reviews/2026-10-05-sampling-e2e/19-tray-b-preserved.png`
+- `docs/reviews/2026-10-05-sampling-e2e/20-renamed-tray-measurement.png`
+- `docs/reviews/2026-10-05-sampling-e2e/21-qa-tray-delete-warning.png`
+- `docs/reviews/2026-10-05-sampling-e2e/22-surviving-tray-after-delete.png`
+- `docs/reviews/2026-10-05-sampling-e2e/23-hatcher-default-leaf.png`
+- `docs/reviews/2026-10-05-sampling-e2e/24-trolley-default-leaf.png`
+- `docs/reviews/2026-10-05-sampling-e2e/25-reopened-setter-measurement.png`
+- `docs/reviews/2026-10-05-sampling-e2e/report.md`
+- `lib/data/database/database_helper.dart`
+- `lib/data/database/database_migrations.dart`
+- `lib/data/database/database_schema.dart`
+- `lib/data/models/hatchery_machine_model.dart`
+- `lib/data/repositories/hatchery_machine_repository.dart`
+- `lib/data/repositories/hatchery_repository.dart`
+- `lib/data/repositories/panel_sampling_state_repository.dart`
+- `lib/data/repositories/sync_tombstone_repository.dart`
+- `lib/features/audits/widgets/sampling_scope_controls.dart`
+- `lib/features/customers/widgets/hatchery_machine_editor.dart`
+- `lib/features/customers/widgets/hatchery_management_sheet.dart`
+- `lib/l10n/app_localizations.dart`
+- `lib/providers/customers_provider.dart`
+- `lib/services/supabase/startup_sync_service.dart`
+- `lib/services/supabase/supabase_service.dart`
+- `supabase/migrations/20261005190731_add_hatchery_machines_catalog.sql`
+- `supabase/migrations/20261005193201_expand_sampling_tombstone_scope.sql`
+- `supabase/tests/sampling_tombstone_scope_test.sql`
+- `test/data/database/hatchery_machine_schema_test.dart`
+- `test/data/database/panel_sampling_schema_test.dart`
+- `test/data/database/schema_parity_test.dart`
+- `test/data/repositories/hatchery_machine_repository_test.dart`
+- `test/data/repositories/panel_sampling_state_repository_test.dart`
+- `test/features/audits/sampling_adapter_round_trip_test.dart`
+- `test/features/audits/widgets/sampling_scope_machine_controls_test.dart`
+- `test/features/customers/customer_hierarchy_test.dart`
+- `test/features/customers/hatchery_machine_editor_test.dart`
+- `test/services/supabase/startup_sync_harness.dart`
+- `test/services/supabase/startup_sync_incoming_test.dart`
+- `test/services/supabase/startup_sync_service_test.dart`
+- `test/services/supabase/supabase_service_security_test.dart`
