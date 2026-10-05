@@ -2529,6 +2529,8 @@ const Map<String, String> _ar = {
   'Complete customer, hatchery, and flock sampling codes to show the full sample code.':
       'أكمل رموز أخذ العينات للعميل والمفقس والقطيع لعرض الرمز الكامل للعينة.',
   'Registered houses could not be loaded.': 'تعذر تحميل الحظائر المسجلة.',
+  'No houses are registered for this flock. Add houses in Flock Management, then return here.':
+      'لا توجد حظائر مسجلة لهذا القطيع. أضف الحظائر من إدارة القطعان، ثم عد إلى هنا.',
   'That identity already exists under this parent.':
       'هذه الهوية موجودة بالفعل ضمن هذا العنصر.',
   'Sampling identity could not be saved. Try again.':

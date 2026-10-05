@@ -1,5 +1,18 @@
 # ChickMark Change Log
 
+- 2026-10-05: Improved sampling controls with readable scope and selected-chip
+  labels, visible Add actions, and independent Setter naming outside Chick
+  Quality's paired Setter / Hatcher scope. Empty House pickers now explain how
+  to register houses in Flock Management, and duplicate scope identities show a
+  specific message. New branches now get a default identified terminal Tray or
+  native sample and are selected immediately; selecting a legacy branch with
+  no terminal also creates its default leaf. Added widget coverage for the
+  phone-width layout, label colors, empty House guidance, duplicate handling,
+  and nested Hatcher/Trolley/Tray paths. Setter, Hatcher, Egg, and Chick
+  forms now hydrate by the selected panel sample identity so fields cannot
+  display the previous sample after a scope switch; Egg storage and quality
+  refresh independently and restore the active panel's notes.
+
 - 2026-10-05: Replaced station-specific sampling with panel-scoped trees and
   independent sample drafts, immutable IDs, full saved paths, and reserved SA
   serials. Added shared scope controls, registered House selection, explicit

@@ -86,6 +86,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   String? _meconium;
   String? _cvtHighlightedKey;
   String? _activeAuditId;
+  String? _activePanelSampleId;
   TemperatureEntryUnit _cvtUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
@@ -142,16 +143,21 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       sessionId: widget.context.sessionId,
       samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
-    _syncActiveSampleForm(auditProvider.activeDraft);
+    _syncActiveSampleForm(auditProvider, auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToInitialSection();
     });
   }
 
-  void _syncActiveSampleForm(AuditModel audit) {
-    if (_activeAuditId == audit.id) return;
+  void _syncActiveSampleForm(AuditProvider provider, AuditModel audit) {
+    final selectedSampleId = provider.activeSampleIdFor('hatcher_optimizing');
+    if (_activeAuditId == audit.id &&
+        _activePanelSampleId == selectedSampleId) {
+      return;
+    }
     _activeAuditId = audit.id;
+    _activePanelSampleId = selectedSampleId;
     _hatcherIdController.text = _hatcherNumberValue(
       audit.hatcherId ?? audit.hoHatcherId,
     );
@@ -311,7 +317,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
-    _syncActiveSampleForm(audit);
+    _syncActiveSampleForm(auditProvider, audit);
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
       child: Scaffold(

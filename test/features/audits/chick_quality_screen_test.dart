@@ -390,6 +390,67 @@ void main() {
     expect(pasgarFieldText(1), '1');
   });
 
+  testWidgets('quality form controllers follow the active sampling leaf', (
+    tester,
+  ) async {
+    final provider = screenProvider();
+    final now = DateTime(2026, 4, 27, 12);
+    final initialAudit = AuditModel(
+      id: 'chick-audit-1',
+      auditType: 'Chicks',
+      customerId: 'customer-1',
+      flockId: 'flock-1',
+      date: now,
+      hatchNumber: 1,
+      status: 'active',
+      createdBy: 'auditor-1',
+      createdAt: now,
+      updatedAt: now,
+      pasgarSampleSize: 40,
+      pasgarReflexes: 3,
+      pasgarBeak: 1,
+    );
+    await pumpScreen(
+      tester,
+      provider: provider,
+      initialAudit: initialAudit,
+      contextOverride: contextData(sessionId: 'chick-quality-sample-switch'),
+    );
+    final firstSampleId = provider.activeSampleIdFor('chick_quality')!;
+    final secondSample = await provider.addPanelTerminalSample(
+      'chick_quality',
+      parentId: null,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Pasgar Score'));
+    await tester.tap(find.text('Pasgar Score'));
+    await tester.pumpAndSettle();
+    List<AuditNumericField> pasgarFields() => tester
+        .widgetList<AuditNumericField>(
+          find.descendant(
+            of: find.byKey(const ValueKey('pasgar-defect-counts-card')),
+            matching: find.byType(AuditNumericField),
+          ),
+        )
+        .toList();
+
+    await enterAuditNumber(tester, find.byWidget(pasgarFields()[0]), '6');
+    await enterAuditNumber(tester, find.byWidget(pasgarFields()[1]), '2');
+    expect(provider.activeDraft.pasgarReflexes, 6);
+    expect(provider.activeDraft.pasgarBeak, 2);
+
+    await provider.selectPanelSample('chick_quality', firstSampleId);
+    await tester.pumpAndSettle();
+    expect(pasgarFields()[0].controller.text, '3');
+    expect(pasgarFields()[1].controller.text, '1');
+
+    await provider.selectPanelSample('chick_quality', secondSample.sampleId!);
+    await tester.pumpAndSettle();
+    expect(pasgarFields()[0].controller.text, '6');
+    expect(pasgarFields()[1].controller.text, '2');
+  });
+
   testWidgets('culled chicks analysis panel follows PM and updates draft', (
     tester,
   ) async {

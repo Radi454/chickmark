@@ -143,6 +143,7 @@ void main() {
     String? sessionId,
     List<AuditModel> initialAudits = const [],
     List<StationSampleModel> initialStationSamples = const [],
+    PanelSamplingState? initialSamplingState,
   }) async {
     final samplingState = initialAudits.isEmpty
         ? _samplingState(
@@ -196,7 +197,7 @@ void main() {
     final provider = AuditProvider(
       autosaveEnabled: false,
       panelSamplingStateRepository: _SeededSamplingRepository({
-        'hatcher_optimizing': samplingState,
+        'hatcher_optimizing': initialSamplingState ?? samplingState,
       }),
     );
     await tester.pumpWidget(
@@ -258,6 +259,7 @@ void main() {
     String? setterId = '5',
     AuditProvider? provider,
     AuditModel? initialAudit,
+    PanelSamplingState? initialSamplingState,
   }) async {
     final activeSessionId = initialAudit?.sessionId ?? 'session-1';
     final scopeCode = setterId == null ? 'S' : 'S$setterId';
@@ -289,7 +291,7 @@ void main() {
         AuditProvider(
           autosaveEnabled: false,
           panelSamplingStateRepository: _SeededSamplingRepository({
-            'setter_optimizing': samplingState,
+            'setter_optimizing': initialSamplingState ?? samplingState,
           }),
         );
     await tester.pumpWidget(
@@ -434,6 +436,99 @@ void main() {
     }
   });
 
+  testWidgets('Hatcher form restores fields when switching tray samples', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final now = DateTime(2026, 4, 27, 12);
+      final initialAudit = AuditModel(
+        id: 'hatcher-tray-1',
+        auditType: 'Hatchers',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        hatcherId: 'H-01',
+        hoHatcherId: 'H-01',
+        date: now,
+        hatchNumber: 1,
+        status: 'active',
+        createdBy: 'tester',
+        createdAt: now,
+        updatedAt: now,
+        sessionId: 'session-1',
+        hoSetpointF: 99.5,
+      );
+      final samplingState = _samplingState(
+        sessionId: 'session-1',
+        panelKey: 'hatcher_optimizing',
+        nodes: [
+          SamplingNode(
+            id: 'hatcher-scope',
+            sessionId: 'session-1',
+            panelKey: 'hatcher_optimizing',
+            level: SamplingScopeLevel.hatcher,
+            identityKey: 'H-01',
+            identity: const {'code': 'H-01'},
+          ),
+          _terminalNode(
+            id: 'hatcher-tray-1-node',
+            sessionId: 'session-1',
+            panelKey: 'hatcher_optimizing',
+            sampleId: 'hatcher-tray-1',
+            number: 1,
+            parentId: 'hatcher-scope',
+          ),
+          _terminalNode(
+            id: 'hatcher-tray-2-node',
+            sessionId: 'session-1',
+            panelKey: 'hatcher_optimizing',
+            sampleId: 'hatcher-tray-2',
+            number: 2,
+            parentId: 'hatcher-scope',
+          ),
+        ],
+        activeSampleId: 'hatcher-tray-1',
+      );
+      final provider = await pumpHatcherScreen(
+        tester,
+        initialAudits: [initialAudit],
+        initialSamplingState: samplingState,
+      );
+      final setpoint = find.byKey(const ValueKey('hatcher-setpoint-f-field'));
+
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '99.5',
+      );
+      await provider.selectPanelSample('hatcher_optimizing', 'hatcher-tray-2');
+      await tester.pump();
+      expect(provider.activeDraft.hoSetpointF, isNull);
+      expect(tester.widget<AuditNumericField>(setpoint).controller.text, '');
+
+      await tester.enterText(setpoint, '100.2');
+      await tester.pump();
+      expect(provider.activeDraft.hoSetpointF, 100.2);
+
+      await provider.selectPanelSample('hatcher_optimizing', 'hatcher-tray-1');
+      await tester.pump();
+      expect(provider.activeDraft.hoSetpointF, 99.5);
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '99.5',
+      );
+
+      await provider.selectPanelSample('hatcher_optimizing', 'hatcher-tray-2');
+      await tester.pump();
+      expect(provider.activeDraft.hoSetpointF, 100.2);
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '100.2',
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('Hatcher reopens multiple machine rows as machine chips', (
     tester,
   ) async {
@@ -550,6 +645,99 @@ void main() {
     expect(find.text('Sampling'), findsOneWidget);
     expect(find.widgetWithText(InputChip, 'S5'), findsOneWidget);
     expect(provider.activeDraft.setterId, '5');
+  });
+
+  testWidgets('Setter form restores fields when switching tray samples', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final now = DateTime(2026, 4, 27, 12);
+      final initialAudit = AuditModel(
+        id: 'setter-tray-1',
+        auditType: 'Setters',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        setterId: '5',
+        soSetterId: '5',
+        date: now,
+        hatchNumber: 1,
+        status: 'active',
+        createdBy: 'tester',
+        createdAt: now,
+        updatedAt: now,
+        sessionId: 'session-1',
+        soSetpointF: 99.5,
+      );
+      final samplingState = _samplingState(
+        sessionId: 'session-1',
+        panelKey: 'setter_optimizing',
+        nodes: [
+          SamplingNode(
+            id: 'setter-scope',
+            sessionId: 'session-1',
+            panelKey: 'setter_optimizing',
+            level: SamplingScopeLevel.setter,
+            identityKey: 'S5',
+            identity: const {'code': 'S5'},
+          ),
+          _terminalNode(
+            id: 'setter-tray-1-node',
+            sessionId: 'session-1',
+            panelKey: 'setter_optimizing',
+            sampleId: 'setter-tray-1',
+            number: 1,
+            parentId: 'setter-scope',
+          ),
+          _terminalNode(
+            id: 'setter-tray-2-node',
+            sessionId: 'session-1',
+            panelKey: 'setter_optimizing',
+            sampleId: 'setter-tray-2',
+            number: 2,
+            parentId: 'setter-scope',
+          ),
+        ],
+        activeSampleId: 'setter-tray-1',
+      );
+      final provider = await pumpSetterScreen(
+        tester,
+        initialAudit: initialAudit,
+        initialSamplingState: samplingState,
+      );
+      final setpoint = find.byKey(const ValueKey('setter-setpoint-f-field'));
+
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '99.5',
+      );
+      await provider.selectPanelSample('setter_optimizing', 'setter-tray-2');
+      await tester.pump();
+      expect(provider.activeDraft.soSetpointF, isNull);
+      expect(tester.widget<AuditNumericField>(setpoint).controller.text, '');
+
+      await tester.enterText(setpoint, '100.2');
+      await tester.pump();
+      expect(provider.activeDraft.soSetpointF, 100.2);
+
+      await provider.selectPanelSample('setter_optimizing', 'setter-tray-1');
+      await tester.pump();
+      expect(provider.activeDraft.soSetpointF, 99.5);
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '99.5',
+      );
+
+      await provider.selectPanelSample('setter_optimizing', 'setter-tray-2');
+      await tester.pump();
+      expect(provider.activeDraft.soSetpointF, 100.2);
+      expect(
+        tester.widget<AuditNumericField>(setpoint).controller.text,
+        '100.2',
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('Setter uses Pooled scope until a comparison is selected', (

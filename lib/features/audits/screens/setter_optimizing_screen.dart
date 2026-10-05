@@ -102,6 +102,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   int _activeEstSampleIndex = 0;
   String _activeEstBreed = 'Ross308';
   String? _activeAuditId;
+  String? _activePanelSampleId;
   TemperatureEntryUnit _estUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
@@ -195,14 +196,19 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   }
 
   void _syncActiveSampleForm(AuditProvider provider, AuditModel audit) {
-    if (_activeAuditId == audit.id) return;
+    final selectedSampleId = provider.activeSampleIdFor('setter_optimizing');
+    final auditChanged = _activeAuditId != audit.id;
+    if (!auditChanged && _activePanelSampleId == selectedSampleId) return;
     _activeAuditId = audit.id;
-    _activeEstSampleIndex = 0;
+    _activePanelSampleId = selectedSampleId;
+    if (auditChanged) _activeEstSampleIndex = 0;
     _initializeFormState(audit);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || provider.activeDraft.id != _activeAuditId) return;
-      _syncSelectedEstSampleToFlatFields(provider);
-    });
+    if (auditChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || provider.activeDraft.id != _activeAuditId) return;
+        _syncSelectedEstSampleToFlatFields(provider);
+      });
+    }
   }
 
   String _normalizeSetterType(String? value) {
@@ -511,6 +517,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
             Column(
               children: [
                 AuditNumericField(
+                  key: const ValueKey('setter-setpoint-f-field'),
                   controller: _setpointController,
                   enabled: !auditProvider.isReadOnly,
                   allowDecimal: true,

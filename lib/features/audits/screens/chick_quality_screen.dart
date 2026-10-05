@@ -194,6 +194,8 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
     AuditProvider provider,
     AuditModel audit,
   ) {
+    final qualitySampleIdentity =
+        '${audit.id}:${provider.activeSampleIdFor('chick_quality') ?? ''}';
     final activeQualitySampleMeta = provider.isCompareMode
         ? '${provider.activeStationSample.sampleLabel} setter/hatcher sample'
         : '';
@@ -214,7 +216,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: PasgarTab(
-            key: ValueKey('pasgar-${audit.id}'),
+            key: ValueKey('pasgar-$qualitySampleIdentity'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -228,7 +230,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: YfbmTab(
-            key: ValueKey('yfbm-${audit.id}'),
+            key: ValueKey('yfbm-$qualitySampleIdentity'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -242,7 +244,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: CvtTab(
-            key: ValueKey('cvt-${audit.id}'),
+            key: ValueKey('cvt-$qualitySampleIdentity'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -256,7 +258,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: PmNecropsyTab(
-            key: ValueKey('pm-${audit.id}'),
+            key: ValueKey('pm-$qualitySampleIdentity'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,
@@ -270,7 +272,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: activeQualitySampleMeta,
           collapsible: true,
           child: CulledChicksAnalysisTab(
-            key: ValueKey('culled-${audit.id}'),
+            key: ValueKey('culled-$qualitySampleIdentity'),
             audit: audit,
             isReadOnly: provider.isReadOnly,
             embedded: true,

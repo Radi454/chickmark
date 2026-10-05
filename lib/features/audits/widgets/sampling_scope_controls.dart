@@ -158,7 +158,8 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     String? activeId,
   ) {
     final readOnly = provider.isReadOnly || provider.isLoading;
-    final label = _levelLabel(context, level);
+    final paired = config.pairedLevels?.contains(level) ?? false;
+    final label = _levelLabel(context, level, paired: paired);
     final parentId = _nearestSelectedParentId(config, level, selectedByLevel);
     final isPaired = config.pairedLevels?.contains(level) ?? false;
     final displayNodes = isPaired
@@ -171,29 +172,37 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 2,
             children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: Theme.of(context).textTheme.labelLarge,
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
-              IconButton(
-                tooltip: context
+              Tooltip(
+                message: context
                     .tr('Add {scope}')
                     .replaceFirst('{scope}', label),
-                onPressed: readOnly
-                    ? null
-                    : () => _add(
-                        context,
-                        provider,
-                        state,
-                        level,
-                        parentId,
-                        config,
-                      ),
-                icon: const Icon(Icons.add_circle_outline),
+                child: TextButton.icon(
+                  onPressed: readOnly
+                      ? null
+                      : () => _add(
+                          context,
+                          provider,
+                          state,
+                          level,
+                          parentId,
+                          config,
+                        ),
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: Text(
+                    context.tr('Add {scope}').replaceFirst('{scope}', label),
+                  ),
+                ),
               ),
             ],
           ),
@@ -203,7 +212,14 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
             children: [
               if (level != SamplingScopeLevel.tray)
                 ChoiceChip(
-                  label: Text(context.tr('Pooled')),
+                  label: Text(
+                    context.tr('Pooled'),
+                    style: TextStyle(
+                      color: displayNodes.isEmpty
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   selected: displayNodes.isEmpty,
                   // Pooled is the default while no identity exists. Once a
                   // comparison identity has been added, it is intentionally
@@ -213,8 +229,18 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                 ),
               for (final node in displayNodes)
                 InputChip(
-                  label: Text(_identityLabel(node, isPaired)),
+                  label: Text(
+                    _identityLabel(node, isPaired),
+                    style: TextStyle(
+                      color: node.id == selected?.id
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   selected: node.id == selected?.id,
+                  deleteIconColor: node.id == selected?.id
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface,
                   onPressed: readOnly
                       ? null
                       : () => _selectBranch(context, provider, state, node),
@@ -230,7 +256,12 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                           padding: EdgeInsets.zero,
                           iconSize: 16,
                           tooltip: context.tr('Edit identity'),
-                          icon: const Icon(Icons.edit_outlined),
+                          icon: Icon(
+                            Icons.edit_outlined,
+                            color: node.id == selected?.id
+                                ? Theme.of(context).colorScheme.onPrimary
+                                : Theme.of(context).colorScheme.onSurface,
+                          ),
                           onPressed: () =>
                               _edit(context, provider, node, config),
                         ),
@@ -266,14 +297,23 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
         children: [
           Text(
             context.tr('Sample'),
-            style: Theme.of(context).textTheme.labelLarge,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
           Wrap(
             spacing: 8,
             children: [
               for (final sample in samples)
                 ChoiceChip(
-                  label: Text('SA${sample.sampleNumber ?? ''}'),
+                  label: Text(
+                    'SA${sample.sampleNumber ?? ''}',
+                    style: TextStyle(
+                      color: sample.sampleId == activeId
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   selected: sample.sampleId == activeId,
                   onSelected:
                       provider.isReadOnly ||
@@ -310,7 +350,7 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
         identity: identity,
       );
       if (!context.mounted) return;
-      await _finishAddingScope(context, provider, config, level, created);
+      await _finishAddingScope(context, provider, config, created);
     } on StateError catch (error) {
       if (!error.message.contains('measured Pooled')) {
         if (context.mounted) _showSamplingError(context, error.message);
@@ -347,7 +387,11 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           discardPooledData: true,
         );
         if (!context.mounted) return;
-        await _finishAddingScope(context, provider, config, level, created);
+        await _finishAddingScope(context, provider, config, created);
+      }
+    } on ArgumentError catch (error) {
+      if (context.mounted) {
+        _showSamplingError(context, error.message?.toString() ?? '');
       }
     } catch (error) {
       if (context.mounted) _showSamplingError(context, '');
@@ -368,21 +412,19 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     BuildContext context,
     AuditProvider provider,
     PanelSamplingConfig config,
-    SamplingScopeLevel level,
     SamplingNode created,
   ) async {
     if (created.sampleId != null) {
       await provider.selectPanelSample(widget.panelKey, created.sampleId!);
       return;
     }
-    if (config.terminalLevel == SamplingScopeLevel.sample) {
-      final sample = await provider.addPanelTerminalSample(
-        widget.panelKey,
-        parentId: created.id,
-      );
-      if (sample.sampleId != null && context.mounted) {
-        await provider.selectPanelSample(widget.panelKey, sample.sampleId!);
-      }
+    final sample = await provider.addPanelTerminalSample(
+      widget.panelKey,
+      parentId: created.id,
+      identity: _defaultTerminalIdentity(config),
+    );
+    if (sample.sampleId != null && context.mounted) {
+      await provider.selectPanelSample(widget.panelKey, sample.sampleId!);
     }
   }
 
@@ -412,7 +454,10 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           title: Text(
             context
                 .tr('Add {scope}')
-                .replaceFirst('{scope}', _levelLabel(context, level)),
+                .replaceFirst(
+                  '{scope}',
+                  _levelLabel(context, level, paired: pair),
+                ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -520,19 +565,34 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                 .tr('Add {scope}')
                 .replaceFirst('{scope}', context.tr('House')),
           ),
-          content: DropdownButtonFormField<String>(
-            initialValue: selected,
-            decoration: InputDecoration(labelText: context.tr('House')),
-            items: [
-              for (final entry in choices.entries)
-                DropdownMenuItem(
-                  value: entry.key,
-                  child: Text(entry.value['name'] ?? entry.value['code']!),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (houses.isEmpty && selected == null)
+                Text(
+                  context.tr(
+                    'No houses are registered for this flock. Add houses in Flock Management, then return here.',
+                  ),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  initialValue: selected,
+                  decoration: InputDecoration(labelText: context.tr('House')),
+                  items: [
+                    for (final entry in choices.entries)
+                      DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(
+                          entry.value['name'] ?? entry.value['code']!,
+                        ),
+                      ),
+                  ],
+                  onChanged: choices.isEmpty
+                      ? null
+                      : (value) => setDialogState(() => selected = value),
                 ),
             ],
-            onChanged: choices.isEmpty
-                ? null
-                : (value) => setDialogState(() => selected = value),
           ),
           actions: [
             TextButton(
@@ -624,6 +684,10 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           node.id,
           identity,
         );
+      } on ArgumentError catch (error) {
+        if (context.mounted) {
+          _showSamplingError(context, error.message?.toString() ?? '');
+        }
       } catch (error) {
         if (context.mounted) _showSamplingError(context, '$error');
       }
@@ -691,6 +755,7 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     PanelSamplingState state,
     SamplingNode node,
   ) async {
+    final config = PanelSampleSchema.samplingConfigFor(widget.panelKey);
     if (node.sampleId != null) {
       await provider.selectPanelSample(widget.panelKey, node.sampleId!);
       return;
@@ -698,19 +763,22 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     final sample = _firstSampleBelow(state, node.id);
     if (sample?.sampleId != null) {
       await provider.selectPanelSample(widget.panelKey, sample!.sampleId!);
-    } else if (PanelSampleSchema.samplingConfigFor(
-          widget.panelKey,
-        ).terminalLevel ==
-        SamplingScopeLevel.sample) {
+    } else {
       final created = await provider.addPanelTerminalSample(
         widget.panelKey,
         parentId: node.id,
+        identity: _defaultTerminalIdentity(config),
       );
       if (created.sampleId != null) {
         await provider.selectPanelSample(widget.panelKey, created.sampleId!);
       }
     }
   }
+
+  Map<String, String>? _defaultTerminalIdentity(PanelSamplingConfig config) =>
+      config.terminalLevel == SamplingScopeLevel.tray
+      ? const {'code': 'T1', 'name': 'Tray 1'}
+      : null;
 
   List<SamplingNode> _chain(PanelSamplingState state, SamplingNode node) {
     final result = <SamplingNode>[node];
@@ -766,13 +834,18 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
             node.identityKey ??
             '';
 
-  String _levelLabel(BuildContext context, SamplingScopeLevel level) =>
-      switch (level) {
-        SamplingScopeLevel.house => context.tr('House'),
-        SamplingScopeLevel.setter => context.tr('Setter / Hatcher'),
-        SamplingScopeLevel.hatcher => context.tr('Hatcher'),
-        SamplingScopeLevel.trolley => context.tr('Trolley'),
-        SamplingScopeLevel.tray => context.tr('Tray'),
-        SamplingScopeLevel.sample => context.tr('Sample'),
-      };
+  String _levelLabel(
+    BuildContext context,
+    SamplingScopeLevel level, {
+    bool paired = false,
+  }) => switch (level) {
+    SamplingScopeLevel.house => context.tr('House'),
+    SamplingScopeLevel.setter => context.tr(
+      paired ? 'Setter / Hatcher' : 'Setter',
+    ),
+    SamplingScopeLevel.hatcher => context.tr('Hatcher'),
+    SamplingScopeLevel.trolley => context.tr('Trolley'),
+    SamplingScopeLevel.tray => context.tr('Tray'),
+    SamplingScopeLevel.sample => context.tr('Sample'),
+  };
 }

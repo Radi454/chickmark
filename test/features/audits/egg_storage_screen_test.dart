@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
+import 'package:hatchaudit/data/models/audit_model.dart';
 import 'package:hatchaudit/data/models/panel_sampling_state.dart';
 import 'package:hatchaudit/data/models/poultry_hierarchy_models.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
@@ -272,18 +273,20 @@ void main() {
         .setMockMethodCallHandler(connectivityChannel, null);
   });
 
-  AuditContextData contextData() => AuditContextData(
+  AuditContextData contextData({String? sessionId}) => AuditContextData(
     auditType: 'Egg',
     customerId: 'customer-1',
     flockId: 'flock-1',
     breed: 'Ross 308',
     flockAgeWeeks: 42,
     date: '2026-04-27',
+    sessionId: sessionId,
   );
 
   Future<void> pumpScreen(
     WidgetTester tester, {
     AuditContextData? auditContext,
+    AuditModel? initialAudit,
     EggBmkWeightLookup? bmkEggWeightLookup,
   }) async {
     final samplingRepository = _ScreenSamplingRepository();
@@ -305,6 +308,7 @@ void main() {
           theme: ThemeData(splashFactory: NoSplash.splashFactory),
           home: EggStorageScreen(
             context: auditContext ?? contextData(),
+            initialAudit: initialAudit,
             bmkEggWeightLookup: bmkEggWeightLookup,
           ),
         ),
@@ -711,6 +715,108 @@ void main() {
     await tester.pump();
 
     expect(tester.widget<TextField>(storageDaysField).controller?.text, '');
+  });
+
+  testWidgets('egg sampling switches hydrate only their own form fields', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final now = DateTime(2026, 4, 27, 12);
+      final initialAudit = AuditModel(
+        id: 'egg-sample-1',
+        auditType: 'Egg',
+        customerId: 'customer-1',
+        flockId: 'flock-1',
+        date: now,
+        hatchNumber: 1,
+        status: 'active',
+        createdBy: 'tester',
+        createdAt: now,
+        updatedAt: now,
+        sessionId: 'session-1',
+        esEggStorageDays: 5,
+        esEggQualityStorageDays: 7,
+      );
+      await pumpScreen(
+        tester,
+        auditContext: contextData(sessionId: 'session-1'),
+        initialAudit: initialAudit,
+      );
+      final provider = Provider.of<AuditProvider>(
+        tester.element(find.byType(EggStorageScreen)),
+        listen: false,
+      );
+      await tester.pumpAndSettle();
+      final storageDays = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Storage Days',
+      );
+      final qualityDays = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Quality Storage Days',
+      );
+      await tester.ensureVisible(storageDays);
+      await tester.ensureVisible(qualityDays);
+      expect(tester.widget<TextField>(storageDays).controller?.text, '5');
+      expect(tester.widget<TextField>(qualityDays).controller?.text, '7');
+      final firstStorageSample = provider.activeSampleIdFor('egg_storage')!;
+
+      await provider.addPanelTerminalSample('egg_storage', parentId: null);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(storageDays).controller?.text, '0');
+      expect(tester.widget<TextField>(qualityDays).controller?.text, '7');
+      await tester.enterText(storageDays, '12');
+      await tester.pump();
+      expect(provider.activeDraft.esEggStorageDays, 12);
+
+      await provider.selectPanelSample('egg_storage', firstStorageSample);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(storageDays).controller?.text, '5');
+      expect(tester.widget<TextField>(qualityDays).controller?.text, '7');
+
+      final firstQualitySample = provider.activeSampleIdFor('egg_quality')!;
+      await provider.addPanelTerminalSample('egg_quality', parentId: null);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(qualityDays).controller?.text, '0');
+      expect(tester.widget<TextField>(storageDays).controller?.text, '5');
+      await tester.enterText(qualityDays, '14');
+      await tester.pump();
+      expect(provider.activeDraft.esEggQualityStorageDays, 14);
+
+      await provider.selectPanelSample('egg_quality', firstQualitySample);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(qualityDays).controller?.text, '7');
+      expect(tester.widget<TextField>(storageDays).controller?.text, '5');
+
+      final notes = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Assessment Notes',
+      );
+      await provider.activateSamplingPanel('egg_storage');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(notes);
+      await tester.enterText(notes, 'Storage sample note');
+      await tester.pump();
+
+      await provider.activateSamplingPanel('egg_quality');
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(notes).controller?.text, '');
+      await tester.enterText(notes, 'Quality sample note');
+      await tester.pump();
+
+      await provider.activateSamplingPanel('egg_storage');
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(notes).controller?.text,
+        'Storage sample note',
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('egg quality BMK age follows quality storage days', (

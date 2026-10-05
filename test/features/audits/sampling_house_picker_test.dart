@@ -24,6 +24,14 @@ class _RegisteredHouseRepository extends PoultryHierarchyRepository {
   ];
 }
 
+class _EmptyHouseRepository extends PoultryHierarchyRepository {
+  @override
+  Future<List<HouseModel>> listHouses(
+    String flockId, {
+    bool activeOnly = true,
+  }) async => const [];
+}
+
 class _PickerSamplingRepository extends PanelSamplingStateRepository {
   PanelSamplingState state = PanelSamplingState(
     sessionId: 'session-1',
@@ -153,6 +161,21 @@ void main() {
       );
       await pumpSampling(tester);
       expect(find.text('Sampling'), findsOneWidget);
+      final activeSampleChip = tester.widget<ChoiceChip>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is ChoiceChip &&
+              widget.selected &&
+              widget.label is Text &&
+              ((widget.label as Text).data == 'SA1'),
+        ),
+      );
+      expect(
+        (activeSampleChip.label as Text).style?.color,
+        Theme.of(
+          tester.element(find.byType(ChoiceChip).first),
+        ).colorScheme.onPrimary,
+      );
       await tester.tap(find.byTooltip('Add House'));
       await pumpSampling(tester);
       expect(find.text('Registered houses could not be loaded.'), findsNothing);
@@ -176,4 +199,52 @@ void main() {
       provider.dispose();
     },
   );
+
+  testWidgets('empty House picker explains how to add registered houses', (
+    tester,
+  ) async {
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: _PickerSamplingRepository(),
+        )..initialize(
+          AuditContext(
+            auditType: 'Egg',
+            customerId: 'customer-1',
+            flockId: 'customer-flock-no-houses',
+            hatcheryId: 'hatchery-1',
+            breed: 'Ross308',
+            date: '2026-10-05',
+          ),
+          sessionId: 'session-empty-houses',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(
+                panelKey: 'egg_quality',
+                houseRepository: _EmptyHouseRepository(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await pumpSampling(tester);
+    await tester.tap(find.text('Add House'));
+    await pumpSampling(tester);
+
+    expect(
+      find.text(
+        'No houses are registered for this flock. Add houses in Flock Management, then return here.',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    provider.dispose();
+  });
 }

@@ -646,6 +646,7 @@ class AuditProvider extends ChangeNotifier {
   Future<SamplingNode> addPanelTerminalSample(
     String panelKey, {
     required String? parentId,
+    Map<String, String>? identity,
   }) async {
     if (_isReadOnly || _isLoading) {
       throw StateError(
@@ -659,6 +660,7 @@ class AuditProvider extends ChangeNotifier {
         sessionId: sessionId,
         panelKey: panelKey,
         parentId: parentId,
+        identity: identity,
       );
       await _reloadPanelSamplingState(panelKey, activeSampleId: node.sampleId);
       return node;

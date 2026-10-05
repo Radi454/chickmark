@@ -118,6 +118,9 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   bool? _condensation;
   double? _bmkEggWeight;
   String? _activeAuditId;
+  String? _activeEggStorageSampleId;
+  String? _activeEggQualitySampleId;
+  String? _activeSamplingPanelKey;
   TemperatureEntryUnit _estUnit = TemperatureEntryUnit.fahrenheit;
 
   @override
@@ -161,6 +164,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     );
     _initializeFormState(auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
+    _activeSamplingPanelKey = auditProvider.activeSamplingPanelKey;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncCurrentEggQualityBmk(auditProvider);
       _scrollToInitialSection();
@@ -177,6 +181,12 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   }
 
   void _initializeFormState(AuditModel audit) {
+    _initializeEggStorageFormState(audit);
+    _initializeEggQualityFormState(audit);
+    _notesController.text = audit.notes ?? '';
+  }
+
+  void _initializeEggStorageFormState(AuditModel audit) {
     _storageDaysController.clear();
     for (final controller in _estControllers.values) {
       controller.clear();
@@ -184,18 +194,10 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     _estPhotos.clear();
     _estAvgController.clear();
     _estCvController.clear();
-    _notesController.clear();
-    for (final controller in _eggWeightControllers) {
-      controller.clear();
-    }
     _traySpacing = null;
     _coolerProximity = null;
     _condensation = null;
-    _bmkEggWeight = null;
     _storageDaysController.text = _formatNumber(audit.esEggStorageDays ?? 0);
-    _eggQualityStorageDaysController.text = _formatNumber(
-      audit.esEggQualityStorageDays ?? audit.esEggStorageDays ?? 0,
-    );
     _loadEstGrid(audit.esEstReadingsJson);
     _loadEstPhotos(audit.esEstPhotosJson);
     _estAvgController.text = audit.esEstAvg != null
@@ -205,18 +207,55 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         ? audit.esEstCv!.toStringAsFixed(1)
         : '';
     _loadUvTrays(audit.esUvTrays);
-    _loadEggWeights(audit.esEggWeights);
     _traySpacing = audit.esTraySpacing;
     _coolerProximity = audit.esCoolerProximity;
     _condensation = audit.esCondensation;
-    _bmkEggWeight = audit.esEggBmkWeight;
-    _notesController.text = audit.notes ?? '';
   }
 
-  void _syncActiveSampleForm(AuditModel audit) {
-    if (_activeAuditId == audit.id) return;
-    _activeAuditId = audit.id;
-    _initializeFormState(audit);
+  void _initializeEggQualityFormState(AuditModel audit) {
+    for (final controller in _eggWeightControllers) {
+      controller.clear();
+    }
+    _eggQualityStorageDaysController.text = _formatNumber(
+      audit.esEggQualityStorageDays ?? audit.esEggStorageDays ?? 0,
+    );
+    _loadEggWeights(audit.esEggWeights);
+    _bmkEggWeight = audit.esEggBmkWeight;
+  }
+
+  void _syncActiveSampleForm(AuditProvider provider, AuditModel audit) {
+    final storageSampleId = provider.activeSampleIdFor('egg_storage');
+    final qualitySampleId = provider.activeSampleIdFor('egg_quality');
+    final samplingPanelChanged =
+        _activeSamplingPanelKey != provider.activeSamplingPanelKey;
+    _activeSamplingPanelKey = provider.activeSamplingPanelKey;
+    if (_activeAuditId != audit.id) {
+      _activeAuditId = audit.id;
+      _activeEggStorageSampleId = storageSampleId;
+      _activeEggQualitySampleId = qualitySampleId;
+      _initializeFormState(audit);
+      return;
+    }
+
+    if (_activeEggStorageSampleId != storageSampleId) {
+      _activeEggStorageSampleId = storageSampleId;
+      _initializeEggStorageFormState(audit);
+      if (provider.activeSamplingPanelKey == 'egg_storage') {
+        _notesController.text = audit.notes ?? '';
+      }
+    }
+    if (_activeEggQualitySampleId != qualitySampleId) {
+      _activeEggQualitySampleId = qualitySampleId;
+      _initializeEggQualityFormState(audit);
+      if (provider.activeSamplingPanelKey == 'egg_quality') {
+        _notesController.text = audit.notes ?? '';
+      }
+    }
+    if (samplingPanelChanged &&
+        (provider.activeSamplingPanelKey == 'egg_storage' ||
+            provider.activeSamplingPanelKey == 'egg_quality')) {
+      _notesController.text = audit.notes ?? '';
+    }
   }
 
   void _loadEstGrid(String? readingsJson) {
@@ -333,7 +372,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
   Widget build(BuildContext context) {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
-    _syncActiveSampleForm(audit);
+    _syncActiveSampleForm(auditProvider, audit);
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,

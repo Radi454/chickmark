@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hatchaudit/core/theme/app_theme.dart';
 import 'package:hatchaudit/data/models/panel_sampling_state.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
@@ -8,7 +9,11 @@ import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart'
 import 'package:provider/provider.dart';
 
 class _MemorySamplingRepository extends PanelSamplingStateRepository {
-  _MemorySamplingRepository() : super();
+  _MemorySamplingRepository({this.duplicateOnAdd = false}) : super();
+
+  final bool duplicateOnAdd;
+  final List<(SamplingScopeLevel, String?)> scopeAdds = [];
+  final List<String?> terminalParents = [];
 
   late PanelSamplingState state = PanelSamplingState(
     sessionId: 'session-1',
@@ -55,6 +60,12 @@ class _MemorySamplingRepository extends PanelSamplingStateRepository {
     bool discardPooledData = false,
   }) async {
     addedParentId = parentId;
+    scopeAdds.add((level, parentId));
+    if (duplicateOnAdd) {
+      throw ArgumentError(
+        'That scope identity already exists under this parent.',
+      );
+    }
     final node = SamplingNode(
       id: 'added-${state.nodes.length}',
       sessionId: sessionId,
@@ -81,6 +92,10 @@ class _MemorySamplingRepository extends PanelSamplingStateRepository {
     required String? parentId,
     Map<String, String>? identity,
   }) async {
+    terminalParents.add(parentId);
+    if (identity == null) {
+      throw ArgumentError('Tray samples require an identity.');
+    }
     final number = state.serialHighWatermark + 1;
     final node = SamplingNode(
       id: 'terminal-${state.nodes.length}',
@@ -88,7 +103,7 @@ class _MemorySamplingRepository extends PanelSamplingStateRepository {
       panelKey: panelKey,
       parentId: parentId,
       level: SamplingScopeLevel.tray,
-      identity: identity ?? const {'code': 'Tray1'},
+      identity: identity,
       identityKey: 'Tray$number',
       sampleId: 'sample-$number',
       sampleNumber: number,
@@ -127,6 +142,381 @@ class _MemorySamplingRepository extends PanelSamplingStateRepository {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('scope labels use readable app surface colors at phone width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    final repository = _MemorySamplingRepository();
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Hatch Analysis & Egg Breakouts',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            date: '2026-10-05',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(panelKey: 'residue_breakout'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    final theme = AppTheme.light();
+    final headers = tester.widgetList<Text>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            {'House', 'Setter', 'Hatcher', 'Trolley'}.contains(widget.data),
+      ),
+    );
+    expect(headers, hasLength(4));
+    expect(
+      headers.every((text) => text.style?.color == theme.colorScheme.onSurface),
+      isTrue,
+    );
+    final pooledChips = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
+    expect(
+      pooledChips
+          .where((chip) => chip.selected)
+          .every(
+            (chip) =>
+                (chip.label as Text).style?.color ==
+                theme.colorScheme.onPrimary,
+          ),
+      isTrue,
+    );
+    final selectedScope = tester.widget<InputChip>(
+      find.byType(InputChip).first,
+    );
+    expect(selectedScope.selected, isTrue);
+    expect(
+      (selectedScope.label as Text).style?.color,
+      theme.colorScheme.onPrimary,
+    );
+    expect(selectedScope.deleteIconColor, theme.colorScheme.onPrimary);
+    expect(
+      ((selectedScope.avatar as IconButton).icon as Icon).color,
+      theme.colorScheme.onPrimary,
+    );
+    expect(find.text('Add House'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    provider.dispose();
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+
+  testWidgets('setter scope is named Setter outside paired chick quality', (
+    tester,
+  ) async {
+    final repository = _MemorySamplingRepository()
+      ..state = PanelSamplingState(
+        sessionId: 'session-1',
+        panelKey: 'setter_optimizing',
+        serialHighWatermark: 0,
+        activeSampleId: 'sample-1',
+        nodes: const [],
+      );
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Hatch Analysis & Egg Breakouts',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            date: '2026-10-05',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(panelKey: 'setter_optimizing'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(find.text('Setter'), findsOneWidget);
+    expect(find.text('Setter / Hatcher'), findsNothing);
+    await tester.tap(find.text('Add Setter').first);
+    await tester.pumpAndSettle();
+    final dialog = find.byType(AlertDialog);
+    expect(
+      find.descendant(of: dialog, matching: find.text('Add Setter')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: dialog, matching: find.text('Setter')),
+      findsOneWidget,
+    );
+    expect(find.text('Setter / Hatcher'), findsNothing);
+    provider.dispose();
+  });
+
+  testWidgets(
+    'duplicate paired identity shows the duplicate-specific message',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      final repository = _MemorySamplingRepository(duplicateOnAdd: true)
+        ..state = PanelSamplingState(
+          sessionId: 'session-1',
+          panelKey: 'chick_quality',
+          serialHighWatermark: 0,
+          activeSampleId: 'sample-1',
+          nodes: const [],
+        );
+      final provider =
+          AuditProvider(
+            autosaveEnabled: false,
+            panelSamplingStateRepository: repository,
+          )..initialize(
+            AuditContext(
+              auditType: 'Chicks',
+              customerId: 'customer-1',
+              flockId: 'flock-1',
+              hatcheryId: 'hatchery-1',
+              date: '2026-10-05',
+            ),
+            sessionId: 'session-1',
+            notify: false,
+          );
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: provider,
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const Scaffold(
+              body: SingleChildScrollView(
+                child: SamplingScopeControls(panelKey: 'chick_quality'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(tester.takeException(), isNull);
+      expect(find.text('Add Setter / Hatcher'), findsOneWidget);
+      await tester.tap(find.text('Add Setter / Hatcher'));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'QA-S1');
+      await tester.enterText(fields.at(1), 'QA-H1');
+      await tester.tap(find.text('Save').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('That identity already exists under this parent.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Sampling identity could not be saved. Try again.'),
+        findsNothing,
+      );
+      provider.dispose();
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    },
+  );
+
+  testWidgets('Hatcher to Trolley gets default Tray leaves under each branch', (
+    tester,
+  ) async {
+    final repository = _MemorySamplingRepository()
+      ..state = PanelSamplingState(
+        sessionId: 'session-1',
+        panelKey: 'hatcher_optimizing',
+        serialHighWatermark: 0,
+        activeSampleId: 'sample-1',
+        nodes: const [],
+      );
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Hatch Analysis & Egg Breakouts',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            date: '2026-10-05',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(panelKey: 'hatcher_optimizing'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    await tester.tap(find.text('Add Hatcher'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'QA-H1');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+
+    final hatcher = repository.state.nodes.singleWhere(
+      (node) => node.level == SamplingScopeLevel.hatcher,
+    );
+    expect(repository.scopeAdds.single, (SamplingScopeLevel.hatcher, null));
+    final hatcherTray = repository.state.samples.singleWhere(
+      (sample) => sample.parentId == hatcher.id,
+    );
+    expect(hatcherTray.level, SamplingScopeLevel.tray);
+    expect(hatcherTray.identity['code'], 'T1');
+    expect(
+      provider.activeSampleIdFor('hatcher_optimizing'),
+      hatcherTray.sampleId,
+    );
+
+    await tester.tap(find.text('Add Trolley'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'Q1');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+
+    final firstTrolley = repository.state.nodes.singleWhere(
+      (node) => node.level == SamplingScopeLevel.trolley,
+    );
+    expect(firstTrolley.parentId, hatcher.id);
+    final trolleyTray = repository.state.samples.singleWhere(
+      (sample) => sample.parentId == firstTrolley.id,
+    );
+    expect(trolleyTray.identity['code'], 'T1');
+    final path = repository.state.pathFor(trolleyTray.sampleId!);
+    expect(path.hatcher, 'QA-H1');
+    expect(path.trolley, 'Q1');
+    expect(path.tray, 'T1');
+
+    await tester.tap(find.text('Add Trolley'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'Q2');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    final siblingTrolley = repository.state.nodes.singleWhere(
+      (node) =>
+          node.level == SamplingScopeLevel.trolley &&
+          node.identity['code'] == 'Q2',
+    );
+    expect(siblingTrolley.parentId, hatcher.id);
+    await tester.tap(find.text('Q1'));
+    await tester.pumpAndSettle();
+    expect(
+      provider.activeSampleIdFor('hatcher_optimizing'),
+      trolleyTray.sampleId,
+    );
+    expect(repository.terminalParents, [
+      hatcher.id,
+      firstTrolley.id,
+      siblingTrolley.id,
+    ]);
+    provider.dispose();
+  });
+
+  testWidgets('selecting a legacy branch without a leaf creates its terminal', (
+    tester,
+  ) async {
+    final repository = _MemorySamplingRepository()
+      ..state = PanelSamplingState(
+        sessionId: 'session-1',
+        panelKey: 'hatcher_optimizing',
+        serialHighWatermark: 8,
+        activeSampleId: 'missing-sample',
+        nodes: [
+          SamplingNode(
+            id: 'legacy-hatcher',
+            sessionId: 'session-1',
+            panelKey: 'hatcher_optimizing',
+            level: SamplingScopeLevel.hatcher,
+            identityKey: 'QA-H1',
+            identity: const {'code': 'QA-H1'},
+          ),
+        ],
+      );
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Hatch Analysis & Egg Breakouts',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            date: '2026-10-05',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(panelKey: 'hatcher_optimizing'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.tap(find.text('QA-H1'));
+    await tester.pumpAndSettle();
+
+    expect(repository.terminalParents, ['legacy-hatcher']);
+    expect(repository.state.samples.single.sampleNumber, 9);
+    expect(
+      provider.activeSampleIdFor('hatcher_optimizing'),
+      repository.state.samples.single.sampleId,
+    );
+    provider.dispose();
+  });
 
   testWidgets('a skipped pooled level keeps the nearest selected parent', (
     tester,

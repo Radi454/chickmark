@@ -674,9 +674,17 @@ Station save behavior:
   comparison. There is no direct conversion of an existing branch to Pooled.
   Deleting the final comparison tab restores an empty Pooled default.
 - Add dialogs validate identities before changing state. Registered Houses are
-  selected from the current flock; machine identities use manual entry because
-  no dedicated machine registry is present. Duplicate identities under the
-  same parent are rejected. Cancel leaves the form and persisted state intact.
+  selected from the current flock; when a flock has no registered houses, the
+  picker explains that houses must be added in Flock Management. Machine
+  identities use manual entry because no dedicated machine registry is
+  present. Duplicate identities under the same parent are rejected with a
+  duplicate-specific message. Cancel leaves the form and persisted state
+  intact. Scope headings and selected sampling chips use readable surface and
+  on-primary text and action colors, and each scope has a visible Add action.
+  New branches receive a default identified terminal Tray (or native sample)
+  and become the active path. Selecting a legacy branch with no terminal leaf
+  creates its default terminal sample. Setter is labeled independently except
+  where Chick Quality pairs Setter and Hatcher.
   Adding the first ancestor comparison over entered Pooled data requires an
   explicit reset confirmation for that parent's affected descendants.
 - Deleting a branch always asks for confirmation and removes its descendants,
@@ -684,6 +692,11 @@ Station save behavior:
   Unrelated branches and panels survive. Shared backing photo files are retained
   while another surviving photo references them. Offline tombstones remain until
   their child-before-parent cloud deletion succeeds.
+- Station form controllers and embedded Chick assessment tabs follow the active
+  panel sample ID, even when samples share the same compatibility audit ID.
+  Switching samples restores their saved fields. Egg storage and quality
+  hydrate independently; switching the active Egg panel restores its notes
+  without resetting the other panel's form.
 - Identity edits preserve sample IDs and measurements and update descendant
   saved paths atomically. Every measurement row carries its complete active path
   plus `sampleId`, `sampleNumber`, and `samplingPathJson`. Saves validate this

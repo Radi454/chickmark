@@ -639,4 +639,94 @@ void main() {
       provider.dispose();
     },
   );
+
+  test(
+    'new Hatcher and Trolley branches retain identified Tray leaves',
+    () async {
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(
+        auditContext(),
+        sessionId: 'session-1',
+        notify: false,
+      );
+      await provider.activateSamplingPanel('hatcher_optimizing');
+      final initial = provider.samplingStateFor('hatcher_optimizing')!;
+      expect(initial.samples.single.identity['code'], 'T1');
+
+      final hatcher = await provider.addPanelScopeIdentity(
+        'hatcher_optimizing',
+        level: SamplingScopeLevel.hatcher,
+        parentId: null,
+        identity: const {'code': 'QA-H1'},
+      );
+      final hatcherTray = await provider.addPanelTerminalSample(
+        'hatcher_optimizing',
+        parentId: hatcher.id,
+        identity: const {'code': 'T1', 'name': 'Tray 1'},
+      );
+      expect(hatcherTray.parentId, hatcher.id);
+      expect(hatcherTray.sampleNumber, 2);
+      expect(
+        provider.activeSampleIdFor('hatcher_optimizing'),
+        hatcherTray.sampleId,
+      );
+
+      final trolley = await provider.addPanelScopeIdentity(
+        'hatcher_optimizing',
+        level: SamplingScopeLevel.trolley,
+        parentId: hatcher.id,
+        identity: const {'code': 'Q1'},
+      );
+      final trolleyTray = await provider.addPanelTerminalSample(
+        'hatcher_optimizing',
+        parentId: trolley.id,
+        identity: const {'code': 'T1', 'name': 'Tray 1'},
+      );
+      expect(trolley.parentId, hatcher.id);
+      expect(trolleyTray.parentId, trolley.id);
+      expect(trolleyTray.sampleNumber, 3);
+      final path = provider
+          .samplingStateFor('hatcher_optimizing')!
+          .pathFor(trolleyTray.sampleId!);
+      expect(path.hatcher, 'QA-H1');
+      expect(path.trolley, 'Q1');
+      expect(path.tray, 'T1');
+
+      final sibling = await provider.addPanelScopeIdentity(
+        'hatcher_optimizing',
+        level: SamplingScopeLevel.trolley,
+        parentId: hatcher.id,
+        identity: const {'code': 'Q2'},
+      );
+      final siblingTray = await provider.addPanelTerminalSample(
+        'hatcher_optimizing',
+        parentId: sibling.id,
+        identity: const {'code': 'T1', 'name': 'Tray 1'},
+      );
+      expect(siblingTray.sampleNumber, 4);
+      await provider.selectPanelSample(
+        'hatcher_optimizing',
+        trolleyTray.sampleId!,
+      );
+      expect(
+        provider.activeSampleIdFor('hatcher_optimizing'),
+        trolleyTray.sampleId,
+      );
+
+      final reservations = await (await DatabaseHelper().db).query(
+        'panel_sample_serial_reservations',
+        columns: ['sampleNumber'],
+        where: 'sessionId = ? AND panelKey = ?',
+        whereArgs: ['session-1', 'hatcher_optimizing'],
+        orderBy: 'sampleNumber',
+      );
+      expect(reservations.map((row) => row['sampleNumber']).toList(), [
+        1,
+        2,
+        3,
+        4,
+      ]);
+      provider.dispose();
+    },
+  );
 }
