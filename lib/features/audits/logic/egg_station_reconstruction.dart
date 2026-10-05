@@ -24,10 +24,12 @@ class StationReconstruction {
   const StationReconstruction({
     required this.stationAudits,
     required this.stationSamples,
+    this.samplingDraftsByPanel = const {},
   });
 
   final List<AuditModel> stationAudits;
   final List<StationSampleModel> stationSamples;
+  final Map<String, Map<String, AuditModel>> samplingDraftsByPanel;
 }
 
 const _pasgarPhotoFieldKeys = {
@@ -85,6 +87,7 @@ StationReconstruction overlayPanelPhotos(
   return StationReconstruction(
     stationAudits: audits,
     stationSamples: reconstruction.stationSamples,
+    samplingDraftsByPanel: reconstruction.samplingDraftsByPanel,
   );
 }
 
@@ -105,9 +108,32 @@ StationReconstruction reconstructStation({
     sessionId,
     rowsByPanel,
   );
+  final samplingDraftsByPanel = <String, Map<String, AuditModel>>{};
+  for (final entry in rowsByPanel.entries) {
+    final panelDrafts = samplingDraftsByPanel.putIfAbsent(
+      entry.key,
+      () => <String, AuditModel>{},
+    );
+    for (final rowEntry in entry.value.asMap().entries) {
+      final row = rowEntry.value;
+      final sampleId = panelRowAsText(row['sampleId']) ??
+          panelRowAsText(row['id']);
+      if (sampleId == null) continue;
+      final map = _auditMapFromPanelRows(
+        stationKey,
+        sessionId,
+        context,
+        rowEntry.key,
+        [(table: entry.key, row: row)],
+      );
+      map['id'] = row['id']?.toString() ?? sampleId;
+      panelDrafts[sampleId] = AuditModel.fromMap(map);
+    }
+  }
   return StationReconstruction(
     stationAudits: stationAudits,
     stationSamples: stationSamples,
+    samplingDraftsByPanel: samplingDraftsByPanel,
   );
 }
 
@@ -183,6 +209,7 @@ StationReconstruction overlayEggGradingCounts(
   return StationReconstruction(
     stationAudits: stationAudits,
     stationSamples: reconstruction.stationSamples,
+    samplingDraftsByPanel: reconstruction.samplingDraftsByPanel,
   );
 }
 
@@ -456,6 +483,7 @@ StationSampleModel _sampleFromPanelRow(
   final persistedId = row['id']?.toString();
   return StationSampleModel(
     id: persistedId ?? '$sessionId:$table:$sampleIndex',
+    sampleId: panelRowAsText(row['sampleId']),
     auditSessionId: sessionId,
     stationType: stationKey,
     sectorType: _sectorTypeForTable(table),

@@ -14,6 +14,10 @@ import '../../../data/repositories/audit_repository.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
 import '../../../data/repositories/egg_grading_repository.dart';
 import '../../../data/repositories/panel_sample_repository.dart';
+import '../../../data/models/panel_sampling_state.dart';
+import '../../../data/models/panel_sample_schema.dart';
+import '../../../data/models/sampling_scope.dart';
+import '../../../data/repositories/panel_sampling_state_repository.dart';
 import '../../../data/repositories/station_sample_repository.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/notifications/notification_service.dart';
@@ -27,6 +31,7 @@ import '../models/station_completion_validation.dart';
 import '../logic/audit_meaningful_data.dart';
 import '../logic/audit_value_parsing.dart';
 import '../logic/panel_value_builders.dart';
+import '../logic/panel_photo_identity.dart';
 import '../logic/chick_registry_validation.dart';
 import '../services/audit_panel_save_coordinator.dart';
 import 'package:uuid/uuid.dart';
@@ -42,6 +47,7 @@ class AuditProvider extends ChangeNotifier {
     BenchmarkLookup? benchmarkLookup,
     SupabaseService? supabaseService,
     EggGradingRepository? eggGradingRepository,
+    PanelSamplingStateRepository? panelSamplingStateRepository,
     Duration autosaveDebounceDuration = defaultAutosaveDebounceDuration,
     bool autosaveEnabled = true,
   }) : _panelSampleRepository =
@@ -49,6 +55,8 @@ class AuditProvider extends ChangeNotifier {
        _activityLogRepository =
            activityLogRepository ?? ActivityLogRepository(),
        _benchmarkLookup = benchmarkLookup ?? BenchmarkLookup(),
+       _panelSamplingStateRepository =
+           panelSamplingStateRepository ?? PanelSamplingStateRepository(),
        _autosaveDebounceDuration = autosaveDebounceDuration,
        _autosaveEnabled = autosaveEnabled {
     _panelSaveCoordinator = AuditPanelSaveCoordinator(
@@ -67,6 +75,7 @@ class AuditProvider extends ChangeNotifier {
   final PanelSampleRepository _panelSampleRepository;
   final ActivityLogRepository _activityLogRepository;
   final BenchmarkLookup _benchmarkLookup;
+  final PanelSamplingStateRepository _panelSamplingStateRepository;
   final Duration _autosaveDebounceDuration;
   final bool _autosaveEnabled;
   final Uuid _uuid = const Uuid();
@@ -78,6 +87,11 @@ class AuditProvider extends ChangeNotifier {
   AuditContext? _context;
   List<AuditModel> _drafts = [];
   List<StationSampleModel> _stationSamples = [];
+  // Keep the loaded row adapters intact even when the legacy station/draft
+  // projection cannot associate a row with a current aggregate draft. The
+  // sampling bridge matches immutable sample IDs against these rows so a
+  // backfilled sample keeps its original database row ID.
+  List<StationSampleModel> _loadedStationSampleRows = [];
   List<StationSampleModel> _chickWeightSamples = [];
   String _eggQualityScopeKind = StationSampleModel.sampleKindHouse;
   final Set<String> _removedStationSampleIds = {};
@@ -98,15 +112,974 @@ class AuditProvider extends ChangeNotifier {
   Timer? _autosaveTimer;
   Future<bool>? _autosaveFuture;
   bool _isDisposed = false;
+  bool _samplingMutationInFlight = false;
+  Completer<void>? _samplingMutationFinished;
   UserModel? _currentUser;
   String? _activeSessionId;
   Future<bool>? _saveFuture;
+  final Map<String, PanelSamplingState> _samplingStates = {};
+  final Map<String, Future<PanelSamplingState>> _samplingLoads = {};
+  final Map<String, Map<String, Map<String, Object?>>> _samplingDrafts = {};
+  final Map<String, String> _activeSamplingSamples = {};
+  String? _samplingPanelKey;
 
   // Getters
   AuditContext? get context => _context;
   List<AuditModel> get drafts => List.unmodifiable(_drafts);
   int get activeHatchIndex => _activeHatchIndex;
   AuditModel get activeDraft => _drafts[_activeHatchIndex];
+
+  /// Panel currently using the shared sample-to-form draft adapter.
+  String? get activeSamplingPanelKey => _samplingPanelKey;
+  PanelSamplingState? samplingStateFor(String panelKey) =>
+      _samplingStates[_samplingStateKey(panelKey)];
+  String? activeSampleIdFor(String panelKey) =>
+      _activeSamplingSamples[_samplingStateKey(panelKey)];
+
+  /// Loads the panel's persisted scope tree only when a sampling control asks
+  /// for it. This keeps older fake-provider widget tests independent of SQLite.
+  Future<PanelSamplingState> loadPanelSamplingState(String panelKey) {
+    final sessionId = _activeSessionId;
+    if (sessionId == null || sessionId.isEmpty) {
+      return Future.error(StateError('An audit session is required.'));
+    }
+    final key = _samplingStateKey(panelKey);
+    final cached = _samplingStates[key];
+    if (cached != null) return Future.value(cached);
+    return _samplingLoads
+        .putIfAbsent(key, () async {
+          final state = await _panelSamplingStateRepository.loadOrCreateDefault(
+            sessionId: sessionId,
+            panelKey: panelKey,
+          );
+          final selected = state.resolvedActiveSampleId;
+          final resolved = _stateWithActiveSample(state, selected);
+          _samplingStates[key] = resolved;
+          if (selected != null) {
+            _activeSamplingSamples[key] = selected;
+            _samplingDrafts.putIfAbsent(key, () => {}).putIfAbsent(
+              selected,
+              () {
+                final values = _samplingValuesForDraft(
+                  panelKey,
+                  _isBreakoutSamplingPanel(panelKey) &&
+                          _breakoutPanelForDraft(activeDraft) != panelKey
+                      ? _createSamplingDraft()
+                      : activeDraft,
+                );
+                if (_samplingPanelKey != null &&
+                    _samplingPanelKey != panelKey) {
+                  values['notes'] = null;
+                }
+                return values;
+              },
+            );
+            if (_drafts.isNotEmpty &&
+                (!_isBreakoutSamplingPanel(panelKey) ||
+                    _breakoutPanelForDraft(activeDraft) == panelKey)) {
+              _samplingPanelKey ??= panelKey;
+              final values = Map<String, Object?>.from(
+                _samplingDrafts[key]![selected]!,
+              );
+              if (_samplingPanelKey != panelKey) values.remove('notes');
+              _drafts[_activeHatchIndex] = _applySamplingValues(
+                activeDraft,
+                panelKey,
+                values,
+              );
+            }
+            if (panelKey == 'chick_weights') {
+              _activateChickWeightLeaf(resolved, selected);
+            }
+          }
+          notifyListeners();
+          return resolved;
+        })
+        .whenComplete(() => _samplingLoads.remove(key));
+  }
+
+  bool _isBreakoutSamplingPanel(String panelKey) => const {
+    'fresh_egg_breakout',
+    'candled_egg_breakout',
+    'residue_breakout',
+  }.contains(panelKey);
+
+  String _breakoutPanelForDraft(AuditModel draft) =>
+      switch (EggBreakoutType.fromStorageValue(draft.ebBreakoutType)) {
+        EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+        EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+        EggBreakoutType.residueHatchDay => 'residue_breakout',
+      };
+
+  void _captureSamplingDraft(String panelKey, String sampleId) {
+    if (_drafts.isEmpty) return;
+    if (_isBreakoutSamplingPanel(panelKey) && _samplingPanelKey != panelKey) {
+      return;
+    }
+    final key = _samplingStateKey(panelKey);
+    final cached = _samplingDrafts
+        .putIfAbsent(key, () => {})
+        .putIfAbsent(sampleId, () => <String, Object?>{});
+    final values = _samplingValuesForDraft(panelKey, activeDraft);
+    // Notes and breakout metrics share one AuditModel form slot. Only the
+    // visible panel may flush those slots; disjoint panel metrics still flush.
+    if (_samplingPanelKey != panelKey) values.remove('notes');
+    cached.addAll(values);
+  }
+
+  void _activateLoadedSamplingPanel(String panelKey) {
+    if (_samplingPanelKey == panelKey) return;
+    final outgoing = _samplingPanelKey;
+    if (outgoing != null) {
+      final outgoingId = activeSampleIdFor(outgoing);
+      if (outgoingId != null) _captureSamplingDraft(outgoing, outgoingId);
+    }
+    // Non-breakout panels own disjoint measurement slots in the shared form.
+    // Flush edits made before the first scope click, while leaving notes with
+    // their current panel owner.
+    if (!_isBreakoutSamplingPanel(panelKey)) {
+      final incomingId = activeSampleIdFor(panelKey);
+      if (incomingId != null) _captureSamplingDraft(panelKey, incomingId);
+    }
+    _samplingPanelKey = panelKey;
+    final selected = activeSampleIdFor(panelKey);
+    final values = _samplingDrafts[_samplingStateKey(panelKey)]?[selected];
+    if (values != null && _drafts.isNotEmpty) {
+      _drafts[_activeHatchIndex] = _applySamplingValues(
+        activeDraft,
+        panelKey,
+        values,
+      );
+    }
+  }
+
+  /// Switches the form's shared fields without copying them into another
+  /// breakout type or losing the outgoing panel's unsaved leaf draft.
+  Future<void> activateSamplingPanel(String panelKey) async {
+    final outgoing = _samplingPanelKey;
+    if (outgoing != null) {
+      final id = activeSampleIdFor(outgoing);
+      if (id != null) _captureSamplingDraft(outgoing, id);
+    }
+    await loadPanelSamplingState(panelKey);
+    _activateLoadedSamplingPanel(panelKey);
+    notifyListeners();
+  }
+
+  /// Selects an immutable terminal sample and restores its independent form
+  /// draft. The provider's existing form API continues to operate on the
+  /// restored draft while persistence is bridged through the panel save path.
+  Future<void> selectPanelSample(String panelKey, String sampleId) async {
+    if (_isReadOnly || _isLoading) return;
+    final state = await loadPanelSamplingState(panelKey);
+    if (!state.samples.any((sample) => sample.sampleId == sampleId)) {
+      throw StateError('Unknown sample "$sampleId" for $panelKey.');
+    }
+    _activateLoadedSamplingPanel(panelKey);
+    final key = _samplingStateKey(panelKey);
+    final previous = _activeSamplingSamples[key];
+    if (previous == sampleId) {
+      notifyListeners();
+      return;
+    }
+    if (previous != null && _drafts.isNotEmpty) {
+      _captureSamplingDraft(panelKey, previous);
+    }
+    var nextDraft = _samplingDrafts[key]?[sampleId];
+    if (nextDraft == null && _drafts.isNotEmpty) {
+      nextDraft = _samplingValuesForDraft(panelKey, _createSamplingDraft());
+      _samplingDrafts.putIfAbsent(key, () => {})[sampleId] = nextDraft;
+    }
+    if (nextDraft != null && _drafts.isNotEmpty) {
+      _drafts[_activeHatchIndex] = _applySamplingValues(
+        activeDraft,
+        panelKey,
+        nextDraft,
+      );
+    }
+    _activeSamplingSamples[key] = sampleId;
+    _samplingPanelKey = panelKey;
+    _samplingStates[key] = _stateWithActiveSample(state, sampleId);
+    if (panelKey == 'chick_weights') {
+      _activateChickWeightLeaf(state, sampleId);
+    }
+    notifyListeners();
+  }
+
+  /// Returns a detached snapshot for the save coordinator's sample identity
+  /// bridge. The active form is flushed before the snapshot is returned.
+  AuditModel? draftForSample(String panelKey, String sampleId) {
+    final key = _samplingStateKey(panelKey);
+    if (_activeSamplingSamples[key] == sampleId && _drafts.isNotEmpty) {
+      _captureSamplingDraft(panelKey, sampleId);
+    }
+    final values = _samplingDrafts[key]?[sampleId];
+    if (values == null || _drafts.isEmpty) return null;
+    return _applySamplingValues(activeDraft, panelKey, values);
+  }
+
+  /// Hydrates one panel/sample from its persisted measurement row while
+  /// retaining other panels' fields in the shared AuditModel.
+  void restoreDraftForSample(
+    String panelKey,
+    String sampleId,
+    AuditModel draft,
+  ) {
+    final key = _samplingStateKey(panelKey);
+    _samplingDrafts.putIfAbsent(key, () => {})[sampleId] =
+        _samplingValuesForDraft(panelKey, draft);
+    if (_activeSamplingSamples[key] == sampleId &&
+        _drafts.isNotEmpty &&
+        (!_isBreakoutSamplingPanel(panelKey) ||
+            _samplingPanelKey == panelKey)) {
+      final values = Map<String, Object?>.from(
+        _samplingDrafts[key]![sampleId]!,
+      );
+      if (_samplingPanelKey != panelKey) values.remove('notes');
+      _drafts[_activeHatchIndex] = _applySamplingValues(
+        activeDraft,
+        panelKey,
+        values,
+      );
+    }
+    notifyListeners();
+  }
+
+  Map<String, AuditModel> samplingDraftsForPanel(String panelKey) {
+    final key = _samplingStateKey(panelKey);
+    final state = _samplingStates[key];
+    if (state == null || _drafts.isEmpty) return const {};
+    return {
+      for (final sample in state.samples)
+        if (sample.sampleId != null)
+          sample.sampleId!:
+              draftForSample(panelKey, sample.sampleId!) ??
+              _createSamplingDraft(),
+    };
+  }
+
+  Set<String> get samplingManagedPanelKeys => {
+    for (final state in _samplingStates.values) state.panelKey,
+  };
+
+  /// Builds the coordinator's persistence work from every loaded panel tree.
+  /// The returned sample adapter preserves the actual panel-row id separately
+  /// from the tree's immutable terminal identity.
+  List<SamplingPanelSavePair> samplingPanelSavePairs() {
+    final pairs = <SamplingPanelSavePair>[];
+    for (final state in _samplingStates.values) {
+      final tableName = state.panelKey;
+      final templateSamples = tableName == 'chick_weights'
+          ? _chickWeightSamples
+          : _stationSamples;
+      if (templateSamples.isEmpty || _drafts.isEmpty) continue;
+      final sampleNodes = [...state.samples]
+        ..sort((a, b) => (a.sampleNumber ?? 0).compareTo(b.sampleNumber ?? 0));
+      for (final entry in sampleNodes.asMap().entries) {
+        final leaf = entry.value;
+        final sampleId = leaf.sampleId;
+        if (sampleId == null) continue;
+        final path = state.pathFor(sampleId);
+        final existingSample =
+            _sampleAdapterForId(templateSamples, sampleId) ??
+            _sampleAdapterForId(_loadedStationSampleRows, sampleId);
+        final template = existingSample ?? templateSamples.first;
+        final rowId =
+            existingSample?.id ??
+            (PanelSampleRepository.idKeyedPanelTables.contains(tableName)
+                ? sampleId
+                : panelRowIdForPhoto(
+                    sessionId: state.sessionId,
+                    panelName: tableName,
+                    draftId: activeDraft.id,
+                    stationSampleId: sampleId,
+                  ));
+        final sample = template.copyWith(
+          id: rowId,
+          sampleId: sampleId,
+          auditSessionId: state.sessionId,
+          sampleIndex: entry.key + 1,
+          sampleLabel: _sampleLabelForPath(path),
+          sampleMode: _pathHasComparisonIdentity(path)
+              ? StationSampleModel.sampleModeComparison
+              : StationSampleModel.sampleModePooled,
+          sampleKind: _sampleKindForPath(path),
+          comparisonType: _comparisonTypeForPath(path),
+          houseNo: path.house,
+          houseLabel: path.house,
+          setterNo: path.setter,
+          hatcherNo: path.hatcher,
+        );
+        final draft =
+            draftForSample(tableName, sampleId) ??
+            _applySamplingValues(
+              activeDraft,
+              tableName,
+              _samplingDrafts
+                  .putIfAbsent(_samplingStateKey(tableName), () => {})
+                  .putIfAbsent(
+                    sampleId,
+                    () => _samplingValuesForDraft(
+                      tableName,
+                      _createSamplingDraft(),
+                    ),
+                  ),
+            );
+        final panelDraft = tableName == 'chick_weights'
+            ? _draftWithWeightSampleValues(draft, sample)
+            : draft;
+        pairs.add((
+          tableName: tableName,
+          draft: panelDraft,
+          sample: sample,
+          path: path,
+        ));
+      }
+    }
+    return pairs;
+  }
+
+  String? samplingPhotoRowId(String panelName) {
+    final sampleId = activeSampleIdFor(panelName);
+    final state = _samplingStates[_samplingStateKey(panelName)];
+    if (sampleId == null || state == null || _drafts.isEmpty) return null;
+    final samples = panelName == 'chick_weights'
+        ? _chickWeightSamples
+        : _stationSamples;
+    return (_sampleAdapterForId(samples, sampleId) ??
+                _sampleAdapterForId(_loadedStationSampleRows, sampleId))
+            ?.id ??
+        (PanelSampleRepository.idKeyedPanelTables.contains(panelName)
+            ? sampleId
+            : panelRowIdForPhoto(
+                sessionId: state.sessionId,
+                panelName: panelName,
+                draftId: activeDraft.id,
+                stationSampleId: sampleId,
+              ));
+  }
+
+  StationSampleModel? _sampleAdapterForId(
+    List<StationSampleModel> samples,
+    String sampleId,
+  ) {
+    for (final sample in samples) {
+      if (sample.sampleId == sampleId || sample.id == sampleId) return sample;
+    }
+    return null;
+  }
+
+  void _activateChickWeightLeaf(PanelSamplingState state, String sampleId) {
+    final existingIndex = _chickWeightSamples.indexWhere(
+      (sample) => sample.sampleId == sampleId || sample.id == sampleId,
+    );
+    if (existingIndex >= 0) {
+      _activeChickWeightSampleIndex = existingIndex;
+      return;
+    }
+    if (_chickWeightSamples.isEmpty) return;
+    final path = state.pathFor(sampleId);
+    final template = _chickWeightSamples.first;
+    final rowId =
+        PanelSampleRepository.idKeyedPanelTables.contains('chick_weights')
+        ? sampleId
+        : panelRowIdForPhoto(
+            sessionId: state.sessionId,
+            panelName: 'chick_weights',
+            draftId: activeDraft.id,
+            stationSampleId: sampleId,
+          );
+    final leaf = template.copyWith(
+      id: rowId,
+      sampleId: sampleId,
+      auditSessionId: state.sessionId,
+      sampleIndex: _chickWeightSamples.length,
+      sampleLabel: _sampleLabelForPath(path),
+      sampleMode: _pathHasComparisonIdentity(path)
+          ? StationSampleModel.sampleModeComparison
+          : StationSampleModel.sampleModePooled,
+      sampleKind: _sampleKindForPath(path),
+      comparisonType: _comparisonTypeForPath(path),
+      houseNo: path.house,
+      houseLabel: path.house,
+      setterNo: path.setter,
+      hatcherNo: path.hatcher,
+      // A comparison leaf is a fresh measurement set. Copying the current
+      // row's summary here would make the new identity appear premeasured.
+      resultSummaryJson: _emptyWeightSummaryFor(activeDraft),
+      notes: '',
+    );
+    final reusableDefault =
+        _chickWeightSamples.length == 1 &&
+        !_isMeaningfulWeightSample(_chickWeightSamples.single) &&
+        _chickWeightSamples.single.sampleId == null;
+    if (reusableDefault) {
+      _chickWeightSamples[0] = leaf;
+      _activeChickWeightSampleIndex = 0;
+    } else {
+      _activeChickWeightSampleIndex = _chickWeightSamples.length;
+      _chickWeightSamples.add(leaf);
+    }
+  }
+
+  bool _isMeaningfulWeightSample(StationSampleModel sample) =>
+      hasMeaningfulChickWeightSample(
+        chickWeightValuesForSample(sample, fallback: activeDraft),
+      );
+
+  String _emptyWeightSummaryFor(AuditModel draft) => jsonEncode({
+    'auditType': 'Chicks',
+    'sectorType': StationSampleModel.sectorChickWeights,
+    'chickWeights': null,
+    'chickAvgWeight': null,
+    'chickUniformityPct': null,
+    'chickCvPct': null,
+    'chickBmkAge': draft.chickBmkAge,
+    'chickBmkWeight': draft.chickBmkWeight,
+  });
+
+  AuditModel _draftWithWeightSampleValues(
+    AuditModel draft,
+    StationSampleModel sample,
+  ) {
+    final values = chickWeightValuesForSample(sample, fallback: draft);
+    final map = draft.toMap()
+      ..['chickWeights'] = values['weightsJson']
+      ..['chickSampleSize'] = values['sampleSize']
+      ..['chickAvgWeight'] = values['avgWeight']
+      ..['chickUniformityPct'] = values['uniformityPct']
+      ..['chickCvPct'] = values['cvPct']
+      ..['chickBmkAge'] = values['bmkAgeWeeks']
+      ..['chickBmkWeight'] = values['bmkWeight'];
+    return AuditModel.fromMap(map);
+  }
+
+  bool _pathHasComparisonIdentity(SamplingScopePath path) =>
+      path.house != null ||
+      path.setter != null ||
+      path.hatcher != null ||
+      path.trolley != null ||
+      path.tray != null;
+
+  String _sampleLabelForPath(SamplingScopePath path) {
+    final segments = <String>[
+      if (path.house != null) 'H${path.house}',
+      if (path.setter != null) 'S${path.setter}',
+      if (path.hatcher != null) 'HT${path.hatcher}',
+      if (path.trolley != null) 'TR${path.trolley}',
+      if (path.tray != null) 'T${path.tray}',
+    ];
+    return [...segments, 'SA${path.sampleNumber}'].join(' · ');
+  }
+
+  String _sampleKindForPath(SamplingScopePath path) {
+    if (path.tray != null) return StationSampleModel.sampleKindTray;
+    if (path.house != null) return StationSampleModel.sampleKindHouse;
+    if (path.setter != null || path.hatcher != null) {
+      return StationSampleModel.sampleKindMachine;
+    }
+    return StationSampleModel.sampleKindPooled;
+  }
+
+  String? _comparisonTypeForPath(SamplingScopePath path) {
+    if (path.tray != null) return StationSampleModel.comparisonTypeTray;
+    if (path.setter != null || path.hatcher != null) {
+      return StationSampleModel.comparisonTypeMachine;
+    }
+    if (path.house != null) return StationSampleModel.comparisonTypeHouse;
+    return null;
+  }
+
+  Future<SamplingNode> addPanelScopeIdentity(
+    String panelKey, {
+    required SamplingScopeLevel level,
+    required String? parentId,
+    required Map<String, String> identity,
+    bool discardPooledData = false,
+  }) async {
+    if (_isReadOnly || _isLoading) {
+      throw StateError(
+        'Sampling is read-only while this audit is unavailable.',
+      );
+    }
+    final sessionId = _activeSessionId;
+    if (sessionId == null) throw StateError('An audit session is required.');
+    final state = await loadPanelSamplingState(panelKey);
+    final key = _samplingStateKey(panelKey);
+    final isFirstComparison =
+        level != SamplingScopeLevel.tray &&
+        state.childrenOf(parentId, level).isEmpty;
+    final pooledIds = isFirstComparison
+        ? _samplesResetByFirstComparison(state, parentId, level, panelKey)
+        : const <String>{};
+    final hasUnsavedMeasuredPooled = pooledIds.any((id) {
+      final draft = draftForSample(panelKey, id);
+      return draft != null && _hasMeaningfulSamplingDraft(panelKey, draft);
+    });
+    if (hasUnsavedMeasuredPooled && !discardPooledData) {
+      throw StateError(
+        'The measured Pooled sample must be explicitly reset before comparison.',
+      );
+    }
+    return _runSamplingMutation(() async {
+      final node = await _panelSamplingStateRepository.addScopeIdentity(
+        sessionId: sessionId,
+        panelKey: panelKey,
+        parentId: parentId,
+        level: level,
+        identity: identity,
+        discardPooledData: discardPooledData,
+      );
+      if (discardPooledData) {
+        for (final id in pooledIds) {
+          _samplingDrafts[key]?.remove(id);
+          if (_activeSamplingSamples[key] == id) {
+            _activeSamplingSamples.remove(key);
+          }
+        }
+      }
+      await _reloadPanelSamplingState(panelKey);
+      return node;
+    });
+  }
+
+  Future<SamplingNode> addPanelTerminalSample(
+    String panelKey, {
+    required String? parentId,
+  }) async {
+    if (_isReadOnly || _isLoading) {
+      throw StateError(
+        'Sampling is read-only while this audit is unavailable.',
+      );
+    }
+    final sessionId = _activeSessionId;
+    if (sessionId == null) throw StateError('An audit session is required.');
+    return _runSamplingMutation(() async {
+      final node = await _panelSamplingStateRepository.addTerminalSample(
+        sessionId: sessionId,
+        panelKey: panelKey,
+        parentId: parentId,
+      );
+      await _reloadPanelSamplingState(panelKey, activeSampleId: node.sampleId);
+      return node;
+    });
+  }
+
+  Future<void> editPanelScopeIdentity(
+    String panelKey,
+    String nodeId,
+    Map<String, String> identity,
+  ) async {
+    if (_isReadOnly || _isLoading) return;
+    await _runSamplingMutation(() async {
+      await _panelSamplingStateRepository.updateScopeIdentity(
+        nodeId: nodeId,
+        identity: identity,
+      );
+      await _reloadPanelSamplingState(panelKey);
+    });
+  }
+
+  Future<SamplingDeletePreview> previewPanelScopeDeletion(
+    String panelKey,
+    String nodeId,
+  ) => _panelSamplingStateRepository.previewDeleteSubtree(nodeId: nodeId);
+
+  Future<void> deletePanelScopeNode(String panelKey, String nodeId) async {
+    if (_isReadOnly || _isLoading) return;
+    final state = await loadPanelSamplingState(panelKey);
+    final removedIds = _descendantSampleIds(state, nodeId);
+    await _runSamplingMutation(() async {
+      await _panelSamplingStateRepository.deleteSubtree(nodeId: nodeId);
+      final key = _samplingStateKey(panelKey);
+      for (final id in removedIds) {
+        _samplingDrafts[key]?.remove(id);
+      }
+      final priorActive = _activeSamplingSamples[key];
+      if (removedIds.contains(priorActive)) {
+        _activeSamplingSamples.remove(key);
+      }
+      await _reloadPanelSamplingState(
+        panelKey,
+        activeSampleId: removedIds.contains(priorActive) ? null : priorActive,
+      );
+    });
+  }
+
+  Future<T> _runSamplingMutation<T>(Future<T> Function() action) async {
+    while (_samplingMutationInFlight) {
+      await _samplingMutationFinished!.future;
+    }
+    _samplingMutationInFlight = true;
+    final finished = Completer<void>();
+    _samplingMutationFinished = finished;
+    try {
+      _autosaveTimer?.cancel();
+      _autosaveTimer = null;
+      final pendingAutosave = _autosaveFuture;
+      if (pendingAutosave != null) await pendingAutosave;
+      final pendingSave = _saveFuture;
+      if (pendingSave != null) await pendingSave;
+      return await action();
+    } finally {
+      _samplingMutationInFlight = false;
+      if (!finished.isCompleted) finished.complete();
+      if (_isDirty) _scheduleAutosave();
+    }
+  }
+
+  bool _hasMeaningfulSamplingDraft(String panelKey, AuditModel draft) =>
+      (switch (panelKey) {
+        'egg_storage' => hasSavableEggStorageData(draft),
+        'egg_quality' => hasMeaningfulEggQualityData(draft),
+        'chick_quality' => hasMeaningfulChickData(
+          draft,
+          hasAnyMeaningfulChickWeightSample: false,
+        ),
+        'chick_weights' => hasMeaningfulChickWeightSample({
+          'weightsJson': draft.chickWeights,
+          'sampleSize': draft.chickSampleSize,
+          'avgWeight': draft.chickAvgWeight,
+          'uniformityPct': draft.chickUniformityPct,
+          'cvPct': draft.chickCvPct,
+        }),
+        'fresh_egg_breakout' ||
+        'candled_egg_breakout' ||
+        'residue_breakout' => hasMeaningfulHatchData(draft),
+        'setter_optimizing' => hasMeaningfulSetterData(
+          draft,
+          contextSetterId: _context?.setterId,
+        ),
+        'hatcher_optimizing' => hasMeaningfulHatcherData(
+          draft,
+          contextHatcherId: _context?.hatcherId,
+        ),
+        _ => false,
+      }) ||
+      (draft.notes?.trim().isNotEmpty ?? false);
+
+  Future<void> _reloadPanelSamplingState(
+    String panelKey, {
+    String? activeSampleId,
+  }) async {
+    final key = _samplingStateKey(panelKey);
+    final priorActive = _activeSamplingSamples[key];
+    if (priorActive != null && _drafts.isNotEmpty) {
+      _captureSamplingDraft(panelKey, priorActive);
+    }
+    _samplingStates.remove(key);
+    final state = await _panelSamplingStateRepository.loadOrCreateDefault(
+      sessionId: _activeSessionId!,
+      panelKey: panelKey,
+    );
+    final selected =
+        activeSampleId != null &&
+            state.samples.any((sample) => sample.sampleId == activeSampleId)
+        ? activeSampleId
+        : state.resolvedActiveSampleId;
+    _samplingStates[key] = _stateWithActiveSample(state, selected);
+    if (selected != null) {
+      _activeSamplingSamples[key] = selected;
+      if (panelKey == 'chick_weights') {
+        _activateChickWeightLeaf(state, selected);
+      }
+      final selectedDraft = _samplingDrafts
+          .putIfAbsent(key, () => {})
+          .putIfAbsent(
+            selected,
+            () => _samplingValuesForDraft(panelKey, _createSamplingDraft()),
+          );
+      if (_drafts.isNotEmpty &&
+          (!_isBreakoutSamplingPanel(panelKey) ||
+              _samplingPanelKey == panelKey)) {
+        final values = Map<String, Object?>.from(selectedDraft);
+        if (_samplingPanelKey != panelKey) values.remove('notes');
+        _drafts[_activeHatchIndex] = _applySamplingValues(
+          activeDraft,
+          panelKey,
+          values,
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  String _samplingStateKey(String panelKey) =>
+      '${_activeSessionId ?? ''}::$panelKey';
+
+  PanelSamplingState _stateWithActiveSample(
+    PanelSamplingState state,
+    String? sampleId,
+  ) => PanelSamplingState(
+    sessionId: state.sessionId,
+    panelKey: state.panelKey,
+    nodes: state.nodes,
+    serialHighWatermark: state.serialHighWatermark,
+    activeSampleId: sampleId ?? '',
+  );
+
+  Set<String> _descendantSampleIds(PanelSamplingState state, String nodeId) {
+    final deletedNodeIds = <String>{nodeId};
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final node in state.nodes) {
+        if (node.parentId != null &&
+            deletedNodeIds.contains(node.parentId) &&
+            deletedNodeIds.add(node.id)) {
+          changed = true;
+        }
+      }
+    }
+    return state.nodes
+        .where((node) => deletedNodeIds.contains(node.id))
+        .map((node) => node.sampleId)
+        .whereType<String>()
+        .toSet();
+  }
+
+  Set<String> _samplingDraftFieldKeys(String panelKey) => switch (panelKey) {
+    'egg_storage' => const {
+      'esEggStorageDays',
+      'es_estReadingsJson',
+      'es_estPhotosJson',
+      'es_estAvg',
+      'es_estCv',
+      'esTurningTimes',
+      'esUvTrays',
+      'es_traySpacing',
+      'es_coolerProximity',
+      'es_condensation',
+      'es_wallProximity',
+      'notes',
+    },
+    'egg_quality' => const {
+      'esEggQualityStorageDays',
+      'es_uvSampleSize',
+      'es_uvCuticleDamageCount',
+      'es_uvWashingEvidenceCount',
+      'es_uvFecalCount',
+      'esEggWeights',
+      'esEggSampleSize',
+      'esEggAvgWeight',
+      'esEggUniformityPct',
+      'esEggCvPct',
+      'esEggBmkAge',
+      'esEggBmkWeight',
+      'esGradingSampleSize',
+      'esGradingRejectedCount',
+      'esGradingDefectsJson',
+      'notes',
+    },
+    'chick_quality' => const {
+      'pasgarSampleSize',
+      'pasgarReflexes',
+      'pasgarReflexesPhoto',
+      'pasgarBeak',
+      'pasgarBeakPhoto',
+      'pasgarNavel',
+      'pasgarNavelPhoto',
+      'pasgarBelly',
+      'pasgarBellyPhoto',
+      'pasgarLeg',
+      'pasgarLegPhoto',
+      'pasgarFeatherDev',
+      'pasgarFeatherDevPhoto',
+      'pasgarFinalScore',
+      'yfbmPhoto',
+      'yfbmEntries',
+      'yfbmAvgPct',
+      'yfbmCvPct',
+      'cvtReadingsJson',
+      'cvtPhotosJson',
+      'cvtSampleSize',
+      'cvtTopBasket',
+      'cvtTopTemp',
+      'cvtTopPhoto',
+      'cvtMiddleBasket',
+      'cvtMiddleTemp',
+      'cvtMiddlePhoto',
+      'cvtBottomBasket',
+      'cvtBottomTemp',
+      'cvtBottomPhoto',
+      'cvtAvg',
+      'cvtCvPct',
+      'pm_sampleSize',
+      'pm_collectionPoint',
+      'pm_omphalitisCount',
+      'pm_omphalitisSeverity',
+      'pm_gaseousCecaCount',
+      'pm_gaseousCecaSeverity',
+      'pm_unabsorbedYolkCount',
+      'pm_unabsorbedYolkSeverity',
+      'pm_perihepatitisCount',
+      'pm_perihepatitisSeverity',
+      'pm_pericarditisCount',
+      'pm_pericarditisSeverity',
+      'pm_airsacAcuteCount',
+      'pm_airsacAcuteSeverity',
+      'pm_airsacChronicCount',
+      'pm_airsacChronicSeverity',
+      'pm_pulmonaryGranulomaCount',
+      'pm_pulmonaryGranulomaSeverity',
+      'pm_swollenJointsCount',
+      'pm_swollenJointsSeverity',
+      'pm_stuntedOrgansCount',
+      'pm_stuntedOrgansSeverity',
+      'pm_pulmonaryHemorrhageCount',
+      'pm_pulmonaryHemorrhageSeverity',
+      'pm_gizzardErosionsCount',
+      'pm_gizzardErosionsSeverity',
+      'pm_airSacCaseationsCount',
+      'pm_airSacCaseationsSeverity',
+      'pm_urolithiasisCount',
+      'pm_urolithiasisSeverity',
+      'pm_nephritisCount',
+      'pm_nephritisSeverity',
+      'pm_generalSepticemiaCount',
+      'pm_generalSepticemiaSeverity',
+      'pm_otherLesionsJson',
+      'pm_suspectedCauseAuto',
+      'pm_suspectedCauseManual',
+      'pm_photosJson',
+      'culledChicksTotalEggSet',
+      'culledChicksAnalysisJson',
+      'culledChicksAffectedPct',
+      'culledChicksTopCategory',
+      'culledChicksTopSubtype',
+      'notes',
+    },
+    'fresh_egg_breakout' ||
+    'candled_egg_breakout' ||
+    'residue_breakout' => const {
+      'ebBreakoutType',
+      'ebStorageDays',
+      'haStorageDays',
+      'ebBreakoutAgeDays',
+      'ebBmkAge',
+      'ebTraySize',
+      'ebInfertileCount',
+      'ebEarlyDeadCount',
+      'ebMidDeadCount',
+      'ebLateDeadCount',
+      'ebExternalPipCount',
+      'ebCrackedCount',
+      'ebContaminatedCount',
+      'ebTrayBreakoutJson',
+      'haTotalEggsSet',
+      'haHatched',
+      'haCulled',
+      'haDead',
+      'haHatchability',
+      'haFertility',
+      'haHof',
+      'notes',
+    },
+    'setter_optimizing' => const {
+      'soSetterId',
+      'so_machineType',
+      'so_setpointF',
+      'so_actualF',
+      'so_setpointRh',
+      'so_actualRh',
+      'so_batchSize',
+      'so_batchCount',
+      'so_totalEggsSet',
+      'so_turningAngle',
+      'soCo2',
+      'soCo2Photo',
+      'soBreed',
+      'soIncubationAge',
+      'soIncubationHours',
+      'soEstReadings',
+      'soEstPhotos',
+      'so_estSamplesJson',
+      'soEstAvg',
+      'soEstCv',
+      'so_machineScreenPhoto',
+      'notes',
+    },
+    'hatcher_optimizing' => const {
+      'hoHatcherId',
+      'ho_setpointF',
+      'ho_setpointRh',
+      'hoIncubationAge',
+      'hoIncubationHours',
+      'hoCo2',
+      'hoCo2Photo',
+      'hoCvtReadings',
+      'hoCvtPhotos',
+      'hoCvtAvg',
+      'hoCvtCv',
+      'hoChickPanting',
+      'hoChickPantingPhoto',
+      'ho_meconium',
+      'ho_transferDay',
+      'notes',
+    },
+    'chick_weights' => const {
+      'chickWeights',
+      'chickSampleSize',
+      'chickAvgWeight',
+      'chickUniformityPct',
+      'chickCvPct',
+      'chickBmkAge',
+      'chickBmkWeight',
+      'notes',
+    },
+    _ => const {},
+  };
+
+  Map<String, Object?> _samplingValuesForDraft(
+    String panelKey,
+    AuditModel draft,
+  ) {
+    final values = draft.toMap();
+    if (_isBreakoutSamplingPanel(panelKey)) {
+      values['ebBreakoutType'] = switch (panelKey) {
+        'fresh_egg_breakout' => EggBreakoutType.freshEggBreakout.storageValue,
+        'candled_egg_breakout' =>
+          EggBreakoutType.candledEggBreakout.storageValue,
+        _ => EggBreakoutType.residueHatchDay.storageValue,
+      };
+    }
+    return {
+      for (final key in _samplingDraftFieldKeys(panelKey)) key: values[key],
+    };
+  }
+
+  AuditModel _applySamplingValues(
+    AuditModel base,
+    String panelKey,
+    Map<String, Object?> values,
+  ) {
+    final map = Map<String, dynamic>.from(base.toMap());
+    for (final key in _samplingDraftFieldKeys(panelKey)) {
+      if (values.containsKey(key)) map[key] = values[key];
+    }
+    return AuditModel.fromMap(map);
+  }
+
+  Set<String> _samplesResetByFirstComparison(
+    PanelSamplingState state,
+    String? parentId,
+    SamplingScopeLevel level,
+    String panelKey,
+  ) {
+    final config = PanelSampleSchema.samplingConfigFor(panelKey);
+    final targetOrder = config.levels.indexOf(level);
+    final roots = state.nodes.where(
+      (node) =>
+          node.parentId == parentId &&
+          (node.sampleId != null ||
+              config.levels.indexOf(node.level) > targetOrder),
+    );
+    return {for (final root in roots) ..._descendantSampleIds(state, root.id)};
+  }
+
+  AuditModel _createSamplingDraft() => _createNewDraft(
+    hatchNumber: _drafts.isEmpty ? 1 : activeDraft.hatchNumber,
+  );
   String? get activeSessionId => _activeSessionId;
   bool isTabSaved(int tabIndex) =>
       _savedTabs[_activeHatchIndex]?.contains(tabIndex) ?? false;
@@ -279,8 +1252,17 @@ class AuditProvider extends ChangeNotifier {
     bool notify = true,
     UserModel? currentUser,
     String? sessionId,
+    Map<String, Map<String, AuditModel>>? samplingDraftsByPanel,
   }) {
     _context = context;
+    _loadedStationSampleRows = List<StationSampleModel>.of(
+      existingStationSamples ?? const <StationSampleModel>[],
+    );
+    _samplingStates.clear();
+    _samplingLoads.clear();
+    _samplingDrafts.clear();
+    _activeSamplingSamples.clear();
+    _samplingPanelKey = null;
     _currentUser = currentUser;
     _tempUnit = TempUnit.fahrenheit;
     final restoredAudits =
@@ -322,6 +1304,20 @@ class AuditProvider extends ChangeNotifier {
       existingStationSamples,
     );
     _activeChickWeightSampleIndex = 0;
+    if (samplingDraftsByPanel != null) {
+      for (final entry in samplingDraftsByPanel.entries) {
+        final drafts = _samplingDrafts.putIfAbsent(
+          _samplingStateKey(entry.key),
+          () => <String, Map<String, Object?>>{},
+        );
+        for (final sampleDraft in entry.value.entries) {
+          drafts[sampleDraft.key] = _samplingValuesForDraft(
+            entry.key,
+            sampleDraft.value,
+          );
+        }
+      }
+    }
 
     _savedTabs.clear();
     _removedStationSampleIds.clear();
@@ -718,6 +1714,9 @@ class AuditProvider extends ChangeNotifier {
     bool markAllTabsSaved = false,
   }) async {
     if (_isReadOnly) return true;
+    while (_samplingMutationInFlight) {
+      await _samplingMutationFinished!.future;
+    }
     _autosaveTimer?.cancel();
     _autosaveTimer = null;
     final autosaveInFlight = _autosaveFuture;
@@ -935,18 +1934,24 @@ class AuditProvider extends ChangeNotifier {
           }
         }
       }
-      await _panelSaveCoordinator.savePanelTables(
-        panelSavePairs: panelSavePairs,
-        draftsToSave: draftsToSave,
-        removedStationSampleIds: removedStationSampleIds,
-      );
+      try {
+        await _savePanelTablesWithSamplingRetry(
+          panelSavePairs: panelSavePairs,
+          draftsToSave: draftsToSave,
+          removedStationSampleIds: removedStationSampleIds,
+        );
+      } on StaleSamplingIdentityException {
+        rethrow;
+      }
       for (var i = 0; i < chickWeightSamplesToSave.length; i++) {
         final sample = chickWeightSamplesToSave[i];
         if (i < _chickWeightSamples.length) {
           _chickWeightSamples[i] = sample;
         }
       }
-      if (savedDrafts.isNotEmpty && chickWeightSamplesToSave.isNotEmpty) {
+      if (savedDrafts.isNotEmpty &&
+          chickWeightSamplesToSave.isNotEmpty &&
+          !samplingManagedPanelKeys.contains('chick_weights')) {
         await _panelSaveCoordinator.saveChickWeightPanels(
           draft: savedDrafts.first,
           samplesToSave: chickWeightSamplesToSave,
@@ -972,6 +1977,42 @@ class AuditProvider extends ChangeNotifier {
         _isLoading = false;
       }
       _notifyListeners();
+    }
+  }
+
+  Future<void> _savePanelTablesWithSamplingRetry({
+    required List<PanelSavePair> panelSavePairs,
+    required List<AuditModel> draftsToSave,
+    required List<String> removedStationSampleIds,
+  }) async {
+    Future<void> save() => _panelSaveCoordinator.savePanelTables(
+      panelSavePairs: panelSavePairs,
+      draftsToSave: draftsToSave,
+      removedStationSampleIds: removedStationSampleIds,
+      samplingSavePairs: samplingPanelSavePairs(),
+      samplingManagedTables: samplingManagedPanelKeys,
+    );
+
+    try {
+      await save();
+    } on StaleSamplingIdentityException {
+      // Sync or another editor changed one of the identities after the form
+      // snapshot was assembled. Refresh every loaded panel and retry from the
+      // canonical active leaves. Deleted leaves are omitted by the rebuilt
+      // state, so this path never recreates their measurement rows.
+      for (final panelKey in samplingManagedPanelKeys.toList()) {
+        await _reloadPanelSamplingState(panelKey);
+        final state = _samplingStates[_samplingStateKey(panelKey)];
+        if (state == null) continue;
+        final activeIds = state.samples
+            .map((sample) => sample.sampleId)
+            .whereType<String>()
+            .toSet();
+        _samplingDrafts[_samplingStateKey(panelKey)]?.removeWhere(
+          (sampleId, _) => !activeIds.contains(sampleId),
+        );
+      }
+      await save();
     }
   }
 

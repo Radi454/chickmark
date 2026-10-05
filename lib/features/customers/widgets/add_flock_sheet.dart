@@ -14,14 +14,18 @@ import '../../../data/models/breeder_isolation_area_model.dart';
 /// flock creation rather than a separate farm-management screen: this is
 /// the row's editable draft, converted to a [HouseModel] on save.
 class _HouseDraft {
-  _HouseDraft({this.existingId, String name = '', int females = 0, int males = 0})
-    : nameController = TextEditingController(text: name),
-      femalesController = TextEditingController(
-        text: females == 0 ? '' : females.toString(),
-      ),
-      malesController = TextEditingController(
-        text: males == 0 ? '' : males.toString(),
-      );
+  _HouseDraft({
+    this.existingId,
+    String name = '',
+    int females = 0,
+    int males = 0,
+  }) : nameController = TextEditingController(text: name),
+       femalesController = TextEditingController(
+         text: females == 0 ? '' : females.toString(),
+       ),
+       malesController = TextEditingController(
+         text: males == 0 ? '' : males.toString(),
+       );
 
   final String? existingId;
   final TextEditingController nameController;
@@ -65,6 +69,7 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _flockIdController;
   late final TextEditingController _ageWeeksController;
+  late final TextEditingController _samplingCodeController;
   late String _selectedBreed;
   late DateTime _entryDate;
   late bool _useCurrentAge;
@@ -96,15 +101,18 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
           ? ''
           : widget.initialFlock!.currentAgeWeeks.toInt().toString(),
     );
+    _samplingCodeController = TextEditingController(
+      text: widget.initialFlock?.samplingCode ?? '',
+    );
     _selectedBreed = widget.initialFlock?.breed ?? 'Ross308';
     _entryDate = widget.initialFlock?.entryDate ?? DateTime.now();
     _useCurrentAge = widget.initialFlock?.isAgeEstimated ?? false;
     _isSold = widget.initialFlock?.isSold ?? false;
     final existingFlock = widget.initialFlock;
     if (existingFlock != null) {
-      final existingHouses = context
-          .read<CustomersProvider>()
-          .housesForFlock(existingFlock.id);
+      final existingHouses = context.read<CustomersProvider>().housesForFlock(
+        existingFlock.id,
+      );
       for (final house in existingHouses) {
         _houseDrafts.add(
           _HouseDraft(
@@ -130,6 +138,7 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   void dispose() {
     _flockIdController.dispose();
     _ageWeeksController.dispose();
+    _samplingCodeController.dispose();
     for (final draft in _houseDrafts) {
       draft.dispose();
     }
@@ -180,6 +189,7 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
       customerId: selectedCustomer.id,
       flockId: _flockIdController.text.trim(),
       breed: _selectedBreed,
+      samplingCode: _samplingCodeController.text,
       entryDate: resolvedEntryDate,
       isAgeEstimated: _useCurrentAge,
       status: _isSold ? FlockModel.soldStatus : FlockModel.activeStatus,
@@ -234,7 +244,8 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
           id: draft.existingId ?? const Uuid().v4(),
           flockId: flockId,
           name: name,
-          openingFemales: int.tryParse(draft.femalesController.text.trim()) ?? 0,
+          openingFemales:
+              int.tryParse(draft.femalesController.text.trim()) ?? 0,
           openingMales: int.tryParse(draft.malesController.text.trim()) ?? 0,
         ),
       );
@@ -341,6 +352,17 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: AppSizes.spaceMd),
+              TextFormField(
+                controller: _samplingCodeController,
+                decoration: InputDecoration(
+                  labelText: 'Farm sampling code',
+                  hintText: context.tr('e.g. ABC'),
+                  helperText: 'Optional. Enter three letters A–Z.',
+                ),
+                style: AppTextStyles.body,
+                validator: _samplingCodeValidator,
               ),
               const SizedBox(height: AppSizes.spaceMd),
               DropdownButtonFormField<String>(
@@ -559,6 +581,12 @@ class _AddFlockSheetState extends State<AddFlockSheet> {
   }
 }
 
+String? _samplingCodeValidator(String? value) {
+  final code = value?.trim() ?? '';
+  if (code.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(code)) return null;
+  return 'Enter exactly three letters A–Z, or leave blank.';
+}
+
 class _IsolationAreaDraftRow extends StatelessWidget {
   const _IsolationAreaDraftRow({required this.draft, required this.onRemove});
 
@@ -645,9 +673,7 @@ class _HouseDraftRow extends StatelessWidget {
                 child: TextFormField(
                   controller: draft.malesController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Opening males',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Opening males'),
                 ),
               ),
             ],

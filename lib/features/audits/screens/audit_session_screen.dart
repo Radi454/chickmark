@@ -1260,6 +1260,7 @@ class _StationFrameState extends State<_StationFrame> {
       return _StationInitialData(
         stationAudits: reconstruction.stationAudits,
         stationSamples: reconstruction.stationSamples,
+        samplingDraftsByPanel: reconstruction.samplingDraftsByPanel,
       );
     } catch (e, st) {
       // Never silently swallow a reconstruction failure: a thrown mapper or
@@ -1319,6 +1320,7 @@ class _StationFrameState extends State<_StationFrame> {
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,
           initialStationSamples: initialData.stationSamples,
+          initialSamplingDraftsByPanel: initialData.samplingDraftsByPanel,
           stationController: widget.eggStorageController,
         );
       case 'chicks':
@@ -1330,6 +1332,7 @@ class _StationFrameState extends State<_StationFrame> {
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,
           initialStationSamples: initialData.stationSamples,
+          initialSamplingDraftsByPanel: initialData.samplingDraftsByPanel,
         );
       case 'hatch_analysis_egg_breakouts':
         return HatchAnalysisScreen(
@@ -1337,6 +1340,7 @@ class _StationFrameState extends State<_StationFrame> {
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,
           initialStationSamples: initialData.stationSamples,
+          initialSamplingDraftsByPanel: initialData.samplingDraftsByPanel,
         );
       case 'setters':
         return SetterOptimizingScreen(
@@ -1344,6 +1348,7 @@ class _StationFrameState extends State<_StationFrame> {
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,
           initialStationSamples: initialData.stationSamples,
+          initialSamplingDraftsByPanel: initialData.samplingDraftsByPanel,
         );
       case 'hatchers':
         return HatcherOptimizingScreen(
@@ -1351,6 +1356,7 @@ class _StationFrameState extends State<_StationFrame> {
           initialAudit: initialAudit,
           initialAudits: initialData.stationAudits,
           initialStationSamples: initialData.stationSamples,
+          initialSamplingDraftsByPanel: initialData.samplingDraftsByPanel,
         );
       default:
         return null;
@@ -1361,9 +1367,11 @@ class _StationFrameState extends State<_StationFrame> {
 class _StationInitialData {
   final List<AuditModel> stationAudits;
   final List<StationSampleModel> stationSamples;
+  final Map<String, Map<String, AuditModel>> samplingDraftsByPanel;
 
   const _StationInitialData({
     this.stationAudits = const [],
     this.stationSamples = const [],
+    this.samplingDraftsByPanel = const {},
   });
 }

@@ -22,6 +22,7 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     location TEXT,
     phone TEXT,
     email TEXT,
+    samplingCode TEXT,
     createdAt TEXT,
     createdBy TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -41,6 +42,7 @@ Future<void> _createCoreTablesIfMissing(DatabaseExecutor db) async {
     productionPhase TEXT,
     isAgeEstimated INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active',
+    samplingCode TEXT,
     depletionAgeWeeks INTEGER NOT NULL DEFAULT 65,
     soldAt TEXT,
     updatedAt TEXT,
@@ -291,6 +293,7 @@ Future<void> _createBmkOperationalStandardsTable(DatabaseExecutor db) async {
     sourcePhotoPath TEXT,
     sourcePhotoRemotePath TEXT,
     notes TEXT,
+    samplingCode TEXT,
     sortOrder INTEGER NOT NULL DEFAULT 0,
     updatedAt TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -330,6 +333,7 @@ Future<void> _createHatcheryTables(Database db) async {
     name TEXT NOT NULL,
     location TEXT,
     notes TEXT,
+    samplingCode TEXT,
     createdAt TEXT,
     createdBy TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -387,6 +391,75 @@ Future<void> _createPanelSampleSchemaTables(DatabaseExecutor db) async {
   }
 }
 
+/// Shared local sampling identity and offline serial allocation tables.
+/// Reservations intentionally permit duplicate sample numbers because two
+/// disconnected devices can allocate the same local number before sync.
+Future<void> _createPanelSamplingTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS panel_sampling_states (
+    id TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    panelKey TEXT NOT NULL,
+    serialHighWatermark INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
+  )''');
+  await db.execute('''CREATE TABLE IF NOT EXISTS panel_sampling_nodes (
+    id TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    panelKey TEXT NOT NULL,
+    parentId TEXT NOT NULL DEFAULT '',
+    level TEXT NOT NULL,
+    identityKey TEXT NOT NULL DEFAULT '',
+    identityJson TEXT,
+    sampleId TEXT,
+    sampleNumber INTEGER,
+    isTerminal INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT
+  )''');
+  await db.execute(
+    '''CREATE TABLE IF NOT EXISTS panel_sample_serial_reservations (
+    id TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    panelKey TEXT NOT NULL,
+    sampleNumber INTEGER NOT NULL,
+    sampleId TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    UNIQUE (sessionId, panelKey, sampleId)
+  )''',
+  );
+  await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_panel_sampling_state_session_panel
+    ON panel_sampling_states (sessionId, panelKey)''');
+  await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_panel_sampling_node_identity
+    ON panel_sampling_nodes (sessionId, panelKey, parentId, level, identityKey)
+    WHERE isTerminal = 0''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS idx_panel_sampling_node_sample
+    ON panel_sampling_nodes (sessionId, panelKey, sampleId)''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS idx_panel_sampling_node_number
+    ON panel_sampling_nodes (sessionId, panelKey, sampleNumber)''');
+  await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_panel_serial_reservation_sample
+    ON panel_sample_serial_reservations (sessionId, panelKey, sampleId)''');
+  await db.execute(
+    '''CREATE INDEX IF NOT EXISTS idx_panel_serial_reservation_number
+    ON panel_sample_serial_reservations (sessionId, panelKey, sampleNumber)''',
+  );
+}
+
 const _panelContextColumnDefinitions = [
   'storagePeriodDays INTEGER',
   'bmkAgeWeeks INTEGER',
@@ -401,6 +474,9 @@ const _panelContextColumnDefinitions = [
   'sourceDomain TEXT',
   'actionDomain TEXT',
   'recommendationTarget TEXT',
+  'sampleId TEXT',
+  'sampleNumber INTEGER',
+  'samplingPathJson TEXT',
 ];
 
 Future<void> ensurePanelSampleSchemaColumns(DatabaseExecutor db) async {
@@ -582,7 +658,8 @@ String _panelUniqueRowIndexSql(PanelSampleDefinition panel) {
     'sessionId',
     ...panel.hierarchyColumnNames.map((column) => "IFNULL($column, '')"),
   ].join(', ');
-  return 'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row ON $tableName ($columns)';
+  return 'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_unique_row '
+      'ON $tableName ($columns) WHERE sampleId IS NULL';
 }
 
 /// `localDataJson`/`remoteDataJson` (ticket 15) hold the full serialized

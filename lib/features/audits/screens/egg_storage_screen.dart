@@ -29,12 +29,12 @@ import '../temperature_capture/temperature_capture_launcher.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_numeric_keyboard.dart';
-import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/audit_workbench_shell.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sampling_scope_controls.dart';
 import '../widgets/temperature_unit_selector.dart';
 import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
@@ -49,6 +49,7 @@ class EggStorageScreen extends StatefulWidget {
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
+  final Map<String, Map<String, AuditModel>> initialSamplingDraftsByPanel;
   final int initialSectionIndex;
   final EggStorageStationController? stationController;
   final EggBmkWeightLookup? bmkEggWeightLookup;
@@ -59,6 +60,7 @@ class EggStorageScreen extends StatefulWidget {
     this.initialAudit,
     this.initialAudits = const [],
     this.initialStationSamples = const [],
+    this.initialSamplingDraftsByPanel = const {},
     this.initialSectionIndex = 0,
     this.stationController,
     this.bmkEggWeightLookup,
@@ -111,8 +113,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     100,
     (_) => FocusNode(),
   );
-  final Map<String, TextEditingController> _eggScopeIdentityControllers = {};
-  final Map<String, FocusNode> _eggScopeIdentityFocusNodes = {};
   String? _traySpacing;
   String? _coolerProximity;
   bool? _condensation;
@@ -157,6 +157,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
+      samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
     _initializeFormState(auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
@@ -325,12 +326,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     for (var n in _eggWeightFocusNodes) {
       n.dispose();
     }
-    for (final controller in _eggScopeIdentityControllers.values) {
-      controller.dispose();
-    }
-    for (final focusNode in _eggScopeIdentityFocusNodes.values) {
-      focusNode.dispose();
-    }
     super.dispose();
   }
 
@@ -339,7 +334,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     final auditProvider = context.watch<AuditProvider>();
     final audit = auditProvider.activeDraft;
     _syncActiveSampleForm(audit);
-    _pruneEggScopeIdentityFields(auditProvider.stationSamples);
 
     return UnsavedChangesGuard(
       enabled: widget.context.sessionId == null,
@@ -401,7 +395,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     AuditProvider auditProvider,
   ) {
     final leftPanels = <Widget>[
-      _buildSampleModeBar(auditProvider, editable: false),
+      const SamplingScopeControls(panelKey: 'egg_storage'),
       _buildStorageDaysCard(auditProvider),
       _buildWorkbenchPanel(
         cardKey: _sectionKeys[0],
@@ -996,11 +990,7 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         const SizedBox(height: 12),
         _buildEggQualityStorageDaysField(auditProvider),
         const SizedBox(height: 12),
-        _buildSampleModeBar(auditProvider, editable: true),
-        if (auditProvider.isCompareMode) ...[
-          const SizedBox(height: 12),
-          _buildEggSampleControls(auditProvider),
-        ],
+        const SamplingScopeControls(panelKey: 'egg_quality'),
         const SizedBox(height: 12),
         _buildEggWeightsPanel(auditProvider),
       ],
@@ -1045,543 +1035,6 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         _applyEggQualityStorageDaysChange(auditProvider, value);
       },
     );
-  }
-
-  Widget _buildSampleModeBar(
-    AuditProvider auditProvider, {
-    required bool editable,
-  }) {
-    final isCompare = editable && auditProvider.isCompareMode;
-    return _buildSampleControlCard(
-      title: 'Sample mode',
-      note: editable ? null : 'Egg storage is always measured as one pool.',
-      child: Row(
-        children: [
-          if (!editable)
-            const ChoiceChip(label: Text('Pool'), selected: true)
-          else ...[
-            ChoiceChip(
-              label: const Text('Pooled'),
-              selected: !isCompare,
-              onSelected: auditProvider.isReadOnly
-                  ? null
-                  : (_) => _requestPooledMode(auditProvider),
-            ),
-            const SizedBox(width: 8),
-            ChoiceChip(
-              label: const Text('Compare by house'),
-              selected: isCompare,
-              // The selected chip remains visibly enabled, but re-selecting it
-              // is a no-op. Additional houses go through the identity dialog
-              // below, where duplicate house numbers are rejected.
-              onSelected: auditProvider.isReadOnly
-                  ? null
-                  : (_) {
-                      if (auditProvider.isCompareMode) return;
-                      auditProvider.addEggQualityScopeSample(
-                        StationSampleModel.sampleKindHouse,
-                      );
-                    },
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _requestPooledMode(AuditProvider auditProvider) async {
-    if (!auditProvider.isCompareMode) return;
-    final houseCount = auditProvider.stationSamples
-        .where((s) => s.sampleKind == StationSampleModel.sampleKindHouse)
-        .length;
-    if (houseCount > 1) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Switch to a pooled sample?'),
-          content: Text(
-            '$houseCount house samples are recorded. The first one is kept as '
-            'the pooled sample and the other ${houseCount - 1} will be '
-            'discarded.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Discard and pool'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
-    }
-    auditProvider.setStationSampleMode(StationSampleModel.sampleModePooled);
-  }
-
-  Widget _buildEggSampleControls(AuditProvider auditProvider) {
-    return _buildSampleControlCard(
-      title: 'House scope',
-      child: _buildEggScopeChips(
-        auditProvider,
-        active: auditProvider.isEggQualityHouseScopeActive,
-        addTooltip: 'Add house sample',
-        removeTooltip: 'Remove active house sample',
-        addSample: () => _addEggHouseSample(auditProvider),
-        switchSample: (index) => _switchEggHouseSample(auditProvider, index),
-        removeSample: () => _removeActiveEggScopeSample(
-          auditProvider,
-          StationSampleModel.sampleKindHouse,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSampleControlCard({
-    required String title,
-    required Widget child,
-    String? note,
-  }) {
-    final noteText = note?.trim();
-    final hasNote = noteText != null && noteText.isNotEmpty;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              if (hasNote) ...[
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    noteText,
-                    textAlign: TextAlign.end,
-                    style: AppTextStyles.caption,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEggScopeChips(
-    AuditProvider auditProvider, {
-    required bool active,
-    required String addTooltip,
-    required String removeTooltip,
-    required VoidCallback addSample,
-    required ValueChanged<int> switchSample,
-    required VoidCallback removeSample,
-  }) {
-    final scopeEntries = _eggScopeEntries(auditProvider);
-    final hasEntries = scopeEntries.isNotEmpty;
-    final hasSelectedEntry =
-        active &&
-        scopeEntries.any(
-          (entry) => _isEggScopeEntrySelected(auditProvider, entry),
-        );
-    final hasRemovableEntry = hasSelectedEntry;
-    final chips = active && hasEntries
-        ? [
-            for (final entry in scopeEntries)
-              _buildScopeChip(
-                label: entry.value.sampleLabel,
-                selected: _isEggScopeEntrySelected(auditProvider, entry),
-                enabled: !auditProvider.isReadOnly,
-                onSelected: () => switchSample(entry.key),
-              ),
-          ]
-        : [
-            _buildScopeChip(
-              label: 'Pool',
-              selected: true,
-              enabled: false,
-              onSelected: null,
-            ),
-          ];
-
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildHouseSampleActionButton(
-          tooltip: context.tr(addTooltip),
-          icon: Icons.add,
-          onPressed: auditProvider.isReadOnly ? null : addSample,
-        ),
-        if (hasRemovableEntry) ...[
-          const SizedBox(width: 8),
-          _buildHouseSampleActionButton(
-            tooltip: context.tr(removeTooltip),
-            icon: Icons.remove,
-            onPressed: auditProvider.isReadOnly ? null : removeSample,
-          ),
-        ],
-      ],
-    );
-
-    final chipRow = LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 520) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [...chips, actions],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: chips,
-              ),
-            ),
-            const SizedBox(width: 8),
-            actions,
-          ],
-        );
-      },
-    );
-    if (!active || !hasSelectedEntry) return chipRow;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        chipRow,
-        const SizedBox(height: 10),
-        _buildEggScopeIdentityFields(auditProvider),
-      ],
-    );
-  }
-
-  List<MapEntry<int, StationSampleModel>> _eggScopeEntries(
-    AuditProvider auditProvider,
-  ) {
-    return auditProvider.stationSamples
-        .asMap()
-        .entries
-        .where(
-          (entry) =>
-              entry.value.sampleKind == StationSampleModel.sampleKindHouse,
-        )
-        .toList();
-  }
-
-  bool _isEggScopeEntrySelected(
-    AuditProvider auditProvider,
-    MapEntry<int, StationSampleModel> entry,
-  ) {
-    final entryHouseNo = entry.value.houseNo?.trim();
-    final activeHouseNo = auditProvider.activeStationSample.houseNo?.trim();
-    if (entryHouseNo != null &&
-        entryHouseNo.isNotEmpty &&
-        activeHouseNo != null &&
-        activeHouseNo.isNotEmpty) {
-      return entryHouseNo == activeHouseNo;
-    }
-    return entry.key == auditProvider.activeSampleIndex;
-  }
-
-  Widget _buildEggScopeIdentityFields(AuditProvider auditProvider) {
-    final sample = auditProvider.activeStationSample;
-    final controller = _eggScopeIdentityController(
-      auditProvider,
-      sample,
-      'house',
-    );
-    final duplicateError =
-        controller.text.trim().isNotEmpty &&
-            _hasDuplicateEggHouseExcludingActive(
-              auditProvider,
-              controller.text.trim(),
-            )
-        ? 'A House scope with this identity already exists.'
-        : null;
-    return _buildScopeInputRow([
-      TextFormField(
-        key: ValueKey('egg-quality-house-${sample.id}'),
-        controller: controller,
-        focusNode: _eggScopeIdentityFocusNode(sample, 'house'),
-        enabled: !auditProvider.isReadOnly,
-        textInputAction: TextInputAction.done,
-        decoration: _scopeInputDecoration(
-          'House',
-        ).copyWith(errorText: duplicateError),
-        onChanged: (value) {
-          final trimmed = value.trim();
-          final isDuplicate =
-              trimmed.isNotEmpty &&
-              _hasDuplicateEggHouseExcludingActive(auditProvider, trimmed);
-          setState(() {});
-          if (isDuplicate) return;
-          auditProvider.updateSampleMetadata({'houseNo': trimmed});
-        },
-      ),
-    ]);
-  }
-
-  /// Same duplicate check as [_hasDuplicateEggHouse], but excludes the
-  /// currently active sample so re-typing (or re-confirming) a house's own
-  /// existing number is never flagged as a collision with itself.
-  bool _hasDuplicateEggHouseExcludingActive(
-    AuditProvider provider,
-    String house,
-  ) {
-    if (!provider.isEggQualityHouseScopeActive) return false;
-    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
-    final activeId = provider.activeStationSample.id;
-    return provider.stationSamples.any(
-      (sample) =>
-          sample.id != activeId &&
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          normalizeAuditScopeIdentity(
-                sample.houseNo ?? sample.sampleLabel,
-                prefix: 'H',
-              ) ==
-              normalized,
-    );
-  }
-
-  TextEditingController _eggScopeIdentityController(
-    AuditProvider auditProvider,
-    StationSampleModel sample,
-    String field,
-  ) {
-    final key = _eggScopeIdentityKey(sample, field);
-    final nextText = _eggScopeFieldValue(auditProvider, sample, field);
-    final controller = _eggScopeIdentityControllers.putIfAbsent(
-      key,
-      () => TextEditingController(text: nextText),
-    );
-    final focusNode = _eggScopeIdentityFocusNodes[key];
-
-    if (focusNode?.hasFocus != true && controller.text != nextText) {
-      controller.value = TextEditingValue(
-        text: nextText,
-        selection: TextSelection.collapsed(offset: nextText.length),
-      );
-    }
-
-    return controller;
-  }
-
-  FocusNode _eggScopeIdentityFocusNode(
-    StationSampleModel sample,
-    String field,
-  ) {
-    final key = _eggScopeIdentityKey(sample, field);
-    return _eggScopeIdentityFocusNodes.putIfAbsent(key, FocusNode.new);
-  }
-
-  void _pruneEggScopeIdentityFields(List<StationSampleModel> samples) {
-    final validKeys = <String>{
-      for (final sample in samples) _eggScopeIdentityKey(sample, 'house'),
-    };
-
-    for (final key in _eggScopeIdentityControllers.keys.toList()) {
-      if (validKeys.contains(key)) continue;
-      _eggScopeIdentityControllers.remove(key)?.dispose();
-      _eggScopeIdentityFocusNodes.remove(key)?.dispose();
-    }
-    for (final key in _eggScopeIdentityFocusNodes.keys.toList()) {
-      if (validKeys.contains(key)) continue;
-      _eggScopeIdentityFocusNodes.remove(key)?.dispose();
-    }
-  }
-
-  String _eggScopeIdentityKey(StationSampleModel sample, String field) {
-    return '${sample.id}:$field';
-  }
-
-  String _eggScopeFieldValue(
-    AuditProvider auditProvider,
-    StationSampleModel sample,
-    String field,
-  ) {
-    final value = switch (field) {
-      'house' => sample.houseNo,
-      _ => null,
-    };
-    final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) return '';
-
-    if (field == 'house' &&
-        _isGeneratedHouseScopeValue(auditProvider, trimmed)) {
-      return '';
-    }
-    return value ?? '';
-  }
-
-  bool _isGeneratedHouseScopeValue(AuditProvider auditProvider, String value) {
-    final trimmed = value.trim();
-    if (trimmed == 'H') return true;
-    if (!RegExp(r'^H\d+$').hasMatch(trimmed)) return false;
-    return auditProvider.stationSamples.any(
-      (sample) =>
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          sample.sampleLabel == trimmed &&
-          sample.houseNo == trimmed,
-    );
-  }
-
-  Widget _buildScopeInputRow(List<Widget> fields) {
-    if (fields.length == 1) return fields.single;
-    return Row(
-      children: [
-        for (var i = 0; i < fields.length; i++) ...[
-          Expanded(child: fields[i]),
-          if (i < fields.length - 1) const SizedBox(width: 10),
-        ],
-      ],
-    );
-  }
-
-  InputDecoration _scopeInputDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      isDense: true,
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.borderDefault),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.borderDefault),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
-      ),
-    );
-  }
-
-  Widget _buildScopeChip({
-    required String label,
-    required bool selected,
-    required bool enabled,
-    required VoidCallback? onSelected,
-  }) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: enabled && onSelected != null ? (_) => onSelected() : null,
-      selectedColor: AppColors.primary.withAlpha(30),
-      checkmarkColor: AppColors.primary,
-      labelStyle: AppTextStyles.body.copyWith(
-        color: selected ? AppColors.primary : AppColors.textBody,
-        fontWeight: FontWeight.w800,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: selected ? AppColors.primary : AppColors.borderDefault,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHouseSampleActionButton({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback? onPressed,
-  }) {
-    return IconButton.filledTonal(
-      tooltip: context.tr(tooltip),
-      onPressed: onPressed,
-      icon: Icon(icon),
-      style: IconButton.styleFrom(
-        fixedSize: const Size(44, 44),
-        shape: const CircleBorder(),
-      ),
-    );
-  }
-
-  Future<void> _addEggHouseSample(AuditProvider provider) async {
-    final values = await showAuditScopeIdentityDialog(
-      context,
-      scopeLabel: 'House',
-      fields: const [AuditScopeIdentityField(key: 'house', label: 'House')],
-      validator: (values) => _hasDuplicateEggHouse(provider, values['house']!)
-          ? 'A House scope with this identity already exists.'
-          : null,
-    );
-    if (values == null || !mounted) return;
-    final house = values['house']!;
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    provider.updateSampleMetadata({
-      'houseNo': house,
-      'houseLabel': 'House $house',
-    });
-    _syncActiveSampleForm(provider.activeDraft);
-    setState(() {});
-  }
-
-  bool _hasDuplicateEggHouse(AuditProvider provider, String house) {
-    if (!provider.isEggQualityHouseScopeActive) return false;
-    final normalized = normalizeAuditScopeIdentity(house, prefix: 'H');
-    return provider.stationSamples.any(
-      (sample) =>
-          sample.sampleKind == StationSampleModel.sampleKindHouse &&
-          normalizeAuditScopeIdentity(
-                sample.houseNo ?? sample.sampleLabel,
-                prefix: 'H',
-              ) ==
-              normalized,
-    );
-  }
-
-  void _switchEggHouseSample(AuditProvider provider, int index) {
-    provider.switchSample(index);
-    _syncActiveSampleForm(provider.activeDraft);
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _removeActiveEggScopeSample(
-    AuditProvider provider,
-    String sampleKind,
-  ) async {
-    final discardsResults =
-        provider.stationSamples.length > 1 &&
-        provider.stationScopeHasEnteredResults(provider.activeSampleIndex);
-    final confirmed = await confirmAuditScopeRemoval(
-      context,
-      hasEnteredResults: discardsResults,
-    );
-    if (!confirmed || !mounted) return;
-    provider.removeActiveEggQualityScopeSample(sampleKind);
-    _syncActiveSampleForm(provider.activeDraft);
-    setState(() {});
   }
 
   Widget _buildEggWeightsPanel(AuditProvider auditProvider) {

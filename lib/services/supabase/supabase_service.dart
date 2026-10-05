@@ -37,6 +37,7 @@ class SupabasePullSummary {
   final int panelRows;
   final int chickObservations;
   final int eggGradingCounts;
+  final int panelSamplingRows;
   final int syncTombstones;
 
   const SupabasePullSummary({
@@ -54,6 +55,7 @@ class SupabasePullSummary {
     this.panelRows = 0,
     this.chickObservations = 0,
     this.eggGradingCounts = 0,
+    this.panelSamplingRows = 0,
     this.syncTombstones = 0,
   });
 
@@ -72,6 +74,7 @@ class SupabasePullSummary {
       panelRows +
       chickObservations +
       eggGradingCounts +
+      panelSamplingRows +
       syncTombstones;
 
   SupabasePullSummary copyWith({
@@ -89,6 +92,7 @@ class SupabasePullSummary {
     int? panelRows,
     int? chickObservations,
     int? eggGradingCounts,
+    int? panelSamplingRows,
     int? syncTombstones,
   }) {
     return SupabasePullSummary(
@@ -107,6 +111,7 @@ class SupabasePullSummary {
       panelRows: panelRows ?? this.panelRows,
       chickObservations: chickObservations ?? this.chickObservations,
       eggGradingCounts: eggGradingCounts ?? this.eggGradingCounts,
+      panelSamplingRows: panelSamplingRows ?? this.panelSamplingRows,
       syncTombstones: syncTombstones ?? this.syncTombstones,
     );
   }
@@ -593,6 +598,27 @@ class SupabaseService {
     return Map<String, dynamic>.from(result as Map);
   }
 
+  /// Reconciles per-panel sample serials under a server-side transaction.
+  /// The server returns every active sample assignment for the session/panel;
+  /// the caller applies them locally before marking sampling rows synced.
+  Future<List<Map<String, dynamic>>> reconcilePanelSampleSerials({
+    required String sessionId,
+    required String panelKey,
+  }) async {
+    if (!await _prepareRemoteAccess()) {
+      throw StateError('Supabase sync is not available');
+    }
+    final result = await _client.rpc(
+      'reconcile_panel_sample_serials',
+      params: {'p_session_id': sessionId, 'p_panel_key': panelKey},
+    );
+    if (result is! List) return const [];
+    return result
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+  }
+
   Future<void> deleteRows(String table, List<String> ids) async {
     final rowIds = ids.where((id) => id.isNotEmpty).toSet().toList();
     if (rowIds.isEmpty) return;
@@ -819,26 +845,64 @@ class SupabaseService {
   Future<void> _deletePhotoStorageObjects(List<String> rowIds) async {
     final storagePaths = <String>{};
     List<dynamic> rows;
+    var pathColumn = 'file_path';
     try {
       rows = await _client
           .from('photos')
-          .select('file_path')
+          .select(pathColumn)
           .inFilter('id', rowIds);
     } catch (_) {
+      pathColumn = 'filePath';
       rows = await _client
           .from('photos')
-          .select('filePath')
+          .select(pathColumn)
           .inFilter('id', rowIds);
     }
     for (final row in rows) {
       if (row is! Map) continue;
-      final filePath = row['file_path'] ?? row['filePath'];
-      final storagePath = _photoStoragePath(filePath?.toString());
+      final storagePath = _photoStoragePath(row[pathColumn]?.toString());
       if (storagePath != null && storagePath.isNotEmpty) {
         storagePaths.add(storagePath);
       }
     }
     if (storagePaths.isEmpty) return;
+
+    // Several records can reference the same backing object. Check all visible
+    // survivors, with pagination, and compare normalized storage paths so an
+    // older public URL and a modern bucket path refer to the same object.
+    // A failed lookup must propagate: deleting metadata then would lose the
+    // storage path needed by the tombstone's eventual cleanup retry.
+    const pageSize = 500;
+    final deletingIds = rowIds.toSet();
+    var offset = 0;
+    while (true) {
+      List<dynamic> page;
+      try {
+        page = await _client
+            .from('photos')
+            .select('id,$pathColumn')
+            .order('id')
+            .range(offset, offset + pageSize - 1);
+      } catch (_) {
+        if (pathColumn == 'filePath') rethrow;
+        pathColumn = 'filePath';
+        page = await _client
+            .from('photos')
+            .select('id,$pathColumn')
+            .order('id')
+            .range(offset, offset + pageSize - 1);
+      }
+      for (final row in page) {
+        if (row is! Map || deletingIds.contains(row['id']?.toString())) {
+          continue;
+        }
+        final path = _photoStoragePath(row[pathColumn]?.toString());
+        if (path != null) storagePaths.remove(path);
+      }
+      if (storagePaths.isEmpty) return;
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
     await _client.storage.from('photos').remove(storagePaths.toList());
   }
 
@@ -859,6 +923,8 @@ class SupabaseService {
     upsertPanelRow,
     Future<void> Function(Map<String, dynamic>)? upsertChickObservation,
     Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
+    Future<void> Function(String table, Map<String, dynamic> row)?
+    upsertPanelSamplingRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     var summary = const SupabasePullSummary();
@@ -956,6 +1022,21 @@ class SupabaseService {
           });
         }
         summary = summary.copyWith(labAnalysisRows: count);
+      }
+      // Sampling identities must be available before measurement rows arrive;
+      // the two tables are related by sampleId and are pulled independently.
+      if (upsertPanelSamplingRow != null) {
+        var count = 0;
+        for (final table in const [
+          'panel_sampling_states',
+          'panel_sampling_nodes',
+          'panel_sample_serial_reservations',
+        ]) {
+          count += await pullTable(table, (row) {
+            return upsertPanelSamplingRow(table, row);
+          });
+        }
+        summary = summary.copyWith(panelSamplingRows: count);
       }
       if (upsertPanelRow != null) {
         var count = 0;

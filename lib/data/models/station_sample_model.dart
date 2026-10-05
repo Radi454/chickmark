@@ -35,6 +35,9 @@ class StationSampleModel {
   static const String breakoutTypeResidue21d = 'residueHatchDay';
 
   final String id;
+  /// Immutable shared-sampling leaf id, distinct from [id] when the panel
+  /// row uses a legacy/composite key.
+  final String? sampleId;
   final String auditSessionId;
   final String? legacyAuditId;
   final String stationType;
@@ -74,6 +77,7 @@ class StationSampleModel {
 
   StationSampleModel({
     required this.id,
+    this.sampleId,
     required this.auditSessionId,
     this.legacyAuditId,
     required this.stationType,
@@ -119,6 +123,7 @@ class StationSampleModel {
   factory StationSampleModel.fromMap(Map<String, dynamic> map) {
     return StationSampleModel(
       id: map['id'] as String,
+      sampleId: map['sampleId'] as String?,
       auditSessionId: map['auditSessionId'] as String,
       legacyAuditId: map['legacyAuditId'] as String?,
       stationType: map['stationType'] as String,
@@ -161,6 +166,7 @@ class StationSampleModel {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'sampleId': sampleId,
       'auditSessionId': auditSessionId,
       'legacyAuditId': legacyAuditId,
       'stationType': stationType,
@@ -202,6 +208,7 @@ class StationSampleModel {
 
   StationSampleModel copyWith({
     String? id,
+    String? sampleId,
     String? auditSessionId,
     String? legacyAuditId,
     String? stationType,
@@ -241,6 +248,7 @@ class StationSampleModel {
   }) {
     return StationSampleModel(
       id: id ?? this.id,
+      sampleId: sampleId ?? this.sampleId,
       auditSessionId: auditSessionId ?? this.auditSessionId,
       legacyAuditId: legacyAuditId ?? this.legacyAuditId,
       stationType: stationType ?? this.stationType,

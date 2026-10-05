@@ -1,21 +1,25 @@
+import 'sampling_code.dart';
+
 class HatcheryModel {
   final String id;
   final String customerId;
   final String name;
   final String? location;
   final String? notes;
+  final String? samplingCode;
   final DateTime createdAt;
   final String createdBy;
 
-  const HatcheryModel({
+  HatcheryModel({
     required this.id,
     required this.customerId,
     required this.name,
     this.location,
     this.notes,
+    String? samplingCode,
     required this.createdAt,
     required this.createdBy,
-  });
+  }) : samplingCode = _normalizeSamplingCode(samplingCode);
 
   factory HatcheryModel.fromMap(Map<String, dynamic> map) {
     return HatcheryModel(
@@ -24,6 +28,7 @@ class HatcheryModel {
       name: map['name'] as String,
       location: map['location'] as String?,
       notes: map['notes'] as String?,
+      samplingCode: map['samplingCode'] as String?,
       createdAt:
           DateTime.tryParse(map['createdAt'] as String? ?? '') ??
           DateTime.now(),
@@ -38,8 +43,22 @@ class HatcheryModel {
       'name': name,
       'location': location,
       'notes': notes,
+      'samplingCode': samplingCode,
       'createdAt': createdAt.toIso8601String(),
       'createdBy': createdBy,
     };
   }
+}
+
+String? _normalizeSamplingCode(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final normalized = normalizeThreeLetterCode(raw);
+  if (normalized == null) {
+    throw ArgumentError.value(
+      raw,
+      'samplingCode',
+      'Expected three letters A-Z',
+    );
+  }
+  return normalized;
 }

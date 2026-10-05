@@ -12,6 +12,7 @@ import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
 import '../../data/repositories/lab_analysis_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
+import '../../data/repositories/panel_sampling_state_repository.dart';
 import '../../data/repositories/performance_sync_repository.dart';
 import '../../data/repositories/photo_repository.dart';
 import '../../data/repositories/breeder_report_aggregate_repository.dart';
@@ -123,6 +124,7 @@ class StartupSyncService {
   final AuditSessionRepository _auditSessionRepository;
   final GoveeCaptureRepository _goveeCaptureRepository;
   final PanelSampleRepository _panelSampleRepository;
+  final PanelSamplingStateRepository _panelSamplingStateRepository;
   final ChickQualityObservationRepository _chickObservationRepository;
   final EggGradingRepository _eggGradingRepository;
   final PerformanceSyncRepository _performanceSyncRepository;
@@ -135,6 +137,7 @@ class StartupSyncService {
   int _conflictsThisRun = 0;
   int _failedRowsThisRun = 0;
   final Set<String> _failedTablesThisRun = {};
+  final Set<String> _failedSamplingPanelKeys = {};
   final List<IncomingChange> _incomingSessionsThisRun = [];
   int _otherIncomingThisRun = 0;
   bool _collectIncoming = false;
@@ -152,6 +155,7 @@ class StartupSyncService {
     AuditSessionRepository? auditSessionRepository,
     GoveeCaptureRepository? goveeCaptureRepository,
     PanelSampleRepository? panelSampleRepository,
+    PanelSamplingStateRepository? panelSamplingStateRepository,
     ChickQualityObservationRepository? chickObservationRepository,
     EggGradingRepository? eggGradingRepository,
     PerformanceSyncRepository? performanceSyncRepository,
@@ -179,6 +183,8 @@ class StartupSyncService {
            goveeCaptureRepository ?? GoveeCaptureRepository(),
        _panelSampleRepository =
            panelSampleRepository ?? PanelSampleRepository(),
+       _panelSamplingStateRepository =
+           panelSamplingStateRepository ?? PanelSamplingStateRepository(),
        _chickObservationRepository =
            chickObservationRepository ?? ChickQualityObservationRepository(),
        _eggGradingRepository = eggGradingRepository ?? EggGradingRepository(),
@@ -238,6 +244,7 @@ class StartupSyncService {
     _conflictsThisRun = 0;
     _failedRowsThisRun = 0;
     _failedTablesThisRun.clear();
+    _failedSamplingPanelKeys.clear();
     _incomingSessionsThisRun.clear();
     _otherIncomingThisRun = 0;
     _collectIncoming = collectIncoming;
@@ -386,6 +393,9 @@ class StartupSyncService {
     progress(0.42, 'Uploading audit sessions');
     pushed += await _pushDirtySessions();
 
+    progress(0.46, 'Uploading sampling state');
+    pushed += await _pushDirtyPanelSamplingRows();
+
     progress(0.52, 'Uploading panel rows');
     pushed += await _pushDirtyPanelRows();
 
@@ -532,7 +542,22 @@ class StartupSyncService {
   Future<int> _pushDirtyPanelRows() async {
     var pushed = 0;
     for (final panel in PanelSampleSchema.panels) {
-      final dirty = await _panelSampleRepository.getDirtyRows(panel.tableName);
+      final allDirty = await _panelSampleRepository.getDirtyRows(
+        panel.tableName,
+      );
+      final blocked = allDirty
+          .where((row) {
+            final sessionId = row['sessionId']?.toString();
+            return sessionId != null &&
+                _failedSamplingPanelKeys.contains(
+                  '$sessionId\u0000${panel.tableName}',
+                );
+          })
+          .toList(growable: false);
+      if (blocked.isNotEmpty) {
+        _recordFailedRows(panel.tableName, blocked.length);
+      }
+      final dirty = allDirty.where((row) => !blocked.contains(row)).toList();
       if (dirty.isEmpty) continue;
       final ids = dirty
           .map((row) => row['id']?.toString())
@@ -567,6 +592,182 @@ class StartupSyncService {
     }
     return pushed;
   }
+
+  static const _samplingSyncTables = [
+    PanelSamplingStateRepository.statesTable,
+    PanelSamplingStateRepository.nodesTable,
+    PanelSamplingStateRepository.reservationsTable,
+  ];
+
+  Future<int> _pushDirtyPanelSamplingRows() async {
+    var pushed = 0;
+    final byTable = <String, List<Map<String, dynamic>>>{};
+    final panelKeys = <String>{};
+    final failedPanelKeys = <String>{};
+
+    // First make the rows visible to the RPC. Success is deliberately not
+    // acknowledged locally yet: the RPC may renumber nodes and update their
+    // measurement rows, and those reconciled values must reach Supabase first.
+    for (final table in _samplingSyncTables) {
+      final dirty = await _panelSamplingStateRepository.getDirtyRows(table);
+      byTable[table] = dirty;
+      for (final row in dirty) {
+        final sessionId = row['sessionId']?.toString();
+        final panelKey = row['panelKey']?.toString();
+        if (sessionId != null &&
+            sessionId.isNotEmpty &&
+            panelKey != null &&
+            panelKey.isNotEmpty) {
+          panelKeys.add('$sessionId\u0000$panelKey');
+        }
+      }
+      if (dirty.isEmpty) continue;
+      final ids = _samplingRowIds(dirty);
+      try {
+        if (!_retryPolicy.shouldAttempt(table)) {
+          _recordFailedRows(table, dirty.length);
+          for (final row in dirty) {
+            final sessionId = row['sessionId']?.toString();
+            final panelKey = row['panelKey']?.toString();
+            if (sessionId != null && panelKey != null) {
+              failedPanelKeys.add('$sessionId\u0000$panelKey');
+            }
+          }
+          continue;
+        }
+        await _supabaseService.upsertRowsStrict(
+          table,
+          dirty.map(stripSyncMeta).toList(growable: false),
+        );
+        _retryPolicy.recordSuccess(table);
+      } catch (error) {
+        await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
+        _retryPolicy.recordFailure(table);
+        _recordFailedRows(table, dirty.length);
+        // A failed first upload means this table cannot be safely reconciled.
+        for (final row in dirty) {
+          final sessionId = row['sessionId']?.toString();
+          final panelKey = row['panelKey']?.toString();
+          if (sessionId != null && panelKey != null) {
+            failedPanelKeys.add('$sessionId\u0000$panelKey');
+          }
+        }
+      }
+    }
+
+    for (final key in panelKeys) {
+      if (failedPanelKeys.contains(key)) {
+        _failedSamplingPanelKeys.add(key);
+        continue;
+      }
+      final split = key.split('\u0000');
+      final sessionId = split.first;
+      final panelKey = split.last;
+      try {
+        final assignments = await _supabaseService.reconcilePanelSampleSerials(
+          sessionId: sessionId,
+          panelKey: panelKey,
+        );
+        final remoteAssignments = <String, int>{};
+        for (final assignment in assignments) {
+          final sampleId =
+              assignment['sample_id']?.toString() ??
+              assignment['sampleId']?.toString();
+          final number =
+              assignment['sample_number'] ?? assignment['sampleNumber'];
+          if (sampleId != null && number is num) {
+            remoteAssignments[sampleId] = number.toInt();
+          }
+        }
+        final activeRows = await _panelSamplingStateRepository
+            .getActiveSerialRows(sessionId: sessionId, panelKey: panelKey);
+        final localAssignments = <String, int>{
+          for (final row in activeRows)
+            if (row['sampleId'] is String && row['sampleNumber'] is num)
+              row['sampleId'] as String: (row['sampleNumber'] as num).toInt(),
+        };
+        final changedAssignments = <String, int>{
+          for (final entry in remoteAssignments.entries)
+            if (localAssignments[entry.key] != entry.value)
+              entry.key: entry.value,
+        };
+        if (changedAssignments.isNotEmpty) {
+          await _panelSamplingStateRepository.applySerialAssignments(
+            sessionId: sessionId,
+            panelKey: panelKey,
+            assignments: changedAssignments,
+          );
+        }
+      } catch (error) {
+        for (final table in _samplingSyncTables) {
+          final ids = (byTable[table] ?? const [])
+              .where(
+                (row) =>
+                    row['sessionId']?.toString() == sessionId &&
+                    row['panelKey']?.toString() == panelKey,
+              )
+              .map((row) => row['id']?.toString())
+              .whereType<String>()
+              .toList(growable: false);
+          await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
+        }
+        _recordFailedRows('panel_sampling_serial_reconciliation', 1);
+        failedPanelKeys.add(key);
+        _failedSamplingPanelKeys.add(key);
+      }
+    }
+
+    _failedSamplingPanelKeys.addAll(failedPanelKeys);
+
+    // Read again after reconciliation so the repository's dirty cutoff covers
+    // any updated serial assignments. Re-upload all remaining rows and only
+    // then acknowledge them as synced.
+    for (final table in _samplingSyncTables) {
+      final dirty = await _panelSamplingStateRepository.getDirtyRows(table);
+      final eligible = dirty
+          .where((row) {
+            final sessionId = row['sessionId']?.toString();
+            final panelKey = row['panelKey']?.toString();
+            return sessionId != null &&
+                panelKey != null &&
+                !failedPanelKeys.contains('$sessionId\u0000$panelKey');
+          })
+          .toList(growable: false);
+      if (eligible.isEmpty) continue;
+      final ids = _samplingRowIds(eligible);
+      final synced = await _pushBatch(
+        table,
+        eligible.length,
+        upload: () => _supabaseService.upsertRowsStrict(
+          table,
+          eligible.map(stripSyncMeta).toList(growable: false),
+        ),
+        markSynced: () =>
+            _panelSamplingStateRepository.markRowsSynced(table, ids),
+        markFailed: (error) =>
+            _panelSamplingStateRepository.markRowsFailed(table, ids, error),
+      );
+      pushed += synced;
+      if (synced == 0) {
+        // A failed or backoff-skipped reconciled upload means measurement
+        // metadata may still disagree with the cloud assignment. Keep every
+        // affected panel's measurement rows dirty for the next sync attempt.
+        for (final row in eligible) {
+          final sessionId = row['sessionId']?.toString();
+          final panelKey = row['panelKey']?.toString();
+          if (sessionId != null && panelKey != null) {
+            _failedSamplingPanelKeys.add('$sessionId\u0000$panelKey');
+          }
+        }
+      }
+    }
+    return pushed;
+  }
+
+  List<String> _samplingRowIds(List<Map<String, dynamic>> rows) => rows
+      .map((row) => row['id']?.toString())
+      .whereType<String>()
+      .toList(growable: false);
 
   Future<int> _pushDirtyEggGrading() async {
     final dirty = await _eggGradingRepository.getDirtyRows();
@@ -840,6 +1041,7 @@ class StartupSyncService {
       upsertPanelRow: (table, row) => _upsertPanelWithConflictCheck(table, row),
       upsertChickObservation: _upsertChickObservationWithConflictCheck,
       upsertEggGradingCount: _upsertEggGradingWithConflictCheck,
+      upsertPanelSamplingRow: _upsertPanelSamplingRow,
       upsertSyncTombstone: (row) =>
           _syncTombstoneRepository.upsertRemoteTombstone(row),
     );
@@ -986,6 +1188,23 @@ class StartupSyncService {
       upsert: _chickObservationRepository.upsertRemoteRow,
     );
     _countOtherIncoming(result);
+  }
+
+  Future<void> _upsertPanelSamplingRow(
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_hasPendingLocalDelete(table, remoteRow)) return;
+    final sessionId = _rowValue(remoteRow, 'session_id');
+    if (sessionId == null ||
+        _pendingLocalDeleteTargets.contains('audit_sessions:$sessionId') ||
+        await _auditSessionRepository.getSessionRowById(sessionId) == null) {
+      return;
+    }
+    await _panelSamplingStateRepository.upsertRemoteRow(
+      tableName: table,
+      row: remoteRow,
+    );
   }
 
   void _countOtherIncoming(_UpsertResult result) {

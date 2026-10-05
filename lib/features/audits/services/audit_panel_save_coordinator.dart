@@ -7,6 +7,7 @@ import '../../../data/models/audit_model.dart';
 import '../../../data/models/panel_sample_model.dart';
 import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/models/sample_mode.dart';
+import '../../../data/models/sampling_scope.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
 import '../../../data/repositories/egg_grading_repository.dart';
@@ -26,6 +27,13 @@ import '../models/egg_grading.dart';
 /// `AuditProvider._saveSamplesInternal` still assembles the list it hands to
 /// [AuditPanelSaveCoordinator.savePanelTables].
 typedef PanelSavePair = ({AuditModel draft, StationSampleModel sample});
+
+typedef SamplingPanelSavePair = ({
+  String tableName,
+  AuditModel draft,
+  StationSampleModel sample,
+  SamplingScopePath path,
+});
 
 /// Owns every write and delete the audit save path performs against the panel
 /// tables (`egg_storage`, `egg_quality`, `chick_quality`, `chick_weights`, the
@@ -109,6 +117,8 @@ class AuditPanelSaveCoordinator {
     required List<PanelSavePair> panelSavePairs,
     required List<AuditModel> draftsToSave,
     required List<String> removedStationSampleIds,
+    List<SamplingPanelSavePair> samplingSavePairs = const [],
+    Set<String> samplingManagedTables = const {},
   }) async {
     final scopedPanelSavePairs = _scopedPanelSavePairs(panelSavePairs);
     final meaningfulScopedPanelSavePairs = scopedPanelSavePairs
@@ -123,11 +133,18 @@ class AuditPanelSaveCoordinator {
     await _deletePanelRowsForRemovedSamples(
       draftsToSave: draftsToSave,
       removedStationSampleIds: removedStationSampleIds,
+      skipTables: samplingManagedTables,
     );
-    await _deleteDiscardedPanelRows(scopedPanelSavePairs);
+    await _deleteDiscardedPanelRows(
+      scopedPanelSavePairs,
+      skipTables: samplingManagedTables,
+    );
     if (eggPanelSavePairs.isNotEmpty) {
-      await _savePooledEggStoragePanelTable(eggPanelSavePairs);
-      if (!_hasAnyMeaningfulEggQualityData(eggQualityPanelSavePairs)) {
+      if (!samplingManagedTables.contains('egg_storage')) {
+        await _savePooledEggStoragePanelTable(eggPanelSavePairs);
+      }
+      if (!samplingManagedTables.contains('egg_quality') &&
+          !_hasAnyMeaningfulEggQualityData(eggQualityPanelSavePairs)) {
         await _deleteEggQualityRowsBySessionId(eggPanelSavePairs);
       }
     }
@@ -138,13 +155,32 @@ class AuditPanelSaveCoordinator {
         skipTables: pair.draft.auditType == 'Egg'
             ? {
                 'egg_storage',
+                ...samplingManagedTables,
                 if (!hasMeaningfulEggQualityData(pair.draft)) 'egg_quality',
               }
-            : const <String>{},
+            : samplingManagedTables,
       );
     }
-    await _pruneStalePanelHierarchyRows(meaningfulScopedPanelSavePairs);
-    await _pruneStaleBreakoutRows(meaningfulScopedPanelSavePairs);
+    await _pruneStalePanelHierarchyRows(
+      meaningfulScopedPanelSavePairs,
+      skipTables: samplingManagedTables,
+    );
+    await _pruneStaleBreakoutRows(
+      meaningfulScopedPanelSavePairs,
+      skipTables: samplingManagedTables,
+    );
+    for (final pair in samplingSavePairs) {
+      final hasData = pair.tableName == 'chick_weights'
+          ? hasMeaningfulChickWeightSample(
+                  chickWeightValuesForSample(pair.sample, fallback: pair.draft),
+                ) ||
+                (pair.draft.notes?.trim().isNotEmpty ?? false)
+          : _hasMeaningfulPanelTableData(pair.tableName, pair.draft);
+      if (!hasData) continue;
+      await _savePanelTableWithSamples(pair.tableName, pair.draft, [
+        pair.sample,
+      ], samplingPath: pair.path);
+    }
   }
 
   /// Persists the `chick_weights` panel table for one save pass.
@@ -490,8 +526,9 @@ class AuditPanelSaveCoordinator {
   Future<void> _savePanelTableWithSamples(
     String tableName,
     AuditModel draft,
-    List<StationSampleModel> samples,
-  ) async {
+    List<StationSampleModel> samples, {
+    SamplingScopePath? samplingPath,
+  }) async {
     if (samples.isEmpty) return;
     final panel = _panelRecordForSamples(tableName, draft, samples);
     final panelSamples = [
@@ -503,9 +540,20 @@ class AuditPanelSaveCoordinator {
           sample: sample,
         ),
     ];
+    final identitiesByRowId = samplingPath == null
+        ? const <String, SamplingMeasurementIdentity>{}
+        : {
+            for (final sample in panelSamples)
+              sample.id: SamplingMeasurementIdentity(
+                sampleId: samplingPath.sampleId,
+                sampleNumber: samplingPath.sampleNumber,
+                path: samplingPath,
+              ),
+          };
     await _panelSampleRepository.savePanelWithSamples(
       panel: panel,
       samples: panelSamples,
+      samplingIdentitiesByRowId: identitiesByRowId,
     );
   }
 
@@ -550,13 +598,17 @@ class AuditPanelSaveCoordinator {
     );
   }
 
-  Future<void> _deleteDiscardedPanelRows(List<PanelSavePair> pairs) async {
+  Future<void> _deleteDiscardedPanelRows(
+    List<PanelSavePair> pairs, {
+    Set<String> skipTables = const {},
+  }) async {
     final deleted = <String>{};
     for (final pair in pairs) {
       if (pair.draft.auditType == 'Egg') continue;
       final sessionId = pair.sample.auditSessionId;
       if (sessionId.isEmpty) continue;
       for (final tableName in panelTablesForDraft(pair.draft)) {
+        if (skipTables.contains(tableName)) continue;
         if (_hasMeaningfulPanelTableData(tableName, pair.draft)) continue;
         final key = '$sessionId::$tableName';
         if (!deleted.add(key)) continue;
@@ -591,6 +643,7 @@ class AuditPanelSaveCoordinator {
   Future<void> _deletePanelRowsForRemovedSamples({
     required List<AuditModel> draftsToSave,
     required List<String> removedStationSampleIds,
+    Set<String> skipTables = const {},
   }) async {
     final sampleIds = removedStationSampleIds
         .map((id) => id.trim())
@@ -609,6 +662,7 @@ class AuditPanelSaveCoordinator {
       if (_isChicksContext) 'chick_weights',
     };
     for (final tableName in tableNames) {
+      if (skipTables.contains(tableName)) continue;
       await _panelSampleRepository.deleteRowsBySessionIdForSampleIds(
         tableName,
         sessionId,
@@ -617,7 +671,10 @@ class AuditPanelSaveCoordinator {
     }
   }
 
-  Future<void> _pruneStalePanelHierarchyRows(List<PanelSavePair> pairs) async {
+  Future<void> _pruneStalePanelHierarchyRows(
+    List<PanelSavePair> pairs, {
+    Set<String> skipTables = const {},
+  }) async {
     if (pairs.isEmpty) return;
     final pairsByKey = <String, List<PanelSavePair>>{};
     final tableByKey = <String, String>{};
@@ -625,6 +682,7 @@ class AuditPanelSaveCoordinator {
       final sessionId = pair.sample.auditSessionId;
       if (sessionId.isEmpty) continue;
       for (final tableName in _panelTablesForScopedPrune(pair)) {
+        if (skipTables.contains(tableName)) continue;
         final key = '$sessionId::$tableName';
         tableByKey[key] = tableName;
         pairsByKey.putIfAbsent(key, () => <PanelSavePair>[]).add(pair);
@@ -687,7 +745,10 @@ class AuditPanelSaveCoordinator {
     );
   }
 
-  Future<void> _pruneStaleBreakoutRows(List<PanelSavePair> pairs) async {
+  Future<void> _pruneStaleBreakoutRows(
+    List<PanelSavePair> pairs, {
+    Set<String> skipTables = const {},
+  }) async {
     if (pairs.isEmpty) return;
     final pairsByKey = <String, List<PanelSavePair>>{};
     final tableByKey = <String, String>{};
@@ -696,6 +757,7 @@ class AuditPanelSaveCoordinator {
       if (sessionId.isEmpty) continue;
       for (final tableName in panelTablesForDraft(pair.draft)) {
         if (!isEggBreakoutPanelTable(tableName)) continue;
+        if (skipTables.contains(tableName)) continue;
         final key = '$sessionId::$tableName';
         tableByKey[key] = tableName;
         pairsByKey.putIfAbsent(key, () => <PanelSavePair>[]).add(pair);
@@ -1037,30 +1099,31 @@ class AuditPanelSaveCoordinator {
   }
 
   bool _hasMeaningfulPanelTableData(String tableName, AuditModel draft) {
-    return switch (tableName) {
-      'egg_storage' => hasSavableEggStorageData(draft),
-      'egg_quality' => hasMeaningfulEggQualityData(draft),
-      'chick_quality' => hasMeaningfulChickData(
-        draft,
-        hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
-          (sample) => hasMeaningfulChickWeightSample(
-            chickWeightValuesForSample(sample, fallback: draft),
+    return (switch (tableName) {
+          'egg_storage' => hasSavableEggStorageData(draft),
+          'egg_quality' => hasMeaningfulEggQualityData(draft),
+          'chick_quality' => hasMeaningfulChickData(
+            draft,
+            hasAnyMeaningfulChickWeightSample: _chickWeightSamples.any(
+              (sample) => hasMeaningfulChickWeightSample(
+                chickWeightValuesForSample(sample, fallback: draft),
+              ),
+            ),
           ),
-        ),
-      ),
-      'fresh_egg_breakout' ||
-      'candled_egg_breakout' ||
-      'residue_breakout' => hasMeaningfulHatchData(draft),
-      'setter_optimizing' => hasMeaningfulSetterData(
-        draft,
-        contextSetterId: _context?.setterId,
-      ),
-      'hatcher_optimizing' => hasMeaningfulHatcherData(
-        draft,
-        contextHatcherId: _context?.hatcherId,
-      ),
-      _ => false,
-    };
+          'fresh_egg_breakout' ||
+          'candled_egg_breakout' ||
+          'residue_breakout' => hasMeaningfulHatchData(draft),
+          'setter_optimizing' => hasMeaningfulSetterData(
+            draft,
+            contextSetterId: _context?.setterId,
+          ),
+          'hatcher_optimizing' => hasMeaningfulHatcherData(
+            draft,
+            contextHatcherId: _context?.hatcherId,
+          ),
+          _ => false,
+        }) ||
+        (draft.notes?.trim().isNotEmpty ?? false);
   }
 
   /// Which side of the operation a panel's measurement, corrective action, and

@@ -19,6 +19,7 @@ import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
+import '../widgets/sampling_scope_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/weight_entry_sheet_scroll_view.dart';
 import '../widgets/weight_grid_widget.dart';
@@ -38,6 +39,7 @@ class ChickQualityScreen extends StatefulWidget {
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
+  final Map<String, Map<String, AuditModel>> initialSamplingDraftsByPanel;
   final int initialTabIndex;
   final ChickBmkWeightLookup? bmkChickWeightLookup;
 
@@ -47,6 +49,7 @@ class ChickQualityScreen extends StatefulWidget {
     this.initialAudit,
     this.initialAudits = const [],
     this.initialStationSamples = const [],
+    this.initialSamplingDraftsByPanel = const {},
     this.initialTabIndex = 0,
     this.bmkChickWeightLookup,
   });
@@ -101,6 +104,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
+      samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
     _bmkChickWeight = auditProvider.activeDraft.chickBmkWeight;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -201,7 +205,7 @@ class _ChickQualityScreenState extends State<ChickQualityScreen> {
           meta: 'Setter/hatcher sample scope',
           status: provider.isCompareMode ? 'Compare' : 'Single',
           showHeader: false,
-          child: _MachineSampleControls(provider: provider),
+          child: const SamplingScopeControls(panelKey: 'chick_quality'),
         ),
         const SizedBox(height: 16),
         _StationPanel(
@@ -921,7 +925,7 @@ class _ChickWeightsPanel extends StatelessWidget {
       children: [
         _FlockCard(contextData: contextData, audit: audit, stats: stats),
         const SizedBox(height: 12),
-        _HouseWeightSampleControls(provider: provider),
+        const SamplingScopeControls(panelKey: 'chick_weights'),
         const SizedBox(height: 12),
         _MetricGrid(audit: audit, stats: stats, bmkChickWeight: bmkChickWeight),
         const SizedBox(height: 14),

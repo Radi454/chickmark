@@ -146,33 +146,81 @@ class PhotoRepository {
     required String panelRowId,
   }) async {
     final db = await dbHelper.db;
-    final localPaths = <String>[];
+    late List<String> localPaths;
     await db.transaction<void>((txn) async {
-      final rows = await txn.query(
-        'photos',
-        columns: ['id', 'filePath'],
-        where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
-        whereArgs: [sessionId, panelName, panelRowId],
-      );
-      for (final row in rows) {
-        final path = row['filePath'] as String?;
-        if (_isLocalFilePath(path)) localPaths.add(path!);
-      }
-      await SyncTombstoneRepository.queueDeletesWithExecutor(
+      localPaths = await deleteForPanelRowsWithExecutor(
         txn,
-        'photos',
-        rows.map((row) => row['id']),
-      );
-      await txn.delete(
-        'photos',
-        where: 'sessionId = ? AND panelName = ? AND panelRowId = ?',
-        whereArgs: [sessionId, panelName, panelRowId],
+        sessionId: sessionId,
+        panelName: panelName,
+        panelRowIds: [panelRowId],
       );
     });
-    // Drop the backing files only after the rows are gone, and only for local
-    // paths — synced rows may carry a remote URL we must not delete.
-    for (final path in localPaths) {
-      await _deleteLocalFile(path);
+    await deleteUnreferencedLocalFiles(localPaths);
+  }
+
+  /// Deletes photo metadata for panel rows inside the caller's transaction,
+  /// queues photo tombstones before the panel-row tombstones, and returns local
+  /// file paths for best-effort cleanup after commit.
+  Future<List<String>> deleteForPanelRowsWithExecutor(
+    DatabaseExecutor executor, {
+    required String sessionId,
+    required String panelName,
+    required Iterable<String> panelRowIds,
+    Iterable<String> observationIds = const [],
+  }) async {
+    final rowIds = panelRowIds.toSet().toList(growable: false);
+    final childIds = observationIds.toSet().toList(growable: false);
+    if (rowIds.isEmpty && childIds.isEmpty) return const [];
+    final selector = <String>[];
+    final whereArgs = <Object?>[sessionId, panelName];
+    if (rowIds.isNotEmpty) {
+      selector.add(
+        'panelRowId IN (${List.filled(rowIds.length, '?').join(', ')})',
+      );
+      whereArgs.addAll(rowIds);
+    }
+    if (childIds.isNotEmpty) {
+      selector.add(
+        'observationId IN (${List.filled(childIds.length, '?').join(', ')})',
+      );
+      whereArgs.addAll(childIds);
+    }
+    final where =
+        'sessionId = ? AND panelName = ? AND (${selector.join(' OR ')})';
+    final rows = await executor.query(
+      'photos',
+      columns: ['id', 'filePath'],
+      where: where,
+      whereArgs: whereArgs,
+    );
+    await SyncTombstoneRepository.queueDeletesWithExecutor(
+      executor,
+      'photos',
+      rows.map((row) => row['id']),
+    );
+    await executor.delete('photos', where: where, whereArgs: whereArgs);
+    return rows
+        .map((row) => row['filePath'] as String?)
+        .where(_isLocalFilePath)
+        .cast<String>()
+        .toSet()
+        .toList(growable: false);
+  }
+
+  /// Removes paths only when no surviving photo row still references them.
+  /// Call after the transaction that removed the target photo rows commits.
+  Future<void> deleteUnreferencedLocalFiles(Iterable<String> paths) async {
+    final db = await dbHelper.db;
+    for (final filePath in paths.toSet()) {
+      if (!_isLocalFilePath(filePath)) continue;
+      final rows = await db.query(
+        'photos',
+        columns: ['id'],
+        where: 'filePath = ?',
+        whereArgs: [filePath],
+        limit: 1,
+      );
+      if (rows.isEmpty) await _deleteLocalFile(filePath);
     }
   }
 

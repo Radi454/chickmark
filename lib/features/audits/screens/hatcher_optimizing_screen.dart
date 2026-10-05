@@ -22,10 +22,10 @@ import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
 import '../widgets/audit_numeric_keyboard.dart';
-import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sampling_scope_controls.dart';
 import '../widgets/temperature_unit_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -36,6 +36,7 @@ class HatcherOptimizingScreen extends StatefulWidget {
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
+  final Map<String, Map<String, AuditModel>> initialSamplingDraftsByPanel;
   final int initialSectionIndex;
 
   const HatcherOptimizingScreen({
@@ -44,6 +45,7 @@ class HatcherOptimizingScreen extends StatefulWidget {
     this.initialAudit,
     this.initialAudits = const [],
     this.initialStationSamples = const [],
+    this.initialSamplingDraftsByPanel = const {},
     this.initialSectionIndex = 0,
   });
   @override
@@ -138,6 +140,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
+      samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
     _syncActiveSampleForm(auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
@@ -501,221 +504,7 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
   }
 
   Widget _buildHatcherTabs(AuditProvider provider) {
-    return _buildHatcherSampleControlCard(
-      key: const ValueKey('hatcher-machine-scope-card'),
-      title: 'Machine scope',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHatcherMachineScopeChips(provider),
-          const SizedBox(height: 12),
-          _buildHatcherNumberField(provider),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHatcherSampleControlCard({
-    Key? key,
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      key: key,
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHatcherMachineScopeChips(AuditProvider provider) {
-    final chips = [
-      for (final entry in provider.drafts.asMap().entries)
-        _buildHatcherScopeChip(
-          label: _hatcherTabLabel(entry.value, entry.key),
-          selected: provider.activeSampleIndex == entry.key,
-          enabled: !provider.isReadOnly,
-          onSelected: () => _switchHatcherSample(provider, entry.key),
-        ),
-    ];
-
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildHatcherSampleActionButton(
-          tooltip: context.tr('Add machine sample'),
-          icon: Icons.add,
-          onPressed: provider.isReadOnly
-              ? null
-              : () => _addHatcherMachineSample(provider),
-        ),
-        if (provider.sampleCount > 1) ...[
-          const SizedBox(width: 8),
-          _buildHatcherSampleActionButton(
-            tooltip: context.tr('Remove active machine sample'),
-            icon: Icons.remove,
-            onPressed: provider.isReadOnly
-                ? null
-                : () => _removeActiveHatcherSample(provider),
-          ),
-        ],
-      ],
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 520) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [...chips, actions],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: chips,
-              ),
-            ),
-            const SizedBox(width: 8),
-            actions,
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildHatcherScopeChip({
-    required String label,
-    required bool selected,
-    required bool enabled,
-    required VoidCallback onSelected,
-  }) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: enabled ? (_) => onSelected() : null,
-      selectedColor: AppColors.primary.withAlpha(30),
-      checkmarkColor: AppColors.primary,
-      labelStyle: AppTextStyles.body.copyWith(
-        color: selected ? AppColors.primary : AppColors.textBody,
-        fontWeight: FontWeight.w800,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: selected ? AppColors.primary : AppColors.borderDefault,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHatcherSampleActionButton({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback? onPressed,
-  }) {
-    return IconButton.filledTonal(
-      tooltip: context.tr(tooltip),
-      onPressed: onPressed,
-      icon: Icon(icon),
-      style: IconButton.styleFrom(
-        fixedSize: const Size(44, 44),
-        shape: const CircleBorder(),
-      ),
-    );
-  }
-
-  Future<void> _addHatcherMachineSample(AuditProvider provider) async {
-    final values = await showAuditScopeIdentityDialog(
-      context,
-      scopeLabel: 'Machine',
-      fields: const [AuditScopeIdentityField(key: 'hatcher', label: 'Hatcher')],
-      validator: (values) => _hasDuplicateHatcher(provider, values['hatcher']!)
-          ? 'A Machine scope with this identity already exists.'
-          : null,
-    );
-    if (values == null || !mounted) return;
-    final hatcher = values['hatcher']!;
-    provider.addSample();
-    provider.updateField('hatcherId', hatcher);
-    provider.updateField('hoHatcherId', hatcher);
-    setState(() {
-      _syncActiveSampleForm(provider.activeDraft);
-    });
-  }
-
-  bool _hasDuplicateHatcher(AuditProvider provider, String hatcher) {
-    final normalized = normalizeAuditScopeIdentity(hatcher, prefix: 'H');
-    return provider.drafts.any(
-      (draft) =>
-          normalizeAuditScopeIdentity(
-            draft.hatcherId ?? draft.hoHatcherId ?? '',
-            prefix: 'H',
-          ) ==
-          normalized,
-    );
-  }
-
-  void _switchHatcherSample(AuditProvider provider, int index) {
-    provider.switchSample(index);
-    if (!mounted) return;
-    setState(() {
-      _syncActiveSampleForm(provider.activeDraft);
-    });
-  }
-
-  Future<void> _removeActiveHatcherSample(AuditProvider provider) async {
-    final confirmed = await confirmAuditScopeRemoval(
-      context,
-      hasEnteredResults: provider.stationScopeHasEnteredResults(
-        provider.activeSampleIndex,
-      ),
-    );
-    if (!confirmed || !mounted) return;
-    provider.removeActiveSample();
-    setState(() {
-      _syncActiveSampleForm(provider.activeDraft);
-    });
-  }
-
-  Widget _buildHatcherNumberField(AuditProvider provider) {
-    return TextField(
-      key: const ValueKey('hatcher-machine-scope-number-field'),
-      controller: _hatcherIdController,
-      enabled: !provider.isReadOnly,
-      decoration: const InputDecoration(
-        labelText: 'Hatcher number',
-        border: OutlineInputBorder(),
-      ),
-      onChanged: (value) {
-        provider.updateField('hatcherId', value);
-        provider.updateField('hoHatcherId', value);
-        if (mounted) setState(() {});
-      },
-    );
+    return const SamplingScopeControls(panelKey: 'hatcher_optimizing');
   }
 
   Widget _buildPantingChoice({
@@ -1000,17 +789,6 @@ class _HatcherOptimizingScreenState extends State<HatcherOptimizingScreen> {
         ],
       ),
     );
-  }
-
-  String _hatcherTabLabel(AuditModel audit, int index) {
-    final raw = (audit.hatcherId ?? audit.hoHatcherId ?? '').trim();
-    if (raw.isEmpty) return 'H';
-    final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
-    if (digits.isNotEmpty) return 'H$digits';
-    final withoutPrefix = raw.toLowerCase().startsWith('h')
-        ? raw.substring(1).trim()
-        : raw;
-    return 'H$withoutPrefix';
   }
 
   String _hatcherNumberValue(String? value) {

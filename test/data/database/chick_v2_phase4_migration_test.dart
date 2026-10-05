@@ -13,7 +13,7 @@ void main() {
   test('fresh database exposes constrained observation storage', () async {
     final db = await DatabaseHelper().db;
     await db.execute('PRAGMA foreign_keys = OFF');
-    expect(await db.getVersion(), 81);
+    expect(await db.getVersion(), 82);
     final columns = await db.rawQuery(
       'PRAGMA table_info(chick_quality_observation)',
     );

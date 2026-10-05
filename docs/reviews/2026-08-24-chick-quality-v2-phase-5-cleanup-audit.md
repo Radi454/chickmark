@@ -10,7 +10,7 @@ This report is generated from the canonical station registry, conservative produ
 
 | Gate | Proven | Evidence |
 | --- | --- | --- |
-| Zero production runtime readers/writers proven | no | 947 conservative token mention(s) and 7 heuristically detected registry-driven consumer(s) found. Inventory completeness: no — The lexical and heuristic scans are conservative aids, not a complete Dart/TypeScript call graph; indirect or aliased registry-driven readers such as panel_row_to_draft.dart require an explicit reviewed inventory before zero readers can be proven. |
+| Zero production runtime readers/writers proven | no | 969 conservative token mention(s) and 7 heuristically detected registry-driven consumer(s) found. Inventory completeness: no — The lexical and heuristic scans are conservative aids, not a complete Dart/TypeScript call graph; indirect or aliased registry-driven readers such as panel_row_to_draft.dart require an explicit reviewed inventory before zero readers can be proven. |
 | Every persisted row has a safe V2 replacement | no | Coverage of every persisted row is unproven; Phase 4 intentionally leaves some untouched or malformed legacy rows without normalized children, so their compatibility caches may still be the only copy of user evidence. |
 | Backward compatibility has been released | no | Current clients dual-write compatibility caches and observation-first reads still fall back to them for mixed-version and legacy data. |
 | A lossless local/cloud removal migration is ready | no | No local or cloud proof shows every retained cache is redundant, and no live Supabase migration is authorized in this work. |
@@ -158,7 +158,7 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/database/database_helper.dart`
 
-- line 526: `cvPct`
+- line 622: `cvPct`
 
 ### `lib/data/database/database_migrations.dart`
 
@@ -172,15 +172,15 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/database/database_schema.dart`
 
-- line 839: `cvPct`
-- line 2490: `sampleSize`
-- line 2535: `sampleSize`
-- line 2827: `cv_pct`
-- line 2827: `uniformity_pct`
-- line 2839: `cv_pct`
-- line 2839: `uniformity_pct`
-- line 2901: `cv_pct`
-- line 2901: `uniformity_pct`
+- line 916: `cvPct`
+- line 2567: `sampleSize`
+- line 2612: `sampleSize`
+- line 2904: `cv_pct`
+- line 2904: `uniformity_pct`
+- line 2916: `cv_pct`
+- line 2916: `uniformity_pct`
+- line 2978: `cv_pct`
+- line 2978: `uniformity_pct`
 
 ### `lib/data/database/seeds/breeder_alert_rule_seeds.dart`
 
@@ -472,64 +472,64 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/models/panel_sample_model.dart`
 
-- line 286: `sampleSize`
-- line 314: `sampleSize`
-- line 341: `sampleSize`
-- line 370: `sampleSize`
+- line 302: `sampleSize`
+- line 330: `sampleSize`
+- line 357: `sampleSize`
+- line 386: `sampleSize`
 
 ### `lib/data/models/panel_sample_schema.dart`
 
-- line 148: `pasgarSampleSize`
-- line 149: `pasgarReflexesCount`
-- line 150: `pasgarBeakCount`
-- line 151: `pasgarNavelCount`
-- line 152: `pasgarBellyCount`
-- line 153: `pasgarLegCount`
-- line 154: `pasgarFeatherDevCount`
-- line 155: `pasgarReflexesPct`
-- line 156: `pasgarBeakPct`
-- line 157: `pasgarNavelPct`
-- line 158: `pasgarBellyPct`
-- line 159: `pasgarLegPct`
-- line 160: `pasgarFeatherDevPct`
-- line 161: `pasgarFinalScore`
-- line 163: `yfbmEntriesJson`
-- line 164: `yfbmEntryCount`
-- line 165: `yfbmAvgPct`
-- line 166: `yfbmCvPct`
-- line 167: `cvtReadingsJson`
-- line 169: `cvtSampleSize`
-- line 179: `cvtAvgTemp`
-- line 180: `cvtCvPct`
-- line 181: `pmSampleSize`
-- line 182: `pmCollectionPoint`
-- line 183: `pmOmphalitisCount`
-- line 184: `pmOmphalitisSeverity`
-- line 185: `pmGaseousCecaCount`
-- line 186: `pmGaseousCecaSeverity`
-- line 187: `pmGizzardErosionsCount`
-- line 188: `pmGizzardErosionsSeverity`
-- line 189: `pmAirSacCaseationsCount`
-- line 190: `pmAirSacCaseationsSeverity`
-- line 191: `pmUrolithiasisCount`
-- line 192: `pmUrolithiasisSeverity`
-- line 193: `pmNephritisCount`
-- line 194: `pmNephritisSeverity`
-- line 195: `pmGeneralSepticemiaCount`
-- line 196: `pmGeneralSepticemiaSeverity`
-- line 201: `culledChicksTotalEggSet`
-- line 202: `culledChicksAnalysisJson`
-- line 203: `culledChicksAffectedPct`
-- line 204: `culledChicksTopCategory`
-- line 205: `culledChicksTopSubtype`
-- line 214: `weightsJson`
-- line 215: `sampleSize`
-- line 216: `avgWeight`
-- line 217: `uniformityPct`
-- line 218: `cvPct`
-- line 356: `cvtReadingsJson`
-- line 358: `cvtSampleSize`
-- line 360: `cvtCvPct`
+- line 155: `pasgarSampleSize`
+- line 156: `pasgarReflexesCount`
+- line 157: `pasgarBeakCount`
+- line 158: `pasgarNavelCount`
+- line 159: `pasgarBellyCount`
+- line 160: `pasgarLegCount`
+- line 161: `pasgarFeatherDevCount`
+- line 162: `pasgarReflexesPct`
+- line 163: `pasgarBeakPct`
+- line 164: `pasgarNavelPct`
+- line 165: `pasgarBellyPct`
+- line 166: `pasgarLegPct`
+- line 167: `pasgarFeatherDevPct`
+- line 168: `pasgarFinalScore`
+- line 170: `yfbmEntriesJson`
+- line 171: `yfbmEntryCount`
+- line 172: `yfbmAvgPct`
+- line 173: `yfbmCvPct`
+- line 174: `cvtReadingsJson`
+- line 176: `cvtSampleSize`
+- line 186: `cvtAvgTemp`
+- line 187: `cvtCvPct`
+- line 188: `pmSampleSize`
+- line 189: `pmCollectionPoint`
+- line 190: `pmOmphalitisCount`
+- line 191: `pmOmphalitisSeverity`
+- line 192: `pmGaseousCecaCount`
+- line 193: `pmGaseousCecaSeverity`
+- line 194: `pmGizzardErosionsCount`
+- line 195: `pmGizzardErosionsSeverity`
+- line 196: `pmAirSacCaseationsCount`
+- line 197: `pmAirSacCaseationsSeverity`
+- line 198: `pmUrolithiasisCount`
+- line 199: `pmUrolithiasisSeverity`
+- line 200: `pmNephritisCount`
+- line 201: `pmNephritisSeverity`
+- line 202: `pmGeneralSepticemiaCount`
+- line 203: `pmGeneralSepticemiaSeverity`
+- line 208: `culledChicksTotalEggSet`
+- line 209: `culledChicksAnalysisJson`
+- line 210: `culledChicksAffectedPct`
+- line 211: `culledChicksTopCategory`
+- line 212: `culledChicksTopSubtype`
+- line 221: `weightsJson`
+- line 222: `sampleSize`
+- line 223: `avgWeight`
+- line 224: `uniformityPct`
+- line 225: `cvPct`
+- line 363: `cvtReadingsJson`
+- line 365: `cvtSampleSize`
+- line 367: `cvtCvPct`
 
 ### `lib/data/repositories/breeder_weighing_session_repository.dart`
 
@@ -580,12 +580,12 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/data/repositories/panel_sample_repository.dart`
 
-- line 845: `sampleSize`
-- line 871: `chicks.legacy_combined`
-- line 875: `chicks.legacy_combined`
-- line 1126: `chicks.legacy_combined`
-- line 1164: `chicks.legacy_combined`
-- line 1266: `chicks.legacy_combined`
+- line 1074: `sampleSize`
+- line 1100: `chicks.legacy_combined`
+- line 1104: `chicks.legacy_combined`
+- line 1355: `chicks.legacy_combined`
+- line 1393: `chicks.legacy_combined`
+- line 1495: `chicks.legacy_combined`
 
 ### `lib/data/services/panel_aggregate_deriver.dart`
 
@@ -664,11 +664,11 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/features/audits/logic/egg_station_reconstruction.dart`
 
-- line 192: `sampleSize`
-- line 484: `weightsJson`
-- line 485: `avgWeight`
-- line 486: `uniformityPct`
-- line 487: `cvPct`
+- line 219: `sampleSize`
+- line 512: `weightsJson`
+- line 513: `avgWeight`
+- line 514: `uniformityPct`
+- line 515: `cvPct`
 
 ### `lib/features/audits/logic/panel_row_to_draft.dart`
 
@@ -849,66 +849,88 @@ These lexical mentions are cleanup blockers, not claims that every line is a Chi
 
 ### `lib/features/audits/providers/audit_provider.dart`
 
-- line 429: `sampleSize`
-- line 437: `sampleSize`
-- line 982: `sampleSize`
-- line 986: `sampleSize`
-- line 1521: `weightsJson`
-- line 1522: `avgWeight`
-- line 1523: `uniformityPct`
-- line 1524: `cvPct`
-- line 1531: `weightsJson`
-- line 1532: `weightsJson`
-- line 1533: `avgWeight`
-- line 1534: `uniformityPct`
-- line 1535: `cvPct`
-- line 1544: `weightsJson`
-- line 1545: `weightsJson`
-- line 1546: `avgWeight`
-- line 1547: `uniformityPct`
-- line 1548: `cvPct`
-- line 1843: `weightsJson`
-- line 1845: `weightsJson`
-- line 2502: `weightsJson`
-- line 2503: `weightsJson`
-- line 2540: `pasgarFinalScore`
-- line 2541: `pasgarFinalScore`
-- line 2545: `pasgarFinalScore`
+- line 547: `weightsJson`
+- line 548: `sampleSize`
+- line 549: `avgWeight`
+- line 550: `uniformityPct`
+- line 551: `cvPct`
+- line 740: `weightsJson`
+- line 741: `sampleSize`
+- line 742: `avgWeight`
+- line 743: `uniformityPct`
+- line 744: `cvPct`
+- line 875: `pasgarSampleSize`
+- line 888: `pasgarFinalScore`
+- line 891: `yfbmAvgPct`
+- line 892: `yfbmCvPct`
+- line 893: `cvtReadingsJson`
+- line 895: `cvtSampleSize`
+- line 906: `cvtCvPct`
+- line 945: `culledChicksTotalEggSet`
+- line 946: `culledChicksAnalysisJson`
+- line 947: `culledChicksAffectedPct`
+- line 948: `culledChicksTopCategory`
+- line 949: `culledChicksTopSubtype`
+- line 1425: `sampleSize`
+- line 1433: `sampleSize`
+- line 2023: `sampleSize`
+- line 2027: `sampleSize`
+- line 2562: `weightsJson`
+- line 2563: `avgWeight`
+- line 2564: `uniformityPct`
+- line 2565: `cvPct`
+- line 2572: `weightsJson`
+- line 2573: `weightsJson`
+- line 2574: `avgWeight`
+- line 2575: `uniformityPct`
+- line 2576: `cvPct`
+- line 2585: `weightsJson`
+- line 2586: `weightsJson`
+- line 2587: `avgWeight`
+- line 2588: `uniformityPct`
+- line 2589: `cvPct`
+- line 2884: `weightsJson`
+- line 2886: `weightsJson`
+- line 3543: `weightsJson`
+- line 3544: `weightsJson`
+- line 3581: `pasgarFinalScore`
+- line 3582: `pasgarFinalScore`
+- line 3586: `pasgarFinalScore`
 
 ### `lib/features/audits/screens/chick_quality_screen.dart`
 
-- line 489: `weightsJson`
-- line 504: `weightsJson`
-- line 505: `avgWeight`
-- line 506: `uniformityPct`
-- line 507: `cvPct`
+- line 493: `weightsJson`
+- line 508: `weightsJson`
+- line 509: `avgWeight`
+- line 510: `uniformityPct`
+- line 511: `cvPct`
 
 ### `lib/features/audits/screens/egg_storage_screen.dart`
 
-- line 281: `weightsJson`
 - line 282: `weightsJson`
-- line 284: `weightsJson`
-- line 1589: `sampleSize`
-- line 2028: `sampleSize`
-- line 2536: `sampleSize`
-- line 2776: `sampleSize`
-- line 2784: `sampleSize`
+- line 283: `weightsJson`
+- line 285: `weightsJson`
+- line 1042: `sampleSize`
+- line 1481: `sampleSize`
+- line 1989: `sampleSize`
+- line 2229: `sampleSize`
+- line 2237: `sampleSize`
 
 ### `lib/features/audits/services/audit_panel_save_coordinator.dart`
 
-- line 212: `sampleSize`
-- line 226: `sampleSize`
-- line 475: `sampleSize`
-- line 1003: `sampleSize`
-- line 1019: `weightsJson`
-- line 1020: `sampleSize`
-- line 1021: `avgWeight`
-- line 1022: `uniformityPct`
-- line 1023: `cvPct`
-- line 1185: `pasgarSampleSize`
-- line 1186: `cvtSampleSize`
-- line 1187: `pmSampleSize`
-- line 1188: `culledChicksTotalEggSet`
+- line 248: `sampleSize`
+- line 262: `sampleSize`
+- line 511: `sampleSize`
+- line 1065: `sampleSize`
+- line 1081: `weightsJson`
+- line 1082: `sampleSize`
+- line 1083: `avgWeight`
+- line 1084: `uniformityPct`
+- line 1085: `cvPct`
+- line 1248: `pasgarSampleSize`
+- line 1249: `cvtSampleSize`
+- line 1250: `pmSampleSize`
+- line 1251: `culledChicksTotalEggSet`
 
 ### `lib/features/audits/widgets/tabs/culled_chicks_analysis_tab.dart`
 

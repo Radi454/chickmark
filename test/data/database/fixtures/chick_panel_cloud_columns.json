@@ -99,7 +99,10 @@
         "source_ref_id",
         "observed_at",
         "quality_status",
-        "quality_flags"
+        "quality_flags",
+        "sample_id",
+        "sample_number",
+        "sampling_path_json"
     ],
     "chick_weights": [
         "id",
@@ -149,6 +152,9 @@
         "source_ref_id",
         "observed_at",
         "quality_status",
-        "quality_flags"
+        "quality_flags",
+        "sample_id",
+        "sample_number",
+        "sampling_path_json"
     ]
 }

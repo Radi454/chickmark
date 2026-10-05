@@ -14,11 +14,12 @@ class SyncTombstoneRepository {
   static const tableName = 'sync_tombstones';
 
   static const baseDeleteOrder = [
-    'photos',
     'dashboard_actions',
     'lab_analysis_rows',
     'lab_analysis_groups',
     'lab_analysis_reports',
+    'panel_sampling_nodes',
+    'panel_sampling_states',
     'audit_sessions',
     'govee_daily_captures',
     'flocks',
@@ -31,6 +32,9 @@ class SyncTombstoneRepository {
         .map((panel) => panel.tableName)
         .toList();
     return [
+      // Resolve remote storage paths while photo metadata still exists, then
+      // remove panel parents and their sampling state.
+      'photos',
       'chick_quality_observation',
       // `egg_quality_defect_counts` is a child of the egg_quality panel row,
       // so it must delete before the generated panel-table batch reaches its
@@ -191,6 +195,19 @@ class SyncTombstoneRepository {
   ) async {
     final id = rowId?.toString();
     if (id == null || id.isEmpty) return;
+    if (deletedTableName == 'audit_sessions') {
+      // Remote session deletion owns these children even when an older mirror
+      // never uploaded a sampling-specific tombstone.
+      for (final table in const [
+        'panel_sampling_nodes',
+        'panel_sampling_states',
+        'panel_sample_serial_reservations',
+      ]) {
+        if (!await _tableExists(executor, table)) continue;
+        await executor.delete(table, where: 'sessionId = ?', whereArgs: [id]);
+      }
+    }
+
     await executor.delete(
       deletedTableName,
       where: '${idColumnForTable(deletedTableName)} = ?',

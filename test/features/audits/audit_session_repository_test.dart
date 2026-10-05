@@ -630,7 +630,18 @@ void main() {
           where: any(named: 'where'),
           whereArgs: any(named: 'whereArgs'),
         ),
-      ).thenAnswer((_) async => <Map<String, Object?>>[]);
+      ).thenAnswer((invocation) async {
+        final table = invocation.positionalArguments.first as String;
+        return switch (table) {
+          'panel_sampling_nodes' => [
+            {'id': 'sampling-node-1'},
+          ],
+          'panel_sampling_states' => [
+            {'id': 'sampling-state-1'},
+          ],
+          _ => <Map<String, Object?>>[],
+        };
+      });
       when(
         () => txn.insert(
           any(),
@@ -649,6 +660,17 @@ void main() {
           {'name': 'lastError'},
         ],
       );
+      when(
+        () => txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+          any(),
+        ),
+      ).thenAnswer((invocation) async {
+        final table = (invocation.positionalArguments[1] as List).single;
+        return [
+          <String, Object?>{'name': table},
+        ];
+      });
       when(
         () => txn.update(
           'audits',
@@ -679,6 +701,33 @@ void main() {
           'audit_sessions',
           where: 'id = ?',
           whereArgs: [testSession.id],
+        ),
+      ).called(1);
+      for (final table in const [
+        'panel_sampling_nodes',
+        'panel_sampling_states',
+        'panel_sample_serial_reservations',
+      ]) {
+        verify(
+          () => txn.delete(
+            table,
+            where: 'sessionId = ?',
+            whereArgs: [testSession.id],
+          ),
+        ).called(1);
+      }
+      verify(
+        () => txn.insert(
+          'sync_tombstones',
+          any(that: containsPair('tableName', 'panel_sampling_nodes')),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        ),
+      ).called(1);
+      verify(
+        () => txn.insert(
+          'sync_tombstones',
+          any(that: containsPair('tableName', 'panel_sampling_states')),
+          conflictAlgorithm: ConflictAlgorithm.replace,
         ),
       ).called(1);
     });

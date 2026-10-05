@@ -2527,6 +2527,7 @@ Future<void> _applyV80Upgrade(Database db) async {
   await createBreederPerformanceAlertsTable(db);
   await seedBreederAlertRules(db);
 }
+
 /// v81 retires the Cobb500 Slow Feather parent-stock profile. The flock the
 /// app is used against runs the Fast Feather line, and carrying a second Cobb
 /// profile only invites picking the wrong one when comparing a flock.
@@ -2575,4 +2576,33 @@ Future<void> _applyV81Upgrade(Database db) async {
     // can never drift from the fresh-install shape.
     await createBreederBenchmarkTables(db);
   }
+}
+
+/// v82 adds panel-scoped sampling state and durable offline serial
+/// reservations. Panel measurements remain in their existing tables and rows;
+/// these nullable metadata columns do not rewrite legacy identities.
+Future<void> _applyV82Upgrade(Database db) async {
+  await _createPanelSamplingTables(db);
+  for (final panel in PanelSampleSchema.panels) {
+    if (!await _tableExists(db, panel.tableName)) continue;
+    await _ensureColumns(db, panel.tableName, const [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ]);
+  }
+  if (await _tableExists(db, 'customers')) {
+    await _ensureColumns(db, 'customers', const ['samplingCode TEXT']);
+  }
+  if (await _tableExists(db, 'hatcheries')) {
+    await _ensureColumns(db, 'hatcheries', const ['samplingCode TEXT']);
+  }
+  if (await _tableExists(db, 'flocks')) {
+    await _ensureColumns(db, 'flocks', const ['samplingCode TEXT']);
+  }
+  // Existing panel builds have hierarchy-only uniqueness. New rows with a
+  // sampleId are separate measurements even when they share the same path;
+  // keep the old hierarchy merge guard only for legacy rows without identity.
+  await _dropPanelUniqueRowIndexes(db);
+  await _ensurePanelUniqueRowIndexes(db);
 }

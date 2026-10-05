@@ -101,11 +101,27 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     upsertPanelRow,
     Future<void> Function(Map<String, dynamic>)? upsertChickObservation,
     Future<void> Function(Map<String, dynamic>)? upsertEggGradingCount,
+    Future<void> Function(String table, Map<String, dynamic> row)?
+    upsertPanelSamplingRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
     if (upsertBmkOperationalStandard != null) {
       for (final row in _remoteRows['bmk_operational_standards'] ?? const []) {
         await upsertBmkOperationalStandard(row);
+      }
+    }
+    var panelSamplingRows = 0;
+    if (upsertPanelSamplingRow != null) {
+      for (final table in const [
+        'panel_sampling_states',
+        'panel_sampling_nodes',
+        'panel_sample_serial_reservations',
+      ]) {
+        for (final row in _remoteRows[table] ?? const []) {
+          pulledTables.add(table);
+          await upsertPanelSamplingRow(table, row);
+          panelSamplingRows++;
+        }
       }
     }
     var panelRows = 0;
@@ -138,6 +154,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
       panelRows: panelRows,
       chickObservations: chickObservations,
       eggGradingCounts: eggGradingCounts,
+      panelSamplingRows: panelSamplingRows,
     );
   }
 

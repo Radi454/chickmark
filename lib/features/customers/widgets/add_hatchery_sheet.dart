@@ -27,6 +27,7 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _locationController;
   late final TextEditingController _notesController;
+  late final TextEditingController _samplingCodeController;
 
   bool get _isEditing => widget.initialHatchery != null;
 
@@ -37,6 +38,9 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
     _nameController = TextEditingController(text: initial?.name ?? '');
     _locationController = TextEditingController(text: initial?.location ?? '');
     _notesController = TextEditingController(text: initial?.notes ?? '');
+    _samplingCodeController = TextEditingController(
+      text: initial?.samplingCode ?? '',
+    );
   }
 
   @override
@@ -44,6 +48,7 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
     _nameController.dispose();
     _locationController.dispose();
     _notesController.dispose();
+    _samplingCodeController.dispose();
     super.dispose();
   }
 
@@ -62,6 +67,7 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
       notes: _notesController.text.trim().isEmpty
           ? null
           : _notesController.text.trim(),
+      samplingCode: _samplingCodeController.text,
       createdAt: initial?.createdAt ?? DateTime.now(),
       createdBy: initial?.createdBy ?? auth.user?.id ?? '',
     );
@@ -121,6 +127,14 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
                 hint: 'Optional',
                 maxLines: 3,
               ),
+              const SizedBox(height: 16),
+              _field(
+                controller: _samplingCodeController,
+                label: 'Hatchery sampling code',
+                hint: context.tr('e.g. ABC'),
+                validator: _samplingCodeValidator,
+                helperText: 'Optional. Enter three letters A–Z.',
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
@@ -155,6 +169,7 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
     required String hint,
     String? Function(String?)? validator,
     int maxLines = 1,
+    String? helperText,
   }) {
     return TextFormField(
       controller: controller,
@@ -162,6 +177,7 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
+        helperText: helperText,
         filled: true,
         fillColor: AppColors.background,
         border: OutlineInputBorder(
@@ -173,4 +189,10 @@ class _AddHatcherySheetState extends State<AddHatcherySheet> {
       validator: validator,
     );
   }
+}
+
+String? _samplingCodeValidator(String? value) {
+  final code = value?.trim() ?? '';
+  if (code.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(code)) return null;
+  return 'Enter exactly three letters A–Z, or leave blank.';
 }

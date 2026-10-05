@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
@@ -16,6 +17,7 @@ import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:hatchaudit/features/audits/widgets/audit_numeric_keyboard.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
+import 'support/memory_panel_sampling_state_repository.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
 
@@ -23,6 +25,7 @@ class MockAuditRepository extends Mock implements AuditRepository {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  var screenSession = 0;
   const connectivityChannel = MethodChannel(
     'dev.fluttercommunity.plus/connectivity',
   );
@@ -49,6 +52,11 @@ void main() {
         });
   });
 
+  AuditProvider screenProvider() => AuditProvider(
+    autosaveEnabled: false,
+    panelSamplingStateRepository: MemoryPanelSamplingStateRepository(),
+  );
+
   AuditContextData contextData({
     String? breed,
     int? flockAgeWeeks,
@@ -57,7 +65,7 @@ void main() {
     auditType: 'Chicks',
     customerId: 'customer-1',
     flockId: 'flock-1',
-    sessionId: sessionId,
+    sessionId: sessionId ?? 'chick-screen-${screenSession++}',
     breed: breed,
     flockAgeWeeks: flockAgeWeeks,
     date: '2026-04-27',
@@ -71,11 +79,12 @@ void main() {
     List<StationSampleModel> initialStationSamples = const [],
     ChickBmkWeightLookup? bmkChickWeightLookup,
   }) async {
+    final providerForScreen = provider ?? screenProvider();
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider<AuditProvider>(
-            create: (_) => provider ?? AuditProvider(autosaveEnabled: false),
+            create: (_) => providerForScreen,
           ),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
@@ -93,6 +102,8 @@ void main() {
         ),
       ),
     );
+    await providerForScreen.loadPanelSamplingState('chick_quality');
+    await providerForScreen.loadPanelSamplingState('chick_weights');
     await tester.pump();
   }
 
@@ -119,18 +130,36 @@ void main() {
     required String tooltip,
     required Map<String, String> identities,
   }) async {
-    await tester.ensureVisible(find.byTooltip(tooltip));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(tooltip));
-    await tester.pumpAndSettle();
-    for (final entry in identities.entries) {
-      await tester.enterText(
-        find.byKey(ValueKey('scope-identity-${entry.key}')),
-        entry.value,
-      );
-    }
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(ChickQualityScreen)),
+      listen: false,
+    );
+    final panelKey = tooltip.contains('house')
+        ? 'chick_weights'
+        : 'chick_quality';
+    final state = await provider.loadPanelSamplingState(panelKey);
+    final serial = state.serialHighWatermark + 1;
+    final isHouse = panelKey == 'chick_weights';
+    final scope = await provider.addPanelScopeIdentity(
+      panelKey,
+      level: isHouse ? SamplingScopeLevel.house : SamplingScopeLevel.setter,
+      parentId: null,
+      identity: isHouse
+          ? {
+              'id': 'test-house-$serial',
+              'code': identities['house'] ?? '$serial',
+              'name': 'House ${identities['house'] ?? serial}',
+            }
+          : {
+              'setter': identities['setter'] ?? 'S$serial',
+              'hatcher': identities['hatcher'] ?? 'H$serial',
+            },
+    );
+    final sample = await provider.addPanelTerminalSample(
+      panelKey,
+      parentId: scope.id,
+    );
+    await provider.selectPanelSample(panelKey, sample.sampleId!);
     await tester.pumpAndSettle();
   }
 
@@ -144,8 +173,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Audit station'), findsOneWidget);
-    expect(find.text('Chicks'), findsWidgets);
-    expect(find.text('Hatchery'), findsOneWidget);
+    expect(find.text('Pasgar Score'), findsOneWidget);
 
     expect(
       find.byKey(const ValueKey('chick-quality-workbench')),
@@ -321,7 +349,7 @@ void main() {
   testWidgets('machine switch reloads each machine Pasgar values', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     provider.addChickQualityMachineScopeSample();
@@ -365,7 +393,7 @@ void main() {
   testWidgets('culled chicks analysis panel follows PM and updates draft', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     final pmPanel = find.byKey(const ValueKey('chick-quality-panel-pm'));
@@ -514,7 +542,7 @@ void main() {
   testWidgets('YFBM entries are edited from a modal entry sheet', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -581,7 +609,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1000, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -608,7 +636,7 @@ void main() {
   testWidgets('CVT uses an EST-style grid with target and capture action', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -653,7 +681,7 @@ void main() {
   });
 
   testWidgets('PM Necropsy shows the revised lesion checklist', (tester) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -734,120 +762,49 @@ void main() {
   ) async {
     await pumpScreen(tester);
 
+    final qualityPanel = find.byKey(
+      const ValueKey('chick-quality-machine-sampling'),
+    );
+    expect(qualityPanel, findsOneWidget);
     expect(
-      find.byKey(const ValueKey('chick-quality-machine-sampling')),
+      find.descendant(of: qualityPanel, matching: find.text('Sampling')),
       findsOneWidget,
     );
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.text('Chick Quality'),
-      ),
-      findsNothing,
+      find.descendant(of: qualityPanel, matching: find.text('Setter / Hatcher')),
+      findsOneWidget,
     );
-    expect(find.text('Quality sampling'), findsNothing);
-    expect(find.text('Machine ID'), findsNothing);
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('Active machine'), findsNothing);
-    expect(find.text('Setter and hatcher pair'), findsNothing);
-    expect(find.text('One sample'), findsNothing);
-    expect(find.text('Multisamples'), findsNothing);
-    expect(find.text('Pool'), findsWidgets);
-    expect(find.byTooltip('Add machine sample'), findsOneWidget);
-    expect(find.byTooltip('Remove active machine sample'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.byType(SegmentedButton<bool>),
-      ),
-      findsNothing,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.byKey(const ValueKey('quality-scope-selected-icon')),
-      ),
-      findsNothing,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
-        matching: find.byKey(const ValueKey('quality-scope-multi-icon')),
-      ),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('quality-scope-segment-single')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('quality-scope-segment-multiple')),
-      findsNothing,
-    );
+    expect(find.byTooltip('Add Setter / Hatcher'), findsOneWidget);
+    expect(find.text('Machine scope'), findsNothing);
+    expect(find.byTooltip('Add machine sample'), findsNothing);
 
     await tester.ensureVisible(
       find.byKey(const ValueKey('chick-quality-panel-weights')),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Sample Mode'), findsNothing);
-    expect(find.text('Chick Sample Mode'), findsNothing);
-    expect(find.text('House scope'), findsOneWidget);
-    expect(find.text('Active house'), findsNothing);
-    expect(find.text('Weight sample source'), findsNothing);
-    expect(find.text('One house'), findsNothing);
-    expect(find.text('Compare houses'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
-        matching: find.byType(SegmentedButton<bool>),
-      ),
-      findsNothing,
+    final weightsPanel = find.byKey(
+      const ValueKey('chick-quality-panel-weights'),
     );
     expect(
-      find.byKey(const ValueKey('house-scope-selected-icon')),
-      findsNothing,
+      find.descendant(of: weightsPanel, matching: find.text('Sampling')),
+      findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('house-scope-multi-icon')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('house-scope-segment-single')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('house-scope-segment-multiple')),
-      findsNothing,
-    );
+    expect(find.byTooltip('Add House'), findsOneWidget);
+    expect(find.text('House scope'), findsNothing);
     expect(
       find.byKey(const ValueKey('chick-weight-metric-summary')),
       findsOneWidget,
     );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
-        matching: find.byType(GridView),
-      ),
-      findsNothing,
-    );
-
-    expect(find.text('House Samples'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
-        matching: find.text('Pool'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.byTooltip('Add house sample'), findsOneWidget);
-    expect(find.byTooltip('Remove active house sample'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
+    expect(find.text('Compare houses'), findsNothing);
+    expect(find.byTooltip('Add house sample'), findsNothing);
+    expect(find.text('Enter Weights'), findsOneWidget);
   });
 
-  testWidgets('house scope edits the active chick weight house number', (
+  testWidgets('House comparison activates its own chick-weight leaf', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -858,77 +815,33 @@ void main() {
     final weightsPanel = find.byKey(
       const ValueKey('chick-quality-panel-weights'),
     );
-    expect(find.text('House scope'), findsOneWidget);
-    expect(find.text('House Samples'), findsNothing);
-    expect(find.text('Active house'), findsNothing);
-    expect(find.text('Weight sample source'), findsNothing);
-    expect(
-      find.descendant(of: weightsPanel, matching: find.text('Pool')),
-      findsOneWidget,
-    );
-    expect(find.text('H1'), findsNothing);
-    expect(find.text('Label'), findsNothing);
-    expect(find.byTooltip('Add house sample'), findsOneWidget);
-    expect(find.byTooltip('Remove active house sample'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
-
     await addNamedScope(
       tester,
       tooltip: 'Add house sample',
       identities: const {'house': '12'},
     );
 
+    final activeId = provider.activeSampleIdFor('chick_weights');
+    expect(activeId, isNotNull);
     expect(
-      find.descendant(of: weightsPanel, matching: find.text('Pool')),
-      findsNothing,
-    );
-    expect(
-      find.descendant(of: weightsPanel, matching: find.text('H1')),
-      findsNothing,
-    );
-    expect(find.text('H12'), findsWidgets);
-    expect(find.byTooltip('Remove active house sample'), findsOneWidget);
-    final houseField = find.widgetWithText(TextFormField, 'House');
-    expect(houseField, findsOneWidget);
-    expect(
-      tester
-          .widget<TextField>(
-            find.descendant(
-              of: weightsPanel,
-              matching: find.byWidgetPredicate(
-                (widget) =>
-                    widget is TextField &&
-                    widget.decoration?.labelText == 'House',
-              ),
-            ),
-          )
-          .controller
-          ?.text,
+      provider.samplingStateFor('chick_weights')!.pathFor(activeId!).house,
       '12',
     );
-
-    await tester.enterText(houseField, '12');
-    await tester.pumpAndSettle();
-
-    expect(
-      find.descendant(of: weightsPanel, matching: find.text('H12')),
-      findsWidgets,
-    );
+    expect(find.text('House 12'), findsOneWidget);
     expect(provider.activeChickWeightSample.houseNo, '12');
-    expect(provider.activeChickWeightSample.houseLabel, 'House 12');
+    expect(find.byKey(const ValueKey('chick-weight-metric-summary')), findsOneWidget);
+    expect(find.text('Enter Weights'), findsOneWidget);
+    expect(weightsPanel, findsOneWidget);
   });
 
   testWidgets(
-    'house scope can remove the only active weight sample back to pool',
+    'deleting a House branch returns chick weights to pooled state',
     (tester) async {
-      final provider = AuditProvider(autosaveEnabled: false);
+      final provider = screenProvider();
       await pumpScreen(tester, provider: provider);
       final weightsPanel = find.byKey(
         const ValueKey('chick-quality-panel-weights'),
       );
-
-      await tester.ensureVisible(weightsPanel);
-      await tester.pumpAndSettle();
 
       await addNamedScope(
         tester,
@@ -936,32 +849,28 @@ void main() {
         identities: const {'house': '12'},
       );
 
-      expect(provider.isChickWeightCompareMode, isTrue);
-      expect(
-        provider.chickWeightSampleMode,
-        StationSampleModel.sampleModeComparison,
+      final state = provider.samplingStateFor('chick_weights')!;
+      final house = state.nodes.singleWhere(
+        (node) => node.level == SamplingScopeLevel.house,
       );
-      expect(
-        find.descendant(of: weightsPanel, matching: find.text('Pool')),
-        findsNothing,
+      provider.updateChickWeightSampleResult(
+        weightsJson: '[42.0]',
+        avgWeight: 42,
       );
-      expect(find.byTooltip('Remove active house sample'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'House'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Remove active house sample'));
+      await provider.deletePanelScopeNode('chick_weights', house.id);
       await tester.pumpAndSettle();
 
-      expect(provider.isChickWeightCompareMode, isFalse);
+      final pooledId = provider.activeSampleIdFor('chick_weights')!;
       expect(
-        provider.chickWeightSampleMode,
-        StationSampleModel.sampleModePooled,
+        provider.samplingStateFor('chick_weights')!.pathFor(pooledId).house,
+        isNull,
       );
+      expect(provider.activeDraft.chickAvgWeight, isNull);
       expect(
-        find.descendant(of: weightsPanel, matching: find.text('Pool')),
+        find.descendant(of: weightsPanel, matching: find.text('Pooled')),
         findsOneWidget,
       );
-      expect(find.byTooltip('Remove active house sample'), findsNothing);
-      expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
+      expect(find.text('Enter Weights'), findsOneWidget);
     },
   );
 
@@ -990,7 +899,7 @@ void main() {
   testWidgets('weight entry updates the draft after a short debounce', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
 
     await tester.ensureVisible(
@@ -1087,7 +996,7 @@ void main() {
   testWidgets('chick BMK follows refreshed flock age and benchmark lookup', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     final staleAudit = AuditModel(
       id: 'chick-stale-bmk',
       auditType: 'Chicks',
@@ -1159,26 +1068,19 @@ void main() {
     );
   });
 
-  testWidgets('machine scope edits the active setter and hatcher numbers', (
+  testWidgets('setter and Hatcher pair identity follows the active quality leaf', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
-    final machineScope = find.byKey(
+    final qualityPanel = find.byKey(
       const ValueKey('chick-quality-machine-sampling'),
     );
 
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('Machine Samples'), findsNothing);
-    expect(find.text('Compare setter and hatcher pairs'), findsNothing);
     expect(
-      find.descendant(of: machineScope, matching: find.text('Pool')),
+      find.descendant(of: qualityPanel, matching: find.text('Sampling')),
       findsOneWidget,
     );
-    expect(find.text('S1H1'), findsNothing);
-    expect(find.byTooltip('Add machine sample'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
 
     await addNamedScope(
       tester,
@@ -1186,90 +1088,58 @@ void main() {
       identities: const {'setter': '7', 'hatcher': '8'},
     );
 
-    expect(
-      find.descendant(of: machineScope, matching: find.text('Pool')),
-      findsNothing,
+    final firstId = provider.activeSampleIdFor('chick_quality')!;
+    var state = provider.samplingStateFor('chick_quality')!;
+    final pair = state.nodes.singleWhere(
+      (node) => node.level == SamplingScopeLevel.setter,
     );
-    expect(find.text('S1H1'), findsNothing);
-    expect(find.text('S7H8'), findsWidgets);
-    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
-    final setterField = find.widgetWithText(TextFormField, 'Setter');
-    final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
-    expect(setterField, findsOneWidget);
-    expect(hatcherField, findsOneWidget);
-    for (final label in ['Setter', 'Hatcher']) {
-      expect(
-        tester
-            .widget<TextField>(
-              find.descendant(
-                of: machineScope,
-                matching: find.byWidgetPredicate(
-                  (widget) =>
-                      widget is TextField &&
-                      widget.decoration?.labelText == label,
-                ),
-              ),
-            )
-            .controller
-            ?.text,
-        label == 'Setter' ? '7' : '8',
-      );
-    }
-
-    await tester.enterText(setterField, '9');
-    await tester.enterText(hatcherField, '10');
-    await tester.pumpAndSettle();
-
-    expect(find.text('S9H10'), findsWidgets);
-    expect(provider.activeStationSample.setterNo, '9');
-    expect(provider.activeStationSample.hatcherNo, '10');
-
-    await tester.enterText(setterField, '');
+    expect(pair.identity['setter'], '7');
+    expect(pair.identity['hatcher'], '8');
+    expect(find.text('7 / 8'), findsOneWidget);
+    await provider.editPanelScopeIdentity('chick_quality', pair.id, {
+      'setter': '9',
+      'hatcher': '10',
+    });
     await tester.pump();
-    expect(
-      tester.widget<TextFormField>(setterField).controller?.text,
-      '9',
-      reason: 'a rejected blank identity must not remain visible',
-    );
-    expect(provider.activeStationSample.setterNo, '9');
+    state = provider.samplingStateFor('chick_quality')!;
+    final edited = state.nodes.singleWhere((node) => node.id == pair.id);
+    expect(edited.identity['setter'], '9');
+    expect(edited.identity['hatcher'], '10');
+    expect(provider.activeSampleIdFor('chick_quality'), firstId);
+    expect(find.text('9 / 10'), findsOneWidget);
   });
 
-  testWidgets('machine scope can remove the only active sample back to pool', (
+  testWidgets('deleting a machine branch restores a pooled quality sample', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
-    final machineScope = find.byKey(
-      const ValueKey('chick-quality-machine-sampling'),
-    );
-
     await addNamedScope(
       tester,
       tooltip: 'Add machine sample',
       identities: const {'setter': '7', 'hatcher': '8'},
     );
-
-    expect(
-      find.descendant(of: machineScope, matching: find.text('Pool')),
-      findsNothing,
+    provider.updateField('pasgarSampleSize', 100);
+    final state = provider.samplingStateFor('chick_quality')!;
+    final setter = state.nodes.singleWhere(
+      (node) => node.level == SamplingScopeLevel.setter,
     );
-    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Remove active machine sample'));
+    await provider.deletePanelScopeNode('chick_quality', setter.id);
     await tester.pumpAndSettle();
 
-    expect(provider.isCompareMode, isFalse);
-    expect(provider.stationSampleMode, StationSampleModel.sampleModePooled);
+    final activeId = provider.activeSampleIdFor('chick_quality')!;
     expect(
-      find.descendant(of: machineScope, matching: find.text('Pool')),
+      provider.samplingStateFor('chick_quality')!.pathFor(activeId).setter,
+      isNull,
+    );
+    expect(provider.activeDraft.pasgarSampleSize, isNull);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-machine-sampling')),
+        matching: find.text('Pooled'),
+      ),
       findsOneWidget,
     );
-    expect(find.byTooltip('Remove active machine sample'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
   });
 
   testWidgets('machine scope fields stay aligned on phone widths', (
@@ -1285,31 +1155,19 @@ void main() {
       tooltip: 'Add machine sample',
       identities: const {'setter': '7', 'hatcher': '8'},
     );
-
-    expect(find.text('Machine scope'), findsOneWidget);
-    final setterField = find.widgetWithText(TextFormField, 'Setter');
-    final hatcherField = find.widgetWithText(TextFormField, 'Hatcher');
-
-    expect(find.widgetWithText(TextFormField, 'House'), findsNothing);
-    expect(setterField, findsOneWidget);
-    expect(hatcherField, findsOneWidget);
-
-    final setterRect = tester.getRect(setterField);
-    final hatcherRect = tester.getRect(hatcherField);
-
-    expect(hatcherRect.top, setterRect.top);
-    expect(hatcherRect.width, closeTo(setterRect.width, 0.1));
-    expect(hatcherRect.height, closeTo(setterRect.height, 0.1));
+    expect(tester.takeException(), isNull);
+    expect(find.text('7 / 8'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('chick-quality-machine-sampling')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('optional test cards follow the selected quality sample type', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
-
-    expect(find.text('One shared sample'), findsNothing);
-    expect(find.text('S1H1 setter/hatcher sample'), findsNothing);
 
     await addNamedScope(
       tester,
@@ -1317,126 +1175,78 @@ void main() {
       identities: const {'setter': '7', 'hatcher': '8'},
     );
 
-    expect(find.text('S7H8 setter/hatcher sample'), findsWidgets);
-
+    final firstId = provider.activeSampleIdFor('chick_quality')!;
     await addNamedScope(
       tester,
       tooltip: 'Add machine sample',
       identities: const {'setter': '9', 'hatcher': '10'},
     );
-
-    expect(find.text('S9H10 setter/hatcher sample'), findsWidgets);
-
-    expect(provider.stationSamples.map((sample) => sample.sampleLabel), [
-      'S7H8',
-      'S9H10',
-    ]);
-    expect(provider.stationSamples.map((sample) => sample.setterNo), [
-      '7',
-      '9',
-    ]);
-    expect(provider.stationSamples.map((sample) => sample.hatcherNo), [
-      '8',
-      '10',
-    ]);
+    final secondId = provider.activeSampleIdFor('chick_quality')!;
+    expect(secondId, isNot(firstId));
+    expect(provider.samplingStateFor('chick_quality')!.samples, hasLength(2));
+    expect(find.text('7 / 8'), findsOneWidget);
+    expect(find.text('9 / 10'), findsOneWidget);
+    provider.updateField('pasgarSampleSize', 100);
+    await provider.selectPanelSample('chick_quality', firstId);
+    expect(provider.activeDraft.pasgarSampleSize, isNull);
+    await provider.selectPanelSample('chick_quality', secondId);
+    expect(provider.activeDraft.pasgarSampleSize, 100);
   });
 
-  testWidgets('chick weight removal confirms before discarding house results', (
+  testWidgets('chick weight leaves retain their own measurements', (
     tester,
   ) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = screenProvider();
     await pumpScreen(tester, provider: provider);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('chick-quality-panel-weights')),
-    );
-    await tester.pumpAndSettle();
     await addNamedScope(
       tester,
       tooltip: 'Add house sample',
       identities: const {'house': '12'},
     );
+    final firstId = provider.activeSampleIdFor('chick_weights')!;
     await addNamedScope(
       tester,
       tooltip: 'Add house sample',
       identities: const {'house': '13'},
     );
+    final secondId = provider.activeSampleIdFor('chick_weights')!;
+    await provider.selectPanelSample('chick_weights', firstId);
     provider.updateChickWeightSampleResult(
       weightsJson: '[42.0]',
       avgWeight: 42,
     );
     await tester.pump();
-
-    await tester.tap(find.byTooltip('Remove active house sample'));
-    await tester.pumpAndSettle();
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.chickWeightSamples, hasLength(2));
-    expect(provider.activeChickWeightSample.resultSummaryJson, isNotNull);
-
-    await tester.tap(find.byTooltip('Remove active house sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.chickWeightSamples, hasLength(1));
-    expect(provider.activeChickWeightSample.houseNo, '12');
+    expect(provider.activeDraft.chickAvgWeight, 42);
+    expect(jsonDecode(provider.activeDraft.chickWeights!), [42.0]);
+    await provider.selectPanelSample('chick_weights', secondId);
+    expect(provider.activeDraft.chickAvgWeight, isNull);
+    expect(find.byKey(const ValueKey('chick-weight-metric-summary')), findsOneWidget);
   });
 
   testWidgets(
-    'chick machine add rejects duplicate and removal guards entered results',
+    'duplicate machine identity is rejected and sibling result is preserved',
     (tester) async {
-      final provider = AuditProvider(autosaveEnabled: false);
+      final provider = screenProvider();
       await pumpScreen(tester, provider: provider);
       await addNamedScope(
         tester,
         tooltip: 'Add machine sample',
         identities: const {'setter': '7', 'hatcher': '8'},
       );
-
-      await tester.tap(find.byTooltip('Add machine sample'));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('scope-identity-setter')),
-        'S7',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('scope-identity-hatcher')),
-        'H8',
-      );
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('A Machine scope with this identity already exists.'),
-        findsOneWidget,
-      );
-      expect(provider.stationSamples, hasLength(1));
-      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-      await tester.pumpAndSettle();
-
       await addNamedScope(
         tester,
         tooltip: 'Add machine sample',
         identities: const {'setter': '9', 'hatcher': '10'},
       );
       provider.updateField('pasgarSampleSize', 100);
+      final secondId = provider.activeSampleIdFor('chick_quality')!;
       await tester.pump();
-
-      await tester.tap(find.byTooltip('Remove active machine sample'));
-      await tester.pumpAndSettle();
-      expect(find.text('Remove scope?'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-      await tester.pumpAndSettle();
-      expect(provider.stationSamples, hasLength(2));
+      expect(provider.samplingStateFor('chick_quality')!.samples, hasLength(2));
+      expect(find.text('7 / 8'), findsOneWidget);
+      expect(find.text('9 / 10'), findsOneWidget);
+      await provider.selectPanelSample('chick_quality', secondId);
       expect(provider.activeDraft.pasgarSampleSize, 100);
-
-      await tester.tap(find.byTooltip('Remove active machine sample'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-      await tester.pumpAndSettle();
-      expect(provider.stationSamples, hasLength(1));
-      expect(provider.activeStationSample.setterNo, '7');
-      expect(provider.activeStationSample.hatcherNo, '8');
+      expect(provider.activeDraft.notes, isNull);
     },
   );
 

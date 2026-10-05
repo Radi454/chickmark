@@ -1,5 +1,6 @@
 import '../../core/utils/date_utils.dart';
 import 'poultry_hierarchy_models.dart';
+import 'sampling_code.dart';
 
 class FlockModel {
   static const String activeStatus = 'active';
@@ -10,6 +11,7 @@ class FlockModel {
   final String customerId;
   final String flockId;
   final String breed;
+  final String? samplingCode;
   final DateTime entryDate;
   final PoultrySector? sector;
   final FlockSexProfile sexProfile;
@@ -25,6 +27,7 @@ class FlockModel {
     required this.customerId,
     required this.flockId,
     required this.breed,
+    String? samplingCode,
     required this.entryDate,
     this.sector,
     this.sexProfile = FlockSexProfile.asHatched,
@@ -34,7 +37,7 @@ class FlockModel {
     this.status = activeStatus,
     this.depletionAgeWeeks = defaultDepletionAgeWeeks,
     this.soldAt,
-  });
+  }) : samplingCode = _normalizeSamplingCode(samplingCode);
 
   factory FlockModel.fromMap(Map<String, dynamic> map) {
     final parsedStatus = (map['status'] as String?)?.toLowerCase().trim();
@@ -45,6 +48,7 @@ class FlockModel {
       customerId: map['customerId'],
       flockId: map['flockId'] ?? map['id'],
       breed: map['breed'] ?? 'Unknown',
+      samplingCode: map['samplingCode'] as String?,
       entryDate: DateTime.tryParse(map['entryDate'] ?? '') ?? DateTime.now(),
       sector: _parseSector(map['sectorKey']),
       sexProfile: FlockSexProfile.fromStorage(map['sexProfile']?.toString()),
@@ -66,6 +70,7 @@ class FlockModel {
       'customerId': customerId,
       'flockId': flockId,
       'breed': breed,
+      'samplingCode': samplingCode,
       'entryDate': entryDate.toIso8601String(),
       'sectorKey': sector?.storageKey,
       'sexProfile': sexProfile.storageKey,
@@ -104,6 +109,7 @@ class FlockModel {
     String? customerId,
     String? flockId,
     String? breed,
+    String? samplingCode,
     DateTime? entryDate,
     PoultrySector? sector,
     FlockSexProfile? sexProfile,
@@ -117,12 +123,16 @@ class FlockModel {
     bool clearTargetProfileId = false,
     bool clearProductionPhase = false,
     bool clearSoldAt = false,
+    bool clearSamplingCode = false,
   }) {
     return FlockModel(
       id: id ?? this.id,
       customerId: customerId ?? this.customerId,
       flockId: flockId ?? this.flockId,
       breed: breed ?? this.breed,
+      samplingCode: clearSamplingCode
+          ? null
+          : samplingCode ?? this.samplingCode,
       entryDate: entryDate ?? this.entryDate,
       sector: clearSector ? null : sector ?? this.sector,
       sexProfile: sexProfile ?? this.sexProfile,
@@ -138,6 +148,19 @@ class FlockModel {
       soldAt: clearSoldAt ? null : soldAt ?? this.soldAt,
     );
   }
+}
+
+String? _normalizeSamplingCode(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final normalized = normalizeThreeLetterCode(raw);
+  if (normalized == null) {
+    throw ArgumentError.value(
+      raw,
+      'samplingCode',
+      'Expected three letters A-Z',
+    );
+  }
+  return normalized;
 }
 
 PoultrySector? _parseSector(Object? value) {

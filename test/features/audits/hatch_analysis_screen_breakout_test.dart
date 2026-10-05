@@ -4,15 +4,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
+import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
 import 'package:hatchaudit/features/audits/widgets/photo_button.dart';
+import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
+import 'support/memory_panel_sampling_state_repository.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
 
@@ -59,6 +62,7 @@ MockBenchmarkLookup mockBenchmarkLookup() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  var screenSession = 0;
   const connectivityChannel = MethodChannel(
     'dev.fluttercommunity.plus/connectivity',
   );
@@ -86,6 +90,7 @@ void main() {
     auditType: 'Hatch Analysis & Egg Breakouts',
     customerId: 'customer-1',
     flockId: flockId,
+    sessionId: 'hatch-screen-${screenSession++}',
     breed: breed,
     flockEntryDate: flockEntryDate,
     flockAgeWeeks: flockAgeWeeks,
@@ -100,7 +105,10 @@ void main() {
     AuditContextData? contextOverride,
     BenchmarkLookup? benchmarkLookup,
   }) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final provider = AuditProvider(
+      autosaveEnabled: false,
+      panelSamplingStateRepository: MemoryPanelSamplingStateRepository(),
+    );
     addTearDown(provider.dispose);
     await tester.pumpWidget(
       MultiProvider(
@@ -120,6 +128,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await provider.activateSamplingPanel(switch (breakoutType) {
+      EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+      EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+      EggBreakoutType.residueHatchDay => 'residue_breakout',
+    });
     provider.updateHatchField(0, 'ebBreakoutType', breakoutType.storageValue);
     if (storageDays != null) {
       provider.updateHatchField(0, 'haStorageDays', storageDays);
@@ -133,84 +146,85 @@ void main() {
     return provider;
   }
 
-  int countValueKeys({required String prefix}) {
-    return find
-        .byWidgetPredicate(
-          (widget) =>
-              widget.key is ValueKey &&
-              (widget.key! as ValueKey).value.toString().startsWith(prefix),
-        )
-        .evaluate()
-        .length;
-  }
-
-  Future<void> completeScopeDialog(
-    WidgetTester tester, {
-    Map<String, String>? values,
-  }) async {
-    final addButton = find.byKey(const ValueKey('scope-identity-add'));
-    if (addButton.evaluate().isEmpty) return;
-
-    final defaults = <String, String>{};
-    if (find
-        .byKey(const ValueKey('scope-identity-house'))
-        .evaluate()
-        .isNotEmpty) {
-      defaults['house'] = 'H';
-    }
-    if (find
-        .byKey(const ValueKey('scope-identity-setter'))
-        .evaluate()
-        .isNotEmpty) {
-      final machineCount = countValueKeys(prefix: 'residue-batch-tab-');
-      defaults['setter'] = machineCount == 0 ? 'S' : '$machineCount';
-      defaults['hatcher'] = machineCount == 0 ? 'H' : '$machineCount';
-    }
-    if (find
-        .byKey(const ValueKey('scope-identity-trolley'))
-        .evaluate()
-        .isNotEmpty) {
-      final trolleyCount = countValueKeys(prefix: 'residue-trolley-tab-');
-      defaults['trolley'] = trolleyCount == 0 ? 'T' : '$trolleyCount';
-    }
-    if (find
-        .byKey(const ValueKey('scope-identity-tray'))
-        .evaluate()
-        .isNotEmpty) {
-      final trayCount = countValueKeys(prefix: 'breakout-sample-tab-');
-      defaults['tray'] = 'Tray ${trayCount + 1}';
-    }
-
-    for (final entry in {...defaults, ...?values}.entries) {
-      await tester.enterText(
-        find.byKey(ValueKey('scope-identity-${entry.key}')),
-        entry.value,
-      );
-    }
-    await tester.pump();
-    await tester.tap(addButton);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> openVisibleKey(WidgetTester tester, Key key) async {
-    final finder = find.byKey(key);
-    await tester.ensureVisible(finder);
-    await tester.pumpAndSettle();
-    await tester.tap(finder);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> tapVisibleKey(
-    WidgetTester tester,
-    Key key, {
-    Map<String, String>? scopeIdentities,
-  }) async {
-    await openVisibleKey(tester, key);
-    await completeScopeDialog(tester, values: scopeIdentities);
-  }
-
   Future<void> addVisibleSample(WidgetTester tester) async {
-    await tapVisibleKey(tester, const ValueKey('breakout-add-sample'));
+    final provider = Provider.of<AuditProvider>(
+      tester.element(find.byType(HatchAnalysisScreen)),
+      listen: false,
+    );
+    final type = EggBreakoutType.fromStorageValue(
+      provider.activeDraft.ebBreakoutType,
+    );
+    final panelKey = switch (type) {
+      EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+      EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+      EggBreakoutType.residueHatchDay => 'residue_breakout',
+    };
+    final state = await provider.loadPanelSamplingState(panelKey);
+    final number = state.serialHighWatermark + 1;
+    late String sampleId;
+    if (type == EggBreakoutType.freshEggBreakout) {
+      final house = await provider.addPanelScopeIdentity(
+        panelKey,
+        level: SamplingScopeLevel.house,
+        parentId: null,
+        discardPooledData: true,
+        identity: {
+          'id': 'test-house-$number',
+          'code': 'H$number',
+          'name': 'House $number',
+        },
+      );
+      final terminal = await provider.addPanelTerminalSample(
+        panelKey,
+        parentId: house.id,
+      );
+      sampleId = terminal.sampleId!;
+    } else {
+      final tray = await provider.addPanelScopeIdentity(
+        panelKey,
+        level: SamplingScopeLevel.tray,
+        parentId: null,
+        identity: {'code': 'Tray $number'},
+      );
+      sampleId = tray.sampleId!;
+    }
+    await provider.selectPanelSample(panelKey, sampleId);
+    final path = provider.samplingStateFor(panelKey)!.pathFor(sampleId);
+    final label = [
+      if (path.house != null) 'H${path.house}',
+      if (path.setter != null) 'S${path.setter}',
+      if (path.hatcher != null) 'HT${path.hatcher}',
+      if (path.trolley != null) 'TR${path.trolley}',
+      if (path.tray != null) 'T${path.tray}',
+      'SA${path.sampleNumber}',
+    ].join(' · ');
+    final entry = type == EggBreakoutType.freshEggBreakout
+        ? EggBreakoutSampleEntry.pool(
+            id: sampleId,
+            label: label,
+            house: path.house,
+            setter: path.setter,
+            hatcher: path.hatcher,
+            trolley: path.trolley,
+            traySize: 30,
+            breakoutType: type,
+          )
+        : EggBreakoutSampleEntry.tray(
+            id: sampleId,
+            label: label,
+            house: path.house,
+            setter: path.setter,
+            hatcher: path.hatcher,
+            trolley: path.trolley,
+            tray: path.tray,
+            breakoutType: type,
+          );
+    provider.updateHatchField(
+      0,
+      'ebTrayBreakoutJson',
+      EggBreakoutSampleEntry.encodeList([entry]),
+    );
+    await tester.pumpAndSettle();
   }
 
   Future<void> enterVisibleNumber(
@@ -260,24 +274,6 @@ void main() {
     return tester.widget<TextField>(textField).controller?.text ?? '';
   }
 
-  double mainScrollOffset(WidgetTester tester) {
-    final listView = tester.widget<ListView>(find.byType(ListView));
-    expect(listView.controller, isNotNull);
-    return listView.controller!.offset;
-  }
-
-  Future<void> pinFinderNearViewportBottom(
-    WidgetTester tester,
-    Finder finder,
-  ) async {
-    await Scrollable.ensureVisible(
-      tester.element(finder),
-      duration: Duration.zero,
-      alignment: 0.95,
-    );
-    await tester.pumpAndSettle();
-  }
-
   RenderBox smallestDecoratedAncestorBox(WidgetTester tester, Finder finder) {
     final boxes =
         find
@@ -307,11 +303,44 @@ void main() {
     return container.decoration! as BoxDecoration;
   }
 
+  String panelKeyFor(EggBreakoutType type) => switch (type) {
+    EggBreakoutType.freshEggBreakout => 'fresh_egg_breakout',
+    EggBreakoutType.candledEggBreakout => 'candled_egg_breakout',
+    EggBreakoutType.residueHatchDay => 'residue_breakout',
+  };
+
   EggBreakoutSampleEntry activeBreakoutSample(AuditProvider provider) {
-    return EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-    ).single;
+    final type = EggBreakoutType.fromStorageValue(
+      provider.activeDraft.ebBreakoutType,
+    );
+    final panelKey = panelKeyFor(type);
+    final sampleId = provider.activeSampleIdFor(panelKey)!;
+    final entries = EggBreakoutSampleEntry.decodeList(
+      provider.draftForSample(panelKey, sampleId)?.ebTrayBreakoutJson,
+      fallbackBreakoutType: type,
+    );
+    if (entries.isNotEmpty) return entries.single;
+    final state = provider.samplingStateFor(panelKey)!;
+    final path = state.pathFor(sampleId);
+    return type == EggBreakoutType.freshEggBreakout
+        ? EggBreakoutSampleEntry.pool(
+            id: sampleId,
+            label: 'Sample ${path.sampleNumber}',
+            house: path.house,
+            setter: path.setter,
+            hatcher: path.hatcher,
+            traySize: 30,
+            breakoutType: type,
+          )
+        : EggBreakoutSampleEntry.tray(
+            id: sampleId,
+            label: 'Sample ${path.sampleNumber}',
+            house: path.house,
+            setter: path.setter,
+            hatcher: path.hatcher,
+            tray: path.tray,
+            breakoutType: type,
+          );
   }
 
   Future<void> tapVisibleText(WidgetTester tester, String text) async {
@@ -330,15 +359,13 @@ void main() {
 
     expect(find.text('Hatchability Results'), findsNothing);
     expect(find.text('Healthy Hatched'), findsNothing);
-    expect(find.text('Culled'), findsNothing);
     expect(find.text('Dead at Hatch'), findsNothing);
     expect(find.text('Candling Day'), findsNothing);
     expect(find.text('BMK Age 289 days'), findsNothing);
 
-    expect(find.text('Infertile'), findsOneWidget);
-    expect(find.text('24 hours'), findsOneWidget);
-    expect(find.text('48 hours'), findsOneWidget);
-    expect(find.text('Blood Ring'), findsOneWidget);
+    for (final field in freshCountFields) {
+      expect(find.byKey(ValueKey('breakout-row-${field.key}')), findsOneWidget);
+    }
     expect(find.text('Position'), findsNothing);
     expect(find.text('Black eye'), findsNothing);
     expect(find.text('Mid dead'), findsNothing);
@@ -376,12 +403,9 @@ void main() {
     expect(find.text('Candling Day'), findsNothing);
     expect(find.text('BMK Age 279 days'), findsNothing);
 
-    expect(find.text('Infertile'), findsOneWidget);
-    expect(find.text('24 hours'), findsOneWidget);
-    expect(find.text('48 hours'), findsOneWidget);
-    expect(find.text('Blood Ring'), findsOneWidget);
-    expect(find.text('Position'), findsOneWidget);
-    expect(find.text('Black Eye'), findsOneWidget);
+    for (final field in candledCountFields) {
+      expect(find.byKey(ValueKey('breakout-row-${field.key}')), findsOneWidget);
+    }
     expect(find.text('Mid dead'), findsNothing);
     expect(
       find.byType(MultiPhotoButton),
@@ -411,8 +435,9 @@ void main() {
     expect(find.text('Hatchability'), findsOneWidget);
     expect(find.text('Fertility'), findsOneWidget);
     expect(find.text('HOF'), findsOneWidget);
-    expect(find.text('Breakout Samples'), findsOneWidget);
-    expect(find.byKey(const ValueKey('breakout-add-sample')), findsOneWidget);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.textContaining('Active sample:'), findsOneWidget);
+    expect(find.byKey(const ValueKey('breakout-add-sample')), findsNothing);
     expect(
       find.byType(MultiPhotoButton),
       findsNWidgets(residueCountFields.length),
@@ -477,7 +502,7 @@ void main() {
       buttons
           .singleWhere((button) => button.fieldKey == 'breakout_midDead_photo')
           .panelRowId,
-      endsWith(':residue_breakout:${sample.id}:midDead'),
+      provider.samplingPhotoRowId('residue_breakout'),
     );
 
     buttons
@@ -563,7 +588,7 @@ void main() {
     );
   });
 
-  testWidgets('residue batches use automatic setter hatcher tabs and metrics', (
+  testWidgets('residue leaves use shared controls and retain hatch metrics', (
     tester,
   ) async {
     final provider = await pumpScreen(
@@ -572,79 +597,43 @@ void main() {
       benchmarkLookup: mockBenchmarkLookup(),
     );
 
-    provider.updateHatchField(0, 'setterId', '1');
-    provider.updateHatchField(0, 'hatcherId', '1');
     provider.updateHatchField(0, 'haTotalEggsSet', 19200);
     provider.updateHatchField(0, 'haHatched', 16500);
     provider.updateHatchField(0, 'haCulled', 120);
     provider.updateHatchField(0, 'haDead', 30);
-    provider.updateHatchField(
-      0,
-      'ebTrayBreakoutJson',
-      EggBreakoutSampleEntry.encodeList([
-        EggBreakoutSampleEntry.tray(
-          id: 'tray-1',
-          label: 'Tray 1',
-          traySize: 150,
-          breakoutType: EggBreakoutType.residueHatchDay,
-          counts: const {'infertile': 15},
-        ),
-        EggBreakoutSampleEntry.tray(
-          id: 'tray-2',
-          label: 'Tray 2',
-          traySize: 150,
-          breakoutType: EggBreakoutType.residueHatchDay,
-          counts: const {'infertile': 30},
-        ),
-      ]),
-    );
-    provider.addHatch();
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('residue-batch-tabs')), findsOneWidget);
-    expect(find.text('S1H1'), findsOneWidget);
-    expect(find.text('S2H2'), findsOneWidget);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    final residueState = provider.samplingStateFor('residue_breakout')!;
+    final firstId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(residueState.pathFor(firstId).tray, 'Tray1');
     expect(
-      find.byKey(const ValueKey('residue-batch-results-card')),
+      find.byKey(const ValueKey('hatch-performance-summary-card')),
       findsOneWidget,
     );
-    expect(find.text('Hatch totals'), findsOneWidget);
-    final entryBottom = tester
-        .getBottomLeft(
-          find.byKey(const ValueKey('hatch-analysis-required-entry-card')),
-        )
-        .dy;
-    final tabsTop = tester
-        .getTopLeft(find.byKey(const ValueKey('residue-batch-tabs')))
-        .dy;
-    final resultsTop = tester
-        .getTopLeft(find.byKey(const ValueKey('residue-batch-results-card')))
-        .dy;
-    expect(tabsTop, greaterThan(entryBottom));
-    expect(resultsTop, greaterThan(tabsTop));
-
-    await tapVisibleKey(tester, const ValueKey('residue-batch-tab-0'));
-
-    expect(find.text('Hatch S1H1'), findsOneWidget);
-    expect(find.text('Batch S1H1'), findsNothing);
-    expect(find.text('Batch totals'), findsNothing);
     expect(find.text('85.9%'), findsOneWidget);
-    expect(find.text('85.0%'), findsOneWidget);
-    expect(find.text('101.1%'), findsOneWidget);
     expect(find.text('0.6%'), findsOneWidget);
     expect(find.text('0.2%'), findsWidgets);
 
-    await tapVisibleKey(tester, const ValueKey('residue-batch-tab-1'));
-    provider.updateHatchField(1, 'setterId', '4');
-    provider.updateHatchField(1, 'hatcherId', '7');
+    await addVisibleSample(tester);
+    final secondId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(secondId, isNot(firstId));
+    expect(
+      provider.samplingStateFor('residue_breakout')!.pathFor(secondId).tray,
+      'Tray 2',
+    );
+    await provider.selectPanelSample('residue_breakout', firstId);
     await tester.pumpAndSettle();
 
-    expect(provider.activeDraft.setterId, '4');
-    expect(provider.activeDraft.hatcherId, '7');
-    expect(find.text('S4H7'), findsOneWidget);
+    expect(provider.activeSampleIdFor('residue_breakout'), firstId);
+    expect(
+      find.byKey(const ValueKey('hatch-performance-summary-card')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('residue-batch-tabs')), findsNothing);
   });
 
-  testWidgets('residue hierarchy controls start pooled until activated', (
+  testWidgets('Residue exposes the shared terminal identity and metrics', (
     tester,
   ) async {
     final provider = await pumpScreen(
@@ -652,426 +641,96 @@ void main() {
       breakoutType: EggBreakoutType.residueHatchDay,
       benchmarkLookup: mockBenchmarkLookup(),
     );
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('residue-batch-tabs')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(provider.isCompareMode, isFalse);
-    expect(find.text('House scope'), findsOneWidget);
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('Trolley scope'), findsOneWidget);
-    expect(find.byKey(const ValueKey('residue-trolley-tabs')), findsOneWidget);
-    expect(find.byKey(const ValueKey('residue-add-trolley')), findsOneWidget);
-    expect(find.text('Pool'), findsAtLeastNWidgets(3));
-    expect(find.byKey(const ValueKey('residue-house-number-0')), findsNothing);
-    expect(find.byKey(const ValueKey('residue-setter-number-0')), findsNothing);
+    final initialId = provider.activeSampleIdFor('residue_breakout')!;
     expect(
-      find.byKey(const ValueKey('residue-hatcher-number-0')),
-      findsNothing,
+      provider.samplingStateFor('residue_breakout')!.pathFor(initialId).tray,
+      'Tray1',
     );
-
-    await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
-
-    expect(provider.isCompareMode, isFalse);
-    expect(provider.hatchCount, 1);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.byTooltip('Add Tray'), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-batch-tabs')), findsNothing);
     expect(
-      find.byKey(const ValueKey('residue-trolley-number-0')),
+      find.byKey(const ValueKey('hatch-performance-summary-card')),
       findsOneWidget,
     );
     expect(
-      editableNumberText(tester, const ValueKey('residue-trolley-number-0')),
-      isEmpty,
+      find.byType(MultiPhotoButton),
+      findsNWidgets(residueCountFields.length),
     );
-    final pooledTrolleySamples = EggBreakoutSampleEntry.decodeList(
-      provider.activeDraft.ebTrayBreakoutJson,
-      fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-    );
-    expect(pooledTrolleySamples, hasLength(1));
-    expect(pooledTrolleySamples.single.trolley, 'T');
-    expect(pooledTrolleySamples.single.house, isNull);
-    expect(pooledTrolleySamples.single.setter, isNull);
-    expect(pooledTrolleySamples.single.hatcher, isNull);
 
-    await tapVisibleKey(tester, const ValueKey('residue-add-house'));
-
-    expect(provider.isCompareMode, isTrue);
-    expect(provider.hatchCount, 1);
-    expect(provider.activeDraft.houseId, 'H');
-    expect(find.text('H'), findsOneWidget);
-    expect(find.text('Pool'), findsAtLeastNWidgets(1));
-    expect(find.byKey(const ValueKey('residue-remove-house')), findsOneWidget);
+    await addVisibleSample(tester);
+    final secondId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(secondId, isNot(initialId));
+    final state = provider.samplingStateFor('residue_breakout')!;
+    expect(state.pathFor(secondId).tray, 'Tray 2');
+    expect(state.samples, hasLength(2));
     expect(
-      find.byKey(const ValueKey('residue-house-number-0')),
+      find.byKey(const ValueKey('hatch-performance-summary-card')),
       findsOneWidget,
     );
-    expect(
-      editableNumberText(tester, const ValueKey('residue-house-number-0')),
-      isEmpty,
-    );
-    expect(find.byKey(const ValueKey('residue-setter-number-0')), findsNothing);
-
-    await tapVisibleKey(tester, const ValueKey('residue-remove-house'));
-
-    expect(provider.isCompareMode, isFalse);
-    expect(find.text('Pool'), findsAtLeastNWidgets(2));
-    expect(find.byKey(const ValueKey('residue-house-number-0')), findsNothing);
-
-    await tapVisibleKey(tester, const ValueKey('residue-add-house'));
-    await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-    expect(provider.hatchCount, 1);
-    expect(provider.activeDraft.setterId, 'S');
-    expect(provider.activeDraft.hatcherId, 'H');
-    expect(find.text('SH'), findsOneWidget);
-    expect(find.text('Trolley scope'), findsOneWidget);
-    expect(find.byKey(const ValueKey('residue-trolley-tabs')), findsOneWidget);
-    expect(find.byKey(const ValueKey('residue-remove-batch')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('residue-setter-number-0')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('residue-hatcher-number-0')),
-      findsOneWidget,
-    );
-    expect(
-      editableNumberText(tester, const ValueKey('residue-setter-number-0')),
-      isEmpty,
-    );
-    expect(
-      editableNumberText(tester, const ValueKey('residue-hatcher-number-0')),
-      isEmpty,
-    );
-
-    await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-    expect(provider.hatchCount, 2);
-    expect(provider.activeDraft.setterId, '1');
-    expect(provider.activeDraft.hatcherId, '1');
-    expect(find.text('SH'), findsOneWidget);
-    expect(find.text('S1H1'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('residue-setter-number-1')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('residue-hatcher-number-1')),
-      findsOneWidget,
-    );
-    expect(
-      editableNumberText(tester, const ValueKey('residue-setter-number-1')),
-      '1',
-    );
-    expect(
-      editableNumberText(tester, const ValueKey('residue-hatcher-number-1')),
-      '1',
-    );
-
-    await tapVisibleKey(tester, const ValueKey('residue-remove-batch'));
-
-    expect(provider.hatchCount, 1);
-    expect(provider.activeDraft.setterId, 'S');
-    expect(provider.activeDraft.hatcherId, 'H');
-    expect(find.text('H'), findsOneWidget);
-    expect(find.text('SH'), findsOneWidget);
-    expect(find.text('S1H1'), findsNothing);
-    expect(
-      find.byKey(const ValueKey('residue-setter-number-0')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('adding house or machine scope keeps Tray and Trolley pooled', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    try {
-      final provider = await pumpScreen(
-        tester,
-        breakoutType: EggBreakoutType.residueHatchDay,
-        benchmarkLookup: mockBenchmarkLookup(),
-      );
-
-      // Pooled baseline: Tray scope and Trolley scope both show Pool.
-      expect(
-        find.byKey(const ValueKey('breakout-pool-sample-tab')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
-      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
-
-      // Adding a machine scope must not flip Tray or Trolley out of Pool.
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-      expect(
-        find.byKey(const ValueKey('breakout-pool-sample-tab')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
-      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
-
-      // Adding a house scope must not flip Tray or Trolley out of Pool either.
-      await tapVisibleKey(tester, const ValueKey('residue-add-house'));
-      expect(
-        find.byKey(const ValueKey('breakout-pool-sample-tab')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
-      expect(find.byKey(const ValueKey('residue-trolley-tab-0')), findsNothing);
-
-      expect(provider.isCompareMode, isTrue);
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
-
-  testWidgets('machine scope from pool does not create house scope', (
-    tester,
-  ) async {
-    final provider = await pumpScreen(
-      tester,
-      breakoutType: EggBreakoutType.residueHatchDay,
-      benchmarkLookup: mockBenchmarkLookup(),
-    );
-
-    await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-    expect(find.text('Pool'), findsAtLeastNWidgets(1));
-    expect(find.text('H1'), findsNothing);
-    expect(find.byKey(const ValueKey('residue-house-number-0')), findsNothing);
-    expect(find.byKey(const ValueKey('residue-remove-house')), findsNothing);
-    expect(provider.activeDraft.houseId, isNull);
-    expect(provider.activeDraft.setterId, 'S');
-    expect(provider.activeDraft.hatcherId, 'H');
-  });
-
-  testWidgets('trolley scope belongs to the active machine', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    try {
-      final provider = await pumpScreen(
-        tester,
-        breakoutType: EggBreakoutType.residueHatchDay,
-        benchmarkLookup: mockBenchmarkLookup(),
-      );
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-      expect(find.text('Trolley scope'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('residue-trolley-tabs')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('residue-trolley-number-0')),
-        findsNothing,
-      );
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
-
-      expect(
-        find.byKey(const ValueKey('residue-trolley-number-0')),
-        findsOneWidget,
-      );
-      expect(
-        editableNumberText(tester, const ValueKey('residue-trolley-number-0')),
-        isEmpty,
-      );
-      var firstMachineSamples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts[0].ebTrayBreakoutJson,
-        fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-      );
-      // Adding a trolley keeps the breakout pooled (Tray scope stays Pool).
-      expect(firstMachineSamples.single.sampleMode, EggBreakoutSampleMode.pool);
-      expect(firstMachineSamples.single.trolley, 'T');
-      expect(
-        find.byKey(ValueKey('${firstMachineSamples.single.id}-trolley')),
-        findsNothing,
-      );
-
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-trolley-number-0'),
-        '7',
-      );
-
-      firstMachineSamples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts[0].ebTrayBreakoutJson,
-        fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-      );
-      expect(firstMachineSamples.map((sample) => sample.trolley), ['7']);
-      expect(find.text('T7'), findsOneWidget);
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-      expect(provider.activeHatchIndex, 1);
-      expect(find.text('T7'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('residue-trolley-number-1')),
-        findsNothing,
-      );
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-trolley-number-1'),
-        '2',
-      );
-
-      firstMachineSamples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts[0].ebTrayBreakoutJson,
-        fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-      );
-      final secondMachineSamples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts[1].ebTrayBreakoutJson,
-        fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-      );
-      expect(firstMachineSamples.map((sample) => sample.trolley), ['7']);
-      expect(secondMachineSamples.map((sample) => sample.trolley), ['2']);
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
   });
 
   testWidgets(
-    'adding and selecting trolley and tray chips does not scroll to tray fields',
+    'residue sampling uses shared controls and a real Tray identity',
     (tester) async {
-      tester.view.physicalSize = const Size(500, 520);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-      try {
-        final provider = await pumpScreen(
-          tester,
-          breakoutType: EggBreakoutType.residueHatchDay,
-          benchmarkLookup: mockBenchmarkLookup(),
-        );
-
-        await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-        await tapVisibleKey(tester, const ValueKey('residue-add-trolley'));
-        await enterVisibleNumber(
-          tester,
-          const ValueKey('residue-trolley-number-0'),
-          '7',
-        );
-
-        await pinFinderNearViewportBottom(
-          tester,
-          find.byKey(const ValueKey('residue-trolley-tabs')),
-        );
-        final beforeTrolleyAdd = mainScrollOffset(tester);
-
-        await tester.tap(find.byKey(const ValueKey('residue-add-trolley')));
-        await tester.pumpAndSettle();
-        await completeScopeDialog(tester);
-        await tester.pump(const Duration(milliseconds: 300));
-
-        expect(
-          mainScrollOffset(tester),
-          moreOrLessEquals(beforeTrolleyAdd, epsilon: 0.1),
-        );
-        expect(
-          editableNumberText(
-            tester,
-            const ValueKey('residue-trolley-number-0'),
-          ),
-          '1',
-        );
-
-        final beforeTrolleyTap = mainScrollOffset(tester);
-
-        await tester.tap(find.byKey(const ValueKey('residue-trolley-tab-0')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-
-        expect(
-          mainScrollOffset(tester),
-          moreOrLessEquals(beforeTrolleyTap, epsilon: 0.1),
-        );
-        expect(
-          find.byKey(const ValueKey('residue-trolley-number-0')),
-          findsOneWidget,
-        );
-        expect(
-          editableNumberText(
-            tester,
-            const ValueKey('residue-trolley-number-0'),
-          ),
-          '7',
-        );
-
-        await pinFinderNearViewportBottom(
-          tester,
-          find.byKey(const ValueKey('breakout-add-sample')),
-        );
-        final beforeTrayAdd = mainScrollOffset(tester);
-
-        // The first Tray + converts the active pooled trolley into Tray 1; the
-        // second adds Tray 2. Neither should scroll to the tray entry fields.
-        await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
-        await tester.pumpAndSettle();
-        await completeScopeDialog(tester);
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.tap(find.byKey(const ValueKey('breakout-add-sample')));
-        await tester.pumpAndSettle();
-        await completeScopeDialog(tester);
-        await tester.pump(const Duration(milliseconds: 300));
-
-        expect(
-          mainScrollOffset(tester),
-          moreOrLessEquals(beforeTrayAdd, epsilon: 0.1),
-        );
-        final samples = EggBreakoutSampleEntry.decodeList(
-          provider.drafts.single.ebTrayBreakoutJson,
-          fallbackBreakoutType: EggBreakoutType.residueHatchDay,
-        );
-        expect(samples, hasLength(2));
-        expect(
-          samples.every(
-            (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
-          ),
-          isTrue,
-        );
-        final secondSampleCountKey = ValueKey(
-          'breakout-count-${samples[1].id}-infertile',
-        );
-
-        // Select Tray 1 so Tray 2's fields are hidden, then select Tray 2.
-        await tester.tap(find.byKey(const ValueKey('breakout-sample-tab-0')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-
-        await pinFinderNearViewportBottom(
-          tester,
-          find.byKey(const ValueKey('breakout-sample-tab-0')),
-        );
-        final beforeTrayTap = mainScrollOffset(tester);
-        expect(find.byKey(secondSampleCountKey), findsNothing);
-
-        await tester.tap(find.byKey(const ValueKey('breakout-sample-tab-1')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-
-        expect(
-          mainScrollOffset(tester),
-          moreOrLessEquals(beforeTrayTap, epsilon: 0.1),
-        );
-        expect(
-          find.byKey(const ValueKey('breakout-sample-tab-1')),
-          findsOneWidget,
-        );
-        expect(find.byKey(secondSampleCountKey), findsOneWidget);
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
+      final provider = await pumpScreen(
+        tester,
+        breakoutType: EggBreakoutType.residueHatchDay,
+        benchmarkLookup: mockBenchmarkLookup(),
+      );
+      expect(find.byType(SamplingScopeControls), findsOneWidget);
+      expect(find.text('Tray1'), findsWidgets);
+      expect(find.byKey(const ValueKey('residue-add-batch')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-add-house')), findsNothing);
+      final initialId = provider.activeSampleIdFor('residue_breakout');
+      expect(initialId, isNotNull);
+      expect(
+        activeBreakoutSample(provider).sampleMode,
+        EggBreakoutSampleMode.tray,
+      );
     },
   );
 
-  testWidgets('remove machine is hidden when pool house chip is selected', (
+  testWidgets('residue leaf does not invent machine or house identity', (
     tester,
   ) async {
+    final provider = await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+
+    await addVisibleSample(tester);
+    final sample = activeBreakoutSample(provider);
+    expect(sample.house, isNull);
+    expect(sample.setter, isNull);
+    expect(sample.hatcher, isNull);
+    expect(find.byKey(const ValueKey('residue-add-batch')), findsNothing);
+  });
+
+  testWidgets('breakout controls stay in the workbench without legacy tabs', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(500, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpScreen(
+      tester,
+      breakoutType: EggBreakoutType.residueHatchDay,
+      benchmarkLookup: mockBenchmarkLookup(),
+    );
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-add-batch')), findsNothing);
+    expect(find.byKey(const ValueKey('residue-trolley-tabs')), findsNothing);
+    expect(find.byKey(const ValueKey('breakout-add-sample')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('residue-hatched-chicks-0')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('legacy machine removal controls are not shown', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
       final provider = await pumpScreen(
@@ -1080,25 +739,9 @@ void main() {
         benchmarkLookup: mockBenchmarkLookup(),
       );
 
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-hatched-chicks-0'),
-        '11111',
-      );
-      expect(provider.drafts[0].haHatched, 11111);
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-      expect(provider.activeHatchIndex, 1);
-      expect(
-        find.byKey(const ValueKey('residue-remove-batch')),
-        findsOneWidget,
-      );
-
-      await tapVisibleKey(tester, const ValueKey('residue-house-tab-0'));
-
-      expect(provider.activeHatchIndex, 0);
+      expect(provider.activeSampleIdFor('residue_breakout'), isNotNull);
       expect(find.byKey(const ValueKey('residue-remove-batch')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-house-tab-0')), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -1124,72 +767,25 @@ void main() {
     },
   );
 
-  testWidgets('residue hierarchy tabs share house machine context with trays', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    try {
+  testWidgets(
+    'residue samples expose the managed leaf and preserve tray data',
+    (tester) async {
       final provider = await pumpScreen(
         tester,
         breakoutType: EggBreakoutType.residueHatchDay,
         benchmarkLookup: mockBenchmarkLookup(),
       );
       await addVisibleSample(tester);
-      await tapVisibleKey(tester, const ValueKey('residue-add-house'));
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-
-      final sample = activeBreakoutSample(provider);
-      expect(find.text('House scope'), findsOneWidget);
-      expect(find.text('Machine scope'), findsOneWidget);
-      expect(find.text('Trolley scope'), findsOneWidget);
-      expect(find.byKey(const ValueKey('residue-house-tabs')), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('residue-machine-tabs')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('residue-trolley-tabs')),
-        findsOneWidget,
-      );
-      expect(find.byKey(ValueKey('${sample.id}-house')), findsNothing);
-      expect(find.byKey(ValueKey('${sample.id}-setter')), findsNothing);
-      expect(find.byKey(ValueKey('${sample.id}-hatcher')), findsNothing);
-      expect(find.byKey(ValueKey('${sample.id}-trolley')), findsNothing);
-      expect(find.byKey(ValueKey('${sample.id}-tray')), findsOneWidget);
-      expect(find.byKey(ValueKey('${sample.id}-position')), findsOneWidget);
-
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-house-number-0'),
-        '2',
-      );
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-setter-number-0'),
-        '3',
-      );
-      await enterVisibleNumber(
-        tester,
-        const ValueKey('residue-hatcher-number-0'),
-        '4',
-      );
-
-      final savedSample = EggBreakoutSampleEntry.decodeList(
-        provider.drafts.single.ebTrayBreakoutJson,
-      ).single;
-      expect(provider.drafts.single.toMap()['houseId'], '2');
-      expect(provider.drafts.single.setterId, '3');
-      expect(provider.drafts.single.hatcherId, '4');
-      expect(savedSample.house, '2');
-      expect(savedSample.setter, '3');
-      expect(savedSample.hatcher, '4');
-      expect(find.text('H2'), findsOneWidget);
-      expect(find.text('House 2'), findsNothing);
-      expect(find.text('S3H4'), findsOneWidget);
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
+      final active = activeBreakoutSample(provider);
+      expect(active.sampleMode, EggBreakoutSampleMode.tray);
+      expect(active.house, isNull);
+      expect(active.setter, isNull);
+      expect(active.hatcher, isNull);
+      expect(find.byType(SamplingScopeControls), findsOneWidget);
+      expect(find.byKey(const ValueKey('residue-house-tabs')), findsNothing);
+      expect(find.byKey(const ValueKey('residue-machine-tabs')), findsNothing);
+    },
+  );
 
   testWidgets('hatch total fields stay isolated between hatch tabs', (
     tester,
@@ -1207,29 +803,43 @@ void main() {
         const ValueKey('residue-hatched-chicks-0'),
         '11111',
       );
-      expect(provider.drafts[0].haHatched, 11111);
-
-      await tapVisibleKey(tester, const ValueKey('residue-add-batch'));
-      expect(provider.activeHatchIndex, 1);
-      expect(provider.drafts[1].haHatched, isNull);
+      final firstId = provider.activeSampleIdFor('residue_breakout')!;
       expect(
-        editableNumberText(tester, const ValueKey('residue-hatched-chicks-1')),
+        provider.draftForSample('residue_breakout', firstId)?.haHatched,
+        11111,
+      );
+
+      await addVisibleSample(tester);
+      final secondId = provider.activeSampleIdFor('residue_breakout')!;
+      expect(
+        provider.draftForSample('residue_breakout', secondId)?.haHatched,
+        isNull,
+      );
+      expect(
+        editableNumberText(tester, const ValueKey('residue-hatched-chicks-0')),
         isEmpty,
       );
 
       await enterVisibleNumber(
         tester,
-        const ValueKey('residue-hatched-chicks-1'),
+        const ValueKey('residue-hatched-chicks-0'),
         '22222',
       );
-      expect(provider.drafts[1].haHatched, 22222);
+      expect(
+        provider.draftForSample('residue_breakout', secondId)?.haHatched,
+        22222,
+      );
 
-      await tapVisibleKey(tester, const ValueKey('residue-house-tab-0'));
+      await provider.selectPanelSample('residue_breakout', firstId);
+      await tester.pumpAndSettle();
       expect(
         editableNumberText(tester, const ValueKey('residue-hatched-chicks-0')),
         '11111',
       );
-      expect(provider.drafts[0].haHatched, 11111);
+      expect(
+        provider.draftForSample('residue_breakout', firstId)?.haHatched,
+        11111,
+      );
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -1240,7 +850,10 @@ void main() {
   ) async {
     await pumpScreen(tester, breakoutType: EggBreakoutType.residueHatchDay);
 
-    expect(find.text('Hatch Analysis & Egg Breakouts'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('hatch-analysis-breakout-header')),
+      findsOneWidget,
+    );
     expect(find.text('Breakout Type'), findsOneWidget);
     expect(find.text('HATCHING & BREAKOUT'), findsNothing);
     expect(find.text('Fresh Egg'), findsOneWidget);
@@ -1595,7 +1208,7 @@ void main() {
     );
   });
 
-  testWidgets('tray chips and add remove controls manage samples', (
+  testWidgets('residue count input is isolated between managed Tray leaves', (
     tester,
   ) async {
     final provider = await pumpScreen(
@@ -1604,12 +1217,8 @@ void main() {
       benchmarkLookup: mockBenchmarkLookup(),
     );
 
-    expect(find.text('Tray scope'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('breakout-pool-sample-tab')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.text('Tray1'), findsWidgets);
     expect(
       find.byKey(const ValueKey('breakout-count-infertile')),
       findsOneWidget,
@@ -1621,46 +1230,28 @@ void main() {
       '12',
     );
 
-    var savedSamples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
+    final firstId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider
+            .draftForSample('residue_breakout', firstId)!
+            .ebTrayBreakoutJson,
+      ).single.counts['infertile'],
+      12,
     );
-    expect(savedSamples, hasLength(1));
-    expect(savedSamples.single.sampleMode, EggBreakoutSampleMode.pool);
-    expect(savedSamples.single.counts['infertile'], 12);
-
     await addVisibleSample(tester);
-    expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsOneWidget);
-    expect(find.text('Tray 1'), findsWidgets);
-    savedSamples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
-    );
-    expect(savedSamples.single.sampleMode, EggBreakoutSampleMode.tray);
-
-    await addVisibleSample(tester);
-
-    expect(find.byKey(const ValueKey('breakout-sample-tab-1')), findsOneWidget);
-    expect(find.text('Tray 2'), findsWidgets);
-    savedSamples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
+    final secondId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(secondId, isNot(firstId));
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider
+            .draftForSample('residue_breakout', secondId)!
+            .ebTrayBreakoutJson,
+      ).single.counts['infertile'],
+      isNull,
     );
     expect(
-      find.byKey(ValueKey('breakout-count-${savedSamples[0].id}-infertile')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(ValueKey('breakout-count-${savedSamples[1].id}-infertile')),
-      findsOneWidget,
-    );
-
-    await tapVisibleKey(tester, const ValueKey('breakout-remove-sample'));
-
-    expect(find.byKey(const ValueKey('breakout-sample-tab-1')), findsNothing);
-
-    await tapVisibleKey(tester, const ValueKey('breakout-remove-sample'));
-
-    expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('breakout-pool-sample-tab')),
+      find.byKey(const ValueKey('breakout-count-infertile')),
       findsOneWidget,
     );
   });
@@ -1676,35 +1267,38 @@ void main() {
     await addVisibleSample(tester);
     await addVisibleSample(tester);
 
-    final samples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
+    final state = provider.samplingStateFor('residue_breakout')!;
+    final firstId = state.activeSampleId;
+    await enterVisibleNumber(
+      tester,
+      const ValueKey('breakout-count-infertile'),
+      '12',
     );
-    final firstCountKey = ValueKey('breakout-count-${samples[0].id}-infertile');
-    final secondCountKey = ValueKey(
-      'breakout-count-${samples[1].id}-infertile',
+    await addVisibleSample(tester);
+    final secondId = provider.activeSampleIdFor('residue_breakout')!;
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider
+            .draftForSample('residue_breakout', firstId)!
+            .ebTrayBreakoutJson,
+      ).single.counts['infertile'],
+      12,
     );
-
-    await tapVisibleKey(tester, const ValueKey('breakout-sample-tab-0'));
-    await tester.ensureVisible(find.byKey(firstCountKey));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(firstCountKey), '12');
-    await tester.pumpAndSettle();
-
-    final savedSamples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
+    expect(
+      EggBreakoutSampleEntry.decodeList(
+        provider
+            .draftForSample('residue_breakout', secondId)!
+            .ebTrayBreakoutJson,
+      ).single.counts['infertile'],
+      isNull,
     );
-    expect(savedSamples[0].counts['infertile'], 12);
-    expect(savedSamples[1].counts['infertile'], isNull);
-    expect(editableNumberText(tester, firstCountKey), '12');
-    expect(find.byKey(secondCountKey), findsNothing);
-
-    await tapVisibleKey(tester, const ValueKey('breakout-sample-tab-1'));
-
-    expect(find.byKey(firstCountKey), findsNothing);
-    expect(editableNumberText(tester, secondCountKey), isEmpty);
+    expect(
+      editableNumberText(tester, const ValueKey('breakout-count-infertile')),
+      isEmpty,
+    );
   });
 
-  testWidgets('duplicate saved tray ids are isolated before editing', (
+  testWidgets('distinct sampling leaves have distinct immutable ids', (
     tester,
   ) async {
     final provider = await pumpScreen(
@@ -1712,110 +1306,46 @@ void main() {
       breakoutType: EggBreakoutType.residueHatchDay,
       benchmarkLookup: mockBenchmarkLookup(),
     );
-    provider.updateHatchField(
-      0,
-      'ebTrayBreakoutJson',
-      EggBreakoutSampleEntry.encodeList([
-        EggBreakoutSampleEntry.tray(
-          id: 'duplicate-tray',
-          label: 'Tray 1',
-          traySize: 150,
-          breakoutType: EggBreakoutType.residueHatchDay,
-        ),
-        EggBreakoutSampleEntry.tray(
-          id: 'duplicate-tray',
-          label: 'Tray 2',
-          traySize: 150,
-          breakoutType: EggBreakoutType.residueHatchDay,
-        ),
-      ]),
+    await addVisibleSample(tester);
+    final firstId = provider.activeSampleIdFor('residue_breakout')!;
+    await addVisibleSample(tester);
+    final secondId = provider.activeSampleIdFor('residue_breakout')!;
+    final state = provider.samplingStateFor('residue_breakout')!;
+    expect(firstId, isNot(secondId));
+    expect(
+      state.samples.map((sample) => sample.sampleId).toSet(),
+      hasLength(3),
     );
-    await tester.pumpAndSettle();
-
-    const firstCountKey = ValueKey('breakout-count-duplicate-tray-infertile');
-    const secondCountKey = ValueKey(
-      'breakout-count-duplicate-tray-2-infertile',
-    );
-
-    await tester.ensureVisible(find.byKey(firstCountKey));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(firstCountKey), '12');
-    await tester.pumpAndSettle();
-
-    final savedSamples = EggBreakoutSampleEntry.decodeList(
-      provider.drafts.single.ebTrayBreakoutJson,
-    );
-    expect(savedSamples.map((sample) => sample.id), [
-      'duplicate-tray',
-      'duplicate-tray-2',
-    ]);
-    expect(savedSamples[0].counts['infertile'], 12);
-    expect(savedSamples[1].counts['infertile'], isNull);
-    expect(editableNumberText(tester, firstCountKey), '12');
-    expect(find.byKey(secondCountKey), findsNothing);
-
-    await tapVisibleKey(tester, const ValueKey('breakout-sample-tab-1'));
-
-    expect(find.byKey(firstCountKey), findsNothing);
-    expect(editableNumberText(tester, secondCountKey), isEmpty);
+    expect(state.samples.any((sample) => sample.sampleId == firstId), isTrue);
+    expect(state.samples.any((sample) => sample.sampleId == secondId), isTrue);
   });
 
-  testWidgets('editing one tray header does not update other tray headers', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    try {
+  testWidgets(
+    'Tray identities remain separate from breakout measurement fields',
+    (tester) async {
       final provider = await pumpScreen(
         tester,
         breakoutType: EggBreakoutType.residueHatchDay,
         benchmarkLookup: mockBenchmarkLookup(),
       );
       await addVisibleSample(tester);
+      final firstId = provider.activeSampleIdFor('residue_breakout')!;
       await addVisibleSample(tester);
-
-      final samples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts.single.ebTrayBreakoutJson,
-      );
-      final firstTrayKey = ValueKey('${samples[0].id}-tray');
-      final secondTrayKey = ValueKey('${samples[1].id}-tray');
-      final firstTraySizeKey = ValueKey('${samples[0].id}-Tray size');
-      final secondTraySizeKey = ValueKey('${samples[1].id}-Tray size');
-
-      await tapVisibleKey(tester, const ValueKey('breakout-sample-tab-0'));
-      await tester.ensureVisible(find.byKey(firstTrayKey));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(firstTrayKey), 'Left tray');
-      await enterVisibleNumber(tester, firstTraySizeKey, '155');
-      await tester.pumpAndSettle();
-
-      final savedSamples = EggBreakoutSampleEntry.decodeList(
-        provider.drafts.single.ebTrayBreakoutJson,
-      );
-      expect(savedSamples[0].label, 'Left tray');
-      expect(savedSamples[0].tray, 'Left tray');
-      expect(savedSamples[0].traySize, 155);
-      expect(savedSamples[1].label, 'Tray 2');
-      expect(savedSamples[1].tray, 'Tray 2');
-      expect(savedSamples[1].traySize, 150);
-      expect(editableNumberText(tester, firstTraySizeKey), '155');
-      expect(find.byKey(secondTraySizeKey), findsNothing);
-      expect(find.byKey(secondTrayKey), findsNothing);
-
-      await tapVisibleKey(tester, const ValueKey('breakout-sample-tab-1'));
-
-      expect(find.byKey(firstTraySizeKey), findsNothing);
-      expect(find.byKey(firstTrayKey), findsNothing);
-      expect(editableNumberText(tester, secondTraySizeKey), '150');
+      final secondId = provider.activeSampleIdFor('residue_breakout')!;
+      expect(firstId, isNot(secondId));
+      expect(find.byType(SamplingScopeControls), findsOneWidget);
       expect(
-        tester.widget<TextFormField>(find.byKey(secondTrayKey)).initialValue,
-        'Tray 2',
+        find.byKey(const ValueKey('residue-hatched-chicks-0')),
+        findsOneWidget,
       );
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
+      expect(
+        find.byKey(const ValueKey('breakout-count-infertile')),
+        findsOneWidget,
+      );
+    },
+  );
 
-  testWidgets('sample card keeps header fields in one balanced row', (
+  testWidgets('managed Tray identity and breakout metrics share the panel', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(540, 1000);
@@ -1830,37 +1360,14 @@ void main() {
     );
     await addVisibleSample(tester);
     final sample = activeBreakoutSample(provider);
-
-    final trayField = find.byKey(ValueKey('${sample.id}-tray'));
-    final positionField = find.byKey(ValueKey('${sample.id}-position'));
-    final traySizeField = find.byKey(ValueKey('${sample.id}-Tray size'));
-
-    expect(find.text('Tray 1'), findsNWidgets(2));
-    expect(find.text('Tray sample'), findsNothing);
-    expect(find.text('Pool sample'), findsNothing);
-    expect(find.text('Total sample'), findsNothing);
-    expect(find.byKey(ValueKey('${sample.id}-house')), findsNothing);
-    expect(find.byKey(ValueKey('${sample.id}-setter')), findsNothing);
-    expect(find.byKey(ValueKey('${sample.id}-hatcher')), findsNothing);
-    expect(find.byKey(ValueKey('${sample.id}-trolley')), findsNothing);
-    expect(trayField, findsOneWidget);
-    expect(positionField, findsOneWidget);
-    expect(traySizeField, findsOneWidget);
-    final randomPositionText = tester.widget<Text>(
-      find.descendant(of: positionField, matching: find.text('Random')),
-    );
-    expect(randomPositionText.style?.fontWeight, FontWeight.w400);
-    expect(randomPositionText.style?.color, AppColors.textPrimary);
+    expect(sample.id, provider.activeSampleIdFor('residue_breakout'));
+    expect(sample.sampleMode, EggBreakoutSampleMode.tray);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.byKey(ValueKey('breakout-row-infertile')), findsOneWidget);
+    expect(find.byKey(ValueKey('breakout-row-midDead')), findsOneWidget);
     expect(
-      tester.getTopRight(find.text('Random')).dx,
-      lessThan(tester.getTopRight(positionField).dx - 36),
-    );
-    for (final field in [trayField, positionField, traySizeField]) {
-      expect(tester.getSize(field).height, greaterThan(40));
-    }
-    expect(
-      tester.getSize(trayField).height,
-      closeTo(tester.getSize(traySizeField).height, 0.1),
+      find.byType(MultiPhotoButton),
+      findsNWidgets(residueCountFields.length),
     );
   });
 
@@ -1920,7 +1427,7 @@ void main() {
     expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
   });
 
-  testWidgets('breakout count fields keep focus and advance on next action', (
+  testWidgets('breakout count input retains focus and updates active leaf', (
     tester,
   ) async {
     final provider = await pumpScreen(
@@ -1931,7 +1438,6 @@ void main() {
     await addVisibleSample(tester);
 
     const infertileKey = ValueKey('breakout-count-infertile');
-    const early24hKey = ValueKey('breakout-count-early24h');
     await tester.ensureVisible(find.byKey(infertileKey));
     await tester.pumpAndSettle();
     await tester.tap(numericEditableFinder(infertileKey));
@@ -1953,277 +1459,62 @@ void main() {
     );
     expect(numericFieldHasFocus(tester, infertileKey), isTrue);
 
-    await tester.testTextInput.receiveAction(TextInputAction.next);
-    await tester.pumpAndSettle();
-
-    expect(numericFieldHasFocus(tester, early24hKey), isTrue);
+    expect(provider.activeSampleIdFor('fresh_egg_breakout'), isNotNull);
   });
 
-  testWidgets('hatch hierarchy asks for names and rejects sibling duplicates', (
-    tester,
-  ) async {
+  testWidgets('hatch screen uses shared sampling controls', (tester) async {
     final provider = await pumpScreen(
       tester,
       breakoutType: EggBreakoutType.residueHatchDay,
     );
-    final initialJson = provider.activeDraft.ebTrayBreakoutJson;
-
-    Future<void> cancelAdd(Key key, String title) async {
-      await openVisibleKey(tester, key);
-      expect(find.text(title), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-      await tester.pumpAndSettle();
-    }
-
-    for (final entry in const [
-      (ValueKey('residue-add-house'), 'Add House scope'),
-      (ValueKey('residue-add-batch'), 'Add Machine scope'),
-      (ValueKey('residue-add-trolley'), 'Add Trolley scope'),
-      (ValueKey('breakout-add-sample'), 'Add Tray scope'),
-    ]) {
-      await cancelAdd(entry.$1, entry.$2);
-    }
-    expect(provider.hatchCount, 1);
-    expect(provider.isCompareMode, isFalse);
-    expect(provider.activeDraft.ebTrayBreakoutJson, initialJson);
-
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-house'),
-      scopeIdentities: const {'house': '12'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-batch'),
-      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-trolley'),
-      scopeIdentities: const {'trolley': '3'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('breakout-add-sample'),
-      scopeIdentities: const {'tray': 'Tray 4'},
-    );
-
-    expect(provider.activeDraft.houseId, '12');
-    expect(provider.activeDraft.setterId, '7');
-    expect(provider.activeDraft.hatcherId, '8');
-    final namedSample = EggBreakoutSampleEntry.decodeList(
-      provider.activeDraft.ebTrayBreakoutJson,
-    ).single;
-    expect(namedSample.trolley, '3');
-    expect(namedSample.tray, 'Tray 4');
-    expect(namedSample.label, 'Tray 4');
-
-    Future<void> expectDuplicate(
-      Key key,
-      Map<String, String> values,
-      String message,
-    ) async {
-      await openVisibleKey(tester, key);
-      for (final entry in values.entries) {
-        await tester.enterText(
-          find.byKey(ValueKey('scope-identity-${entry.key}')),
-          entry.value,
-        );
-      }
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-      await tester.pumpAndSettle();
-      expect(find.text(message), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-      await tester.pumpAndSettle();
-    }
-
-    await expectDuplicate(
-      const ValueKey('residue-add-house'),
-      const {'house': 'H12'},
-      'A House scope with this identity already exists.',
-    );
-    await expectDuplicate(
-      const ValueKey('residue-add-batch'),
-      const {'setter': 'S7', 'hatcher': 'H8'},
-      'A Machine scope with this identity already exists.',
-    );
-    await expectDuplicate(
-      const ValueKey('residue-add-trolley'),
-      const {'trolley': 'T3'},
-      'A Trolley scope with this identity already exists.',
-    );
-    await expectDuplicate(
-      const ValueKey('breakout-add-sample'),
-      const {'tray': 'Tray 4'},
-      'A Tray scope with this identity already exists.',
-    );
-    expect(provider.hatchCount, 1);
+    final sampleId = provider.activeSampleIdFor('residue_breakout');
+    expect(sampleId, isNotNull);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.text('Tray1'), findsWidgets);
+    expect(find.byKey(const ValueKey('residue-add-house')), findsNothing);
+    expect(find.byKey(const ValueKey('residue-add-batch')), findsNothing);
+    expect(find.byKey(const ValueKey('residue-add-trolley')), findsNothing);
+    expect(find.byKey(const ValueKey('breakout-add-sample')), findsNothing);
     expect(
-      EggBreakoutSampleEntry.decodeList(
-        provider.activeDraft.ebTrayBreakoutJson,
-      ),
-      hasLength(1),
+      find.byKey(const ValueKey('residue-hatched-chicks-0')),
+      findsOneWidget,
     );
   });
 
-  testWidgets('house removal protects result-bearing descendant machines', (
+  testWidgets('managed leaf delete control replaces old house removal', (
     tester,
   ) async {
     final provider = await pumpScreen(
       tester,
       breakoutType: EggBreakoutType.residueHatchDay,
     );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-house'),
-      scopeIdentities: const {'house': '12'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-batch'),
-      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-house'),
-      scopeIdentities: const {'house': '13'},
-    );
-    expect(provider.hatchCount, 2);
-
-    await tapVisibleKey(tester, const ValueKey('residue-house-tab-0'));
-    await openVisibleKey(tester, const ValueKey('residue-remove-house'));
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.hatchCount, 2);
-    expect(provider.drafts.first.houseId, '12');
-
-    await openVisibleKey(tester, const ValueKey('residue-remove-house'));
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.hatchCount, 1);
-    expect(provider.activeDraft.houseId, '13');
+    await addVisibleSample(tester);
+    expect(provider.activeSampleIdFor('residue_breakout'), isNotNull);
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.byKey(const ValueKey('residue-remove-house')), findsNothing);
   });
 
-  testWidgets('machine and trolley removals protect scoped results', (
+  testWidgets('residue managed sample retains measurement values in its leaf', (
     tester,
   ) async {
     final provider = await pumpScreen(
       tester,
       breakoutType: EggBreakoutType.residueHatchDay,
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-batch'),
-      scopeIdentities: const {'setter': '7', 'hatcher': '8'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-batch'),
-      scopeIdentities: const {'setter': '9', 'hatcher': '10'},
-    );
-    provider.updateHatchField(provider.activeHatchIndex, 'haHatched', 100);
-    await tester.pumpAndSettle();
-
-    await openVisibleKey(tester, const ValueKey('residue-remove-batch'));
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.hatchCount, 2);
-
-    await openVisibleKey(tester, const ValueKey('residue-remove-batch'));
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.hatchCount, 1);
-
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-trolley'),
-      scopeIdentities: const {'trolley': '1'},
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('residue-add-trolley'),
-      scopeIdentities: const {'trolley': '2'},
     );
     await enterVisibleNumber(
       tester,
       const ValueKey('breakout-count-infertile'),
       '12',
     );
-    final samples = EggBreakoutSampleEntry.decodeList(
-      provider.activeDraft.ebTrayBreakoutJson,
-    );
-    expect(samples, hasLength(2));
-    expect(samples.last.hasEnteredResults, isTrue);
-    expect(
-      tester
-          .widget<ChoiceChip>(
-            find.byKey(const ValueKey('residue-trolley-tab-1')),
-          )
-          .selected,
-      isTrue,
-    );
-
-    await openVisibleKey(tester, const ValueKey('residue-remove-trolley'));
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
+    final sampleId = provider.activeSampleIdFor('residue_breakout')!;
+    final stored = provider.draftForSample('residue_breakout', sampleId)!;
     expect(
       EggBreakoutSampleEntry.decodeList(
-        provider.activeDraft.ebTrayBreakoutJson,
-      ),
-      hasLength(2),
-    );
-
-    await openVisibleKey(tester, const ValueKey('residue-remove-trolley'));
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(
-      EggBreakoutSampleEntry.decodeList(
-        provider.activeDraft.ebTrayBreakoutJson,
-      ),
-      hasLength(1),
-    );
-  });
-
-  testWidgets('tray removal cancel preserves entered counts until confirmed', (
-    tester,
-  ) async {
-    final provider = await pumpScreen(
-      tester,
-      breakoutType: EggBreakoutType.residueHatchDay,
-    );
-    await tapVisibleKey(
-      tester,
-      const ValueKey('breakout-add-sample'),
-      scopeIdentities: const {'tray': 'Tray 1'},
-    );
-    await enterVisibleNumber(
-      tester,
-      const ValueKey('breakout-count-infertile'),
-      '12',
-    );
-
-    await openVisibleKey(tester, const ValueKey('breakout-remove-sample'));
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(
-      EggBreakoutSampleEntry.decodeList(
-        provider.activeDraft.ebTrayBreakoutJson,
+        stored.ebTrayBreakoutJson,
       ).single.counts,
       {'infertile': 12},
     );
-
-    await openVisibleKey(tester, const ValueKey('breakout-remove-sample'));
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('breakout-sample-tab-0')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('breakout-pool-sample-tab')),
-      findsOneWidget,
-    );
+    expect(find.byType(SamplingScopeControls), findsOneWidget);
+    expect(find.byKey(const ValueKey('breakout-remove-sample')), findsNothing);
   });
 }

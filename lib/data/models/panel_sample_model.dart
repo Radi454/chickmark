@@ -16,6 +16,9 @@ class PanelRecord {
     this.hatcher,
     this.trolley,
     this.tray,
+    this.sampleId,
+    this.sampleNumber,
+    this.samplingPathJson,
     this.position,
     this.storagePeriodDays,
     this.bmkAgeWeeks,
@@ -77,6 +80,10 @@ class PanelRecord {
   final String? hatcher;
   final String? trolley;
   final String? tray;
+  /// Immutable terminal sample identity from the shared sampling tree.
+  final String? sampleId;
+  final int? sampleNumber;
+  final String? samplingPathJson;
   final String? position;
   final int? storagePeriodDays;
   final int? bmkAgeWeeks;
@@ -123,6 +130,9 @@ class PanelRecord {
       'hatcher': hatcher,
       'trolley': trolley,
       'tray': tray,
+      'sampleId': sampleId,
+      'sampleNumber': sampleNumber,
+      'samplingPathJson': samplingPathJson,
       'position': position,
       'storagePeriodDays': storagePeriodDays,
       'bmkAgeWeeks': bmkAgeWeeks,
@@ -171,6 +181,9 @@ class PanelRecord {
       'hatcher',
       'trolley',
       'tray',
+      'sampleId',
+      'sampleNumber',
+      'samplingPathJson',
       'position',
       'storagePeriodDays',
       'bmkAgeWeeks',
@@ -216,6 +229,9 @@ class PanelRecord {
       hatcher: map['hatcher'] as String?,
       trolley: map['trolley'] as String?,
       tray: map['tray'] as String?,
+      sampleId: map['sampleId'] as String?,
+      sampleNumber: (map['sampleNumber'] as num?)?.toInt(),
+      samplingPathJson: map['samplingPathJson'] as String?,
       position: map['position'] as String?,
       storagePeriodDays: map['storagePeriodDays'] as int?,
       bmkAgeWeeks: map['bmkAgeWeeks'] as int?,

@@ -22,6 +22,16 @@ void main() {
         name TEXT
       )
     ''');
+    await db.execute('CREATE TABLE audit_sessions (id TEXT PRIMARY KEY)');
+    await db.execute('''CREATE TABLE panel_sampling_states (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE panel_sampling_nodes (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE panel_sample_serial_reservations (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL
+    )''');
     await _createSyncTombstoneTable(db);
     dbHelper = _MockDatabaseHelper();
     when(() => dbHelper.db).thenAnswer((_) async => db);
@@ -59,6 +69,46 @@ void main() {
 
     final rows = await db.query('customers');
     expect(rows, isEmpty);
+  });
+
+  test('remote session tombstone clears its sampling rows only', () async {
+    for (final sessionId in ['deleted-session', 'surviving-session']) {
+      await db.insert('audit_sessions', {'id': sessionId});
+      await db.insert('panel_sampling_states', {
+        'id': '$sessionId:panel',
+        'sessionId': sessionId,
+      });
+      await db.insert('panel_sampling_nodes', {
+        'id': '$sessionId:node',
+        'sessionId': sessionId,
+      });
+      await db.insert('panel_sample_serial_reservations', {
+        'id': '$sessionId:reservation',
+        'sessionId': sessionId,
+      });
+    }
+    await repository.upsertRemoteTombstone({
+      'id': 'audit_sessions:deleted-session',
+      'table_name': 'audit_sessions',
+      'row_id': 'deleted-session',
+      'deleted_at': DateTime(2026, 5, 2).toIso8601String(),
+      'created_at': DateTime(2026, 5, 2).toIso8601String(),
+    });
+
+    await repository.applyRemoteDeletes();
+
+    for (final table in [
+      'audit_sessions',
+      'panel_sampling_states',
+      'panel_sampling_nodes',
+      'panel_sample_serial_reservations',
+    ]) {
+      expect(
+        (await db.query(table)).map((row) => row['sessionId'] ?? row['id']),
+        ['surviving-session'],
+        reason: '$table should retain the unrelated session only',
+      );
+    }
   });
 
   test(

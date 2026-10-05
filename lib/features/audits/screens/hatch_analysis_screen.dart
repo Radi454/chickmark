@@ -9,8 +9,10 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/bmk_age_calculator.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/panel_sampling_state.dart';
 import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
+import '../../../data/models/sampling_scope.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
@@ -19,6 +21,7 @@ import '../widgets/audit_numeric_keyboard.dart';
 import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sampling_scope_controls.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/egg_breakout_sample.dart';
@@ -30,6 +33,7 @@ class HatchAnalysisScreen extends StatefulWidget {
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
+  final Map<String, Map<String, AuditModel>> initialSamplingDraftsByPanel;
   final int initialSectionIndex;
   final BenchmarkLookup? benchmarkLookup;
 
@@ -39,6 +43,7 @@ class HatchAnalysisScreen extends StatefulWidget {
     this.initialAudit,
     this.initialAudits = const [],
     this.initialStationSamples = const [],
+    this.initialSamplingDraftsByPanel = const {},
     this.initialSectionIndex = 0,
     this.benchmarkLookup,
   });
@@ -86,6 +91,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
+      samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _persistAllBmkAges(auditProvider);
@@ -175,10 +181,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildBreakoutTypeCard(provider, hatchIndex, audit, breakoutType),
-            if (breakoutType != EggBreakoutType.freshEggBreakout) ...[
-              const SizedBox(height: AppSizes.spaceMd),
-              _buildResidueBatchTabs(provider),
-            ],
+            const SizedBox(height: AppSizes.spaceMd),
+            SamplingScopeControls(
+              panelKey: _samplingPanelForBreakout(breakoutType),
+            ),
             if (breakoutType == EggBreakoutType.residueHatchDay) ...[
               const SizedBox(height: AppSizes.spaceLg),
               _buildResidueBatchResultsCard(provider, hatchIndex, audit),
@@ -191,11 +197,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 children: [
                   _sectionTitle('Breakout Samples'),
                   const SizedBox(height: AppSizes.spaceSm),
-                  _buildBreakoutSampleSection(
-                    provider,
-                    hatchIndex,
-                    audit,
-                    breakoutType,
+                  KeyedSubtree(
+                    key: ValueKey(
+                      '${breakoutType.storageValue}:${provider.activeSampleIdFor(_samplingPanelForBreakout(breakoutType))}',
+                    ),
+                    child: _buildBreakoutSampleSection(
+                      provider,
+                      hatchIndex,
+                      audit,
+                      breakoutType,
+                    ),
                   ),
                 ],
               ),
@@ -206,346 +217,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildResidueBatchTabs(AuditProvider provider) {
-    final drafts = provider.drafts;
-    final activeIndex = drafts.isEmpty
-        ? 0
-        : provider.activeHatchIndex.clamp(0, drafts.length - 1).toInt();
-    final activeAudit = drafts.isEmpty ? null : drafts[activeIndex];
-    final scopeActive = provider.isCompareMode || drafts.length > 1;
-    final activeHouseKey = scopeActive && activeAudit != null
-        ? _residueHouseKey(activeAudit, activeIndex)
-        : null;
-    final selectedHouseScopeActive =
-        activeHouseKey != null && activeHouseKey != 'pool';
-    final houses = scopeActive
-        ? _residueHouseTabs(drafts)
-        : const <_ResidueHouseTab>[];
-    final machineEntries = scopeActive && activeHouseKey != null
-        ? drafts
-              .asMap()
-              .entries
-              .where(
-                (entry) =>
-                    _residueHouseKey(entry.value, entry.key) ==
-                        activeHouseKey &&
-                    _isResidueMachineDraft(entry.value),
-              )
-              .toList()
-        : const <MapEntry<int, AuditModel>>[];
-    final hasSelectedMachineEntry = machineEntries.any(
-      (entry) => entry.key == provider.activeHatchIndex,
-    );
-    final activeBreakoutType = activeAudit == null
-        ? EggBreakoutType.residueHatchDay
-        : EggBreakoutType.fromStorageValue(activeAudit.ebBreakoutType);
-    final activeScopeSamples = activeAudit == null
-        ? const <EggBreakoutSampleEntry>[]
-        : _resolveBreakoutWorkingSamples(activeAudit, activeBreakoutType);
-    final activeScopeIndex = activeScopeSamples.isEmpty
-        ? 0
-        : _activeBreakoutSampleIndex(activeIndex, activeScopeSamples.length);
-    final activeTrolleyKey = activeScopeSamples.isEmpty
-        ? null
-        : _trimmedOrNull(activeScopeSamples[activeScopeIndex].trolley);
-    final trolleyTabs = _residueTrolleyTabs(activeScopeSamples);
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1040),
-        child: Container(
-          key: const ValueKey('residue-batch-tabs'),
-          width: double.infinity,
-          padding: const EdgeInsets.all(AppSizes.spaceMd),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-            border: Border.all(color: AppColors.borderDefault),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildSampleControlCard(
-                title: 'House scope',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _residueHierarchyTabRow(
-                      rowKey: const ValueKey('residue-house-tabs'),
-                      entries: scopeActive && houses.isNotEmpty
-                          ? [
-                              for (final house in houses)
-                                _buildResidueScopeChip(
-                                  key: ValueKey(
-                                    'residue-house-tab-${house.firstDraftIndex}',
-                                  ),
-                                  label: house.label,
-                                  selected: house.key == activeHouseKey,
-                                  enabled: !provider.isReadOnly,
-                                  onSelected: () => provider.switchHatch(
-                                    house.firstDraftIndex,
-                                  ),
-                                ),
-                            ]
-                          : [
-                              _buildResidueScopeChip(
-                                label: 'Pool',
-                                selected: true,
-                                enabled: false,
-                                onSelected: null,
-                              ),
-                            ],
-                      actions: [
-                        _buildTrayActionButton(
-                          key: const ValueKey('residue-add-house'),
-                          tooltip: context.tr('Add house'),
-                          icon: Icons.add,
-                          onPressed: provider.isReadOnly
-                              ? null
-                              : () => _promptAddResidueHouse(provider),
-                        ),
-                        if (selectedHouseScopeActive)
-                          _buildTrayActionButton(
-                            key: const ValueKey('residue-remove-house'),
-                            tooltip: context.tr('Remove active house'),
-                            icon: Icons.remove,
-                            onPressed: provider.isReadOnly
-                                ? null
-                                : () => _removeActiveResidueHouse(provider),
-                          ),
-                      ],
-                    ),
-                    if (selectedHouseScopeActive && activeAudit != null) ...[
-                      const SizedBox(height: AppSizes.spaceMd),
-                      _responsiveTileGrid(
-                        minTileWidth: 150,
-                        children: [
-                          _residueTextNumberField(
-                            wrapperKey: const ValueKey('residue-house-number'),
-                            fieldKey: ValueKey(
-                              'residue-house-number-$activeIndex',
-                            ),
-                            label: 'House',
-                            value: _residueHouseFieldValue(activeAudit.houseId),
-                            enabled: !provider.isReadOnly,
-                            onChanged: (value) => _updateResidueHouseField(
-                              provider,
-                              activeIndex,
-                              value,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildSampleControlCard(
-                title: 'Machine scope',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _residueHierarchyTabRow(
-                      rowKey: const ValueKey('residue-machine-tabs'),
-                      entries: scopeActive && machineEntries.isNotEmpty
-                          ? [
-                              for (final entry in machineEntries)
-                                _buildResidueScopeChip(
-                                  key: ValueKey(
-                                    'residue-batch-tab-${entry.key}',
-                                  ),
-                                  label: _residueBatchLabel(
-                                    entry.value,
-                                    entry.key,
-                                  ),
-                                  selected:
-                                      entry.key == provider.activeHatchIndex,
-                                  enabled: !provider.isReadOnly,
-                                  onSelected: () =>
-                                      provider.switchHatch(entry.key),
-                                ),
-                            ]
-                          : [
-                              _buildResidueScopeChip(
-                                label: 'Pool',
-                                selected: true,
-                                enabled: false,
-                                onSelected: null,
-                              ),
-                            ],
-                      actions: [
-                        _buildTrayActionButton(
-                          key: const ValueKey('residue-add-batch'),
-                          tooltip: context.tr('Add machine'),
-                          icon: Icons.add,
-                          onPressed: provider.isReadOnly
-                              ? null
-                              : () => _promptAddResidueMachine(provider),
-                        ),
-                        if (hasSelectedMachineEntry)
-                          _buildTrayActionButton(
-                            key: const ValueKey('residue-remove-batch'),
-                            tooltip: context.tr('Remove active machine'),
-                            icon: Icons.remove,
-                            onPressed: provider.isReadOnly
-                                ? null
-                                : () => _removeActiveResidueMachine(provider),
-                          ),
-                      ],
-                    ),
-                    if (scopeActive &&
-                        activeAudit != null &&
-                        hasSelectedMachineEntry) ...[
-                      const SizedBox(height: AppSizes.spaceMd),
-                      _responsiveTileGrid(
-                        minTileWidth: 150,
-                        children: [
-                          _residueTextNumberField(
-                            wrapperKey: const ValueKey('residue-setter-number'),
-                            fieldKey: ValueKey(
-                              'residue-setter-number-$activeIndex',
-                            ),
-                            label: 'Setter',
-                            value: _residueMachineFieldValue(
-                              activeAudit.setterId,
-                              'S',
-                            ),
-                            enabled: !provider.isReadOnly,
-                            onChanged: (value) => _updateResidueMachineField(
-                              provider,
-                              activeIndex,
-                              'setterId',
-                              value,
-                            ),
-                          ),
-                          _residueTextNumberField(
-                            wrapperKey: const ValueKey(
-                              'residue-hatcher-number',
-                            ),
-                            fieldKey: ValueKey(
-                              'residue-hatcher-number-$activeIndex',
-                            ),
-                            label: 'Hatcher',
-                            value: _residueMachineFieldValue(
-                              activeAudit.hatcherId,
-                              'H',
-                            ),
-                            enabled: !provider.isReadOnly,
-                            onChanged: (value) => _updateResidueMachineField(
-                              provider,
-                              activeIndex,
-                              'hatcherId',
-                              value,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildSampleControlCard(
-                title: 'Trolley scope',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _residueHierarchyTabRow(
-                      rowKey: const ValueKey('residue-trolley-tabs'),
-                      entries: trolleyTabs.isNotEmpty
-                          ? [
-                              for (final trolley in trolleyTabs)
-                                _buildResidueScopeChip(
-                                  key: ValueKey(
-                                    'residue-trolley-tab-${trolley.firstSampleIndex}',
-                                  ),
-                                  label: trolley.label,
-                                  selected: trolley.key == activeTrolleyKey,
-                                  enabled: !provider.isReadOnly,
-                                  onSelected: () => _activateBreakoutSample(
-                                    activeIndex,
-                                    trolley.firstSampleIndex,
-                                  ),
-                                ),
-                            ]
-                          : [
-                              _buildResidueScopeChip(
-                                label: 'Pool',
-                                selected: true,
-                                enabled: false,
-                                onSelected: null,
-                              ),
-                            ],
-                      actions: [
-                        _buildTrayActionButton(
-                          key: const ValueKey('residue-add-trolley'),
-                          tooltip: context.tr('Add trolley'),
-                          icon: Icons.add,
-                          onPressed: provider.isReadOnly || activeAudit == null
-                              ? null
-                              : () => _promptAddResidueTrolley(
-                                  provider,
-                                  activeIndex,
-                                  activeAudit,
-                                  activeBreakoutType,
-                                  activeScopeSamples,
-                                ),
-                        ),
-                        if (activeTrolleyKey != null)
-                          _buildTrayActionButton(
-                            key: const ValueKey('residue-remove-trolley'),
-                            tooltip: context.tr('Remove active trolley'),
-                            icon: Icons.remove,
-                            onPressed:
-                                provider.isReadOnly || activeAudit == null
-                                ? null
-                                : () => _removeActiveResidueTrolley(
-                                    provider,
-                                    activeIndex,
-                                    activeBreakoutType,
-                                    activeScopeSamples,
-                                    activeTrolleyKey,
-                                  ),
-                          ),
-                      ],
-                    ),
-                    if (activeTrolleyKey != null && activeAudit != null) ...[
-                      const SizedBox(height: AppSizes.spaceMd),
-                      _responsiveTileGrid(
-                        minTileWidth: 150,
-                        children: [
-                          _residueTextNumberField(
-                            wrapperKey: const ValueKey(
-                              'residue-trolley-number',
-                            ),
-                            fieldKey: ValueKey(
-                              'residue-trolley-number-$activeIndex',
-                            ),
-                            label: 'Trolley',
-                            value: _residueTrolleyFieldValue(activeTrolleyKey),
-                            enabled: !provider.isReadOnly,
-                            onChanged: (value) => _updateResidueTrolleyField(
-                              provider,
-                              activeIndex,
-                              activeBreakoutType,
-                              activeScopeSamples,
-                              activeTrolleyKey,
-                              value,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Widget _residueHierarchyTabRow({
     required Key rowKey,
     required List<Widget> entries,
@@ -592,6 +264,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Widget _buildResidueScopeChip({
     Key? key,
     required String label,
@@ -619,6 +292,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Widget _buildSampleControlCard({
     required String title,
     required Widget child,
@@ -758,6 +432,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return 'T$value';
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _promptAddResidueHouse(AuditProvider provider) async {
     final values = await showAuditScopeIdentityDialog(
       context,
@@ -794,6 +469,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, nextIndex);
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _promptAddResidueMachine(AuditProvider provider) async {
     final values = await showAuditScopeIdentityDialog(
       context,
@@ -888,6 +564,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _syncAllMachineBreakoutSamplesWithActiveHierarchy(provider, nextIndex);
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _promptAddResidueTrolley(
     AuditProvider provider,
     int hatchIndex,
@@ -987,6 +664,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _removeActiveResidueTrolley(
     AuditProvider provider,
     int hatchIndex,
@@ -1038,6 +716,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   void _updateResidueTrolleyField(
     AuditProvider provider,
     int hatchIndex,
@@ -1081,6 +760,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
         _trimmedOrNull(audit.ebTrayBreakoutJson) != null;
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _removeActiveResidueHouse(AuditProvider provider) async {
     if (provider.drafts.isEmpty) return;
     final activeIndex = provider.activeHatchIndex
@@ -1125,6 +805,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     }
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _removeActiveResidueMachine(AuditProvider provider) async {
     if (provider.drafts.isEmpty) return;
     final activeIndex = provider.activeHatchIndex
@@ -1161,6 +842,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     }
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   void _updateResidueHouseField(
     AuditProvider provider,
     int hatchIndex,
@@ -1181,6 +863,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     }
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   void _updateResidueMachineField(
     AuditProvider provider,
     int hatchIndex,
@@ -1248,14 +931,17 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return value;
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   String? _residueHouseFieldValue(String? value) {
     return _isPrefixOnly(value, 'H') ? null : value;
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   String? _residueMachineFieldValue(String? value, String prefix) {
     return _isPrefixOnly(value, prefix) ? null : value;
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   String? _residueTrolleyFieldValue(String? value) {
     if (_isPrefixOnly(value, 'T')) return null;
     final fieldValue = _machineLabelPart(value, 'T', '');
@@ -1793,6 +1479,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Widget _residueTextNumberField({
     required Key wrapperKey,
     required Key fieldKey,
@@ -2184,19 +1871,49 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  void _setBreakoutType(
+  Future<void> _setBreakoutType(
     AuditProvider provider,
     int hatchIndex,
     AuditModel audit,
     EggBreakoutType nextType,
-  ) {
+  ) async {
+    await provider.activateSamplingPanel(_samplingPanelForBreakout(nextType));
+    if (!mounted || hatchIndex < 0 || hatchIndex >= provider.drafts.length) {
+      return;
+    }
+    final currentAudit = provider.drafts[hatchIndex];
+    final panelKey = _samplingPanelForBreakout(nextType);
+    final state = provider.samplingStateFor(panelKey);
+    final sampleId = provider.activeSampleIdFor(panelKey);
+    if (state != null && sampleId != null) {
+      final sampleDraft = provider.draftForSample(panelKey, sampleId);
+      final source = sampleDraft?.ebTrayBreakoutJson;
+      final matchingTypeSamples = EggBreakoutSampleEntry.decodeList(
+        source,
+        fallbackBreakoutType: _legacyBreakoutJsonNeedsTypeFallback(source)
+            ? nextType
+            : null,
+      ).where((sample) => sample.breakoutType == nextType).toList();
+      final activeEntry = _managedBreakoutSamples(
+        breakoutType: nextType,
+        state: state,
+        sampleId: sampleId,
+        preferredSamples: matchingTypeSamples,
+        legacySamples: const [],
+      );
+      provider.updateHatchField(
+        hatchIndex,
+        'ebTrayBreakoutJson',
+        EggBreakoutSampleEntry.encodeList(activeEntry),
+      );
+    }
     provider.updateHatchField(
       hatchIndex,
       'ebBreakoutType',
       nextType.storageValue,
     );
     if (nextType == EggBreakoutType.candledEggBreakout &&
-        audit.ebBreakoutAgeDays == null) {
+        currentAudit.ebBreakoutAgeDays == null) {
       provider.updateHatchField(hatchIndex, 'ebBreakoutAgeDays', 10);
     }
     _persistBmkAges(provider, hatchIndex);
@@ -2208,10 +1925,17 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     AuditModel audit,
     EggBreakoutType breakoutType,
   ) {
+    final panelKey = _samplingPanelForBreakout(breakoutType);
+    final samplingState = provider.samplingStateFor(panelKey);
+    final activeSampleId = provider.activeSampleIdFor(panelKey);
+    final samplingManaged = samplingState != null && activeSampleId != null;
+    final sampleAudit = samplingManaged
+        ? provider.draftForSample(panelKey, activeSampleId) ?? audit
+        : audit;
     final decodedSamples = EggBreakoutSampleEntry.decodeList(
-      audit.ebTrayBreakoutJson,
+      sampleAudit.ebTrayBreakoutJson,
       fallbackBreakoutType:
-          _legacyBreakoutJsonNeedsTypeFallback(audit.ebTrayBreakoutJson)
+          _legacyBreakoutJsonNeedsTypeFallback(sampleAudit.ebTrayBreakoutJson)
           ? breakoutType
           : null,
     );
@@ -2220,10 +1944,18 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           .where((sample) => sample.breakoutType == breakoutType)
           .toList(),
     );
-    final traySamples = breakoutSamples
+    final samples = samplingManaged
+        ? _managedBreakoutSamples(
+            breakoutType: breakoutType,
+            state: samplingState,
+            sampleId: activeSampleId,
+            preferredSamples: breakoutSamples,
+            legacySamples: _resolveBreakoutWorkingSamples(audit, breakoutType),
+          )
+        : _resolveWorkingSamplesFrom(breakoutSamples, breakoutType);
+    final traySamples = samples
         .where((sample) => sample.sampleMode == EggBreakoutSampleMode.tray)
         .toList();
-    final samples = _resolveWorkingSamplesFrom(breakoutSamples, breakoutType);
     final totalSample = samples.fold<int>(
       0,
       (sum, sample) => sum + (sample.totalSample ?? 0),
@@ -2259,17 +1991,6 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
             style: AppTextStyles.caption.copyWith(color: Colors.grey.shade700),
           ),
           const SizedBox(height: 10),
-          _buildSampleControlCard(
-            title: 'Tray scope',
-            child: _buildTraySampleControls(
-              provider: provider,
-              hatchIndex: hatchIndex,
-              audit: audit,
-              samples: samples,
-              breakoutType: breakoutType,
-              activeIndex: activeIndex,
-            ),
-          ),
           _buildBreakoutSampleCard(
             provider,
             hatchIndex,
@@ -2285,132 +2006,51 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     );
   }
 
-  Widget _buildTraySampleControls({
-    required AuditProvider provider,
-    required int hatchIndex,
-    required AuditModel audit,
-    required List<EggBreakoutSampleEntry> samples,
+  List<EggBreakoutSampleEntry> _managedBreakoutSamples({
     required EggBreakoutType breakoutType,
-    required int activeIndex,
+    required PanelSamplingState? state,
+    required String? sampleId,
+    required List<EggBreakoutSampleEntry> preferredSamples,
+    required List<EggBreakoutSampleEntry> legacySamples,
   }) {
-    final trayScopeActive = samples.any(
-      (sample) => sample.sampleMode == EggBreakoutSampleMode.tray,
-    );
-    final chips = trayScopeActive
-        ? [
-            for (final entry in samples.asMap().entries)
-              ChoiceChip(
-                key: ValueKey('breakout-sample-tab-${entry.key}'),
-                label: Text(entry.value.label),
-                selected: entry.key == activeIndex,
-                onSelected: provider.isReadOnly
-                    ? null
-                    : (_) => _activateBreakoutSample(hatchIndex, entry.key),
-                selectedColor: AppColors.primary.withValues(alpha: 0.14),
-                checkmarkColor: AppColors.primary,
-                labelStyle: AppTextStyles.body.copyWith(
-                  color: entry.key == activeIndex
-                      ? AppColors.primary
-                      : AppColors.textBody,
-                  fontWeight: FontWeight.w800,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(
-                    color: entry.key == activeIndex
-                        ? AppColors.primary
-                        : AppColors.borderDefault,
-                  ),
-                ),
-              ),
-          ]
-        : [
-            ChoiceChip(
-              key: const ValueKey('breakout-pool-sample-tab'),
-              label: const Text('Pool'),
-              selected: true,
-              onSelected: null,
-              selectedColor: AppColors.primary.withValues(alpha: 0.14),
-              checkmarkColor: AppColors.primary,
-              labelStyle: AppTextStyles.body.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: AppColors.primary),
-              ),
-            ),
-          ];
-
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildTrayActionButton(
-          key: const ValueKey('breakout-add-sample'),
-          tooltip: context.tr('Add tray sample'),
-          icon: Icons.add,
-          onPressed: provider.isReadOnly
-              ? null
-              : () => _promptAddBreakoutTray(
-                  provider,
-                  hatchIndex,
-                  audit,
-                  breakoutType,
-                  samples,
-                  activeIndex,
-                ),
-        ),
-        if (trayScopeActive) ...[
-          const SizedBox(width: 8),
-          _buildTrayActionButton(
-            key: const ValueKey('breakout-remove-sample'),
-            tooltip: context.tr('Remove active tray sample'),
-            icon: Icons.remove,
-            onPressed: provider.isReadOnly
-                ? null
-                : () => _removeActiveBreakoutTray(
-                    provider,
-                    hatchIndex,
-                    breakoutType,
-                    samples,
-                    activeIndex,
-                  ),
-          ),
-        ],
-      ],
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 520) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [...chips, actions],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: chips,
-              ),
-            ),
-            const SizedBox(width: 8),
-            actions,
-          ],
-        );
-      },
-    );
+    if (state == null || sampleId == null) {
+      return _resolveWorkingSamplesFrom(preferredSamples, breakoutType);
+    }
+    final path = state.pathFor(sampleId);
+    final existing =
+        preferredSamples.where((sample) => sample.id == sampleId).firstOrNull ??
+        preferredSamples
+            .where((sample) => _breakoutEntryMatchesPath(sample, path))
+            .firstOrNull ??
+        legacySamples.where((sample) => sample.id == sampleId).firstOrNull ??
+        legacySamples
+            .where((sample) => _breakoutEntryMatchesPath(sample, path))
+            .firstOrNull;
+    final sampleMode = path.tray == null
+        ? EggBreakoutSampleMode.pool
+        : EggBreakoutSampleMode.tray;
+    final fallback = _defaultPoolBreakoutSample(breakoutType);
+    return [
+      EggBreakoutSampleEntry(
+        id: sampleId,
+        sampleMode: sampleMode,
+        label: _pathLabelForSampling(path),
+        house: path.house,
+        setter: path.setter,
+        hatcher: path.hatcher,
+        trolley: path.trolley,
+        tray: path.tray,
+        position: existing?.position ?? (path.tray == null ? null : 'random'),
+        traySize: existing?.traySize ?? fallback.traySize,
+        numberOfTrays: existing?.numberOfTrays ?? fallback.numberOfTrays,
+        breakoutType: breakoutType,
+        counts: existing?.counts ?? fallback.counts,
+        photos: existing?.photos ?? fallback.photos,
+      ),
+    ];
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _promptAddBreakoutTray(
     AuditProvider provider,
     int hatchIndex,
@@ -2498,6 +2138,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     _persistBreakoutSamples(provider, hatchIndex, breakoutType, nextSamples);
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Future<void> _removeActiveBreakoutTray(
     AuditProvider provider,
     int hatchIndex,
@@ -2521,6 +2162,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     }
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   Widget _buildTrayActionButton({
     required Key key,
     required String tooltip,
@@ -2635,12 +2277,16 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
           photoPaths: [for (final entry in entries) entry.value],
           enabled: false,
           panelName: _breakoutPanelNameForType(breakoutType),
-          panelRowId: _breakoutPhotoRowId(
-            provider,
-            hatchIndex,
-            sample.id,
-            breakoutType,
-          ),
+          panelRowId:
+              provider.samplingPhotoRowId(
+                _samplingPanelForBreakout(breakoutType),
+              ) ??
+              _breakoutPhotoRowId(
+                provider,
+                hatchIndex,
+                sample.id,
+                breakoutType,
+              ),
           fieldKey: 'breakout_photo',
           onPhotoCaptured: (_, _) {},
         ),
@@ -2905,7 +2551,9 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                 child: KeyedSubtree(
                   key: ValueKey('breakout-count-${field.key}'),
                   child: TextFormField(
-                    key: ValueKey('breakout-count-${sample.id}-${field.key}'),
+                    key: ValueKey(
+                      '${breakoutType.storageValue}-breakout-count-${sample.id}-${field.key}',
+                    ),
                     initialValue: initialCountText,
                     enabled: !provider.isReadOnly,
                     focusNode: focusNode,
@@ -2988,13 +2636,17 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
       photoPaths: [for (final entry in entries) entry.value],
       enabled: !provider.isReadOnly,
       panelName: _breakoutPanelNameForType(breakoutType),
-      panelRowId: _breakoutPhotoRowId(
-        provider,
-        hatchIndex,
-        sample.id,
-        breakoutType,
-        field.key,
-      ),
+      panelRowId:
+          provider.samplingPhotoRowId(
+            _samplingPanelForBreakout(breakoutType),
+          ) ??
+          _breakoutPhotoRowId(
+            provider,
+            hatchIndex,
+            sample.id,
+            breakoutType,
+            field.key,
+          ),
       fieldKey: _breakoutPhotoFieldKey(field.key),
       onPhotoCaptured: (index, path) {
         final photos = Map<String, String>.from(sample.photos);
@@ -3378,6 +3030,7 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     return clamped;
   }
 
+  // ignore: unused_element // Legacy scope editor retained for fallback compatibility.
   void _activateBreakoutSample(int hatchIndex, int sampleIndex) {
     setState(() {
       _activeBreakoutSampleIndexes[hatchIndex] = sampleIndex;
@@ -3489,6 +3142,31 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     };
   }
 
+  String _samplingPanelForBreakout(EggBreakoutType breakoutType) =>
+      _breakoutPanelNameForType(breakoutType);
+
+  bool _breakoutEntryMatchesPath(
+    EggBreakoutSampleEntry entry,
+    SamplingScopePath path,
+  ) =>
+      entry.house == path.house &&
+      entry.setter == path.setter &&
+      entry.hatcher == path.hatcher &&
+      entry.trolley == path.trolley &&
+      entry.tray == path.tray;
+
+  String _pathLabelForSampling(SamplingScopePath path) {
+    final labels = <String>[
+      if (path.house != null) 'H${path.house}',
+      if (path.setter != null) 'S${path.setter}',
+      if (path.hatcher != null) 'HT${path.hatcher}',
+      if (path.trolley != null) 'TR${path.trolley}',
+      if (path.tray != null) 'T${path.tray}',
+      'SA${path.sampleNumber}',
+    ];
+    return labels.join(' · ');
+  }
+
   String _breakoutPhotoRowId(
     AuditProvider provider,
     int hatchIndex,
@@ -3529,6 +3207,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
   ) {
     if (hatchIndex < 0 || hatchIndex >= provider.drafts.length) return;
     final currentAudit = provider.drafts[hatchIndex];
+    final panelKey = _samplingPanelForBreakout(breakoutType);
+    final samplingState = provider.samplingStateFor(panelKey);
+    final activeSampleId = provider.activeSampleIdFor(panelKey);
+    final samplingManaged = samplingState != null && activeSampleId != null;
     final existingSamples = EggBreakoutSampleEntry.decodeList(
       currentAudit.ebTrayBreakoutJson,
       fallbackBreakoutType:
@@ -3539,21 +3221,34 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     final otherTypeSamples = existingSamples
         .where((sample) => sample.breakoutType != breakoutType)
         .toList();
-    final typedSamples = _normalizeBreakoutSamples(samples)
-        .asMap()
-        .entries
-        .map(
-          (entry) => _sampleWithActiveBatchHierarchy(
-            currentAudit,
-            entry.value.copyWith(breakoutType: breakoutType),
-            breakoutType,
-          ),
-        )
-        .toList();
+    final normalizedSamples = _normalizeBreakoutSamples(samples);
+    final typedSamples = samplingManaged
+        ? _managedBreakoutSamples(
+            breakoutType: breakoutType,
+            state: samplingState,
+            sampleId: activeSampleId,
+            preferredSamples: normalizedSamples,
+            legacySamples: _resolveBreakoutWorkingSamples(
+              currentAudit,
+              breakoutType,
+            ),
+          )
+        : normalizedSamples
+              .map(
+                (sample) => _sampleWithActiveBatchHierarchy(
+                  currentAudit,
+                  sample.copyWith(breakoutType: breakoutType),
+                  breakoutType,
+                ),
+              )
+              .toList();
     provider.updateHatchField(
       hatchIndex,
       'ebTrayBreakoutJson',
-      EggBreakoutSampleEntry.encodeList([...otherTypeSamples, ...typedSamples]),
+      EggBreakoutSampleEntry.encodeList([
+        if (!samplingManaged) ...otherTypeSamples,
+        ...typedSamples.take(samplingManaged ? 1 : typedSamples.length),
+      ]),
     );
     provider.updateHatchField(
       hatchIndex,

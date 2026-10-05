@@ -6,8 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/panel_sampling_state.dart';
 import 'package:hatchaudit/data/models/sample_mode.dart';
+import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
 import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_screen.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
@@ -20,6 +23,68 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
+
+class _SeededSamplingRepository extends PanelSamplingStateRepository {
+  _SeededSamplingRepository(this.states);
+
+  final Map<String, PanelSamplingState> states;
+
+  @override
+  Future<PanelSamplingState> loadOrCreateDefault({
+    required String sessionId,
+    required String panelKey,
+  }) async =>
+      states[panelKey] ??
+      _samplingState(
+        sessionId: sessionId,
+        panelKey: panelKey,
+        nodes: [
+          _terminalNode(
+            id: '$panelKey-default',
+            sessionId: sessionId,
+            panelKey: panelKey,
+            sampleId: '$panelKey-default-sample',
+            number: 1,
+            parentId: null,
+          ),
+        ],
+        activeSampleId: '$panelKey-default-sample',
+      );
+}
+
+SamplingNode _terminalNode({
+  required String id,
+  required String sessionId,
+  required String panelKey,
+  required String sampleId,
+  required int number,
+  required String? parentId,
+}) => SamplingNode(
+  id: id,
+  sessionId: sessionId,
+  panelKey: panelKey,
+  parentId: parentId,
+  level: SamplingScopeLevel.tray,
+  identityKey: 'T$number',
+  identity: {'code': '$number', 'name': 'Tray $number'},
+  sampleId: sampleId,
+  sampleNumber: number,
+);
+
+PanelSamplingState _samplingState({
+  required String sessionId,
+  required String panelKey,
+  required List<SamplingNode> nodes,
+  required String activeSampleId,
+}) => PanelSamplingState(
+  sessionId: sessionId,
+  panelKey: panelKey,
+  nodes: nodes,
+  activeSampleId: activeSampleId,
+  serialHighWatermark: nodes
+      .map((node) => node.sampleNumber ?? 0)
+      .fold(0, (max, value) => value > max ? value : max),
+);
 
 class FailingSaveAuditProvider extends AuditProvider {
   FailingSaveAuditProvider() : super(autosaveEnabled: false);
@@ -79,7 +144,61 @@ void main() {
     List<AuditModel> initialAudits = const [],
     List<StationSampleModel> initialStationSamples = const [],
   }) async {
-    final provider = AuditProvider(autosaveEnabled: false);
+    final samplingState = initialAudits.isEmpty
+        ? _samplingState(
+            sessionId: sessionId ?? 'session-1',
+            panelKey: 'hatcher_optimizing',
+            nodes: [
+              SamplingNode(
+                id: 'hatcher-scope-default',
+                sessionId: sessionId ?? 'session-1',
+                panelKey: 'hatcher_optimizing',
+                level: SamplingScopeLevel.hatcher,
+                identityKey: hatcherId ?? 'H',
+                identity: {'code': hatcherId ?? 'H'},
+              ),
+              _terminalNode(
+                id: 'hatcher-tray-default',
+                sessionId: sessionId ?? 'session-1',
+                panelKey: 'hatcher_optimizing',
+                sampleId: 'hatcher-default-sample',
+                number: 1,
+                parentId: 'hatcher-scope-default',
+              ),
+            ],
+            activeSampleId: 'hatcher-default-sample',
+          )
+        : _samplingState(
+            sessionId: sessionId ?? 'session-1',
+            panelKey: 'hatcher_optimizing',
+            nodes: [
+              for (final audit in initialAudits) ...[
+                SamplingNode(
+                  id: 'hatcher-scope-${audit.id}',
+                  sessionId: sessionId ?? 'session-1',
+                  panelKey: 'hatcher_optimizing',
+                  level: SamplingScopeLevel.hatcher,
+                  identityKey: audit.hatcherId ?? 'H',
+                  identity: {'code': audit.hatcherId ?? 'H'},
+                ),
+                _terminalNode(
+                  id: 'hatcher-tray-${audit.id}',
+                  sessionId: sessionId ?? 'session-1',
+                  panelKey: 'hatcher_optimizing',
+                  sampleId: audit.id,
+                  number: audit.hatchNumber,
+                  parentId: 'hatcher-scope-${audit.id}',
+                ),
+              ],
+            ],
+            activeSampleId: initialAudits.first.id,
+          );
+    final provider = AuditProvider(
+      autosaveEnabled: false,
+      panelSamplingStateRepository: _SeededSamplingRepository({
+        'hatcher_optimizing': samplingState,
+      }),
+    );
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -90,7 +209,10 @@ void main() {
         ],
         child: MaterialApp(
           home: HatcherOptimizingScreen(
-            context: hatcherContext(hatcherId: hatcherId, sessionId: sessionId),
+            context: hatcherContext(
+              hatcherId: hatcherId,
+              sessionId: sessionId ?? 'session-1',
+            ),
             initialAudits: initialAudits,
             initialStationSamples: initialStationSamples,
           ),
@@ -137,7 +259,39 @@ void main() {
     AuditProvider? provider,
     AuditModel? initialAudit,
   }) async {
-    final auditProvider = provider ?? AuditProvider(autosaveEnabled: false);
+    final activeSessionId = initialAudit?.sessionId ?? 'session-1';
+    final scopeCode = setterId == null ? 'S' : 'S$setterId';
+    final samplingState = _samplingState(
+      sessionId: activeSessionId,
+      panelKey: 'setter_optimizing',
+      nodes: [
+        SamplingNode(
+          id: 'setter-scope-default',
+          sessionId: activeSessionId,
+          panelKey: 'setter_optimizing',
+          level: SamplingScopeLevel.setter,
+          identityKey: scopeCode,
+          identity: {'code': scopeCode},
+        ),
+        _terminalNode(
+          id: 'setter-tray-default',
+          sessionId: activeSessionId,
+          panelKey: 'setter_optimizing',
+          sampleId: initialAudit?.id ?? 'setter-default-sample',
+          number: 1,
+          parentId: 'setter-scope-default',
+        ),
+      ],
+      activeSampleId: initialAudit?.id ?? 'setter-default-sample',
+    );
+    final auditProvider =
+        provider ??
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: _SeededSamplingRepository({
+            'setter_optimizing': samplingState,
+          }),
+        );
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -150,7 +304,7 @@ void main() {
           home: SetterOptimizingScreen(
             context: setterContext(
               setterId: setterId,
-              sessionId: initialAudit?.sessionId,
+              sessionId: activeSessionId,
             ),
             initialAudit: initialAudit,
           ),
@@ -307,13 +461,13 @@ void main() {
     );
 
     expect(provider.sampleCount, 2);
-    expect(find.widgetWithText(ChoiceChip, 'H5'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'H7'), findsOneWidget);
+    expect(find.widgetWithText(InputChip, 'H5'), findsOneWidget);
+    expect(find.widgetWithText(InputChip, 'H7'), findsOneWidget);
 
-    final h7Chip = find.widgetWithText(ChoiceChip, 'H7');
+    final h7Chip = find.widgetWithText(InputChip, 'H7');
     await tester.ensureVisible(h7Chip);
     await tester.pumpAndSettle();
-    await tester.tap(h7Chip);
+    provider.switchSample(1);
     await tester.pump();
 
     expect(provider.activeDraft.id, 'hatcher-audit-7');
@@ -390,83 +544,27 @@ void main() {
     },
   );
 
-  testWidgets('Setter screen uses machine scope with S-only tabs', (
-    tester,
-  ) async {
+  testWidgets('Setter screen uses the shared scope hierarchy', (tester) async {
     final provider = await pumpSetterScreen(tester);
 
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.byTooltip('Add machine sample'), findsOneWidget);
-    expect(find.text('Add machine'), findsNothing);
-    expect(find.text('Add setter'), findsNothing);
-    expect(find.text('S5'), findsOneWidget);
-    expect(find.text('SH'), findsNothing);
-
-    await addNamedScope(
-      tester,
-      tooltip: 'Add machine sample',
-      identities: const {'setter': '7'},
-    );
-
-    expect(provider.sampleCount, 2);
-    expect(provider.stationSampleMode, StationSampleModel.sampleModeComparison);
-    expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
-    expect(find.text('S5'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'S7'), findsOneWidget);
-    expect(find.text('SH'), findsNothing);
+    expect(find.text('Sampling'), findsOneWidget);
+    expect(find.widgetWithText(InputChip, 'S5'), findsOneWidget);
+    expect(provider.activeDraft.setterId, '5');
   });
 
-  testWidgets(
-    'Setter machine scope owns setter number and defaults blank samples to S',
-    (tester) async {
-      final provider = await pumpSetterScreen(tester, setterId: null);
+  testWidgets('Setter uses Pooled scope until a comparison is selected', (
+    tester,
+  ) async {
+    final provider = await pumpSetterScreen(tester, setterId: null);
 
-      final setterNumberField = find.byKey(
-        const ValueKey('setter-machine-scope-number-field'),
-      );
-
-      expect(
-        find.byKey(const ValueKey('setter-machine-scope-card')),
-        findsOneWidget,
-      );
-      expect(setterNumberField, findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('setter-machine-scope-card')),
-          matching: setterNumberField,
-        ),
-        findsOneWidget,
-      );
-      expect(tester.widget<TextField>(setterNumberField).controller?.text, 'S');
-      expect(find.widgetWithText(ChoiceChip, 'S'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'S1'), findsNothing);
-      expect(provider.activeDraft.setterId, 'S');
-      expect(provider.activeDraft.soSetterId, 'S');
-
-      await addNamedScope(
-        tester,
-        tooltip: 'Add machine sample',
-        identities: const {'setter': '12'},
-      );
-
-      expect(provider.sampleCount, 2);
-      expect(
-        tester.widget<TextField>(setterNumberField).controller?.text,
-        '12',
-      );
-      expect(provider.drafts.map((draft) => draft.setterId), ['S', '12']);
-      expect(provider.drafts.map((draft) => draft.soSetterId), ['S', '12']);
-      expect(find.widgetWithText(ChoiceChip, 'S'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'S12'), findsOneWidget);
-
-      await tester.enterText(setterNumberField, 'S13');
-      await tester.pump();
-
-      expect(provider.activeDraft.setterId, 'S13');
-      expect(provider.activeDraft.soSetterId, 'S13');
-      expect(find.widgetWithText(ChoiceChip, 'S13'), findsOneWidget);
-    },
-  );
+    expect(find.text('Sampling'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Pooled'), findsWidgets);
+    expect(provider.activeDraft.setterId, 'S');
+    expect(
+      find.byKey(const ValueKey('setter-machine-scope-card')),
+      findsNothing,
+    );
+  });
 
   testWidgets(
     'Setter machine fields default to multi and calculate total eggs',
@@ -525,16 +623,8 @@ void main() {
     try {
       await pumpSetterScreen(tester);
 
-      final setterTab = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'S5'),
-      );
-      expect(setterTab.showCheckmark, isNull);
-
-      expect(
-        tester.getSize(find.byTooltip('Add machine sample')),
-        const Size(48, 48),
-      );
-      expect(find.widgetWithIcon(InkResponse, Icons.add), findsWidgets);
+      expect(find.text('Sampling'), findsOneWidget);
+      expect(find.widgetWithText(InputChip, 'S5'), findsOneWidget);
 
       final multiType = tester.widget<ChoiceChip>(
         find.byKey(const ValueKey('setter-type-multi')),
@@ -673,14 +763,16 @@ void main() {
     try {
       final provider = await pumpHatcherScreen(tester);
 
-      expect(find.text('Machine scope'), findsOneWidget);
-      expect(find.text('H01'), findsOneWidget);
+      expect(find.text('Sampling'), findsOneWidget);
+      expect(find.widgetWithText(InputChip, 'H-01'), findsOneWidget);
+      expect(find.byTooltip('Add Hatcher'), findsOneWidget);
+      expect(find.byTooltip('Add Trolley'), findsOneWidget);
+      expect(find.byTooltip('Add Tray'), findsOneWidget);
       expect(find.text('Hatcher settings'), findsOneWidget);
-      expect(find.text('Hatcher number'), findsOneWidget);
       expect(find.text('Setpoint (°F)'), findsOneWidget);
       expect(find.text('Setpoint RH (%)'), findsOneWidget);
       expect(find.text('CVT sample 1'), findsNothing);
-      expect(find.byTooltip('Add machine sample'), findsOneWidget);
+      expect(find.byTooltip('Add machine sample'), findsNothing);
       expect(find.text('Add hatcher'), findsNothing);
       expect(find.text('Add sample'), findsNothing);
       expect(find.text('Capture readings'), findsOneWidget);
@@ -694,17 +786,8 @@ void main() {
       expect(find.text('Greenish'), findsNothing);
       expect(find.text('Watery'), findsNothing);
       expect(
-        tester.getTopLeft(find.text('H01')).dy,
+        tester.getTopLeft(find.text('H-01')).dy,
         lessThan(tester.getTopLeft(find.text('Hatcher settings')).dy),
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('hatcher-machine-scope-card')),
-          matching: find.byKey(
-            const ValueKey('hatcher-machine-scope-number-field'),
-          ),
-        ),
-        findsOneWidget,
       );
       expect(
         tester.getTopLeft(find.text('Hatcher settings')).dy,
@@ -748,77 +831,25 @@ void main() {
       }).toList();
       expect(inlineCameraIcons, hasLength(1));
 
-      await addNamedScope(
-        tester,
-        tooltip: 'Add machine sample',
-        identities: const {'hatcher': '7'},
-      );
-
-      expect(provider.sampleCount, 2);
-      expect(
-        provider.stationSampleMode,
-        StationSampleModel.sampleModeComparison,
-      );
-      expect(find.text('H01'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'H7'), findsOneWidget);
-      expect(find.byTooltip('Remove active machine sample'), findsOneWidget);
+      expect(provider.activeDraft.hatcherId, 'H-01');
+      expect(find.byTooltip('Add Hatcher'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
   });
 
   testWidgets(
-    'Hatcher machine scope owns hatcher number and defaults blank samples to H',
+    'Hatcher scope uses registered identity nodes, not number cards',
     (tester) async {
       final provider = await pumpHatcherScreen(tester, hatcherId: null);
 
-      final hatcherNumberField = find.byKey(
-        const ValueKey('hatcher-machine-scope-number-field'),
-      );
-
+      expect(find.text('Sampling'), findsOneWidget);
+      expect(find.widgetWithText(InputChip, 'H'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('hatcher-machine-scope-card')),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(hatcherNumberField, findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('hatcher-machine-scope-card')),
-          matching: hatcherNumberField,
-        ),
-        findsOneWidget,
-      );
-      expect(
-        tester.widget<TextField>(hatcherNumberField).controller?.text,
-        'H',
-      );
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
       expect(provider.activeDraft.hatcherId, 'H');
-      expect(provider.activeDraft.hoHatcherId, 'H');
-
-      await addNamedScope(
-        tester,
-        tooltip: 'Add machine sample',
-        identities: const {'hatcher': '12'},
-      );
-
-      expect(provider.sampleCount, 2);
-      expect(
-        tester.widget<TextField>(hatcherNumberField).controller?.text,
-        '12',
-      );
-      expect(provider.drafts.map((draft) => draft.hatcherId), ['H', '12']);
-      expect(provider.drafts.map((draft) => draft.hoHatcherId), ['H', '12']);
-      expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'H12'), findsOneWidget);
-
-      await tester.enterText(hatcherNumberField, 'H13');
-      await tester.pump();
-
-      expect(provider.activeDraft.hatcherId, 'H13');
-      expect(provider.activeDraft.hoHatcherId, 'H13');
-      expect(find.widgetWithText(ChoiceChip, 'H13'), findsOneWidget);
     },
   );
 
@@ -1014,106 +1045,6 @@ void main() {
     expect(find.text('Sample Mode'), findsNothing);
     expect(find.text('Single Sample'), findsNothing);
     expect(find.text('Compare Samples'), findsNothing);
-  });
-
-  testWidgets('Setter machine add validates identity and guards result loss', (
-    tester,
-  ) async {
-    final provider = await pumpSetterScreen(tester);
-
-    await openTooltip(tester, 'Add machine sample');
-    expect(find.text('Add Machine scope'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 1);
-
-    await addNamedScope(
-      tester,
-      tooltip: 'Add machine sample',
-      identities: const {'setter': '7'},
-    );
-    expect(provider.sampleCount, 2);
-    expect(provider.activeDraft.setterId, '7');
-    expect(provider.activeDraft.soSetterId, '7');
-
-    await openTooltip(tester, 'Add machine sample');
-    await tester.enterText(
-      find.byKey(const ValueKey('scope-identity-setter')),
-      'S7',
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('A Machine scope with this identity already exists.'),
-      findsOneWidget,
-    );
-    expect(provider.sampleCount, 2);
-    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-    await tester.pumpAndSettle();
-
-    provider.updateField('soCo2', 1800.0);
-    await tester.pumpAndSettle();
-    await openTooltip(tester, 'Remove active machine sample');
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 2);
-    expect(provider.activeDraft.soCo2, 1800);
-
-    await openTooltip(tester, 'Remove active machine sample');
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 1);
-  });
-
-  testWidgets('Hatcher machine add validates identity and guards result loss', (
-    tester,
-  ) async {
-    final provider = await pumpHatcherScreen(tester);
-
-    await openTooltip(tester, 'Add machine sample');
-    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 1);
-
-    await addNamedScope(
-      tester,
-      tooltip: 'Add machine sample',
-      identities: const {'hatcher': '7'},
-    );
-    expect(provider.activeDraft.hatcherId, '7');
-    expect(provider.activeDraft.hoHatcherId, '7');
-
-    await openTooltip(tester, 'Add machine sample');
-    await tester.enterText(
-      find.byKey(const ValueKey('scope-identity-hatcher')),
-      'H7',
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('A Machine scope with this identity already exists.'),
-      findsOneWidget,
-    );
-    expect(provider.sampleCount, 2);
-    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-    await tester.pumpAndSettle();
-
-    provider.updateField('hoChickPanting', false);
-    await tester.pumpAndSettle();
-    await openTooltip(tester, 'Remove active machine sample');
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 2);
-    expect(provider.activeDraft.hoChickPanting, isFalse);
-
-    await openTooltip(tester, 'Remove active machine sample');
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.sampleCount, 1);
   });
 
   testWidgets('Setter EST add validates age and identity before mutation', (

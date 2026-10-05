@@ -15,7 +15,7 @@ This file describes only how the app works today. It is not a history.
 
 ## 1. Last Updated
 
-2026-09-22
+2026-10-05
 
 Mapped from the working tree under `lib/`, covering app bootstrap, navigation,
 audit and station screens, providers, models, repositories, services, and the
@@ -658,32 +658,37 @@ Station save behavior:
   parameter (alongside its existing `panelSampleRepository`), threaded into
   both the per-station `AuditProvider` and production reopen frame it builds,
   so child-count loading and saving use the same injectable repository.
-- Scope hierarchy is nested from broadest to narrowest inside the sampling
-  sector: `house` where the panel supports it, then machine (`setter`/`hatcher`
-  pair or the station's single machine id), then `trolley`, then `tray`. Visit
-  ownership fields such as `customerId`, `hatcheryId`, `flockId`, `breed`, and
-  date remain row context for filtering and session ownership, but they are not
-  Setter/Hatcher sampling scopes. If a sector has no added scope, it saves one
-  station-scoped row with all hierarchy columns null. If a sector is scoped to a
-  deeper layer, each saved row carries every populated parent scope. For example,
-  two houses with two machines per house, two trolleys per machine, and two
-  trays per trolley save sixteen tray rows.
-- Audit-station scope add actions collect the new scope identity before they
-  create or switch any sample. House, machine, trolley, tray, and Setter EST
-  incubation-age dialogs require all applicable identity fields, reject an
-  identity already present under the same parent scope, and leave the current
-  data unchanged when cancelled. Identity comparisons ignore case and the
-  display prefixes `H`, `S`, `T`, and `Tray`.
-- Removing a scope asks for confirmation only when that action would discard
-  entered result values, counts, measurements, observations, or evidence
-  photos. Scope identity fields by themselves do not trigger the warning.
-  Removal paths that only return the last scoped sample to `Pool` while
-  preserving its results also do not warn. The destructive dialog states that
-  the entered results will be permanently discarded and offers Cancel and
-  Remove actions.
-- One-sample rows leave unused hierarchy columns null. Multi-sample rows repeat
-  the shared parent context and differ at the selected leaf scope, while keeping
-  parent columns populated for comparison and dashboard grouping.
+- Shared panel sampling controls use the permitted subset of House → Setter →
+  Hatcher → Trolley → Tray. Customer, hatchery, flock, breed, and date remain
+  visit context. Every unselected ancestor is Pooled (null in saved hierarchy
+  columns); the next selected level attaches to its nearest selected ancestor.
+  Chick Quality selects Setter and Hatcher together as one pair.
+- Every terminal leaf owns an immutable sample ID and a positive `SA` serial.
+  Tray panels require a Tray identity. Native panels have one terminal sample
+  per selected branch; fully Pooled panels start with one native sample. Adding
+  a second Tray retains the first Tray and its measurements. Imported legacy
+  rows retain their original IDs and measurements, including extra replicates
+  and raw hierarchy values unavailable in the current panel configuration.
+- Adding a comparison identity opens its tab and disables the Pooled tab at
+  that level under the current parent. A single remaining comparison tab stays
+  comparison. There is no direct conversion of an existing branch to Pooled.
+  Deleting the final comparison tab restores an empty Pooled default.
+- Add dialogs validate identities before changing state. Registered Houses are
+  selected from the current flock; machine identities use manual entry because
+  no dedicated machine registry is present. Duplicate identities under the
+  same parent are rejected. Cancel leaves the form and persisted state intact.
+  Adding the first ancestor comparison over entered Pooled data requires an
+  explicit reset confirmation for that parent's affected descendants.
+- Deleting a branch always asks for confirmation and removes its descendants,
+  measurements, notes, helper records, observations, and linked photo metadata.
+  Unrelated branches and panels survive. Shared backing photo files are retained
+  while another surviving photo references them. Offline tombstones remain until
+  their child-before-parent cloud deletion succeeds.
+- Identity edits preserve sample IDs and measurements and update descendant
+  saved paths atomically. Every measurement row carries its complete active path
+  plus `sampleId`, `sampleNumber`, and `samplingPathJson`. Saves validate this
+  identity in the same transaction as the measurement write, preventing stale
+  forms from recreating a deleted leaf.
 - Current saves write Egg panels (`egg_storage`, `egg_quality`), Chicks
   panels (`chick_quality`, `chick_weights`), the selected breakout panel,
   Setter optimizing, or Hatcher optimizing.
@@ -1112,21 +1117,13 @@ optional chick-quality test can be opened only when needed. These optional
 panel headers omit compact mark badges and result pills such as Pasgar score,
 YFBM status, CVT status, or PM review state; the full panel title and chevron
 are the only header controls.
-The quality sampling control is a single `Machine scope` card matching the Egg
-quality machine-scope pattern. In pooled state it shows a disabled `Pool` chip
-and an add control; there is no separate One sample / Multisamples segmented
-control and no separate Machine ID card. Pressing the add control asks for both
-Setter and Hatcher identities before creating the named machine sample;
-duplicate Setter/Hatcher pairs are rejected. The active sample can then be
-switched or removed from the same card; removing the only active machine sample
-returns the card to `Pool` and hides the Setter/Hatcher entry fields. Active
-comparison mode shows the same Setter and Hatcher entry fields used by Egg
-quality machine scope.
-Chick Quality machine
-scope does not expose a House entry, and saved `chick_quality` rows keep house
-hierarchy columns empty while using setter/hatcher as the explicit leaf scope.
-Entered setter/hatcher values update the active chip label and the saved
-`chick_quality` setter/hatcher hierarchy identity.
+The shared sampling card controls Chick Quality's paired Setter/Hatcher branches.
+Pooled is initially active. Adding a pair creates its comparison tab and one
+native leaf; duplicate pairs are rejected. Switching tabs restores that leaf's
+own quality measurements and notes. Editing a pair retains its sample ID, and
+confirmed deletion removes only that pair's subtree. The final deletion returns
+to an empty Pooled leaf. Chick Quality does not expose House; Chick Weights uses
+its independent House sampling state and measurements.
 Optional chick-quality tests follow the selected quality sample scope: pooled
 mode has no per-card sample subtitle and saves one pooled sample row for Pasgar,
 YFBM, Chick Vent Temperature, and PM Necropsy, while machine scope shows the
@@ -1483,24 +1480,19 @@ grid status styling and average summary color, but are not rendered as a
 separate helper strip in the entry form. Setter samples persist as
 `setter_optimizing` rows. The table's sampling hierarchy starts at the `setter`
 machine column and can nest `trolley` then `tray`; it does not include house or
-hatcher hierarchy columns. Multi-setter rows use the `setter` hierarchy column
-as their row identity. Setter and Hatcher station rows can store
+hatcher hierarchy columns. Setter measurement rows carry the full selected path and immutable sample ID. Setter and Hatcher station rows can store
 machine-specific identity values while the selected flock is still required to
 enter the visit flow.
-Setters does not expose the generic Sample Mode selector; the dedicated setter
-row is the comparison control.
+Setters uses shared Setter, Trolley, and Tray sampling controls. Its existing
+EST grid, incubation-age controls, and guided photo workflow follow the active
+leaf.
 
 Hatchers captures:
 
-- A dedicated `Machine scope` card for hatcher machines, matching the Setters
-  machine-scope pattern with H-only chips and circular icon actions. The active
-  hatcher-number entry is inside this Machine scope card. The first hatcher uses
-  the selected visit hatcher id when present; otherwise it defaults to `H`. The
-  add action asks for the Hatcher identity before creating another machine in the
-  same audit session and rejects duplicate H-normalized identities. The remove
-  action appears once more than one machine is available.
-  Hatcher machine chips use labels from the hatcher number, such as `H5` and
-  `H7`, and they never include setter scope.
+- Shared Hatcher, Trolley, and Tray sampling controls. Pooled ancestors start
+  active; adding a Hatcher requires an entered identity and creates a comparison
+  tab with an identified terminal Tray. Switching leaves restores their own
+  settings, observations, and evidence. Deleting any branch requires confirmation.
 - A Hatcher settings card for the active hatcher sample, containing outlined
   numeric entry fields for machine temperature setpoint in Fahrenheit, RH
   setpoint percentage, incubation age from 18 to 21 days, and incubation hours
@@ -1518,18 +1510,12 @@ Hatchers captures:
 - Meconium assessment: Normal, Dark greenish, Water, or Excessive, with a
   panel photo action for evidence.
 
-Hatchers does not expose the generic Sample Mode selector, a hatcher type
-selector, turning-angle fields, or Transfer Day. The dedicated Machine scope
-card is shown at the top level, above the Hatcher settings card, and is the
-comparison control. Hatcher comparison samples persist as machine samples with
-`hatcher_optimizing` rows. The table's sampling hierarchy starts at the
-`hatcher` machine column and can nest `trolley` then `tray`; it does not include
-house or setter hierarchy columns. Multiple hatchers use the `hatcher`
-hierarchy column as their row identity. Removing hatchers until only one remains
-returns the station to the single-sample state and saves the station-sample
-hatcher identity from the edited Hatcher number field. Saving a blank/default
-Hatchers station confirms as an incomplete station save without creating a
-metadata-only `hatcher_optimizing` row.
+Hatchers does not expose a hatcher type selector, turning-angle fields, or
+Transfer Day. Shared sampling controls appear above Hatcher settings. Saved
+`hatcher_optimizing` rows carry Hatcher/Trolley/Tray paths and independent sample
+IDs; House and Setter remain null. One comparison Hatcher stays comparison until
+it is explicitly deleted. Blank leaves do not create metadata-only measurement
+rows.
 
 Govee is a standalone daily capture workflow. It is independent from audit
 sessions and is keyed by `customerId`, `hatcheryId`, place, nullable machine id,
@@ -2039,6 +2025,28 @@ percentages, hatchability, fertility, HOF, EST averages, and CVT averages, are
 stored on the corresponding panel row for dashboard queries and sync.
 
 ## 6. Models and Provider State
+
+Shared sampling models and `PanelSamplingStateRepository` own per-session,
+per-panel trees, native/Tray leaves, immutable IDs, reserved serials, and paths.
+`AuditProvider` projects each active leaf into the existing panel form and keeps
+independent drafts for loaded panels. Breakout-type switching flushes and restores
+counts and notes for the selected panel; optimizer settings use their existing
+saved field names. Saved rows reconstruct those drafts after
+reopen. The save coordinator bypasses legacy hierarchy pruning for managed
+panels and attaches validated sampling metadata before the row upsert.
+
+SQLite version 82 adds `panel_sampling_states`, `panel_sampling_nodes`, and
+`panel_sample_serial_reservations` plus additive metadata columns on all nine
+panel tables. Startup sync uploads sampling before measurements and pulls it
+before measurement rows. Server serial reconciliation uses a session/panel lock
+and deterministic collision repair; failed or deferred reconciliation blocks
+measurement uploads. Reservations survive branch deletion and stale snapshots
+cannot lower the serial high-watermark or a reconciled reservation.
+
+Customer, hatchery, and flock reference forms accept an optional uppercase
+three-letter ASCII sampling code. Display codes use entered reference codes,
+the maintained breed abbreviation, selected scope segments, and `SA<n>`. Missing
+reference codes display the serial fallback instead of invented abbreviations.
 
 `AuthProvider` manages auth state, Supabase sign-in/sign-up, offline/local login
 fallback, cached token checks, pending approval state, and logout. The temporary

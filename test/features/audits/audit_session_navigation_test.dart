@@ -16,6 +16,7 @@ import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/providers/audit_session_provider.dart';
 import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
+import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_session_screen.dart';
 import 'package:hatchaudit/features/audits/screens/audit_station_selection_screen.dart';
 import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
@@ -1676,9 +1677,15 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Machine scope'), findsOneWidget);
-    expect(find.text('S1H1'), findsOneWidget);
-    expect(find.text('S2H2'), findsOneWidget);
+    final stationProvider = Provider.of<AuditProvider>(
+      tester.element(find.byType(ChickQualityScreen)),
+      listen: false,
+    );
+    expect(stationProvider.sampleCount, 2);
+    expect(
+      stationProvider.drafts.map((draft) => draft.pasgarFinalScore).toList(),
+      [95.0, 96.0],
+    );
   });
 
   testWidgets('resumed Chicks station uses edited flock context', (

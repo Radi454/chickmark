@@ -3,12 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
-import 'package:hatchaudit/data/models/station_sample_model.dart';
+import 'package:hatchaudit/data/models/panel_sampling_state.dart';
+import 'package:hatchaudit/data/models/poultry_hierarchy_models.dart';
+import 'package:hatchaudit/data/models/sampling_scope.dart';
+import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
+import 'package:hatchaudit/data/repositories/poultry_hierarchy_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/temperature_capture/temperature_capture_screen.dart';
 import 'package:hatchaudit/features/audits/screens/egg_storage_screen.dart';
 import 'package:hatchaudit/features/audits/widgets/photo_button.dart';
+import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
@@ -16,6 +21,237 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
+
+class _RegisteredHouseRepository extends PoultryHierarchyRepository {
+  @override
+  Future<List<HouseModel>> listHouses(
+    String flockId, {
+    bool activeOnly = true,
+  }) async => [
+    HouseModel(
+      id: 'house-1',
+      flockId: flockId,
+      name: 'North House',
+      code: 'N01',
+    ),
+  ];
+}
+
+class _ScreenSamplingRepository extends PanelSamplingStateRepository {
+  final Map<String, PanelSamplingState> _states = {};
+  int _nextNodeId = 0;
+
+  String _key(String sessionId, String panelKey) => '$sessionId:$panelKey';
+
+  SamplingNode _sample({
+    required String sessionId,
+    required String panelKey,
+    required int number,
+    required String? parentId,
+  }) => SamplingNode(
+    id: 'sample-node-${++_nextNodeId}',
+    sessionId: sessionId,
+    panelKey: panelKey,
+    parentId: parentId,
+    level: SamplingScopeLevel.sample,
+    identityKey: 'SA$number',
+    identity: const {},
+    sampleId: 'sample-$number',
+    sampleNumber: number,
+  );
+
+  PanelSamplingState _state(
+    String sessionId,
+    String panelKey,
+    List<SamplingNode> nodes, {
+    required String activeSampleId,
+    required int highWatermark,
+  }) => PanelSamplingState(
+    sessionId: sessionId,
+    panelKey: panelKey,
+    nodes: nodes,
+    activeSampleId: activeSampleId,
+    serialHighWatermark: highWatermark,
+  );
+
+  @override
+  Future<PanelSamplingState> loadOrCreateDefault({
+    required String sessionId,
+    required String panelKey,
+  }) async {
+    return _states.putIfAbsent(_key(sessionId, panelKey), () {
+      final sample = _sample(
+        sessionId: sessionId,
+        panelKey: panelKey,
+        number: 1,
+        parentId: null,
+      );
+      return _state(
+        sessionId,
+        panelKey,
+        [sample],
+        activeSampleId: sample.sampleId!,
+        highWatermark: 1,
+      );
+    });
+  }
+
+  @override
+  Future<SamplingNode> addScopeIdentity({
+    required String sessionId,
+    required String panelKey,
+    required String? parentId,
+    required SamplingScopeLevel level,
+    required Map<String, String> identity,
+    bool discardPooledData = false,
+  }) async {
+    final key = _key(sessionId, panelKey);
+    final current = await loadOrCreateDefault(
+      sessionId: sessionId,
+      panelKey: panelKey,
+    );
+    if (current.hasIdentityUnderParent(
+      parentId: parentId,
+      level: level,
+      identity: identity,
+    )) {
+      throw StateError('That identity already exists under this parent.');
+    }
+    final node = SamplingNode(
+      id: 'scope-node-${++_nextNodeId}',
+      sessionId: sessionId,
+      panelKey: panelKey,
+      parentId: parentId,
+      level: level,
+      identityKey: identity['code'],
+      identity: identity,
+    );
+    final nodes = current.nodes
+        .where(
+          (item) =>
+              !(item.parentId == parentId &&
+                  item.level == SamplingScopeLevel.sample &&
+                  item.identity.isEmpty),
+        )
+        .toList();
+    _states[key] = _state(
+      sessionId,
+      panelKey,
+      [...nodes, node],
+      activeSampleId: '',
+      highWatermark: current.serialHighWatermark,
+    );
+    return node;
+  }
+
+  @override
+  Future<SamplingNode> addTerminalSample({
+    required String sessionId,
+    required String panelKey,
+    required String? parentId,
+    Map<String, String>? identity,
+  }) async {
+    final key = _key(sessionId, panelKey);
+    final current = await loadOrCreateDefault(
+      sessionId: sessionId,
+      panelKey: panelKey,
+    );
+    final number = current.serialHighWatermark + 1;
+    final sample = _sample(
+      sessionId: sessionId,
+      panelKey: panelKey,
+      number: number,
+      parentId: parentId,
+    );
+    _states[key] = _state(
+      sessionId,
+      panelKey,
+      [...current.nodes, sample],
+      activeSampleId: sample.sampleId!,
+      highWatermark: number,
+    );
+    return sample;
+  }
+
+  @override
+  Future<void> updateScopeIdentity({
+    required String nodeId,
+    required Map<String, String> identity,
+  }) async {
+    for (final entry in _states.entries) {
+      final current = entry.value;
+      final index = current.nodes.indexWhere((node) => node.id == nodeId);
+      if (index < 0) continue;
+      final nodes = [...current.nodes];
+      nodes[index] = nodes[index].copyWith(
+        identity: identity,
+        identityKey: identity['code'],
+      );
+      _states[entry.key] = _state(
+        current.sessionId,
+        current.panelKey,
+        nodes,
+        activeSampleId: current.activeSampleId,
+        highWatermark: current.serialHighWatermark,
+      );
+      return;
+    }
+  }
+
+  @override
+  Future<SamplingDeletePreview> previewDeleteSubtree({
+    required String nodeId,
+  }) async => SamplingDeletePreview(
+    nodeId: nodeId,
+    scopeLabel: 'North House',
+    descendantCount: 1,
+    measurementCount: 1,
+    photoCount: 2,
+    noteCount: 1,
+  );
+
+  @override
+  Future<void> deleteSubtree({required String nodeId}) async {
+    for (final entry in _states.entries) {
+      final current = entry.value;
+      if (!current.nodes.any((node) => node.id == nodeId)) continue;
+      final removed = <String>{nodeId};
+      var changed = true;
+      while (changed) {
+        changed = false;
+        for (final node in current.nodes) {
+          if (node.parentId != null &&
+              removed.contains(node.parentId) &&
+              removed.add(node.id)) {
+            changed = true;
+          }
+        }
+      }
+      var nodes = current.nodes
+          .where((node) => !removed.contains(node.id))
+          .toList();
+      var highWatermark = current.serialHighWatermark;
+      if (!nodes.any((node) => node.sampleId != null)) {
+        final sample = _sample(
+          sessionId: current.sessionId,
+          panelKey: current.panelKey,
+          number: ++highWatermark,
+          parentId: null,
+        );
+        nodes = [...nodes, sample];
+      }
+      final active = nodes.firstWhere((node) => node.sampleId != null);
+      _states[entry.key] = _state(
+        current.sessionId,
+        current.panelKey,
+        nodes,
+        activeSampleId: active.sampleId!,
+        highWatermark: highWatermark,
+      );
+      return;
+    }
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -50,11 +286,15 @@ void main() {
     AuditContextData? auditContext,
     EggBmkWeightLookup? bmkEggWeightLookup,
   }) async {
+    final samplingRepository = _ScreenSamplingRepository();
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider(
-            create: (_) => AuditProvider(autosaveEnabled: false),
+            create: (_) => AuditProvider(
+              autosaveEnabled: false,
+              panelSamplingStateRepository: samplingRepository,
+            ),
           ),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
@@ -73,52 +313,66 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> addNamedScope(
+  Future<(AuditProvider, _ScreenSamplingRepository)> pumpSamplingControls(
     WidgetTester tester, {
-    required String tooltip,
-    required Map<String, String> identities,
+    required String panelKey,
   }) async {
-    await tester.ensureVisible(find.byTooltip(tooltip));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(tooltip));
-    await tester.pumpAndSettle();
-    for (final entry in identities.entries) {
-      await tester.enterText(
-        find.byKey(ValueKey('scope-identity-${entry.key}')),
-        entry.value,
-      );
+    final repository = _ScreenSamplingRepository();
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Egg',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            breed: 'Ross 308',
+            date: '2026-04-27',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: provider),
+          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(
+                panelKey: panelKey,
+                houseRepository: _RegisteredHouseRepository(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-    await tester.pumpAndSettle();
+    return (provider, repository);
   }
 
-  // The Sample Mode bar's "Compare by house" chip is now the only way to
-  // switch Egg Quality out of pooled: it seeds one placeholder house. This
-  // helper enters compare mode and immediately names that first house via
-  // the inline identity field, so callers land on the same station-sample
-  // count and houseNo values the dialog-based flow used to produce.
-  Future<void> enterCompareModeWithFirstHouse(
-    WidgetTester tester, {
-    required String house,
-  }) async {
-    await tester.ensureVisible(
-      find.widgetWithText(ChoiceChip, 'Compare by house'),
+  Future<void> chooseRegisteredNorthHouse(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Add House'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is DropdownButtonFormField),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Compare by house'));
-    await tester.pumpAndSettle();
-    final houseField = find.byWidgetPredicate(
-      (w) =>
-          w is TextFormField &&
-          (w.key as ValueKey?)?.value.toString().startsWith(
-                'egg-quality-house-',
-              ) ==
-              true,
-    );
-    await tester.ensureVisible(houseField);
-    await tester.enterText(houseField, house);
     await tester.pump();
+    await tester.tap(find.text('North House').last);
+    await tester.pump();
+    await tester.tap(find.text('Save').last);
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   testWidgets('Capture readings launches the reusable capture screen', (
@@ -361,11 +615,7 @@ void main() {
     expect((flockRect.width - breedRect.width).abs(), lessThan(1));
     expect((breedRect.width - bmkAgeRect.width).abs(), lessThan(1));
 
-    expect(find.text('Sampling scope'), findsNothing);
-    expect(find.text('Record one house or compare houses'), findsNothing);
-    expect(find.text('One sample'), findsNothing);
-    expect(find.text('1 sample'), findsNothing);
-    expect(find.text('Multiple samples'), findsNothing);
+    expect(find.byType(SamplingScopeControls), findsNWidgets(2));
     expect(find.byType(SegmentedButton<bool>), findsNothing);
     expect(
       find.byKey(const ValueKey('egg-sample-mode-icon-single')),
@@ -375,12 +625,7 @@ void main() {
       find.byKey(const ValueKey('egg-sample-mode-icon-multiple')),
       findsNothing,
     );
-    // The house-chip strip only renders once the station is in compare
-    // mode; while pooled, "Sample mode" bars cover this state instead.
-    expect(find.text('House scope'), findsNothing);
-    expect(find.text('Machine scope'), findsNothing);
-    expect(find.text('Sample mode'), findsWidgets);
-    expect(find.text('Pool'), findsOneWidget);
+    expect(find.byTooltip('Add House'), findsNothing);
     expect(find.text('UV torch inspection by tray'), findsNothing);
     expect(find.text('Optional station comments'), findsNothing);
 
@@ -419,45 +664,6 @@ void main() {
     expect(find.text('EW'), findsNothing);
     expect(find.byKey(const ValueKey('egg-workbench-mark-EW')), findsNothing);
     expect(find.text('0/100'), findsNothing);
-    // While pooled, the house-chip strip (and its "Add house sample"
-    // button) is hidden; the Sample Mode bar's "Compare by house" chip is
-    // the only way to switch into compare mode now.
-    expect(find.byTooltip('Add house sample'), findsNothing);
-    expect(find.byTooltip('Add machine sample'), findsNothing);
-
-    await enterCompareModeWithFirstHouse(tester, house: '12');
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('Add house sample'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.byTooltip('Add house sample')).dy,
-      lessThan(tester.getTopLeft(find.text('Egg Weights & Uniformity')).dy),
-    );
-
-    final h = find.widgetWithText(ChoiceChip, 'H12');
-    final addHouse = find.byTooltip('Add house sample');
-    final removeHouse = find.byTooltip('Remove active house sample');
-
-    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
-    expect(h, findsOneWidget);
-    expect(removeHouse, findsOneWidget);
-    expect(tester.getCenter(addHouse).dx, greaterThan(tester.getCenter(h).dx));
-    expect(
-      tester.getCenter(removeHouse).dx,
-      greaterThan(tester.getCenter(addHouse).dx),
-    );
-    expect(tester.getTopLeft(addHouse).dy, tester.getTopLeft(removeHouse).dy);
-
-    await tester.ensureVisible(removeHouse);
-    await tester.pumpAndSettle();
-    await tester.tap(removeHouse);
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'H'), findsNothing);
-    expect(find.text('Pool'), findsOneWidget);
-    expect(find.byTooltip('Remove active house sample'), findsNothing);
-
     await tester.ensureVisible(find.text('Egg Shell Quality'));
     await tester.pump();
     expect(find.text('UV'), findsNothing);
@@ -469,6 +675,8 @@ void main() {
 
     await tester.tap(find.text('Egg Shell Quality'));
     await tester.pumpAndSettle();
+
+    expect(find.byType(SamplingScopeControls), findsNWidgets(2));
 
     final uvSummary = find.byKey(const ValueKey('uv-percent-summary-card'));
     expect(uvSummary, findsOneWidget);
@@ -552,128 +760,111 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('egg quality house scope card edits active sample identities', (
+  testWidgets('egg quality uses registered House identities for samples', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
+    final (provider, repository) = await pumpSamplingControls(
+      tester,
+      panelKey: 'egg_quality',
     );
 
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
+    await chooseRegisteredNorthHouse(tester);
 
-    final houseField = find.widgetWithText(TextFormField, 'House');
-    expect(houseField, findsOneWidget);
+    final house = repository._states.values
+        .expand((state) => state.nodes)
+        .singleWhere((node) => node.level == SamplingScopeLevel.house);
+    expect(house.identity['id'], 'house-1');
+    expect(house.identity['code'], 'N01');
+    expect(house.identity['name'], 'North House');
+    expect(find.text('North House'), findsOneWidget);
+    expect(find.textContaining('HN01'), findsOneWidget);
+    expect(repository._states.values.single.samples, hasLength(1));
 
-    await tester.enterText(houseField, '9');
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'H9'), findsOneWidget);
-    expect(provider.activeStationSample.houseNo, '9');
-    expect(provider.activeStationSample.houseLabel, 'House 9');
-
-    expect(find.text('Machine scope'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
+    expect(provider.samplingStateFor('egg_quality')?.samples, hasLength(1));
+    provider.dispose();
   });
 
-  testWidgets('egg quality house field stays active while entering a number', (
+  testWidgets('registered House picker cancellation and duplicate are safe', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
+    final (provider, repository) = await pumpSamplingControls(
+      tester,
+      panelKey: 'egg_quality',
     );
 
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
-
-    final houseField = find.widgetWithText(TextFormField, 'House');
-    await tester.tap(houseField);
+    await tester.tap(find.byTooltip('Add House'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.tap(find.text('Cancel').last);
     await tester.pump();
+    expect(repository._states.values.single.samples, hasLength(1));
 
-    final editingFocus = FocusManager.instance.primaryFocus;
-    expect(editingFocus, isNotNull);
-
-    await tester.enterText(houseField, '1');
+    await chooseRegisteredNorthHouse(tester);
+    await tester.tap(find.byTooltip('Add House'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is DropdownButtonFormField),
+    );
     await tester.pump();
+    await tester.tap(find.text('North House').last);
+    await tester.pump();
+    await tester.tap(find.text('Save').last);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
 
-    expect(find.widgetWithText(TextFormField, 'House'), findsOneWidget);
-    expect(FocusManager.instance.primaryFocus, same(editingFocus));
-    expect(tester.testTextInput.isVisible, isTrue);
-  });
-
-  testWidgets('egg quality house field syncs metadata changes while idle', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
-
-    provider.updateSampleMetadata({'houseNo': '8'});
-    await tester.pumpAndSettle();
-
-    final houseField = tester.widget<TextField>(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextField && widget.decoration?.labelText == 'House',
-      ),
-    );
-    expect(houseField.controller?.text, '8');
-  });
-
-  testWidgets('egg quality generated house scope labels leave fields empty', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(700, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-
-    provider.addEggQualityScopeSample(StationSampleModel.sampleKindHouse);
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(ChoiceChip, 'H1'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'H'), findsOneWidget);
     expect(
-      tester
-          .widget<TextField>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is TextField &&
-                  widget.decoration?.labelText == 'House',
-            ),
-          )
-          .controller
-          ?.text,
-      '',
+      find.text('That identity already exists under this parent.'),
+      findsOneWidget,
+    );
+    expect(
+      repository._states.values.single.nodes.where(
+        (node) => node.level == SamplingScopeLevel.house,
+      ),
+      hasLength(1),
+    );
+    provider.dispose();
+  });
+
+  testWidgets('measured Pooled egg quality requires explicit reset', (
+    tester,
+  ) async {
+    final (provider, repository) = await pumpSamplingControls(
+      tester,
+      panelKey: 'egg_quality',
+    );
+    provider.updateField('esEggSampleSize', 30);
+    await tester.pump();
+
+    await chooseRegisteredNorthHouse(tester);
+    expect(find.text('Reset Pooled sample?'), findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pump();
+    expect(repository._states.values.single.samples, hasLength(1));
+    expect(
+      repository._states.values.single.nodes.where(
+        (node) => node.level == SamplingScopeLevel.house,
+      ),
+      isEmpty,
     );
 
-    expect(find.text('Machine scope'), findsNothing);
-    expect(find.widgetWithText(ChoiceChip, 'SH'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Setter'), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Hatcher'), findsNothing);
+    await chooseRegisteredNorthHouse(tester);
+    expect(find.text('Reset Pooled sample?'), findsOneWidget);
+    await tester.tap(find.text('Delete and continue'));
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(repository._states.values.single.samples, hasLength(1));
+    expect(
+      repository._states.values.single.nodes.where(
+        (node) => node.level == SamplingScopeLevel.house,
+      ),
+      hasLength(1),
+    );
+    provider.dispose();
   });
 
   testWidgets(
@@ -764,79 +955,51 @@ void main() {
     }
   });
 
-  testWidgets('egg house add cancels safely and rejects normalized duplicate', (
+  testWidgets('removing a registered House requires delete confirmation', (
     tester,
   ) async {
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
+    final (provider, repository) = await pumpSamplingControls(
+      tester,
+      panelKey: 'egg_quality',
     );
+    await chooseRegisteredNorthHouse(tester);
 
-    await enterCompareModeWithFirstHouse(tester, house: '12');
-    expect(provider.isCompareMode, isTrue);
-    expect(provider.stationSamples, hasLength(1));
-
-    await tester.ensureVisible(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
-    expect(find.text('Add House scope'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-identity-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.stationSamples, hasLength(1));
-
-    await tester.ensureVisible(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add house sample'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('scope-identity-house')),
-      'H12',
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scope-identity-add')));
-    await tester.pumpAndSettle();
-
+    final removeHouse = find.byTooltip('Remove North House');
+    expect(removeHouse, findsOneWidget);
+    await tester.tap(removeHouse);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('Delete North House?'), findsOneWidget);
     expect(
-      find.text('A House scope with this identity already exists.'),
+      find.textContaining('1 branches, 1 measurements, 2 photos, and 1 notes'),
       findsOneWidget,
     );
-    expect(provider.stationSamples, hasLength(1));
-  });
-
-  testWidgets('egg house removal confirms before discarding entered results', (
-    tester,
-  ) async {
-    await pumpScreen(tester);
-    final provider = Provider.of<AuditProvider>(
-      tester.element(find.byType(EggStorageScreen)),
-      listen: false,
-    );
-    await enterCompareModeWithFirstHouse(tester, house: '12');
-    await addNamedScope(
-      tester,
-      tooltip: 'Add house sample',
-      identities: const {'house': '13'},
-    );
-    provider.updateField('esEggSampleSize', 30);
+    await tester.tap(find.text('Cancel').last);
     await tester.pump();
+    expect(
+      repository._states.values.single.nodes.where(
+        (node) => node.level == SamplingScopeLevel.house,
+      ),
+      hasLength(1),
+    );
 
-    await tester.ensureVisible(find.byTooltip('Remove active house sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Remove active house sample'));
-    await tester.pumpAndSettle();
-    expect(find.text('Remove scope?'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scope-removal-cancel')));
-    await tester.pumpAndSettle();
-    expect(provider.stationSamples, hasLength(2));
-    expect(provider.activeDraft.esEggSampleSize, 30);
-
-    await tester.tap(find.byTooltip('Remove active house sample'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('scope-removal-confirm')));
-    await tester.pumpAndSettle();
-    expect(provider.stationSamples, hasLength(1));
-    expect(provider.activeStationSample.houseNo, '12');
+    await tester.tap(removeHouse);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.tap(find.text('Delete').last);
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(
+      repository._states.values.single.nodes.where(
+        (node) => node.level == SamplingScopeLevel.house,
+      ),
+      isEmpty,
+    );
+    expect(repository._states.values.single.samples, hasLength(1));
+    expect(provider.samplingStateFor('egg_quality')?.samples, hasLength(1));
+    provider.dispose();
   });
 }

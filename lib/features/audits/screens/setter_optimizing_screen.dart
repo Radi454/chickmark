@@ -28,6 +28,7 @@ import '../widgets/audit_scope_dialogs.dart';
 import '../widgets/audit_station_scroll_view.dart';
 import '../widgets/est_grid_widget.dart';
 import '../widgets/photo_button.dart';
+import '../widgets/sampling_scope_controls.dart';
 import '../widgets/temperature_unit_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import 'audit_context_screen.dart';
@@ -37,6 +38,7 @@ class SetterOptimizingScreen extends StatefulWidget {
   final AuditModel? initialAudit;
   final List<AuditModel> initialAudits;
   final List<StationSampleModel> initialStationSamples;
+  final Map<String, Map<String, AuditModel>> initialSamplingDraftsByPanel;
   final int initialSectionIndex;
 
   const SetterOptimizingScreen({
@@ -45,6 +47,7 @@ class SetterOptimizingScreen extends StatefulWidget {
     this.initialAudit,
     this.initialAudits = const [],
     this.initialStationSamples = const [],
+    this.initialSamplingDraftsByPanel = const {},
     this.initialSectionIndex = -1,
   });
 
@@ -134,6 +137,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       notify: false,
       currentUser: context.read<AuthProvider>().user,
       sessionId: widget.context.sessionId,
+      samplingDraftsByPanel: widget.initialSamplingDraftsByPanel,
     );
     _initializeFormState(auditProvider.activeDraft);
     _activeAuditId = auditProvider.activeDraft.id;
@@ -409,135 +413,7 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
   }
 
   Widget _buildSetterTabs(AuditProvider provider) {
-    return _buildSetterSampleControlCard(
-      key: const ValueKey('setter-machine-scope-card'),
-      title: 'Machine scope',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSetterMachineScopeChips(provider),
-          const SizedBox(height: 12),
-          _buildSetterNumberField(provider),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSetterSampleControlCard({
-    Key? key,
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      key: key,
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.borderDefault),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSetterMachineScopeChips(AuditProvider provider) {
-    final chips = [
-      for (final entry in provider.drafts.asMap().entries)
-        _buildSetterScopeChip(
-          label: _setterTabLabel(entry.value, entry.key),
-          selected: provider.activeSampleIndex == entry.key,
-          enabled: !provider.isReadOnly,
-          onSelected: () => _switchSetterSample(provider, entry.key),
-        ),
-    ];
-
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildSetterSampleActionButton(
-          tooltip: context.tr('Add machine sample'),
-          icon: Icons.add,
-          onPressed: provider.isReadOnly
-              ? null
-              : () => _addSetterMachineSample(provider),
-        ),
-        if (provider.sampleCount > 1) ...[
-          const SizedBox(width: 8),
-          _buildSetterSampleActionButton(
-            tooltip: context.tr('Remove active machine sample'),
-            icon: Icons.remove,
-            onPressed: provider.isReadOnly
-                ? null
-                : () => _removeActiveSetterSample(provider),
-          ),
-        ],
-      ],
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 520) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [...chips, actions],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: chips,
-              ),
-            ),
-            const SizedBox(width: 8),
-            actions,
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSetterScopeChip({
-    required String label,
-    required bool selected,
-    required bool enabled,
-    required VoidCallback onSelected,
-  }) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: enabled ? (_) => onSelected() : null,
-      selectedColor: AppColors.primary.withAlpha(30),
-      checkmarkColor: AppColors.primary,
-      labelStyle: AppTextStyles.body.copyWith(
-        color: selected ? AppColors.primary : AppColors.textBody,
-        fontWeight: FontWeight.w800,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: selected ? AppColors.primary : AppColors.borderDefault,
-        ),
-      ),
-    );
+    return const SamplingScopeControls(panelKey: 'setter_optimizing');
   }
 
   Widget _buildSetterSampleActionButton({
@@ -581,76 +457,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Future<void> _addSetterMachineSample(AuditProvider provider) async {
-    final values = await showAuditScopeIdentityDialog(
-      context,
-      scopeLabel: 'Machine',
-      fields: const [AuditScopeIdentityField(key: 'setter', label: 'Setter')],
-      validator: (values) => _hasDuplicateSetter(provider, values['setter']!)
-          ? 'A Machine scope with this identity already exists.'
-          : null,
-    );
-    if (values == null || !mounted) return;
-    final setter = values['setter']!;
-    provider.addSample();
-    provider.updateField('setterId', setter);
-    provider.updateField('soSetterId', setter);
-    setState(() {
-      _syncActiveSampleForm(provider, provider.activeDraft);
-    });
-  }
-
-  bool _hasDuplicateSetter(AuditProvider provider, String setter) {
-    final normalized = normalizeAuditScopeIdentity(setter, prefix: 'S');
-    return provider.drafts.any(
-      (draft) =>
-          normalizeAuditScopeIdentity(
-            draft.setterId ?? draft.soSetterId ?? '',
-            prefix: 'S',
-          ) ==
-          normalized,
-    );
-  }
-
-  void _switchSetterSample(AuditProvider provider, int index) {
-    provider.switchSample(index);
-    if (!mounted) return;
-    setState(() {
-      _syncActiveSampleForm(provider, provider.activeDraft);
-    });
-  }
-
-  Future<void> _removeActiveSetterSample(AuditProvider provider) async {
-    final confirmed = await confirmAuditScopeRemoval(
-      context,
-      hasEnteredResults: provider.stationScopeHasEnteredResults(
-        provider.activeSampleIndex,
-      ),
-    );
-    if (!confirmed || !mounted) return;
-    provider.removeActiveSample();
-    setState(() {
-      _syncActiveSampleForm(provider, provider.activeDraft);
-    });
-  }
-
-  Widget _buildSetterNumberField(AuditProvider auditProvider) {
-    return TextField(
-      key: const ValueKey('setter-machine-scope-number-field'),
-      controller: _setterIdController,
-      enabled: !auditProvider.isReadOnly,
-      decoration: const InputDecoration(
-        labelText: 'Setter number',
-        border: OutlineInputBorder(),
-      ),
-      onChanged: (value) {
-        auditProvider.updateField('setterId', value);
-        auditProvider.updateField('soSetterId', value);
-        if (mounted) setState(() {});
-      },
     );
   }
 
@@ -1611,17 +1417,6 @@ class _SetterOptimizingScreenState extends State<SetterOptimizingScreen> {
       ],
     ),
   );
-
-  String _setterTabLabel(AuditModel audit, int index) {
-    final raw = (audit.setterId ?? audit.soSetterId ?? '').trim();
-    if (raw.isEmpty) return 'S';
-    final digits = RegExp(r'\d+').allMatches(raw).map((m) => m.group(0)).join();
-    if (digits.isNotEmpty) return 'S$digits';
-    final withoutPrefix = raw.toLowerCase().startsWith('s')
-        ? raw.substring(1).trim()
-        : raw;
-    return 'S$withoutPrefix';
-  }
 
   String _setterNumberValue(AuditModel audit) {
     final raw = (audit.setterId ?? audit.soSetterId ?? '').trim();

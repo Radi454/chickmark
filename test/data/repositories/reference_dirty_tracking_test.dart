@@ -62,6 +62,37 @@ void main() {
       (await db.query(table, where: 'id = ?', whereArgs: [id])).single;
 
   group('CustomerRepository dirty tracking', () {
+    test(
+      'sampling code survives local insert, edit, and remote upsert',
+      () async {
+        await customerRepo.insertCustomer(
+          _customer('code-c', samplingCode: 'org'),
+        );
+        expect(
+          (await customerRepo.getCustomerById('code-c'))?.samplingCode,
+          'ORG',
+        );
+
+        await customerRepo.updateCustomer(
+          _customer('code-c', samplingCode: 'new'),
+        );
+        expect(
+          (await customerRepo.getCustomerById('code-c'))?.samplingCode,
+          'NEW',
+        );
+
+        await customerRepo.upsertCustomer({
+          'id': 'remote-c',
+          'name': 'Remote',
+          'sampling_code': 'rem',
+        });
+        expect(
+          (await customerRepo.getCustomerById('remote-c'))?.samplingCode,
+          'REM',
+        );
+      },
+    );
+
     test('insert stamps the row pending with a dirtyAt', () async {
       await customerRepo.insertCustomer(_customer('c1'));
       final row = await rowById('customers', 'c1');
@@ -136,6 +167,20 @@ void main() {
   });
 
   group('HatcheryRepository dirty tracking', () {
+    test('sampling code survives hatchery repository round trips', () async {
+      await hatcheryRepo.insertHatchery(
+        _hatchery('code-h', samplingCode: 'hat'),
+      );
+      expect((await hatcheryRepo.getById('code-h'))?.samplingCode, 'HAT');
+      await hatcheryRepo.upsertHatchery({
+        'id': 'remote-h',
+        'customer_id': 'c1',
+        'name': 'Remote',
+        'sampling_code': 'rem',
+      });
+      expect((await hatcheryRepo.getById('remote-h'))?.samplingCode, 'REM');
+    });
+
     test('insert stamps the row pending with a dirtyAt', () async {
       await hatcheryRepo.insertHatchery(_hatchery('h1'));
       final row = await rowById('hatcheries', 'h1');
@@ -221,6 +266,19 @@ void main() {
   });
 
   group('FlockRepository dirty tracking', () {
+    test('sampling code survives flock repository round trips', () async {
+      await flockRepo.insertFlock(_flock('code-f', samplingCode: 'frm'));
+      expect((await flockRepo.getFlockById('code-f'))?.samplingCode, 'FRM');
+      await flockRepo.upsertFlock({
+        'id': 'remote-f',
+        'customerId': 'c1',
+        'flockId': 'remote-f',
+        'breed': 'Ross308',
+        'samplingCode': 'rem',
+      });
+      expect((await flockRepo.getFlockById('remote-f'))?.samplingCode, 'REM');
+    });
+
     test('insert stamps the row pending with a dirtyAt', () async {
       await flockRepo.insertFlock(_flock('f1'));
       final row = await rowById('flocks', 'f1');
@@ -312,28 +370,41 @@ void main() {
   });
 }
 
-CustomerModel _customer(String id, {String name = 'Local Customer'}) =>
-    CustomerModel(
-      id: id,
-      name: name,
-      createdAt: DateTime(2026, 8, 1),
-      createdBy: 'tester',
-    );
+CustomerModel _customer(
+  String id, {
+  String name = 'Local Customer',
+  String? samplingCode,
+}) => CustomerModel(
+  id: id,
+  name: name,
+  samplingCode: samplingCode,
+  createdAt: DateTime(2026, 8, 1),
+  createdBy: 'tester',
+);
 
-HatcheryModel _hatchery(String id, {String name = 'Local Hatchery'}) =>
-    HatcheryModel(
-      id: id,
-      customerId: 'c1',
-      name: name,
-      createdAt: DateTime(2026, 8, 1),
-      createdBy: 'tester',
-    );
+HatcheryModel _hatchery(
+  String id, {
+  String name = 'Local Hatchery',
+  String? samplingCode,
+}) => HatcheryModel(
+  id: id,
+  customerId: 'c1',
+  name: name,
+  samplingCode: samplingCode,
+  createdAt: DateTime(2026, 8, 1),
+  createdBy: 'tester',
+);
 
-FlockModel _flock(String id, {String breed = 'Local Breed'}) => FlockModel(
+FlockModel _flock(
+  String id, {
+  String breed = 'Local Breed',
+  String? samplingCode,
+}) => FlockModel(
   id: id,
   customerId: 'c1',
   flockId: id,
   breed: breed,
+  samplingCode: samplingCode,
   entryDate: DateTime(2026, 8, 1),
 );
 
@@ -344,6 +415,7 @@ Future<void> _createSchema(Database db) async {
     location TEXT,
     phone TEXT,
     email TEXT,
+    samplingCode TEXT,
     createdAt TEXT,
     createdBy TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -357,6 +429,7 @@ Future<void> _createSchema(Database db) async {
     name TEXT NOT NULL,
     location TEXT,
     notes TEXT,
+    samplingCode TEXT,
     createdAt TEXT,
     createdBy TEXT,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -369,6 +442,7 @@ Future<void> _createSchema(Database db) async {
     customerId TEXT,
     flockId TEXT,
     breed TEXT,
+    samplingCode TEXT,
     entryDate TEXT,
     farmId TEXT,
     sectorKey TEXT,

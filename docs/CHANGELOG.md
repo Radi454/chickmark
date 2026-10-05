@@ -1,5 +1,18 @@
 # ChickMark Change Log
 
+- 2026-10-05: Replaced station-specific sampling with panel-scoped trees and
+  independent sample drafts, immutable IDs, full saved paths, and reserved SA
+  serials. Added shared scope controls, registered House selection, explicit
+  destructive branch/reset confirmation, empty Pooled restoration after the
+  final comparison deletion, and independent quality/weight/breakout adapters.
+  Preserved legacy row identities, Setter incubation-age data, and existing
+  measurement/photo forms. Added optional three-letter reference codes,
+  SQLite v82 and an additive Supabase migration, sampling-first sync with
+  deterministic serial reconciliation, and stale-save deletion protection.
+  Added session sampling cleanup, shared photo-file protection, and independent
+  breakout counts/notes across type switches, preserving the selected breakout
+  type and resetting form controllers when the active leaf changes.
+
 - 2026-09-22: Added automated GitHub Pages deployment for the Flutter web app.
   Pushes to `main` build the release app for the `/chickmark/` project path
   using Supabase public client configuration stored as GitHub secrets, then

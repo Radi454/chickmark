@@ -3,6 +3,24 @@ import 'package:hatchaudit/data/models/station_sample_model.dart';
 
 void main() {
   group('StationSampleModel', () {
+    test('round trips tree sample identity independently of panel row id', () {
+      final sample = StationSampleModel(
+        id: 'session:egg_quality:draft:row',
+        sampleId: 'immutable-tree-leaf',
+        auditSessionId: 'session',
+        stationType: 'egg',
+        sampleIndex: 1,
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      );
+
+      final restored = StationSampleModel.fromMap(sample.toMap());
+
+      expect(restored.id, 'session:egg_quality:draft:row');
+      expect(restored.sampleId, 'immutable-tree-leaf');
+      expect(restored.copyWith(sampleIndex: 2).sampleId, 'immutable-tree-leaf');
+    });
+
     final createdAt = DateTime(2026, 4, 27, 8);
     final updatedAt = DateTime(2026, 4, 27, 9);
 

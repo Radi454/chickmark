@@ -726,6 +726,13 @@ final List<_PatternTranslator> _patterns = [
 ];
 
 const Map<String, String> _ar = {
+  'e.g. ABC': 'مثال: ABC',
+  'Customer sampling code': 'رمز أخذ العينات للعميل',
+  'Hatchery sampling code': 'رمز أخذ العينات للمفقس',
+  'Farm sampling code': 'رمز أخذ العينات للمزرعة',
+  'Optional. Enter three letters A–Z.': 'اختياري. أدخل ثلاثة أحرف من A إلى Z.',
+  'Enter exactly three letters A–Z, or leave blank.':
+      'أدخل ثلاثة أحرف فقط من A إلى Z أو اترك الحقل فارغًا.',
   'ChickMark': 'ChickMark',
   'Add customer': 'إضافة عميل',
   'Incomplete Visits': 'زيارات غير مكتملة',
@@ -1296,7 +1303,8 @@ const Map<String, String> _ar = {
   'Approved': 'معتمد',
   'Disabled': 'معطل',
   'Customers this auditor can access': 'العملاء المتاحون لهذا المدقق',
-  'Customers this production manager can access': 'العملاء المتاحون لمدير الإنتاج هذا',
+  'Customers this production manager can access':
+      'العملاء المتاحون لمدير الإنتاج هذا',
   'No customers exist yet.': 'لا يوجد عملاء حتى الآن.',
   'Station complete.': 'اكتملت المحطة.',
   'This station has saved data but not enough core data to mark complete.':
@@ -2425,7 +2433,8 @@ const Map<String, String> _ar = {
   // ticket 15).
   'Resolve': 'حل',
   'Resolve Sync Conflict': 'حل تعارض المزامنة',
-  'No open sync conflict for this report.': 'لا يوجد تعارض مزامنة مفتوح لهذا التقرير.',
+  'No open sync conflict for this report.':
+      'لا يوجد تعارض مزامنة مفتوح لهذا التقرير.',
   "Keep this device's version": 'الاحتفاظ بنسخة هذا الجهاز',
   'Keep the cloud version': 'الاحتفاظ بالنسخة السحابية',
   'New report': "تقرير جديد",
@@ -2507,4 +2516,27 @@ const Map<String, String> _ar = {
   'Sunday': 'الأحد',
   'Print / Export': 'طباعة / تصدير',
   'Revision': 'المراجعة',
+  // Shared panel sampling tree.
+  'Sampling': 'أخذ العينات',
+  'Setter / Hatcher': 'الحاضنة / الفقاسة',
+  'Edit identity': 'تعديل الهوية',
+  'Reset Pooled sample?': 'إعادة ضبط العينة الإجمالية؟',
+  'Adding this comparison will delete measurements in the current Pooled sample under this parent.':
+      'إضافة هذه المقارنة ستحذف القياسات في العينة الإجمالية الحالية ضمن هذا العنصر.',
+  'Delete and continue': 'حذف ومتابعة',
+  'Active sample: SA{number}': 'العينة النشطة: SA{number}',
+  'Active sample:': 'العينة النشطة:',
+  'Complete customer, hatchery, and flock sampling codes to show the full sample code.':
+      'أكمل رموز أخذ العينات للعميل والمفقس والقطيع لعرض الرمز الكامل للعينة.',
+  'Registered houses could not be loaded.': 'تعذر تحميل الحظائر المسجلة.',
+  'That identity already exists under this parent.':
+      'هذه الهوية موجودة بالفعل ضمن هذا العنصر.',
+  'Sampling identity could not be saved. Try again.':
+      'تعذر حفظ هوية أخذ العينة. حاول مرة أخرى.',
+  'Add {scope}': 'إضافة {scope}',
+  'Remove {scope}': 'إزالة {scope}',
+  'Delete {scope}?': 'حذف {scope}؟',
+  'This removes {branches} branches, {measurements} measurements, {photos} photos, and {notes} notes.':
+      'سيؤدي هذا إلى إزالة {branches} فروع و{measurements} قياسات و{photos} صور و{notes} ملاحظات.',
+  'Sampling could not be loaded: {error}': 'تعذر تحميل أخذ العينات: {error}',
 };

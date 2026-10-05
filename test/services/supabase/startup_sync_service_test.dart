@@ -22,6 +22,7 @@ import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
 import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
 import 'package:hatchaudit/data/repositories/performance_sync_repository.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
@@ -66,6 +67,9 @@ class _MockGoveeCaptureRepository extends Mock
 class _MockPanelSampleRepository extends Mock
     implements PanelSampleRepository {}
 
+class _MockPanelSamplingStateRepository extends Mock
+    implements PanelSamplingStateRepository {}
+
 class _MockPerformanceSyncRepository extends Mock
     implements PerformanceSyncRepository {}
 
@@ -92,6 +96,7 @@ void main() {
   late _MockAuditSessionRepository sessions;
   late _MockGoveeCaptureRepository govee;
   late _MockPanelSampleRepository panels;
+  late _MockPanelSamplingStateRepository sampling;
   late _MockPerformanceSyncRepository operational;
   late _MockSyncTombstoneRepository tombstones;
   late _MockBreederReportSyncService breederReportSync;
@@ -122,6 +127,7 @@ void main() {
     sessions = _MockAuditSessionRepository();
     govee = _MockGoveeCaptureRepository();
     panels = _MockPanelSampleRepository();
+    sampling = _MockPanelSamplingStateRepository();
     operational = _MockPerformanceSyncRepository();
     tombstones = _MockSyncTombstoneRepository();
     breederReportSync = _MockBreederReportSyncService();
@@ -264,6 +270,30 @@ void main() {
       return const [];
     });
     when(() => panels.markRowsSynced(any(), any())).thenAnswer((_) async {});
+    when(() => sampling.getDirtyRows(any())).thenAnswer((_) async => const []);
+    when(() => sampling.markRowsSynced(any(), any())).thenAnswer((_) async {});
+    when(
+      () => sampling.markRowsFailed(any(), any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => sampling.getActiveSerialRows(
+        sessionId: any(named: 'sessionId'),
+        panelKey: any(named: 'panelKey'),
+      ),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => sampling.upsertRemoteRow(
+        tableName: any(named: 'tableName'),
+        row: any(named: 'row'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => sampling.applySerialAssignments(
+        sessionId: any(named: 'sessionId'),
+        panelKey: any(named: 'panelKey'),
+        assignments: any(named: 'assignments'),
+      ),
+    ).thenAnswer((_) async {});
     when(() => panels.getRowById(any(), any())).thenAnswer((_) async => null);
     when(() => panels.upsertPanelRow(any(), any())).thenAnswer((_) async {});
     when(
@@ -345,6 +375,12 @@ void main() {
     });
     when(() => supabase.deleteRows(any(), any())).thenAnswer((_) async {});
     when(
+      () => supabase.reconcilePanelSampleSerials(
+        sessionId: any(named: 'sessionId'),
+        panelKey: any(named: 'panelKey'),
+      ),
+    ).thenAnswer((_) async => const []);
+    when(
       () => activityLog.log(any(), any(), details: any(named: 'details')),
     ).thenAnswer((_) async {});
     when(
@@ -365,6 +401,7 @@ void main() {
         upsertPanelRow: any(named: 'upsertPanelRow'),
         upsertChickObservation: any(named: 'upsertChickObservation'),
         upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+        upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
     ).thenAnswer((_) async => const SupabasePullSummary(panelRows: 1));
@@ -388,6 +425,7 @@ void main() {
     auditSessionRepository: sessions,
     goveeCaptureRepository: govee,
     panelSampleRepository: panels,
+    panelSamplingStateRepository: sampling,
     chickObservationRepository: chickObservations,
     eggGradingRepository: eggGrading,
     performanceSyncRepository: operational,
@@ -450,6 +488,353 @@ void main() {
       }
     },
   );
+
+  test(
+    'pushes dirty sampling rows after sessions and before measurements',
+    () async {
+      when(() => sampling.getDirtyRows('panel_sampling_states')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'session-1:egg_storage',
+            'sessionId': 'session-1',
+            'panelKey': 'egg_storage',
+            'serialHighWatermark': 1,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-09-01T00:00:00Z',
+          },
+        ],
+      );
+      when(() => sampling.getDirtyRows('panel_sampling_nodes')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'node-1',
+            'sessionId': 'session-1',
+            'panelKey': 'egg_storage',
+            'sampleId': 'sample-1',
+            'sampleNumber': 1,
+            'isTerminal': 1,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-09-01T00:00:00Z',
+          },
+        ],
+      );
+      when(
+        () => sampling.getDirtyRows('panel_sample_serial_reservations'),
+      ).thenAnswer((_) async => const []);
+      final events = <String>[];
+      when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((
+        invocation,
+      ) async {
+        events.add(invocation.positionalArguments.first as String);
+      });
+
+      await service().run();
+
+      verify(
+        () => supabase.upsertRowsStrict('panel_sampling_states', any()),
+      ).called(2);
+      verify(
+        () => supabase.upsertRowsStrict('panel_sampling_nodes', any()),
+      ).called(2);
+      verify(
+        () => sampling.markRowsSynced('panel_sampling_states', [
+          'session-1:egg_storage',
+        ]),
+      ).called(1);
+      expect(
+        events.indexOf('audit_sessions'),
+        lessThan(events.indexOf('panel_sampling_states')),
+      );
+      expect(
+        events.indexOf('panel_sampling_nodes'),
+        lessThan(events.indexOf('egg_storage')),
+      );
+    },
+  );
+
+  test(
+    'pull-only sync never writes sampling rows or calls serial RPC',
+    () async {
+      await service().run(canPush: false);
+
+      verifyNever(() => supabase.upsertRowsStrict(any(), any()));
+      verifyNever(
+        () => supabase.reconcilePanelSampleSerials(
+          sessionId: any(named: 'sessionId'),
+          panelKey: any(named: 'panelKey'),
+        ),
+      );
+      verifyNever(() => sampling.getDirtyRows(any()));
+    },
+  );
+
+  test(
+    'applies server serial assignments before measurement panel push',
+    () async {
+      when(() => sampling.getDirtyRows('panel_sampling_nodes')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'node-1',
+            'sessionId': 'session-1',
+            'panelKey': 'egg_storage',
+            'sampleId': 'sample-1',
+            'sampleNumber': 1,
+            'isTerminal': 1,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-09-01T00:00:00Z',
+          },
+        ],
+      );
+      when(
+        () => sampling.getActiveSerialRows(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+        ),
+      ).thenAnswer(
+        (_) async => const [
+          {'sampleId': 'sample-1', 'sampleNumber': 1},
+        ],
+      );
+      final events = <String>[];
+      when(
+        () => supabase.reconcilePanelSampleSerials(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+        ),
+      ).thenAnswer((_) async {
+        events.add('rpc');
+        return const [
+          {'sample_id': 'sample-1', 'sample_number': 2},
+        ];
+      });
+      when(
+        () => sampling.applySerialAssignments(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+          assignments: {'sample-1': 2},
+        ),
+      ).thenAnswer((_) async {
+        events.add('apply');
+      });
+      when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((
+        invocation,
+      ) async {
+        events.add(invocation.positionalArguments.first as String);
+      });
+
+      await service().run();
+
+      verify(
+        () => sampling.applySerialAssignments(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+          assignments: {'sample-1': 2},
+        ),
+      ).called(1);
+      expect(events.indexOf('rpc'), lessThan(events.indexOf('apply')));
+      expect(events.indexOf('apply'), lessThan(events.indexOf('egg_storage')));
+    },
+  );
+
+  test(
+    'serial reconciliation failure keeps that panel measurements pending',
+    () async {
+      when(() => sampling.getDirtyRows('panel_sampling_nodes')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'node-1',
+            'sessionId': 'session-1',
+            'panelKey': 'egg_storage',
+            'sampleId': 'sample-1',
+            'sampleNumber': 1,
+            'isTerminal': 1,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-09-01T00:00:00Z',
+          },
+        ],
+      );
+      when(
+        () => supabase.reconcilePanelSampleSerials(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+        ),
+      ).thenThrow(StateError('RPC unavailable'));
+
+      final outcome = await service().run();
+
+      expect(outcome.hasFailures, isTrue);
+      verifyNever(() => supabase.upsertRowsStrict('egg_storage', any()));
+    },
+  );
+
+  test('failed reconciled node upload keeps measurements pending', () async {
+    when(() => sampling.getDirtyRows('panel_sampling_nodes')).thenAnswer(
+      (_) async => [
+        {
+          'id': 'node-1',
+          'sessionId': 'session-1',
+          'panelKey': 'egg_storage',
+          'sampleId': 'sample-1',
+          'sampleNumber': 1,
+          'isTerminal': 1,
+          'syncStatus': 'pending',
+          'dirtyAt': '2026-09-01T00:00:00Z',
+        },
+      ],
+    );
+    when(
+      () => sampling.getActiveSerialRows(
+        sessionId: 'session-1',
+        panelKey: 'egg_storage',
+      ),
+    ).thenAnswer(
+      (_) async => const [
+        {'sampleId': 'sample-1', 'sampleNumber': 1},
+      ],
+    );
+    when(
+      () => supabase.reconcilePanelSampleSerials(
+        sessionId: 'session-1',
+        panelKey: 'egg_storage',
+      ),
+    ).thenAnswer(
+      (_) async => const [
+        {'sample_id': 'sample-1', 'sample_number': 2},
+      ],
+    );
+    when(
+      () => sampling.applySerialAssignments(
+        sessionId: 'session-1',
+        panelKey: 'egg_storage',
+        assignments: {'sample-1': 2},
+      ),
+    ).thenAnswer((_) async {});
+    var nodePushes = 0;
+    when(
+      () => supabase.upsertRowsStrict('panel_sampling_nodes', any()),
+    ).thenAnswer((_) async {
+      nodePushes++;
+      if (nodePushes == 2) throw StateError('reconciled node push failed');
+    });
+
+    final outcome = await service().run();
+
+    expect(outcome.hasFailures, isTrue);
+    expect(nodePushes, 2);
+    verifyNever(() => supabase.upsertRowsStrict('egg_storage', any()));
+  });
+
+  test(
+    'backoff-skipped reconciled node upload keeps measurements pending',
+    () async {
+      when(() => sampling.getDirtyRows('panel_sampling_nodes')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'node-1',
+            'sessionId': 'session-1',
+            'panelKey': 'egg_storage',
+            'sampleId': 'sample-1',
+            'sampleNumber': 1,
+            'isTerminal': 1,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-09-01T00:00:00Z',
+          },
+        ],
+      );
+      when(
+        () => sampling.getActiveSerialRows(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+        ),
+      ).thenAnswer(
+        (_) async => const [
+          {'sampleId': 'sample-1', 'sampleNumber': 1},
+        ],
+      );
+      when(
+        () => supabase.reconcilePanelSampleSerials(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+        ),
+      ).thenAnswer((_) async {
+        retryPolicy.recordFailure('panel_sampling_nodes');
+        return const [
+          {'sample_id': 'sample-1', 'sample_number': 2},
+        ];
+      });
+      when(
+        () => sampling.applySerialAssignments(
+          sessionId: 'session-1',
+          panelKey: 'egg_storage',
+          assignments: {'sample-1': 2},
+        ),
+      ).thenAnswer((_) async {});
+
+      final outcome = await service().run();
+
+      expect(outcome.hasFailures, isTrue);
+      verify(
+        () => supabase.upsertRowsStrict('panel_sampling_nodes', any()),
+      ).called(1);
+      verifyNever(() => supabase.upsertRowsStrict('egg_storage', any()));
+    },
+  );
+
+  test('pending sampling-node tombstone blocks pull resurrection', () async {
+    final deleted = SyncTombstone(
+      id: 'panel_sampling_nodes:node-1',
+      tableName: 'panel_sampling_nodes',
+      rowId: 'node-1',
+      deletedAt: DateTime(2026, 9, 1),
+      createdAt: DateTime(2026, 9, 1),
+    );
+    when(
+      () => tombstones.getPendingDeletes(),
+    ).thenAnswer((_) async => [deleted]);
+    when(
+      () => supabase.pullFromSupabase(
+        upsertCustomer: any(named: 'upsertCustomer'),
+        upsertFlock: any(named: 'upsertFlock'),
+        upsertHatchery: any(named: 'upsertHatchery'),
+        upsertPhoto: any(named: 'upsertPhoto'),
+        upsertBmkBreed: any(named: 'upsertBmkBreed'),
+        upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+        upsertBmkOperationalStandard: any(
+          named: 'upsertBmkOperationalStandard',
+        ),
+        upsertAuditSession: any(named: 'upsertAuditSession'),
+        upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+        upsertDashboardAction: any(named: 'upsertDashboardAction'),
+        upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+        upsertPanelRow: any(named: 'upsertPanelRow'),
+        upsertChickObservation: any(named: 'upsertChickObservation'),
+        upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+        upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
+        upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+      ),
+    ).thenAnswer((invocation) async {
+      final upsert =
+          invocation.namedArguments[#upsertPanelSamplingRow]
+              as Future<void> Function(String, Map<String, dynamic>);
+      await upsert('panel_sampling_nodes', {
+        'id': 'node-1',
+        'session_id': 'session-1',
+        'panel_key': 'egg_storage',
+        'sample_id': 'sample-1',
+        'sample_number': 1,
+      });
+      return const SupabasePullSummary(panelSamplingRows: 1);
+    });
+
+    await service().run(canPush: false);
+
+    verifyNever(
+      () => sampling.upsertRemoteRow(
+        tableName: 'panel_sampling_nodes',
+        row: any(named: 'row'),
+      ),
+    );
+  });
 
   test('reconciles a cloud-reallocated Chick identity before pull', () async {
     when(() => panels.getDirtyRows('chick_quality')).thenAnswer(
@@ -587,6 +972,7 @@ void main() {
           upsertPanelRow: any(named: 'upsertPanelRow'),
           upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+          upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
       ).called(1);
@@ -625,6 +1011,7 @@ void main() {
           upsertPanelRow: any(named: 'upsertPanelRow'),
           upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+          upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
       ).thenAnswer((invocation) async {
@@ -705,6 +1092,7 @@ void main() {
           upsertPanelRow: any(named: 'upsertPanelRow'),
           upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+          upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
       ).thenAnswer((invocation) async {
@@ -750,6 +1138,7 @@ void main() {
           upsertPanelRow: any(named: 'upsertPanelRow'),
           upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+          upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
           upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
         ),
       ).thenAnswer((invocation) async {
@@ -968,6 +1357,7 @@ void main() {
           upsertPanelRow: captureAny(named: 'upsertPanelRow'),
           upsertChickObservation: any(named: 'upsertChickObservation'),
           upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+          upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
           upsertSyncTombstone: captureAny(named: 'upsertSyncTombstone'),
         ),
       );
@@ -1186,7 +1576,9 @@ void main() {
 
       // One doomed round-trip, not two — but the failure stays visible.
       verify(() => supabase.upsertRowsStrict('houses', any())).called(1);
-      verify(() => operational.markRowsFailed('houses', any(), any())).called(1);
+      verify(
+        () => operational.markRowsFailed('houses', any(), any()),
+      ).called(1);
       expect(first.failed, 1);
       expect(second.failed, 1);
       expect(second.failedTables, ['houses']);
@@ -1212,7 +1604,9 @@ void main() {
   test('a successful push clears a table\'s backoff state', () async {
     makeHousesDirty();
     var attempt = 0;
-    when(() => supabase.upsertRowsStrict('houses', any())).thenAnswer((_) async {
+    when(() => supabase.upsertRowsStrict('houses', any())).thenAnswer((
+      _,
+    ) async {
       attempt++;
       if (attempt == 1) throw StateError('transient');
     });
@@ -1261,5 +1655,26 @@ void main() {
       order.indexOf('egg_storage'),
       lessThan(order.indexOf('audit_sessions')),
     );
+  });
+
+  test('sync tombstones delete sampling nodes and states before sessions', () {
+    final order = SyncTombstoneRepository.deleteOrder;
+
+    expect(order.indexOf('photos'), lessThan(order.indexOf('egg_storage')));
+    expect(
+      order.indexOf('photos'),
+      lessThan(order.indexOf('panel_sampling_nodes')),
+    );
+    expect(
+      order.indexOf('panel_sampling_nodes'),
+      lessThan(order.indexOf('panel_sampling_states')),
+    );
+    expect(
+      order.indexOf('panel_sampling_states'),
+      lessThan(order.indexOf('audit_sessions')),
+    );
+    // Reservations are append-only for a panel and disappear only with the
+    // owning session's database cascade.
+    expect(order, isNot(contains('panel_sample_serial_reservations')));
   });
 }

@@ -22,6 +22,7 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
   late final TextEditingController _locationController;
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
+  late final TextEditingController _samplingCodeController;
 
   bool get _isEditing => widget.initialCustomer != null;
 
@@ -33,6 +34,9 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
     _locationController = TextEditingController(text: customer?.location ?? '');
     _phoneController = TextEditingController(text: customer?.phone ?? '');
     _emailController = TextEditingController(text: customer?.email ?? '');
+    _samplingCodeController = TextEditingController(
+      text: customer?.samplingCode ?? '',
+    );
   }
 
   @override
@@ -41,6 +45,7 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
     _locationController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _samplingCodeController.dispose();
     super.dispose();
   }
 
@@ -62,6 +67,7 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
         email: _emailController.text.trim().isEmpty
             ? null
             : _emailController.text.trim(),
+        samplingCode: _samplingCodeController.text,
         createdAt: existing?.createdAt ?? DateTime.now(),
         createdBy: existing?.createdBy ?? authProvider.user?.id ?? '',
       );
@@ -168,6 +174,23 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
                 keyboardType: TextInputType.emailAddress,
                 style: AppTextStyles.body,
               ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _samplingCodeController,
+                decoration: InputDecoration(
+                  labelText: 'Customer sampling code',
+                  hintText: context.tr('e.g. ABC'),
+                  helperText: 'Optional. Enter three letters A–Z.',
+                  filled: true,
+                  fillColor: AppColors.background,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                style: AppTextStyles.body,
+                validator: _samplingCodeValidator,
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
@@ -196,4 +219,10 @@ class _AddCustomerSheetState extends State<AddCustomerSheet> {
       ),
     );
   }
+}
+
+String? _samplingCodeValidator(String? value) {
+  final code = value?.trim() ?? '';
+  if (code.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(code)) return null;
+  return 'Enter exactly three letters A–Z, or leave blank.';
 }

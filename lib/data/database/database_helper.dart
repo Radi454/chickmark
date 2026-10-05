@@ -53,7 +53,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 81,
+      version: 82,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -108,6 +108,7 @@ class DatabaseHelper {
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
+    await _createPanelSamplingTables(db);
     await _createChickQualityObservationTable(db);
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
@@ -156,11 +157,10 @@ class DatabaseHelper {
         );
       }
       for (final seed in kBmkOperationalStandardSeeds) {
-        batch.insert(
-          'bmk_operational_standards',
-          {...seed, 'syncStatus': 'synced'},
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert('bmk_operational_standards', {
+          ...seed,
+          'syncStatus': 'synced',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
@@ -282,6 +282,9 @@ class DatabaseHelper {
     if (oldVersion < 81) {
       await _applyV81Upgrade(db);
     }
+    if (oldVersion < 82) {
+      await _applyV82Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -296,6 +299,9 @@ class DatabaseHelper {
     'activity_log',
     'sync_tombstones',
     'sync_conflicts',
+    'panel_sampling_states',
+    'panel_sampling_nodes',
+    'panel_sample_serial_reservations',
     'bmk_breeds',
     'bmk_egg_breakout',
     'bmk_operational_standards',
@@ -347,6 +353,93 @@ class DatabaseHelper {
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
     'photos': ['observationId TEXT'],
+    'panel_sampling_states': [
+      'id TEXT',
+      'sessionId TEXT',
+      'panelKey TEXT',
+      'serialHighWatermark INTEGER DEFAULT 0',
+      'createdAt TEXT',
+      'updatedAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'panel_sampling_nodes': [
+      'id TEXT',
+      'sessionId TEXT',
+      'panelKey TEXT',
+      "parentId TEXT DEFAULT ''",
+      'level TEXT',
+      "identityKey TEXT DEFAULT ''",
+      'identityJson TEXT',
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'isTerminal INTEGER DEFAULT 0',
+      'createdAt TEXT',
+      'updatedAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'panel_sample_serial_reservations': [
+      'id TEXT',
+      'sessionId TEXT',
+      'panelKey TEXT',
+      'sampleNumber INTEGER',
+      'sampleId TEXT',
+      'createdAt TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
+    'egg_storage': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'egg_quality': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'chick_quality': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'chick_weights': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'fresh_egg_breakout': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'candled_egg_breakout': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'residue_breakout': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'setter_optimizing': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
+    'hatcher_optimizing': [
+      'sampleId TEXT',
+      'sampleNumber INTEGER',
+      'samplingPathJson TEXT',
+    ],
     'chick_quality_observation': [
       'sampleId TEXT NOT NULL',
       'customerId TEXT NOT NULL',
@@ -369,12 +462,14 @@ class DatabaseHelper {
       'syncError TEXT',
     ],
     'customers': [
+      'samplingCode TEXT',
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
       'lastSyncedAt TEXT',
       'syncError TEXT',
     ],
     'flocks': [
+      'samplingCode TEXT',
       'sectorKey TEXT',
       "sexProfile TEXT NOT NULL DEFAULT 'as_hatched'",
       'targetProfileId TEXT',
@@ -388,6 +483,7 @@ class DatabaseHelper {
       'syncError TEXT',
     ],
     'hatcheries': [
+      'samplingCode TEXT',
       "syncStatus TEXT NOT NULL DEFAULT 'pending'",
       'dirtyAt TEXT',
       'lastSyncedAt TEXT',
@@ -833,6 +929,7 @@ class DatabaseHelper {
     await _createHatcheryTables(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
+    await _createPanelSamplingTables(db);
     await _createChickQualityObservationTable(db);
     await _createSyncTombstoneTable(db);
     await _createSyncConflictTable(db);
@@ -964,11 +1061,10 @@ class DatabaseHelper {
         );
       }
       for (final seed in kBmkOperationalStandardSeeds) {
-        batch.insert(
-          'bmk_operational_standards',
-          {...seed, 'syncStatus': 'synced'},
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert('bmk_operational_standards', {
+          ...seed,
+          'syncStatus': 'synced',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
@@ -1196,6 +1292,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV81UpgradeForTest(Database db) => _applyV81Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV82UpgradeForTest(Database db) => _applyV82Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

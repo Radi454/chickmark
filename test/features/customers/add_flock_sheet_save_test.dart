@@ -55,10 +55,57 @@ void main() {
     expect(added.single.depletionAgeWeeks, 65);
     expect(find.byType(AddFlockSheet), findsNothing);
   });
+
+  testWidgets('editing a legacy flock can keep its optional code blank', (
+    tester,
+  ) async {
+    FlockModel? updated;
+    final legacy = FlockModel(
+      id: 'flock-legacy',
+      customerId: 'customer-1',
+      flockId: 'F-100',
+      breed: 'Ross308',
+      entryDate: DateTime(2025),
+    );
+    final provider = _FakeCustomersProvider(
+      customer: _customer(),
+      onAdd: (flock) => updated = flock,
+    );
+    await _pumpSheet(tester, provider, initialFlock: legacy);
+
+    await _tapSave(tester);
+
+    expect(updated?.id, 'flock-legacy');
+    expect(updated?.samplingCode, isNull);
+    expect(find.byType(AddFlockSheet), findsNothing);
+  });
+
+  testWidgets('invalid optional code blocks flock save with localized error', (
+    tester,
+  ) async {
+    var saved = false;
+    final provider = _FakeCustomersProvider(
+      customer: _customer(),
+      onAdd: (_) => saved = true,
+    );
+    await _pumpSheet(tester, provider);
+    await _fillForm(tester);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Farm sampling code'),
+      'A1',
+    );
+    await _tapSave(tester);
+
+    expect(saved, isFalse);
+    expect(
+      find.text('Enter exactly three letters A–Z, or leave blank.'),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<void> _tapSave(WidgetTester tester) async {
-  final save = find.widgetWithText(ElevatedButton, 'Save');
+  final save = find.byType(ElevatedButton).last;
   await tester.ensureVisible(save);
   await _pumpUi(tester);
   await tester.tap(save);
@@ -81,8 +128,21 @@ Future<void> _fillForm(WidgetTester tester) async {
 
 Future<void> _pumpSheet(
   WidgetTester tester,
-  _FakeCustomersProvider provider,
-) async {
+  _FakeCustomersProvider provider, {
+  FlockModel? initialFlock,
+}) {
+  return _showSheet(tester, provider, initialFlock: initialFlock);
+}
+
+Future<void> _showSheet(
+  WidgetTester tester,
+  _FakeCustomersProvider provider, {
+  FlockModel? initialFlock,
+}) async {
+  tester.view.physicalSize = const Size(800, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     ChangeNotifierProvider<CustomersProvider>.value(
       value: provider,
@@ -94,7 +154,7 @@ Future<void> _pumpSheet(
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.transparent,
-                builder: (_) => const AddFlockSheet(),
+                builder: (_) => AddFlockSheet(initialFlock: initialFlock),
               ),
               child: const Text('open'),
             ),

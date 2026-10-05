@@ -9,12 +9,40 @@ import '../database/database_helper.dart';
 import '../models/chick_sample_identity.dart';
 import '../models/panel_sample_model.dart';
 import '../models/panel_sample_schema.dart';
+import '../models/panel_sampling_state.dart';
+import '../models/sampling_scope.dart';
 import '../services/panel_aggregate_deriver.dart';
 import '../../core/security/safe_debug_log.dart';
 import '../../services/sync/app_sync_coordinator.dart';
 import 'egg_grading_repository.dart';
 import 'chick_quality_observation_repository.dart';
 import 'sync_tombstone_repository.dart';
+
+/// Immutable sampling metadata to persist with one panel measurement row.
+/// Keeping this value separate from the legacy panel form lets saves attach
+/// sample identity before the repository resolves panel-row uniqueness.
+class SamplingMeasurementIdentity {
+  const SamplingMeasurementIdentity({
+    required this.sampleId,
+    required this.sampleNumber,
+    required this.path,
+  });
+
+  final String sampleId;
+  final int sampleNumber;
+  final SamplingScopePath path;
+}
+
+/// The caller's sampling snapshot is no longer current. Retry after reloading
+/// the active sampling state; a stale save must never recreate a deleted leaf.
+class StaleSamplingIdentityException implements Exception {
+  const StaleSamplingIdentityException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'StaleSamplingIdentityException: $message';
+}
 
 class PanelSampleRepository {
   PanelSampleRepository({DatabaseHelper? databaseHelper})
@@ -41,36 +69,185 @@ class PanelSampleRepository {
   Future<void> savePanelWithSamples({
     required PanelRecord panel,
     required List<PanelSampleRecord> samples,
+    Map<String, SamplingMeasurementIdentity> samplingIdentitiesByRowId =
+        const {},
   }) async {
     final definition = PanelSampleSchema.byTable(panel.tableName);
     _lastQualityFlagsByTable.remove(definition.tableName);
 
     final database = await _databaseHelper.db;
     await database.transaction<void>((txn) async {
+      final resolvedSamplingIdentities = await _resolveActiveSamplingIdentities(
+        txn,
+        panel.tableName,
+        panel.sessionId,
+        samplingIdentitiesByRowId,
+      );
       if (samples.isEmpty) {
+        final panelRow = await _applySamplingIdentity(
+          txn,
+          panel.toMap(),
+          resolvedSamplingIdentities,
+          panel.tableName,
+          panel.sessionId,
+        );
         final row = _stampDirty(
           _deriveAndRecord(
             definition.tableName,
-            await _withoutOrphanedPanelHatcheryId(txn, panel.toMap()),
+            await _withoutOrphanedPanelHatcheryId(txn, panelRow),
           ),
         );
         await _upsertChickAware(txn, definition.tableName, row);
         return;
       }
       for (final sample in samples) {
+        final panelRow = await _applySamplingIdentity(
+          txn,
+          _rowFromLegacySample(panel, sample),
+          resolvedSamplingIdentities,
+          panel.tableName,
+          panel.sessionId,
+        );
         final row = _stampDirty(
           _deriveAndRecord(
             definition.tableName,
-            await _withoutOrphanedPanelHatcheryId(
-              txn,
-              _rowFromLegacySample(panel, sample),
-            ),
+            await _withoutOrphanedPanelHatcheryId(txn, panelRow),
           ),
         );
         await _upsertChickAware(txn, definition.tableName, row);
       }
     });
     AppSyncCoordinator.nudge();
+  }
+
+  Future<Map<String, SamplingMeasurementIdentity>>
+  _resolveActiveSamplingIdentities(
+    DatabaseExecutor executor,
+    String panelKey,
+    String sessionId,
+    Map<String, SamplingMeasurementIdentity> provided,
+  ) async {
+    if (provided.isEmpty) return provided;
+    final stateRows = await executor.query(
+      'panel_sampling_states',
+      columns: ['serialHighWatermark'],
+      where: 'sessionId = ? AND panelKey = ?',
+      whereArgs: [sessionId, panelKey],
+      limit: 1,
+    );
+    final nodeRows = await executor.query(
+      'panel_sampling_nodes',
+      where: 'sessionId = ? AND panelKey = ?',
+      whereArgs: [sessionId, panelKey],
+    );
+    final nodes = nodeRows
+        .map((row) => SamplingNode.fromMap(Map<String, Object?>.from(row)))
+        .toList(growable: false);
+    final state = PanelSamplingState(
+      sessionId: sessionId,
+      panelKey: panelKey,
+      nodes: nodes,
+      serialHighWatermark: stateRows.isEmpty
+          ? 0
+          : (stateRows.single['serialHighWatermark'] as num?)?.toInt() ?? 0,
+      activeSampleId: '',
+    );
+    final resolved = <String, SamplingMeasurementIdentity>{};
+    for (final entry in provided.entries) {
+      final sampleId = entry.value.sampleId;
+      final active = state.samples.any((sample) => sample.sampleId == sampleId);
+      if (!active) {
+        throw StaleSamplingIdentityException(
+          'Sample "$sampleId" is no longer active in $sessionId/$panelKey.',
+        );
+      }
+      final currentPath = state.pathFor(sampleId);
+      if (entry.value.sampleNumber != currentPath.sampleNumber ||
+          entry.value.path.toJsonString() != currentPath.toJsonString()) {
+        throw StaleSamplingIdentityException(
+          'Sample "$sampleId" changed while this measurement was being saved.',
+        );
+      }
+      resolved[entry.key] = SamplingMeasurementIdentity(
+        sampleId: sampleId,
+        sampleNumber: currentPath.sampleNumber,
+        path: currentPath,
+      );
+    }
+    return resolved;
+  }
+
+  Future<Map<String, Object?>> _applySamplingIdentity(
+    DatabaseExecutor executor,
+    Map<String, Object?> row,
+    Map<String, SamplingMeasurementIdentity> identitiesByRowId,
+    String panelKey,
+    String sessionId,
+  ) async {
+    final rowId = row['id']?.toString();
+    if (rowId == null) return row;
+    final identity = identitiesByRowId[rowId];
+    if (identity == null) return row;
+    if (identity.path.sampleId != identity.sampleId ||
+        identity.path.sampleNumber != identity.sampleNumber) {
+      throw ArgumentError(
+        'Sampling identity must match its terminal sample path.',
+      );
+    }
+    final config = PanelSampleSchema.samplingConfigFor(panelKey);
+    config.validatePath(
+      SamplingScopePath(
+        house: config.levels.contains(SamplingScopeLevel.house)
+            ? identity.path.house
+            : null,
+        setter: config.levels.contains(SamplingScopeLevel.setter)
+            ? identity.path.setter
+            : null,
+        hatcher: config.levels.contains(SamplingScopeLevel.hatcher)
+            ? identity.path.hatcher
+            : null,
+        trolley: config.levels.contains(SamplingScopeLevel.trolley)
+            ? identity.path.trolley
+            : null,
+        tray: config.levels.contains(SamplingScopeLevel.tray)
+            ? identity.path.tray
+            : null,
+        sampleId: identity.sampleId,
+        sampleNumber: identity.sampleNumber,
+        unknownLevels: identity.path.unknownLevels,
+      ),
+    );
+    final hierarchyValues = <String, Object?>{
+      for (final level in config.levels)
+        level.name: identity.path.identityFor(level),
+    };
+    final existingRows = await executor.query(
+      panelKey,
+      where: 'id = ? AND sessionId = ?',
+      whereArgs: [rowId, sessionId],
+      limit: 1,
+    );
+    final existing = existingRows.isEmpty
+        ? const <String, Object?>{}
+        : existingRows.single;
+    for (final level in const [
+      SamplingScopeLevel.house,
+      SamplingScopeLevel.setter,
+      SamplingScopeLevel.hatcher,
+      SamplingScopeLevel.trolley,
+      SamplingScopeLevel.tray,
+    ]) {
+      if (config.levels.contains(level)) continue;
+      final legacyValue = existing[level.name];
+      if (legacyValue != null) hierarchyValues[level.name] = legacyValue;
+    }
+    return {
+      ...row,
+      'sampleId': identity.sampleId,
+      'sampleNumber': identity.sampleNumber,
+      'samplingPathJson': identity.path.toJsonString(),
+      ...hierarchyValues,
+    };
   }
 
   Future<void> upsertRow({
@@ -243,6 +420,7 @@ class PanelSampleRepository {
         columns: [
           'id',
           ...hierarchyColumns,
+          if (columns.contains('sampleId')) 'sampleId',
           if (isIdKeyed && columns.contains('sampleKey')) 'sampleKey',
           if (definition.tableName == 'chick_quality' &&
               columns.contains('sourceRefId'))
@@ -257,12 +435,15 @@ class PanelSampleRepository {
       for (final row in rows) {
         if (_isLegacyDomainHelper(row)) continue;
         final id = row['id']?.toString();
+        final sampleId = row['sampleId']?.toString();
         final sampleKey = row['sampleKey']?.toString();
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
+            (sampleId == null || !keepSampleKeySet.contains(sampleId)) &&
             (sampleKey == null || !keepSampleKeySet.contains(sampleKey)) &&
-            (isIdKeyed ||
+            (sampleId != null ||
+                isIdKeyed ||
                 !keepHierarchyKeys.contains(
                   _hierarchyKey(row, hierarchyColumns),
                 ))) {
@@ -301,6 +482,7 @@ class PanelSampleRepository {
         columns: [
           'id',
           ...hierarchyColumns,
+          if (columns.contains('sampleId')) 'sampleId',
           if (definition.tableName == 'chick_quality' &&
               columns.contains('sourceRefId'))
             'sourceRefId',
@@ -312,10 +494,12 @@ class PanelSampleRepository {
       for (final row in rows) {
         if (_isLegacyDomainHelper(row)) continue;
         final id = row['id']?.toString();
+        final hasStableSampleId = _text(row['sampleId']) != null;
         if (id != null &&
             id.isNotEmpty &&
             !keepIdSet.contains(id) &&
-            (isIdKeyed ||
+            (hasStableSampleId ||
+                isIdKeyed ||
                 !keepHierarchyKeys.contains(
                   _hierarchyKey(row, hierarchyColumns),
                 ))) {
@@ -362,6 +546,45 @@ class PanelSampleRepository {
 
       await _deleteRowsByIdWithTombstones(txn, definition.tableName, staleIds);
     });
+  }
+
+  /// Deletes the measurements attached to logical sample IDs inside a caller's
+  /// transaction. The transaction owner uses this to keep sampling nodes,
+  /// observations, and panel-row tombstones atomic.
+  Future<void> deleteRowsBySessionIdForSampleIdsWithExecutor(
+    DatabaseExecutor executor,
+    String tableName,
+    String sessionId,
+    Iterable<String> sampleIds,
+  ) async {
+    final definition = PanelSampleSchema.byTable(tableName);
+    final sampleIdSet = sampleIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (sampleIdSet.isEmpty) return;
+    final columns = await _tableColumns(executor, tableName);
+    final rows = await executor.query(
+      definition.tableName,
+      columns: ['id', if (columns.contains('sampleId')) 'sampleId'],
+      where: 'sessionId = ?',
+      whereArgs: [sessionId],
+    );
+    final staleIds = <String>[];
+    for (final row in rows) {
+      final rowId = row['id']?.toString();
+      final sampleId = row['sampleId']?.toString();
+      if (rowId == null || rowId.isEmpty) continue;
+      if ((sampleId != null && sampleIdSet.contains(sampleId)) ||
+          sampleIdSet.any((id) => _rowIdMatchesSampleId(rowId, id))) {
+        staleIds.add(rowId);
+      }
+    }
+    await _deleteRowsByIdWithTombstones(
+      executor,
+      definition.tableName,
+      staleIds,
+    );
   }
 
   Future<void> deleteRow(String tableName, String id) async {
@@ -695,7 +918,9 @@ class PanelSampleRepository {
     );
     final rowId = filtered['id'];
     if (rowId == null) return;
-    if (idKeyedPanelTables.contains(table)) {
+    final sampleIdentityKeyed =
+        idKeyedPanelTables.contains(table) || filtered['sampleId'] != null;
+    if (sampleIdentityKeyed) {
       if (await _rowExistsById(executor, table, rowId)) {
         final updatedById = await executor.update(
           table,
@@ -776,10 +1001,12 @@ class PanelSampleRepository {
     if (sessionId == null) return null;
     final columns = await _tableColumns(executor, table);
     final hierarchyColumns = _hierarchyColumnsForTable(columns);
+    final hasSampleId = columns.contains('sampleId');
     final rows = await executor.query(
       table,
       columns: ['id'],
-      where: _panelIdentityWhereForColumns(hierarchyColumns),
+      where:
+          '${_panelIdentityWhereForColumns(hierarchyColumns)}${hasSampleId ? ' AND sampleId IS NULL' : ''}',
       whereArgs: _panelIdentityWhereArgs(row, hierarchyColumns),
       limit: 1,
     );
@@ -816,10 +1043,12 @@ class PanelSampleRepository {
     if (updateValues.isEmpty) return;
     final columns = await _tableColumns(executor, table);
     final hierarchyColumns = _hierarchyColumnsForTable(columns);
+    final hasSampleId = columns.contains('sampleId');
     await executor.update(
       table,
       updateValues,
-      where: _panelIdentityWhereForColumns(hierarchyColumns),
+      where:
+          '${_panelIdentityWhereForColumns(hierarchyColumns)}${hasSampleId ? ' AND sampleId IS NULL' : ''}',
       whereArgs: _panelIdentityWhereArgs(row, hierarchyColumns),
     );
   }

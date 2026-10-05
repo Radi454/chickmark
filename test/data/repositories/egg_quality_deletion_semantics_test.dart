@@ -177,6 +177,84 @@ void main() {
   });
 
   test(
+    'session deletion clears sampling rows and tombstones state and nodes',
+    () async {
+      await insertSession('session-sampling-delete');
+      await insertSession('session-sampling-keep');
+      for (final sessionId in [
+        'session-sampling-delete',
+        'session-sampling-keep',
+      ]) {
+        await db.insert('panel_sampling_states', {
+          'id': '$sessionId:egg_quality',
+          'sessionId': sessionId,
+          'panelKey': 'egg_quality',
+          'serialHighWatermark': 2,
+          'createdAt': '2026-08-23T00:00:00.000Z',
+          'updatedAt': '2026-08-23T00:00:00.000Z',
+        });
+        await db.insert('panel_sampling_nodes', {
+          'id': '$sessionId:node',
+          'sessionId': sessionId,
+          'panelKey': 'egg_quality',
+          'parentId': '',
+          'level': 'sample',
+          'sampleId': '$sessionId:sample',
+          'sampleNumber': 2,
+          'isTerminal': 1,
+          'createdAt': '2026-08-23T00:00:00.000Z',
+          'updatedAt': '2026-08-23T00:00:00.000Z',
+        });
+        await db.insert('panel_sample_serial_reservations', {
+          'id': '$sessionId:reservation',
+          'sessionId': sessionId,
+          'panelKey': 'egg_quality',
+          'sampleNumber': 2,
+          'sampleId': '$sessionId:sample',
+          'createdAt': '2026-08-23T00:00:00.000Z',
+        });
+      }
+
+      await AuditSessionRepository().deleteSession('session-sampling-delete');
+
+      expect(
+        (await db.query('panel_sampling_nodes')).map((row) => row['sessionId']),
+        ['session-sampling-keep'],
+      );
+      expect(
+        (await db.query(
+          'panel_sampling_states',
+        )).map((row) => row['sessionId']),
+        ['session-sampling-keep'],
+      );
+      expect(
+        (await db.query(
+          'panel_sample_serial_reservations',
+        )).map((row) => row['sessionId']),
+        ['session-sampling-keep'],
+      );
+      final tombstones = await db.query(
+        'sync_tombstones',
+        columns: ['tableName', 'rowId'],
+        where: 'rowId IN (?, ?, ?)',
+        whereArgs: [
+          'session-sampling-delete:node',
+          'session-sampling-delete:egg_quality',
+          'session-sampling-delete',
+        ],
+      );
+      expect(
+        tombstones.map((row) => row['tableName']),
+        containsAll([
+          'panel_sampling_nodes',
+          'panel_sampling_states',
+          'audit_sessions',
+        ]),
+      );
+    },
+  );
+
+  test(
     'id-keyed prune deletes duplicate and blank hierarchy rows by exact id',
     () async {
       await insertSession('session-prune');

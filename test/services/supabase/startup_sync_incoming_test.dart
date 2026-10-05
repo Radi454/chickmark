@@ -12,6 +12,7 @@ import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
+import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_conflict_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
@@ -50,6 +51,23 @@ class _MockSyncConflictRepository extends Mock
     implements SyncConflictRepository {}
 
 class _MockPhotoSyncService extends Mock implements PhotoSyncService {}
+
+class _NoSamplingRepository extends Fake
+    implements PanelSamplingStateRepository {
+  final List<(String, Map<String, Object?>)> remoteUpserts = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> getDirtyRows(String tableName) async =>
+      const [];
+
+  @override
+  Future<void> upsertRemoteRow({
+    required String tableName,
+    required Map<String, Object?> row,
+  }) async {
+    remoteUpserts.add((tableName, Map<String, Object?>.from(row)));
+  }
+}
 
 void main() {
   late _MockSupabaseService supabase;
@@ -154,12 +172,16 @@ void main() {
     panelSampleRepository: panels,
     syncTombstoneRepository: tombstones,
     syncConflictRepository: conflicts,
+    panelSamplingStateRepository: _NoSamplingRepository(),
     photoSyncService: photoSync,
   );
 
   // Stub the pull so it drives exactly one audit-session row through the
   // detection path, then returns.
-  void stubPull(Map<String, dynamic> remoteRow) {
+  void stubPull(
+    Map<String, dynamic> remoteRow, {
+    Map<String, dynamic>? remoteSamplingRow,
+  }) {
     when(
       () => supabase.pullFromSupabase(
         upsertCustomer: any(named: 'upsertCustomer'),
@@ -178,6 +200,7 @@ void main() {
         upsertPanelRow: any(named: 'upsertPanelRow'),
         upsertChickObservation: any(named: 'upsertChickObservation'),
         upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+        upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
         upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
       ),
     ).thenAnswer((invocation) async {
@@ -185,6 +208,12 @@ void main() {
           invocation.namedArguments[#upsertAuditSession]
               as Future<void> Function(Map<String, dynamic>);
       await cb(remoteRow);
+      if (remoteSamplingRow != null) {
+        final samplingCb =
+            invocation.namedArguments[#upsertPanelSamplingRow]
+                as Future<void> Function(String, Map<String, dynamic>);
+        await samplingCb('panel_sampling_nodes', remoteSamplingRow);
+      }
       return const SupabasePullSummary(auditSessions: 1);
     });
   }
@@ -291,4 +320,48 @@ void main() {
 
     expect(outcome.incomingSessions, isEmpty);
   });
+
+  test(
+    'sampling rows for a missing session are not pulled as orphans',
+    () async {
+      when(
+        () => sessions.getSessionRowById('s1'),
+      ).thenAnswer((_) async => null);
+      when(
+        () => sessions.getSessionRowById('missing-session'),
+      ).thenAnswer((_) async => null);
+      stubPull(
+        remoteSession(updatedAt: '2026-06-05T00:00:00.000Z'),
+        remoteSamplingRow: {
+          'id': 'orphan-node',
+          'session_id': 'missing-session',
+          'panel_key': 'egg_quality',
+          'sample_id': 'sample-1',
+          'sample_number': 1,
+          'updated_at': '2026-06-05T00:00:00.000Z',
+        },
+      );
+      final sampling = _NoSamplingRepository();
+      final sync = StartupSyncService(
+        supabaseService: supabase,
+        customerRepository: customers,
+        flockRepository: flocks,
+        hatcheryRepository: hatcheries,
+        activityLogRepository: activityLog,
+        photoRepository: photos,
+        bmkRepository: bmk,
+        auditSessionRepository: sessions,
+        goveeCaptureRepository: govee,
+        panelSampleRepository: panels,
+        syncTombstoneRepository: tombstones,
+        syncConflictRepository: conflicts,
+        panelSamplingStateRepository: sampling,
+        photoSyncService: photoSync,
+      );
+
+      await sync.run(canPush: false, collectIncoming: false);
+
+      expect(sampling.remoteUpserts, isEmpty);
+    },
+  );
 }

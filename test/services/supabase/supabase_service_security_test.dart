@@ -1,5 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   test('photo metadata acknowledgement requires the requested remote row', () {
@@ -137,6 +142,259 @@ void main() {
 
       expect(sent, isFalse);
       expect(clientRead, isFalse);
+    },
+  );
+
+  test(
+    'photo delete preserves a storage object referenced by a survivor',
+    () async {
+      final requests = <http.Request>[];
+      final client = SupabaseClient(
+        'http://localhost:54321',
+        'test-key',
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/rest/v1/photos' &&
+              request.method == 'GET') {
+            final isTarget =
+                request.url.queryParameters['select'] == 'file_path';
+            return http.Response(
+              jsonEncode(
+                isTarget
+                    ? [
+                        {'file_path': 'supabase://photos/shared/object.jpg'},
+                      ]
+                    : [
+                        {
+                          'id': 'survivor-photo',
+                          'file_path':
+                              'http://localhost:54321/storage/v1/object/public/photos/shared/object.jpg',
+                        },
+                      ],
+              ),
+              200,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
+          }
+          return http.Response(
+            '[]',
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }),
+      );
+      final service = SupabaseService(
+        isConfiguredForTesting: () => true,
+        checkNetworkAvailableForTesting: () async => true,
+        initializeSupabaseForTesting: () async => true,
+        clientForTesting: () => client,
+      );
+
+      await service.deleteRows('photos', ['delete-photo']);
+
+      expect(
+        requests.where((request) => request.url.path.startsWith('/storage/')),
+        isEmpty,
+      );
+      expect(
+        requests.where(
+          (request) =>
+              request.url.path == '/rest/v1/photos' &&
+              request.method == 'DELETE',
+        ),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'photo delete removes an unshared object before deleting metadata',
+    () async {
+      final requests = <http.Request>[];
+      final client = SupabaseClient(
+        'http://localhost:54321',
+        'test-key',
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/rest/v1/photos' &&
+              request.method == 'GET') {
+            if (request.url.queryParameters['select'] == 'file_path') {
+              return http.Response(
+                jsonEncode([
+                  {'file_path': 'supabase://photos/unshared/object.jpg'},
+                ]),
+                200,
+                headers: {'content-type': 'application/json'},
+                request: request,
+              );
+            }
+            return http.Response(
+              '[]',
+              200,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
+          }
+          return http.Response(
+            '[]',
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }),
+      );
+      final service = SupabaseService(
+        isConfiguredForTesting: () => true,
+        checkNetworkAvailableForTesting: () async => true,
+        initializeSupabaseForTesting: () async => true,
+        clientForTesting: () => client,
+      );
+
+      await service.deleteRows('photos', ['delete-photo']);
+
+      final storageDelete = requests.indexWhere(
+        (request) => request.url.path.startsWith('/storage/'),
+      );
+      final metadataDelete = requests.indexWhere(
+        (request) =>
+            request.url.path == '/rest/v1/photos' && request.method == 'DELETE',
+      );
+      expect(storageDelete, greaterThanOrEqualTo(0));
+      expect(metadataDelete, greaterThan(storageDelete));
+      expect(requests[storageDelete].method, 'DELETE');
+    },
+  );
+
+  test('photo survivor on a later page preserves its backing object', () async {
+    final requests = <http.Request>[];
+    var survivorPage = 0;
+    final client = SupabaseClient(
+      'http://localhost:54321',
+      'test-key',
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/v1/photos' && request.method == 'GET') {
+          if (request.url.queryParameters['select'] == 'file_path') {
+            return http.Response(
+              jsonEncode([
+                {'file_path': 'supabase://photos/shared/later-page.jpg'},
+              ]),
+              200,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
+          }
+          survivorPage++;
+          final rows = survivorPage == 1
+              ? List.generate(
+                  500,
+                  (index) => {
+                    'id': 'page-one-$index',
+                    'file_path': 'supabase://photos/other/$index.jpg',
+                  },
+                )
+              : [
+                  {
+                    'id': 'late-survivor',
+                    'file_path':
+                        'http://localhost:54321/storage/v1/object/public/photos/shared/later-page.jpg',
+                  },
+                ];
+          return http.Response(
+            jsonEncode(rows),
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }
+        return http.Response(
+          '[]',
+          200,
+          headers: {'content-type': 'application/json'},
+          request: request,
+        );
+      }),
+    );
+    final service = SupabaseService(
+      isConfiguredForTesting: () => true,
+      checkNetworkAvailableForTesting: () async => true,
+      initializeSupabaseForTesting: () async => true,
+      clientForTesting: () => client,
+    );
+
+    await service.deleteRows('photos', ['delete-photo']);
+
+    expect(survivorPage, 2);
+    expect(
+      requests.where((request) => request.url.path.startsWith('/storage/')),
+      isEmpty,
+    );
+    expect(
+      requests.where(
+        (request) =>
+            request.url.path == '/rest/v1/photos' && request.method == 'DELETE',
+      ),
+      hasLength(1),
+    );
+  });
+
+  test(
+    'photo survivor lookup failure keeps metadata deletion retryable',
+    () async {
+      final requests = <http.Request>[];
+      final client = SupabaseClient(
+        'http://localhost:54321',
+        'test-key',
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/rest/v1/photos' &&
+              request.method == 'GET') {
+            if (request.url.queryParameters['select'] == 'file_path') {
+              return http.Response(
+                jsonEncode([
+                  {'file_path': 'supabase://photos/shared/object.jpg'},
+                ]),
+                200,
+                headers: {'content-type': 'application/json'},
+                request: request,
+              );
+            }
+            return http.Response('lookup failed', 500, request: request);
+          }
+          return http.Response(
+            '[]',
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }),
+      );
+      final service = SupabaseService(
+        isConfiguredForTesting: () => true,
+        checkNetworkAvailableForTesting: () async => true,
+        initializeSupabaseForTesting: () async => true,
+        clientForTesting: () => client,
+      );
+
+      await expectLater(
+        service.deleteRows('photos', ['delete-photo']),
+        throwsA(anything),
+      );
+
+      expect(
+        requests.where(
+          (request) =>
+              request.url.path == '/rest/v1/photos' &&
+              request.method == 'DELETE',
+        ),
+        isEmpty,
+      );
+      expect(
+        requests.where((request) => request.url.path.startsWith('/storage/')),
+        isEmpty,
+      );
     },
   );
 }

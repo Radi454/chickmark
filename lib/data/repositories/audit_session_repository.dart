@@ -119,6 +119,42 @@ class AuditSessionRepository {
         photoRows.map((row) => row['id']),
       );
       await txn.delete('photos', where: 'sessionId = ?', whereArgs: [id]);
+      // SQLite sampling mirrors have no session FK; remove them explicitly.
+      // Reservations are consumed for a panel's lifetime, but a deleted session
+      // has no future samples. The server session FK cascades reservations.
+      for (final table in const [
+        'panel_sampling_nodes',
+        'panel_sampling_states',
+      ]) {
+        final exists = await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+          [table],
+        );
+        if (exists.isEmpty) continue;
+        final rows = await txn.query(
+          table,
+          columns: ['id'],
+          where: 'sessionId = ?',
+          whereArgs: [id],
+        );
+        await SyncTombstoneRepository.queueDeletesWithExecutor(
+          txn,
+          table,
+          rows.map((row) => row['id']),
+        );
+        await txn.delete(table, where: 'sessionId = ?', whereArgs: [id]);
+      }
+      final reservationsExist = await txn.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ['panel_sample_serial_reservations'],
+      );
+      if (reservationsExist.isNotEmpty) {
+        await txn.delete(
+          'panel_sample_serial_reservations',
+          where: 'sessionId = ?',
+          whereArgs: [id],
+        );
+      }
       await SyncTombstoneRepository.queueDeleteWithExecutor(
         txn,
         'audit_sessions',

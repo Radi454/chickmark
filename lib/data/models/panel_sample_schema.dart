@@ -1,3 +1,5 @@
+import 'sampling_scope.dart';
+
 enum SamplingLayer {
   pool('pool'),
   house('house'),
@@ -67,6 +69,11 @@ class PanelSampleDefinition {
   List<String> get hierarchyColumnNames => hierarchyColumnDefinitions
       .map((definition) => definition.trim().split(RegExp(r'\s+')).first)
       .toList(growable: false);
+
+  /// New sampling behavior is configured separately from legacy persistence
+  /// layers so existing row matching remains unchanged during migration.
+  PanelSamplingConfig get samplingConfig =>
+      PanelSampleSchema.samplingConfigFor(tableName);
 
   @Deprecated(
     'Panel sample child tables were removed in the panel-only cutover.',
@@ -370,6 +377,75 @@ class PanelSampleSchema {
     return panels.firstWhere(
       (panel) => panel.tableName == tableName,
       orElse: () => throw ArgumentError('Unknown panel table: $tableName'),
+    );
+  }
+
+  static PanelSamplingConfig samplingConfigFor(String tableName) {
+    final (levels, terminal, source, paired) = switch (tableName) {
+      'egg_storage' => (
+        <SamplingScopeLevel>[],
+        SamplingScopeLevel.sample,
+        'none',
+        null,
+      ),
+      'egg_quality' => (
+        [SamplingScopeLevel.house],
+        SamplingScopeLevel.sample,
+        'flocks',
+        null,
+      ),
+      'chick_quality' => (
+        [SamplingScopeLevel.setter, SamplingScopeLevel.hatcher],
+        SamplingScopeLevel.sample,
+        'hatcheries',
+        [SamplingScopeLevel.setter, SamplingScopeLevel.hatcher],
+      ),
+      'chick_weights' || 'fresh_egg_breakout' => (
+        [SamplingScopeLevel.house],
+        SamplingScopeLevel.sample,
+        'flocks',
+        null,
+      ),
+      'candled_egg_breakout' || 'residue_breakout' => (
+        [
+          SamplingScopeLevel.house,
+          SamplingScopeLevel.setter,
+          SamplingScopeLevel.hatcher,
+          SamplingScopeLevel.trolley,
+          SamplingScopeLevel.tray,
+        ],
+        SamplingScopeLevel.tray,
+        'flocks_and_hatcheries',
+        null,
+      ),
+      'setter_optimizing' => (
+        [
+          SamplingScopeLevel.setter,
+          SamplingScopeLevel.trolley,
+          SamplingScopeLevel.tray,
+        ],
+        SamplingScopeLevel.tray,
+        'hatcheries',
+        null,
+      ),
+      'hatcher_optimizing' => (
+        [
+          SamplingScopeLevel.hatcher,
+          SamplingScopeLevel.trolley,
+          SamplingScopeLevel.tray,
+        ],
+        SamplingScopeLevel.tray,
+        'hatcheries',
+        null,
+      ),
+      _ => throw ArgumentError.value(tableName, 'tableName', 'Unknown panel'),
+    };
+    return PanelSamplingConfig(
+      panelKey: tableName,
+      levels: levels,
+      terminalLevel: terminal,
+      registeredIdentitySource: source,
+      pairedLevels: paired,
     );
   }
 }

@@ -311,6 +311,7 @@ class _PhotoButtonState extends State<PhotoButton> {
         sessionId: sessionId,
         panelName: panelName,
         panelRowId:
+            provider.samplingPhotoRowId(panelName) ??
             widget.panelRowId ??
             panelRowIdForPhoto(
               sessionId: sessionId,
@@ -723,6 +724,7 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
         sessionId: sessionId,
         panelName: panelName,
         panelRowId:
+            provider.samplingPhotoRowId(panelName) ??
             widget.panelRowId ??
             panelRowIdForPhoto(
               sessionId: sessionId,
